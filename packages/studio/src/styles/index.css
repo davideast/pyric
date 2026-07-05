@@ -1,0 +1,640 @@
+/**
+ * Pyric Studio root stylesheet (Phase 0, F-THEME).
+ *
+ * Load order matters:
+ *   1. `tokens.css`         : the SWAPPABLE semantic token contract (pure CSS
+ *                             custom properties; the source of truth).
+ *   2. `@import "tailwindcss"` : Tailwind v4 engine.
+ *   3. `@theme`             : bridges the role tokens to Tailwind utilities so
+ *                             both the mock CSS (`var(--ink)`) AND Tailwind
+ *                             classes (`text-ink`) read the same roles.
+ *   4. base + shell CSS     : ported from the C-parti mocks, tokens only.
+ *
+ * WHY a Tailwind bridge if the tokens are the source of truth? So Studio can use
+ * either dialect: the ported mock CSS uses `var(--*)` directly; new components
+ * can use `bg-bg text-ink border-line`. Both resolve to the same custom property,
+ * so re-theming (swap one token block) still flows everywhere.
+ */
+
+@import "./tokens.css";
+@import "tailwindcss";
+
+/**
+ * Map the semantic roles into Tailwind's colour/font namespace.
+ *
+ * `--color-<name>` here generates `bg-<name>`, `text-<name>`, `border-<name>`…
+ * Each points at a role token from `tokens.css`, so the utility re-themes with
+ * the token. The legacy `--color-content-bg` / `--color-soft-white` / … aliases
+ * below keep the pre-Phase-0 Wave-2 feature utilities (`bg-content-bg`,
+ * `text-soft-white`) compiling against the SAME adaptive roles, so nothing
+ * downstream breaks while surfaces are re-skinned to the mock register in later
+ * waves.
+ */
+@theme {
+  /* ── Mock-contract role utilities ─────────────────────────────────── */
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-elevated: var(--elevated);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-accent: var(--accent);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-ink: var(--accent-ink);
+  --color-deny: var(--deny);
+  --color-deny-ink: var(--deny-ink);
+  --color-deny-tint: var(--deny-tint);
+  --color-diff-add: var(--diff-add);
+  --color-diff-add-bg: var(--diff-add-bg);
+  --color-diff-remove: var(--diff-remove);
+  --color-diff-remove-bg: var(--diff-remove-bg);
+
+  /* Fonts → `font-ui` / `font-mono` / `font-display`. */
+  --font-ui: var(--font-ui);
+  --font-mono: var(--font-mono);
+  --font-display: var(--font-display);
+
+  /* ── Legacy aliases (pre-Phase-0 Wave-2 features) → adaptive roles ──
+     These keep `bg-content-bg`, `text-soft-white`, `border-border`, `text-
+     slate-gray`, `text-primary`, `bg-sidebar-bg`, `text-danger` etc. resolving.
+     Wave-2 surfaces migrate to the role utilities above and these can be
+     dropped. */
+  --color-content-bg: var(--bg);
+  --color-sidebar-bg: var(--panel);
+  --color-border: var(--line);
+  --color-border-strong: var(--line-2);
+  --color-soft-white: var(--ink);
+  --color-slate-gray: var(--muted);
+  --color-label-white: var(--ink);
+  --color-primary: var(--accent);
+  --color-danger: var(--diff-remove);
+  --color-warning: #f5a623;
+  --color-info: var(--accent);
+  --color-severity-low: var(--muted);
+  --color-severity-medium: #f5a623;
+  --color-severity-high: var(--diff-remove);
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+ * C-PARTI SHELL: ported from the design rationale.
+ * Every raw value from the mock is replaced by a role token. The structure
+ * (prompt spine → frame bar → scroll region, centred column) is preserved.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+.studio {
+  --maxw: 820px;
+  /* The shared content column: the data browsers, the scroll surfaces, and the
+     bar all center to this, so nothing shifts between tabs. Sized so the
+     Firestore 3-panel browser lands near the console's ~360/360/613 panes. */
+  --wide: 1400px;
+  --gutter: 28px;
+  height: 100vh;
+  display: grid;
+  /* one bar · content */
+  grid-template-rows: 50px 1fr;
+}
+
+.studio__col {
+  width: 100%;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+/* ── One bar: brand · context pill · nav · tools ─────────────────────── */
+/* The bar spans full width (the hairline runs edge to edge) but its CONTENT is
+   centered to the same wide column EVERY surface uses, so the brand + tools line
+   up with the content's left/right edges and never shift when switching tabs. */
+.studio__bar {
+  border-bottom: 1px solid var(--line);
+}
+.studio__bar-inner {
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 var(--gutter);
+  min-width: 0;
+}
+.studio__brand {
+  font-weight: 600;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+/* Project + governance mode: the only session context the bar carries. */
+.studio__ctx {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.studio__ctx-project {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.studio__ctx-mode {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+/* Inline nav tabs. */
+.studio__nav {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+.studio__nav-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s, background 0.12s;
+}
+.studio__nav-tab:hover {
+  color: var(--ink);
+  background: var(--panel);
+}
+.studio__nav-tab[aria-current="page"] {
+  color: var(--accent);
+  background: var(--accent-tint);
+  font-weight: 500;
+}
+
+/* Right cluster: command · settings · theme. */
+.studio__bar-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.studio__cmd {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 9px;
+  color: var(--faint);
+  font: inherit;
+  background: var(--elevated);
+  cursor: text;
+}
+.studio__cmd:hover {
+  border-color: var(--line-2);
+}
+.studio__cmd-ico {
+  font-size: 13px;
+  line-height: 1;
+}
+.studio__kbd {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+/* Icon buttons (settings gear + theme toggle), shared chrome. */
+.studio__iconbtn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.studio__iconbtn:hover {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+
+/* The hamburger + the nav drawer backdrop are mobile-only (shown in the media
+   query below); on desktop the nav is inline and these are hidden. */
+.studio__menu {
+  display: none;
+}
+.studio__nav-backdrop {
+  display: none;
+}
+
+/* Governance mode: a compact segmented toggle (Review / Direct). */
+.studio__mode {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px;
+  background: var(--elevated);
+}
+.studio__mode-opt {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--faint);
+  padding: 4px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.studio__mode-opt:hover {
+  color: var(--ink);
+}
+.studio__mode-opt[aria-pressed='true'] {
+  color: var(--ink);
+  background: var(--panel);
+  font-weight: 500;
+}
+
+/* ── Content region: one surface, framed per route ───────────────────── */
+.studio__content {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Scroll surfaces (session · rules · traffic): one centered wide column, the
+   SAME width as the data browsers, so the page width (and the top bar aligned
+   to it) never changes when switching tabs. */
+.studio__content[data-surface='session'] > *,
+.studio__content[data-surface='rules'] > *,
+.studio__content[data-surface='traffic'] > *,
+.studio__content[data-surface='review'] > * {
+  display: block;
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 32px var(--gutter) 72px;
+}
+
+/* Full-height data browsers (firestore · auth · storage): fill the viewport so
+   the browser's own panes scroll internally instead of the whole page. */
+.studio__content[data-surface='firestore'],
+.studio__content[data-surface='auth'],
+.studio__content[data-surface='storage'] {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.studio__content[data-surface='firestore'] > *,
+.studio__content[data-surface='auth'] > *,
+.studio__content[data-surface='storage'] > * {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 18px var(--gutter);
+  display: flex;
+  flex-direction: column;
+}
+
+/* The data feature fills its frame; its browser (the last data child) grows so
+   the columns run full-height and their dividers span the whole browser. */
+[data-pyric-ui='data-feature'] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+[data-pyric-ui='data-feature'] > [data-pyric-ui='fs-browser'],
+[data-pyric-ui='data-feature'] > .storage {
+  flex: 1;
+  min-height: 0;
+}
+.data-feature__bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+/* Labelled empty placeholder per route (Wave 2 fills these). */
+.studio__placeholder {
+  border: 1px dashed var(--line-2);
+  border-radius: 10px;
+  padding: 32px 28px;
+  background: var(--panel);
+}
+.studio__placeholder-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.studio__placeholder-title {
+  font-size: 16px;
+  color: var(--ink);
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.studio__placeholder-blurb {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+  max-width: 560px;
+  line-height: 1.55;
+}
+.studio__placeholder-meta {
+  margin-top: 18px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--faint);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+/* ── Theme switch (segmented, mechanical) ────────────────────────────── */
+.studio__theme {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 2px;
+  background: var(--elevated);
+}
+.studio__theme button {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--muted);
+  padding: 3px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.studio__theme button:hover {
+  color: var(--ink);
+}
+.studio__theme button[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--panel);
+  font-weight: 500;
+}
+
+/* ── ⌘K command palette ──────────────────────────────────────────────── */
+.studio__palette-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+  z-index: 50;
+}
+.studio__palette {
+  width: 100%;
+  max-width: 560px;
+  background: var(--elevated);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px -12px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.studio__palette-cmd {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.studio__palette-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+.studio__palette-input::placeholder {
+  color: var(--faint);
+}
+.studio__palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 52vh;
+  overflow: auto;
+}
+.studio__palette-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  appearance: none;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 11px;
+  font: inherit;
+  cursor: pointer;
+}
+.studio__palette-item[data-active] {
+  background: var(--accent-tint);
+}
+.studio__palette-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.studio__palette-item[aria-current="page"] .studio__palette-label::after {
+  content: "current";
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+.studio__palette-blurb {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.studio__palette-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--faint);
+  font-size: 13px;
+}
+/* The AI "stage a change" action reads as the accent affordance. */
+.studio__palette-run .studio__palette-label {
+  color: var(--accent);
+}
+.studio__palette-running {
+  margin: 0;
+  padding: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.studio__palette-error {
+  margin: 0;
+  padding: 4px 16px 14px;
+  font-size: 12px;
+  color: var(--diff-remove);
+  line-height: 1.5;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+ * MOBILE (<= 760px). The mocks are desktop; this is the responsive layer.
+ * The shell stops being a fixed-height single-row spine + wide centred column
+ * and becomes a stacked, full-width, single-column flow. Surfaces add their
+ * own mobile rules in their scoped stylesheets.
+ * ════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 760px) {
+  .studio {
+    --gutter: 16px;
+    height: 100dvh;
+    grid-template-rows: auto 1fr;
+  }
+
+  /* ── The bar fits the viewport: its inner row wraps (no horizontal overflow),
+        and the nav moves OUT of the row into a slide-from-top drawer. ── */
+  .studio__bar {
+    position: relative; /* anchor for the drawer */
+    z-index: 50; /* bar + drawer sit above the tap-outside backdrop (z 40) */
+  }
+  .studio__bar-inner {
+    max-width: none;
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 50px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    gap: 8px 10px;
+  }
+  /* Hamburger to the right of the brand row; tools wrap below, left-aligned. */
+  .studio__menu {
+    display: inline-flex;
+    margin-left: auto;
+  }
+  .studio__bar-tools {
+    margin-left: 0;
+  }
+
+  /* ── Nav: a slide-from-top expandable list, toggled by the hamburger ── */
+  .studio__nav {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    gap: 2px;
+    overflow: visible;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 18px 36px -16px rgba(0, 0, 0, 0.6);
+    padding: 8px var(--gutter) 12px;
+    transform: translateY(-12px);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.18s ease, opacity 0.18s ease;
+    z-index: 45;
+  }
+  .studio__nav[data-open] {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .studio__nav-tab {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 11px 8px;
+    font-size: 14px;
+  }
+  /* Tap-outside to close the open drawer. */
+  .studio__nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: transparent;
+  }
+
+  /* ── Surface working areas: full width, tighter gutter ── */
+  .studio__content[data-surface='session'] > *,
+  .studio__content[data-surface='rules'] > *,
+  .studio__content[data-surface='traffic'] > *,
+  .studio__content[data-surface='storage'] > *,
+  .studio__content[data-surface='firestore'] > *,
+  .studio__content[data-surface='auth'] > * {
+    max-width: none;
+    padding: 18px 16px 56px;
+  }
+
+  /* ── Command palette: near full-screen sheet ── */
+  .studio__palette-backdrop {
+    padding-top: 8vh;
+  }
+  .studio__palette {
+    max-width: none;
+    margin: 0 12px;
+  }
+}

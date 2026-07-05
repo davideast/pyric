@@ -1,0 +1,19 @@
+{
+  "name": "rtdb-set-then-get-roundtrip",
+  "matrixRow": "rtdb #16/#10",
+  "description": "Write a JSON value with set(), read back with get(), verify the round-trip. Locks the basic admin/user-mode write + read contract against the live service.",
+  "observedAt": "2026-05-18T03:36:25.925Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "readBack": {
+      "count": 42,
+      "hello": "world",
+      "ok": true
+    },
+    "roundTripEqual": false
+  }
+}

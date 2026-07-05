@@ -1,0 +1,18 @@
+// Deeply nested boolean expressions
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /complex/{docId} {
+      allow create: if (request.auth != null
+                    && (request.resource.data.title is string
+                        || request.resource.data.title is int)
+                    && (request.resource.data.status == 'draft'
+                        || (request.resource.data.status == 'published'
+                            && request.resource.data.publishedAt is timestamp
+                            && request.resource.data.publishedAt <= request.time)))
+                    || (request.auth.token.admin == true);
+
+      allow read: if true;
+    }
+  }
+}

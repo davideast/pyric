@@ -1,0 +1,31 @@
+// Validation module for document field shape and value checks.
+//
+// Usage:
+//   import { hasRequired, hasOnly, validString, isOneOf } from 'validation';
+//
+//   allow create: if hasRequired(['title', 'status'])
+//     && validString('title', 1, 100)
+//     && isOneOf('status', ['draft', 'published']);
+
+export function hasRequired(fields) {
+  return request.resource.data.keys().hasAll(fields);
+}
+
+export function hasOnly(fields) {
+  return request.resource.data.keys().hasOnly(fields);
+}
+
+// Incoming field is a string with size in [min, max] (inclusive).
+// Uses dynamic access, so a MISSING field reads as null (not an
+// error) and fails the `is string` check — safe on optional fields.
+export function validString(field, min, max) {
+  return request.resource.data[field] is string
+    && request.resource.data[field].size() >= min
+    && request.resource.data[field].size() <= max;
+}
+
+// Enum check: the incoming field value is one of the allowed values.
+// (`in` on a list — NOT `.includes()`, which does not exist in rules.)
+export function isOneOf(field, values) {
+  return request.resource.data[field] in values;
+}

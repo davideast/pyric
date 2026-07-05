@@ -1,0 +1,15 @@
+{
+  "name": "firestore-startat-snapshot-implicit-name",
+  "matrixRow": "firestore #71",
+  "description": "startAt(snapshot) disambiguates equal-valued docs via the implicit __name__ tiebreak.",
+  "observedAt": "2026-06-10T10:41:13.721Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "idsFromB": [
+      "b",
+      "c"
+    ],
+    "excludedEqualValuedPredecessor": true
+  }
+}

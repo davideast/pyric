@@ -1,0 +1,29 @@
+{
+  "name": "rtdb-modular-query-orderbychild-limit",
+  "matrixRow": "rtdb-modular #142/#150",
+  "description": "query(ref, orderByChild(\"pos\"), limitToFirst(2)) — verify the result window respects both ordering and limit.",
+  "observedAt": "2026-05-18T03:36:49.451Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "orderedKeys": [
+      {
+        "key": "a",
+        "pos": 1
+      },
+      {
+        "key": "b",
+        "pos": 2
+      }
+    ],
+    "positions": [
+      1,
+      2
+    ],
+    "twoResults": true,
+    "firstTwoInOrder": true
+  }
+}

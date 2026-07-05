@@ -1,0 +1,50 @@
+// Content module for author-owned documents — the most common
+// Firebase app shape (posts, notes, docs, comments, tasks).
+//
+// Convention: documents carry an author field (a UID string) and
+// usually a status field ('draft' | 'published' | ...). Field names
+// are parameters, not conventions — pass yours.
+//
+// Usage:
+//   import { validAuthorCreate, isAuthor, canReadContent, notDeleted } from 'content';
+//   import { onlyFieldsChanged } from 'lifecycle';
+//
+//   match /posts/{postId} {
+//     // Create: author is the signed-in user.
+//     allow create: if validAuthorCreate('author');
+//     // Read: published to everyone, drafts to the author only.
+//     allow read: if canReadContent('status', 'author') && notDeleted();
+//     // Update: author edits content fields; authorship immutable.
+//     allow update: if isAuthor('author') && onlyFieldsChanged(['title', 'body', 'status']);
+//     allow delete: if isAuthor('author');
+//   }
+
+// Create guard: signed in, and the incoming doc's author field is the
+// caller. Use on `create` (reads request.resource).
+export function validAuthorCreate(authorField) {
+  return request.auth != null
+    && request.resource.data[authorField] == request.auth.uid;
+}
+
+// The caller is the EXISTING document's author. Use on update/delete
+// (reads resource).
+export function isAuthor(authorField) {
+  return request.auth != null
+    && resource.data[authorField] == request.auth.uid;
+}
+
+// Read visibility: published content is public; anything else is
+// visible to its author only. Works for get; for list queries the
+// client must filter (rules are not filters — a bare collection query
+// will be denied unless it proves status == 'published').
+export function canReadContent(statusField, authorField) {
+  return resource.data[statusField] == 'published'
+    || (request.auth != null && resource.data[authorField] == request.auth.uid);
+}
+
+// Soft-delete guard: the document is not marked deleted. Reads the
+// EXISTING doc; a doc without the field passes — bracket access is
+// the null-on-miss idiom (dotted access of a missing key ERRORS).
+export function notDeleted() {
+  return resource.data['deleted'] != true;
+}

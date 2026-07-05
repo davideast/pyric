@@ -1,0 +1,34 @@
+{
+  "name": "rtdb-off-eventtype-precision",
+  "matrixRow": "rtdb #139",
+  "description": "`off(ref, eventType)` precision — register a `value` listener and a `child_added` listener at the same ref, call `off(ref, 'value')`, verify a subsequent set fires only the child listener. Also verify `off(ref, 'value')` with no callback clears ALL value listeners at the ref.",
+  "observedAt": "2026-05-18T10:20:20.899Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initial": {
+      "v1": 1,
+      "v2": 1,
+      "c": 1
+    },
+    "afterFirstWrite": {
+      "v1": 2,
+      "v2": 2,
+      "c": 2
+    },
+    "afterOffValue": {
+      "v1": 2,
+      "v2": 2,
+      "c": 3
+    },
+    "afterOffChild": {
+      "v1": 2,
+      "v2": 2,
+      "c": 3
+    },
+    "valueListenersStopped": true,
+    "childListenerStillFiringAfterOffValue": true,
+    "childListenerStoppedAfterOffChild": true,
+    "offValueClearsAllValueListeners": true
+  }
+}

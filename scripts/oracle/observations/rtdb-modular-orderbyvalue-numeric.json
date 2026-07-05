@@ -1,0 +1,16 @@
+{
+  "name": "rtdb-modular-orderbyvalue-numeric",
+  "matrixRow": "rtdb-modular #144/#150",
+  "description": "query(ref, orderByValue(), limitToFirst(3)) over primitive numeric children — observe first 3 by ascending value.",
+  "observedAt": "2026-05-18T04:28:07.813Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": true,
+    "code": null,
+    "message": "Index not defined, add \".indexOn\": \".value\", for path \"/pyric_oracle/1779078484857-q2jll9/mod-orderbyvalue/scores\", to the rules",
+    "matchedKeys": [],
+    "values": [],
+    "ascendingFirstThree": false
+  }
+}

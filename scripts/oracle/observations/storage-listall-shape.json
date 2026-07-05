@@ -1,0 +1,25 @@
+{
+  "name": "storage-listall-shape",
+  "matrixRow": "storage #77",
+  "description": "Upload 3 objects under a directory ref + one in a sub-folder; listAll returns items + prefixes in the documented shape.",
+  "observedAt": "2026-05-18T01:30:09.413Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "uploadedAll": true,
+    "itemPaths": [
+      "pyric_oracle/1779067802523-1wnssz/listall/a.bin",
+      "pyric_oracle/1779067802523-1wnssz/listall/b.bin",
+      "pyric_oracle/1779067802523-1wnssz/listall/c.bin"
+    ],
+    "prefixPaths": [
+      "pyric_oracle/1779067802523-1wnssz/listall/sub"
+    ],
+    "itemCount": 3,
+    "prefixCount": 1,
+    "threeDirectChildren": true,
+    "oneSubPrefix": true,
+    "error": null,
+    "code": null
+  }
+}

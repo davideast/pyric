@@ -1,0 +1,24 @@
+{
+  "name": "auth-row-31-onauthstatechanged-no-dup-on-sync-transition",
+  "matrixRow": "auth #31",
+  "description": "onAuthStateChanged dedup — subscribe then immediately (same tick) trigger a sign-in; matrix claims 1 fire (new value), not 2 (initial-null replay + new). Probe counts fires after enough time for both to settle.",
+  "observedAt": "2026-05-17T23:58:47.359Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "totalFires": 2,
+    "sawInitialNull": true,
+    "sawNewUser": true,
+    "newUid": "umU4KIZFUfOrw9Z6FEKDdv0Ecso1",
+    "fires": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "umU4KIZFUfOrw9Z6FEKDdv0Ecso1",
+        "ts": 394
+      }
+    ]
+  }
+}

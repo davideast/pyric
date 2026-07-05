@@ -1,0 +1,21 @@
+{
+  "name": "rtdb-onvalue-unsub-equivalence",
+  "matrixRow": "rtdb #141",
+  "description": "onValue unsubscribe equivalence — register an `onValue(ref, cb)` and capture its return value. Then call BOTH `unsub()` AND `off(ref, 'value', cb)` against fresh registrations; verify each form stops the listener on its own.",
+  "observedAt": "2026-05-18T10:20:23.760Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialFiresA": 1,
+    "afterWriteFiresA": 2,
+    "afterUnsubFiresA": 2,
+    "unsubReturnedFnStopsListener": true,
+    "initialFiresB": 1,
+    "afterWriteFiresB": 2,
+    "afterOffFiresB": 2,
+    "offRefValueCbStopsListener": true,
+    "unsubReturnType": "function",
+    "unsubIsFunction": true,
+    "bothFormsEquivalent": true
+  }
+}

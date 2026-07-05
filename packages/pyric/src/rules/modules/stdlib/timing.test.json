@@ -1,0 +1,106 @@
+[
+  {
+    "description": "cooldownElapsed allows when the stored timestamp is older than the window",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "lastMoveAt": {
+        "__type": "timestamp",
+        "iso": "2026-01-01T00:00:00Z"
+      }
+    },
+    "data": {
+      "lastMoveAt": "REQUEST_TIME"
+    },
+    "requestTime": "2026-01-01T00:02:00Z",
+    "wrapFunction": "cooldownElapsed",
+    "wrapOperation": "update",
+    "wrapCallExpr": "cooldownElapsed('lastMoveAt', 60)"
+  },
+  {
+    "description": "cooldownElapsed denies inside the window",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "lastMoveAt": {
+        "__type": "timestamp",
+        "iso": "2026-01-01T00:00:00Z"
+      }
+    },
+    "data": {
+      "lastMoveAt": "REQUEST_TIME"
+    },
+    "requestTime": "2026-01-01T00:00:30Z",
+    "wrapFunction": "cooldownElapsed",
+    "wrapOperation": "update",
+    "wrapCallExpr": "cooldownElapsed('lastMoveAt', 60)"
+  },
+  {
+    "description": "cooldownElapsed denies at the exact boundary (strict comparison)",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "lastMoveAt": {
+        "__type": "timestamp",
+        "iso": "2026-01-01T00:00:00Z"
+      }
+    },
+    "data": {
+      "lastMoveAt": "REQUEST_TIME"
+    },
+    "requestTime": "2026-01-01T00:01:00Z",
+    "wrapFunction": "cooldownElapsed",
+    "wrapOperation": "update",
+    "wrapCallExpr": "cooldownElapsed('lastMoveAt', 60)"
+  },
+  {
+    "description": "cooldownElapsed denies (fail-closed) when the field is missing",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "other": 1
+    },
+    "data": {
+      "lastMoveAt": "REQUEST_TIME"
+    },
+    "requestTime": "2026-01-01T00:02:00Z",
+    "wrapFunction": "cooldownElapsed",
+    "wrapOperation": "update",
+    "wrapCallExpr": "cooldownElapsed('lastMoveAt', 60)"
+  },
+  {
+    "description": "cooldownElapsed denies (fail-closed) when the field is not a timestamp",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "lastMoveAt": "yesterday"
+    },
+    "data": {
+      "lastMoveAt": "REQUEST_TIME"
+    },
+    "requestTime": "2026-01-01T00:02:00Z",
+    "wrapFunction": "cooldownElapsed",
+    "wrapOperation": "update",
+    "wrapCallExpr": "cooldownElapsed('lastMoveAt', 60)"
+  }
+]

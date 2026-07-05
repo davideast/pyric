@@ -1,0 +1,46 @@
+{
+  "name": "rtdb-modular-onvalue-with-query",
+  "matrixRow": "rtdb-modular #152",
+  "description": "onValue(query(ref, orderByChild(\"pos\"), limitToFirst(2))) — does the listener fire only when the windowed result changes, or on every parent write?",
+  "observedAt": "2026-05-18T04:28:13.153Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "fireCount": 3,
+    "fires": [
+      {
+        "keys": [
+          "a",
+          "b"
+        ],
+        "positions": [
+          1,
+          2
+        ]
+      },
+      {
+        "keys": [
+          "a",
+          "b"
+        ],
+        "positions": [
+          1,
+          2
+        ]
+      },
+      {
+        "keys": [
+          "z",
+          "a"
+        ],
+        "positions": [
+          0,
+          1
+        ]
+      }
+    ]
+  }
+}

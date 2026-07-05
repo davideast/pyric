@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+
+      function level5() { return request.resource.data.a != ''; }
+      function level4() { return level5() && request.resource.data.b != ''; }
+      function level3() { return level4() && request.resource.data.c != ''; }
+      function level2() { return level3() && request.resource.data.d != ''; }
+      function level1() { return level2() && request.resource.data.e != ''; }
+      function level0() { return level1() && request.resource.data.f != ''; }
+      allow update: if level0();
+    }
+  }
+}

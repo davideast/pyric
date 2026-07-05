@@ -1,0 +1,164 @@
+import { describe, test, expect, afterEach } from 'bun:test';
+import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
+import type { ProjectScope } from 'pyric-tools/deploy';
+import type { TestCase } from '../../../src/rules/test/spec.js';
+
+const originalFetch = global.fetch;
+afterEach(() => { global.fetch = originalFetch; });
+
+const MOCK_APP: ProjectScope = {
+  projectId: 'test-project',
+  resolveToken: async () => 'mock-token',
+};
+
+const SAMPLE_SOURCE = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth.uid == userId;
+    }
+  }
+}`;
+
+function makeTc(overrides: Partial<TestCase> = {}): TestCase {
+  return {
+    description: 'test case',
+    expectation: 'ALLOW',
+    method: 'get',
+    path: 'users/alice',
+    auth: { uid: 'alice' },
+    ...overrides,
+  };
+}
+
+function mockTestApi(response: object, status = 200) {
+  (global as any).fetch = async () =>
+    new Response(JSON.stringify(response), { status });
+}
+
+describe('TestFirestoreRulesHandler', () => {
+  const handler = new TestFirestoreRulesHandler();
+
+  test('all tests pass → correct passed/failed counts', async () => {
+    mockTestApi({
+      testResults: [
+        { state: 'SUCCESS', debugMessages: [] },
+        { state: 'SUCCESS', debugMessages: [] },
+      ],
+    });
+    const result = await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc(), makeTc()]);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.passed).toBe(2);
+      expect(result.data.failed).toBe(0);
+      expect(result.data.results).toHaveLength(2);
+    }
+  });
+
+  test('mixed results → 1 pass + 1 fail', async () => {
+    mockTestApi({
+      testResults: [
+        { state: 'SUCCESS', debugMessages: [] },
+        { state: 'FAILURE', debugMessages: ['Denied'] },
+      ],
+    });
+    const result = await handler.execute(MOCK_APP, SAMPLE_SOURCE, [
+      makeTc({ description: 'allow auth user' }),
+      makeTc({ description: 'deny unauth', expectation: 'DENY', auth: null }),
+    ]);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.passed).toBe(1);
+      expect(result.data.failed).toBe(1);
+    }
+  });
+
+  test('all fail → 0 passed, 2 failed', async () => {
+    mockTestApi({
+      testResults: [
+        { state: 'FAILURE', debugMessages: ['Denied'] },
+        { state: 'FAILURE', debugMessages: ['Denied'] },
+      ],
+    });
+    const result = await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc(), makeTc()]);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.passed).toBe(0);
+      expect(result.data.failed).toBe(2);
+    }
+  });
+
+  test('sends POST to correct URL', async () => {
+    let capturedUrl = '';
+    (global as any).fetch = async (url: string) => {
+      capturedUrl = url;
+      return new Response(JSON.stringify({ testResults: [{ state: 'SUCCESS' }] }), { status: 200 });
+    };
+    await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc()]);
+    expect(capturedUrl).toBe('https://firebaserules.googleapis.com/v1/projects/test-project:test');
+  });
+
+  test('sends correct auth header', async () => {
+    let capturedHeaders: Record<string, string> = {};
+    (global as any).fetch = async (_url: string, init: RequestInit) => {
+      capturedHeaders = Object.fromEntries(new Headers(init.headers).entries());
+      return new Response(JSON.stringify({ testResults: [{ state: 'SUCCESS' }] }), { status: 200 });
+    };
+    await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc()]);
+    expect(capturedHeaders['authorization']).toBe('Bearer mock-token');
+  });
+
+  test('request body has source + testSuite structure', async () => {
+    let capturedBody: any = {};
+    (global as any).fetch = async (_url: string, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string);
+      return new Response(JSON.stringify({ testResults: [{ state: 'SUCCESS' }] }), { status: 200 });
+    };
+    await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc()]);
+    expect(capturedBody.source.files[0].name).toBe('firestore.rules');
+    expect(capturedBody.source.files[0].content).toBe(SAMPLE_SOURCE);
+    expect(capturedBody.testSuite.testCases).toHaveLength(1);
+  });
+
+  test('403 → PERMISSION_DENIED', async () => {
+    mockTestApi({}, 403);
+    const result = await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc()]);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('PERMISSION_DENIED');
+    }
+  });
+
+  test('400 → INVALID_REQUEST (recoverable)', async () => {
+    mockTestApi({}, 400);
+    const result = await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc()]);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('INVALID_REQUEST');
+      expect(result.error.recoverable).toBe(true);
+    }
+  });
+
+  test('network error → FETCH_FAILED', async () => {
+    (global as any).fetch = async () => { throw new Error('Network down'); };
+    const result = await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc()]);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('FETCH_FAILED');
+      expect(result.error.message).toContain('Network down');
+    }
+  });
+
+  test('API returns issues (rule syntax error) → RULES_ERROR', async () => {
+    mockTestApi({
+      issues: [{ description: 'Unexpected token', severity: 'ERROR' }],
+    });
+    const result = await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc()]);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('RULES_ERROR');
+      expect(result.error.message).toContain('Unexpected token');
+    }
+  });
+});

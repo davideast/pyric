@@ -1,0 +1,86 @@
+[
+  {
+    "description": "validTransition allows correct from->to",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": { "uid": "user1" },
+    "resource": { "status": "open" },
+    "data": { "status": "in_progress" },
+    "wrapFunction": "validTransition",
+    "wrapOperation": "update",
+    "wrapCallExpr": "validTransition('status', 'open', 'in_progress')"
+  },
+  {
+    "description": "validTransition denies wrong from value",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": { "uid": "user1" },
+    "resource": { "status": "completed" },
+    "data": { "status": "in_progress" },
+    "wrapFunction": "validTransition",
+    "wrapOperation": "update",
+    "wrapCallExpr": "validTransition('status', 'open', 'in_progress')"
+  },
+  {
+    "description": "validTransition denies wrong to value",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": { "uid": "user1" },
+    "resource": { "status": "open" },
+    "data": { "status": "archived" },
+    "wrapFunction": "validTransition",
+    "wrapOperation": "update",
+    "wrapCallExpr": "validTransition('status', 'open', 'in_progress')"
+  },
+  {
+    "description": "statusIs allows when current value matches",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": { "uid": "user1" },
+    "resource": { "status": "active" },
+    "data": { "status": "active" },
+    "wrapFunction": "statusIs",
+    "wrapOperation": "update",
+    "wrapCallExpr": "statusIs('status', 'active')"
+  },
+  {
+    "description": "statusIs denies when current value differs",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": { "uid": "user1" },
+    "resource": { "status": "archived" },
+    "data": { "status": "archived" },
+    "wrapFunction": "statusIs",
+    "wrapOperation": "update",
+    "wrapCallExpr": "statusIs('status', 'active')"
+  },
+  {
+    "description": "newStatusIs allows when incoming value matches",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": { "uid": "user1" },
+    "resource": { "status": "open" },
+    "data": { "status": "completed" },
+    "wrapFunction": "newStatusIs",
+    "wrapOperation": "update",
+    "wrapCallExpr": "newStatusIs('status', 'completed')"
+  },
+  {
+    "description": "newStatusIs denies when incoming value differs",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": { "uid": "user1" },
+    "resource": { "status": "open" },
+    "data": { "status": "in_progress" },
+    "wrapFunction": "newStatusIs",
+    "wrapOperation": "update",
+    "wrapCallExpr": "newStatusIs('status', 'completed')"
+  }
+]

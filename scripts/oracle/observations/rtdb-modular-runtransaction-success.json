@@ -1,0 +1,20 @@
+{
+  "name": "rtdb-modular-runtransaction-success",
+  "matrixRow": "rtdb-modular #158/#160/#162",
+  "description": "Basic runTransaction success — current value is null on first call, fn returns the new value, result.committed === true, result.snapshot.val() is the committed value.",
+  "observedAt": "2026-05-18T04:27:36.827Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "seenCurrentValues": [
+      null
+    ],
+    "committed": true,
+    "snapVal": 1,
+    "firstCurrentWasNull": true,
+    "committedNewValue": true
+  }
+}

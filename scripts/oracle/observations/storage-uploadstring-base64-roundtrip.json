@@ -1,0 +1,15 @@
+{
+  "name": "storage-uploadstring-base64-roundtrip",
+  "matrixRow": "storage #46",
+  "description": "uploadString with format: base64 — payload \"hello\" base64-encoded as \"aGVsbG8=\" — fetch and verify decoded bytes match.",
+  "observedAt": "2026-05-18T01:30:06.213Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "uploadOk": true,
+    "downloadText": "hello",
+    "textMatches": true,
+    "error": null,
+    "code": null
+  }
+}

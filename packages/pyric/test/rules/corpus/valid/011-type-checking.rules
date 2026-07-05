@@ -1,0 +1,17 @@
+// Tests the 'is' type checking operator
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{itemId} {
+      allow create: if request.resource.data.name is string
+                    && request.resource.data.count is int
+                    && request.resource.data.price is float
+                    && request.resource.data.active is bool
+                    && request.resource.data.createdAt is timestamp
+                    && request.resource.data.tags is list
+                    && request.resource.data.metadata is map;
+
+      allow read: if true;
+    }
+  }
+}

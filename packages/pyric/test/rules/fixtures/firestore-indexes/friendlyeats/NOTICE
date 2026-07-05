@@ -1,0 +1,13 @@
+friendlyeats fixture
+====================
+
+Portions of this directory (source.original.js, expected.indexes.json)
+are derived from the Friendly Eats Web sample app:
+
+  https://github.com/firebase/friendlyeats-web
+
+Copyright Google LLC. Licensed under the Apache License, Version 2.0
+(see LICENSE).
+
+source.stitched.js is a derivative of source.original.js prepared for
+extractor testing — see README.md.

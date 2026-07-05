@@ -1,0 +1,9 @@
+// Minimal valid Firestore rules — must have at least one allow statement
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{doc=**} {
+      allow read: if false;
+    }
+  }
+}

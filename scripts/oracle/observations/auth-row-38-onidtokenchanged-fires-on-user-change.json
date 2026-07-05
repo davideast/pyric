@@ -1,0 +1,38 @@
+{
+  "name": "auth-row-38-onidtokenchanged-fires-on-user-change",
+  "matrixRow": "auth #38",
+  "description": "onIdTokenChanged fires on user change. Probe: signInAnonymously → signOut → signInAnonymously, count + shape the fires.",
+  "observedAt": "2026-05-17T23:58:52.248Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialFires": 1,
+    "afterSignIn1": 2,
+    "afterSignOut": 3,
+    "afterSignIn2": 4,
+    "firstSignInFired": true,
+    "signOutFired": true,
+    "secondSignInFired": true,
+    "uid1": "vbEg0QaEYJPY532BB2Ep6NeNfVx2",
+    "uid2": "xe5V2S20sJeHKQpxpsbs46TtLTW2",
+    "differentUids": true,
+    "fires": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "vbEg0QaEYJPY532BB2Ep6NeNfVx2",
+        "ts": 647
+      },
+      {
+        "uid": null,
+        "ts": 949
+      },
+      {
+        "uid": "xe5V2S20sJeHKQpxpsbs46TtLTW2",
+        "ts": 1599
+      }
+    ]
+  }
+}

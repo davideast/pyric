@@ -1,0 +1,38 @@
+node_modules/
+dist/
+.dist/
+out-packages/
+
+# pyric-tools standalone binary artifacts.
+packages/pyric-tools/dist-bin/
+packages/pyric-tools/build/
+
+# Local package-manager caches.
+.bun-cache/
+.bun-tmp/
+.npm-cache/
+
+# Local credentials and app state.
+.env
+.env.local
+.env.*.local
+.pyric/
+ignored/
+
+# Editor and tool state.
+.firebase/
+.idea/
+.vscode/
+.mcp.json
+tmp/
+
+# Astro caches.
+.astro/
+**/.astro/
+
+# Playwright artifacts.
+**/test-results/
+**/playwright-report/
+
+# Reference SDK clones used by oracle/parity research.
+clones/

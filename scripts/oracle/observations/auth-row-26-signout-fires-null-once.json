@@ -1,0 +1,30 @@
+{
+  "name": "auth-row-26-signout-fires-null-once",
+  "matrixRow": "auth #26",
+  "description": "signOut fires onAuthStateChanged with null exactly once. Subscribe, signInAnonymously, then signOut; count fires for the signOut transition and verify the fire delivers null.",
+  "observedAt": "2026-05-18T00:12:23.882Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialFires": 1,
+    "afterSignIn": 2,
+    "afterSignOut": 3,
+    "firesForSignOut": 1,
+    "signOutFiredExactlyOnce": true,
+    "lastFireUidWasNull": true,
+    "fires": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "lJzacnzSaDSyJjV2dBwBU4Aspv73",
+        "ts": 648
+      },
+      {
+        "uid": null,
+        "ts": 1051
+      }
+    ]
+  }
+}

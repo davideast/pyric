@@ -1,0 +1,49 @@
+// Joining module — how membership CHANGES, safely. The connective
+// tissue between content/spaces: spaces gates children behind a
+// members field; joining lets users enter and leave that field
+// WITHOUT an admin backend, with no privilege escalation.
+//
+// Convention: a MAP-shaped members field (uid -> role) on the parent
+// doc. Compose with lifecycle's onlyFieldsChanged so a join/leave
+// write can't touch anything else:
+//
+//   import { onlyAddedSelf, onlyRemovedSelf } from 'joining';
+//   import { onlyFieldsChanged } from 'lifecycle';
+//   import { isSpaceMember, hasSpaceRole } from 'spaces';
+//
+//   match /teams/{teamId} {
+//     allow read: if isSpaceMember(resource.data);
+//
+//     // Open self-service join (public team) at a fixed role, and
+//     // self-service leave — nothing else about the doc may change:
+//     allow update: if onlyFieldsChanged(['members'])
+//       && (onlyAddedSelf('members', 'editor') || onlyRemovedSelf('members'));
+//     // Admins manage the doc freely:
+//     allow update: if hasSpaceRole(resource.data, 'admin');
+//   }
+//
+// Every guarantee here is production-verified against the live Rules Test API:
+// the field-level map diff is reliable; the empty no-op diff DENIES (set
+// equality, not hasOnly — hasOnly on an empty set passes); role escalation via
+// CHANGING an existing entry denies; adding or removing anyone else denies.
+
+// The write adds EXACTLY the caller to the members map, at EXACTLY
+// `role`, changing and removing nobody. Update rules only.
+export function onlyAddedSelf(membersField, role) {
+  let diff = request.resource.data[membersField].diff(resource.data[membersField]);
+  return request.auth != null
+    && diff.addedKeys() == [request.auth.uid].toSet()
+    && diff.changedKeys().size() == 0
+    && diff.removedKeys().size() == 0
+    && request.resource.data[membersField][request.auth.uid] == role;
+}
+
+// The write removes EXACTLY the caller from the members map, adding
+// and changing nobody. Self-service leave. Update rules only.
+export function onlyRemovedSelf(membersField) {
+  let diff = request.resource.data[membersField].diff(resource.data[membersField]);
+  return request.auth != null
+    && diff.removedKeys() == [request.auth.uid].toSet()
+    && diff.addedKeys().size() == 0
+    && diff.changedKeys().size() == 0;
+}

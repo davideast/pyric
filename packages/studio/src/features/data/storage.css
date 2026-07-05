@@ -1,0 +1,412 @@
+/**
+ * Storage surface styling, ported from `mocks/c-storage.html`, token roles only
+ * (no raw hexes), styling the `@pyric/ui/storage` `data-pyric-*` contract.
+ *
+ * Two columns: an ObjectBrowser (folders-first listing with name/type/size/
+ * updated columns and a read-denied row treatment) on the left, and an
+ * ObjectInspector (content-type preview + metadata table + custom metadata) on
+ * the right, under a PathBreadcrumb + action row.
+ *
+ * NOTE the mock's lock badge / preview / button fills used `#fff` + `var(--ink)`;
+ * here they read `--deny`/`--deny-ink`/`--elevated`/`--panel` so they adapt to
+ * the dark theme. The mock's `--line-soft` row divider maps to `--line` (the
+ * hairline role); `--mono`/`--font` map to `--font-mono`/`--font-ui`.
+ */
+
+.storage {
+  --storage-gutter: 24px;
+  /* Listing column template: name grows, the rest are fixed mono columns. */
+  --storage-cols: 1fr 150px 92px 84px;
+  /* Full-height browser (matches Firestore / Auth): breadcrumb on top, the
+     framed body fills + scrolls internally. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ── PathBreadcrumb + action row ─────────────────────────────────────── */
+.storage__sub {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 0 13px;
+  border-bottom: 1px solid var(--line);
+}
+.storage__sub .storage__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.storage__action {
+  font-size: 12.5px;
+  color: var(--faint);
+}
+.storage__action--upload {
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: 7px;
+  padding: 6px 12px;
+}
+
+.storage [data-pyric-ui="path-breadcrumb"] [data-pyric-breadcrumb-list] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--muted);
+}
+.storage [data-pyric-ui="path-breadcrumb"] [data-pyric-breadcrumb-item] {
+  display: inline-flex;
+  align-items: center;
+}
+.storage [data-pyric-breadcrumb-link] {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--muted);
+  padding: 0;
+  cursor: pointer;
+}
+.storage [data-pyric-breadcrumb-link]:hover {
+  color: var(--ink);
+}
+.storage [data-pyric-breadcrumb-link][data-pyric-current] {
+  color: var(--ink);
+  font-weight: 600;
+  cursor: default;
+}
+.storage [data-pyric-breadcrumb-separator] {
+  color: var(--line-2);
+  margin: 0 4px;
+}
+
+/* ── Two-column body (framed, fills the surface) ─────────────────────── */
+.storage__body {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.storage__browser {
+  overflow: auto;
+}
+.storage__inspector {
+  overflow: auto;
+  border-left: 1px solid var(--line);
+}
+
+/* ── ObjectBrowser: column header + folders-first rows ───────────────── */
+.storage__lhead {
+  display: grid;
+  grid-template-columns: var(--storage-cols);
+  gap: 16px;
+  align-items: baseline;
+  padding: 10px var(--storage-gutter);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.storage [data-pyric-ui="object-browser"] [data-pyric-object-browser-items] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Each row is the entry button: a 4-column grid matching the header. */
+.storage [data-pyric-entry-select] {
+  appearance: none;
+  width: 100%;
+  display: grid;
+  grid-template-columns: var(--storage-cols);
+  gap: 16px;
+  align-items: baseline;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-left: 2px solid transparent;
+  padding: 10px var(--storage-gutter);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+}
+.storage [data-pyric-entry-select]:hover {
+  background: var(--panel);
+}
+.storage [data-pyric-entry-select][data-pyric-selected] {
+  background: var(--panel);
+  border-left-color: var(--accent);
+}
+
+/* Row cells emitted by `renderEntry`. */
+.storage__cell-name {
+  font-size: 13px;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.storage__cell-name .storage__nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.storage__ic {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.storage__chev {
+  margin-left: auto;
+  color: var(--faint);
+  flex-shrink: 0;
+}
+.storage__cell-type,
+.storage__cell-size,
+.storage__cell-updated {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.storage__cell-updated {
+  color: var(--faint);
+}
+
+/* Folder rows: heavier name. */
+.storage [data-pyric-entry-kind="folder"] .storage__cell-name {
+  font-weight: 500;
+}
+
+/* Read-denied rows (gate stamps `data-pyric-denied` on the row): muted name +
+   a filled deny lock badge (token-driven, adapts to dark). The badge is a
+   pseudo-element on the name cell so it needs no extra markup from the slot. */
+.storage [data-pyric-denied] .storage__cell-name {
+  color: var(--faint);
+}
+.storage [data-pyric-denied] .storage__cell-name::after {
+  content: "read denied";
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--deny-ink);
+  background: var(--deny);
+  border-radius: 4px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+/* ── Browser states (loading / idle / empty / error) ─────────────────── */
+.storage [data-pyric-ui="object-browser"][data-pyric-empty],
+.storage [data-pyric-ui="object-browser"][data-pyric-loading],
+.storage [data-pyric-ui="object-browser"][data-pyric-idle] {
+  padding: 8px var(--storage-gutter);
+}
+.storage__empty {
+  color: var(--faint);
+  font-size: 13px;
+  padding: 28px 0;
+  margin: 0;
+}
+.storage [data-pyric-ui="object-browser"][data-pyric-error] {
+  color: var(--deny);
+  font-size: 13px;
+  padding: 16px var(--storage-gutter);
+}
+
+/* ── ObjectInspector: header + preview + metadata table ──────────────── */
+.storage [data-pyric-ui="object-inspector"] {
+  padding-bottom: 30px;
+}
+.storage [data-pyric-ui="object-inspector"][data-pyric-idle],
+.storage [data-pyric-ui="object-inspector"][data-pyric-loading] {
+  padding: 0;
+  min-height: 120px;
+}
+.storage__inspector-hint {
+  padding: 20px;
+  color: var(--faint);
+  font-size: 13px;
+}
+
+.storage [data-pyric-object-name] {
+  padding: 16px 16px 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Preview tile: a checkerboard backdrop (token-driven), centred label. */
+.storage [data-pyric-object-preview] {
+  margin: 14px 16px;
+  min-height: 168px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: repeating-conic-gradient(
+      var(--panel) 0% 25%,
+      var(--elevated) 0% 50%
+    )
+    0 / 18px 18px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.storage [data-pyric-object-preview] img[data-pyric-preview-image] {
+  max-width: 100%;
+  max-height: 168px;
+  display: block;
+}
+.storage [data-pyric-object-preview] pre[data-pyric-preview-text] {
+  margin: 0;
+  padding: 12px;
+  width: 100%;
+  max-height: 168px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  place-self: stretch;
+  background: var(--bg);
+}
+.storage
+  [data-pyric-object-preview][data-pyric-preview-none]::after,
+.storage
+  [data-pyric-object-preview][data-pyric-preview-too-large]::after,
+.storage
+  [data-pyric-object-preview][data-pyric-preview-loading]::after {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--faint);
+  background: var(--elevated);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+}
+.storage [data-pyric-object-preview][data-pyric-preview-none]::after {
+  content: "no preview";
+}
+.storage [data-pyric-object-preview][data-pyric-preview-too-large]::after {
+  content: "too large to preview";
+}
+.storage [data-pyric-object-preview][data-pyric-preview-loading]::after {
+  content: "loading preview…";
+}
+.storage [data-pyric-object-preview][data-pyric-preview-error] {
+  color: var(--deny);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 12px;
+  place-items: start;
+}
+
+/* Metadata table (the `<dl>` of rows; custom-metadata rows folded in). */
+.storage [data-pyric-object-metadata] {
+  margin: 0;
+  padding: 4px 16px 14px;
+}
+.storage__meta-group {
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 16px 0 6px;
+}
+.storage [data-pyric-object-metadata] > div {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.storage [data-pyric-object-metadata] dt {
+  color: var(--faint);
+  margin: 0;
+}
+.storage [data-pyric-object-metadata] dd {
+  color: var(--ink);
+  margin: 0;
+  word-break: break-all;
+}
+
+/* A group header row spans both columns and carries no field grid/border. */
+.storage [data-pyric-object-metadata] [data-storage-meta-group] {
+  display: block;
+  grid-template-columns: none;
+  border-top: none;
+  padding: 16px 0 0;
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.storage [data-pyric-object-metadata] [data-storage-meta-group]:first-child {
+  padding-top: 4px;
+}
+
+/* The mobile back affordance is hidden on desktop (browser + inspector are
+   side by side). */
+.storage__back {
+  display: none;
+}
+
+/* ── Mobile: files / inspector become a single-pane drill-down ───────── */
+@media (max-width: 760px) {
+  /* Listing trims to name + type (size/updated live in the inspector). */
+  .storage {
+    --storage-cols: 1fr auto;
+  }
+  .storage__lhead span:nth-child(n + 3),
+  .storage__cell-size,
+  .storage__cell-updated {
+    display: none;
+  }
+
+  .storage__body {
+    grid-template-columns: 1fr;
+  }
+  .storage__body[data-storage-level='browser'] .storage__inspector {
+    display: none;
+  }
+  .storage__body[data-storage-level='inspector'] .storage__browser {
+    display: none;
+  }
+  .storage__inspector {
+    border-left: none;
+  }
+
+  .storage__back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    appearance: none;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 12px var(--storage-gutter) 0;
+  }
+}

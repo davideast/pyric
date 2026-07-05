@@ -1,0 +1,238 @@
+[
+  {
+    "description": "validAuthorCreate allows when author is the caller",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "validAuthorCreate",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validAuthorCreate('author')",
+    "data": {
+      "author": "user1",
+      "title": "hi"
+    }
+  },
+  {
+    "description": "validAuthorCreate denies when author is someone else",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "validAuthorCreate",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validAuthorCreate('author')",
+    "data": {
+      "author": "user2",
+      "title": "hi"
+    }
+  },
+  {
+    "description": "validAuthorCreate denies unauthenticated",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": null,
+    "wrapFunction": "validAuthorCreate",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validAuthorCreate('author')",
+    "data": {
+      "author": "user1"
+    }
+  },
+  {
+    "description": "validAuthorCreate denies missing author field",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "validAuthorCreate",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validAuthorCreate('author')",
+    "data": {
+      "title": "hi"
+    }
+  },
+  {
+    "description": "isAuthor allows the existing doc's author",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "isAuthor",
+    "wrapOperation": "update",
+    "wrapCallExpr": "isAuthor('author')",
+    "resource": {
+      "author": "user1",
+      "title": "old"
+    },
+    "data": {
+      "author": "user1",
+      "title": "new"
+    }
+  },
+  {
+    "description": "isAuthor denies a non-author",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "isAuthor",
+    "wrapOperation": "update",
+    "wrapCallExpr": "isAuthor('author')",
+    "resource": {
+      "author": "user2",
+      "title": "old"
+    },
+    "data": {
+      "author": "user2",
+      "title": "new"
+    }
+  },
+  {
+    "description": "isAuthor denies unauthenticated",
+    "expectation": "DENY",
+    "method": "delete",
+    "path": "test/doc1",
+    "auth": null,
+    "wrapFunction": "isAuthor",
+    "wrapOperation": "delete",
+    "wrapCallExpr": "isAuthor('author')",
+    "resource": {
+      "author": "user1"
+    }
+  },
+  {
+    "description": "canReadContent allows anyone to read published",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "stranger"
+    },
+    "wrapFunction": "canReadContent",
+    "wrapOperation": "get",
+    "wrapCallExpr": "canReadContent('status', 'author')",
+    "resource": {
+      "status": "published",
+      "author": "user2"
+    }
+  },
+  {
+    "description": "canReadContent allows unauthenticated read of published",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": null,
+    "wrapFunction": "canReadContent",
+    "wrapOperation": "get",
+    "wrapCallExpr": "canReadContent('status', 'author')",
+    "resource": {
+      "status": "published",
+      "author": "user2"
+    }
+  },
+  {
+    "description": "canReadContent allows the author to read a draft",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "canReadContent",
+    "wrapOperation": "get",
+    "wrapCallExpr": "canReadContent('status', 'author')",
+    "resource": {
+      "status": "draft",
+      "author": "user1"
+    }
+  },
+  {
+    "description": "canReadContent denies a stranger reading a draft",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "canReadContent",
+    "wrapOperation": "get",
+    "wrapCallExpr": "canReadContent('status', 'author')",
+    "resource": {
+      "status": "draft",
+      "author": "user2"
+    }
+  },
+  {
+    "description": "canReadContent denies unauthenticated read of a draft",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": null,
+    "wrapFunction": "canReadContent",
+    "wrapOperation": "get",
+    "wrapCallExpr": "canReadContent('status', 'author')",
+    "resource": {
+      "status": "draft",
+      "author": "user2"
+    }
+  },
+  {
+    "description": "notDeleted allows when deleted flag is false",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "notDeleted",
+    "wrapOperation": "get",
+    "wrapCallExpr": "notDeleted()",
+    "resource": {
+      "deleted": false,
+      "title": "x"
+    }
+  },
+  {
+    "description": "notDeleted allows when the field is absent (null-on-miss)",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "notDeleted",
+    "wrapOperation": "get",
+    "wrapCallExpr": "notDeleted()",
+    "resource": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "notDeleted denies a soft-deleted doc",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "notDeleted",
+    "wrapOperation": "get",
+    "wrapCallExpr": "notDeleted()",
+    "resource": {
+      "deleted": true,
+      "title": "x"
+    }
+  }
+]

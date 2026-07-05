@@ -1,0 +1,14 @@
+// Single-line comment
+rules_version = '2';
+/* Multi-line
+   comment */
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Comment before match
+    match /items/{itemId} {
+      /* Comment before allow */
+      allow read: if true; // Inline comment
+      allow write: if false; /* Inline block comment */
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "firestore-rules-denied-error",
+  "matrixRow": "firestore #21",
+  "description": "Rules-denied write — observes the error class, code, and message prod returns. Writes deliberately outside pyric_oracle/* so the rules deny it.",
+  "observedAt": "2026-05-17T23:36:51.995Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": true,
+    "code": "permission-denied",
+    "message": "7 PERMISSION_DENIED: Missing or insufficient permissions.",
+    "errorName": "FirebaseError",
+    "constructorName": "FirebaseError",
+    "isFirebaseError": true,
+    "isErrorInstance": true
+  }
+}

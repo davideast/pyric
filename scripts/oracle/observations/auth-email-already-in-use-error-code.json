@@ -1,0 +1,17 @@
+{
+  "name": "auth-email-already-in-use-error-code",
+  "matrixRow": "auth #22",
+  "description": "createUserWithEmailAndPassword called twice with the same email — locks the FirebaseError code prod emits for the duplicate-registration path.",
+  "observedAt": "2026-05-17T23:37:08.079Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": true,
+    "code": "auth/email-already-in-use",
+    "messageContains": {
+      "emailAlreadyInUse": true
+    },
+    "attemptedEmail": "oracle-dup-1779061027053-y2qr3v@oracle.test",
+    "cleanupLeaked": false
+  }
+}

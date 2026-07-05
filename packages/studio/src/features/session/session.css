@@ -1,0 +1,304 @@
+/**
+ * Session surface styling, ported from `mocks/c-result.html`, token roles only,
+ * styling the `@pyric/ui/events` `data-pyric-*` contract (ActivityActionItems +
+ * ActivityGrid). The mock's `.act` / `.band` / `.r` / `.c-*` rules mapped onto
+ * the headless attributes.
+ */
+
+.session {
+  display: block;
+}
+
+/* Quiet session-context line (sandbox lifecycle + Reset), relocated from the
+   old frame bar. Reads as a caption, not a bar. */
+.session__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 28px;
+  font-size: 12px;
+  color: var(--faint);
+}
+.session__meta-text .mono {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+.session__meta-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.session__reset {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.session__reset:hover {
+  text-decoration: underline;
+}
+
+.session__branches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+  font-size: 12px;
+  color: var(--faint);
+}
+.session__branches-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.session__branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.session__branch-name {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.session__empty {
+  color: var(--faint);
+  font-size: 13px;
+  padding: 28px 0;
+  margin: 0;
+}
+
+/* ── Section structure (the session-center hierarchy) ───────────────── */
+/* Two stacked panels: "Needs attention" (the contained action zone) and
+   "Activity" (the open data zone). Each leads with a real heading + a count
+   so the page reads as a centre, not a stack of loose bits. */
+.session__panel {
+  margin-bottom: 36px;
+}
+.session__panel:last-child {
+  margin-bottom: 0;
+}
+.session__head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0 0 12px;
+}
+.session__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+.session__count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The attention panel is a single contained card: many actions, one UI. */
+.session__panel--attention .session__head {
+  margin-bottom: 8px;
+}
+.session__panel--attention .session__title {
+  color: var(--deny);
+}
+.session__actions {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel);
+}
+/* Each action is a tight one-line row, divided, not a tall block. */
+.session [data-pyric-action-item] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--line);
+}
+.session [data-pyric-action-item]:first-child {
+  border-top: none;
+}
+.session [data-pyric-action-what] {
+  min-width: 0;
+}
+.session [data-pyric-action-title] {
+  font-size: 13px;
+  color: var(--ink);
+}
+.session [data-pyric-action-title] .mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.session [data-pyric-action-meta] {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+/* A compact text action, not a boxed button (rendered as a <button>). */
+.session__actlink {
+  flex: 0 0 auto;
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.session__actlink:hover {
+  text-decoration: underline;
+}
+
+/* ── Activity grid (banded column grid) ─────────────────────────────── */
+/* The column header + every row share one rigid 5-column track. */
+.session [data-pyric-event-colhead],
+.session [data-pyric-event-row] {
+  display: grid;
+  /* target · change · for(uid) · as · when. FOR holds emails/uids, so it gets
+     real room (150px) + ellipsis; nothing overlaps. */
+  grid-template-columns: 150px minmax(0, 1fr) 150px 64px 44px;
+  gap: 16px;
+  align-items: baseline;
+}
+/* Every cell stays on one line and ellipsizes; identifiers never wrap. */
+.session [data-pyric-event-row] > * {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session [data-pyric-event-colhead] {
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding-bottom: 10px;
+}
+.session [data-pyric-event-row] {
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  /* single-line rows now; a tight hover, not a tall block. */
+  padding: 7px 0;
+  cursor: pointer;
+}
+.session [data-pyric-event-row]:hover {
+  background: var(--panel);
+}
+
+/* Band headers. */
+.session [data-pyric-band] {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 28px 0 6px;
+}
+.session [data-pyric-band-section]:first-of-type [data-pyric-band] {
+  margin-top: 4px;
+}
+.session [data-pyric-band-label] {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+  font-weight: 600;
+}
+.session [data-pyric-band-denied] [data-pyric-band-label] {
+  color: var(--deny);
+}
+.session [data-pyric-band-n] {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.session [data-pyric-band-attr] {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* Row cells. */
+.session [data-pyric-event-target] {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.session [data-pyric-event-change] {
+  font-size: 13px;
+  color: var(--ink);
+}
+.session [data-pyric-event-denied] [data-pyric-event-change] {
+  color: var(--deny);
+  font-weight: 500;
+}
+.session [data-pyric-event-for] {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.session [data-pyric-event-lens] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+.session [data-pyric-event-when] {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--faint);
+  text-align: right;
+}
+.session [data-pyric-band-more] {
+  padding: 9px 0 0;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+/* ── Mobile: the 5-column grid reflows to a stacked card per row ──────── */
+@media (max-width: 760px) {
+  /* The action rows can wrap title above the link if space is tight. */
+  .session [data-pyric-action-item] {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  /* Hide the desktop column header; each row becomes its own block. */
+  .session [data-pyric-event-colhead] {
+    display: none;
+  }
+  .session [data-pyric-event-row] {
+    display: block;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .session [data-pyric-event-target] {
+    display: block;
+  }
+  .session [data-pyric-event-change] {
+    display: block;
+    margin-top: 2px;
+  }
+  /* for / lens / when collapse onto one quiet meta line. */
+  .session [data-pyric-event-for],
+  .session [data-pyric-event-lens],
+  .session [data-pyric-event-when] {
+    display: inline-block;
+    margin: 4px 12px 0 0;
+    text-align: left;
+  }
+}

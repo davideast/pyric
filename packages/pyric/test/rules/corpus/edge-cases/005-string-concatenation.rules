@@ -1,0 +1,14 @@
+// String concatenation in expressions
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /likes/{likeId} {
+      // Composite key validation via string concatenation
+      allow create: if request.auth != null
+                    && likeId == request.auth.uid + '_' + request.resource.data.postId;
+
+      allow read: if true;
+      allow delete: if resource.data.userId == request.auth.uid;
+    }
+  }
+}

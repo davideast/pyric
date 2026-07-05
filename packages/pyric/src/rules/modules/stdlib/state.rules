@@ -1,0 +1,28 @@
+// Game state machine helpers.
+//
+// Convention: documents must have these fields:
+//   status: 'waiting' | 'playing' | 'won' | 'draw'
+//   moveCount: number
+//   host: string (UID)
+//   guest: string (UID)
+//
+// Usage:
+//   import { isPlaying, moveIncremented, participantsUnchanged } from 'state';
+//
+//   allow update: if isPlaying() && moveIncremented() && participantsUnchanged();
+
+// Is the game actively in play?
+export function isPlaying() {
+  return resource.data.status == 'playing';
+}
+
+// Did moveCount increment by exactly 1?
+export function moveIncremented() {
+  return request.resource.data.moveCount == resource.data.moveCount + 1;
+}
+
+// Are host and guest unchanged? (prevents mid-game identity swap)
+export function participantsUnchanged() {
+  return request.resource.data.host == resource.data.host
+      && request.resource.data.guest == resource.data.guest;
+}

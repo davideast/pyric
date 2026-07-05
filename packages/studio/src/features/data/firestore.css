@@ -1,0 +1,752 @@
+/**
+ * Firestore data browser (F2): c-data miller-columns styling.
+ *
+ * Token-only port of the design rationale. The mock uses its
+ * own variable names (--bg / --panel / --ink / --muted / --faint / --line /
+ * --line-2 / --accent / --mono); those map onto Studio's semantic roles from
+ * `styles/tokens.css` as follows:
+ *
+ *   --bg      -> var(--color-content-bg)
+ *   --panel   -> var(--color-sidebar-bg)
+ *   --ink     -> var(--color-soft-white)
+ *   --muted   -> var(--color-slate-gray)
+ *   --faint   -> var(--color-slate-gray)      (Studio has no separate faint)
+ *   --line    -> var(--color-border)
+ *   --line-2  -> var(--color-border-strong)
+ *   --accent  -> var(--color-primary)
+ *   --mono    -> var(--font-mono)
+ *
+ * Everything here is scoped under [data-pyric-ui="fs-browser"] so it cannot leak
+ * into other surfaces, and styles the @pyric/ui/firestore data-pyric contracts
+ * (collection-list / document-list / field rows) rather than reimplementing them.
+ */
+
+/* hierarchical browser: a clickable breadcrumb on top, then a horizontal
+   miller stack that GROWS rightward as you drill (collection -> doc ->
+   subcollection -> ...), scrolling horizontally when it overflows. */
+[data-pyric-ui='fs-browser'] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--color-content-bg);
+}
+
+/* clickable path bar */
+[data-pyric-ui='fs-breadcrumb'] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+[data-pyric-ui='fs-breadcrumb'] .fs-crumb {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+[data-pyric-ui='fs-breadcrumb'] .fs-crumb:hover {
+  text-decoration: underline;
+}
+[data-pyric-ui='fs-breadcrumb'] .fs-crumb--current {
+  color: var(--color-soft-white);
+  cursor: default;
+  text-decoration: none;
+}
+[data-pyric-ui='fs-breadcrumb'] .fs-crumb-sep {
+  color: var(--color-slate-gray);
+}
+
+/* a fixed 3-panel window (console-style): always three equal columns; drilling
+   slides the window (the new column animates in, the oldest drops off). */
+[data-pyric-ui='fs-browser'] .fs-columns {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+[data-pyric-ui='fs-browser'] .fs-col {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border);
+  min-height: 0;
+  animation: fs-col-in 0.26s ease;
+}
+/* the rightmost (focused) panel is wider - ~1.7x the context panels, matching
+   the console's ~360 / 360 / 613 ratio, as a flex ratio (no hardcoded width). */
+[data-pyric-ui='fs-browser'] .fs-col:last-child {
+  flex: 1.7 1 0;
+  border-right: none;
+}
+[data-pyric-ui='fs-browser'] .fs-col--empty {
+  animation: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+[data-pyric-ui='fs-browser'] .fs-col--empty .fs-empty {
+  text-align: center;
+  max-width: 80%;
+}
+@keyframes fs-col-in {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-pyric-ui='fs-browser'] .fs-col {
+    animation: none;
+  }
+}
+[data-pyric-ui='fs-browser'] .fs-pane {
+  overflow: auto;
+  min-height: 0;
+}
+
+/* sticky pane header: uppercase label + count + optional add affordance */
+[data-pyric-ui='fs-browser'] .fs-phead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-content-bg);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 16px 9px;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-slate-gray);
+  border-bottom: 1px solid var(--color-border);
+}
+
+[data-pyric-ui='fs-browser'] .fs-phead .fs-add {
+  margin-left: auto;
+  color: var(--color-primary);
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 12px;
+}
+
+/* ── list rows (collections + documents) ──────────────────────────────────
+   CollectionList renders <ul data-pyric-ui="collection-list"> with
+   <li data-pyric-collection-entry><button data-pyric-collection-select>.
+   DocumentList renders <ul data-pyric-document-list-items> with
+   <li data-pyric-document-entry><button data-pyric-document-select>. */
+
+[data-pyric-ui='fs-browser'] [data-pyric-ui='collection-list'],
+[data-pyric-ui='fs-browser'] [data-pyric-ui='document-list'] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+[data-pyric-ui='fs-browser'] [data-pyric-document-list-items] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+[data-pyric-ui='fs-browser'] [data-pyric-collection-entry],
+[data-pyric-ui='fs-browser'] [data-pyric-document-entry] {
+  list-style: none;
+}
+
+[data-pyric-ui='fs-browser'] [data-pyric-collection-select],
+[data-pyric-ui='fs-browser'] [data-pyric-document-select] {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 16px;
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--color-soft-white);
+  cursor: pointer;
+  font: inherit;
+}
+
+[data-pyric-ui='fs-browser'] [data-pyric-collection-select] {
+  font-size: 13px;
+}
+
+[data-pyric-ui='fs-browser'] [data-pyric-document-select] {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+[data-pyric-ui='fs-browser'] [data-pyric-collection-select]:hover,
+[data-pyric-ui='fs-browser'] [data-pyric-document-select]:hover {
+  background: var(--color-sidebar-bg);
+}
+
+/* selected row: panel fill + accent left border (mirrors mock .node.sel) */
+[data-pyric-ui='fs-browser'] [data-pyric-collection-entry][data-pyric-selected]
+  [data-pyric-collection-select],
+[data-pyric-ui='fs-browser'] [data-pyric-document-entry]:has([data-pyric-selected])
+  [data-pyric-document-select] {
+  background: var(--color-sidebar-bg);
+  border-left-color: var(--color-primary);
+}
+
+/* Per-row delete (renderRowAction). The entry becomes a flex row so the delete
+   affordance sits at the trailing edge; it stays hidden until the row is
+   hovered/focused (or armed) to keep the list calm. */
+[data-pyric-ui='fs-browser'] [data-pyric-document-entry] {
+  display: flex;
+  align-items: stretch;
+}
+[data-pyric-ui='fs-browser'] [data-pyric-document-entry] [data-pyric-document-select] {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+[data-pyric-ui='fs-browser'] [data-pyric-document-action] {
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+}
+[data-pyric-ui='fs-browser'] .fs-doc-del {
+  opacity: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-soft-white);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+[data-pyric-ui='fs-browser'] [data-pyric-document-entry]:hover .fs-doc-del,
+[data-pyric-ui='fs-browser'] [data-pyric-document-entry]:focus-within .fs-doc-del {
+  opacity: 0.55;
+}
+[data-pyric-ui='fs-browser'] .fs-doc-del:hover {
+  opacity: 1;
+  color: var(--color-danger, #ff6b6b);
+  background: var(--color-sidebar-bg);
+}
+/* armed inline confirm: ✓ delete / ✕ cancel (stays visible while armed) */
+[data-pyric-ui='fs-browser'] .fs-doc-del-confirm {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+[data-pyric-ui='fs-browser'] .fs-doc-del-yes,
+[data-pyric-ui='fs-browser'] .fs-doc-del-no {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+[data-pyric-ui='fs-browser'] .fs-doc-del-yes {
+  color: var(--color-danger, #ff6b6b);
+}
+[data-pyric-ui='fs-browser'] .fs-doc-del-yes:hover {
+  background: var(--color-danger, #ff6b6b);
+  color: var(--color-soft-white);
+}
+[data-pyric-ui='fs-browser'] .fs-doc-del-no {
+  color: var(--color-muted, #8a8f98);
+}
+[data-pyric-ui='fs-browser'] .fs-doc-del-no:hover {
+  background: var(--color-sidebar-bg);
+  color: var(--color-soft-white);
+}
+[data-pyric-ui='fs-browser'] .fs-doc-del-err {
+  color: var(--color-danger, #ff6b6b);
+  padding: 6px 16px;
+}
+
+/* the secondary text on a row (doc title / collection count) */
+[data-pyric-ui='fs-browser'] .fs-sub {
+  font-size: 11.5px;
+  color: var(--color-slate-gray);
+  margin-left: auto;
+  white-space: nowrap;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-pyric-ui='fs-browser'] .fs-empty {
+  padding: 18px 16px;
+  font-size: 12.5px;
+  color: var(--color-slate-gray);
+}
+
+[data-pyric-ui='fs-browser'] [data-pyric-load-more] {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 8px 12px;
+  padding: 6px 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-slate-gray);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+[data-pyric-ui='fs-browser'] [data-pyric-load-more]:hover {
+  color: var(--color-soft-white);
+}
+
+/* ── document pane: nested + typed fields ─────────────────────────────────── */
+
+[data-pyric-ui='fs-browser'] .fs-docact {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  letter-spacing: 0;
+  text-transform: none;
+  font: inherit;
+  font-size: 12px;
+}
+
+/* ── document body: the library's DocumentPreview (read-only) ─────────────
+   `<DocumentPreview>` emits [data-pyric-ui="document-preview"] with one
+   [data-pyric-field-entry] per field: a [data-pyric-field-key] + the value
+   node ([data-pyric-field-type] from the field-editor registry). We style the
+   key|value rhythm only; the library owns the rendering. */
+[data-pyric-ui='fs-browser'] .fs-docbody {
+  padding: 6px 0 30px;
+}
+[data-pyric-ui='document-preview'] [data-pyric-field-entry] {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 18px;
+  align-items: baseline;
+  padding: 8px 18px;
+  border-top: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  line-height: 1.5;
+}
+[data-pyric-ui='document-preview'] [data-pyric-field-entry]:first-child {
+  border-top: none;
+}
+[data-pyric-ui='document-preview'] [data-pyric-field-key] {
+  min-width: 0;
+  color: var(--color-slate-gray);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the key cell carries a chevron gutter (empty on scalars, a toggle on map /
+   array fields) so every key aligns and top-level containers collapse too. */
+[data-pyric-ui='document-preview'] [data-pyric-field-keycell] {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+[data-pyric-ui='document-preview'] button[data-pyric-field-keycell] {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+[data-pyric-ui='document-preview']
+  [data-pyric-field-toggle][aria-expanded='true']
+  [data-pyric-tree-chevron] {
+  transform: rotate(90deg);
+}
+[data-pyric-ui='document-preview'] [data-pyric-field-toggle]:hover [data-pyric-field-key] {
+  color: var(--color-soft-white);
+}
+/* the scalar value node */
+[data-pyric-ui='document-preview'] [data-pyric-field-entry] > [data-pyric-field-type] {
+  min-width: 0;
+  color: var(--color-soft-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* a clickable reference value reads as a link */
+[data-pyric-ui='document-preview'] [data-pyric-clickable] {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+/* ── Nested values: an indented TREE (key: value), :has()-driven ──────────
+   The library emits a `[data-pyric-tree]` <ul> of `[data-pyric-tree-entry]`
+   rows. A row with a scalar value stays inline ("key: value"); a row whose
+   value is itself a tree drops the nested tree to its own line, indented.
+   Layout is flex + gap; indentation is the one place padding is used. */
+[data-pyric-ui='document-preview'] [data-pyric-field-entry] > [data-pyric-tree] {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+[data-pyric-ui='document-preview'] [data-pyric-tree] {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+[data-pyric-ui='document-preview'] [data-pyric-tree-entry] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+[data-pyric-ui='document-preview'] [data-pyric-tree-key],
+[data-pyric-ui='document-preview'] [data-pyric-tree-index] {
+  flex: 0 0 auto;
+  color: var(--color-slate-gray);
+}
+/* a scalar entry keeps "key: value" inline; the colon is only for map keys */
+[data-pyric-ui='document-preview']
+  [data-pyric-tree-entry]:not(:has(> [data-pyric-tree]))
+  > [data-pyric-tree-key]::after {
+  content: ':';
+}
+/* a nested tree value drops to its own line and indents under its parent */
+[data-pyric-ui='document-preview'] [data-pyric-tree-entry] > [data-pyric-tree] {
+  flex-basis: 100%;
+  padding-inline-start: 14px;
+}
+/* disclosure chevron: a 12px gutter before every key so scalar + nested keys
+   align; for a nested entry it lives in a toggle button and rotates open. */
+[data-pyric-ui='document-preview'] [data-pyric-tree-chevron] {
+  flex: 0 0 auto;
+  width: 12px;
+  display: inline-block;
+  text-align: center;
+  color: var(--color-slate-gray);
+  transition: transform 0.15s ease;
+}
+[data-pyric-ui='document-preview'] [data-pyric-tree-toggle] {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+[data-pyric-ui='document-preview']
+  [data-pyric-tree-toggle][aria-expanded='true']
+  [data-pyric-tree-chevron] {
+  transform: rotate(90deg);
+}
+[data-pyric-ui='document-preview'] [data-pyric-tree-toggle]:hover [data-pyric-tree-key],
+[data-pyric-ui='document-preview'] [data-pyric-tree-toggle]:hover [data-pyric-tree-index] {
+  color: var(--color-soft-white);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-pyric-ui='document-preview'] [data-pyric-tree-chevron] {
+    transition: none;
+  }
+}
+
+/* subcollections section under the fields */
+[data-pyric-ui='document-preview'] [data-pyric-ui='subcollections'] {
+  margin-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+[data-pyric-ui='document-preview'] [data-pyric-subcollections-group] {
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--color-slate-gray);
+  padding: 14px 18px 6px;
+}
+[data-pyric-ui='document-preview'] [data-pyric-subcollections-list] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+[data-pyric-ui='document-preview'] [data-pyric-subcollection] {
+  list-style: none;
+}
+/* the WHOLE row is the click target (not a tiny chevron); tighter than before */
+[data-pyric-ui='document-preview'] [data-pyric-subcollection-row] {
+  appearance: none;
+  border: none;
+  background: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 18px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--color-soft-white);
+  text-align: left;
+  cursor: pointer;
+}
+[data-pyric-ui='document-preview'] [data-pyric-subcollection-row]:hover {
+  background: var(--color-sidebar-bg);
+}
+[data-pyric-ui='document-preview'] [data-pyric-subcollection-type] {
+  color: var(--color-slate-gray);
+  font-size: var(--fs-micro);
+}
+[data-pyric-ui='document-preview'] [data-pyric-subcollection-drill] {
+  margin-left: auto;
+  color: var(--color-slate-gray);
+}
+
+/* ── document body: the library's DocumentEditor (edit) ───────────────────
+   `<DocumentEditor>` emits [data-pyric-ui="document-editor"] with per-field
+   [data-pyric-field-entry]: a [data-pyric-field-chrome] (key input + type
+   select + remove) plus the typed Edit input. Typed per-field editing, no
+   raw JSON. */
+.fs-editor {
+  padding: 12px 18px 24px;
+}
+.fs-editor__warn {
+  margin: 0 0 12px;
+  font-size: var(--fs-label);
+  color: var(--color-warning);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  border-radius: 7px;
+  padding: 6px 10px;
+}
+[data-pyric-ui='document-editor'] [data-pyric-editor-fields] {
+  display: flex;
+  flex-direction: column;
+}
+[data-pyric-ui='document-editor'] [data-pyric-field-entry] {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 8px 18px;
+  border-top: 1px solid var(--color-border);
+}
+[data-pyric-ui='document-editor'] [data-pyric-field-entry]:first-child {
+  border-top: none;
+}
+/* nested children sit on their own line, indented under their parent's chrome
+   with a guide line - parity with the read-mode preview. */
+[data-pyric-ui='document-editor'] [data-pyric-map-children],
+[data-pyric-ui='document-editor'] [data-pyric-array-children] {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 2px 0 0 8px;
+  padding: 0 0 0 10px;
+  border-left: 1px solid var(--color-border);
+  width: 100%;
+}
+[data-pyric-ui='document-editor'] [data-pyric-field-chrome] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+[data-pyric-ui='document-editor'] input,
+[data-pyric-ui='document-editor'] select {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--color-soft-white);
+  background: var(--color-content-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+[data-pyric-ui='document-editor'] input[data-pyric-field-key-input] {
+  width: 128px;
+}
+[data-pyric-ui='document-editor'] input:focus,
+[data-pyric-ui='document-editor'] select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+/* the Edit input wrapper (a <label data-pyric-field-type>) grows to fill */
+[data-pyric-ui='document-editor'] [data-pyric-field-entry] > [data-pyric-field-type] {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* cap input width so values don't sprawl across a wide pane; numbers stay compact */
+[data-pyric-ui='document-editor'] [data-pyric-field-type] input {
+  width: 100%;
+  max-width: 420px;
+}
+[data-pyric-ui='document-editor'] [data-pyric-field-type] input[type='number'] {
+  max-width: 160px;
+}
+/* vector edit: stack the chip, the note, and the raw textarea (the field-type
+   wrapper is otherwise a centered flex row, which crams them). */
+[data-pyric-ui='document-editor'] [data-pyric-field-type='vector'] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+[data-pyric-ui='document-editor'] [data-pyric-vector-dims] {
+  color: var(--color-slate-gray);
+  font-size: var(--fs-micro);
+}
+[data-pyric-ui='document-editor'] [data-pyric-vector-note] {
+  color: var(--color-slate-gray);
+  font-size: var(--fs-caption);
+}
+[data-pyric-ui='document-editor'] [data-pyric-vector-raw] {
+  width: 100%;
+  max-width: 420px;
+  min-height: 52px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--color-soft-white);
+  background: var(--color-content-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+[data-pyric-ui='document-editor'] button[data-pyric-remove] {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--color-slate-gray);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+}
+[data-pyric-ui='document-editor'] button[data-pyric-remove]:hover {
+  color: var(--color-danger);
+}
+[data-pyric-ui='document-editor'] [data-pyric-add-map-entry],
+[data-pyric-ui='document-editor'] [data-pyric-add-array-entry] {
+  align-self: flex-start;
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-label);
+  padding: 10px 0 0;
+}
+[data-pyric-ui='document-editor'] [data-pyric-error-message] {
+  color: var(--color-danger);
+  font-size: var(--fs-caption);
+  margin-left: 8px;
+}
+.fs-editor__err {
+  margin: 10px 0 0;
+  font-size: var(--fs-label);
+  color: var(--color-danger);
+}
+.fs-editor__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+.fs-editor__save,
+.fs-editor__cancel {
+  appearance: none;
+  font: inherit;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.fs-editor__save {
+  border: 1px solid var(--color-primary);
+  background: var(--color-primary);
+  color: var(--accent-ink);
+}
+.fs-editor__save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.fs-editor__cancel {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-content-bg);
+  color: var(--color-slate-gray);
+}
+
+/* The mobile back affordance is hidden on desktop (panes are side by side). */
+.fs-back {
+  display: none;
+}
+
+/* ── Mobile: miller columns become a single-pane drill-down ──────────── */
+@media (max-width: 760px) {
+  [data-pyric-ui='fs-browser'] {
+    grid-template-columns: 1fr;
+  }
+  /* Show only the pane for the active level; hide the other two. */
+  [data-pyric-ui='fs-browser'][data-fs-level='collections']
+    .fs-pane:not([data-pyric-ui='fs-collections']),
+  [data-pyric-ui='fs-browser'][data-fs-level='documents']
+    .fs-pane:not([data-pyric-ui='fs-documents']),
+  [data-pyric-ui='fs-browser'][data-fs-level='document']
+    .fs-pane:not([data-pyric-ui='fs-document']) {
+    display: none;
+  }
+  /* Single column: drop the dividing borders. */
+  [data-pyric-ui='fs-browser'] .fs-pane {
+    border-right: none;
+  }
+  /* The back control leads each drilled-in pane header. */
+  .fs-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    appearance: none;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 12px;
+    color: var(--color-primary);
+    cursor: pointer;
+    padding: 0;
+    margin-right: 10px;
+  }
+}

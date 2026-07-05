@@ -1,0 +1,28 @@
+// Tests list and map methods
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{docId} {
+      // keys(), hasAll(), hasOnly(), hasAny()
+      allow create: if request.resource.data.keys().hasAll(['title', 'body'])
+                    && request.resource.data.keys().hasOnly(['title', 'body', 'tags', 'metadata'])
+                    && !request.resource.data.keys().hasAny(['secret', 'internal']);
+
+      // size() on map
+      allow update: if request.resource.data.size() <= 10;
+
+      // List operations
+      allow read: if true;
+    }
+
+    match /tagged/{taggedId} {
+      // in operator for list membership
+      allow create: if request.resource.data.category in ['news', 'sports', 'tech'];
+
+      // List literal
+      allow update: if request.resource.data.tags.size() <= 10;
+
+      allow read: if true;
+    }
+  }
+}

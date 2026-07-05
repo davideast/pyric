@@ -1,0 +1,18 @@
+{
+  "name": "rtdb-modular-increment-from-missing",
+  "matrixRow": "rtdb-modular #155/#156",
+  "description": "increment(n) against a missing field starts at 0; subsequent increments accumulate (positive then negative deltas).",
+  "observedAt": "2026-05-18T03:36:52.398Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "afterFirst": 5,
+    "afterSecond": 8,
+    "afterNegative": 6,
+    "startsFromZero": true,
+    "accumulates": true
+  }
+}

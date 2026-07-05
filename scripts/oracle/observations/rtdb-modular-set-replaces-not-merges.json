@@ -1,0 +1,20 @@
+{
+  "name": "rtdb-modular-set-replaces-not-merges",
+  "matrixRow": "rtdb-modular #113",
+  "description": "set(ref, {a:1}) after set(ref, {a:1, b:2}) — verify the second set REPLACES (final state is {a:1}, NOT a merge of {a:1, b:2}).",
+  "observedAt": "2026-05-18T03:36:36.211Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "final": {
+      "a": 1
+    },
+    "finalKeys": [
+      "a"
+    ],
+    "bIsAbsent": true
+  }
+}

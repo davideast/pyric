@@ -1,0 +1,48 @@
+{
+  "name": "firestore-include-metadata-changes",
+  "matrixRow": "firestore #85",
+  "description": "onSnapshot with includeMetadataChanges:true vs default — observes how many fires prod produces for one write.",
+  "observedAt": "2026-05-17T23:36:58.501Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialDefault": 1,
+    "initialMeta": 1,
+    "afterWriteDefault": 2,
+    "afterWriteMeta": 3,
+    "firesDefault": [
+      {
+        "kind": "default",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "size": 0
+      },
+      {
+        "kind": "default",
+        "fromCache": false,
+        "hasPendingWrites": true,
+        "size": 1
+      }
+    ],
+    "firesMeta": [
+      {
+        "kind": "meta",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "size": 0
+      },
+      {
+        "kind": "meta",
+        "fromCache": false,
+        "hasPendingWrites": true,
+        "size": 1
+      },
+      {
+        "kind": "meta",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "size": 1
+      }
+    ]
+  }
+}

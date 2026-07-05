@@ -1,0 +1,53 @@
+[
+  {
+    "description": "isAuthenticated allows authenticated user",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": { "uid": "user1" },
+    "wrapFunction": "isAuthenticated",
+    "wrapOperation": "read"
+  },
+  {
+    "description": "isAuthenticated denies unauthenticated user",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": null,
+    "wrapFunction": "isAuthenticated",
+    "wrapOperation": "read"
+  },
+  {
+    "description": "isOwner allows when uid matches",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/user1",
+    "auth": { "uid": "user1" },
+    "wrapFunction": "isOwner",
+    "wrapArgs": ["userId"],
+    "wrapOperation": "read",
+    "wrapMatch": "/test/{userId}"
+  },
+  {
+    "description": "isOwner denies when uid does not match",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/user2",
+    "auth": { "uid": "user1" },
+    "wrapFunction": "isOwner",
+    "wrapArgs": ["userId"],
+    "wrapOperation": "read",
+    "wrapMatch": "/test/{userId}"
+  },
+  {
+    "description": "isOwner denies unauthenticated user",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/user1",
+    "auth": null,
+    "wrapFunction": "isOwner",
+    "wrapArgs": ["userId"],
+    "wrapOperation": "read",
+    "wrapMatch": "/test/{userId}"
+  }
+]

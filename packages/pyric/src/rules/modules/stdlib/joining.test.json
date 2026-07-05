@@ -1,0 +1,287 @@
+[
+  {
+    "description": "onlyAddedSelf allows adding exactly yourself at the granted role",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "carol"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor",
+        "carol": "editor"
+      }
+    },
+    "wrapFunction": "onlyAddedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyAddedSelf('members', 'editor')"
+  },
+  {
+    "description": "onlyAddedSelf denies self-granting a different role",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "carol"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor",
+        "carol": "admin"
+      }
+    },
+    "wrapFunction": "onlyAddedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyAddedSelf('members', 'editor')"
+  },
+  {
+    "description": "onlyAddedSelf denies adding yourself plus someone else",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "carol"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor",
+        "carol": "editor",
+        "dave": "editor"
+      }
+    },
+    "wrapFunction": "onlyAddedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyAddedSelf('members', 'editor')"
+  },
+  {
+    "description": "onlyAddedSelf denies changing another member's role while joining",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "carol"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {
+        "alice": "editor",
+        "bob": "editor",
+        "carol": "editor"
+      }
+    },
+    "wrapFunction": "onlyAddedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyAddedSelf('members', 'editor')"
+  },
+  {
+    "description": "onlyAddedSelf denies removing a member while joining",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "carol"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "carol": "editor"
+      }
+    },
+    "wrapFunction": "onlyAddedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyAddedSelf('members', 'editor')"
+  },
+  {
+    "description": "onlyAddedSelf denies a no-op members write (empty diff)",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "wrapFunction": "onlyAddedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyAddedSelf('members', 'editor')"
+  },
+  {
+    "description": "onlyAddedSelf denies an existing member escalating their own role",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "bob"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "admin"
+      }
+    },
+    "wrapFunction": "onlyAddedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyAddedSelf('members', 'editor')"
+  },
+  {
+    "description": "onlyRemovedSelf allows removing exactly yourself",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "bob"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {
+        "alice": "admin"
+      }
+    },
+    "wrapFunction": "onlyRemovedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyRemovedSelf('members')"
+  },
+  {
+    "description": "onlyRemovedSelf denies removing someone else",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "bob"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {
+        "bob": "editor"
+      }
+    },
+    "wrapFunction": "onlyRemovedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyRemovedSelf('members')"
+  },
+  {
+    "description": "onlyRemovedSelf denies a stranger removing a member",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "mallory"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {
+        "alice": "admin"
+      }
+    },
+    "wrapFunction": "onlyRemovedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyRemovedSelf('members')"
+  },
+  {
+    "description": "onlyRemovedSelf denies removing yourself AND another member",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "bob"
+    },
+    "resource": {
+      "name": "team",
+      "members": {
+        "alice": "admin",
+        "bob": "editor"
+      }
+    },
+    "data": {
+      "name": "team",
+      "members": {}
+    },
+    "wrapFunction": "onlyRemovedSelf",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyRemovedSelf('members')"
+  }
+]

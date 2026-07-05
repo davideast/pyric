@@ -1,0 +1,40 @@
+// Membership module for role-based and claims-based access control.
+//
+// Two access patterns:
+//   1. Custom claims on auth token (0 get() calls, set server-side)
+//   2. Member maps on documents (0 get() calls on the doc itself)
+//
+// Usage:
+//   import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';
+//
+//   // Workspace access via custom claims
+//   allow read: if hasClaim('workspace_id');
+//   allow write: if hasClaimRole('workspace_role', 'admin');
+//
+//   // Project access via member map on document
+//   allow read: if isMemberOf(resource.data.members);
+//   allow update: if hasRole(resource.data.members, 'admin');
+
+// Check if the auth token has a non-null value for a claim key.
+export function hasClaim(claim) {
+  return request.auth != null
+    && request.auth.token[claim] != null;
+}
+
+// Check if the auth token has a specific value for a claim key.
+export function hasClaimRole(claim, role) {
+  return request.auth != null
+    && request.auth.token[claim] == role;
+}
+
+// Check if the caller's UID exists as a key in a members map.
+export function isMemberOf(membersMap) {
+  return request.auth != null
+    && request.auth.uid in membersMap;
+}
+
+// Check if the caller has a specific role in a members map.
+export function hasRole(membersMap, role) {
+  return request.auth != null
+    && membersMap[request.auth.uid] == role;
+}

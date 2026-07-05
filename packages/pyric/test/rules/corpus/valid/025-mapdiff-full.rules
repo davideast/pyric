@@ -1,0 +1,15 @@
+// All MapDiff methods
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().size() >= 0
+                    && request.resource.data.diff(resource.data).addedKeys().size() >= 0
+                    && request.resource.data.diff(resource.data).removedKeys().size() >= 0
+                    && request.resource.data.diff(resource.data).changedKeys().size() >= 0
+                    && request.resource.data.diff(resource.data).unchangedKeys().size() >= 0;
+      allow read: if true;
+      allow create: if true;
+    }
+  }
+}

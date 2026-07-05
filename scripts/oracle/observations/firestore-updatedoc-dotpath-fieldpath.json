@@ -1,0 +1,20 @@
+{
+  "name": "firestore-updatedoc-dotpath-fieldpath",
+  "matrixRow": "firestore #33",
+  "description": "updateDoc top-level dot-separated string keys parse as FieldPaths (nested write preserving siblings), not literal keys.",
+  "observedAt": "2026-06-10T10:41:10.348Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "data": {
+      "a": {
+        "b": 2,
+        "c": 3
+      },
+      "top": 1
+    },
+    "nestedUpdated": 2,
+    "siblingPreserved": 3,
+    "literalDotKeyPresent": false
+  }
+}

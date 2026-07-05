@@ -1,0 +1,64 @@
+[
+  {
+    "description": "isMyTurn allows host when currentTurn is host",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/game1",
+    "auth": { "uid": "host1" },
+    "resource": { "host": "host1", "guest": "guest1", "currentTurn": "host" },
+    "wrapFunction": "isMyTurn",
+    "wrapOperation": "update"
+  },
+  {
+    "description": "isMyTurn denies guest when currentTurn is host",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/game1",
+    "auth": { "uid": "guest1" },
+    "resource": { "host": "host1", "guest": "guest1", "currentTurn": "host" },
+    "wrapFunction": "isMyTurn",
+    "wrapOperation": "update"
+  },
+  {
+    "description": "isMyTurn allows guest when currentTurn is guest",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/game1",
+    "auth": { "uid": "guest1" },
+    "resource": { "host": "host1", "guest": "guest1", "currentTurn": "guest" },
+    "wrapFunction": "isMyTurn",
+    "wrapOperation": "update"
+  },
+  {
+    "description": "isMyTurn denies unauthenticated",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/game1",
+    "auth": null,
+    "resource": { "host": "host1", "guest": "guest1", "currentTurn": "host" },
+    "wrapFunction": "isMyTurn",
+    "wrapOperation": "update"
+  },
+  {
+    "description": "turnFlipped allows host to guest transition",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/game1",
+    "auth": { "uid": "host1" },
+    "data": { "currentTurn": "guest" },
+    "resource": { "currentTurn": "host" },
+    "wrapFunction": "turnFlipped",
+    "wrapOperation": "update"
+  },
+  {
+    "description": "turnFlipped denies same turn value",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/game1",
+    "auth": { "uid": "host1" },
+    "data": { "currentTurn": "host" },
+    "resource": { "currentTurn": "host" },
+    "wrapFunction": "turnFlipped",
+    "wrapOperation": "update"
+  }
+]

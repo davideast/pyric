@@ -1,0 +1,13 @@
+// String literals with escapes and regex patterns
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /content/{docId} {
+      allow create: if request.resource.data.email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$')
+                    && request.resource.data.url.matches('^https://.*')
+                    && request.resource.data.path.matches('/[a-z]+/[0-9]+');
+
+      allow read: if true;
+    }
+  }
+}

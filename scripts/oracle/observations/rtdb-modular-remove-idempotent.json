@@ -1,0 +1,15 @@
+{
+  "name": "rtdb-modular-remove-idempotent",
+  "matrixRow": "rtdb-modular #122",
+  "description": "remove(ref) on an absent path — confirm it resolves successfully without throwing (idempotent).",
+  "observedAt": "2026-05-18T03:36:41.012Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "afterExists": false,
+    "idempotent": true
+  }
+}

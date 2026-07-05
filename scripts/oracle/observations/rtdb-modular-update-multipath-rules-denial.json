@@ -1,0 +1,15 @@
+{
+  "name": "rtdb-modular-update-multipath-rules-denial",
+  "matrixRow": "rtdb-modular #118",
+  "description": "Multi-path update where one path is denied by rules — confirm the WHOLE update rejects and neither path is written (atomicity contract).",
+  "observedAt": "2026-05-18T03:36:39.158Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": true,
+    "code": "PERMISSION_DENIED",
+    "message": "PERMISSION_DENIED: Permission denied",
+    "okPathWrittenDespiteDenial": false,
+    "atomicRollback": true
+  }
+}

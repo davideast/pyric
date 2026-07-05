@@ -1,0 +1,536 @@
+/**
+ * Rules surface styling: ported from `mocks/c-debug.html`, token roles only
+ * (no raw hexes), styling the `@pyric/ui/rules` `DenialInspector` `data-pyric-*`
+ * contract (`denial-inspector-spec.md`).
+ *
+ * Five blocks, in the mock's order:
+ *   1. header + plain-language reason
+ *   2. the rule source, line-marked (deciding line = the filled-dark `--deny`)
+ *   3. the evaluation step-through (each sub-expression + its real value)
+ *   4. data in scope (request.auth / request.resource.data / resource.data)
+ *   5. re-run affordances + the same-rule cluster
+ */
+
+.rules {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.rules__empty {
+  color: var(--faint);
+  font-size: 13px;
+  text-align: center;
+  padding: 40px 0;
+  margin: 0;
+}
+
+.rules__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.rules__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+  margin: 0;
+}
+.rules__count {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* ── the inspector root ─────────────────────────────────────────────── */
+.rules__inspector {
+  color: var(--ink);
+}
+
+/* header: what was denied + context line */
+[data-pyric-denial-header] {
+  margin-bottom: 6px;
+}
+[data-pyric-denial-title] {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+[data-pyric-denial-method] {
+  font-family: var(--font-mono);
+  font-size: 16px;
+}
+[data-pyric-denial-path] {
+  font-family: var(--font-mono);
+  font-size: 16px;
+}
+[data-pyric-denial-context] {
+  margin: 5px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* reason: the plain-language why */
+[data-pyric-denial-reason] {
+  margin: 22px 0 40px;
+  font-size: 15px;
+  line-height: 1.55;
+  max-width: 640px;
+  color: var(--ink);
+}
+
+/* ── the rule, line-marked ──────────────────────────────────────────── */
+[data-pyric-rule-source] {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.85;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  color: var(--muted);
+  margin-bottom: 42px;
+}
+[data-pyric-rule-line] {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 12px;
+  padding: 0 12px 0 0;
+  align-items: baseline;
+}
+[data-pyric-line-gutter] {
+  text-align: right;
+  color: var(--faint);
+  padding-right: 10px;
+  border-right: 1px solid var(--line);
+  user-select: none;
+}
+[data-pyric-line-text] {
+  white-space: pre;
+}
+[data-pyric-line-verdict="deny"] {
+  background: var(--panel);
+  color: var(--ink);
+}
+[data-pyric-line-verdict="deny"] [data-pyric-line-gutter] {
+  color: var(--ink);
+  border-right-color: var(--ink);
+  font-weight: 600;
+}
+[data-pyric-line-verdict="skip"] [data-pyric-line-text] {
+  color: var(--faint);
+}
+[data-pyric-line-note] {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--faint);
+  align-self: center;
+}
+[data-pyric-line-badge] {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--deny-ink);
+  background: var(--deny);
+  border: 1px solid var(--deny);
+  border-radius: 4px;
+  padding: 1px 7px;
+  align-self: center;
+}
+
+/* ── the evaluation step-through ────────────────────────────────────── */
+[data-pyric-trace] {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 42px;
+}
+[data-pyric-trace-node] {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 18px;
+  align-items: baseline;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+}
+[data-pyric-trace-node]:first-child {
+  border-top: none;
+}
+/* root (depth 0) = the whole condition, banded */
+[data-pyric-trace-node][data-pyric-depth="0"] {
+  background: var(--panel);
+}
+[data-pyric-trace-source] {
+  color: var(--ink);
+}
+/* children (depth >= 1): indented with a tree elbow, muted source */
+[data-pyric-trace-node]:not([data-pyric-depth="0"]) [data-pyric-trace-source] {
+  padding-left: 22px;
+  color: var(--muted);
+  position: relative;
+  display: inline-block;
+}
+[data-pyric-trace-node]:not([data-pyric-depth="0"]) [data-pyric-trace-source]::before {
+  content: "└";
+  position: absolute;
+  left: 6px;
+  color: var(--faint);
+}
+[data-pyric-trace-value] {
+  color: var(--ink);
+  white-space: nowrap;
+}
+[data-pyric-trace-value][data-pyric-false] {
+  font-weight: 600;
+}
+[data-pyric-trace-node][data-pyric-skipped] {
+  color: var(--faint);
+}
+
+/* ── data in scope ──────────────────────────────────────────────────── */
+[data-pyric-scope] {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  margin-bottom: 42px;
+}
+[data-pyric-scope-var] {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 16px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  align-items: baseline;
+}
+[data-pyric-scope-var]:first-child {
+  border-top: none;
+}
+[data-pyric-scope-name] {
+  color: var(--muted);
+}
+[data-pyric-scope-tag] {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  color: var(--faint);
+  display: block;
+  margin-top: 1px;
+}
+[data-pyric-scope-value] {
+  color: var(--ink);
+}
+[data-pyric-scope-hit] {
+  background: var(--panel);
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+
+/* ── path resolution (no-match denials) ─────────────────────────────── */
+[data-pyric-path-resolution] {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 42px;
+}
+[data-pyric-path-attempt] {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: baseline;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+[data-pyric-path-attempt]:first-child {
+  border-top: none;
+}
+[data-pyric-attempt-path] {
+  color: var(--ink);
+}
+[data-pyric-attempt-reason] {
+  color: var(--faint);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+}
+
+/* ── re-run / verify ────────────────────────────────────────────────────
+   A labeled section of the debug flow, not orphan buttons floating at the
+   page bottom: an eyebrow + a top hairline tie it to the trace above it. */
+[data-pyric-rerun] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  margin-bottom: 42px;
+}
+[data-pyric-rerun]::before {
+  content: 'Re-run this write';
+  flex-basis: 100%;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 2px;
+}
+[data-pyric-rerun] button {
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 15px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+[data-pyric-rerun-as] {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+[data-pyric-test-edited-rule] {
+  border: 1px solid var(--line-2);
+  background: var(--elevated);
+  color: var(--accent);
+}
+
+/* ── the same-rule cluster ──────────────────────────────────────────── */
+[data-pyric-denial-cluster] {
+  display: flex;
+  flex-direction: column;
+}
+[data-pyric-cluster-item] {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: baseline;
+  padding: 9px 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  cursor: pointer;
+  color: var(--muted);
+}
+[data-pyric-cluster-item]:hover {
+  background: var(--panel);
+}
+[data-pyric-cluster-path] {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ── Mobile: wrap the mono content instead of overflowing ───────────── */
+@media (max-width: 760px) {
+  .rules,
+  .rules__inspector {
+    max-width: none;
+  }
+  [data-pyric-rule-source] {
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  [data-pyric-rule-line] {
+    grid-template-columns: 26px 1fr;
+    gap: 8px;
+  }
+  /* Long rule lines wrap (with a hanging indent) rather than overflow. */
+  [data-pyric-line-text] {
+    white-space: pre-wrap;
+    word-break: break-word;
+    grid-column: 2;
+  }
+  [data-pyric-line-note],
+  [data-pyric-line-badge] {
+    grid-column: 2;
+    justify-self: start;
+    margin-top: 2px;
+  }
+
+  /* Trace nodes stack: source on top, value (which can be a big JSON blob)
+     wraps on its own line below. */
+  [data-pyric-trace-node] {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  [data-pyric-trace-value] {
+    white-space: normal;
+    word-break: break-all;
+  }
+
+  /* Data-in-scope rows stack too. */
+  [data-pyric-scope-var] {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  [data-pyric-scope-value] {
+    word-break: break-all;
+  }
+}
+
+/* Re-run / verify: the two DenialInspector actions, wired to live re-runs on a
+   throwaway fork (impersonate as the user / test against an edited ruleset). */
+.rules__rerun {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.rules__rerun-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.rules__rerun-pending {
+  font-size: 13px;
+  color: var(--faint);
+}
+.rules__rerun-editor {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--elevated);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.rules__rerun-run {
+  align-self: flex-start;
+  appearance: none;
+  padding: 7px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.rules__rerun-run:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.rules__rerun-run:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.rules__rerun-outcome {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.rules__rerun-outcome[data-pyric-outcome='allow'] {
+  color: var(--accent);
+}
+.rules__rerun-outcome[data-pyric-outcome='deny'] {
+  color: var(--deny);
+}
+.rules__rerun-outcome[data-pyric-outcome='error'] {
+  color: var(--faint);
+}
+.rules__rerun-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--elevated);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.rules__rerun-difflabel {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+}
+.rules__rerun-diffrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.rules__rerun-diffpath {
+  color: var(--muted);
+}
+.rules__rerun-diffval {
+  color: var(--ink);
+  word-break: break-all;
+}
+
+/* "Explain this denial" assist (read-only, plain-English explanation). */
+.rules__explain {
+  margin-top: 14px;
+}
+.rules__explain-btn {
+  appearance: none;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+.rules__explain-btn:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.rules__explain-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* AI rules-fix assist: the suggest-a-fix section + the verified-fix Apply box. */
+.rules__fix {
+  margin-top: 10px;
+}
+.rules__fix-apply {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-tint);
+}
+.rules__fix-verified {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.rules__fix-applied {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--diff-add);
+}
+.rules__fix-error {
+  font-size: 12px;
+  color: var(--diff-remove);
+}

@@ -1,0 +1,35 @@
+// Tests get() and exists() for cross-document lookups
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function userExists(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid));
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+
+      // Cross-document: check user's role
+      allow write: if isAdmin();
+
+      // Cross-document: verify referenced user exists
+      allow create: if request.auth != null
+                    && userExists(request.resource.data.authorId);
+    }
+
+    match /comments/{commentId} {
+      allow read: if true;
+
+      // Multiple get() calls (budget of 10)
+      allow create: if request.auth != null
+                    && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
+                    && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+  }
+}

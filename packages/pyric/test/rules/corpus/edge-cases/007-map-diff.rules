@@ -1,0 +1,14 @@
+// Map diff operations (request.resource.data.diff)
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /settings/{settingId} {
+      // Only allow changing specific fields
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['theme', 'language']);
+
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow delete: if false;
+    }
+  }
+}

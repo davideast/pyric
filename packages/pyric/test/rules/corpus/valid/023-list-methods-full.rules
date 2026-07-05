@@ -1,0 +1,13 @@
+// All verified list methods
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+      allow create: if ['a', 'b'].join(',') == 'a,b'
+                    && [1].concat([2]).size() == 2
+                    && [1, 2, 3].removeAll([1]).size() == 2
+                    && [1, 1, 2].toSet().size() == 2;
+      allow read: if true;
+    }
+  }
+}

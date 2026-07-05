@@ -1,0 +1,51 @@
+{
+  "name": "pyric-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "examples/admin-playground",
+    "examples/vite-sandbox-app"
+  ],
+  "overrides": {
+    "firebase": "12.13.0"
+  },
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "knip": "knip --no-progress",
+    "build:pyric": "bun run --cwd packages/pyric build",
+    "build:pyric-admin": "bun run --cwd packages/pyric-admin build",
+    "build:pyric-tools": "bun run --cwd packages/pyric-tools build",
+    "build:ui": "bun run --cwd packages/ui build",
+    "test": "bun test --cwd packages/pyric && bun test --cwd packages/pyric-admin && bun test --cwd packages/pyric-tools && bun run --cwd packages/ui test && bun run --cwd packages/studio test",
+    "test:packaging": "bash scripts/packaging-test.sh",
+    "test:install-matrix": "bash scripts/install-matrix.sh",
+    "lint:manifest": "bash scripts/manifest-lint.sh",
+    "compat:report": "bun run scripts/compat/report.ts",
+    "compat:validate": "bun run scripts/compat/validate-registry.ts",
+    "compat:audit": "bun run scripts/oracle/audit.ts",
+    "compat:oracle-versions": "bun run scripts/oracle/check-observation-versions.ts",
+    "compat:oracle-check": "bun run scripts/oracle/check-observations.ts",
+    "pack": "bash scripts/pack-packages.sh",
+    "pack:skip-build": "bash scripts/pack-packages.sh --skip-build",
+    "compile:standalone": "bun run build && bun packages/pyric-tools/scripts/compile.ts",
+    "release:standalone": "bun run build && bun packages/pyric-tools/scripts/release.ts",
+    "smoke:standalone": "bun packages/pyric-tools/scripts/standalone-smoke.ts",
+    "smoke:vendor": "bun packages/pyric-tools/scripts/standalone-vendor-smoke.ts",
+    "build:studio": "bun run --cwd packages/studio build"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.3",
+    "@types/bun": "latest",
+    "bun-types": "latest",
+    "firebase": "^12.12.0",
+    "firebase-admin": "^13.0.0",
+    "knip": "^6.22.0",
+    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-to-string": "^4.0.0",
+    "publint": "^0.3.21",
+    "pyric": "workspace:*",
+    "pyric-tools": "workspace:*",
+    "typescript": "^5.7.0",
+    "zod": "^3.23.0"
+  }
+}

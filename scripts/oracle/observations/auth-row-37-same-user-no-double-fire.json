@@ -1,0 +1,28 @@
+{
+  "name": "auth-row-37-same-user-no-double-fire",
+  "matrixRow": "auth #37",
+  "description": "signInAnonymously twice in a row — does the second call (which prod treats as \"already signed in anonymously, return same user\") fire onAuthStateChanged again? Matrix claims no double-fire for same-user.",
+  "observedAt": "2026-05-17T23:58:50.074Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialFires": 1,
+    "afterFirstSignIn": 2,
+    "afterSecondSignIn": 2,
+    "firstSignInProducedFire": true,
+    "secondSignInProducedFire": false,
+    "uidAfterFirst": "eWlqvUuPMNMR4Vt2YECqgBiJB5b2",
+    "uidAfterSecond": "eWlqvUuPMNMR4Vt2YECqgBiJB5b2",
+    "sameUserAcrossCalls": true,
+    "fires": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "eWlqvUuPMNMR4Vt2YECqgBiJB5b2",
+        "ts": 524
+      }
+    ]
+  }
+}

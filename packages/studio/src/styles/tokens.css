@@ -1,0 +1,141 @@
+/**
+ * Pyric Studio swappable semantic theme tokens (F-THEME).
+ *
+ * Colour + fonts are driven by SEMANTIC CSS custom properties using the role
+ * NAMES the mocks use, so the mock CSS ports unchanged. Components reference
+ * roles only (`var(--bg)`, `var(--ink)`, `var(--accent)`, ...), never raw hexes.
+ *
+ * DARK is the DEFAULT (the product's resting state): `:root` carries the dark
+ * palette. Light is opt-in.
+ *   1. `:root`                          -> DARK (default; minimal neutral).
+ *   2. `@media (prefers-color-scheme: light)` (scoped to `:root:not([data-theme])`)
+ *                                       -> LIGHT, only when the OS asks for light
+ *                                          AND the user made no explicit choice.
+ *   3. `[data-theme="light"]`           -> LIGHT, explicit user override.
+ *   4. `[data-theme="dark"]`            -> DARK, explicit override (= `:root`).
+ *
+ * `shell/theme.tsx` writes `data-theme` on `<html>`; its default choice is dark.
+ *
+ * ── Design intent (the visual standard) ─────────────────────────────────
+ * MINIMAL + NEUTRAL. A few calm surface steps with low contrast between them;
+ * hairlines used sparingly; ONE accent used rarely. No blue cast. Hierarchy is
+ * carried by type (ink / muted / faint) and whitespace, not by fills and boxes.
+ *
+ * Type is a token too: one tight scale (`--fs-*`) so sizes stay consistent and
+ * deliberate instead of an ad-hoc sprawl.
+ */
+
+/* ── Type + fonts (theme-independent) ──────────────────────────────────── */
+:root {
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, monospace;
+  --font-display: var(--font-ui);
+
+  /* One tight type scale. Title for surface heads, body for prose, label for
+     UI controls, data for mono identifiers/values, micro for uppercase
+     eyebrows + column heads, caption for the quietest meta. */
+  --fs-title: 17px;
+  --fs-body: 13px;
+  --fs-label: 12px;
+  --fs-data: 12.5px;
+  --fs-caption: 11.5px;
+  --fs-micro: 10.5px;
+
+  /* The micro/eyebrow letter-spacing, used consistently. */
+  --tracking-micro: 0.06em;
+}
+
+/* ── DARK (default) ─ minimal neutral ──────────────────────────────────── */
+:root {
+  /* Surfaces: calm, low-contrast neutral steps. */
+  --bg: #0c0c0d; /* app canvas */
+  --panel: #151517; /* sunken rows / cards / code */
+  --elevated: #1b1b1e; /* raised controls */
+
+  /* Text hierarchy carries the design; near-white -> muted -> faint. */
+  --ink: #ededee;
+  --muted: #9a9aa1;
+  --faint: #65656b;
+
+  /* Lines: sparing hairlines. */
+  --line: #232326;
+  --line-2: #2f2f34;
+
+  /* The ONE accent, used rarely. */
+  --accent: #5e8bff;
+  --accent-tint: #181b25; /* subtle accent wash */
+  --accent-ink: #ffffff;
+
+  /* Deny inverts to a light fill in dark (the mock's filled-deny chip). */
+  --deny: #ededee;
+  --deny-ink: #0c0c0d;
+  --deny-tint: #161618; /* quiet deny band */
+
+  /* Diff. */
+  --diff-add: #57b985;
+  --diff-add-bg: #111d16;
+  --diff-remove: #e2607a;
+  --diff-remove-bg: #221318;
+}
+
+/* ── SYSTEM LIGHT: OS asks for light AND no explicit choice ─────────────── */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #ffffff;
+    --panel: #fafafa;
+    --elevated: #ffffff;
+
+    --ink: #16181d;
+    --muted: #646b78;
+    --faint: #9aa1ad;
+
+    --line: #e7e8ec;
+    --line-2: #d9dbe0;
+
+    --accent: #2f6df0;
+    --accent-tint: #f1f5ff;
+    --accent-ink: #ffffff;
+
+    --deny: #16181d;
+    --deny-ink: #ffffff;
+    --deny-tint: #f4f4f6;
+
+    --diff-add: #1f8f4e;
+    --diff-add-bg: #eef8f1;
+    --diff-remove: #c2374b;
+    --diff-remove-bg: #fceef0;
+  }
+}
+
+/* ── EXPLICIT LIGHT (forces light even under an OS dark pref) ───────────── */
+[data-theme="light"] {
+  --bg: #ffffff;
+  --panel: #fafafa;
+  --elevated: #ffffff;
+
+  --ink: #16181d;
+  --muted: #646b78;
+  --faint: #9aa1ad;
+
+  --line: #e7e8ec;
+  --line-2: #d9dbe0;
+
+  --accent: #2f6df0;
+  --accent-tint: #f1f5ff;
+  --accent-ink: #ffffff;
+
+  --deny: #16181d;
+  --deny-ink: #ffffff;
+  --deny-tint: #f4f4f6;
+
+  --diff-add: #1f8f4e;
+  --diff-add-bg: #eef8f1;
+  --diff-remove: #c2374b;
+  --diff-remove-bg: #fceef0;
+}
+
+/* `[data-theme="dark"]` needs no block: `:root` already carries dark, and the
+   system-light media query is excluded by `:not([data-theme])`, so an explicit
+   dark choice falls through to the `:root` dark values. */

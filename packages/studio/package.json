@@ -1,0 +1,46 @@
+{
+  "name": "@pyric/studio",
+  "version": "0.0.0",
+  "description": "Pyric Studio — the data-management and debugging console for the pyric sandbox, served by `pyric serve --ui`. Cross-service viewer/editor, action center, traffic, rules-failure debugging, and the agentic build flow over one event stream.",
+  "type": "module",
+  "exports": {
+    "./ports": {
+      "types": "./dist/ports.d.ts",
+      "import": "./dist/ports.js"
+    },
+    "./env": {
+      "types": "./dist/env.d.ts",
+      "import": "./dist/env.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && vite build",
+    "build:ports": "tsc -p tsconfig.json",
+    "dev": "vite",
+    "typecheck": "bun x tsc -p tsconfig.json --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "pyric": "workspace:*",
+    "pyric-tools": "workspace:*",
+    "@pyric/ui": "workspace:*",
+    "@inbrowser/agent": "0.4.0",
+    "@inbrowser/relay": "0.4.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/bun": "latest",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

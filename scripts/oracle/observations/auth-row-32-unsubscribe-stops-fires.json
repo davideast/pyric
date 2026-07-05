@@ -1,0 +1,28 @@
+{
+  "name": "auth-row-32-unsubscribe-stops-fires",
+  "matrixRow": "auth #32",
+  "description": "Returned Unsubscribe removes the observer; subsequent state changes do NOT fire it. Subscribe, do one transition (to confirm the listener is wired), unsubscribe, then do further transitions and verify no further fires.",
+  "observedAt": "2026-05-18T00:12:29.402Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialFires": 1,
+    "afterSignIn": 2,
+    "firesAtUnsubscribe": 2,
+    "afterPostUnsubSignOut": 2,
+    "afterPostUnsubSignIn": 2,
+    "afterPostUnsubSecondSignOut": 2,
+    "postUnsubFires": 0,
+    "unsubscribeStoppedFires": true,
+    "fires": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "Q8jhkPcU2Vh2Wp1dBfrSNBBYQvQ2",
+        "ts": 691
+      }
+    ]
+  }
+}

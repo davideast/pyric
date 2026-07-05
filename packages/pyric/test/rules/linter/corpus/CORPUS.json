@@ -1,0 +1,306 @@
+{
+  "generated": "2026-04-08T01:09:18.979Z",
+  "description": "Linter test corpus — rules files with known compile/runtime outcomes",
+  "entries": [
+    {
+      "filename": "01-minimal.rules",
+      "description": "Minimal valid rules — baseline",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [],
+      "source": "[file: 01-minimal.rules]",
+      "metrics": {
+        "sizeBytes": 213,
+        "lines": 9,
+        "functions": 0,
+        "maxLetsPerFunction": 0,
+        "allowRules": 2,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 1
+      }
+    },
+    {
+      "filename": "02-lets-10-ok.rules",
+      "description": "10 let bindings in one function — at the limit, should compile",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [],
+      "source": "[file: 02-lets-10-ok.rules]",
+      "metrics": {
+        "sizeBytes": 758,
+        "lines": 21,
+        "functions": 1,
+        "maxLetsPerFunction": 10,
+        "allowRules": 1,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 10
+      }
+    },
+    {
+      "filename": "03-functions-10.rules",
+      "description": "10 functions with unique gates — well under limits",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [],
+      "source": "[file: 03-functions-10.rules]",
+      "metrics": {
+        "sizeBytes": 1636,
+        "lines": 37,
+        "functions": 10,
+        "maxLetsPerFunction": 0,
+        "allowRules": 10,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 2
+      }
+    },
+    {
+      "filename": "04-unique-gates-8.rules",
+      "description": "8 allow rules with unique gates — no budget risk",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [],
+      "source": "[file: 04-unique-gates-8.rules]",
+      "metrics": {
+        "sizeBytes": 1334,
+        "lines": 31,
+        "functions": 8,
+        "maxLetsPerFunction": 0,
+        "allowRules": 8,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 2
+      }
+    },
+    {
+      "filename": "05-lets-13-fail.rules",
+      "description": "13 let bindings in one function — EXCEEDS limit, fails to compile",
+      "compiles": false,
+      "runtime": "fail",
+      "failureReason": "Let binding limit exceeded (~10 max). 400 INVALID_ARGUMENT.",
+      "lintRules": [
+        "LET_LIMIT"
+      ],
+      "source": "[file: 05-lets-13-fail.rules]",
+      "metrics": {
+        "sizeBytes": 932,
+        "lines": 24,
+        "functions": 1,
+        "maxLetsPerFunction": 13,
+        "allowRules": 1,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 13
+      }
+    },
+    {
+      "filename": "06-lets-11-ok.rules",
+      "description": "11 let bindings — at the exact limit, compiles (VERIFIED against production)",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [],
+      "source": "[file: 06-lets-11-ok.rules]",
+      "metrics": {
+        "sizeBytes": 816,
+        "lines": 22,
+        "functions": 1,
+        "maxLetsPerFunction": 11,
+        "allowRules": 1,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 11
+      }
+    },
+    {
+      "filename": "06b-lets-12-fail.rules",
+      "description": "12 let bindings — OVER the limit, fails to compile (VERIFIED against production)",
+      "compiles": false,
+      "runtime": "fail",
+      "failureReason": "Let binding limit exceeded. Exact limit is 11 per function. 400 INVALID_ARGUMENT.",
+      "lintRules": [
+        "LET_LIMIT"
+      ],
+      "source": "[file: 06b-lets-12-fail.rules]",
+      "metrics": {
+        "sizeBytes": 874,
+        "lines": 23,
+        "functions": 1,
+        "maxLetsPerFunction": 12,
+        "allowRules": 1,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 12
+      }
+    },
+    {
+      "filename": "07-large-50k-simple.rules",
+      "description": "~56KB of simple functions — COMPILES (verified). Size alone is not the limit; complexity is.",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [
+        "SIZE_WARNING"
+      ],
+      "source": "[file: 07-large-50k-simple.rules]",
+      "metrics": {
+        "sizeBytes": 58517,
+        "lines": 1608,
+        "functions": 400,
+        "maxLetsPerFunction": 0,
+        "allowRules": 1,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 2
+      }
+    },
+    {
+      "filename": "08-shared-gates-12.rules",
+      "description": "12 allow rules sharing moveType==\"normal\" gate — compiles but later rules may fail at runtime due to cross-rule budget",
+      "compiles": true,
+      "runtime": "partial",
+      "failureReason": "Cross-rule expression budget exhaustion. Later rules silently denied with 403.",
+      "lintRules": [
+        "SHARED_GATE",
+        "CROSS_RULE_BUDGET"
+      ],
+      "source": "[file: 08-shared-gates-12.rules]",
+      "metrics": {
+        "sizeBytes": 5264,
+        "lines": 127,
+        "functions": 12,
+        "maxLetsPerFunction": 5,
+        "allowRules": 12,
+        "sharedGates": true,
+        "estimatedMaxExprPerRule": 6
+      }
+    },
+    {
+      "filename": "09-unique-gates-12.rules",
+      "description": "12 allow rules with unique gates — same functions as 08 but no budget risk",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [],
+      "source": "[file: 09-unique-gates-12.rules]",
+      "metrics": {
+        "sizeBytes": 5254,
+        "lines": 127,
+        "functions": 12,
+        "maxLetsPerFunction": 5,
+        "allowRules": 12,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 6
+      }
+    },
+    {
+      "filename": "10-deep-call-chain.rules",
+      "description": "6-level function call chain — tests call depth limits",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [
+        "CALL_DEPTH"
+      ],
+      "source": "[file: 10-deep-call-chain.rules]",
+      "metrics": {
+        "sizeBytes": 616,
+        "lines": 15,
+        "functions": 6,
+        "maxLetsPerFunction": 0,
+        "allowRules": 1,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 12
+      }
+    }
+  ],
+  "realWorldFiles": [
+    {
+      "filename": "packages/pyric/test/fixtures/firestore-game-rules/chess.rules",
+      "description": "Full chess rules — 17/17 production tests pass",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [],
+      "metrics": {
+        "sizeBytes": 24833,
+        "lines": 518,
+        "functions": 25,
+        "maxLetsPerFunction": 8,
+        "allowRules": 20,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 94
+      }
+    },
+    {
+      "filename": "packages/pyric/test/fixtures/firestore-game-rules/checkers-lookup.rules",
+      "description": "Checkers with lookup doc — 13/13 production tests pass",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [],
+      "metrics": {
+        "sizeBytes": 7039,
+        "lines": 86,
+        "functions": 12,
+        "maxLetsPerFunction": 4,
+        "allowRules": 8,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 20
+      }
+    },
+    {
+      "filename": "packages/pyric/test/fixtures/firestore-game-rules/checkers-hardcoded.rules",
+      "description": "Checkers with hardcoded OR branches — production tested",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [
+        "SHARED_GATE"
+      ],
+      "metrics": {
+        "sizeBytes": 30583,
+        "lines": 611,
+        "functions": 20,
+        "maxLetsPerFunction": 3,
+        "allowRules": 16,
+        "sharedGates": true,
+        "estimatedMaxExprPerRule": 200
+      }
+    },
+    {
+      "filename": "packages/pyric/test/fixtures/firestore-game-rules/connect-four.rules",
+      "description": "Connect Four — production tested, placement game",
+      "compiles": true,
+      "runtime": "pass",
+      "failureReason": "",
+      "lintRules": [],
+      "metrics": {
+        "sizeBytes": 23987,
+        "lines": 312,
+        "functions": 3,
+        "maxLetsPerFunction": 0,
+        "allowRules": 5,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 130
+      }
+    },
+    {
+      "filename": "historical-gomoku.rules",
+      "description": "Gomoku — 175KB, likely exceeds all limits",
+      "compiles": false,
+      "runtime": "fail",
+      "failureReason": "Source size ~175KB far exceeds practical limit",
+      "lintRules": [
+        "SIZE_LIMIT"
+      ],
+      "metrics": {
+        "sizeBytes": 175368,
+        "lines": 0,
+        "functions": 0,
+        "maxLetsPerFunction": 0,
+        "allowRules": 0,
+        "sharedGates": false,
+        "estimatedMaxExprPerRule": 0
+      }
+    }
+  ]
+}

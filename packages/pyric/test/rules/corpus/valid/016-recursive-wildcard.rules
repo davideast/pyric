@@ -1,0 +1,21 @@
+// Tests recursive wildcard {var=**}
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Override for specific collection
+    match /public/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Recursive wildcard on subcollection
+    match /users/{userId}/{subcollection=**} {
+      allow read: if request.auth.uid == userId;
+    }
+  }
+}

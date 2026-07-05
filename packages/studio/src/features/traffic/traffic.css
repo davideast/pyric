@@ -1,0 +1,217 @@
+/**
+ * Traffic surface styling, ported from `mocks/c-traffic.html`, token roles only
+ * (no raw hexes), styling the `@pyric/ui/traffic` `data-pyric-*` contract.
+ *
+ * Two blocks: the volume timeline (histogram + live edge) and the request
+ * stream (DevTools-network-style rows; denials made clear).
+ */
+
+.traffic {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.traffic__empty {
+  color: var(--faint);
+  font-size: 13px;
+  text-align: center;
+  padding: 28px 0;
+  margin: 0;
+}
+
+/* ── Volume timeline ────────────────────────────────────────────────── */
+.traffic__timeline {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px 10px;
+  background: var(--panel);
+}
+
+.traffic__tl-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 12.5px;
+}
+.traffic__tl-count {
+  font-weight: 600;
+  color: var(--ink);
+}
+.traffic__tl-deny {
+  color: var(--deny);
+  font-weight: 600;
+}
+.traffic__tl-live {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.traffic__tl-live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.traffic__timeline [data-pyric-timeline-chart] {
+  position: relative;
+}
+
+.traffic__timeline [data-pyric-timeline-bars] {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 96px;
+}
+
+/* Each bucket: a flex column whose fill height = --pyric-bucket-h of the row. */
+.traffic__timeline [data-pyric-bucket] {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  cursor: default;
+  min-width: 2px;
+}
+
+.traffic__timeline [data-pyric-bucket-allow] {
+  display: block;
+  width: 100%;
+  height: calc(
+    max(0, (var(--pyric-bucket-h, 0) - var(--pyric-bucket-deny-h, 0))) * 100%
+  );
+  background: var(--line-2);
+  border-radius: 2px 2px 0 0;
+  min-height: 0;
+}
+
+.traffic__timeline [data-pyric-bucket-deny] {
+  display: block;
+  width: 100%;
+  height: calc(var(--pyric-bucket-deny-h, 0) * 100%);
+  background: var(--deny);
+}
+
+/* A bar with no denies gets a rounded base; with denies the deny segment is it. */
+.traffic__timeline [data-pyric-bucket]:not([data-pyric-has-denies])
+  [data-pyric-bucket-allow] {
+  border-radius: 2px;
+}
+
+/* Live edge marker. */
+.traffic__timeline [data-pyric-live] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--pyric-live-x, 1) * 100%);
+  width: 1px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.traffic__tl-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+/* ── Request stream ─────────────────────────────────────────────────── */
+.traffic__log {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.traffic__log [data-pyric-traffic-row] {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 14px;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+.traffic__log [data-pyric-traffic-row]:hover {
+  background: var(--panel);
+}
+.traffic__log [data-pyric-traffic-time] {
+  color: var(--faint);
+  flex-shrink: 0;
+  min-width: 64px;
+}
+.traffic__log [data-pyric-traffic-path] {
+  color: var(--ink);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Denials made clear: a dark filled badge + a row tint, matching the timeline. */
+.traffic__log [data-pyric-traffic-row][data-pyric-result="deny"] {
+  background: var(--deny-tint);
+}
+.traffic__log
+  [data-pyric-traffic-row][data-pyric-result="deny"]
+  [data-pyric-traffic-path] {
+  color: var(--deny);
+  font-weight: 600;
+}
+
+.traffic__log [data-pyric-badge-kind] {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line-2);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.traffic__log [data-pyric-badge-kind="deny"] {
+  background: var(--deny);
+  color: var(--deny-ink);
+  border-color: var(--deny);
+}
+.traffic__log [data-pyric-badge-kind="allow"] {
+  color: var(--muted);
+}
+
+/* Group rows (collapsed listener storms). */
+.traffic__log [data-pyric-traffic-group-row],
+.traffic__log [data-pyric-traffic-group] {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel);
+}

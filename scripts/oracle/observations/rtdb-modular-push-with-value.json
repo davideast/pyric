@@ -1,0 +1,23 @@
+{
+  "name": "rtdb-modular-push-with-value",
+  "matrixRow": "rtdb-modular #126/#127",
+  "description": "push(parent, value) — verify (a) the value is written under the new auto-id, (b) the returned ref is usable in follow-up ops.",
+  "observedAt": "2026-05-18T03:36:42.115Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "pushedKey": "-Ost93S8erOUhM_jxfhC",
+    "pushedKeyLength": 20,
+    "readBackInitial": {
+      "hello": "world"
+    },
+    "readBackAfterSet": {
+      "hello": "again"
+    },
+    "readBackAfterRemove": null,
+    "refIsUsableForFollowupOps": true
+  }
+}

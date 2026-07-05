@@ -1,0 +1,15 @@
+{
+  "name": "storage-delete-missing-throws",
+  "matrixRow": "storage #64",
+  "description": "deleteObject on a path that was never uploaded — observe the error code (expected: storage/object-not-found). Sandbox is no-op; this oracle locks prod's shape.",
+  "observedAt": "2026-05-18T01:30:07.931Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": true,
+    "code": "storage/object-not-found",
+    "message": "Firebase Storage: Object 'pyric_oracle/1779067802523-1wnssz/delete-missing/never-existed.bin' does not exist. (storage/object-not-found)",
+    "errorName": "FirebaseError",
+    "isFirebaseError": true
+  }
+}

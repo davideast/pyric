@@ -1,0 +1,23 @@
+{
+  "name": "storage-upload-then-getmetadata",
+  "matrixRow": "storage #89",
+  "description": "uploadBytes with contentType: application/octet-stream, then getMetadata — verify contentType and size round-trip exactly.",
+  "observedAt": "2026-05-18T01:30:04.996Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "uploadOk": true,
+    "metadataContentType": "application/octet-stream",
+    "metadataSize": 128,
+    "metadataFullPath": "pyric_oracle/1779067802523-1wnssz/upload-getmd/octet.bin",
+    "metadataBucket": "blockingfun.firebasestorage.app",
+    "metadataGeneration": "1779067804587568",
+    "metadataMetageneration": "1",
+    "contentTypeMatches": true,
+    "sizeMatches": true,
+    "fullPathMatches": true,
+    "hasMd5Hash": true,
+    "error": null,
+    "code": null
+  }
+}

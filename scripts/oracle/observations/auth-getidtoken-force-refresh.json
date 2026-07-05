@@ -1,0 +1,16 @@
+{
+  "name": "auth-getidtoken-force-refresh",
+  "matrixRow": "auth #55",
+  "description": "getIdToken(forceRefresh=true) — observes whether prod actually returns a different token string.",
+  "observedAt": "2026-05-18T01:02:15.882Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "token0Length": 837,
+    "token1Length": 837,
+    "token2Length": 837,
+    "token0EqualsToken1": false,
+    "token1EqualsToken2": true,
+    "forceRefreshReturnedDifferentString": true
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "auth-row-24-createuser-fires-once",
+  "matrixRow": "auth #24",
+  "description": "createUserWithEmailAndPassword fires onAuthStateChanged with the new user exactly once. Subscribe, createUser, count fires for the create transition.",
+  "observedAt": "2026-05-18T00:12:22.188Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialFires": 1,
+    "afterCreate": 2,
+    "firesForCreate": 1,
+    "createFiredExactlyOnce": true,
+    "lastFireUidMatches": true,
+    "createdUid": "SRdAKoRUXsXmwIC1VK8gWIQ4lI22",
+    "cleanupLeaked": false,
+    "fires": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "SRdAKoRUXsXmwIC1VK8gWIQ4lI22",
+        "ts": 859
+      }
+    ]
+  }
+}

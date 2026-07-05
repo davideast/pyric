@@ -1,0 +1,16 @@
+// Global functions: getAfter, debug, duration
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+      // getAfter — reads document as it will be after batch
+      allow create: if getAfter(/databases/$(database)/documents/test/$(docId)).data.x == 'y';
+
+      // debug — logs and returns the expression
+      allow read: if debug(request.auth != null);
+
+      // duration comparisons
+      allow update: if request.time > resource.data.updatedAt + duration.value(1, 'h');
+    }
+  }
+}

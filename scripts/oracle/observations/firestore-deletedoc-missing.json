@@ -1,0 +1,13 @@
+{
+  "name": "firestore-deletedoc-missing",
+  "matrixRow": "firestore #39",
+  "description": "deleteDoc against a non-existent doc — locks whether prod throws or no-ops.",
+  "observedAt": "2026-05-17T23:36:46.028Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "error": null,
+    "code": null
+  }
+}

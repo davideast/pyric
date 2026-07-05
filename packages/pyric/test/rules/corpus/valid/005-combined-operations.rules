@@ -1,0 +1,11 @@
+// Tests combining multiple operations in one allow statement
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /posts/{postId} {
+      allow read, write: if true;
+      allow create, update: if request.auth != null;
+      allow get, list: if true;
+    }
+  }
+}

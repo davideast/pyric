@@ -1,0 +1,19 @@
+{
+  "name": "rtdb-modular-off-stops-child-fires",
+  "matrixRow": "rtdb-modular #138/#139",
+  "description": "off(ref) (no eventType) removes ALL listeners at the ref — register onChildAdded, call off(ref), then write a NEW child; verify zero additional fires.",
+  "observedAt": "2026-05-18T04:26:38.300Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "preOffFires": 1,
+    "postOffFires": 0,
+    "firedKeys": [
+      "k1"
+    ],
+    "offStopsFires": true
+  }
+}

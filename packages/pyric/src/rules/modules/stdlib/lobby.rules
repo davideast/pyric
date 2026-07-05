@@ -1,0 +1,44 @@
+// Lobby module for 2-participant coordination.
+//
+// Convention: documents must have these fields:
+//   host: string (creator's UID)
+//   guest: string ('' when waiting, joiner's UID when joined)
+//   status: 'waiting' | 'playing' | 'ready' (or any active state)
+//
+// Usage:
+//   import { validCreate, validJoin, canCancel } from 'lobby';
+//
+//   allow create: if validCreate();
+//   allow update: if validJoin();
+//   allow delete: if canCancel();
+
+// Is this a waiting lobby with an open seat?
+function isWaiting() {
+  return resource.data.status == 'waiting'
+    && resource.data.guest == '';
+}
+
+// Create: caller is host, seat empty, status waiting
+export function validCreate() {
+  return request.auth != null
+    && request.resource.data.host == request.auth.uid
+    && request.resource.data.guest == ''
+    && request.resource.data.status == 'waiting';
+}
+
+// Join: fill empty seat, transition to next status, no self-join
+export function validJoin() {
+  return request.auth != null
+    && isWaiting()
+    && request.resource.data.guest == request.auth.uid
+    && request.auth.uid != resource.data.host
+    && request.resource.data.status == 'playing'
+    && request.resource.data.host == resource.data.host;
+}
+
+// Cancel: only host, only while waiting
+export function canCancel() {
+  return request.auth != null
+    && resource.data.status == 'waiting'
+    && request.auth.uid == resource.data.host;
+}

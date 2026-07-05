@@ -1,0 +1,152 @@
+[
+  {
+    "description": "companionChangedBy allows an exact +1 delta",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "x": 1
+    },
+    "wrapFunction": "companionChangedBy",
+    "wrapOperation": "create",
+    "wrapCallExpr": "companionChangedBy({'taskCount': 3}, {'taskCount': 4}, 'taskCount', 1)"
+  },
+  {
+    "description": "companionChangedBy allows an exact negative delta",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "x": 1
+    },
+    "wrapFunction": "companionChangedBy",
+    "wrapOperation": "create",
+    "wrapCallExpr": "companionChangedBy({'n': 2}, {'n': 1}, 'n', -1)"
+  },
+  {
+    "description": "companionChangedBy denies a wrong delta",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "x": 1
+    },
+    "wrapFunction": "companionChangedBy",
+    "wrapOperation": "create",
+    "wrapCallExpr": "companionChangedBy({'taskCount': 3}, {'taskCount': 5}, 'taskCount', 1)"
+  },
+  {
+    "description": "companionChangedBy denies an unchanged companion (solo write: after == before)",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "x": 1
+    },
+    "wrapFunction": "companionChangedBy",
+    "wrapOperation": "create",
+    "wrapCallExpr": "companionChangedBy({'taskCount': 3}, {'taskCount': 3}, 'taskCount', 1)"
+  },
+  {
+    "description": "companionChangedBy denies a missing companion field (null-on-miss)",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "x": 1
+    },
+    "wrapFunction": "companionChangedBy",
+    "wrapOperation": "create",
+    "wrapCallExpr": "companionChangedBy({'other': 1}, {'other': 1}, 'taskCount', 1)"
+  },
+  {
+    "description": "consumedFlag allows false -> true consumption",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "x": 1
+    },
+    "wrapFunction": "consumedFlag",
+    "wrapOperation": "create",
+    "wrapCallExpr": "consumedFlag({'used': false}, {'used': true}, 'used')"
+  },
+  {
+    "description": "consumedFlag denies a replay (already consumed before the batch)",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "x": 1
+    },
+    "wrapFunction": "consumedFlag",
+    "wrapOperation": "create",
+    "wrapCallExpr": "consumedFlag({'used': true}, {'used': true}, 'used')"
+  },
+  {
+    "description": "consumedFlag denies a solo write (after == before == false)",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "x": 1
+    },
+    "wrapFunction": "consumedFlag",
+    "wrapOperation": "create",
+    "wrapCallExpr": "consumedFlag({'used': false}, {'used': false}, 'used')"
+  },
+  {
+    "description": "consumedFlag denies un-consuming (true -> false)",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "x": 1
+    },
+    "wrapFunction": "consumedFlag",
+    "wrapOperation": "create",
+    "wrapCallExpr": "consumedFlag({'used': true}, {'used': false}, 'used')"
+  },
+  {
+    "description": "consumedFlag denies a missing flag field",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "x": 1
+    },
+    "wrapFunction": "consumedFlag",
+    "wrapOperation": "create",
+    "wrapCallExpr": "consumedFlag({}, {}, 'used')"
+  }
+]

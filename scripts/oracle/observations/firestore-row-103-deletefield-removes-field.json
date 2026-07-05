@@ -1,0 +1,22 @@
+{
+  "name": "firestore-row-103-deletefield-removes-field",
+  "matrixRow": "firestore #103",
+  "description": "deleteField() removes a field on update. Probe: setDoc({keep:1, remove:2}), then updateDoc({remove: deleteField()}), then getDoc — verify keep===1 AND remove is absent from the returned data (not just undefined-valued, actually not present).",
+  "observedAt": "2026-05-18T00:20:13.100Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "beforeKeys": [
+      "keep",
+      "remove"
+    ],
+    "afterKeys": [
+      "keep"
+    ],
+    "keepValue": 1,
+    "removePresent": false,
+    "removeValue": null,
+    "keepPreserved": true,
+    "removeStripped": true
+  }
+}

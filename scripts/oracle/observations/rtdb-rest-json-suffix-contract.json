@@ -1,0 +1,25 @@
+{
+  "name": "rtdb-rest-json-suffix-contract",
+  "matrixRow": "rtdb #5",
+  "description": "`.json`-suffix REST contract — fetching `<databaseUrl>/<path>.json` returns the JSON value at that path, while omitting `.json` returns HTML (the Firebase console redirector). Locks the contract every handler that calls `fetchDatabase` depends on.",
+  "observedAt": "2026-05-18T10:20:11.392Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "setThrew": false,
+    "setError": null,
+    "withJsonStatus": 200,
+    "withJsonContentType": "application/json; charset=utf-8",
+    "withJsonParseOk": true,
+    "withJsonRoundTripsPayload": true,
+    "withJsonValue": {
+      "hello": "world",
+      "n": 42
+    },
+    "withoutJsonStatus": 200,
+    "withoutJsonContentType": "text/html; charset=utf-8",
+    "withoutJsonParseOk": false,
+    "withoutJsonIsHtml": true,
+    "withoutJsonSnippet": "<!doctype html><html lang=\"en-US\" dir=\"ltr\"><head><base href=\"https://accounts.google.com/v3/signin/\"><link rel=\"preconnect\" href=\"//www.gstatic.com\"><meta name=\"referrer\" content=\"origin\"><style data"
+  }
+}

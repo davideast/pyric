@@ -1,0 +1,43 @@
+// Geometry module for movement game validation via config document lookup.
+//
+// Caller must pass the config document data as an explicit parameter.
+// The config doc is read via get() and cached per request — define a
+// config() function in your rules and pass its result to these functions.
+//
+// Config doc schema:
+//   moves[pieceType][fromCell][toCell] = true
+//   jumps[pieceType][fromCell][toCell] = capturedCellName
+//
+// Usage:
+//   import { validSimpleMove, validJumpMove } from 'geometry';
+//
+//   function config() {
+//     return get(/databases/$(database)/documents/gameConfig/checkers).data;
+//   }
+//
+//   allow update: if validSimpleMove(config())
+//     && piecePlaced() && moveIntegrity();
+//
+//   allow update: if validJumpMove(config())
+//     && captureValid() && captureDecrement() && moveIntegrity();
+
+// Validate a simple (non-capture) move via config document lookup.
+// Uses 3-level dynamic nesting: cfg.moves[piece][from][to].
+// piece comes from resource.data (pre-write board) so client can't fake it.
+export function validSimpleMove(cfg) {
+  let mf = request.resource.data.moveFrom;
+  let mt = request.resource.data.moveTo;
+  let piece = resource.data[mf];
+  return cfg.moves[piece][mf][mt] == true;
+}
+
+// Validate a jump (capture) move via config document lookup.
+// cfg.jumps[piece][from][to] returns the expected captured cell name.
+// Caller must separately verify the captured piece is an opponent piece.
+export function validJumpMove(cfg) {
+  let mf = request.resource.data.moveFrom;
+  let mt = request.resource.data.moveTo;
+  let cap = request.resource.data.captured;
+  let piece = resource.data[mf];
+  return cfg.jumps[piece][mf][mt] == cap;
+}

@@ -1,0 +1,34 @@
+// Transitions module for state machine enforcement.
+//
+// Validates that a field transitions from one known value to another.
+// Use to enforce valid status flows (e.g., open -> in_progress -> completed).
+//
+// Usage:
+//   import { validTransition, statusIs, newStatusIs } from 'transitions';
+//
+//   // Only allow open -> in_progress
+//   allow update: if validTransition('status', 'open', 'in_progress');
+//
+//   // Allow update only when currently active
+//   allow update: if statusIs('status', 'active');
+//
+//   // Compound: multiple valid transitions via OR
+//   allow update: if validTransition('status', 'open', 'in_progress')
+//     || validTransition('status', 'in_progress', 'completed')
+//     || validTransition('status', 'completed', 'archived');
+
+// Check that a field transitions from one value to another.
+export function validTransition(field, from, to) {
+  return resource.data[field] == from
+    && request.resource.data[field] == to;
+}
+
+// Check the current (existing) value of a field.
+export function statusIs(field, value) {
+  return resource.data[field] == value;
+}
+
+// Check the incoming (new) value of a field.
+export function newStatusIs(field, value) {
+  return request.resource.data[field] == value;
+}

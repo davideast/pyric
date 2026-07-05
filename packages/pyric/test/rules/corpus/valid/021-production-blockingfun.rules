@@ -1,0 +1,159 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: marathons
+    // Document ID: marathonId
+    // Fields:
+    //   - id: string (required) - unique identifier
+    //   - name: string (required) - marathon name
+    //   - tagline: string (required) - short description
+    //   - listImageURL: string (required, URL) - image for list view
+    //   - heroImageURL: string (required, URL) - image for detail view
+    //
+    // Collection: marathons/{marathonId}/articles
+    // Document ID: articleId
+    // Fields:
+    //   - id: string (required) - unique identifier
+    //   - title: string (required) - article title
+    //   - summary: string (required) - short summary
+    //   - imageURL: string (required, URL) - article image
+    //   - content: string (required) - article body (HTML)
+    //   - author: string (optional) - author name
+    //   - categoryId: string (required) - category identifier
+    //
+    // Collection: users
+    // Document ID: uid
+    // Fields:
+    //   - uid: string (required) - user unique identifier
+    //   - email: string (required, email) - user email
+    //   - displayName: string (optional) - user display name
+    //   - photoURL: string (optional, URL) - user photo URL
+    //   - role: string (required, enum: ['admin', 'user']) - user role
+    //
+    // Collection: likes
+    // Document ID: likeId (e.g., uid_articleId)
+    // Fields:
+    //   - uid: string (required) - user unique identifier
+    //   - articleId: string (required) - article unique identifier
+    //   - marathonId: string (required) - marathon unique identifier
+    //   - createdAt: timestamp (required) - creation time
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "deast@google.com" && request.auth.token.email_verified == true)); // Default admin
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'role']) &&
+             hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.role in ['admin', 'user'] &&
+             (data.displayName == null || (data.displayName is string && data.displayName.size() < 100)) &&
+             (data.photoURL == null || isValidUrl(data.photoURL));
+    }
+
+    function isValidMarathon(data) {
+      return hasRequiredFields(['id', 'name', 'tagline', 'listImageURL', 'heroImageURL']) &&
+             hasOnlyAllowedFields(['id', 'name', 'tagline', 'listImageURL', 'heroImageURL']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.tagline is string && data.tagline.size() > 0 && data.tagline.size() < 200 &&
+             isValidUrl(data.listImageURL) &&
+             isValidUrl(data.heroImageURL);
+    }
+
+    function isValidArticle(data) {
+      return hasRequiredFields(['id', 'title', 'summary', 'imageURL', 'content', 'categoryId']) &&
+             hasOnlyAllowedFields(['id', 'title', 'summary', 'imageURL', 'content', 'author', 'categoryId']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.summary is string && data.summary.size() > 0 && data.summary.size() < 500 &&
+             isValidUrl(data.imageURL) &&
+             data.content is string && data.content.size() > 0 && data.content.size() < 50000 &&
+             data.categoryId is string && data.categoryId.size() > 0 &&
+             (data.author == null || (data.author is string && data.author.size() < 100));
+    }
+
+    function isValidLike(data) {
+      return hasRequiredFields(['uid', 'articleId', 'marathonId', 'createdAt']) &&
+             hasOnlyAllowedFields(['uid', 'articleId', 'marathonId', 'createdAt']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.articleId is string && data.articleId.size() > 0 &&
+             data.marathonId is string && data.marathonId.size() > 0 &&
+             data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == 'user';
+      allow update: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role;
+      allow delete: if isAdmin();
+    }
+
+    match /marathons/{marathonId} {
+      allow read: if true; // Publicly readable
+      allow write: if isAdmin() && isValidMarathon(request.resource.data);
+
+      match /articles/{articleId} {
+        allow read: if true; // Publicly readable
+        allow write: if isAdmin() && isValidArticle(request.resource.data);
+      }
+    }
+
+    match /likes/{likeId} {
+      allow read: if isAuthenticated() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidLike(request.resource.data) && likeId == request.auth.uid + "_" + request.resource.data.articleId;
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+  }
+}

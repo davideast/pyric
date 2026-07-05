@@ -1,0 +1,17 @@
+// All verified request and resource properties
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+      // request.method, request.path
+      allow create: if request.method == 'create'
+                    && request.path is path;
+
+      // resource.id, resource.__name__
+      allow read: if true;
+
+      // number type check
+      allow update: if request.resource.data.count is number;
+    }
+  }
+}

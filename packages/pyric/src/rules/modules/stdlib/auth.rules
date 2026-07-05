@@ -1,0 +1,7 @@
+export function isAuthenticated() {
+  return request.auth != null;
+}
+
+export function isOwner(userId) {
+  return isAuthenticated() && request.auth.uid == userId;
+}

@@ -1,0 +1,39 @@
+{
+  "name": "auth-row-30-onauthstatechanged-fires-on-every-transition",
+  "matrixRow": "auth #30",
+  "description": "onAuthStateChanged fires on every subsequent identity change. Subscribe, then run signIn → signOut → signIn → signOut; verify the listener receives a fire for each of the 4 transitions.",
+  "observedAt": "2026-05-18T00:12:26.552Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialFires": 1,
+    "firesForT1SignIn": 1,
+    "firesForT2SignOut": 1,
+    "firesForT3SignIn": 1,
+    "firesForT4SignOut": 1,
+    "allFourTransitionsFired": true,
+    "eachTransitionFiredExactlyOnce": true,
+    "fires": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "XfLVHjuEJ3aodWxqd8IVSoiScal2",
+        "ts": 629
+      },
+      {
+        "uid": null,
+        "ts": 1032
+      },
+      {
+        "uid": "4T2e47tsb6M50PMARv5V7fUJ5632",
+        "ts": 1762
+      },
+      {
+        "uid": null,
+        "ts": 2165
+      }
+    ]
+  }
+}

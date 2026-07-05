@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+      function fn0() { return request.resource.data.f0 != ''; }
+      function fn1() { return request.resource.data.f1 != ''; }
+      function fn2() { return request.resource.data.f2 != ''; }
+      function fn3() { return request.resource.data.f3 != ''; }
+      function fn4() { return request.resource.data.f4 != ''; }
+      function fn5() { return request.resource.data.f5 != ''; }
+      function fn6() { return request.resource.data.f6 != ''; }
+      function fn7() { return request.resource.data.f7 != ''; }
+      allow update: if request.resource.data.moveType == 'type0'
+            && fn0();
+      allow update: if request.resource.data.moveType == 'type1'
+            && fn1();
+      allow update: if request.resource.data.moveType == 'type2'
+            && fn2();
+      allow update: if request.resource.data.moveType == 'type3'
+            && fn3();
+      allow update: if request.resource.data.moveType == 'type4'
+            && fn4();
+      allow update: if request.resource.data.moveType == 'type5'
+            && fn5();
+      allow update: if request.resource.data.moveType == 'type6'
+            && fn6();
+      allow update: if request.resource.data.moveType == 'type7'
+            && fn7();
+    }
+  }
+}

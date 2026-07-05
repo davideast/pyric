@@ -1,0 +1,184 @@
+[
+  {
+    "description": "hasRequired allows when field present",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "data": {
+      "name": "Alice"
+    },
+    "wrapFunction": "hasRequired",
+    "wrapCallExpr": "hasRequired(['name'])",
+    "wrapOperation": "create"
+  },
+  {
+    "description": "hasRequired denies when field missing",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "data": {
+      "email": "alice@example.com"
+    },
+    "wrapFunction": "hasRequired",
+    "wrapCallExpr": "hasRequired(['name'])",
+    "wrapOperation": "create"
+  },
+  {
+    "description": "hasOnly denies when extra field present",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "data": {
+      "name": "Alice",
+      "email": "a@b.com",
+      "secret": "x"
+    },
+    "wrapFunction": "hasOnly",
+    "wrapCallExpr": "hasOnly(['name', 'email'])",
+    "wrapOperation": "create"
+  },
+  {
+    "description": "validString allows string within bounds",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "validString",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validString('title', 1, 10)",
+    "data": {
+      "title": "hello"
+    }
+  },
+  {
+    "description": "validString allows at exact min and max boundary",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "validString",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validString('title', 5, 5)",
+    "data": {
+      "title": "hello"
+    }
+  },
+  {
+    "description": "validString denies empty string below min",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "validString",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validString('title', 1, 10)",
+    "data": {
+      "title": ""
+    }
+  },
+  {
+    "description": "validString denies string over max",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "validString",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validString('title', 1, 4)",
+    "data": {
+      "title": "hello"
+    }
+  },
+  {
+    "description": "validString denies non-string value",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "validString",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validString('title', 1, 10)",
+    "data": {
+      "title": 42
+    }
+  },
+  {
+    "description": "validString denies MISSING field (null-on-miss, not error)",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "validString",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validString('title', 1, 10)",
+    "data": {
+      "other": "x"
+    }
+  },
+  {
+    "description": "isOneOf allows a listed value",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "isOneOf",
+    "wrapOperation": "create",
+    "wrapCallExpr": "isOneOf('status', ['draft', 'published'])",
+    "data": {
+      "status": "draft"
+    }
+  },
+  {
+    "description": "isOneOf denies an unlisted value",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "isOneOf",
+    "wrapOperation": "create",
+    "wrapCallExpr": "isOneOf('status', ['draft', 'published'])",
+    "data": {
+      "status": "nuked"
+    }
+  },
+  {
+    "description": "isOneOf denies a missing field",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "isOneOf",
+    "wrapOperation": "create",
+    "wrapCallExpr": "isOneOf('status', ['draft', 'published'])",
+    "data": {
+      "other": "x"
+    }
+  }
+]

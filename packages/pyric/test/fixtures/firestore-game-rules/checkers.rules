@@ -1,0 +1,611 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /checkers/{gameId} {
+
+      // ═══ Authentication ═══
+      function isAuth() {
+        return request.auth != null;
+      }
+      function isHost() {
+        return request.auth.uid == resource.data.host;
+      }
+      function isGuest() {
+        return request.auth.uid == resource.data.guest;
+      }
+
+      // ═══ Turn & State ═══
+      function isPlaying() {
+        return resource.data.status == 'playing';
+      }
+      function isMyTurn() {
+        return (resource.data.currentTurn == 'host' && isHost())
+            || (resource.data.currentTurn == 'guest' && isGuest());
+      }
+      function turnFlipped() {
+        return (resource.data.currentTurn == 'host' && request.resource.data.currentTurn == 'guest')
+            || (resource.data.currentTurn == 'guest' && request.resource.data.currentTurn == 'host');
+      }
+      function moveIncremented() {
+        return request.resource.data.moveCount == resource.data.moveCount + 1;
+      }
+      function participantsUnchanged() {
+        return request.resource.data.host == resource.data.host
+            && request.resource.data.guest == resource.data.guest;
+      }
+
+      // ═══ Piece Movement ═══
+      function piecePlaced() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let piece = resource.data[mf];
+        let placed = request.resource.data[mt];
+        return resource.data[mt] == ''
+            && request.resource.data[mf] == ''
+            && (
+              (piece == 'h' && placed == 'h' && !(mt == 'c1r0' || mt == 'c3r0' || mt == 'c5r0' || mt == 'c7r0'))
+              || (piece == 'h' && placed == 'H' && (mt == 'c1r0' || mt == 'c3r0' || mt == 'c5r0' || mt == 'c7r0'))
+              || (piece == 'H' && placed == 'H')
+              || (piece == 'g' && placed == 'g' && !(mt == 'c0r7' || mt == 'c2r7' || mt == 'c4r7' || mt == 'c6r7'))
+              || (piece == 'g' && placed == 'G' && (mt == 'c0r7' || mt == 'c2r7' || mt == 'c4r7' || mt == 'c6r7'))
+              || (piece == 'G' && placed == 'G')
+            );
+      }
+
+      // ═══ Capture ═══
+      function captureValid() {
+        let cap = request.resource.data.captured;
+        let turn = resource.data.currentTurn;
+        return cap != ''
+            && request.resource.data[cap] == ''
+            && (
+              (turn == 'host' && (resource.data[cap] == 'g' || resource.data[cap] == 'G'))
+              || (turn == 'guest' && (resource.data[cap] == 'h' || resource.data[cap] == 'H'))
+            );
+      }
+
+      // ═══ Board Integrity (MapDiff) ═══
+      // Unified: works for both simple moves (captured='') and jumps (captured=cellName)
+      function moveIntegrity() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'moveFrom', 'moveTo', 'captured', 'currentTurn', 'moveCount', 'status', 'hostCount', 'guestCount',
+          request.resource.data.moveFrom,
+          request.resource.data.moveTo,
+          request.resource.data.captured
+        ]);
+      }
+
+      // ═══ Geometry: Simple Moves ═══
+      function hostFwd() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        return resource.data.currentTurn == 'host'
+            && (resource.data[mf] == 'h' || resource.data[mf] == 'H')
+            && ((mf == 'c0r1' && mt == 'c1r0')
+            || (mf == 'c2r1' && mt == 'c1r0')
+            || (mf == 'c2r1' && mt == 'c3r0')
+            || (mf == 'c4r1' && mt == 'c3r0')
+            || (mf == 'c4r1' && mt == 'c5r0')
+            || (mf == 'c6r1' && mt == 'c5r0')
+            || (mf == 'c6r1' && mt == 'c7r0')
+            || (mf == 'c1r2' && mt == 'c0r1')
+            || (mf == 'c1r2' && mt == 'c2r1')
+            || (mf == 'c3r2' && mt == 'c2r1')
+            || (mf == 'c3r2' && mt == 'c4r1')
+            || (mf == 'c5r2' && mt == 'c4r1')
+            || (mf == 'c5r2' && mt == 'c6r1')
+            || (mf == 'c7r2' && mt == 'c6r1')
+            || (mf == 'c0r3' && mt == 'c1r2')
+            || (mf == 'c2r3' && mt == 'c1r2')
+            || (mf == 'c2r3' && mt == 'c3r2')
+            || (mf == 'c4r3' && mt == 'c3r2')
+            || (mf == 'c4r3' && mt == 'c5r2')
+            || (mf == 'c6r3' && mt == 'c5r2')
+            || (mf == 'c6r3' && mt == 'c7r2')
+            || (mf == 'c1r4' && mt == 'c0r3')
+            || (mf == 'c1r4' && mt == 'c2r3')
+            || (mf == 'c3r4' && mt == 'c2r3')
+            || (mf == 'c3r4' && mt == 'c4r3')
+            || (mf == 'c5r4' && mt == 'c4r3')
+            || (mf == 'c5r4' && mt == 'c6r3')
+            || (mf == 'c7r4' && mt == 'c6r3')
+            || (mf == 'c0r5' && mt == 'c1r4')
+            || (mf == 'c2r5' && mt == 'c1r4')
+            || (mf == 'c2r5' && mt == 'c3r4')
+            || (mf == 'c4r5' && mt == 'c3r4')
+            || (mf == 'c4r5' && mt == 'c5r4')
+            || (mf == 'c6r5' && mt == 'c5r4')
+            || (mf == 'c6r5' && mt == 'c7r4')
+            || (mf == 'c1r6' && mt == 'c0r5')
+            || (mf == 'c1r6' && mt == 'c2r5')
+            || (mf == 'c3r6' && mt == 'c2r5')
+            || (mf == 'c3r6' && mt == 'c4r5')
+            || (mf == 'c5r6' && mt == 'c4r5')
+            || (mf == 'c5r6' && mt == 'c6r5')
+            || (mf == 'c7r6' && mt == 'c6r5')
+            || (mf == 'c0r7' && mt == 'c1r6')
+            || (mf == 'c2r7' && mt == 'c1r6')
+            || (mf == 'c2r7' && mt == 'c3r6')
+            || (mf == 'c4r7' && mt == 'c3r6')
+            || (mf == 'c4r7' && mt == 'c5r6')
+            || (mf == 'c6r7' && mt == 'c5r6')
+            || (mf == 'c6r7' && mt == 'c7r6'));
+      }
+
+      function hostBack() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        return resource.data.currentTurn == 'host'
+            && (resource.data[mf] == 'H')
+            && ((mf == 'c1r0' && mt == 'c0r1')
+            || (mf == 'c1r0' && mt == 'c2r1')
+            || (mf == 'c3r0' && mt == 'c2r1')
+            || (mf == 'c3r0' && mt == 'c4r1')
+            || (mf == 'c5r0' && mt == 'c4r1')
+            || (mf == 'c5r0' && mt == 'c6r1')
+            || (mf == 'c7r0' && mt == 'c6r1')
+            || (mf == 'c0r1' && mt == 'c1r2')
+            || (mf == 'c2r1' && mt == 'c1r2')
+            || (mf == 'c2r1' && mt == 'c3r2')
+            || (mf == 'c4r1' && mt == 'c3r2')
+            || (mf == 'c4r1' && mt == 'c5r2')
+            || (mf == 'c6r1' && mt == 'c5r2')
+            || (mf == 'c6r1' && mt == 'c7r2')
+            || (mf == 'c1r2' && mt == 'c0r3')
+            || (mf == 'c1r2' && mt == 'c2r3')
+            || (mf == 'c3r2' && mt == 'c2r3')
+            || (mf == 'c3r2' && mt == 'c4r3')
+            || (mf == 'c5r2' && mt == 'c4r3')
+            || (mf == 'c5r2' && mt == 'c6r3')
+            || (mf == 'c7r2' && mt == 'c6r3')
+            || (mf == 'c0r3' && mt == 'c1r4')
+            || (mf == 'c2r3' && mt == 'c1r4')
+            || (mf == 'c2r3' && mt == 'c3r4')
+            || (mf == 'c4r3' && mt == 'c3r4')
+            || (mf == 'c4r3' && mt == 'c5r4')
+            || (mf == 'c6r3' && mt == 'c5r4')
+            || (mf == 'c6r3' && mt == 'c7r4')
+            || (mf == 'c1r4' && mt == 'c0r5')
+            || (mf == 'c1r4' && mt == 'c2r5')
+            || (mf == 'c3r4' && mt == 'c2r5')
+            || (mf == 'c3r4' && mt == 'c4r5')
+            || (mf == 'c5r4' && mt == 'c4r5')
+            || (mf == 'c5r4' && mt == 'c6r5')
+            || (mf == 'c7r4' && mt == 'c6r5')
+            || (mf == 'c0r5' && mt == 'c1r6')
+            || (mf == 'c2r5' && mt == 'c1r6')
+            || (mf == 'c2r5' && mt == 'c3r6')
+            || (mf == 'c4r5' && mt == 'c3r6')
+            || (mf == 'c4r5' && mt == 'c5r6')
+            || (mf == 'c6r5' && mt == 'c5r6')
+            || (mf == 'c6r5' && mt == 'c7r6')
+            || (mf == 'c1r6' && mt == 'c0r7')
+            || (mf == 'c1r6' && mt == 'c2r7')
+            || (mf == 'c3r6' && mt == 'c2r7')
+            || (mf == 'c3r6' && mt == 'c4r7')
+            || (mf == 'c5r6' && mt == 'c4r7')
+            || (mf == 'c5r6' && mt == 'c6r7')
+            || (mf == 'c7r6' && mt == 'c6r7'));
+      }
+
+      function guestFwd() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        return resource.data.currentTurn == 'guest'
+            && (resource.data[mf] == 'g' || resource.data[mf] == 'G')
+            && ((mf == 'c1r0' && mt == 'c0r1')
+            || (mf == 'c1r0' && mt == 'c2r1')
+            || (mf == 'c3r0' && mt == 'c2r1')
+            || (mf == 'c3r0' && mt == 'c4r1')
+            || (mf == 'c5r0' && mt == 'c4r1')
+            || (mf == 'c5r0' && mt == 'c6r1')
+            || (mf == 'c7r0' && mt == 'c6r1')
+            || (mf == 'c0r1' && mt == 'c1r2')
+            || (mf == 'c2r1' && mt == 'c1r2')
+            || (mf == 'c2r1' && mt == 'c3r2')
+            || (mf == 'c4r1' && mt == 'c3r2')
+            || (mf == 'c4r1' && mt == 'c5r2')
+            || (mf == 'c6r1' && mt == 'c5r2')
+            || (mf == 'c6r1' && mt == 'c7r2')
+            || (mf == 'c1r2' && mt == 'c0r3')
+            || (mf == 'c1r2' && mt == 'c2r3')
+            || (mf == 'c3r2' && mt == 'c2r3')
+            || (mf == 'c3r2' && mt == 'c4r3')
+            || (mf == 'c5r2' && mt == 'c4r3')
+            || (mf == 'c5r2' && mt == 'c6r3')
+            || (mf == 'c7r2' && mt == 'c6r3')
+            || (mf == 'c0r3' && mt == 'c1r4')
+            || (mf == 'c2r3' && mt == 'c1r4')
+            || (mf == 'c2r3' && mt == 'c3r4')
+            || (mf == 'c4r3' && mt == 'c3r4')
+            || (mf == 'c4r3' && mt == 'c5r4')
+            || (mf == 'c6r3' && mt == 'c5r4')
+            || (mf == 'c6r3' && mt == 'c7r4')
+            || (mf == 'c1r4' && mt == 'c0r5')
+            || (mf == 'c1r4' && mt == 'c2r5')
+            || (mf == 'c3r4' && mt == 'c2r5')
+            || (mf == 'c3r4' && mt == 'c4r5')
+            || (mf == 'c5r4' && mt == 'c4r5')
+            || (mf == 'c5r4' && mt == 'c6r5')
+            || (mf == 'c7r4' && mt == 'c6r5')
+            || (mf == 'c0r5' && mt == 'c1r6')
+            || (mf == 'c2r5' && mt == 'c1r6')
+            || (mf == 'c2r5' && mt == 'c3r6')
+            || (mf == 'c4r5' && mt == 'c3r6')
+            || (mf == 'c4r5' && mt == 'c5r6')
+            || (mf == 'c6r5' && mt == 'c5r6')
+            || (mf == 'c6r5' && mt == 'c7r6')
+            || (mf == 'c1r6' && mt == 'c0r7')
+            || (mf == 'c1r6' && mt == 'c2r7')
+            || (mf == 'c3r6' && mt == 'c2r7')
+            || (mf == 'c3r6' && mt == 'c4r7')
+            || (mf == 'c5r6' && mt == 'c4r7')
+            || (mf == 'c5r6' && mt == 'c6r7')
+            || (mf == 'c7r6' && mt == 'c6r7'));
+      }
+
+      function guestBack() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        return resource.data.currentTurn == 'guest'
+            && (resource.data[mf] == 'G')
+            && ((mf == 'c0r1' && mt == 'c1r0')
+            || (mf == 'c2r1' && mt == 'c1r0')
+            || (mf == 'c2r1' && mt == 'c3r0')
+            || (mf == 'c4r1' && mt == 'c3r0')
+            || (mf == 'c4r1' && mt == 'c5r0')
+            || (mf == 'c6r1' && mt == 'c5r0')
+            || (mf == 'c6r1' && mt == 'c7r0')
+            || (mf == 'c1r2' && mt == 'c0r1')
+            || (mf == 'c1r2' && mt == 'c2r1')
+            || (mf == 'c3r2' && mt == 'c2r1')
+            || (mf == 'c3r2' && mt == 'c4r1')
+            || (mf == 'c5r2' && mt == 'c4r1')
+            || (mf == 'c5r2' && mt == 'c6r1')
+            || (mf == 'c7r2' && mt == 'c6r1')
+            || (mf == 'c0r3' && mt == 'c1r2')
+            || (mf == 'c2r3' && mt == 'c1r2')
+            || (mf == 'c2r3' && mt == 'c3r2')
+            || (mf == 'c4r3' && mt == 'c3r2')
+            || (mf == 'c4r3' && mt == 'c5r2')
+            || (mf == 'c6r3' && mt == 'c5r2')
+            || (mf == 'c6r3' && mt == 'c7r2')
+            || (mf == 'c1r4' && mt == 'c0r3')
+            || (mf == 'c1r4' && mt == 'c2r3')
+            || (mf == 'c3r4' && mt == 'c2r3')
+            || (mf == 'c3r4' && mt == 'c4r3')
+            || (mf == 'c5r4' && mt == 'c4r3')
+            || (mf == 'c5r4' && mt == 'c6r3')
+            || (mf == 'c7r4' && mt == 'c6r3')
+            || (mf == 'c0r5' && mt == 'c1r4')
+            || (mf == 'c2r5' && mt == 'c1r4')
+            || (mf == 'c2r5' && mt == 'c3r4')
+            || (mf == 'c4r5' && mt == 'c3r4')
+            || (mf == 'c4r5' && mt == 'c5r4')
+            || (mf == 'c6r5' && mt == 'c5r4')
+            || (mf == 'c6r5' && mt == 'c7r4')
+            || (mf == 'c1r6' && mt == 'c0r5')
+            || (mf == 'c1r6' && mt == 'c2r5')
+            || (mf == 'c3r6' && mt == 'c2r5')
+            || (mf == 'c3r6' && mt == 'c4r5')
+            || (mf == 'c5r6' && mt == 'c4r5')
+            || (mf == 'c5r6' && mt == 'c6r5')
+            || (mf == 'c7r6' && mt == 'c6r5')
+            || (mf == 'c0r7' && mt == 'c1r6')
+            || (mf == 'c2r7' && mt == 'c1r6')
+            || (mf == 'c2r7' && mt == 'c3r6')
+            || (mf == 'c4r7' && mt == 'c3r6')
+            || (mf == 'c4r7' && mt == 'c5r6')
+            || (mf == 'c6r7' && mt == 'c5r6')
+            || (mf == 'c6r7' && mt == 'c7r6'));
+      }
+
+      // ═══ Geometry: Jumps ═══
+      function hostJumpFwd() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let cap = request.resource.data.captured;
+        return resource.data.currentTurn == 'host'
+            && (resource.data[mf] == 'h' || resource.data[mf] == 'H')
+            && ((mf == 'c1r2' && mt == 'c3r0' && cap == 'c2r1')
+            || (mf == 'c3r2' && mt == 'c1r0' && cap == 'c2r1')
+            || (mf == 'c3r2' && mt == 'c5r0' && cap == 'c4r1')
+            || (mf == 'c5r2' && mt == 'c3r0' && cap == 'c4r1')
+            || (mf == 'c5r2' && mt == 'c7r0' && cap == 'c6r1')
+            || (mf == 'c7r2' && mt == 'c5r0' && cap == 'c6r1')
+            || (mf == 'c0r3' && mt == 'c2r1' && cap == 'c1r2')
+            || (mf == 'c2r3' && mt == 'c0r1' && cap == 'c1r2')
+            || (mf == 'c2r3' && mt == 'c4r1' && cap == 'c3r2')
+            || (mf == 'c4r3' && mt == 'c2r1' && cap == 'c3r2')
+            || (mf == 'c4r3' && mt == 'c6r1' && cap == 'c5r2')
+            || (mf == 'c6r3' && mt == 'c4r1' && cap == 'c5r2')
+            || (mf == 'c1r4' && mt == 'c3r2' && cap == 'c2r3')
+            || (mf == 'c3r4' && mt == 'c1r2' && cap == 'c2r3')
+            || (mf == 'c3r4' && mt == 'c5r2' && cap == 'c4r3')
+            || (mf == 'c5r4' && mt == 'c3r2' && cap == 'c4r3')
+            || (mf == 'c5r4' && mt == 'c7r2' && cap == 'c6r3')
+            || (mf == 'c7r4' && mt == 'c5r2' && cap == 'c6r3')
+            || (mf == 'c0r5' && mt == 'c2r3' && cap == 'c1r4')
+            || (mf == 'c2r5' && mt == 'c0r3' && cap == 'c1r4')
+            || (mf == 'c2r5' && mt == 'c4r3' && cap == 'c3r4')
+            || (mf == 'c4r5' && mt == 'c2r3' && cap == 'c3r4')
+            || (mf == 'c4r5' && mt == 'c6r3' && cap == 'c5r4')
+            || (mf == 'c6r5' && mt == 'c4r3' && cap == 'c5r4')
+            || (mf == 'c1r6' && mt == 'c3r4' && cap == 'c2r5')
+            || (mf == 'c3r6' && mt == 'c1r4' && cap == 'c2r5')
+            || (mf == 'c3r6' && mt == 'c5r4' && cap == 'c4r5')
+            || (mf == 'c5r6' && mt == 'c3r4' && cap == 'c4r5')
+            || (mf == 'c5r6' && mt == 'c7r4' && cap == 'c6r5')
+            || (mf == 'c7r6' && mt == 'c5r4' && cap == 'c6r5')
+            || (mf == 'c0r7' && mt == 'c2r5' && cap == 'c1r6')
+            || (mf == 'c2r7' && mt == 'c0r5' && cap == 'c1r6')
+            || (mf == 'c2r7' && mt == 'c4r5' && cap == 'c3r6')
+            || (mf == 'c4r7' && mt == 'c2r5' && cap == 'c3r6')
+            || (mf == 'c4r7' && mt == 'c6r5' && cap == 'c5r6')
+            || (mf == 'c6r7' && mt == 'c4r5' && cap == 'c5r6'));
+      }
+
+      function hostJumpBack() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let cap = request.resource.data.captured;
+        return resource.data.currentTurn == 'host'
+            && (resource.data[mf] == 'H')
+            && ((mf == 'c1r0' && mt == 'c3r2' && cap == 'c2r1')
+            || (mf == 'c3r0' && mt == 'c1r2' && cap == 'c2r1')
+            || (mf == 'c3r0' && mt == 'c5r2' && cap == 'c4r1')
+            || (mf == 'c5r0' && mt == 'c3r2' && cap == 'c4r1')
+            || (mf == 'c5r0' && mt == 'c7r2' && cap == 'c6r1')
+            || (mf == 'c7r0' && mt == 'c5r2' && cap == 'c6r1')
+            || (mf == 'c0r1' && mt == 'c2r3' && cap == 'c1r2')
+            || (mf == 'c2r1' && mt == 'c0r3' && cap == 'c1r2')
+            || (mf == 'c2r1' && mt == 'c4r3' && cap == 'c3r2')
+            || (mf == 'c4r1' && mt == 'c2r3' && cap == 'c3r2')
+            || (mf == 'c4r1' && mt == 'c6r3' && cap == 'c5r2')
+            || (mf == 'c6r1' && mt == 'c4r3' && cap == 'c5r2')
+            || (mf == 'c1r2' && mt == 'c3r4' && cap == 'c2r3')
+            || (mf == 'c3r2' && mt == 'c1r4' && cap == 'c2r3')
+            || (mf == 'c3r2' && mt == 'c5r4' && cap == 'c4r3')
+            || (mf == 'c5r2' && mt == 'c3r4' && cap == 'c4r3')
+            || (mf == 'c5r2' && mt == 'c7r4' && cap == 'c6r3')
+            || (mf == 'c7r2' && mt == 'c5r4' && cap == 'c6r3')
+            || (mf == 'c0r3' && mt == 'c2r5' && cap == 'c1r4')
+            || (mf == 'c2r3' && mt == 'c0r5' && cap == 'c1r4')
+            || (mf == 'c2r3' && mt == 'c4r5' && cap == 'c3r4')
+            || (mf == 'c4r3' && mt == 'c2r5' && cap == 'c3r4')
+            || (mf == 'c4r3' && mt == 'c6r5' && cap == 'c5r4')
+            || (mf == 'c6r3' && mt == 'c4r5' && cap == 'c5r4')
+            || (mf == 'c1r4' && mt == 'c3r6' && cap == 'c2r5')
+            || (mf == 'c3r4' && mt == 'c1r6' && cap == 'c2r5')
+            || (mf == 'c3r4' && mt == 'c5r6' && cap == 'c4r5')
+            || (mf == 'c5r4' && mt == 'c3r6' && cap == 'c4r5')
+            || (mf == 'c5r4' && mt == 'c7r6' && cap == 'c6r5')
+            || (mf == 'c7r4' && mt == 'c5r6' && cap == 'c6r5')
+            || (mf == 'c0r5' && mt == 'c2r7' && cap == 'c1r6')
+            || (mf == 'c2r5' && mt == 'c0r7' && cap == 'c1r6')
+            || (mf == 'c2r5' && mt == 'c4r7' && cap == 'c3r6')
+            || (mf == 'c4r5' && mt == 'c2r7' && cap == 'c3r6')
+            || (mf == 'c4r5' && mt == 'c6r7' && cap == 'c5r6')
+            || (mf == 'c6r5' && mt == 'c4r7' && cap == 'c5r6'));
+      }
+
+      function guestJumpFwd() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let cap = request.resource.data.captured;
+        return resource.data.currentTurn == 'guest'
+            && (resource.data[mf] == 'g' || resource.data[mf] == 'G')
+            && ((mf == 'c1r0' && mt == 'c3r2' && cap == 'c2r1')
+            || (mf == 'c3r0' && mt == 'c1r2' && cap == 'c2r1')
+            || (mf == 'c3r0' && mt == 'c5r2' && cap == 'c4r1')
+            || (mf == 'c5r0' && mt == 'c3r2' && cap == 'c4r1')
+            || (mf == 'c5r0' && mt == 'c7r2' && cap == 'c6r1')
+            || (mf == 'c7r0' && mt == 'c5r2' && cap == 'c6r1')
+            || (mf == 'c0r1' && mt == 'c2r3' && cap == 'c1r2')
+            || (mf == 'c2r1' && mt == 'c0r3' && cap == 'c1r2')
+            || (mf == 'c2r1' && mt == 'c4r3' && cap == 'c3r2')
+            || (mf == 'c4r1' && mt == 'c2r3' && cap == 'c3r2')
+            || (mf == 'c4r1' && mt == 'c6r3' && cap == 'c5r2')
+            || (mf == 'c6r1' && mt == 'c4r3' && cap == 'c5r2')
+            || (mf == 'c1r2' && mt == 'c3r4' && cap == 'c2r3')
+            || (mf == 'c3r2' && mt == 'c1r4' && cap == 'c2r3')
+            || (mf == 'c3r2' && mt == 'c5r4' && cap == 'c4r3')
+            || (mf == 'c5r2' && mt == 'c3r4' && cap == 'c4r3')
+            || (mf == 'c5r2' && mt == 'c7r4' && cap == 'c6r3')
+            || (mf == 'c7r2' && mt == 'c5r4' && cap == 'c6r3')
+            || (mf == 'c0r3' && mt == 'c2r5' && cap == 'c1r4')
+            || (mf == 'c2r3' && mt == 'c0r5' && cap == 'c1r4')
+            || (mf == 'c2r3' && mt == 'c4r5' && cap == 'c3r4')
+            || (mf == 'c4r3' && mt == 'c2r5' && cap == 'c3r4')
+            || (mf == 'c4r3' && mt == 'c6r5' && cap == 'c5r4')
+            || (mf == 'c6r3' && mt == 'c4r5' && cap == 'c5r4')
+            || (mf == 'c1r4' && mt == 'c3r6' && cap == 'c2r5')
+            || (mf == 'c3r4' && mt == 'c1r6' && cap == 'c2r5')
+            || (mf == 'c3r4' && mt == 'c5r6' && cap == 'c4r5')
+            || (mf == 'c5r4' && mt == 'c3r6' && cap == 'c4r5')
+            || (mf == 'c5r4' && mt == 'c7r6' && cap == 'c6r5')
+            || (mf == 'c7r4' && mt == 'c5r6' && cap == 'c6r5')
+            || (mf == 'c0r5' && mt == 'c2r7' && cap == 'c1r6')
+            || (mf == 'c2r5' && mt == 'c0r7' && cap == 'c1r6')
+            || (mf == 'c2r5' && mt == 'c4r7' && cap == 'c3r6')
+            || (mf == 'c4r5' && mt == 'c2r7' && cap == 'c3r6')
+            || (mf == 'c4r5' && mt == 'c6r7' && cap == 'c5r6')
+            || (mf == 'c6r5' && mt == 'c4r7' && cap == 'c5r6'));
+      }
+
+      function guestJumpBack() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let cap = request.resource.data.captured;
+        return resource.data.currentTurn == 'guest'
+            && (resource.data[mf] == 'G')
+            && ((mf == 'c1r2' && mt == 'c3r0' && cap == 'c2r1')
+            || (mf == 'c3r2' && mt == 'c1r0' && cap == 'c2r1')
+            || (mf == 'c3r2' && mt == 'c5r0' && cap == 'c4r1')
+            || (mf == 'c5r2' && mt == 'c3r0' && cap == 'c4r1')
+            || (mf == 'c5r2' && mt == 'c7r0' && cap == 'c6r1')
+            || (mf == 'c7r2' && mt == 'c5r0' && cap == 'c6r1')
+            || (mf == 'c0r3' && mt == 'c2r1' && cap == 'c1r2')
+            || (mf == 'c2r3' && mt == 'c0r1' && cap == 'c1r2')
+            || (mf == 'c2r3' && mt == 'c4r1' && cap == 'c3r2')
+            || (mf == 'c4r3' && mt == 'c2r1' && cap == 'c3r2')
+            || (mf == 'c4r3' && mt == 'c6r1' && cap == 'c5r2')
+            || (mf == 'c6r3' && mt == 'c4r1' && cap == 'c5r2')
+            || (mf == 'c1r4' && mt == 'c3r2' && cap == 'c2r3')
+            || (mf == 'c3r4' && mt == 'c1r2' && cap == 'c2r3')
+            || (mf == 'c3r4' && mt == 'c5r2' && cap == 'c4r3')
+            || (mf == 'c5r4' && mt == 'c3r2' && cap == 'c4r3')
+            || (mf == 'c5r4' && mt == 'c7r2' && cap == 'c6r3')
+            || (mf == 'c7r4' && mt == 'c5r2' && cap == 'c6r3')
+            || (mf == 'c0r5' && mt == 'c2r3' && cap == 'c1r4')
+            || (mf == 'c2r5' && mt == 'c0r3' && cap == 'c1r4')
+            || (mf == 'c2r5' && mt == 'c4r3' && cap == 'c3r4')
+            || (mf == 'c4r5' && mt == 'c2r3' && cap == 'c3r4')
+            || (mf == 'c4r5' && mt == 'c6r3' && cap == 'c5r4')
+            || (mf == 'c6r5' && mt == 'c4r3' && cap == 'c5r4')
+            || (mf == 'c1r6' && mt == 'c3r4' && cap == 'c2r5')
+            || (mf == 'c3r6' && mt == 'c1r4' && cap == 'c2r5')
+            || (mf == 'c3r6' && mt == 'c5r4' && cap == 'c4r5')
+            || (mf == 'c5r6' && mt == 'c3r4' && cap == 'c4r5')
+            || (mf == 'c5r6' && mt == 'c7r4' && cap == 'c6r5')
+            || (mf == 'c7r6' && mt == 'c5r4' && cap == 'c6r5')
+            || (mf == 'c0r7' && mt == 'c2r5' && cap == 'c1r6')
+            || (mf == 'c2r7' && mt == 'c0r5' && cap == 'c1r6')
+            || (mf == 'c2r7' && mt == 'c4r5' && cap == 'c3r6')
+            || (mf == 'c4r7' && mt == 'c2r5' && cap == 'c3r6')
+            || (mf == 'c4r7' && mt == 'c6r5' && cap == 'c5r6')
+            || (mf == 'c6r7' && mt == 'c4r5' && cap == 'c5r6'));
+      }
+
+      // ═══ Piece Counters ═══
+      function countsUnchanged() {
+        return request.resource.data.hostCount == resource.data.hostCount
+            && request.resource.data.guestCount == resource.data.guestCount;
+      }
+      function captureDecrement() {
+        let turn = resource.data.currentTurn;
+        return (turn == 'host'
+              && request.resource.data.guestCount == resource.data.guestCount - 1
+              && request.resource.data.hostCount == resource.data.hostCount)
+            || (turn == 'guest'
+              && request.resource.data.hostCount == resource.data.hostCount - 1
+              && request.resource.data.guestCount == resource.data.guestCount);
+      }
+
+      // ═══ Common Checks ═══
+      function normalMoveChecks() {
+        return isPlaying() && isMyTurn() && turnFlipped() && moveIncremented()
+            && participantsUnchanged() && request.resource.data.status == 'playing';
+      }
+      function winMoveChecks() {
+        return isPlaying() && isMyTurn() && turnFlipped() && moveIncremented()
+            && participantsUnchanged() && request.resource.data.status == 'won';
+      }
+
+      // ═══ Lobby ═══
+      allow read: if isAuth();
+
+      allow create: if isAuth()
+            && request.resource.data.host == request.auth.uid
+            && request.resource.data.guest == ''
+            && request.resource.data.status == 'waiting'
+            && request.resource.data.currentTurn == 'host'
+            && request.resource.data.moveCount == 0
+            && request.resource.data.moveFrom == ''
+            && request.resource.data.moveTo == ''
+            && request.resource.data.captured == ''
+            && request.resource.data.hostCount == 12
+            && request.resource.data.guestCount == 12
+            && request.resource.data.c1r0 == 'g'
+            && request.resource.data.c3r0 == 'g'
+            && request.resource.data.c5r0 == 'g'
+            && request.resource.data.c7r0 == 'g'
+            && request.resource.data.c0r1 == 'g'
+            && request.resource.data.c2r1 == 'g'
+            && request.resource.data.c4r1 == 'g'
+            && request.resource.data.c6r1 == 'g'
+            && request.resource.data.c1r2 == 'g'
+            && request.resource.data.c3r2 == 'g'
+            && request.resource.data.c5r2 == 'g'
+            && request.resource.data.c7r2 == 'g'
+            && request.resource.data.c0r3 == ''
+            && request.resource.data.c2r3 == ''
+            && request.resource.data.c4r3 == ''
+            && request.resource.data.c6r3 == ''
+            && request.resource.data.c1r4 == ''
+            && request.resource.data.c3r4 == ''
+            && request.resource.data.c5r4 == ''
+            && request.resource.data.c7r4 == ''
+            && request.resource.data.c0r5 == 'h'
+            && request.resource.data.c2r5 == 'h'
+            && request.resource.data.c4r5 == 'h'
+            && request.resource.data.c6r5 == 'h'
+            && request.resource.data.c1r6 == 'h'
+            && request.resource.data.c3r6 == 'h'
+            && request.resource.data.c5r6 == 'h'
+            && request.resource.data.c7r6 == 'h'
+            && request.resource.data.c0r7 == 'h'
+            && request.resource.data.c2r7 == 'h'
+            && request.resource.data.c4r7 == 'h'
+            && request.resource.data.c6r7 == 'h';
+
+      allow update: if isAuth()
+            && resource.data.status == 'waiting'
+            && resource.data.guest == ''
+            && request.resource.data.guest == request.auth.uid
+            && request.auth.uid != resource.data.host
+            && request.resource.data.status == 'playing'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guest', 'status']);
+
+      allow delete: if isAuth()
+            && resource.data.status == 'waiting'
+            && request.auth.uid == resource.data.host;
+
+      // ═══ Simple Moves — gate on captured=='' for cheap rejection by jump writes ═══
+      allow update: if request.resource.data.captured == ''
+            && normalMoveChecks() && hostFwd() && piecePlaced() && countsUnchanged() && moveIntegrity();
+      allow update: if request.resource.data.captured == ''
+            && normalMoveChecks() && hostBack() && piecePlaced() && countsUnchanged() && moveIntegrity();
+      allow update: if request.resource.data.captured == ''
+            && normalMoveChecks() && guestFwd() && piecePlaced() && countsUnchanged() && moveIntegrity();
+      allow update: if request.resource.data.captured == ''
+            && normalMoveChecks() && guestBack() && piecePlaced() && countsUnchanged() && moveIntegrity();
+
+      // ═══ Jumps — double gate: captured + status for cheap cross-rejection ═══
+      allow update: if request.resource.data.captured != ''
+            && request.resource.data.status == 'playing'
+            && normalMoveChecks() && hostJumpFwd() && piecePlaced() && captureValid() && captureDecrement() && moveIntegrity();
+      allow update: if request.resource.data.captured != ''
+            && request.resource.data.status == 'playing'
+            && normalMoveChecks() && hostJumpBack() && piecePlaced() && captureValid() && captureDecrement() && moveIntegrity();
+      allow update: if request.resource.data.captured != ''
+            && request.resource.data.status == 'playing'
+            && normalMoveChecks() && guestJumpFwd() && piecePlaced() && captureValid() && captureDecrement() && moveIntegrity();
+      allow update: if request.resource.data.captured != ''
+            && request.resource.data.status == 'playing'
+            && normalMoveChecks() && guestJumpBack() && piecePlaced() && captureValid() && captureDecrement() && moveIntegrity();
+
+      // ═══ Winning Jumps — counter-based win (1 expr vs 64) ═══
+      allow update: if request.resource.data.captured != ''
+            && request.resource.data.status == 'won'
+            && winMoveChecks() && hostJumpFwd() && piecePlaced()
+            && captureValid() && captureDecrement() && moveIntegrity()
+            && request.resource.data.guestCount == 0;
+      allow update: if request.resource.data.captured != ''
+            && request.resource.data.status == 'won'
+            && winMoveChecks() && hostJumpBack() && piecePlaced()
+            && captureValid() && captureDecrement() && moveIntegrity()
+            && request.resource.data.guestCount == 0;
+      allow update: if request.resource.data.captured != ''
+            && request.resource.data.status == 'won'
+            && winMoveChecks() && guestJumpFwd() && piecePlaced()
+            && captureValid() && captureDecrement() && moveIntegrity()
+            && request.resource.data.hostCount == 0;
+      allow update: if request.resource.data.captured != ''
+            && request.resource.data.status == 'won'
+            && winMoveChecks() && guestJumpBack() && piecePlaced()
+            && captureValid() && captureDecrement() && moveIntegrity()
+            && request.resource.data.hostCount == 0;
+    }
+  }
+}

@@ -1,0 +1,551 @@
+/**
+ * Auth surface: scoped stylesheet (Pyric Studio · S-AUTH).
+ *
+ * Ported from the design rationale, but every raw value is
+ * replaced by a SEMANTIC THEME TOKEN (`var(--ink)`, `var(--accent)`,
+ * `var(--deny)`, …) defined in `styles/tokens.css`, so the surface re-themes
+ * light/dark with the rest of Studio. NO raw hexes.
+ *
+ * Two token substitutions the mock used that aren't first-class roles:
+ *   - the mock's `--line-soft` (a quieter hairline) → `var(--line)`.
+ *   - the mock's literal `#fff` input/button fills   → `var(--elevated)`.
+ *
+ * Everything here targets the `data-pyric-*` styling contract the headless
+ * `@pyric/ui/auth` components emit (`auth-user-list` / `auth-user-form` /
+ * `claims-field` and their per-element hooks) PLUS the thin composition chrome
+ * this feature adds (`.auth-*`). We never restyle `@pyric/ui` itself; we hang
+ * CSS off the attributes it already exposes.
+ */
+
+.auth-surface {
+  --auth-gutter: 24px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ── Sub-bar (count · filter · actions), mock `.sub` ─────────────────── */
+.auth-sub {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+.auth-sub__h {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.auth-sub__n {
+  color: var(--faint);
+}
+.auth-sub__filter {
+  width: 220px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--elevated);
+}
+.auth-sub__filter::placeholder {
+  color: var(--faint);
+}
+.auth-sub__filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.auth-sub__right {
+  margin-left: auto;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.auth-sub__clear {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--faint);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
+}
+.auth-sub__clear:hover:not(:disabled) {
+  color: var(--ink);
+}
+.auth-sub__clear:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Master-detail body, mock `.body` (list + 392px detail) ──────────── */
+/* Grows to fill the full-height auth frame so the list + detail scroll inside
+   their own panes rather than the browser squashing to content height. */
+.auth-body {
+  display: grid;
+  grid-template-columns: 1fr 392px;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.auth-list {
+  overflow: auto;
+}
+.auth-detail {
+  overflow: auto;
+  border-left: 1px solid var(--line);
+}
+.auth-detail__empty {
+  padding: 28px var(--auth-gutter);
+}
+.auth-zero {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+ * USERS TABLE → AuthUserList (data-pyric-ui="auth-user-list")
+ * The library renders a role-based grid: a header row + per-user entry rows,
+ * each with `data-pyric-user-cell="identifier|providers|created|signed-in|
+ * uid|actions"`. We lay out the columns and skin the cells. The mock shows the
+ * uid INLINE under the identifier, so the standalone uid cell is hidden.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+[data-pyric-ui='auth-user-list'] {
+  display: block;
+  font-size: 13px;
+}
+
+/* Header + entry rows share the column template. */
+[data-pyric-ui='auth-user-list'] [data-pyric-user-header],
+[data-pyric-ui='auth-user-list'] [data-pyric-user-entry] {
+  display: grid;
+  grid-template-columns: 1fr 200px 96px 100px;
+  gap: 16px;
+  align-items: baseline;
+  padding: 10px var(--auth-gutter);
+}
+
+/* The library's extra `uid` column is folded into the identifier cell. */
+[data-pyric-ui='auth-user-list'] [data-pyric-user-cell='uid'] {
+  display: none;
+}
+
+[data-pyric-ui='auth-user-list'] [data-pyric-user-header] {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+[data-pyric-ui='auth-user-list'] [data-pyric-user-entry] {
+  border-bottom: 1px solid var(--line);
+  border-left: 2px solid transparent;
+  cursor: default;
+}
+[data-pyric-ui='auth-user-list'] [data-pyric-user-entry]:hover {
+  background: var(--panel);
+}
+/* Disabled accounts read quiet (the library marks them). */
+[data-pyric-ui='auth-user-list'] [data-pyric-user-entry][data-pyric-user-disabled] {
+  opacity: 0.6;
+}
+
+/* Identifier cell: the select button is the click target; strip its chrome. */
+[data-pyric-ui='auth-user-list'] [data-pyric-user-select] {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  width: 100%;
+}
+/* The identifier cell must be able to shrink so its email/uid ellipsize. */
+[data-pyric-ui='auth-user-list'] [data-pyric-user-cell='identifier'] {
+  min-width: 0;
+}
+.auth-ident {
+  display: block;
+  min-width: 0;
+}
+.auth-ident__primary {
+  display: block;
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.auth-ident--anon .auth-ident__primary {
+  color: var(--muted);
+  font-style: italic;
+}
+.auth-ident__uid {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 1px;
+  font-style: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Providers cell → one chip per `data-pyric-provider-id` (mock `.prov .p`). */
+[data-pyric-user-cell='providers'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+[data-pyric-user-cell='providers'] [data-pyric-provider-id] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--muted);
+}
+
+/* Created / Signed-in cells (mock `.when`). */
+[data-pyric-user-cell='created'],
+[data-pyric-user-cell='signed-in'] {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* List zero / loading / error states. */
+[data-pyric-ui='auth-user-list'][data-pyric-empty],
+[data-pyric-ui='auth-user-list'][data-pyric-loading],
+[data-pyric-ui='auth-user-list'][data-pyric-error] {
+  padding: 24px var(--auth-gutter);
+}
+[data-pyric-ui='auth-user-list'][data-pyric-error] {
+  color: var(--diff-remove);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+ * SELECTED-USER EDITOR: detail header + the composed AuthUserForm
+ * ════════════════════════════════════════════════════════════════════════ */
+
+.auth-editor {
+  padding: 0 0 40px;
+}
+.auth-editor__head {
+  padding: 16px var(--auth-gutter) 0;
+}
+.auth-editor__who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.auth-editor__uid {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+.auth-editor__meta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--faint);
+  margin-top: 6px;
+}
+
+/* The filled-deny "disabled" tag (mock `.tag-off`, but using the deny role). */
+.auth-tag-off {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--deny-ink);
+  background: var(--deny);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+/* When a row is disabled the whole editor leans on the quiet deny band. */
+.auth-editor[data-pyric-user-disabled] .auth-editor__head {
+  background: var(--deny-tint);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Group eyebrow (mock `.group`), reused for sign-in methods + form sections. */
+.auth-group {
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 18px 0 8px;
+  padding: 0 var(--auth-gutter);
+}
+
+/* ── Sign-in methods (read-only), mock `.method` ────────────────────── */
+.auth-methods {
+  /* group heading paddings are handled by .auth-group */
+}
+.auth-method {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px var(--auth-gutter);
+  border-top: 1px solid var(--line);
+}
+.auth-method__label {
+  font-size: 13px;
+  color: var(--ink);
+}
+.auth-method__id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+.auth-method__note {
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+ * FORM → AuthUserForm (data-pyric-ui="auth-user-form")
+ * Library emits: label[data-pyric-field-label="<name>"] wrappers each with a
+ * span[data-pyric-label-text] + the input[data-pyric-field], optional
+ * p[data-pyric-field-error], then <ClaimsField>, then footer[data-pyric-form-
+ * actions] with [data-pyric-cancel]/[data-pyric-submit].
+ * ════════════════════════════════════════════════════════════════════════ */
+
+[data-pyric-ui='auth-user-form'] {
+  padding: 6px var(--auth-gutter) 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Text-field rows (mock `.row` + `.lab` + `.in`). */
+[data-pyric-ui='auth-user-form'] [data-pyric-field-label] {
+  display: flex;
+  flex-direction: column;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-label-text] {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 6px;
+}
+[data-pyric-ui='auth-user-form'] input[data-pyric-field] {
+  width: 100%;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--elevated);
+  color: var(--ink);
+}
+[data-pyric-ui='auth-user-form'] input[data-pyric-field]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Checkbox rows (email-verified / disabled) read as inline label + box. */
+[data-pyric-ui='auth-user-form'] [data-pyric-field-label='email-verified'],
+[data-pyric-ui='auth-user-form'] [data-pyric-field-label='disabled'] {
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-field-label='email-verified'] [data-pyric-label-text],
+[data-pyric-ui='auth-user-form'] [data-pyric-field-label='disabled'] [data-pyric-label-text] {
+  margin-bottom: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+[data-pyric-ui='auth-user-form'] input[type='checkbox'][data-pyric-field] {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+/* Per-field validation messages. */
+[data-pyric-ui='auth-user-form'] [data-pyric-field-error] {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--diff-remove);
+}
+
+/* ── Claims field → ClaimsField (data-pyric-ui="claims-field") ────────── */
+[data-pyric-ui='claims-field'] {
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+[data-pyric-ui='claims-field'] textarea[data-pyric-field='claims'] {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  padding: 9px 11px;
+  background: var(--panel);
+  color: var(--ink);
+  line-height: 1.6;
+}
+[data-pyric-ui='claims-field'] textarea[data-pyric-field='claims']:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+[data-pyric-ui='claims-field'] textarea[data-pyric-claims-invalid] {
+  border-color: var(--diff-remove);
+}
+[data-pyric-ui='claims-field'] [data-pyric-claims-error] {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--diff-remove);
+}
+[data-pyric-ui='claims-field'] [data-pyric-claims-hint] {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* ── Form actions (mock `.actions` + `.btn`) ─────────────────────────── */
+[data-pyric-ui='auth-user-form'] [data-pyric-form-actions] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-form-actions] button {
+  appearance: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 15px;
+  border-radius: 7px;
+  border: 1px solid var(--line-2);
+  background: var(--elevated);
+  color: var(--ink);
+  cursor: pointer;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-submit] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-form-actions] button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Save-status line (composition chrome, slotted as form children). */
+.auth-save {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+.auth-save--error {
+  color: var(--diff-remove);
+}
+.auth-save--ok {
+  color: var(--accent);
+}
+
+/* ── Editor footer: delete (mock `.del`) ─────────────────────────────── */
+.auth-editor__foot {
+  display: flex;
+  align-items: center;
+  margin-top: 18px;
+  padding: 0 var(--auth-gutter);
+}
+.auth-del {
+  margin-left: auto;
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--faint);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
+}
+.auth-del:hover {
+  color: var(--diff-remove);
+}
+
+/* The mobile back affordance is hidden on desktop (list + detail side by side). */
+.auth-back {
+  display: none;
+}
+
+/* ── Mobile: master-detail becomes a single-pane drill-down ──────────── */
+@media (max-width: 760px) {
+  /* Sub-bar wraps: count + filter on one line, the filter grows. */
+  .auth-sub {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .auth-sub__filter {
+    flex: 1 1 100%;
+    order: 3;
+  }
+
+  /* List collapses to identifier + created (provider / signed-in drop). */
+  [data-pyric-ui='auth-user-list'] [data-pyric-user-header],
+  [data-pyric-ui='auth-user-list'] [data-pyric-user-entry] {
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+  }
+  [data-pyric-ui='auth-user-list'] [data-pyric-user-cell='providers'],
+  [data-pyric-ui='auth-user-list'] [data-pyric-user-cell='signed-in'] {
+    display: none;
+  }
+
+  /* One pane at a time. */
+  .auth-body {
+    grid-template-columns: 1fr;
+  }
+  .auth-body[data-auth-level='list'] .auth-detail {
+    display: none;
+  }
+  .auth-body[data-auth-level='detail'] .auth-list {
+    display: none;
+  }
+  .auth-detail {
+    border-left: none;
+  }
+  .auth-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    appearance: none;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 12px var(--auth-gutter) 0;
+  }
+}

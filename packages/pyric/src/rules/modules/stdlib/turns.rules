@@ -1,0 +1,27 @@
+// Turn enforcement for 2-participant games/sessions.
+//
+// Convention: documents must have these fields:
+//   host: string (UID)
+//   guest: string (UID)
+//   currentTurn: 'host' | 'guest'
+//
+// Usage:
+//   import { isMyTurn, turnFlipped } from 'turns';
+//
+//   allow update: if isMyTurn() && turnFlipped();
+
+// Is the caller the participant whose turn it is?
+export function isMyTurn() {
+  return (resource.data.currentTurn == 'host'
+            && request.auth.uid == resource.data.host)
+      || (resource.data.currentTurn == 'guest'
+            && request.auth.uid == resource.data.guest);
+}
+
+// Did the turn alternate?
+export function turnFlipped() {
+  return (resource.data.currentTurn == 'host'
+            && request.resource.data.currentTurn == 'guest')
+      || (resource.data.currentTurn == 'guest'
+            && request.resource.data.currentTurn == 'host');
+}

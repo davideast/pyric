@@ -1,0 +1,12 @@
+# Intentionally no `[test] preload`. Two test families coexist:
+#
+#   1. `test/firestore/*.test.tsx` — drive React hooks via
+#      `react-test-renderer` (no DOM needed). Keeping the realm
+#      clean avoids a known cross-realm breakage in
+#      `@pyric/firestore-rules`' OHM parser that fires when JSDOM
+#      or happy-dom installs replacement globals.
+#
+#   2. `test/primitives/*.test.tsx` — install JSDOM locally at the
+#      top of the file (it doesn't matter that JSDOM mutates
+#      globals for these tests, since they don't touch the rules
+#      parser).

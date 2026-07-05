@@ -1,0 +1,39 @@
+{
+  "name": "auth-row-40-onidtokenchanged-matches-onauthstatechanged-initial-fire",
+  "matrixRow": "auth #40",
+  "description": "Subscribe onIdTokenChanged and onAuthStateChanged simultaneously; capture count + timing of their initial fires. Matrix claims same initial-fire semantics.",
+  "observedAt": "2026-05-17T23:58:52.729Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "sync": {
+      "auth": 0,
+      "idToken": 0
+    },
+    "microtask": {
+      "auth": 1,
+      "idToken": 1
+    },
+    "macrotask": {
+      "auth": 1,
+      "idToken": 1
+    },
+    "final": {
+      "auth": 1,
+      "idToken": 1
+    },
+    "authFires": [
+      {
+        "uid": null,
+        "ts": 0
+      }
+    ],
+    "idTokenFires": [
+      {
+        "uid": null,
+        "ts": 0
+      }
+    ],
+    "sameInitialCount": true
+  }
+}

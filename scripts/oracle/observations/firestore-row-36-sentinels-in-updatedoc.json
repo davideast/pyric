@@ -1,0 +1,22 @@
+{
+  "name": "firestore-row-36-sentinels-in-updatedoc",
+  "matrixRow": "firestore #36",
+  "description": "Sentinels resolve mid-update. Probes setDoc({count:5, tags:[\"a\"], oldField:\"keep-then-remove\"}), then updateDoc({count: increment(3), tags: arrayUnion(\"b\"), oldField: deleteField()}), then getDoc — verifies increment, arrayUnion, and deleteField all applied.",
+  "observedAt": "2026-05-17T23:58:14.719Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "exists": true,
+    "keys": [
+      "count",
+      "tags"
+    ],
+    "count": 8,
+    "tags": [
+      "a",
+      "b"
+    ],
+    "oldFieldPresent": false,
+    "oldFieldValue": null
+  }
+}

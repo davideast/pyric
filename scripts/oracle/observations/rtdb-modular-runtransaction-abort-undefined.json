@@ -1,0 +1,17 @@
+{
+  "name": "rtdb-modular-runtransaction-abort-undefined",
+  "matrixRow": "rtdb-modular #159",
+  "description": "runTransaction abort by returning undefined — RTDB-specific: returning `undefined` from the update fn aborts. result.committed === false, no write performed.",
+  "observedAt": "2026-05-18T04:27:37.867Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "committed": false,
+    "snapVal": null,
+    "afterValOnServer": 100,
+    "abortedAndPreservedValue": true
+  }
+}

@@ -1,0 +1,20 @@
+// Timing module for cooldown / rate-limit enforcement.
+//
+// Rules CAN rate-limit (contrary to a common assumption — jrpg
+// FINDINGS F-004): compare request.time against a stored server
+// timestamp. Pair with lifecycle's isServerTimestamp on the SAME
+// write so the stored timestamp cannot be forged by the client:
+//
+//   import { cooldownElapsed } from 'timing';
+//   import { isServerTimestamp } from 'lifecycle';
+//
+//   // At most one move every 2 seconds:
+//   allow update: if cooldownElapsed('lastMoveAt', 2)
+//     && isServerTimestamp('lastMoveAt');
+
+// The stored timestamp is more than `seconds` old (strict). Update
+// rules only — needs `resource`. The field must be a Timestamp; a
+// missing field errors, which denies (fail-closed).
+export function cooldownElapsed(field, seconds) {
+  return request.time > resource.data[field] + duration.value(seconds, 's');
+}

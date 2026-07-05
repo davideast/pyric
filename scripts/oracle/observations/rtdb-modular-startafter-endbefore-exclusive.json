@@ -1,0 +1,22 @@
+{
+  "name": "rtdb-modular-startafter-endbefore-exclusive",
+  "matrixRow": "rtdb-modular #148/#149",
+  "description": "query(ref, orderByChild(\"pos\"), startAfter(2), endBefore(5)) — verify startAfter + endBefore are EXCLUSIVE (the cursor positions are dropped).",
+  "observedAt": "2026-05-18T04:28:10.689Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "matchedKeys": [
+      "c",
+      "d"
+    ],
+    "positions": [
+      3,
+      4
+    ],
+    "bothExclusive": true
+  }
+}

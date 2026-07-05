@@ -1,0 +1,21 @@
+{
+  "name": "firestore-and-composite",
+  "matrixRow": "firestore #57",
+  "description": "and(...) composite — every sub-filter must match. Seeds 4 docs with overlapping conditions and queries with and(where(x,==,1), where(y,==,2)); only the doc matching ALL sub-filters should come back.",
+  "observedAt": "2026-05-17T23:59:01.610Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "seeded": 4,
+    "matched": 1,
+    "matchedIds": [
+      "match-both"
+    ],
+    "threw": false,
+    "code": null,
+    "errorMessage": null,
+    "expectedIds": [
+      "match-both"
+    ]
+  }
+}

@@ -1,0 +1,129 @@
+/**
+ * Browser-safe SharedWorker CLIENT surface (Pyric Studio data plane).
+ *
+ * This barrel exports ONLY the leaf client + the wire-protocol types — the
+ * pieces a browser app (the served page, or Pyric Studio's Vite app) imports to
+ * connect to the `pyric-shared-worker` over its `MessagePort`. It deliberately
+ * does NOT re-export `host.ts`/`entry.ts`:
+ *   - `host.ts` imports the full `pyric/firestore` + `pyric/auth` engine (it IS
+ *     the backend) — node/engine-heavy, never wanted in a page bundle.
+ *   - `entry.ts` references `SharedWorkerGlobalScope` and is esbuild-only.
+ *
+ * `client.ts` imports only the value codec (`pyric/firestore-values`, a leaf)
+ * and type-only `pyric/sandbox` (erased at build), so this entry stays free of
+ * the ~10 MB rules/sandbox engine — safe to import from any browser app.
+ *
+ * Exposed by `pyric-tools`'s `./serve/worker` package export so Studio can
+ * `import { getFirestore, subscribeEvents, setLens, setPolicy } from
+ * 'pyric-tools/serve/worker'` and reach the live SharedWorker backend.
+ */
+
+export {
+  // Connect + handles
+  getFirestore,
+  getAuth,
+  getWorkerVersion,
+  getWorkerInstanceId,
+  exportWorkerState,
+  importWorkerState,
+  saveWorkerBranch,
+  listWorkerBranches,
+  switchWorkerBranch,
+  deleteWorkerBranch,
+  type ClientDb,
+  type ClientAuth,
+  type ClientUser,
+  type ClientUserCredential,
+  type DocRefHandle,
+  type CollRefHandle,
+  type QueryHandle,
+  type AnyHandle,
+  type Unsubscribe,
+  type ClientDocSnapshot,
+  type ClientQuerySnapshot,
+  // Path + query factories
+  doc,
+  collection,
+  collectionGroup,
+  query,
+  where,
+  orderBy,
+  limit,
+  limitToLast,
+  startAt,
+  startAfter,
+  endAt,
+  endBefore,
+  // Sentinels
+  serverTimestamp,
+  increment,
+  arrayUnion,
+  arrayRemove,
+  deleteField,
+  // Firestore execution
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  addDoc,
+  getCountFromServer,
+  listRootCollections,
+  listSubcollections,
+  onSnapshot,
+  writeBatch,
+  runTransaction,
+  setRules,
+  type ClientWriteBatch,
+  type ClientTransaction,
+  // Auth
+  createUserWithEmailAndPassword,
+  // Admin user-DB ops (Pyric Studio data browse)
+  listUsers,
+  adminCreateUser,
+  adminUpdateUser,
+  adminDeleteUser,
+  adminClearUsers,
+  signInWithEmailAndPassword,
+  signInAnonymously,
+  signOut,
+  acceptProviderCredential,
+  onAuthStateChanged,
+  onIdTokenChanged,
+  getIdToken,
+  getIdTokenResult,
+  setPersistence,
+  connectAuthEmulator,
+  inMemoryPersistence,
+  browserSessionPersistence,
+  browserLocalPersistence,
+  // Auth lens (Pyric Studio — admin / impersonation / app-session)
+  setLens,
+  getLens,
+  // Storage (Pyric Studio data browse): worker-backed FirebaseStorage mirror
+  getStorage,
+  ref,
+  listAll,
+  getMetadata,
+  type ClientFirebaseStorage,
+  type ClientStorageReference,
+  // Event stream (Pyric Studio keystone — onEvent/history over the port)
+  subscribeEvents,
+  eventHistory,
+  // Runtime confirm-policy (Pyric Studio F3 — permission dial)
+  setPolicy,
+  getPolicy,
+  // Sandbox snapshot export (Pyric Studio rules re-run: fork + test edited rules)
+  getSnapshot,
+} from './client.js';
+
+export type {
+  PolicyRequest,
+  PolicyOverrides,
+  ConfirmPolicy,
+  AuthPersistenceMode,
+  SerializedUser,
+  SerializedUserCredential,
+  SerializedIdTokenResult,
+  ResolvedIdentity,
+} from './protocol.js';

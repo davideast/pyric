@@ -1,0 +1,24 @@
+{
+  "name": "rtdb-modular-onchildremoved-fires-on-delete",
+  "matrixRow": "rtdb-modular #136",
+  "description": "onChildRemoved fires when a child is deleted — seed 2 children, subscribe, remove one, observe the fire (key + the now-removed value).",
+  "observedAt": "2026-05-18T04:26:34.625Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "firedOnInitial": 0,
+    "firedOnDelete": 1,
+    "lastFire": {
+      "key": "k1",
+      "val": {
+        "v": 1
+      }
+    },
+    "noInitialReplay": true,
+    "firesOnceOnDelete": true,
+    "removedSnapCarriesPriorValue": true
+  }
+}

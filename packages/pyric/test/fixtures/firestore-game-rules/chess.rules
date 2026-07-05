@@ -1,0 +1,519 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /gameConfig/{configId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /chess/{gameId} {
+
+      function cfg() {
+        return get(/databases/$(database)/documents/gameConfig/chess).data;
+      }
+
+      // ═══ Auth & Turn ═══
+      function isMyTurn() {
+        return request.auth != null
+            && ((resource.data.currentTurn == 'host' && request.auth.uid == resource.data.host)
+                || (resource.data.currentTurn == 'guest' && request.auth.uid == resource.data.guest));
+      }
+      function turnFlipped() {
+        return (resource.data.currentTurn == 'host' && request.resource.data.currentTurn == 'guest')
+            || (resource.data.currentTurn == 'guest' && request.resource.data.currentTurn == 'host');
+      }
+
+      // ═══ Piece ownership ═══
+      function isOwnPiece() {
+        let piece = resource.data[request.resource.data.moveFrom];
+        return (resource.data.currentTurn == 'host'
+                && (piece == 'K' || piece == 'Q' || piece == 'R' || piece == 'B' || piece == 'N' || piece == 'P'))
+            || (resource.data.currentTurn == 'guest'
+                && (piece == 'k' || piece == 'q' || piece == 'r' || piece == 'b' || piece == 'n' || piece == 'p'));
+      }
+
+      // ═══ Move validation ═══
+      // Standard piece move (non-pawn): geometry + path clear
+      function validPieceMove() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let piece = resource.data[mf];
+        let p = cfg().paths[mf][mt];
+        return mt in cfg().moves[piece][mf]
+            && (cfg().pieceCategory[piece] == 'jump'
+                || ((p.len < 1 || resource.data[p.c0] == '')
+                    && (p.len < 2 || resource.data[p.c1] == '')
+                    && (p.len < 3 || resource.data[p.c2] == '')
+                    && (p.len < 4 || resource.data[p.c3] == '')
+                    && (p.len < 5 || resource.data[p.c4] == '')
+                    && (p.len < 6 || resource.data[p.c5] == '')));
+      }
+
+      // Pawn forward (1 square)
+      function validPawnForward() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let piece = resource.data[mf];
+        return (piece == 'P' || piece == 'p')
+            && mt in cfg().pawnForward[piece][mf]
+            && resource.data[mt] == '';
+      }
+
+      // Pawn double move (2 squares from starting rank)
+      function validPawnDouble() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let piece = resource.data[mf];
+        return (piece == 'P' || piece == 'p')
+            && mf in cfg().pawnDouble[piece]
+            && cfg().pawnDouble[piece][mf].to == mt
+            && resource.data[mt] == ''
+            && resource.data[cfg().pawnDouble[piece][mf].between] == '';
+      }
+
+      // Pawn capture (diagonal) — isGuestPiece/isHostPiece inlined to reduce function calls
+      function validPawnCapture() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let piece = resource.data[mf];
+        let target = resource.data[mt];
+        return (piece == 'P' || piece == 'p')
+            && mt in cfg().pawnAttacks[piece][mf]
+            && target != ''
+            && ((piece == 'P' && (target == 'k' || target == 'q' || target == 'r' || target == 'b' || target == 'n' || target == 'p'))
+                || (piece == 'p' && (target == 'K' || target == 'Q' || target == 'R' || target == 'B' || target == 'N' || target == 'P')));
+      }
+
+      // En passant
+      function validEnPassant() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let piece = resource.data[mf];
+        return (piece == 'P' || piece == 'p')
+            && mt in cfg().pawnAttacks[piece][mf]
+            && resource.data[mt] == ''
+            && resource.data.lastDoublePawn == mt
+            && request.resource.data.moveType == 'en_passant';
+      }
+
+      function validPromotion() {
+        let mt = request.resource.data.moveTo;
+        let piece = resource.data[request.resource.data.moveFrom];
+        let pt = request.resource.data.promotedTo;
+        return request.resource.data.moveType == 'promotion'
+            && ((piece == 'P' && mt >= 'a8' && mt <= 'h8' && (pt == 'Q' || pt == 'R' || pt == 'B' || pt == 'N'))
+                || (piece == 'p' && mt >= 'a1' && mt <= 'h1' && (pt == 'q' || pt == 'r' || pt == 'b' || pt == 'n')));
+      }
+
+      // ═══ Board state after move ═══
+      function pieceMovedCorrectly() {
+        let mf = request.resource.data.moveFrom;
+        let mt = request.resource.data.moveTo;
+        let piece = resource.data[mf];
+        let mt_type = request.resource.data.moveType;
+        // Source square emptied
+        return request.resource.data[mf] == ''
+            // Destination has the piece (or promoted piece)
+            && (mt_type != 'promotion'
+                ? request.resource.data[mt] == piece
+                : request.resource.data[mt] == request.resource.data.promotedTo)
+            // Piece position updated
+            && resource.data[request.resource.data.movedPiece] == mf
+            && request.resource.data[request.resource.data.movedPiece] == mt;
+      }
+
+      // Capture validation
+      function captureValid() {
+        let mt = request.resource.data.moveTo;
+        let cp = request.resource.data.capturedPiece;
+        let turn = resource.data.currentTurn;
+        return cp != ''
+            && resource.data[cp] == mt
+            && request.resource.data[cp] == '';
+      }
+
+      // ═══ Castling ═══
+      function validCastleKingside() {
+        let turn = resource.data.currentTurn;
+        let c = cfg().castling;
+        let castle = turn == 'host' ? c.wk : c.bk;
+        let kingMoved = turn == 'host' ? resource.data.hp_K_moved : resource.data.gp_k_moved;
+        let rookMoved = turn == 'host' ? resource.data.hp_R2_moved : resource.data.gp_r2_moved;
+        return !kingMoved && !rookMoved
+            && request.resource.data.moveFrom == castle.kingFrom
+            && request.resource.data.moveTo == castle.kingTo
+            && resource.data[castle.between[0]] == ''
+            && resource.data[castle.between[1]] == '';
+      }
+
+      function validCastleQueenside() {
+        let turn = resource.data.currentTurn;
+        let c = cfg().castling;
+        let castle = turn == 'host' ? c.wq : c.bq;
+        let kingMoved = turn == 'host' ? resource.data.hp_K_moved : resource.data.gp_k_moved;
+        let rookMoved = turn == 'host' ? resource.data.hp_R1_moved : resource.data.gp_r1_moved;
+        return !kingMoved && !rookMoved
+            && request.resource.data.moveFrom == castle.kingFrom
+            && request.resource.data.moveTo == castle.kingTo
+            && resource.data[castle.between[0]] == ''
+            && resource.data[castle.between[1]] == ''
+            && resource.data[castle.between[2]] == '';
+      }
+
+      // ═══ Check detection ═══
+      // For each opponent piece: is it attacking the king square?
+      // Uses piece type from BOARD (handles promoted pawns correctly)
+      // pieceCategory determines if path check is needed
+
+      function hPC(cfg) {
+        let b = request.resource.data;
+        let ks = b.hp_K;
+        return (b.gp_p1 != '' && b[b.gp_p1] != '' && ks in cfg.pawnAttacks[b[b.gp_p1]][b.gp_p1])
+            || (b.gp_p2 != '' && b[b.gp_p2] != '' && ks in cfg.pawnAttacks[b[b.gp_p2]][b.gp_p2])
+            || (b.gp_p3 != '' && b[b.gp_p3] != '' && ks in cfg.pawnAttacks[b[b.gp_p3]][b.gp_p3])
+            || (b.gp_p4 != '' && b[b.gp_p4] != '' && ks in cfg.pawnAttacks[b[b.gp_p4]][b.gp_p4])
+            || (b.gp_p5 != '' && b[b.gp_p5] != '' && ks in cfg.pawnAttacks[b[b.gp_p5]][b.gp_p5])
+            || (b.gp_p6 != '' && b[b.gp_p6] != '' && ks in cfg.pawnAttacks[b[b.gp_p6]][b.gp_p6])
+            || (b.gp_p7 != '' && b[b.gp_p7] != '' && ks in cfg.pawnAttacks[b[b.gp_p7]][b.gp_p7])
+            || (b.gp_p8 != '' && b[b.gp_p8] != '' && ks in cfg.pawnAttacks[b[b.gp_p8]][b.gp_p8]);
+      }
+      function hMC(cfg) {
+        let b = request.resource.data;
+        let ks = b.hp_K;
+        return (b.gp_n1 != '' && b[b.gp_n1] != '' && ks in cfg.moves[b[b.gp_n1]][b.gp_n1])
+            || (b.gp_n2 != '' && b[b.gp_n2] != '' && ks in cfg.moves[b[b.gp_n2]][b.gp_n2])
+            || (b.gp_k != '' && b[b.gp_k] != '' && ks in cfg.moves[b[b.gp_k]][b.gp_k]);
+      }
+      function hSC(cfg) {
+        let b = request.resource.data;
+        let ks = b.hp_K;
+        return (b.gp_q != '' && b[b.gp_q] != '' && ks in cfg.moves[b[b.gp_q]][b.gp_q]
+            && (cfg.paths[b.gp_q][ks].len < 1 || b[cfg.paths[b.gp_q][ks].c0] == '')
+            && (cfg.paths[b.gp_q][ks].len < 2 || b[cfg.paths[b.gp_q][ks].c1] == '')
+            && (cfg.paths[b.gp_q][ks].len < 3 || b[cfg.paths[b.gp_q][ks].c2] == '')
+            && (cfg.paths[b.gp_q][ks].len < 4 || b[cfg.paths[b.gp_q][ks].c3] == '')
+            && (cfg.paths[b.gp_q][ks].len < 5 || b[cfg.paths[b.gp_q][ks].c4] == ''))
+            || (b.gp_r1 != '' && b[b.gp_r1] != '' && ks in cfg.moves[b[b.gp_r1]][b.gp_r1]
+            && (cfg.paths[b.gp_r1][ks].len < 1 || b[cfg.paths[b.gp_r1][ks].c0] == '')
+            && (cfg.paths[b.gp_r1][ks].len < 2 || b[cfg.paths[b.gp_r1][ks].c1] == '')
+            && (cfg.paths[b.gp_r1][ks].len < 3 || b[cfg.paths[b.gp_r1][ks].c2] == '')
+            && (cfg.paths[b.gp_r1][ks].len < 4 || b[cfg.paths[b.gp_r1][ks].c3] == '')
+            && (cfg.paths[b.gp_r1][ks].len < 5 || b[cfg.paths[b.gp_r1][ks].c4] == ''))
+            || (b.gp_r2 != '' && b[b.gp_r2] != '' && ks in cfg.moves[b[b.gp_r2]][b.gp_r2]
+            && (cfg.paths[b.gp_r2][ks].len < 1 || b[cfg.paths[b.gp_r2][ks].c0] == '')
+            && (cfg.paths[b.gp_r2][ks].len < 2 || b[cfg.paths[b.gp_r2][ks].c1] == '')
+            && (cfg.paths[b.gp_r2][ks].len < 3 || b[cfg.paths[b.gp_r2][ks].c2] == '')
+            && (cfg.paths[b.gp_r2][ks].len < 4 || b[cfg.paths[b.gp_r2][ks].c3] == '')
+            && (cfg.paths[b.gp_r2][ks].len < 5 || b[cfg.paths[b.gp_r2][ks].c4] == ''))
+            || (b.gp_b1 != '' && b[b.gp_b1] != '' && ks in cfg.moves[b[b.gp_b1]][b.gp_b1]
+            && (cfg.paths[b.gp_b1][ks].len < 1 || b[cfg.paths[b.gp_b1][ks].c0] == '')
+            && (cfg.paths[b.gp_b1][ks].len < 2 || b[cfg.paths[b.gp_b1][ks].c1] == '')
+            && (cfg.paths[b.gp_b1][ks].len < 3 || b[cfg.paths[b.gp_b1][ks].c2] == '')
+            && (cfg.paths[b.gp_b1][ks].len < 4 || b[cfg.paths[b.gp_b1][ks].c3] == '')
+            && (cfg.paths[b.gp_b1][ks].len < 5 || b[cfg.paths[b.gp_b1][ks].c4] == ''))
+            || (b.gp_b2 != '' && b[b.gp_b2] != '' && ks in cfg.moves[b[b.gp_b2]][b.gp_b2]
+            && (cfg.paths[b.gp_b2][ks].len < 1 || b[cfg.paths[b.gp_b2][ks].c0] == '')
+            && (cfg.paths[b.gp_b2][ks].len < 2 || b[cfg.paths[b.gp_b2][ks].c1] == '')
+            && (cfg.paths[b.gp_b2][ks].len < 3 || b[cfg.paths[b.gp_b2][ks].c2] == '')
+            && (cfg.paths[b.gp_b2][ks].len < 4 || b[cfg.paths[b.gp_b2][ks].c3] == '')
+            && (cfg.paths[b.gp_b2][ks].len < 5 || b[cfg.paths[b.gp_b2][ks].c4] == ''));
+      }
+      function gPC(cfg) {
+        let b = request.resource.data;
+        let ks = b.gp_k;
+        return (b.hp_P1 != '' && b[b.hp_P1] != '' && ks in cfg.pawnAttacks[b[b.hp_P1]][b.hp_P1])
+            || (b.hp_P2 != '' && b[b.hp_P2] != '' && ks in cfg.pawnAttacks[b[b.hp_P2]][b.hp_P2])
+            || (b.hp_P3 != '' && b[b.hp_P3] != '' && ks in cfg.pawnAttacks[b[b.hp_P3]][b.hp_P3])
+            || (b.hp_P4 != '' && b[b.hp_P4] != '' && ks in cfg.pawnAttacks[b[b.hp_P4]][b.hp_P4])
+            || (b.hp_P5 != '' && b[b.hp_P5] != '' && ks in cfg.pawnAttacks[b[b.hp_P5]][b.hp_P5])
+            || (b.hp_P6 != '' && b[b.hp_P6] != '' && ks in cfg.pawnAttacks[b[b.hp_P6]][b.hp_P6])
+            || (b.hp_P7 != '' && b[b.hp_P7] != '' && ks in cfg.pawnAttacks[b[b.hp_P7]][b.hp_P7])
+            || (b.hp_P8 != '' && b[b.hp_P8] != '' && ks in cfg.pawnAttacks[b[b.hp_P8]][b.hp_P8]);
+      }
+      function gMC(cfg) {
+        let b = request.resource.data;
+        let ks = b.gp_k;
+        return (b.hp_N1 != '' && b[b.hp_N1] != '' && ks in cfg.moves[b[b.hp_N1]][b.hp_N1])
+            || (b.hp_N2 != '' && b[b.hp_N2] != '' && ks in cfg.moves[b[b.hp_N2]][b.hp_N2])
+            || (b.hp_K != '' && b[b.hp_K] != '' && ks in cfg.moves[b[b.hp_K]][b.hp_K]);
+      }
+      function gSC(cfg) {
+        let b = request.resource.data;
+        let ks = b.gp_k;
+        return (b.hp_Q != '' && b[b.hp_Q] != '' && ks in cfg.moves[b[b.hp_Q]][b.hp_Q]
+            && (cfg.paths[b.hp_Q][ks].len < 1 || b[cfg.paths[b.hp_Q][ks].c0] == '')
+            && (cfg.paths[b.hp_Q][ks].len < 2 || b[cfg.paths[b.hp_Q][ks].c1] == '')
+            && (cfg.paths[b.hp_Q][ks].len < 3 || b[cfg.paths[b.hp_Q][ks].c2] == '')
+            && (cfg.paths[b.hp_Q][ks].len < 4 || b[cfg.paths[b.hp_Q][ks].c3] == '')
+            && (cfg.paths[b.hp_Q][ks].len < 5 || b[cfg.paths[b.hp_Q][ks].c4] == ''))
+            || (b.hp_R1 != '' && b[b.hp_R1] != '' && ks in cfg.moves[b[b.hp_R1]][b.hp_R1]
+            && (cfg.paths[b.hp_R1][ks].len < 1 || b[cfg.paths[b.hp_R1][ks].c0] == '')
+            && (cfg.paths[b.hp_R1][ks].len < 2 || b[cfg.paths[b.hp_R1][ks].c1] == '')
+            && (cfg.paths[b.hp_R1][ks].len < 3 || b[cfg.paths[b.hp_R1][ks].c2] == '')
+            && (cfg.paths[b.hp_R1][ks].len < 4 || b[cfg.paths[b.hp_R1][ks].c3] == '')
+            && (cfg.paths[b.hp_R1][ks].len < 5 || b[cfg.paths[b.hp_R1][ks].c4] == ''))
+            || (b.hp_R2 != '' && b[b.hp_R2] != '' && ks in cfg.moves[b[b.hp_R2]][b.hp_R2]
+            && (cfg.paths[b.hp_R2][ks].len < 1 || b[cfg.paths[b.hp_R2][ks].c0] == '')
+            && (cfg.paths[b.hp_R2][ks].len < 2 || b[cfg.paths[b.hp_R2][ks].c1] == '')
+            && (cfg.paths[b.hp_R2][ks].len < 3 || b[cfg.paths[b.hp_R2][ks].c2] == '')
+            && (cfg.paths[b.hp_R2][ks].len < 4 || b[cfg.paths[b.hp_R2][ks].c3] == '')
+            && (cfg.paths[b.hp_R2][ks].len < 5 || b[cfg.paths[b.hp_R2][ks].c4] == ''))
+            || (b.hp_B1 != '' && b[b.hp_B1] != '' && ks in cfg.moves[b[b.hp_B1]][b.hp_B1]
+            && (cfg.paths[b.hp_B1][ks].len < 1 || b[cfg.paths[b.hp_B1][ks].c0] == '')
+            && (cfg.paths[b.hp_B1][ks].len < 2 || b[cfg.paths[b.hp_B1][ks].c1] == '')
+            && (cfg.paths[b.hp_B1][ks].len < 3 || b[cfg.paths[b.hp_B1][ks].c2] == '')
+            && (cfg.paths[b.hp_B1][ks].len < 4 || b[cfg.paths[b.hp_B1][ks].c3] == '')
+            && (cfg.paths[b.hp_B1][ks].len < 5 || b[cfg.paths[b.hp_B1][ks].c4] == ''))
+            || (b.hp_B2 != '' && b[b.hp_B2] != '' && ks in cfg.moves[b[b.hp_B2]][b.hp_B2]
+            && (cfg.paths[b.hp_B2][ks].len < 1 || b[cfg.paths[b.hp_B2][ks].c0] == '')
+            && (cfg.paths[b.hp_B2][ks].len < 2 || b[cfg.paths[b.hp_B2][ks].c1] == '')
+            && (cfg.paths[b.hp_B2][ks].len < 3 || b[cfg.paths[b.hp_B2][ks].c2] == '')
+            && (cfg.paths[b.hp_B2][ks].len < 4 || b[cfg.paths[b.hp_B2][ks].c3] == '')
+            && (cfg.paths[b.hp_B2][ks].len < 5 || b[cfg.paths[b.hp_B2][ks].c4] == ''));
+      }
+
+      // Check detection: call directly in allow rules to minimize function call depth.
+      // Host king safe: !hPC(cfg()) && !hMC(cfg()) && !hSC(cfg())
+      // Guest king safe: !gPC(cfg()) && !gMC(cfg()) && !gSC(cfg())
+      function myKingSafe() {
+        let c = cfg();
+        return (resource.data.currentTurn == 'host' && !hPC(c) && !hMC(c) && !hSC(c))
+            || (resource.data.currentTurn == 'guest' && !gPC(c) && !gMC(c) && !gSC(c));
+      }
+      function opponentInCheck() {
+        let c = cfg();
+        return (resource.data.currentTurn == 'host' && (gPC(c) || gMC(c) || gSC(c)))
+            || (resource.data.currentTurn == 'guest' && (hPC(c) || hMC(c) || hSC(c)));
+      }
+
+      // ═══ Common move checks ═══
+      function baseMoveChecks() {
+        return resource.data.status == 'playing'
+            && isMyTurn() && turnFlipped() && isOwnPiece()
+            && request.resource.data.moveCount == resource.data.moveCount + 1
+            && request.resource.data.host == resource.data.host
+            && request.resource.data.guest == resource.data.guest;
+      }
+
+      // ═══ Lobby ═══
+      allow read: if request.auth != null;
+
+      allow create: if request.auth != null
+            && request.resource.data.host == request.auth.uid
+            && request.resource.data.guest == ''
+            && request.resource.data.status == 'waiting'
+            && request.resource.data.currentTurn == 'host'
+            && request.resource.data.moveCount == 0
+            && request.resource.data.moveFrom == ''
+            && request.resource.data.moveTo == ''
+            && request.resource.data.movedPiece == ''
+            && request.resource.data.capturedPiece == ''
+            && request.resource.data.moveType == ''
+            && request.resource.data.promotedTo == ''
+            && request.resource.data.lastDoublePawn == ''
+            && !request.resource.data.hp_K_moved
+            && !request.resource.data.hp_R1_moved
+            && !request.resource.data.hp_R2_moved
+            && !request.resource.data.gp_k_moved
+            && !request.resource.data.gp_r1_moved
+            && !request.resource.data.gp_r2_moved
+            && d.a1 == 'R'
+            && d.a2 == 'P'
+            && d.a7 == 'p'
+            && d.a8 == 'r'
+            && d.b1 == 'N'
+            && d.b2 == 'P'
+            && d.b7 == 'p'
+            && d.b8 == 'n'
+            && d.c1 == 'B'
+            && d.c2 == 'P'
+            && d.c7 == 'p'
+            && d.c8 == 'b'
+            && d.d1 == 'Q'
+            && d.d2 == 'P'
+            && d.d7 == 'p'
+            && d.d8 == 'q'
+            && d.e1 == 'K'
+            && d.e2 == 'P'
+            && d.e7 == 'p'
+            && d.e8 == 'k'
+            && d.f1 == 'B'
+            && d.f2 == 'P'
+            && d.f7 == 'p'
+            && d.f8 == 'b'
+            && d.g1 == 'N'
+            && d.g2 == 'P'
+            && d.g7 == 'p'
+            && d.g8 == 'n'
+            && d.h1 == 'R'
+            && d.h2 == 'P'
+            && d.h7 == 'p'
+            && d.h8 == 'r'
+            && d.hp_K == 'e1'
+            && d.hp_Q == 'd1'
+            && d.hp_R1 == 'a1'
+            && d.hp_R2 == 'h1'
+            && d.hp_B1 == 'c1'
+            && d.hp_B2 == 'f1'
+            && d.hp_N1 == 'b1'
+            && d.hp_N2 == 'g1'
+            && d.hp_P1 == 'a2'
+            && d.hp_P2 == 'b2'
+            && d.hp_P3 == 'c2'
+            && d.hp_P4 == 'd2'
+            && d.hp_P5 == 'e2'
+            && d.hp_P6 == 'f2'
+            && d.hp_P7 == 'g2'
+            && d.hp_P8 == 'h2'
+            && d.gp_k == 'e8'
+            && d.gp_q == 'd8'
+            && d.gp_r1 == 'a8'
+            && d.gp_r2 == 'h8'
+            && d.gp_b1 == 'c8'
+            && d.gp_b2 == 'f8'
+            && d.gp_n1 == 'b8'
+            && d.gp_n2 == 'g8'
+            && d.gp_p1 == 'a7'
+            && d.gp_p2 == 'b7'
+            && d.gp_p3 == 'c7'
+            && d.gp_p4 == 'd7'
+            && d.gp_p5 == 'e7'
+            && d.gp_p6 == 'f7'
+            && d.gp_p7 == 'g7'
+            && d.gp_p8 == 'h7';
+
+      // Join game
+      allow update: if request.auth != null
+            && resource.data.status == 'waiting'
+            && resource.data.guest == ''
+            && request.resource.data.guest == request.auth.uid
+            && request.auth.uid != resource.data.host
+            && request.resource.data.status == 'playing'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guest', 'status']);
+
+      // Cancel game
+      allow delete: if request.auth != null
+            && resource.data.status == 'waiting'
+            && request.auth.uid == resource.data.host;
+
+      // ═══ MOVE RULES — each moveType is unique for clean gating ═══
+
+      // Pawn forward (1 square, non-promotion)
+      allow update: if request.resource.data.moveType == 'pawn_forward'
+            && request.resource.data.capturedPiece == ''
+            && request.resource.data.status == 'playing'
+            && baseMoveChecks()
+            && validPawnForward()
+            && request.resource.data.promotedTo == ''
+            && pieceMovedCorrectly()
+            && myKingSafe();
+
+      // Pawn capture (non-promotion)
+      allow update: if request.resource.data.moveType == 'pawn_capture'
+            && request.resource.data.capturedPiece != ''
+            && request.resource.data.status == 'playing'
+            && baseMoveChecks()
+            && validPawnCapture()
+            && request.resource.data.promotedTo == ''
+            && captureValid()
+            && pieceMovedCorrectly()
+            && myKingSafe();
+
+      // Pawn double move
+      allow update: if request.resource.data.moveType == 'double_pawn'
+            && request.resource.data.capturedPiece == ''
+            && request.resource.data.status == 'playing'
+            && baseMoveChecks()
+            && validPawnDouble()
+            && pieceMovedCorrectly()
+            && myKingSafe();
+
+      // Pawn promotion (forward)
+      allow update: if request.resource.data.moveType == 'promotion'
+            && request.resource.data.capturedPiece == ''
+            && request.resource.data.status == 'playing'
+            && baseMoveChecks()
+            && validPawnForward()
+            && validPromotion()
+            && pieceMovedCorrectly()
+            && myKingSafe();
+
+      // Pawn promotion (capture)
+      allow update: if request.resource.data.moveType == 'promotion'
+            && request.resource.data.capturedPiece != ''
+            && request.resource.data.status == 'playing'
+            && baseMoveChecks()
+            && validPawnCapture()
+            && validPromotion()
+            && captureValid()
+            && pieceMovedCorrectly()
+            && myKingSafe();
+
+      // En passant
+      allow update: if request.resource.data.moveType == 'en_passant'
+            && request.resource.data.status == 'playing'
+            && baseMoveChecks()
+            && validEnPassant()
+            && request.resource.data.capturedPiece != ''
+            && request.resource.data[request.resource.data.capturedPiece] == ''
+            && pieceMovedCorrectly()
+            && myKingSafe();
+
+      // Standard piece move (non-pawn, non-capture)
+      allow update: if request.resource.data.moveType == 'normal'
+            && request.resource.data.capturedPiece == ''
+            && request.resource.data.status == 'playing'
+            && baseMoveChecks()
+            && validPieceMove()
+            && resource.data[request.resource.data.moveTo] == ''
+            && pieceMovedCorrectly()
+            && myKingSafe();
+
+      // Standard piece capture (non-pawn)
+      allow update: if request.resource.data.moveType == 'capture'
+            && request.resource.data.capturedPiece != ''
+            && request.resource.data.status == 'playing'
+            && baseMoveChecks()
+            && validPieceMove()
+            && captureValid()
+            && pieceMovedCorrectly()
+            && myKingSafe();
+
+      // ═══ Castling (kingside) ═══
+      allow update: if request.resource.data.moveType == 'castle'
+            && request.resource.data.status == 'playing'
+            && baseMoveChecks()
+            && validCastleKingside()
+            && myKingSafe();
+
+      // ═══ Castling (queenside) ═══
+      allow update: if request.resource.data.moveType == 'castle'
+            && request.resource.data.status == 'playing'
+            && baseMoveChecks()
+            && validCastleQueenside()
+            && myKingSafe();
+
+      // ═══ Checkmate claim — minimal checks, no baseMoveChecks to save budget ═══
+      allow update: if request.resource.data.moveType == 'checkmate'
+            && request.resource.data.status == 'won'
+            && resource.data.status == 'playing'
+            && isMyTurn()
+            && opponentInCheck();
+
+      // ═══ Stalemate / draw claim ═══
+      allow update: if request.resource.data.status == 'draw'
+            && resource.data.status == 'playing' && isMyTurn()
+            && request.resource.data.host == resource.data.host
+            && request.resource.data.guest == resource.data.guest;
+
+      // ═══ Resign ═══
+      allow update: if request.resource.data.status == 'resigned'
+            && resource.data.status == 'playing'
+            && request.auth != null
+            && (request.auth.uid == resource.data.host || request.auth.uid == resource.data.guest)
+            && request.resource.data.host == resource.data.host
+            && request.resource.data.guest == resource.data.guest;
+    }
+  }
+}

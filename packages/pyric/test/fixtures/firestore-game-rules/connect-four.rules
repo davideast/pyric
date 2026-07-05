@@ -1,0 +1,313 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Win detection: does Red have 4 in a row?
+    function hasWonR(b) {
+      return (b.c0r0 == 'R' && b.c1r0 == 'R' && b.c2r0 == 'R' && b.c3r0 == 'R')
+          || (b.c0r0 == 'R' && b.c0r1 == 'R' && b.c0r2 == 'R' && b.c0r3 == 'R')
+          || (b.c0r0 == 'R' && b.c1r1 == 'R' && b.c2r2 == 'R' && b.c3r3 == 'R')
+          || (b.c1r0 == 'R' && b.c2r0 == 'R' && b.c3r0 == 'R' && b.c4r0 == 'R')
+          || (b.c1r0 == 'R' && b.c1r1 == 'R' && b.c1r2 == 'R' && b.c1r3 == 'R')
+          || (b.c1r0 == 'R' && b.c2r1 == 'R' && b.c3r2 == 'R' && b.c4r3 == 'R')
+          || (b.c2r0 == 'R' && b.c3r0 == 'R' && b.c4r0 == 'R' && b.c5r0 == 'R')
+          || (b.c2r0 == 'R' && b.c2r1 == 'R' && b.c2r2 == 'R' && b.c2r3 == 'R')
+          || (b.c2r0 == 'R' && b.c3r1 == 'R' && b.c4r2 == 'R' && b.c5r3 == 'R')
+          || (b.c3r0 == 'R' && b.c4r0 == 'R' && b.c5r0 == 'R' && b.c6r0 == 'R')
+          || (b.c3r0 == 'R' && b.c3r1 == 'R' && b.c3r2 == 'R' && b.c3r3 == 'R')
+          || (b.c3r0 == 'R' && b.c4r1 == 'R' && b.c5r2 == 'R' && b.c6r3 == 'R')
+          || (b.c4r0 == 'R' && b.c4r1 == 'R' && b.c4r2 == 'R' && b.c4r3 == 'R')
+          || (b.c5r0 == 'R' && b.c5r1 == 'R' && b.c5r2 == 'R' && b.c5r3 == 'R')
+          || (b.c6r0 == 'R' && b.c6r1 == 'R' && b.c6r2 == 'R' && b.c6r3 == 'R')
+          || (b.c0r1 == 'R' && b.c1r1 == 'R' && b.c2r1 == 'R' && b.c3r1 == 'R')
+          || (b.c0r1 == 'R' && b.c0r2 == 'R' && b.c0r3 == 'R' && b.c0r4 == 'R')
+          || (b.c0r1 == 'R' && b.c1r2 == 'R' && b.c2r3 == 'R' && b.c3r4 == 'R')
+          || (b.c1r1 == 'R' && b.c2r1 == 'R' && b.c3r1 == 'R' && b.c4r1 == 'R')
+          || (b.c1r1 == 'R' && b.c1r2 == 'R' && b.c1r3 == 'R' && b.c1r4 == 'R')
+          || (b.c1r1 == 'R' && b.c2r2 == 'R' && b.c3r3 == 'R' && b.c4r4 == 'R')
+          || (b.c2r1 == 'R' && b.c3r1 == 'R' && b.c4r1 == 'R' && b.c5r1 == 'R')
+          || (b.c2r1 == 'R' && b.c2r2 == 'R' && b.c2r3 == 'R' && b.c2r4 == 'R')
+          || (b.c2r1 == 'R' && b.c3r2 == 'R' && b.c4r3 == 'R' && b.c5r4 == 'R')
+          || (b.c3r1 == 'R' && b.c4r1 == 'R' && b.c5r1 == 'R' && b.c6r1 == 'R')
+          || (b.c3r1 == 'R' && b.c3r2 == 'R' && b.c3r3 == 'R' && b.c3r4 == 'R')
+          || (b.c3r1 == 'R' && b.c4r2 == 'R' && b.c5r3 == 'R' && b.c6r4 == 'R')
+          || (b.c4r1 == 'R' && b.c4r2 == 'R' && b.c4r3 == 'R' && b.c4r4 == 'R')
+          || (b.c5r1 == 'R' && b.c5r2 == 'R' && b.c5r3 == 'R' && b.c5r4 == 'R')
+          || (b.c6r1 == 'R' && b.c6r2 == 'R' && b.c6r3 == 'R' && b.c6r4 == 'R')
+          || (b.c0r2 == 'R' && b.c1r2 == 'R' && b.c2r2 == 'R' && b.c3r2 == 'R')
+          || (b.c0r2 == 'R' && b.c0r3 == 'R' && b.c0r4 == 'R' && b.c0r5 == 'R')
+          || (b.c0r2 == 'R' && b.c1r3 == 'R' && b.c2r4 == 'R' && b.c3r5 == 'R')
+          || (b.c1r2 == 'R' && b.c2r2 == 'R' && b.c3r2 == 'R' && b.c4r2 == 'R')
+          || (b.c1r2 == 'R' && b.c1r3 == 'R' && b.c1r4 == 'R' && b.c1r5 == 'R')
+          || (b.c1r2 == 'R' && b.c2r3 == 'R' && b.c3r4 == 'R' && b.c4r5 == 'R')
+          || (b.c2r2 == 'R' && b.c3r2 == 'R' && b.c4r2 == 'R' && b.c5r2 == 'R')
+          || (b.c2r2 == 'R' && b.c2r3 == 'R' && b.c2r4 == 'R' && b.c2r5 == 'R')
+          || (b.c2r2 == 'R' && b.c3r3 == 'R' && b.c4r4 == 'R' && b.c5r5 == 'R')
+          || (b.c3r2 == 'R' && b.c4r2 == 'R' && b.c5r2 == 'R' && b.c6r2 == 'R')
+          || (b.c3r2 == 'R' && b.c3r3 == 'R' && b.c3r4 == 'R' && b.c3r5 == 'R')
+          || (b.c3r2 == 'R' && b.c4r3 == 'R' && b.c5r4 == 'R' && b.c6r5 == 'R')
+          || (b.c4r2 == 'R' && b.c4r3 == 'R' && b.c4r4 == 'R' && b.c4r5 == 'R')
+          || (b.c5r2 == 'R' && b.c5r3 == 'R' && b.c5r4 == 'R' && b.c5r5 == 'R')
+          || (b.c6r2 == 'R' && b.c6r3 == 'R' && b.c6r4 == 'R' && b.c6r5 == 'R')
+          || (b.c0r3 == 'R' && b.c1r3 == 'R' && b.c2r3 == 'R' && b.c3r3 == 'R')
+          || (b.c0r3 == 'R' && b.c1r2 == 'R' && b.c2r1 == 'R' && b.c3r0 == 'R')
+          || (b.c1r3 == 'R' && b.c2r3 == 'R' && b.c3r3 == 'R' && b.c4r3 == 'R')
+          || (b.c1r3 == 'R' && b.c2r2 == 'R' && b.c3r1 == 'R' && b.c4r0 == 'R')
+          || (b.c2r3 == 'R' && b.c3r3 == 'R' && b.c4r3 == 'R' && b.c5r3 == 'R')
+          || (b.c2r3 == 'R' && b.c3r2 == 'R' && b.c4r1 == 'R' && b.c5r0 == 'R')
+          || (b.c3r3 == 'R' && b.c4r3 == 'R' && b.c5r3 == 'R' && b.c6r3 == 'R')
+          || (b.c3r3 == 'R' && b.c4r2 == 'R' && b.c5r1 == 'R' && b.c6r0 == 'R')
+          || (b.c0r4 == 'R' && b.c1r4 == 'R' && b.c2r4 == 'R' && b.c3r4 == 'R')
+          || (b.c0r4 == 'R' && b.c1r3 == 'R' && b.c2r2 == 'R' && b.c3r1 == 'R')
+          || (b.c1r4 == 'R' && b.c2r4 == 'R' && b.c3r4 == 'R' && b.c4r4 == 'R')
+          || (b.c1r4 == 'R' && b.c2r3 == 'R' && b.c3r2 == 'R' && b.c4r1 == 'R')
+          || (b.c2r4 == 'R' && b.c3r4 == 'R' && b.c4r4 == 'R' && b.c5r4 == 'R')
+          || (b.c2r4 == 'R' && b.c3r3 == 'R' && b.c4r2 == 'R' && b.c5r1 == 'R')
+          || (b.c3r4 == 'R' && b.c4r4 == 'R' && b.c5r4 == 'R' && b.c6r4 == 'R')
+          || (b.c3r4 == 'R' && b.c4r3 == 'R' && b.c5r2 == 'R' && b.c6r1 == 'R')
+          || (b.c0r5 == 'R' && b.c1r5 == 'R' && b.c2r5 == 'R' && b.c3r5 == 'R')
+          || (b.c0r5 == 'R' && b.c1r4 == 'R' && b.c2r3 == 'R' && b.c3r2 == 'R')
+          || (b.c1r5 == 'R' && b.c2r5 == 'R' && b.c3r5 == 'R' && b.c4r5 == 'R')
+          || (b.c1r5 == 'R' && b.c2r4 == 'R' && b.c3r3 == 'R' && b.c4r2 == 'R')
+          || (b.c2r5 == 'R' && b.c3r5 == 'R' && b.c4r5 == 'R' && b.c5r5 == 'R')
+          || (b.c2r5 == 'R' && b.c3r4 == 'R' && b.c4r3 == 'R' && b.c5r2 == 'R')
+          || (b.c3r5 == 'R' && b.c4r5 == 'R' && b.c5r5 == 'R' && b.c6r5 == 'R')
+          || (b.c3r5 == 'R' && b.c4r4 == 'R' && b.c5r3 == 'R' && b.c6r2 == 'R');
+    }
+
+    // Win detection: does Yellow have 4 in a row?
+    function hasWonY(b) {
+      return (b.c0r0 == 'Y' && b.c1r0 == 'Y' && b.c2r0 == 'Y' && b.c3r0 == 'Y')
+          || (b.c0r0 == 'Y' && b.c0r1 == 'Y' && b.c0r2 == 'Y' && b.c0r3 == 'Y')
+          || (b.c0r0 == 'Y' && b.c1r1 == 'Y' && b.c2r2 == 'Y' && b.c3r3 == 'Y')
+          || (b.c1r0 == 'Y' && b.c2r0 == 'Y' && b.c3r0 == 'Y' && b.c4r0 == 'Y')
+          || (b.c1r0 == 'Y' && b.c1r1 == 'Y' && b.c1r2 == 'Y' && b.c1r3 == 'Y')
+          || (b.c1r0 == 'Y' && b.c2r1 == 'Y' && b.c3r2 == 'Y' && b.c4r3 == 'Y')
+          || (b.c2r0 == 'Y' && b.c3r0 == 'Y' && b.c4r0 == 'Y' && b.c5r0 == 'Y')
+          || (b.c2r0 == 'Y' && b.c2r1 == 'Y' && b.c2r2 == 'Y' && b.c2r3 == 'Y')
+          || (b.c2r0 == 'Y' && b.c3r1 == 'Y' && b.c4r2 == 'Y' && b.c5r3 == 'Y')
+          || (b.c3r0 == 'Y' && b.c4r0 == 'Y' && b.c5r0 == 'Y' && b.c6r0 == 'Y')
+          || (b.c3r0 == 'Y' && b.c3r1 == 'Y' && b.c3r2 == 'Y' && b.c3r3 == 'Y')
+          || (b.c3r0 == 'Y' && b.c4r1 == 'Y' && b.c5r2 == 'Y' && b.c6r3 == 'Y')
+          || (b.c4r0 == 'Y' && b.c4r1 == 'Y' && b.c4r2 == 'Y' && b.c4r3 == 'Y')
+          || (b.c5r0 == 'Y' && b.c5r1 == 'Y' && b.c5r2 == 'Y' && b.c5r3 == 'Y')
+          || (b.c6r0 == 'Y' && b.c6r1 == 'Y' && b.c6r2 == 'Y' && b.c6r3 == 'Y')
+          || (b.c0r1 == 'Y' && b.c1r1 == 'Y' && b.c2r1 == 'Y' && b.c3r1 == 'Y')
+          || (b.c0r1 == 'Y' && b.c0r2 == 'Y' && b.c0r3 == 'Y' && b.c0r4 == 'Y')
+          || (b.c0r1 == 'Y' && b.c1r2 == 'Y' && b.c2r3 == 'Y' && b.c3r4 == 'Y')
+          || (b.c1r1 == 'Y' && b.c2r1 == 'Y' && b.c3r1 == 'Y' && b.c4r1 == 'Y')
+          || (b.c1r1 == 'Y' && b.c1r2 == 'Y' && b.c1r3 == 'Y' && b.c1r4 == 'Y')
+          || (b.c1r1 == 'Y' && b.c2r2 == 'Y' && b.c3r3 == 'Y' && b.c4r4 == 'Y')
+          || (b.c2r1 == 'Y' && b.c3r1 == 'Y' && b.c4r1 == 'Y' && b.c5r1 == 'Y')
+          || (b.c2r1 == 'Y' && b.c2r2 == 'Y' && b.c2r3 == 'Y' && b.c2r4 == 'Y')
+          || (b.c2r1 == 'Y' && b.c3r2 == 'Y' && b.c4r3 == 'Y' && b.c5r4 == 'Y')
+          || (b.c3r1 == 'Y' && b.c4r1 == 'Y' && b.c5r1 == 'Y' && b.c6r1 == 'Y')
+          || (b.c3r1 == 'Y' && b.c3r2 == 'Y' && b.c3r3 == 'Y' && b.c3r4 == 'Y')
+          || (b.c3r1 == 'Y' && b.c4r2 == 'Y' && b.c5r3 == 'Y' && b.c6r4 == 'Y')
+          || (b.c4r1 == 'Y' && b.c4r2 == 'Y' && b.c4r3 == 'Y' && b.c4r4 == 'Y')
+          || (b.c5r1 == 'Y' && b.c5r2 == 'Y' && b.c5r3 == 'Y' && b.c5r4 == 'Y')
+          || (b.c6r1 == 'Y' && b.c6r2 == 'Y' && b.c6r3 == 'Y' && b.c6r4 == 'Y')
+          || (b.c0r2 == 'Y' && b.c1r2 == 'Y' && b.c2r2 == 'Y' && b.c3r2 == 'Y')
+          || (b.c0r2 == 'Y' && b.c0r3 == 'Y' && b.c0r4 == 'Y' && b.c0r5 == 'Y')
+          || (b.c0r2 == 'Y' && b.c1r3 == 'Y' && b.c2r4 == 'Y' && b.c3r5 == 'Y')
+          || (b.c1r2 == 'Y' && b.c2r2 == 'Y' && b.c3r2 == 'Y' && b.c4r2 == 'Y')
+          || (b.c1r2 == 'Y' && b.c1r3 == 'Y' && b.c1r4 == 'Y' && b.c1r5 == 'Y')
+          || (b.c1r2 == 'Y' && b.c2r3 == 'Y' && b.c3r4 == 'Y' && b.c4r5 == 'Y')
+          || (b.c2r2 == 'Y' && b.c3r2 == 'Y' && b.c4r2 == 'Y' && b.c5r2 == 'Y')
+          || (b.c2r2 == 'Y' && b.c2r3 == 'Y' && b.c2r4 == 'Y' && b.c2r5 == 'Y')
+          || (b.c2r2 == 'Y' && b.c3r3 == 'Y' && b.c4r4 == 'Y' && b.c5r5 == 'Y')
+          || (b.c3r2 == 'Y' && b.c4r2 == 'Y' && b.c5r2 == 'Y' && b.c6r2 == 'Y')
+          || (b.c3r2 == 'Y' && b.c3r3 == 'Y' && b.c3r4 == 'Y' && b.c3r5 == 'Y')
+          || (b.c3r2 == 'Y' && b.c4r3 == 'Y' && b.c5r4 == 'Y' && b.c6r5 == 'Y')
+          || (b.c4r2 == 'Y' && b.c4r3 == 'Y' && b.c4r4 == 'Y' && b.c4r5 == 'Y')
+          || (b.c5r2 == 'Y' && b.c5r3 == 'Y' && b.c5r4 == 'Y' && b.c5r5 == 'Y')
+          || (b.c6r2 == 'Y' && b.c6r3 == 'Y' && b.c6r4 == 'Y' && b.c6r5 == 'Y')
+          || (b.c0r3 == 'Y' && b.c1r3 == 'Y' && b.c2r3 == 'Y' && b.c3r3 == 'Y')
+          || (b.c0r3 == 'Y' && b.c1r2 == 'Y' && b.c2r1 == 'Y' && b.c3r0 == 'Y')
+          || (b.c1r3 == 'Y' && b.c2r3 == 'Y' && b.c3r3 == 'Y' && b.c4r3 == 'Y')
+          || (b.c1r3 == 'Y' && b.c2r2 == 'Y' && b.c3r1 == 'Y' && b.c4r0 == 'Y')
+          || (b.c2r3 == 'Y' && b.c3r3 == 'Y' && b.c4r3 == 'Y' && b.c5r3 == 'Y')
+          || (b.c2r3 == 'Y' && b.c3r2 == 'Y' && b.c4r1 == 'Y' && b.c5r0 == 'Y')
+          || (b.c3r3 == 'Y' && b.c4r3 == 'Y' && b.c5r3 == 'Y' && b.c6r3 == 'Y')
+          || (b.c3r3 == 'Y' && b.c4r2 == 'Y' && b.c5r1 == 'Y' && b.c6r0 == 'Y')
+          || (b.c0r4 == 'Y' && b.c1r4 == 'Y' && b.c2r4 == 'Y' && b.c3r4 == 'Y')
+          || (b.c0r4 == 'Y' && b.c1r3 == 'Y' && b.c2r2 == 'Y' && b.c3r1 == 'Y')
+          || (b.c1r4 == 'Y' && b.c2r4 == 'Y' && b.c3r4 == 'Y' && b.c4r4 == 'Y')
+          || (b.c1r4 == 'Y' && b.c2r3 == 'Y' && b.c3r2 == 'Y' && b.c4r1 == 'Y')
+          || (b.c2r4 == 'Y' && b.c3r4 == 'Y' && b.c4r4 == 'Y' && b.c5r4 == 'Y')
+          || (b.c2r4 == 'Y' && b.c3r3 == 'Y' && b.c4r2 == 'Y' && b.c5r1 == 'Y')
+          || (b.c3r4 == 'Y' && b.c4r4 == 'Y' && b.c5r4 == 'Y' && b.c6r4 == 'Y')
+          || (b.c3r4 == 'Y' && b.c4r3 == 'Y' && b.c5r2 == 'Y' && b.c6r1 == 'Y')
+          || (b.c0r5 == 'Y' && b.c1r5 == 'Y' && b.c2r5 == 'Y' && b.c3r5 == 'Y')
+          || (b.c0r5 == 'Y' && b.c1r4 == 'Y' && b.c2r3 == 'Y' && b.c3r2 == 'Y')
+          || (b.c1r5 == 'Y' && b.c2r5 == 'Y' && b.c3r5 == 'Y' && b.c4r5 == 'Y')
+          || (b.c1r5 == 'Y' && b.c2r4 == 'Y' && b.c3r3 == 'Y' && b.c4r2 == 'Y')
+          || (b.c2r5 == 'Y' && b.c3r5 == 'Y' && b.c4r5 == 'Y' && b.c5r5 == 'Y')
+          || (b.c2r5 == 'Y' && b.c3r4 == 'Y' && b.c4r3 == 'Y' && b.c5r2 == 'Y')
+          || (b.c3r5 == 'Y' && b.c4r5 == 'Y' && b.c5r5 == 'Y' && b.c6r5 == 'Y')
+          || (b.c3r5 == 'Y' && b.c4r4 == 'Y' && b.c5r3 == 'Y' && b.c6r2 == 'Y');
+    }
+
+    // Validate the physical move: gravity, placement mark, board integrity
+    function validMove(nc, nr, mark, b, ob) {
+      // Gravity: piece lands at lowest empty row in column
+      return ((nc == 0 && ((nr == 0 && ob.c0r0 == '') || (nr == 1 && ob.c0r0 != '' && ob.c0r1 == '') || (nr == 2 && ob.c0r0 != '' && ob.c0r1 != '' && ob.c0r2 == '') || (nr == 3 && ob.c0r0 != '' && ob.c0r1 != '' && ob.c0r2 != '' && ob.c0r3 == '') || (nr == 4 && ob.c0r0 != '' && ob.c0r1 != '' && ob.c0r2 != '' && ob.c0r3 != '' && ob.c0r4 == '') || (nr == 5 && ob.c0r0 != '' && ob.c0r1 != '' && ob.c0r2 != '' && ob.c0r3 != '' && ob.c0r4 != '' && ob.c0r5 == '')))
+          || (nc == 1 && ((nr == 0 && ob.c1r0 == '') || (nr == 1 && ob.c1r0 != '' && ob.c1r1 == '') || (nr == 2 && ob.c1r0 != '' && ob.c1r1 != '' && ob.c1r2 == '') || (nr == 3 && ob.c1r0 != '' && ob.c1r1 != '' && ob.c1r2 != '' && ob.c1r3 == '') || (nr == 4 && ob.c1r0 != '' && ob.c1r1 != '' && ob.c1r2 != '' && ob.c1r3 != '' && ob.c1r4 == '') || (nr == 5 && ob.c1r0 != '' && ob.c1r1 != '' && ob.c1r2 != '' && ob.c1r3 != '' && ob.c1r4 != '' && ob.c1r5 == '')))
+          || (nc == 2 && ((nr == 0 && ob.c2r0 == '') || (nr == 1 && ob.c2r0 != '' && ob.c2r1 == '') || (nr == 2 && ob.c2r0 != '' && ob.c2r1 != '' && ob.c2r2 == '') || (nr == 3 && ob.c2r0 != '' && ob.c2r1 != '' && ob.c2r2 != '' && ob.c2r3 == '') || (nr == 4 && ob.c2r0 != '' && ob.c2r1 != '' && ob.c2r2 != '' && ob.c2r3 != '' && ob.c2r4 == '') || (nr == 5 && ob.c2r0 != '' && ob.c2r1 != '' && ob.c2r2 != '' && ob.c2r3 != '' && ob.c2r4 != '' && ob.c2r5 == '')))
+          || (nc == 3 && ((nr == 0 && ob.c3r0 == '') || (nr == 1 && ob.c3r0 != '' && ob.c3r1 == '') || (nr == 2 && ob.c3r0 != '' && ob.c3r1 != '' && ob.c3r2 == '') || (nr == 3 && ob.c3r0 != '' && ob.c3r1 != '' && ob.c3r2 != '' && ob.c3r3 == '') || (nr == 4 && ob.c3r0 != '' && ob.c3r1 != '' && ob.c3r2 != '' && ob.c3r3 != '' && ob.c3r4 == '') || (nr == 5 && ob.c3r0 != '' && ob.c3r1 != '' && ob.c3r2 != '' && ob.c3r3 != '' && ob.c3r4 != '' && ob.c3r5 == '')))
+          || (nc == 4 && ((nr == 0 && ob.c4r0 == '') || (nr == 1 && ob.c4r0 != '' && ob.c4r1 == '') || (nr == 2 && ob.c4r0 != '' && ob.c4r1 != '' && ob.c4r2 == '') || (nr == 3 && ob.c4r0 != '' && ob.c4r1 != '' && ob.c4r2 != '' && ob.c4r3 == '') || (nr == 4 && ob.c4r0 != '' && ob.c4r1 != '' && ob.c4r2 != '' && ob.c4r3 != '' && ob.c4r4 == '') || (nr == 5 && ob.c4r0 != '' && ob.c4r1 != '' && ob.c4r2 != '' && ob.c4r3 != '' && ob.c4r4 != '' && ob.c4r5 == '')))
+          || (nc == 5 && ((nr == 0 && ob.c5r0 == '') || (nr == 1 && ob.c5r0 != '' && ob.c5r1 == '') || (nr == 2 && ob.c5r0 != '' && ob.c5r1 != '' && ob.c5r2 == '') || (nr == 3 && ob.c5r0 != '' && ob.c5r1 != '' && ob.c5r2 != '' && ob.c5r3 == '') || (nr == 4 && ob.c5r0 != '' && ob.c5r1 != '' && ob.c5r2 != '' && ob.c5r3 != '' && ob.c5r4 == '') || (nr == 5 && ob.c5r0 != '' && ob.c5r1 != '' && ob.c5r2 != '' && ob.c5r3 != '' && ob.c5r4 != '' && ob.c5r5 == '')))
+          || (nc == 6 && ((nr == 0 && ob.c6r0 == '') || (nr == 1 && ob.c6r0 != '' && ob.c6r1 == '') || (nr == 2 && ob.c6r0 != '' && ob.c6r1 != '' && ob.c6r2 == '') || (nr == 3 && ob.c6r0 != '' && ob.c6r1 != '' && ob.c6r2 != '' && ob.c6r3 == '') || (nr == 4 && ob.c6r0 != '' && ob.c6r1 != '' && ob.c6r2 != '' && ob.c6r3 != '' && ob.c6r4 == '') || (nr == 5 && ob.c6r0 != '' && ob.c6r1 != '' && ob.c6r2 != '' && ob.c6r3 != '' && ob.c6r4 != '' && ob.c6r5 == ''))))
+          // Placed cell has correct mark
+          && ((nc == 0 && nr == 0 && b.c0r0 == mark)
+          || (nc == 0 && nr == 1 && b.c0r1 == mark)
+          || (nc == 0 && nr == 2 && b.c0r2 == mark)
+          || (nc == 0 && nr == 3 && b.c0r3 == mark)
+          || (nc == 0 && nr == 4 && b.c0r4 == mark)
+          || (nc == 0 && nr == 5 && b.c0r5 == mark)
+          || (nc == 1 && nr == 0 && b.c1r0 == mark)
+          || (nc == 1 && nr == 1 && b.c1r1 == mark)
+          || (nc == 1 && nr == 2 && b.c1r2 == mark)
+          || (nc == 1 && nr == 3 && b.c1r3 == mark)
+          || (nc == 1 && nr == 4 && b.c1r4 == mark)
+          || (nc == 1 && nr == 5 && b.c1r5 == mark)
+          || (nc == 2 && nr == 0 && b.c2r0 == mark)
+          || (nc == 2 && nr == 1 && b.c2r1 == mark)
+          || (nc == 2 && nr == 2 && b.c2r2 == mark)
+          || (nc == 2 && nr == 3 && b.c2r3 == mark)
+          || (nc == 2 && nr == 4 && b.c2r4 == mark)
+          || (nc == 2 && nr == 5 && b.c2r5 == mark)
+          || (nc == 3 && nr == 0 && b.c3r0 == mark)
+          || (nc == 3 && nr == 1 && b.c3r1 == mark)
+          || (nc == 3 && nr == 2 && b.c3r2 == mark)
+          || (nc == 3 && nr == 3 && b.c3r3 == mark)
+          || (nc == 3 && nr == 4 && b.c3r4 == mark)
+          || (nc == 3 && nr == 5 && b.c3r5 == mark)
+          || (nc == 4 && nr == 0 && b.c4r0 == mark)
+          || (nc == 4 && nr == 1 && b.c4r1 == mark)
+          || (nc == 4 && nr == 2 && b.c4r2 == mark)
+          || (nc == 4 && nr == 3 && b.c4r3 == mark)
+          || (nc == 4 && nr == 4 && b.c4r4 == mark)
+          || (nc == 4 && nr == 5 && b.c4r5 == mark)
+          || (nc == 5 && nr == 0 && b.c5r0 == mark)
+          || (nc == 5 && nr == 1 && b.c5r1 == mark)
+          || (nc == 5 && nr == 2 && b.c5r2 == mark)
+          || (nc == 5 && nr == 3 && b.c5r3 == mark)
+          || (nc == 5 && nr == 4 && b.c5r4 == mark)
+          || (nc == 5 && nr == 5 && b.c5r5 == mark)
+          || (nc == 6 && nr == 0 && b.c6r0 == mark)
+          || (nc == 6 && nr == 1 && b.c6r1 == mark)
+          || (nc == 6 && nr == 2 && b.c6r2 == mark)
+          || (nc == 6 && nr == 3 && b.c6r3 == mark)
+          || (nc == 6 && nr == 4 && b.c6r4 == mark)
+          || (nc == 6 && nr == 5 && b.c6r5 == mark))
+          // All non-move cells unchanged
+          && (((nc == 0 && nr == 0) || b.c0r0 == ob.c0r0) && ((nc == 0 && nr == 1) || b.c0r1 == ob.c0r1) && ((nc == 0 && nr == 2) || b.c0r2 == ob.c0r2) && ((nc == 0 && nr == 3) || b.c0r3 == ob.c0r3) && ((nc == 0 && nr == 4) || b.c0r4 == ob.c0r4) && ((nc == 0 && nr == 5) || b.c0r5 == ob.c0r5))
+          && (((nc == 1 && nr == 0) || b.c1r0 == ob.c1r0) && ((nc == 1 && nr == 1) || b.c1r1 == ob.c1r1) && ((nc == 1 && nr == 2) || b.c1r2 == ob.c1r2) && ((nc == 1 && nr == 3) || b.c1r3 == ob.c1r3) && ((nc == 1 && nr == 4) || b.c1r4 == ob.c1r4) && ((nc == 1 && nr == 5) || b.c1r5 == ob.c1r5))
+          && (((nc == 2 && nr == 0) || b.c2r0 == ob.c2r0) && ((nc == 2 && nr == 1) || b.c2r1 == ob.c2r1) && ((nc == 2 && nr == 2) || b.c2r2 == ob.c2r2) && ((nc == 2 && nr == 3) || b.c2r3 == ob.c2r3) && ((nc == 2 && nr == 4) || b.c2r4 == ob.c2r4) && ((nc == 2 && nr == 5) || b.c2r5 == ob.c2r5))
+          && (((nc == 3 && nr == 0) || b.c3r0 == ob.c3r0) && ((nc == 3 && nr == 1) || b.c3r1 == ob.c3r1) && ((nc == 3 && nr == 2) || b.c3r2 == ob.c3r2) && ((nc == 3 && nr == 3) || b.c3r3 == ob.c3r3) && ((nc == 3 && nr == 4) || b.c3r4 == ob.c3r4) && ((nc == 3 && nr == 5) || b.c3r5 == ob.c3r5))
+          && (((nc == 4 && nr == 0) || b.c4r0 == ob.c4r0) && ((nc == 4 && nr == 1) || b.c4r1 == ob.c4r1) && ((nc == 4 && nr == 2) || b.c4r2 == ob.c4r2) && ((nc == 4 && nr == 3) || b.c4r3 == ob.c4r3) && ((nc == 4 && nr == 4) || b.c4r4 == ob.c4r4) && ((nc == 4 && nr == 5) || b.c4r5 == ob.c4r5))
+          && (((nc == 5 && nr == 0) || b.c5r0 == ob.c5r0) && ((nc == 5 && nr == 1) || b.c5r1 == ob.c5r1) && ((nc == 5 && nr == 2) || b.c5r2 == ob.c5r2) && ((nc == 5 && nr == 3) || b.c5r3 == ob.c5r3) && ((nc == 5 && nr == 4) || b.c5r4 == ob.c5r4) && ((nc == 5 && nr == 5) || b.c5r5 == ob.c5r5))
+          && (((nc == 6 && nr == 0) || b.c6r0 == ob.c6r0) && ((nc == 6 && nr == 1) || b.c6r1 == ob.c6r1) && ((nc == 6 && nr == 2) || b.c6r2 == ob.c6r2) && ((nc == 6 && nr == 3) || b.c6r3 == ob.c6r3) && ((nc == 6 && nr == 4) || b.c6r4 == ob.c6r4) && ((nc == 6 && nr == 5) || b.c6r5 == ob.c6r5));
+    }
+
+    match /games/{gameId} {
+      allow read: if request.auth != null;
+
+      // Create a new game
+      allow create: if request.auth != null
+        && request.resource.data.playerR == request.auth.uid
+        && request.resource.data.keys().hasAll(['playerR', 'playerY', 'currentTurn', 'status', 'winner', 'moveCount', 'lastCol', 'lastRow', 'board'])
+        && request.resource.data.currentTurn == 'R'
+        && request.resource.data.status == 'playing'
+        && request.resource.data.winner == ''
+        && request.resource.data.moveCount == 0
+        && request.resource.data.lastCol == -1
+        && request.resource.data.lastRow == -1;
+
+      // --- Normal move (game continues, no win) ---
+      allow update: if request.auth != null
+        && resource.data.status == 'playing'
+        && request.resource.data.status == 'playing'
+        && request.resource.data.winner == ''
+        && (
+          (resource.data.currentTurn == 'R' && request.auth.uid == resource.data.playerR)
+          || (resource.data.currentTurn == 'Y' && request.auth.uid == resource.data.playerY)
+        )
+        && (
+          (resource.data.currentTurn == 'R' && request.resource.data.currentTurn == 'Y')
+          || (resource.data.currentTurn == 'Y' && request.resource.data.currentTurn == 'R')
+        )
+        && request.resource.data.moveCount == resource.data.moveCount + 1
+        && request.resource.data.playerR == resource.data.playerR
+        && request.resource.data.playerY == resource.data.playerY
+        && request.resource.data.lastCol >= 0 && request.resource.data.lastCol <= 6
+        && request.resource.data.lastRow >= 0 && request.resource.data.lastRow <= 5
+        && validMove(
+            request.resource.data.lastCol,
+            request.resource.data.lastRow,
+            resource.data.currentTurn,
+            request.resource.data.board,
+            resource.data.board
+          );
+
+      // --- Winning move (Red claims win) ---
+      allow update: if request.auth != null
+        && resource.data.status == 'playing'
+        && request.resource.data.status == 'won'
+        && request.resource.data.winner == 'R'
+        && (
+          (resource.data.currentTurn == 'R' && request.auth.uid == resource.data.playerR)
+          || (resource.data.currentTurn == 'Y' && request.auth.uid == resource.data.playerY)
+        )
+        && (
+          (resource.data.currentTurn == 'R' && request.resource.data.currentTurn == 'Y')
+          || (resource.data.currentTurn == 'Y' && request.resource.data.currentTurn == 'R')
+        )
+        && request.resource.data.moveCount == resource.data.moveCount + 1
+        && request.resource.data.playerR == resource.data.playerR
+        && request.resource.data.playerY == resource.data.playerY
+        && request.resource.data.lastCol >= 0 && request.resource.data.lastCol <= 6
+        && request.resource.data.lastRow >= 0 && request.resource.data.lastRow <= 5
+        && hasWonR(request.resource.data.board);
+
+      // --- Winning move (Yellow claims win) ---
+      allow update: if request.auth != null
+        && resource.data.status == 'playing'
+        && request.resource.data.status == 'won'
+        && request.resource.data.winner == 'Y'
+        && (
+          (resource.data.currentTurn == 'R' && request.auth.uid == resource.data.playerR)
+          || (resource.data.currentTurn == 'Y' && request.auth.uid == resource.data.playerY)
+        )
+        && (
+          (resource.data.currentTurn == 'R' && request.resource.data.currentTurn == 'Y')
+          || (resource.data.currentTurn == 'Y' && request.resource.data.currentTurn == 'R')
+        )
+        && request.resource.data.moveCount == resource.data.moveCount + 1
+        && request.resource.data.playerR == resource.data.playerR
+        && request.resource.data.playerY == resource.data.playerY
+        && request.resource.data.lastCol >= 0 && request.resource.data.lastCol <= 6
+        && request.resource.data.lastRow >= 0 && request.resource.data.lastRow <= 5
+        && hasWonY(request.resource.data.board);
+
+      // --- Draw (board full, move 42) ---
+      allow update: if request.auth != null
+        && resource.data.status == 'playing'
+        && request.resource.data.status == 'draw'
+        && request.resource.data.winner == ''
+        && request.resource.data.moveCount == 42
+        && (
+          (resource.data.currentTurn == 'R' && request.auth.uid == resource.data.playerR)
+          || (resource.data.currentTurn == 'Y' && request.auth.uid == resource.data.playerY)
+        )
+        && (
+          (resource.data.currentTurn == 'R' && request.resource.data.currentTurn == 'Y')
+          || (resource.data.currentTurn == 'Y' && request.resource.data.currentTurn == 'R')
+        )
+        && request.resource.data.moveCount == resource.data.moveCount + 1
+        && request.resource.data.playerR == resource.data.playerR
+        && request.resource.data.playerY == resource.data.playerY;
+    }
+  }
+}

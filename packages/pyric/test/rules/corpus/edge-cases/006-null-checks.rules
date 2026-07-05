@@ -1,0 +1,19 @@
+// Null safety patterns
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /profiles/{userId} {
+      // Optional field — may be null
+      allow create: if request.resource.data.displayName == null
+                    || (request.resource.data.displayName is string
+                        && request.resource.data.displayName.size() <= 100);
+
+      // Null-safe comparison
+      allow update: if resource.data.lockedBy == null
+                    || resource.data.lockedBy == request.auth.uid;
+
+      allow read: if true;
+      allow delete: if request.auth != null;
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "auth-row-25-signout-currentuser-null-sync",
+  "matrixRow": "auth #25",
+  "description": "signOut sets currentUser to null synchronously after the returned promise resolves — read auth.currentUser BEFORE any await/microtask runs after `await signOut(auth)`.",
+  "observedAt": "2026-05-17T23:58:45.415Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "uidBefore": "XAfI1aCIzDS42i1dluZzJeNlMv62",
+    "uidImmediatelyAfter": null,
+    "uidAfterMicrotask": null,
+    "uidAfterMacrotask": null,
+    "currentUserIsNullSync": true
+  }
+}

@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+      function check12() {
+        let v0 = request.resource.data.f0;
+        let v1 = request.resource.data.f1;
+        let v2 = request.resource.data.f2;
+        let v3 = request.resource.data.f3;
+        let v4 = request.resource.data.f4;
+        let v5 = request.resource.data.f5;
+        let v6 = request.resource.data.f6;
+        let v7 = request.resource.data.f7;
+        let v8 = request.resource.data.f8;
+        let v9 = request.resource.data.f9;
+        let v10 = request.resource.data.f10;
+        let v11 = request.resource.data.f11;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '' && v5 != '' && v6 != '' && v7 != '' && v8 != '' && v9 != '' && v10 != '' && v11 != '';
+      }
+      allow update: if check12();
+    }
+  }
+}

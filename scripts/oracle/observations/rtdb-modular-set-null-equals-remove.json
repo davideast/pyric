@@ -1,0 +1,17 @@
+{
+  "name": "rtdb-modular-set-null-equals-remove",
+  "matrixRow": "rtdb-modular #112",
+  "description": "set(ref, null) — confirm the end state is identical to remove(ref): subsequent get() returns null. Companion to rtdb-remove-vs-set-null but scoped to the modular SDK set-null behavior alone.",
+  "observedAt": "2026-05-18T03:36:35.097Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "beforeExists": true,
+    "afterExists": false,
+    "afterVal": null,
+    "nullRemovesPath": true
+  }
+}

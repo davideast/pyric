@@ -1,0 +1,82 @@
+// Complex real-world rules exercising many features together
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId)
+                    && hasRequiredFields(['email', 'displayName'])
+                    && hasOnlyAllowedFields(['email', 'displayName', 'photoURL', 'role'])
+                    && request.resource.data.email is string
+                    && request.resource.data.displayName is string
+                    && request.resource.data.displayName.size() >= 1
+                    && request.resource.data.displayName.size() <= 50;
+      allow update: if isOwner(userId)
+                    && request.resource.data.role == resource.data.role;
+      allow delete: if isAdmin();
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if isAuthenticated()
+                    && hasRequiredFields(['title', 'body', 'author', 'createdAt'])
+                    && request.resource.data.author == request.auth.uid
+                    && request.resource.data.createdAt == request.time
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() >= 1
+                    && request.resource.data.title.size() <= 200;
+      allow update: if isAuthenticated()
+                    && resource.data.author == request.auth.uid
+                    && request.resource.data.author == resource.data.author
+                    && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if resource.data.author == request.auth.uid || isAdmin();
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isAuthenticated()
+                      && request.resource.data.author == request.auth.uid
+                      && request.resource.data.text is string
+                      && request.resource.data.text.size() >= 1
+                      && request.resource.data.text.size() <= 1000
+                      && exists(/databases/$(database)/documents/posts/$(postId));
+        allow update: if request.resource.data.author == request.auth.uid;
+        allow delete: if resource.data.author == request.auth.uid || isAdmin();
+      }
+    }
+
+    match /likes/{likeId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && likeId == request.auth.uid + '_' + request.resource.data.postId;
+      allow delete: if resource.data.userId == request.auth.uid;
+    }
+  }
+}

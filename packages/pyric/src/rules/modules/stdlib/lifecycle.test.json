@@ -1,0 +1,288 @@
+[
+  {
+    "description": "fieldUnchanged allows when field value is same",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "createdBy": "user1",
+      "title": "old"
+    },
+    "data": {
+      "createdBy": "user1",
+      "title": "new"
+    },
+    "wrapFunction": "fieldUnchanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "fieldUnchanged('createdBy')"
+  },
+  {
+    "description": "fieldUnchanged denies when field value changed",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "createdBy": "user1",
+      "title": "old"
+    },
+    "data": {
+      "createdBy": "user2",
+      "title": "new"
+    },
+    "wrapFunction": "fieldUnchanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "fieldUnchanged('createdBy')"
+  },
+  {
+    "description": "fieldUnchanged works with timestamp fields",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "createdAt": "2024-01-01T00:00:00Z",
+      "title": "old"
+    },
+    "data": {
+      "createdAt": "2024-01-01T00:00:00Z",
+      "title": "new"
+    },
+    "wrapFunction": "fieldUnchanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "fieldUnchanged('createdAt')"
+  },
+  {
+    "description": "immutableFields allows when all listed fields unchanged",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "createdBy": "user1",
+      "ownerId": "user1",
+      "title": "old"
+    },
+    "data": {
+      "createdBy": "user1",
+      "ownerId": "user1",
+      "title": "new"
+    },
+    "wrapFunction": "immutableFields",
+    "wrapOperation": "update",
+    "wrapCallExpr": "immutableFields(['createdBy', 'ownerId'])"
+  },
+  {
+    "description": "immutableFields denies when one listed field changed",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "createdBy": "user1",
+      "ownerId": "user1",
+      "title": "old"
+    },
+    "data": {
+      "createdBy": "hacker",
+      "ownerId": "user1",
+      "title": "new"
+    },
+    "wrapFunction": "immutableFields",
+    "wrapOperation": "update",
+    "wrapCallExpr": "immutableFields(['createdBy', 'ownerId'])"
+  },
+  {
+    "description": "isServerTimestamp allows when field equals request.time",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "data": {
+      "createdAt": "REQUEST_TIME",
+      "title": "hello"
+    },
+    "wrapFunction": "isServerTimestamp",
+    "wrapOperation": "create",
+    "wrapCallExpr": "isServerTimestamp('createdAt')"
+  },
+  {
+    "description": "onlyFieldsChanged allows when only listed fields changed",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "onlyFieldsChanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyFieldsChanged(['title', 'body'])",
+    "resource": {
+      "title": "old",
+      "body": "old",
+      "author": "user1"
+    },
+    "data": {
+      "title": "new",
+      "body": "new",
+      "author": "user1"
+    }
+  },
+  {
+    "description": "onlyFieldsChanged allows a subset of listed fields changing",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "onlyFieldsChanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyFieldsChanged(['title', 'body'])",
+    "resource": {
+      "title": "old",
+      "body": "same",
+      "author": "user1"
+    },
+    "data": {
+      "title": "new",
+      "body": "same",
+      "author": "user1"
+    }
+  },
+  {
+    "description": "onlyFieldsChanged denies when an unlisted field changed",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "onlyFieldsChanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyFieldsChanged(['title', 'body'])",
+    "resource": {
+      "title": "old",
+      "body": "old",
+      "author": "user1"
+    },
+    "data": {
+      "title": "new",
+      "body": "old",
+      "author": "attacker"
+    }
+  },
+  {
+    "description": "onlyFieldsChanged denies when an unlisted field is ADDED",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "onlyFieldsChanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyFieldsChanged(['title'])",
+    "resource": {
+      "title": "old"
+    },
+    "data": {
+      "title": "new",
+      "admin": true
+    }
+  },
+  {
+    "description": "onlyFieldsChanged denies when an unlisted field is REMOVED",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "onlyFieldsChanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "onlyFieldsChanged(['title'])",
+    "resource": {
+      "title": "old",
+      "author": "user1"
+    },
+    "data": {
+      "title": "new"
+    }
+  },
+  {
+    "description": "nFieldsChanged allows when exactly one field changed",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "nFieldsChanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "nFieldsChanged(1)",
+    "resource": {
+      "c1": "x",
+      "c2": "",
+      "turn": "host"
+    },
+    "data": {
+      "c1": "x",
+      "c2": "o",
+      "turn": "host"
+    }
+  },
+  {
+    "description": "nFieldsChanged denies when two fields changed",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "nFieldsChanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "nFieldsChanged(1)",
+    "resource": {
+      "c1": "x",
+      "c2": "",
+      "turn": "host"
+    },
+    "data": {
+      "c1": "",
+      "c2": "o",
+      "turn": "host"
+    }
+  },
+  {
+    "description": "nFieldsChanged denies when zero fields changed",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "nFieldsChanged",
+    "wrapOperation": "update",
+    "wrapCallExpr": "nFieldsChanged(1)",
+    "resource": {
+      "c1": "x"
+    },
+    "data": {
+      "c1": "x"
+    }
+  }
+]

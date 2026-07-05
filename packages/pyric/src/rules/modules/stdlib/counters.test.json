@@ -1,0 +1,254 @@
+[
+  {
+    "description": "incrementedBy allows exact +1",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "incrementedBy",
+    "wrapOperation": "update",
+    "wrapCallExpr": "incrementedBy('count', 1)",
+    "resource": {
+      "count": 3
+    },
+    "data": {
+      "count": 4
+    }
+  },
+  {
+    "description": "incrementedBy allows exact negative step",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "incrementedBy",
+    "wrapOperation": "update",
+    "wrapCallExpr": "incrementedBy('count', -1)",
+    "resource": {
+      "count": 3
+    },
+    "data": {
+      "count": 2
+    }
+  },
+  {
+    "description": "incrementedBy denies wrong step",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "incrementedBy",
+    "wrapOperation": "update",
+    "wrapCallExpr": "incrementedBy('count', 1)",
+    "resource": {
+      "count": 3
+    },
+    "data": {
+      "count": 5
+    }
+  },
+  {
+    "description": "incrementedBy denies unchanged value",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "incrementedBy",
+    "wrapOperation": "update",
+    "wrapCallExpr": "incrementedBy('count', 1)",
+    "resource": {
+      "count": 3
+    },
+    "data": {
+      "count": 3
+    }
+  },
+  {
+    "description": "changedBy allows delta at min bound",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "changedBy",
+    "wrapOperation": "update",
+    "wrapCallExpr": "changedBy('likes', -1, 1)",
+    "resource": {
+      "likes": 5
+    },
+    "data": {
+      "likes": 4
+    }
+  },
+  {
+    "description": "changedBy allows delta at max bound",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "changedBy",
+    "wrapOperation": "update",
+    "wrapCallExpr": "changedBy('likes', -1, 1)",
+    "resource": {
+      "likes": 5
+    },
+    "data": {
+      "likes": 6
+    }
+  },
+  {
+    "description": "changedBy allows zero delta when range spans zero",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "changedBy",
+    "wrapOperation": "update",
+    "wrapCallExpr": "changedBy('likes', -1, 1)",
+    "resource": {
+      "likes": 5
+    },
+    "data": {
+      "likes": 5
+    }
+  },
+  {
+    "description": "changedBy denies delta above max",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "changedBy",
+    "wrapOperation": "update",
+    "wrapCallExpr": "changedBy('likes', -1, 1)",
+    "resource": {
+      "likes": 5
+    },
+    "data": {
+      "likes": 7
+    }
+  },
+  {
+    "description": "changedBy denies delta below min",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "changedBy",
+    "wrapOperation": "update",
+    "wrapCallExpr": "changedBy('likes', -1, 1)",
+    "resource": {
+      "likes": 5
+    },
+    "data": {
+      "likes": 3
+    }
+  },
+  {
+    "description": "boundedNumber allows int within range on create",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "boundedNumber",
+    "wrapOperation": "create",
+    "wrapCallExpr": "boundedNumber('rating', 1, 5)",
+    "data": {
+      "rating": 3
+    }
+  },
+  {
+    "description": "boundedNumber allows float within range",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "boundedNumber",
+    "wrapOperation": "create",
+    "wrapCallExpr": "boundedNumber('rating', 1, 5)",
+    "data": {
+      "rating": 4.5
+    }
+  },
+  {
+    "description": "boundedNumber allows boundary values",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "boundedNumber",
+    "wrapOperation": "create",
+    "wrapCallExpr": "boundedNumber('rating', 1, 5)",
+    "data": {
+      "rating": 5
+    }
+  },
+  {
+    "description": "boundedNumber denies out-of-range value",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "boundedNumber",
+    "wrapOperation": "create",
+    "wrapCallExpr": "boundedNumber('rating', 1, 5)",
+    "data": {
+      "rating": 6
+    }
+  },
+  {
+    "description": "boundedNumber denies non-numeric value",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "boundedNumber",
+    "wrapOperation": "create",
+    "wrapCallExpr": "boundedNumber('rating', 1, 5)",
+    "data": {
+      "rating": "five"
+    }
+  },
+  {
+    "description": "boundedNumber denies missing field (null-on-miss)",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "wrapFunction": "boundedNumber",
+    "wrapOperation": "create",
+    "wrapCallExpr": "boundedNumber('rating', 1, 5)",
+    "data": {
+      "other": 1
+    }
+  }
+]

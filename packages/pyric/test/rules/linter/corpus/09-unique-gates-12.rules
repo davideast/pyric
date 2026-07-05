@@ -1,0 +1,127 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+      function complex0() {
+        let v0 = request.resource.data.f0_0;
+        let v1 = request.resource.data.f0_1;
+        let v2 = request.resource.data.f0_2;
+        let v3 = request.resource.data.f0_3;
+        let v4 = request.resource.data.f0_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex1() {
+        let v0 = request.resource.data.f1_0;
+        let v1 = request.resource.data.f1_1;
+        let v2 = request.resource.data.f1_2;
+        let v3 = request.resource.data.f1_3;
+        let v4 = request.resource.data.f1_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex2() {
+        let v0 = request.resource.data.f2_0;
+        let v1 = request.resource.data.f2_1;
+        let v2 = request.resource.data.f2_2;
+        let v3 = request.resource.data.f2_3;
+        let v4 = request.resource.data.f2_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex3() {
+        let v0 = request.resource.data.f3_0;
+        let v1 = request.resource.data.f3_1;
+        let v2 = request.resource.data.f3_2;
+        let v3 = request.resource.data.f3_3;
+        let v4 = request.resource.data.f3_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex4() {
+        let v0 = request.resource.data.f4_0;
+        let v1 = request.resource.data.f4_1;
+        let v2 = request.resource.data.f4_2;
+        let v3 = request.resource.data.f4_3;
+        let v4 = request.resource.data.f4_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex5() {
+        let v0 = request.resource.data.f5_0;
+        let v1 = request.resource.data.f5_1;
+        let v2 = request.resource.data.f5_2;
+        let v3 = request.resource.data.f5_3;
+        let v4 = request.resource.data.f5_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex6() {
+        let v0 = request.resource.data.f6_0;
+        let v1 = request.resource.data.f6_1;
+        let v2 = request.resource.data.f6_2;
+        let v3 = request.resource.data.f6_3;
+        let v4 = request.resource.data.f6_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex7() {
+        let v0 = request.resource.data.f7_0;
+        let v1 = request.resource.data.f7_1;
+        let v2 = request.resource.data.f7_2;
+        let v3 = request.resource.data.f7_3;
+        let v4 = request.resource.data.f7_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex8() {
+        let v0 = request.resource.data.f8_0;
+        let v1 = request.resource.data.f8_1;
+        let v2 = request.resource.data.f8_2;
+        let v3 = request.resource.data.f8_3;
+        let v4 = request.resource.data.f8_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex9() {
+        let v0 = request.resource.data.f9_0;
+        let v1 = request.resource.data.f9_1;
+        let v2 = request.resource.data.f9_2;
+        let v3 = request.resource.data.f9_3;
+        let v4 = request.resource.data.f9_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex10() {
+        let v0 = request.resource.data.f10_0;
+        let v1 = request.resource.data.f10_1;
+        let v2 = request.resource.data.f10_2;
+        let v3 = request.resource.data.f10_3;
+        let v4 = request.resource.data.f10_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      function complex11() {
+        let v0 = request.resource.data.f11_0;
+        let v1 = request.resource.data.f11_1;
+        let v2 = request.resource.data.f11_2;
+        let v3 = request.resource.data.f11_3;
+        let v4 = request.resource.data.f11_4;
+        return v0 != '' && v1 != '' && v2 != '' && v3 != '' && v4 != '';
+      }
+      allow update: if request.resource.data.moveType == 'type0'
+            && complex0();
+      allow update: if request.resource.data.moveType == 'type1'
+            && complex1();
+      allow update: if request.resource.data.moveType == 'type2'
+            && complex2();
+      allow update: if request.resource.data.moveType == 'type3'
+            && complex3();
+      allow update: if request.resource.data.moveType == 'type4'
+            && complex4();
+      allow update: if request.resource.data.moveType == 'type5'
+            && complex5();
+      allow update: if request.resource.data.moveType == 'type6'
+            && complex6();
+      allow update: if request.resource.data.moveType == 'type7'
+            && complex7();
+      allow update: if request.resource.data.moveType == 'type8'
+            && complex8();
+      allow update: if request.resource.data.moveType == 'type9'
+            && complex9();
+      allow update: if request.resource.data.moveType == 'type10'
+            && complex10();
+      allow update: if request.resource.data.moveType == 'type11'
+            && complex11();
+    }
+  }
+}

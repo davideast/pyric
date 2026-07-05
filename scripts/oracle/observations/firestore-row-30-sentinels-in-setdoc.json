@@ -1,0 +1,25 @@
+{
+  "name": "firestore-row-30-sentinels-in-setdoc",
+  "matrixRow": "firestore #30",
+  "description": "Sentinels (serverTimestamp, increment, arrayUnion, arrayRemove, deleteField) resolve in the same setDoc call. Probes setDoc({createdAt: serverTimestamp(), count: 5, tags: [\"a\"]}) then getDoc and checks the resolved shape — createdAt is a Timestamp instance, count === 5, tags === [\"a\"].",
+  "observedAt": "2026-05-17T23:58:13.279Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "exists": true,
+    "keys": [
+      "count",
+      "createdAt",
+      "tags"
+    ],
+    "createdAtIsTimestamp": true,
+    "createdAtCtorName": "Timestamp",
+    "createdAtHasSeconds": true,
+    "createdAtHasNanoseconds": true,
+    "count": 5,
+    "countType": "number",
+    "tags": [
+      "a"
+    ]
+  }
+}

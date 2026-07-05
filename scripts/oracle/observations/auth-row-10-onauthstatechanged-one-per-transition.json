@@ -1,0 +1,36 @@
+{
+  "name": "auth-row-10-onauthstatechanged-one-per-transition",
+  "matrixRow": "auth #10",
+  "description": "onAuthStateChanged fires exactly once per state transition (no same-value double-fire). Subscribe, then signInAnonymously → signOut → signInAnonymously; count fires per transition. Matrix claim: each of the 3 transitions produces 1 fire.",
+  "observedAt": "2026-05-18T00:12:18.119Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialFires": 1,
+    "afterSignIn1": 2,
+    "afterSignOut": 3,
+    "afterSignIn2": 4,
+    "firesForTransition1": 1,
+    "firesForTransition2": 1,
+    "firesForTransition3": 1,
+    "eachTransitionFiredExactlyOnce": true,
+    "fires": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "wxIj2ocuVtc5YrzufpW8DwR6qit1",
+        "ts": 607
+      },
+      {
+        "uid": null,
+        "ts": 1012
+      },
+      {
+        "uid": "cqLogb3OS3bPRdEYoJHfv022W2a2",
+        "ts": 1760
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+// Map literals with quoted keys
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+      allow create: if {'key': 'value'}.key == 'value'
+                    && request.resource.data.values().size() > 0
+                    && request.resource.data.get('missing', 'default') == 'default';
+      allow read: if true;
+    }
+  }
+}

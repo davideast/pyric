@@ -1,0 +1,41 @@
+// Counters module for denormalized numeric integrity.
+//
+// The recurring shape: a client-maintained count (likes, votes, moves,
+// quantities) that rules must keep honest — it may only change by a
+// known step, or stay within known bounds. Generalizes the
+// state-module's moveIncremented() (hardcoded to moveCount) to any
+// field.
+//
+// Usage:
+//   import { incrementedBy, changedBy, boundedNumber } from 'counters';
+//
+//   // A like toggle: likeCount moves by exactly ±1:
+//   allow update: if changedBy('likeCount', -1, 1);
+//
+//   // A move counter: strictly +1 per move:
+//   allow update: if incrementedBy('moveCount', 1);
+//
+//   // A rating: any write keeps it in [1, 5]:
+//   allow write: if boundedNumber('rating', 1, 5);
+
+// The field changed by EXACTLY n relative to the existing document.
+// n may be negative (decrement). Update rules only (needs resource).
+export function incrementedBy(field, n) {
+  return request.resource.data[field] == resource.data[field] + n;
+}
+
+// The field's delta is within [min, max] (inclusive) — and it is NOT
+// required to change (delta 0 passes when min <= 0 <= max).
+export function changedBy(field, min, max) {
+  return request.resource.data[field] - resource.data[field] >= min
+    && request.resource.data[field] - resource.data[field] <= max;
+}
+
+// The incoming value is a number within [min, max] (inclusive).
+// Works on create and update. Missing field reads null (dynamic
+// access) and fails the type check rather than erroring.
+export function boundedNumber(field, min, max) {
+  return (request.resource.data[field] is int || request.resource.data[field] is float)
+    && request.resource.data[field] >= min
+    && request.resource.data[field] <= max;
+}

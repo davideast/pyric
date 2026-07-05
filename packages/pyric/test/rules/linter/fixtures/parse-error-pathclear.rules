@@ -1,0 +1,114 @@
+// Synthetic regression fixture for structured parse-error surfacing.
+//
+// Modeled after a real failure mode observed in agent-generated chess
+// rules: a many-line file with a single unclosed parenthesis inside
+// pathClear() at line 89, column 7. The exact bug is on the line reading
+//   "        request.auth.uid == resource.data.host && (resource.data.status == 'playing' &&"
+// — the open paren is never closed.
+//
+// If the actual benchmark trial file becomes available, swap this fixture
+// in. The test only requires that the failure report is line=89 col=7
+// (or close enough that the assertions hold) so a real-world drop-in
+// should keep working.
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isHost() {
+      return resource.data.host == request.auth.uid;
+    }
+
+    function isGuest() {
+      return resource.data.guest == request.auth.uid;
+    }
+
+    function isPlayer() {
+      return isHost() || isGuest();
+    }
+
+    function isPlaying() {
+      return resource.data.status == 'playing';
+    }
+
+    function turnIs(who) {
+      return resource.data.currentTurn == who;
+    }
+
+    function isMyTurn() {
+      return (turnIs('host') && isHost()) || (turnIs('guest') && isGuest());
+    }
+
+    function moveBumped() {
+      return request.resource.data.moveCount == resource.data.moveCount + 1;
+    }
+
+    function statusUnchanged() {
+      return request.resource.data.status == resource.data.status;
+    }
+
+    function hostUnchanged() {
+      return request.resource.data.host == resource.data.host;
+    }
+
+    function guestUnchanged() {
+      return request.resource.data.guest == resource.data.guest;
+    }
+
+    function noPiece(cell) {
+      return !(cell in request.resource.data.board);
+    }
+
+    function pieceAt(cell) {
+      return resource.data.board[cell];
+    }
+
+    function pieceColor(p) {
+      return p == 'wp' || p == 'wn' || p == 'wb' || p == 'wr' || p == 'wq' || p == 'wk' ? 'w' : 'b';
+    }
+
+    function ownerOfTurn() {
+      return turnIs('host') ? 'w' : 'b';
+    }
+
+    function squareEmpty(cell) {
+      return !(cell in resource.data.board);
+    }
+
+    // ── pathClear: bug below — open paren on the next line is never closed.
+    function pathClear(from, to) {
+      return (squareEmpty(from) == false &&
+        // the && to the right of the open paren has no matching close:
+        ((isPlaying() && isMyTurn()) &&
+        // ↑ another nesting level — still not closed
+        (squareEmpty(to) || pieceColor(pieceAt(to)) != ownerOfTurn());
+    }
+
+    function moveValid(from, to) {
+      return pathClear(from, to);
+    }
+
+    match /games/{gameId} {
+      allow read: if isAuth() && isPlayer();
+      allow create: if isAuth() && request.resource.data.host == request.auth.uid;
+      allow update: if isAuth()
+                    && isPlayer()
+                    && isMyTurn()
+                    && moveBumped()
+                    && statusUnchanged()
+                    && hostUnchanged()
+                    && guestUnchanged()
+                    && moveValid(resource.data.from, request.resource.data.to);
+      allow delete: if false;
+    }
+  }
+}

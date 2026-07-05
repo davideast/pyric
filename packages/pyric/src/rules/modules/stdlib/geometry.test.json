@@ -1,0 +1,200 @@
+[
+  {
+    "description": "validSimpleMove allows valid forward move",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "c0r5": "h",
+      "c1r4": "",
+      "currentTurn": "host",
+      "host": "user1"
+    },
+    "data": {
+      "c0r5": "",
+      "c1r4": "h",
+      "moveFrom": "c0r5",
+      "moveTo": "c1r4",
+      "currentTurn": "host",
+      "host": "user1"
+    },
+    "wrapFunction": "validSimpleMove",
+    "wrapOperation": "update",
+    "wrapCallExpr": "validSimpleMove(get(/databases/$(database)/documents/gameConfig/checkers).data)",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "gameConfig/checkers",
+        "result": {
+          "moves": {
+            "h": {
+              "c0r5": {
+                "c1r4": true
+              }
+            }
+          },
+          "jumps": {
+            "h": {
+              "c2r5": {
+                "c0r3": "c1r4"
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "description": "validSimpleMove denies invalid move (not in config)",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "c0r5": "h",
+      "c3r2": "",
+      "currentTurn": "host",
+      "host": "user1"
+    },
+    "data": {
+      "c0r5": "",
+      "c3r2": "h",
+      "moveFrom": "c0r5",
+      "moveTo": "c3r2",
+      "currentTurn": "host",
+      "host": "user1"
+    },
+    "wrapFunction": "validSimpleMove",
+    "wrapOperation": "update",
+    "wrapCallExpr": "validSimpleMove(get(/databases/$(database)/documents/gameConfig/checkers).data)",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "gameConfig/checkers",
+        "result": {
+          "moves": {
+            "h": {
+              "c0r5": {
+                "c1r4": true
+              }
+            }
+          },
+          "jumps": {
+            "h": {
+              "c2r5": {
+                "c0r3": "c1r4"
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "description": "validJumpMove allows valid jump with correct captured cell",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "c2r5": "h",
+      "c1r4": "g",
+      "c0r3": "",
+      "currentTurn": "host",
+      "host": "user1"
+    },
+    "data": {
+      "c2r5": "",
+      "c1r4": "",
+      "c0r3": "h",
+      "moveFrom": "c2r5",
+      "moveTo": "c0r3",
+      "captured": "c1r4",
+      "currentTurn": "host",
+      "host": "user1"
+    },
+    "wrapFunction": "validJumpMove",
+    "wrapOperation": "update",
+    "wrapCallExpr": "validJumpMove(get(/databases/$(database)/documents/gameConfig/checkers).data)",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "gameConfig/checkers",
+        "result": {
+          "moves": {
+            "h": {
+              "c0r5": {
+                "c1r4": true
+              }
+            }
+          },
+          "jumps": {
+            "h": {
+              "c2r5": {
+                "c0r3": "c1r4"
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "description": "validJumpMove denies jump with wrong captured cell",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/doc1",
+    "auth": {
+      "uid": "user1"
+    },
+    "resource": {
+      "c2r5": "h",
+      "c1r4": "g",
+      "c0r3": "",
+      "currentTurn": "host",
+      "host": "user1"
+    },
+    "data": {
+      "c2r5": "",
+      "c1r4": "",
+      "c0r3": "h",
+      "moveFrom": "c2r5",
+      "moveTo": "c0r3",
+      "captured": "c3r4",
+      "currentTurn": "host",
+      "host": "user1"
+    },
+    "wrapFunction": "validJumpMove",
+    "wrapOperation": "update",
+    "wrapCallExpr": "validJumpMove(get(/databases/$(database)/documents/gameConfig/checkers).data)",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "gameConfig/checkers",
+        "result": {
+          "moves": {
+            "h": {
+              "c0r5": {
+                "c1r4": true
+              }
+            }
+          },
+          "jumps": {
+            "h": {
+              "c2r5": {
+                "c0r3": "c1r4"
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+]

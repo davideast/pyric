@@ -1,0 +1,30 @@
+{
+  "name": "firestore-cursor-endbefore-exclusive",
+  "matrixRow": "firestore #70",
+  "description": "endBefore(...values) — exclusive end cursor. Seeds 5 docs with field pos=[1,2,3,4,5], queries orderBy(pos), endBefore(3); the doc at pos=3 should be EXCLUDED.",
+  "observedAt": "2026-05-18T00:11:17.594Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "seeded": 5,
+    "seededIds": [
+      "pos-1",
+      "pos-2",
+      "pos-3",
+      "pos-4",
+      "pos-5"
+    ],
+    "matched": 2,
+    "matchedIds": [
+      "pos-1",
+      "pos-2"
+    ],
+    "threw": false,
+    "code": null,
+    "errorMessage": null,
+    "expectedIds": [
+      "pos-1",
+      "pos-2"
+    ]
+  }
+}

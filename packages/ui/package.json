@@ -1,0 +1,112 @@
+{
+  "name": "@pyric/ui",
+  "version": "0.0.0",
+  "description": "Headless React data-admin components and hooks for Firebase apps built on pyric. Same components work in sandbox (@pyric/firestore against @pyric/sandbox) and production (firebase/firestore against real Firebase) via a single Firestore handle prop. Ships zero visual styling — consumers bring their own design system via className + data-* attributes.",
+  "type": "module",
+  "exports": {
+    "./auth": {
+      "types": "./dist/auth/index.d.ts",
+      "import": "./dist/auth/index.js"
+    },
+    "./auth/hooks": {
+      "types": "./dist/auth/hooks/index.d.ts",
+      "import": "./dist/auth/hooks/index.js"
+    },
+    "./primitives": {
+      "types": "./dist/primitives/index.d.ts",
+      "import": "./dist/primitives/index.js"
+    },
+    "./firestore": {
+      "types": "./dist/firestore/index.d.ts",
+      "import": "./dist/firestore/index.js"
+    },
+    "./firestore/hooks": {
+      "types": "./dist/firestore/hooks/index.d.ts",
+      "import": "./dist/firestore/hooks/index.js"
+    },
+    "./storage": {
+      "types": "./dist/storage/index.d.ts",
+      "import": "./dist/storage/index.js"
+    },
+    "./storage/hooks": {
+      "types": "./dist/storage/hooks/index.d.ts",
+      "import": "./dist/storage/hooks/index.js"
+    },
+    "./traffic": {
+      "types": "./dist/traffic/index.d.ts",
+      "import": "./dist/traffic/index.js"
+    },
+    "./traffic/hooks": {
+      "types": "./dist/traffic/hooks/index.d.ts",
+      "import": "./dist/traffic/hooks/index.js"
+    },
+    "./events": {
+      "types": "./dist/events/index.d.ts",
+      "import": "./dist/events/index.js"
+    },
+    "./events/hooks": {
+      "types": "./dist/events/hooks/index.d.ts",
+      "import": "./dist/events/hooks/index.js"
+    },
+    "./agents": {
+      "types": "./dist/agents/index.d.ts",
+      "import": "./dist/agents/index.js"
+    },
+    "./rules": {
+      "types": "./dist/rules/index.d.ts",
+      "import": "./dist/rules/index.js"
+    },
+    "./rules/hooks": {
+      "types": "./dist/rules/hooks/index.d.ts",
+      "import": "./dist/rules/hooks/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "bun run test:no-dom && bun run test:dom",
+    "test:no-dom": "bun test test/auth/claims test/auth/controller test/auth/hooks test/firestore/hooks test/firestore/inference test/firestore/reducers test/storage/hooks test/traffic/hooks test/rules/hooks test/rules/logic test/events/hooks",
+    "test:dom": "bun test test/auth/components test/firestore/components test/primitives test/storage/components test/traffic/components test/rules/components test/events/components test/agents",
+    "typecheck": "bun x tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "@inbrowser/agent": "0.4.0",
+    "react": ">=19",
+    "react-dom": ">=19",
+    "firebase": ">=12",
+    "pyric": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@inbrowser/agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.1.0",
+    "@types/bun": "latest",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/react-test-renderer": "^19.1.0",
+    "fake-indexeddb": "^6.0.0",
+    "firebase": "^12.12.0",
+    "jsdom": "^29.1.1",
+    "pyric": "workspace:*",
+    "pyric-admin": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-test-renderer": "^19.2.6",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "3.13.24"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

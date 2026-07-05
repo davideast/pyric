@@ -1,0 +1,18 @@
+// Math, hashing, and latlng namespace functions
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+      allow create: if math.abs(-5) == 5
+                    && math.ceil(3.2) == 4
+                    && math.floor(3.8) == 3
+                    && math.round(3.5) == 4
+                    && !math.isInfinite(1)
+                    && !math.isNaN(1)
+                    && hashing.md5('test'.toUtf8()).size() > 0
+                    && hashing.sha256('test'.toUtf8()).size() > 0
+                    && latlng.value(37.7749, -122.4194).latitude > 0;
+      allow read: if true;
+    }
+  }
+}

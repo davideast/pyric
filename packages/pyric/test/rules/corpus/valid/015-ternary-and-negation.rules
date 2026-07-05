@@ -1,0 +1,20 @@
+// Tests ternary operator and negation
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{itemId} {
+      // Ternary
+      allow read: if request.auth != null ? true : false;
+
+      // Negation
+      allow create: if !(request.resource.data.title == null)
+                    && !(request.resource.data.title == '');
+
+      // Compound negation
+      allow delete: if request.auth != null
+                    && !(resource.data.locked == true);
+
+      allow update: if request.auth != null;
+    }
+  }
+}

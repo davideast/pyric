@@ -1,0 +1,107 @@
+[
+  {
+    "description": "hasClaim allows when token has the claim",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": { "uid": "user1", "token": { "workspace": true } },
+    "wrapFunction": "hasClaim",
+    "wrapOperation": "read",
+    "wrapCallExpr": "hasClaim('workspace')"
+  },
+  {
+    "description": "hasClaim denies when token lacks the claim",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": { "uid": "user1", "token": {} },
+    "wrapFunction": "hasClaim",
+    "wrapOperation": "read",
+    "wrapCallExpr": "hasClaim('workspace')"
+  },
+  {
+    "description": "hasClaim denies unauthenticated",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": null,
+    "wrapFunction": "hasClaim",
+    "wrapOperation": "read",
+    "wrapCallExpr": "hasClaim('workspace')"
+  },
+  {
+    "description": "hasClaimRole allows when claim matches role",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": { "uid": "user1", "token": { "role": "admin" } },
+    "wrapFunction": "hasClaimRole",
+    "wrapOperation": "read",
+    "wrapCallExpr": "hasClaimRole('role', 'admin')"
+  },
+  {
+    "description": "hasClaimRole denies when claim has wrong role",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": { "uid": "user1", "token": { "role": "member" } },
+    "wrapFunction": "hasClaimRole",
+    "wrapOperation": "read",
+    "wrapCallExpr": "hasClaimRole('role', 'admin')"
+  },
+  {
+    "description": "isMemberOf allows when uid is in members map",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": { "uid": "alice" },
+    "resource": { "members": { "alice": "editor", "bob": "viewer" } },
+    "wrapFunction": "isMemberOf",
+    "wrapOperation": "read",
+    "wrapCallExpr": "isMemberOf(resource.data.members)"
+  },
+  {
+    "description": "isMemberOf denies when uid is not in members map",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": { "uid": "carol" },
+    "resource": { "members": { "alice": "editor", "bob": "viewer" } },
+    "wrapFunction": "isMemberOf",
+    "wrapOperation": "read",
+    "wrapCallExpr": "isMemberOf(resource.data.members)"
+  },
+  {
+    "description": "hasRole allows when uid has matching role",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": { "uid": "alice" },
+    "resource": { "members": { "alice": "admin", "bob": "viewer" } },
+    "wrapFunction": "hasRole",
+    "wrapOperation": "read",
+    "wrapCallExpr": "hasRole(resource.data.members, 'admin')"
+  },
+  {
+    "description": "hasRole denies when uid has different role",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": { "uid": "bob" },
+    "resource": { "members": { "alice": "admin", "bob": "viewer" } },
+    "wrapFunction": "hasRole",
+    "wrapOperation": "read",
+    "wrapCallExpr": "hasRole(resource.data.members, 'admin')"
+  },
+  {
+    "description": "hasRole denies unauthenticated",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "test/doc1",
+    "auth": null,
+    "resource": { "members": { "alice": "admin" } },
+    "wrapFunction": "hasRole",
+    "wrapOperation": "read",
+    "wrapCallExpr": "hasRole(resource.data.members, 'admin')"
+  }
+]

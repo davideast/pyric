@@ -1,0 +1,46 @@
+// Spaces module — cross-document membership gating for shared spaces
+// (teams, rooms, groups, projects, parties). The second-most-common
+// app shape after author-owned content: a PARENT document defines who
+// may touch its children.
+//
+// Explicit-param design (like geometry): the caller reads the parent
+// doc ONCE via a helper and passes its data in. Define the helper in
+// your rules — get() is cached per request, so every function below
+// can share one read (of the 10-get budget):
+//
+//   import { isSpaceMember, hasSpaceRole, validMemberCreate } from 'spaces';
+//
+//   match /spaces/{spaceId}/tasks/{taskId} {
+//     function space() {
+//       return get(/databases/$(database)/documents/spaces/$(spaceId)).data;
+//     }
+//     allow read: if isSpaceMember(space());
+//     allow create: if validMemberCreate(space(), 'author');
+//     allow delete: if hasSpaceRole(space(), 'admin');
+//   }
+//
+// Members field shapes verified against the production engine:
+//   list: members: ['uidA', 'uidB']            → isSpaceMember only
+//   map:  members: { uidA: 'admin', ... }      → isSpaceMember + hasSpaceRole
+// A missing members field, a non-member uid, or a missing parent doc
+// (get() of a missing doc errors) all fail CLOSED.
+
+// The caller is in the space's members field. `in` covers both
+// shapes: list membership and map keys.
+export function isSpaceMember(spaceData) {
+  return request.auth != null && request.auth.uid in spaceData.members;
+}
+
+// The caller's role in a MAP-shaped members field equals `role`.
+// List-shaped members carry no roles — this denies on them.
+export function hasSpaceRole(spaceData, role) {
+  return request.auth != null && spaceData.members[request.auth.uid] == role;
+}
+
+// Member-gated authored create: the caller is a member AND the
+// incoming child doc's author field is the caller. The "post a
+// message / add a task" guard.
+export function validMemberCreate(spaceData, authorField) {
+  return isSpaceMember(spaceData)
+    && request.resource.data[authorField] == request.auth.uid;
+}

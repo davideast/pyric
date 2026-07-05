@@ -1,0 +1,954 @@
+/**
+ * RTDB sandbox backend — the data-plane that the modular SDK's
+ * sandbox / sandbox-live targets dispatch into.
+ *
+ * Responsibilities:
+ *   - Hold the in-memory JSON tree (`DataTree`).
+ *   - Run identity-aware rule checks via `RulesEvaluator`.
+ *   - Resolve `serverTimestamp()` sentinels at the write boundary.
+ *   - Mint RTDB-shaped push IDs.
+ *   - Fan out `onValue` / child listeners on write.
+ *
+ * One backend instance per `Sandbox` (the modular surface tracks the
+ * binding via a WeakMap so the same sandbox produces the same
+ * backend). The backend itself is identity-agnostic; the caller passes
+ * `AuthState` per op.
+ *
+ * Rule-evaluation oracle: the `@pyric/rtdb` simulator handler. The
+ * backend never reimplements rule semantics — it just packages the
+ * input shape the simulator expects.
+ */
+import type { AuthState, Sandbox } from 'pyric/sandbox';
+import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import {
+  DataTree,
+  cloneJson,
+  joinPath,
+  pathSegments,
+  type JsonValue,
+} from './data-tree.js';
+import { generatePushId } from './push-id.js';
+import { resolveSentinels } from './sentinels.js';
+import { RulesEvaluator, permissionDenied } from './rules-eval.js';
+import { executeQuery, type QueryRow, type QuerySpec } from './query.js';
+import { normalizeWrite, coerceArrays } from './normalize.js';
+
+/**
+ * Listener callback shape — fires with the JSON value at the listener's
+ * path, on subscribe and after every write that touches the path or any
+ * of its descendants.
+ *
+ * `exists` mirrors `DataSnapshot.exists()`; sandboxed equivalent of the
+ * SDK's "absent path → val === null && exists === false".
+ */
+export interface ValueListener {
+  cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void;
+  path: string;
+  /**
+   * If set, the listener is on a `query(ref, ...constraints)` rather
+   * than a plain ref. The backend evaluates the spec each time the
+   * subtree at `path` changes and only fires the callback when the
+   * windowed result has actually changed (locked by oracle observation
+   * `rtdb-modular-onvalue-with-query.json` — writes outside the window
+   * do NOT fire the listener).
+   */
+  query?: QuerySpec;
+  /**
+   * Cached last-fired payload — used by the query path to skip fires
+   * when the windowed result hasn't moved. Plain (non-query) listeners
+   * ignore this field (they fire on any descendant write).
+   */
+  lastWindow?: QueryRow[];
+  /**
+   * Cached last-fired value for a plain (non-query) listener. RTDB's
+   * SyncTree suppresses a value-listener fire when the value at the
+   * listener's exact path didn't change (DB-B8) — an ancestor/descendant
+   * write that leaves this path's subtree byte-identical does NOT
+   * re-fire. We compare the new value against this cache and skip the
+   * fire when they're deep-equal. `undefined` means "not yet fired"
+   * (the initial fire always sets it, so it's defined thereafter — a
+   * last value of `null` is stored as `null`, distinct from `undefined`).
+   */
+  lastValue?: JsonValue;
+}
+
+/**
+ * Child-event listener — fires per-child rather than per-subtree.
+ * Locked by oracle observations under
+ * `scripts/oracle/observations/rtdb-modular-onchild*.json`:
+ *
+ *   - `child_added`: replays existing children on subscribe (one fire
+ *     per existing key, in insertion / orderByKey order), then fires
+ *     once per NEW child after subscribe.
+ *   - `child_changed`: NO initial replay; fires once when an existing
+ *     child's value changes. Snapshot carries the NEW value.
+ *   - `child_removed`: NO initial replay; fires once when a child is
+ *     deleted (via `remove` or `set(null)`). Snapshot carries the
+ *     PRIOR value (the now-removed child's last value).
+ *   - `child_moved`: ordered-query only; under a plain ref it never
+ *     fires (matches the upstream contract — see the matrix M31 +
+ *     observation `rtdb-modular-onchildmoved-with-orderby.json`).
+ *     Tier 2 currently models the plain-ref no-fire case; ordered-query
+ *     wiring lands in Tier 3 with the rest of `query`.
+ */
+export interface ChildListener {
+  event: 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
+  path: string;
+  cb: (snap: { key: string; val: JsonValue }) => void;
+}
+
+/**
+ * RtdbBackend — the per-`Sandbox` data plane.
+ */
+export class RtdbBackend {
+  private readonly tree = new DataTree();
+  private readonly rules = new RulesEvaluator();
+  private readonly valueListeners = new Set<ValueListener>();
+  private readonly childListeners = new Set<ChildListener>();
+  private nextId = 0;
+
+  /**
+   * The owning `Sandbox`, when this backend was created through the
+   * modular surface's `getDatabase(sandbox)` / `getDatabase(ctx)` path.
+   * Held only to emit RTDB write activity onto the unified Studio
+   * `onEvent`/`history()` stream (keystone, track T1). Optional because
+   * the backend is also constructed bare in unit tests that exercise the
+   * data plane directly; in that case emission is simply skipped.
+   */
+  private readonly sandbox?: Sandbox;
+
+  constructor(sandbox?: Sandbox) {
+    this.sandbox = sandbox;
+  }
+
+  /**
+   * Emit an RTDB {@link ServiceMutationEvent} onto the sandbox's unified
+   * stream. No-op when this backend has no owning sandbox (bare-test
+   * construction). Best-effort + isolated — a throw must not fail the
+   * write that triggered it.
+   */
+  private emitRtdbEvent(
+    auth: AuthState,
+    op: 'set' | 'update' | 'remove' | 'transaction',
+    path: string,
+    fields: { before?: unknown; after?: unknown; detail?: Record<string, unknown> } = {},
+  ): void {
+    if (!this.sandbox) return;
+    try {
+      emitSandboxEvent(
+        this.sandbox,
+        makeServiceMutationEvent({
+          service: 'rtdb',
+          op,
+          path,
+          auth,
+          before: fields.before,
+          after: fields.after,
+          detail: fields.detail,
+        }),
+        { service: 'rtdb' },
+      );
+    } catch {
+      // Observational — never let event emission break an RTDB write.
+    }
+  }
+
+  // ─── Admin-plane (rule-bypass) operations ───────────────────────────
+  //
+  // Used by the `sandbox.setData` / `sandbox.snapshotState` test
+  // helpers exported on the modular SDK. Don't go through the rule
+  // engine.
+
+  setData(seed: Record<string, JsonValue>): void {
+    this.tree.restore({});
+    // Seed each path individually so the tree's prior-trim semantics
+    // apply consistently. For a flat seed of nested data we'd just
+    // restore(); but per-path seeding lets `setData({'/a/b': 1})` work
+    // when the user supplies dotted-out paths.
+    for (const [path, value] of Object.entries(seed)) {
+      // Resolve sentinels + normalize in seed too — keeps the seed API
+      // symmetric with the user-plane writes (array coercion, pruning).
+      const resolved = normalizeWrite(
+        resolveSentinels(value, Date.now()) as JsonValue,
+        path === '/' ? '' : path,
+      );
+      this.tree.write(path, resolved);
+    }
+  }
+
+  setRules(rulesJson: { rules: Record<string, unknown> } | null): void {
+    this.rules.setRules(rulesJson);
+  }
+
+  snapshotState(): JsonValue {
+    return this.tree.snapshot();
+  }
+
+  // ─── User-plane (rule-gated) operations ────────────────────────────
+
+  get(auth: AuthState, path: string): JsonValue {
+    if (
+      this.rules.check('read', path === '/' ? '/' : path, {
+        auth,
+        mockData: this.tree.snapshot() as Record<string, unknown>,
+      }) !== 'allow'
+    ) {
+      throw permissionDenied();
+    }
+    // Return the stored (integer-keyed) shape. Array coercion (DB-B2) is
+    // a `DataSnapshot.val()`-render concern applied by the snapshot
+    // wrapper — structural ops (`forEach`/`child`/`size`) walk the node.
+    return this.tree.read(path);
+  }
+
+  /**
+   * `set(path, value)` — full overwrite at the path. `null` deletes the
+   * subtree (sandbox match for the RTDB invariant
+   * `remove(ref) === set(ref, null)`).
+   */
+  set(auth: AuthState, path: string, value: JsonValue): void {
+    this.setInternal(auth, path, value, 'set');
+  }
+
+  /** Shared `set`/`remove` write path. `op` selects the emitted event
+   *  label so a `remove` (which is `set(_, null)`) surfaces as `remove`
+   *  rather than `set` on the Studio stream. */
+  private setInternal(
+    auth: AuthState,
+    path: string,
+    value: JsonValue,
+    op: 'set' | 'remove',
+  ): void {
+    const now = Date.now();
+    // Pass the current value at the path so `increment()` sentinels
+    // resolve against the field's prior value (DB-GAP).
+    const resolved0 = resolveSentinels(value, now, this.tree.read(path)) as JsonValue;
+    // Write-boundary normalization (DB-B1/B2/B3): validate keys + reject
+    // `undefined`/non-finite, coerce arrays → integer-keyed objects, prune
+    // null/empty subtrees. An object that prunes to nothing is a delete
+    // (`set(ref, {})` === `remove(ref)`).
+    const resolved = normalizeWrite(resolved0, path === '/' ? '' : path);
+    if (
+      this.rules.check('write', path === '/' ? '/' : path, {
+        auth,
+        mockData: this.tree.snapshot() as Record<string, unknown>,
+        newData: resolved,
+      }) !== 'allow'
+    ) {
+      throw permissionDenied();
+    }
+    const before = this.tree.read(path);
+    const priors = this.snapshotChildListenerParents();
+    this.tree.write(path, resolved);
+    this.fanOut([path]);
+    this.fanOutChildren(priors);
+    // A write that pruned to nothing (`set(ref, null)` / `set(ref, {})`)
+    // is semantically a remove; label it as such even if it arrived via
+    // `set`. `after` is the post-write value at the path (`null` when the
+    // subtree was deleted).
+    const after = this.tree.read(path);
+    const effectiveOp = after === null ? 'remove' : op;
+    this.emitRtdbEvent(auth, effectiveOp, canonicalPath(path), { before, after });
+  }
+
+  remove(auth: AuthState, path: string): void {
+    this.setInternal(auth, path, null, 'remove');
+  }
+
+  /**
+   * `update(path, patch)` — multi-path atomic update when keys are
+   * `/`-prefixed and `path === '/'`; otherwise a shallow merge at the
+   * named path. Matches `firebase/database`'s discrimination: an
+   * `update(rootRef, { '/users/a/x': 1, '/users/b/y': 2 })` fans out
+   * to both paths atomically, while `update(usersRef, { name: 'A' })`
+   * shallow-merges into `/users`.
+   */
+  update(auth: AuthState, path: string, patch: Record<string, JsonValue>): void {
+    const now = Date.now();
+    const isMultiPath = Object.keys(patch).some((k) => k.includes('/'));
+    if (isMultiPath) {
+      // Each key is treated as a path relative to `path`. Resolve
+      // sentinels per-leaf so a key whose value contains a
+      // `serverTimestamp()` lands as a number.
+      const expanded: Record<string, JsonValue> = {};
+      for (const [k, v] of Object.entries(patch)) {
+        const absSegs = [...pathSegments(path), ...pathSegments(k)];
+        const absPath = joinPath(absSegs);
+        expanded[absPath] = normalizeWrite(
+          resolveSentinels(v, now, this.tree.read(absPath)) as JsonValue,
+          absPath,
+        );
+      }
+      // Check every path under the rules engine. ANY denial fails the
+      // entire update — the multi-path atomicity contract.
+      const mock = this.tree.snapshot() as Record<string, unknown>;
+      for (const [absPath, value] of Object.entries(expanded)) {
+        if (
+          this.rules.check('write', absPath, {
+            auth,
+            mockData: mock,
+            newData: value,
+          }) !== 'allow'
+        ) {
+          throw permissionDenied();
+        }
+      }
+      // Apply atomically via the tree's overlap-checked multi-write.
+      const priors = this.snapshotChildListenerParents();
+      this.tree.multiUpdate(expanded);
+      this.fanOut(Object.keys(expanded));
+      this.fanOutChildren(priors);
+      this.emitRtdbEvent(auth, 'update', canonicalPath(path), {
+        after: expanded,
+        detail: { multiPath: true, paths: Object.keys(expanded) },
+      });
+      return;
+    }
+    // Shallow merge mode. Each top-level key of `patch` replaces the
+    // key at `<path>/<key>`. `null` deletes.
+    const resolvedPatch: Record<string, JsonValue> = {};
+    for (const [k, v] of Object.entries(patch)) {
+      const sub = joinPath([...pathSegments(path), ...pathSegments(k)]);
+      resolvedPatch[k] = normalizeWrite(
+        resolveSentinels(v, now, this.tree.read(sub)) as JsonValue,
+        sub,
+      );
+    }
+    const mock = this.tree.snapshot() as Record<string, unknown>;
+    const touched: string[] = [];
+    for (const [k, v] of Object.entries(resolvedPatch)) {
+      const sub = joinPath([...pathSegments(path), ...pathSegments(k)]);
+      touched.push(sub);
+      if (
+        this.rules.check('write', sub, {
+          auth,
+          mockData: mock,
+          newData: v,
+        }) !== 'allow'
+      ) {
+        throw permissionDenied();
+      }
+    }
+    const priors = this.snapshotChildListenerParents();
+    this.tree.shallowUpdate(path, resolvedPatch);
+    this.fanOut(touched);
+    this.fanOutChildren(priors);
+    this.emitRtdbEvent(auth, 'update', canonicalPath(path), {
+      after: resolvedPatch,
+      detail: { multiPath: false, keys: Object.keys(resolvedPatch) },
+    });
+  }
+
+  // Note: `push()` is implemented entirely on the modular surface
+  // (`modular.ts`) — the key is minted client-side via {@link mintKey}
+  // (no rule check) so it's available synchronously even under a denying
+  // rule (DB-B7), and the optional value write is deferred onto the
+  // returned ThenableReference's promise via the normal `set` path.
+
+  // ─── Listeners ─────────────────────────────────────────────────────
+
+  /**
+   * Subscribe to `onValue`. Fires immediately with the current value
+   * (or `{ val: null, exists: false }` for an absent path — locked by
+   * the prod SDK's behavior), then on every write that touches `path`
+   * or any descendant.
+   *
+   * Returns an unsubscribe.
+   */
+  onValue(
+    auth: AuthState,
+    path: string,
+    cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void,
+    query?: QuerySpec,
+  ): () => void {
+    // Rules check at subscribe time. A denied subscribe never gets
+    // the initial fire — matches production where the listener errors
+    // out before any callback.
+    if (
+      this.rules.check('read', path === '/' ? '/' : path, {
+        auth,
+        mockData: this.tree.snapshot() as Record<string, unknown>,
+      }) !== 'allow'
+    ) {
+      throw permissionDenied();
+    }
+    const listener: ValueListener = { cb, path, query };
+    this.valueListeners.add(listener);
+    // Initial fire — for queries we record the initial window so the
+    // diff check on the next write knows what "the previous result"
+    // was. For plain listeners we just feed the path snapshot.
+    if (query) {
+      const initialWindow = executeQuery(this.tree.read(path), query);
+      listener.lastWindow = initialWindow;
+      cb({
+        val: rowsToVal(initialWindow),
+        exists: initialWindow.length > 0,
+        key: this.keyForPath(path),
+      });
+    } else {
+      const snap = this.makeSnap(path);
+      // Record the initial value so a subsequent no-change write is
+      // suppressed (DB-B8).
+      listener.lastValue = snap.val;
+      cb(snap);
+    }
+    return () => {
+      this.valueListeners.delete(listener);
+    };
+  }
+
+  /**
+   * One-shot `get` against a query — evaluates the constraint chain
+   * against the current tree snapshot. Same rules check as plain `get`
+   * (the read is at the query's root path; per-child rule evaluation
+   * isn't modeled here — RTDB itself rejects queries that span
+   * children with mixed read permissions).
+   */
+  getQuery(auth: AuthState, path: string, spec: QuerySpec): QueryRow[] {
+    if (
+      this.rules.check('read', path === '/' ? '/' : path, {
+        auth,
+        mockData: this.tree.snapshot() as Record<string, unknown>,
+      }) !== 'allow'
+    ) {
+      throw permissionDenied();
+    }
+    return executeQuery(this.tree.read(path), spec);
+  }
+
+  /** The last segment of `path`, or `null` for root. Mirrors
+   *  `DataSnapshot.key`. */
+  private keyForPath(path: string): string | null {
+    const segs = pathSegments(path);
+    return segs.length === 0 ? null : segs[segs.length - 1]!;
+  }
+
+  /**
+   * Compute the listener payload for `path` against the current tree.
+   * `key` is the last segment of the path, or `null` for root —
+   * matches `DataSnapshot.key`.
+   */
+  private makeSnap(path: string): { val: JsonValue; exists: boolean; key: string | null } {
+    const val = this.tree.read(path);
+    const exists = val !== null;
+    const segs = pathSegments(path);
+    const key = segs.length === 0 ? null : segs[segs.length - 1]!;
+    return { val, exists, key };
+  }
+
+  /**
+   * Fan out `value` listeners after a batch of paths were written.
+   * Fires every listener whose path either equals one of the touched
+   * paths or is an ancestor/descendant of any (the listener observes
+   * the subtree it's watching, so any descendant write triggers).
+   */
+  private fanOut(touched: string[]): void {
+    if (this.valueListeners.size === 0) return;
+    const touchedSet = touched.map((p) => joinPath(pathSegments(p)));
+    for (const listener of this.valueListeners) {
+      const lp = joinPath(pathSegments(listener.path));
+      const subtreeTouched = touchedSet.some((tp) => {
+        if (tp === lp) return true;
+        const lpp = lp === '/' ? '/' : lp + '/';
+        const tpp = tp === '/' ? '/' : tp + '/';
+        // Listener watches root: every write fires it.
+        if (lp === '/') return true;
+        // Touched is a descendant of the listener's path → fires.
+        if (tp.startsWith(lpp)) return true;
+        // Touched is an ancestor of the listener's path → also fires
+        // (the listener's subtree might be different now).
+        if (lp.startsWith(tpp)) return true;
+        return false;
+      });
+      if (!subtreeTouched) continue;
+      if (listener.query) {
+        // Query listener: only fire if the windowed result changed.
+        // Locked by oracle observation
+        // `rtdb-modular-onvalue-with-query.json` — a write OUTSIDE the
+        // window doesn't fire the query listener.
+        const nextWindow = executeQuery(this.tree.read(listener.path), listener.query);
+        if (windowsEqual(listener.lastWindow ?? [], nextWindow)) continue;
+        listener.lastWindow = nextWindow;
+        try {
+          listener.cb({
+            val: rowsToVal(nextWindow),
+            exists: nextWindow.length > 0,
+            key: this.keyForPath(listener.path),
+          });
+        } catch {
+          // Swallow — see plain-listener branch below.
+        }
+        continue;
+      }
+      // Plain listener: suppress the fire when the value at the
+      // listener's exact path is byte-identical to the last fired value
+      // (DB-B8). An ancestor/descendant write that leaves this subtree
+      // unchanged must NOT re-fire — RTDB's SyncTree dedups no-change.
+      const snap = this.makeSnap(listener.path);
+      const last = listener.lastValue;
+      if (last !== undefined && deepEqualJson(last, snap.val)) {
+        continue;
+      }
+      listener.lastValue = snap.val;
+      try {
+        listener.cb(snap);
+      } catch {
+        // Swallow — matches `firebase/database` which doesn't let
+        // one observer's throw block another. The faulty listener
+        // is the caller's problem.
+      }
+    }
+  }
+
+  /**
+   * `runTransaction(path, updateFn, options?)` — RTDB-flavored atomic
+   * read-modify-write. The contract mirrors `firebase/database`'s
+   * modular `runTransaction`:
+   *
+   *   - Read the current value at `path`.
+   *   - Call `updateFn(currentValue)`.
+   *     - `currentValue` is `null` for an absent path (oracle:
+   *       `rtdb-modular-runtransaction-current-value-arg.json` →
+   *       `missingArgs[0].isNull === true`).
+   *   - If `updateFn` returns `undefined` → **abort**: no write happens,
+   *     resolves `{ committed: false, snapshot }` where the snapshot
+   *     reflects the pre-transaction value (oracle:
+   *     `rtdb-modular-runtransaction-abort-undefined.json` → `committed:
+   *     false, snapVal: null, afterValOnServer: 100`).
+   *   - If `updateFn` returns any defined value → run the write under
+   *     the current identity's rules; on allow, commit and resolve
+   *     `{ committed: true, snapshot }` with the new value. On deny,
+   *     throw the RTDB-transaction error shape (oracle:
+   *     `rtdb-modular-runtransaction-on-rules-denied-path.json` →
+   *     `threw: true, message: 'permission_denied', code: null,
+   *     constructorName: 'Error'`).
+   *
+   * Single-client harness → no real concurrency to retry against; the
+   * documented "optimistic concurrency with retry" is degenerate here.
+   * The sandbox doesn't speculatively call `updateFn` with `null` first
+   * for a seeded path (prod does — second invocation with the server
+   * value); our contract is the SIMPLEST observable: one invocation
+   * with the actual current value.
+   *
+   * `applyLocally` semantics: when omitted or `true`, the in-flight
+   * (post-update-fn, pre-commit) value fans out to listeners as an
+   * optimistic fire. With `false`, no listener fire until commit. The
+   * difference is invisible in a single-client harness with a
+   * synchronous commit path; we still respect the flag so consumers can
+   * tune intermediate-fire counts under custom assertions.
+   *
+   * Returns a payload the modular surface wraps in a `DataSnapshot`
+   * shape — the backend stays snapshot-agnostic so the rules engine
+   * doesn't need to know about ref objects.
+   */
+  runTransaction(
+    auth: AuthState,
+    path: string,
+    updateFn: (current: JsonValue) => JsonValue | undefined,
+    options?: { applyLocally?: boolean },
+  ): { committed: boolean; val: JsonValue; key: string | null } {
+    const applyLocally = options?.applyLocally !== false;
+    const segs = pathSegments(path);
+    const key = segs.length === 0 ? null : segs[segs.length - 1]!;
+    const current = this.tree.read(path);
+    // Hand the user-fn a deep clone so mutation of the arg doesn't
+    // corrupt our stored tree (consumer code that does
+    // `current.count++; return current` would otherwise mutate-then-
+    // read the same reference). Array-coerce so the fn sees the same
+    // shape `get()` would return (DB-B2).
+    const currentForFn = current === null ? null : coerceArrays(cloneJson(current)) as JsonValue;
+    const proposed = updateFn(currentForFn);
+    if (proposed === undefined) {
+      // Abort — no write, no rule check, no listener fire. Resolve with
+      // the pre-transaction value (oracle pinned for the seeded case:
+      // `afterValOnServer: 100` preserved).
+      return { committed: false, val: current, key };
+    }
+    // Resolve sentinels + normalize first so the rule check sees the
+    // stored shape (consistent with `set`): array coercion, null/empty
+    // pruning, key validation.
+    const now = Date.now();
+    const resolved = normalizeWrite(
+      resolveSentinels(proposed, now, current) as JsonValue,
+      path === '/' ? '' : path,
+    );
+    // Apply locally if allowed — fires listeners with the optimistic
+    // value BEFORE the rule check. The single-client sandbox has a
+    // synchronous commit path so this is effectively a no-op in
+    // practice; the flag is honored for parity with prod's contract.
+    if (applyLocally) {
+      // Stash the prior value so a denial below can roll back. The
+      // tree's write replaces; we hold the snapshot of the pre-write
+      // root to restore on rule-deny.
+      const priorRoot = this.tree.snapshot();
+      this.tree.write(path, resolved);
+      this.fanOut([path]);
+      if (
+        this.rules.check('write', path === '/' ? '/' : path, {
+          auth,
+          mockData: priorRoot as Record<string, unknown>,
+          newData: resolved,
+        }) !== 'allow'
+      ) {
+        // Roll back the local apply and re-fan-out so listeners see
+        // the restored value. Then throw the transaction-specific
+        // denial shape.
+        this.tree.restore(priorRoot);
+        this.fanOut([path]);
+        throw transactionPermissionDenied();
+      }
+      this.emitRtdbEvent(auth, 'transaction', canonicalPath(path), {
+        before: current,
+        after: resolved,
+        detail: { committed: true },
+      });
+      return { committed: true, val: resolved, key };
+    }
+    // applyLocally: false — rule-check FIRST, write only if allowed,
+    // listeners see only the committed value.
+    if (
+      this.rules.check('write', path === '/' ? '/' : path, {
+        auth,
+        mockData: this.tree.snapshot() as Record<string, unknown>,
+        newData: resolved,
+      }) !== 'allow'
+    ) {
+      throw transactionPermissionDenied();
+    }
+    this.tree.write(path, resolved);
+    this.fanOut([path]);
+    this.emitRtdbEvent(auth, 'transaction', canonicalPath(path), {
+      before: current,
+      after: resolved,
+      detail: { committed: true },
+    });
+    return { committed: true, val: resolved, key };
+  }
+
+  // ─── Child-event listeners (Tier 2) ────────────────────────────────
+  //
+  // Per-child diff fanout. Each child listener watches a parent path;
+  // on write we compare the parent's prior children against its next
+  // children and dispatch `child_added` / `child_changed` /
+  // `child_removed` accordingly.
+  //
+  // `child_moved` requires an ordered query (see oracle observation
+  // `rtdb-modular-onchildmoved-with-orderby.json`) — for plain refs
+  // it never fires. Tier 3 will wire the ordered-query path in.
+
+  /**
+   * Subscribe to a child event at `path`.
+   *
+   * Semantics (locked by oracle observations under
+   * `scripts/oracle/observations/rtdb-modular-onchild*.json`):
+   *
+   *   - `child_added`: replays every existing direct child of `path` on
+   *     subscribe (one fire per existing key, in current key-iteration
+   *     order — matches the upstream `orderByKey` default observed in
+   *     `rtdb-modular-onchildadded-initial-replay`). Subsequent
+   *     additions fire once each.
+   *   - `child_changed`: no initial replay. Fires when an existing
+   *     child's value transitions to a NEW non-null value. Snapshot
+   *     carries the NEW value.
+   *   - `child_removed`: no initial replay. Fires when a child is
+   *     deleted (its value transitions to absent). Snapshot carries
+   *     the PRIOR (now-removed) value.
+   *   - `child_moved`: ordered-query only — never fires on a plain
+   *     ref (matches the upstream contract; Tier 3 will wire ordered
+   *     queries in).
+   *
+   * Rules check happens at subscribe time, identical to `onValue`. A
+   * denied subscribe throws the plain-`Error` `PERMISSION_DENIED`
+   * shape and the listener is never registered.
+   *
+   * Returns an idempotent unsubscribe.
+   */
+  onChild(
+    auth: AuthState,
+    event: ChildListener['event'],
+    path: string,
+    cb: (snap: { key: string; val: JsonValue }) => void,
+  ): () => void {
+    if (
+      this.rules.check('read', path === '/' ? '/' : path, {
+        auth,
+        mockData: this.tree.snapshot() as Record<string, unknown>,
+      }) !== 'allow'
+    ) {
+      throw permissionDenied();
+    }
+    const listener: ChildListener = { event, path, cb };
+    this.childListeners.add(listener);
+    // Initial replay — only `child_added` replays existing children.
+    if (event === 'child_added') {
+      for (const { key, val } of this.directChildren(path)) {
+        try {
+          cb({ key, val });
+        } catch {
+          // Swallow — see fanOut.
+        }
+      }
+    }
+    return () => {
+      this.childListeners.delete(listener);
+    };
+  }
+
+  /**
+   * `off(refPath, eventType?, callback?)` — unsubscribe variant. Matches
+   * the upstream contract (oracle: `rtdb-modular-off-stops-child-fires`):
+   *
+   *   - `off(refPath)` removes ALL listeners (value + child) at the path.
+   *   - `off(refPath, 'value')` removes only `value` listeners at the path.
+   *   - `off(refPath, 'child_added')` (or any child event type) removes
+   *     only that child-event variety at the path.
+   *   - `off(refPath, eventType, cb)` removes only the matching callback.
+   *
+   * No-throw on absent listeners — matches the upstream behavior.
+   */
+  off(
+    path: string,
+    eventType?: 'value' | ChildListener['event'],
+    callback?: ((snap: unknown) => void) | unknown,
+  ): void {
+    const canonical = joinPath(pathSegments(path));
+    // Value listeners.
+    if (eventType === undefined || eventType === 'value') {
+      for (const l of [...this.valueListeners]) {
+        if (joinPath(pathSegments(l.path)) !== canonical) continue;
+        if (callback !== undefined && l.cb !== callback) continue;
+        this.valueListeners.delete(l);
+      }
+    }
+    // Child listeners.
+    const childEvents: ChildListener['event'][] = [
+      'child_added',
+      'child_changed',
+      'child_removed',
+      'child_moved',
+    ];
+    const targetEvents = eventType === undefined
+      ? childEvents
+      : eventType === 'value'
+        ? []
+        : [eventType as ChildListener['event']];
+    if (targetEvents.length > 0) {
+      for (const l of [...this.childListeners]) {
+        if (!targetEvents.includes(l.event)) continue;
+        if (joinPath(pathSegments(l.path)) !== canonical) continue;
+        if (callback !== undefined && l.cb !== callback) continue;
+        this.childListeners.delete(l);
+      }
+    }
+  }
+
+  /** Direct children of `path` as `{ key, val }` pairs. Returns [] if
+   *  the path is absent or its value isn't an object. Key iteration
+   *  follows `Object.keys` order, which matches `firebase/database`'s
+   *  `orderByKey` default (insertion order for non-numeric keys). */
+  private directChildren(path: string): Array<{ key: string; val: JsonValue }> {
+    const v = this.tree.read(path);
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) return [];
+    const out: Array<{ key: string; val: JsonValue }> = [];
+    for (const [k, val] of Object.entries(v as Record<string, JsonValue>)) {
+      out.push({ key: k, val });
+    }
+    return out;
+  }
+
+  /** Snapshot the current direct children of every registered child
+   *  listener's parent path. Used to capture the "prior" half of the
+   *  diff before a write applies. */
+  private snapshotChildListenerParents(): Map<string, Map<string, JsonValue>> {
+    const out = new Map<string, Map<string, JsonValue>>();
+    if (this.childListeners.size === 0) return out;
+    for (const listener of this.childListeners) {
+      const canonical = joinPath(pathSegments(listener.path));
+      if (out.has(canonical)) continue;
+      const map = new Map<string, JsonValue>();
+      for (const { key, val } of this.directChildren(canonical)) {
+        map.set(key, val);
+      }
+      out.set(canonical, map);
+    }
+    return out;
+  }
+
+  /**
+   * Fan out child events after a write. `priorByParent` is the snapshot
+   * captured by `snapshotChildListenerParents` before the write applied.
+   *
+   * For each listener, compute the diff between prior and current
+   * children, then dispatch:
+   *   - `child_added` when a key appears that wasn't in prior.
+   *   - `child_changed` when a key's value transitions (deep-not-equal).
+   *   - `child_removed` when a prior key is gone.
+   */
+  private fanOutChildren(priorByParent: Map<string, Map<string, JsonValue>>): void {
+    if (this.childListeners.size === 0) return;
+    // Group listeners by their canonical parent path so we only do
+    // one diff per parent regardless of how many listeners are attached.
+    const byParent = new Map<string, ChildListener[]>();
+    for (const listener of this.childListeners) {
+      const canonical = joinPath(pathSegments(listener.path));
+      const arr = byParent.get(canonical) ?? [];
+      arr.push(listener);
+      byParent.set(canonical, arr);
+    }
+    for (const [parentPath, listeners] of byParent) {
+      const prior = priorByParent.get(parentPath) ?? new Map<string, JsonValue>();
+      const next = new Map<string, JsonValue>();
+      for (const { key, val } of this.directChildren(parentPath)) {
+        next.set(key, val);
+      }
+      // Build event lists.
+      const added: Array<{ key: string; val: JsonValue }> = [];
+      const changed: Array<{ key: string; val: JsonValue }> = [];
+      const removed: Array<{ key: string; val: JsonValue }> = [];
+      for (const [k, v] of next) {
+        if (!prior.has(k)) {
+          added.push({ key: k, val: v });
+        } else if (!deepEqualJson(prior.get(k)!, v)) {
+          changed.push({ key: k, val: v });
+        }
+      }
+      for (const [k, v] of prior) {
+        if (!next.has(k)) {
+          removed.push({ key: k, val: v });
+        }
+      }
+      for (const listener of listeners) {
+        let events: Array<{ key: string; val: JsonValue }>;
+        switch (listener.event) {
+          case 'child_added': events = added; break;
+          case 'child_changed': events = changed; break;
+          case 'child_removed': events = removed; break;
+          case 'child_moved': events = []; break; // ordered-query only
+        }
+        for (const ev of events) {
+          try {
+            listener.cb(ev);
+          } catch {
+            // Swallow — see fanOut.
+          }
+        }
+      }
+    }
+  }
+
+  /** Generate a key without writing (advisory — same key the next
+   *  `push(path)` would produce). Used by the `ref.push().key`
+   *  pattern. Each call returns a fresh key. */
+  mintKey(): string {
+    return generatePushId();
+  }
+
+  /** Test helper — count value listeners. */
+  listenerCount(): number {
+    return this.valueListeners.size;
+  }
+
+  /** Test helper — count child listeners. */
+  childListenerCount(): number {
+    return this.childListeners.size;
+  }
+}
+
+/** Normalize a path to its canonical `/`-joined form for event paths. */
+function canonicalPath(path: string): string {
+  return joinPath(pathSegments(path));
+}
+
+/**
+ * Structural JSON equality. Used by the child-event diff to tell
+ * `child_changed` from "same value". RTDB's diff is value-based — a
+ * write that lands the same JSON shape is a no-op for child events.
+ */
+function deepEqualJson(a: JsonValue, b: JsonValue): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== typeof b) return false;
+  if (typeof a !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    const bb = b as JsonValue[];
+    if (a.length !== bb.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEqualJson(a[i]!, bb[i]!)) return false;
+    }
+    return true;
+  }
+  const ao = a as Record<string, JsonValue>;
+  const bo = b as Record<string, JsonValue>;
+  const ak = Object.keys(ao);
+  const bk = Object.keys(bo);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) {
+    if (!(k in bo)) return false;
+    if (!deepEqualJson(ao[k]!, bo[k]!)) return false;
+  }
+  return true;
+}
+
+/**
+ * Transaction-specific denial constructor. Pinned by oracle observation
+ * `rtdb-modular-runtransaction-on-rules-denied-path.json`:
+ *
+ *   - plain `Error` (NOT `FirebaseError`).
+ *   - `.message === 'permission_denied'` (LOWERCASE — distinct from
+ *     `set`/`get`'s `'PERMISSION_DENIED: Permission denied'` shape).
+ *   - **No** `.code` field on the error (prod observation shows
+ *     `code: null` — the FirebaseError code shape isn't applied to
+ *     transaction rejections).
+ *   - `.constructor.name === 'Error'`.
+ *
+ * This is a deliberately distinct shape from the regular
+ * `permissionDenied()` used by `set`/`get`/`update` — prod really does
+ * emit a different surface for `runTransaction` rejections. The test
+ * suite asserts both shapes so a future "unify the error shape"
+ * refactor would catch the divergence at unit time.
+ */
+function transactionPermissionDenied(): Error {
+  return new Error('permission_denied');
+}
+
+/**
+ * Pack an ordered list of `QueryRow`s into a JSON object — the shape
+ * the `DataSnapshot.val()` contract returns from a query.
+ *
+ * RTDB query snapshots present the windowed rows as a key→value object;
+ * ordering is observable via `snap.forEach` (NOT through `val()`'s
+ * iteration order, which is unspecified for plain objects but happens
+ * to be insertion order in modern V8). The sandbox snap-wrapper
+ * preserves the row order so `snap.forEach` yields children in the
+ * computed query order.
+ */
+function rowsToVal(rows: QueryRow[]): JsonValue {
+  if (rows.length === 0) return null;
+  const out: Record<string, JsonValue> = {};
+  for (const { key, value } of rows) {
+    out[key] = value;
+  }
+  return out;
+}
+
+/** Deep-equal compare for two windowed result lists. Used to decide
+ *  whether a query listener should re-fire. Uses structural
+ *  `deepEqualJson` (key-order-INsensitive) rather than `JSON.stringify`
+ *  so a re-write that only reorders object keys is correctly treated as
+ *  "no change" (DB-B11: RTDB treats objects as order-equal). */
+function windowsEqual(a: QueryRow[], b: QueryRow[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const ai = a[i]!;
+    const bi = b[i]!;
+    if (ai.key !== bi.key) return false;
+    if (!deepEqualJson(ai.value, bi.value)) return false;
+  }
+  return true;
+}
+
+// Re-exports the modular SDK uses internally.
+export { cloneJson, pathSegments, joinPath } from './data-tree.js';
+export type { JsonValue } from './data-tree.js';
+export type { QuerySpec, QueryRow } from './query.js';

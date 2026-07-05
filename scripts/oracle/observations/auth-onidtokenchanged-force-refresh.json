@@ -1,0 +1,27 @@
+{
+  "name": "auth-onidtokenchanged-force-refresh",
+  "matrixRow": "auth #39",
+  "description": "onIdTokenChanged on getIdToken(true) — observes whether prod fires the listener on a forced refresh.",
+  "observedAt": "2026-05-18T01:02:19.334Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "firesAfterSignIn": 2,
+    "firesAfterRefresh": 3,
+    "refreshFiredListener": true,
+    "fires": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "WZtpiw0caeSusHs1L34YcWVomLF3",
+        "ts": 434
+      },
+      {
+        "uid": "WZtpiw0caeSusHs1L34YcWVomLF3",
+        "ts": 1913
+      }
+    ]
+  }
+}

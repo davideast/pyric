@@ -1,0 +1,17 @@
+{
+  "name": "auth-signout-idempotent",
+  "matrixRow": "auth #27",
+  "description": "signOut on already-signed-out auth — does prod throw, no-op, and does it fire onAuthStateChanged?",
+  "observedAt": "2026-05-17T23:36:48.364Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "error": null,
+    "code": null,
+    "baselineFires": 3,
+    "afterRedundantSignOut": 3,
+    "redundantSignOutFiredListener": false,
+    "leakedAnonymousUid": "6puxptiwO6YpryqFJbYSlMUdY1e2"
+  }
+}

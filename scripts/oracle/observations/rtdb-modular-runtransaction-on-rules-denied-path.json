@@ -1,0 +1,19 @@
+{
+  "name": "rtdb-modular-runtransaction-on-rules-denied-path",
+  "matrixRow": "rtdb-modular #158 (denial)",
+  "description": "runTransaction against a path the rules deny — confirm the promise rejects, capture the error shape (FirebaseError vs plain Error, .code, .message). Locks the denial contract so the sandbox throws an equivalent shape.",
+  "observedAt": "2026-05-18T04:27:43.649Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": true,
+    "code": null,
+    "message": "permission_denied",
+    "errorName": "Error",
+    "constructorName": "Error",
+    "isErrorInstance": true,
+    "updateFnCallCount": 1,
+    "committed": null,
+    "rejectedNotAborted": true
+  }
+}

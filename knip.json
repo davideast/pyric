@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    "packages/pyric-tools": {
+      "entry": [
+        "src/cli/index.ts!",
+        "src/serve/entries/*.ts!",
+        "src/serve/worker/entry.ts!",
+        "src/serve/vite-plugin.ts!"
+      ]
+    }
+  }
+}

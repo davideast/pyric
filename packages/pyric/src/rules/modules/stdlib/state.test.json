@@ -1,0 +1,55 @@
+[
+  {
+    "description": "isPlaying allows when status is playing",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/game1",
+    "auth": { "uid": "user1" },
+    "resource": { "status": "playing" },
+    "wrapFunction": "isPlaying",
+    "wrapOperation": "update"
+  },
+  {
+    "description": "isPlaying denies when status is waiting",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/game1",
+    "auth": { "uid": "user1" },
+    "resource": { "status": "waiting" },
+    "wrapFunction": "isPlaying",
+    "wrapOperation": "update"
+  },
+  {
+    "description": "moveIncremented allows 0 to 1",
+    "expectation": "ALLOW",
+    "method": "update",
+    "path": "test/game1",
+    "auth": { "uid": "user1" },
+    "data": { "moveCount": 1 },
+    "resource": { "moveCount": 0 },
+    "wrapFunction": "moveIncremented",
+    "wrapOperation": "update"
+  },
+  {
+    "description": "moveIncremented denies skip from 0 to 5",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/game1",
+    "auth": { "uid": "user1" },
+    "data": { "moveCount": 5 },
+    "resource": { "moveCount": 0 },
+    "wrapFunction": "moveIncremented",
+    "wrapOperation": "update"
+  },
+  {
+    "description": "participantsUnchanged denies when host changes",
+    "expectation": "DENY",
+    "method": "update",
+    "path": "test/game1",
+    "auth": { "uid": "user1" },
+    "data": { "host": "hijacked", "guest": "guest1" },
+    "resource": { "host": "host1", "guest": "guest1" },
+    "wrapFunction": "participantsUnchanged",
+    "wrapOperation": "update"
+  }
+]

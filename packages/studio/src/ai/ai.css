@@ -1,0 +1,336 @@
+/* AI assist surfaces: the spine model selector + the API-keys settings modal.
+   Token-driven, matching the studio shell (tokens.css). */
+
+/* ── Model selector (spine) ─────────────────────────────────────────── */
+.ai-model {
+  position: relative;
+  flex-shrink: 0;
+}
+.ai-model__btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  cursor: pointer;
+  max-width: 200px;
+}
+.ai-model__btn:hover {
+  border-color: var(--line-2);
+}
+.ai-model__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex-shrink: 0;
+}
+.ai-model__dot[data-ready] {
+  background: var(--accent);
+}
+.ai-model__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-model__chev {
+  color: var(--faint);
+  font-size: 10px;
+}
+.ai-model__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.ai-model__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 41;
+  min-width: 240px;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--elevated);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+.ai-model__group + .ai-model__group {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.ai-model__grouphead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+}
+.ai-model__setkey {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.ai-model__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ai-model__item:hover {
+  background: var(--panel);
+}
+.ai-model__item[data-active] {
+  color: var(--accent);
+  font-weight: 500;
+}
+.ai-model__locked {
+  margin: 0;
+  padding: 4px 8px 6px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* ── Settings modal (API keys) ──────────────────────────────────────── */
+.ai-set {
+  width: 100%;
+  max-width: 560px;
+  /* The backdrop already offsets from the top (padding-top: 14vh); cap the
+     height + scroll internally so all providers are reachable. */
+  max-height: 78vh;
+  overflow-y: auto;
+  padding: 18px 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--elevated);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+}
+.ai-set__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.ai-set__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ai-set__close {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--faint);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.ai-set__note {
+  margin: 0 0 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.ai-set__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ai-set__row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.ai-set__rowhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ai-set__name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.ai-set__status {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+}
+.ai-set__status[data-state='set'] {
+  color: var(--accent);
+}
+.ai-set__field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.ai-set__input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--elevated);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+}
+.ai-set__input:focus {
+  border-color: var(--line-2);
+}
+.ai-set__btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--elevated);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ai-set__btn:hover {
+  border-color: var(--line-2);
+}
+.ai-set__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ai-set__btn--primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ai-set__test {
+  margin: 0;
+  font-size: 12px;
+}
+.ai-set__test[data-state='ok'] {
+  color: var(--diff-add);
+}
+.ai-set__test[data-state='error'] {
+  color: var(--diff-remove);
+}
+.ai-set__help {
+  font-size: 11.5px;
+  color: var(--accent);
+  text-decoration: none;
+}
+.ai-set__help:hover {
+  text-decoration: underline;
+}
+
+/* Model picker, folded into the settings modal (it used to clutter the bar). */
+.ai-set__model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+}
+.ai-set__modellabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* ── Assist panel (one run's streamed output) ───────────────────────── */
+.ai-panel {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.ai-panel__text {
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+.ai-panel__running {
+  color: var(--faint);
+  font-size: 12px;
+}
+.ai-panel__steps {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ai-panel__step {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.ai-panel__step[data-status='ok'] .ai-panel__stepname {
+  color: var(--diff-add);
+}
+.ai-panel__step[data-status='error'] .ai-panel__stepname {
+  color: var(--diff-remove);
+}
+.ai-panel__stepname {
+  color: var(--muted);
+}
+.ai-panel__stepsummary {
+  color: var(--faint);
+}
+.ai-panel__error {
+  color: var(--diff-remove);
+}
+.ai-panel__errmsg {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  word-break: break-word;
+}
+.ai-panel__settingslink {
+  appearance: none;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--elevated);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+}

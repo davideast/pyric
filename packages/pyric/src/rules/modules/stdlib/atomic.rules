@@ -1,0 +1,52 @@
+// Atomic module — cross-document integrity for BATCH writes, via the
+// get()/getAfter() pair. Firestore evaluates every write in a batch
+// against rules, and getAfter() returns another document's POST-BATCH
+// state — so a rule can require "this write is only valid if a
+// companion write happened in the same atomic batch".
+//
+// All semantics live-verified against a production database: companion
+// visibility, solo-write denial, wrong-delta denial, single-use consumption
+// incl. replay denial, and out-of-batch getAfter() falling back to current
+// state.
+//
+// Explicit-param design: pass BOTH states of the companion doc —
+// `get(path).data` (pre-batch) and `getAfter(path).data` (post-batch).
+//
+//   import { companionChangedBy, consumedFlag } from 'atomic';
+//
+//   // Denormalized counter: creating a task REQUIRES the team's
+//   // taskCount to have been incremented in the same batch:
+//   match /teams/{teamId}/tasks/{taskId} {
+//     function teamBefore() {
+//       return get(/databases/$(database)/documents/teams/$(teamId)).data;
+//     }
+//     function teamAfter() {
+//       return getAfter(/databases/$(database)/documents/teams/$(teamId)).data;
+//     }
+//     allow create: if companionChangedBy(teamBefore(), teamAfter(), 'taskCount', 1);
+//   }
+//
+//   // Single-use invite: the join is valid only when the invite was
+//   // consumed (false -> true) IN THIS BATCH — replays deny because
+//   // the pre-batch state is already true:
+//   allow update: if consumedFlag(inviteBefore(), inviteAfter(), 'used');
+//
+// NOTE (simulator): in-batch companion semantics cannot be expressed
+// in the simulator or the Rules Test API mock surface — the simulator
+// treats cross-doc getAfter() as get(). These function BODIES are
+// simulator-tested with explicit values; the getAfter() WIRING is the
+// live v1 scope's job. Companion writes need their own allow rules too —
+// every write in a batch is evaluated.
+
+// The companion doc's field changed by EXACTLY n in this batch.
+// before/after are the SAME doc's get()/getAfter() data.
+export function companionChangedBy(before, after, field, n) {
+  return after[field] == before[field] + n;
+}
+
+// A single-use flag was consumed IN THIS BATCH: pre-batch false,
+// post-batch true. Replays deny (pre-batch is already true), and a
+// solo write denies (getAfter == get, so false != true).
+export function consumedFlag(before, after, flagField) {
+  return before[flagField] == false && after[flagField] == true;
+}

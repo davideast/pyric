@@ -1,0 +1,25 @@
+{
+  "name": "firestore-nested-or-and-composite",
+  "matrixRow": "firestore #58",
+  "description": "Nested or/and — the canonical composite pattern. Query: or(and(where(x,==,1), where(y,==,2)), where(z,==,3)). Result should be the boolean union of \"x==1 AND y==2\" with \"z==3\".",
+  "observedAt": "2026-05-17T23:59:02.990Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "seeded": 6,
+    "matched": 3,
+    "matchedIds": [
+      "both-branches",
+      "inner-and-match",
+      "outer-z-match"
+    ],
+    "threw": false,
+    "code": null,
+    "errorMessage": null,
+    "expectedIds": [
+      "both-branches",
+      "inner-and-match",
+      "outer-z-match"
+    ]
+  }
+}

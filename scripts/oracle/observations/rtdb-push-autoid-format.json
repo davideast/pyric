@@ -1,0 +1,26 @@
+{
+  "name": "rtdb-push-autoid-format",
+  "matrixRow": "rtdb #27/#28",
+  "description": "Call push(ref).key three times and capture the auto-id format: length, leading char, monotonicity. RTDB push IDs are documented as 20-char, dash-prefixed, timestamp-encoding, lexicographically sortable.",
+  "observedAt": "2026-05-18T03:36:30.531Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "sampleKeys": [
+      "-Ost90fdbeEJ4iC_e3rZ",
+      "-Ost90flQgF-aR1wDQAz",
+      "-Ost90fsOGfczwy7sK6q"
+    ],
+    "lengths": [
+      20,
+      20,
+      20
+    ],
+    "allLength20": true,
+    "allStartWithDash": true,
+    "monotonicallySorted": true
+  }
+}

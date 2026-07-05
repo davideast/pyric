@@ -1,0 +1,392 @@
+[
+  {
+    "description": "isSpaceMember allows a list-shaped member",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "alice"
+    },
+    "wrapFunction": "isSpaceMember",
+    "wrapOperation": "get",
+    "wrapCallExpr": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": [
+            "alice",
+            "bob"
+          ]
+        }
+      }
+    ],
+    "resource": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "isSpaceMember denies a non-member (list shape)",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "mallory"
+    },
+    "wrapFunction": "isSpaceMember",
+    "wrapOperation": "get",
+    "wrapCallExpr": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": [
+            "alice",
+            "bob"
+          ]
+        }
+      }
+    ],
+    "resource": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "isSpaceMember allows a map-shaped member",
+    "expectation": "ALLOW",
+    "method": "get",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "alice"
+    },
+    "wrapFunction": "isSpaceMember",
+    "wrapOperation": "get",
+    "wrapCallExpr": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": {
+            "alice": "admin",
+            "bob": "viewer"
+          }
+        }
+      }
+    ],
+    "resource": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "isSpaceMember denies a non-member (map shape)",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "mallory"
+    },
+    "wrapFunction": "isSpaceMember",
+    "wrapOperation": "get",
+    "wrapCallExpr": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": {
+            "alice": "admin",
+            "bob": "viewer"
+          }
+        }
+      }
+    ],
+    "resource": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "isSpaceMember denies unauthenticated",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "spaces/s1/tasks/t1",
+    "auth": null,
+    "wrapFunction": "isSpaceMember",
+    "wrapOperation": "get",
+    "wrapCallExpr": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": [
+            "alice",
+            "bob"
+          ]
+        }
+      }
+    ],
+    "resource": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "isSpaceMember denies when the members field is missing (fail-closed)",
+    "expectation": "DENY",
+    "method": "get",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "alice"
+    },
+    "wrapFunction": "isSpaceMember",
+    "wrapOperation": "get",
+    "wrapCallExpr": "isSpaceMember(get(/databases/$(database)/documents/spaces/s1).data)",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "name": "no-members"
+        }
+      }
+    ],
+    "resource": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "hasSpaceRole allows the matching role",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "alice"
+    },
+    "wrapFunction": "hasSpaceRole",
+    "wrapOperation": "create",
+    "wrapCallExpr": "hasSpaceRole(get(/databases/$(database)/documents/spaces/s1).data, 'admin')",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": {
+            "alice": "admin",
+            "bob": "viewer"
+          }
+        }
+      }
+    ],
+    "data": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "hasSpaceRole denies a different role",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "bob"
+    },
+    "wrapFunction": "hasSpaceRole",
+    "wrapOperation": "create",
+    "wrapCallExpr": "hasSpaceRole(get(/databases/$(database)/documents/spaces/s1).data, 'admin')",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": {
+            "alice": "admin",
+            "bob": "viewer"
+          }
+        }
+      }
+    ],
+    "data": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "hasSpaceRole denies a non-member",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "mallory"
+    },
+    "wrapFunction": "hasSpaceRole",
+    "wrapOperation": "create",
+    "wrapCallExpr": "hasSpaceRole(get(/databases/$(database)/documents/spaces/s1).data, 'admin')",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": {
+            "alice": "admin",
+            "bob": "viewer"
+          }
+        }
+      }
+    ],
+    "data": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "hasSpaceRole denies on a list-shaped members field (no roles)",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "alice"
+    },
+    "wrapFunction": "hasSpaceRole",
+    "wrapOperation": "create",
+    "wrapCallExpr": "hasSpaceRole(get(/databases/$(database)/documents/spaces/s1).data, 'admin')",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": [
+            "alice",
+            "bob"
+          ]
+        }
+      }
+    ],
+    "data": {
+      "title": "x"
+    }
+  },
+  {
+    "description": "validMemberCreate allows a member creating an author-stamped doc",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "alice"
+    },
+    "wrapFunction": "validMemberCreate",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validMemberCreate(get(/databases/$(database)/documents/spaces/s1).data, 'author')",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": [
+            "alice",
+            "bob"
+          ]
+        }
+      }
+    ],
+    "data": {
+      "title": "x",
+      "author": "alice"
+    }
+  },
+  {
+    "description": "validMemberCreate denies a member stamping someone else as author",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "alice"
+    },
+    "wrapFunction": "validMemberCreate",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validMemberCreate(get(/databases/$(database)/documents/spaces/s1).data, 'author')",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": [
+            "alice",
+            "bob"
+          ]
+        }
+      }
+    ],
+    "data": {
+      "title": "x",
+      "author": "bob"
+    }
+  },
+  {
+    "description": "validMemberCreate denies a non-member",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "mallory"
+    },
+    "wrapFunction": "validMemberCreate",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validMemberCreate(get(/databases/$(database)/documents/spaces/s1).data, 'author')",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": [
+            "alice",
+            "bob"
+          ]
+        }
+      }
+    ],
+    "data": {
+      "title": "x",
+      "author": "mallory"
+    }
+  },
+  {
+    "description": "validMemberCreate denies a missing author field",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "spaces/s1/tasks/t1",
+    "auth": {
+      "uid": "alice"
+    },
+    "wrapFunction": "validMemberCreate",
+    "wrapOperation": "create",
+    "wrapCallExpr": "validMemberCreate(get(/databases/$(database)/documents/spaces/s1).data, 'author')",
+    "wrapMatch": "/spaces/{spaceId}/tasks/{taskId}",
+    "functionMocks": [
+      {
+        "function": "get",
+        "path": "spaces/s1",
+        "result": {
+          "members": [
+            "alice",
+            "bob"
+          ]
+        }
+      }
+    ],
+    "data": {
+      "title": "x"
+    }
+  }
+]

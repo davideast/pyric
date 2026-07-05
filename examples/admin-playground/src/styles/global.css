@@ -1,0 +1,1102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Showcase-level styling for `@pyric/ui`. The library ships zero CSS;
+ * everything visible here is the consumer's design choice. Selectors
+ * targeting `[data-pyric-*]` attributes demonstrate the integration
+ * pattern — the same approach a real consumer would use.
+ */
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: theme('colors.canvas-bg');
+    color: theme('colors.soft-white');
+    font-family: theme('fontFamily.display');
+    font-feature-settings: 'cv11', 'ss01';
+    line-height: 1.5;
+  }
+
+  #root {
+    min-height: 100dvh;
+  }
+
+  /* Reasonable scrollbar on dark canvas. */
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: theme('colors.border-soft');
+    border-radius: 4px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: theme('colors.border-strong');
+  }
+}
+
+@layer components {
+  /* ===========================================================
+     `@pyric/ui` styling via `data-pyric-*` attribute selectors.
+     The library is headless — these rules are the showcase's
+     visual layer, not anything the library ships.
+     =========================================================== */
+
+  /* Field display (DocumentPreview)
+
+     Rhythm-via-gap model:
+     - Every container (root preview, nested map, nested array)
+       sets `row-gap` for the vertical beat between rows.
+     - Per-row padding is intentionally NOT used — padding-bottom
+       on row A + padding-top on row B doubles between adjacent
+       baselines and is the original cause of "wonky" spacing.
+     - Hairlines sit at the row-box boundary via `border-bottom`,
+       independent of the gap.
+
+     Hierarchy paradigm:
+     - Leaf rows render inline (`key | value`) on a 120px / 1fr
+       grid.
+     - Container rows (value is a map, or an array containing maps)
+       STACK — key on top, value below indented with a dashed
+       left guide. Driven by `:has()`.
+     - Primitive arrays (tags) stay inline as chips. */
+  [data-pyric-ui='document-preview'] {
+    @apply rounded-lg border border-border-soft bg-panel-bg px-4 py-3 font-mono text-[13px];
+    display: grid;
+    /* Inter-row gap at the document level. Sibling row-gap values
+       below scale proportionally so the hierarchy reads at a
+       consistent rhythm. */
+    row-gap: 0.7rem;
+  }
+  [data-pyric-ui='document-preview'] [data-pyric-field-entry] {
+    @apply grid grid-cols-[120px_1fr] items-baseline gap-x-4 border-b border-border-soft/40 pb-2 last:border-0 last:pb-0 leading-snug;
+  }
+  [data-pyric-ui='document-preview'] [data-pyric-field-key] {
+    @apply text-muted-gray text-[12px] truncate;
+  }
+
+  [data-pyric-field-type='string'] {
+    @apply text-soft-white;
+  }
+  [data-pyric-field-type='number'] {
+    @apply text-[#a3d4ff];
+  }
+  [data-pyric-field-type='boolean'] {
+    @apply text-[#e6c79c];
+  }
+  [data-pyric-field-type='null'] {
+    @apply text-muted-gray italic;
+  }
+  [data-pyric-field-type='timestamp'] {
+    @apply text-[#c7a4e4];
+  }
+  [data-pyric-field-type='geopoint'] {
+    @apply text-[#a3d4ff];
+  }
+  [data-pyric-field-type='reference'] {
+    @apply text-primary;
+  }
+  [data-pyric-field-type='reference'][data-pyric-clickable] {
+    /* The library renders clickable refs as <button>, which the
+       grid stretches to fill the 1fr value cell and centers the
+       text. justify-self-start + w-fit + text-left brings it back
+       to the left edge sized to its content, matching how plain
+       <span> values render. */
+    @apply underline underline-offset-2 hover:bg-primary-soft px-1.5 py-0.5 rounded transition-colors
+           justify-self-start w-fit text-left;
+  }
+  [data-pyric-field-type='bytes'] {
+    /* `inline-block + align-top` keeps the chip on the same
+       baseline as other values when short; `max-w-[60ch] + break-all`
+       wraps long base64 so a 92-char avatar stays close to peer row
+       heights instead of stretching the value column on one line. */
+    @apply inline-block align-top text-muted-gray bg-canvas-bg px-1.5 py-0.5 rounded text-[11px]
+           break-all max-w-[60ch];
+  }
+  [data-pyric-field-type='map'],
+  [data-pyric-field-type='array'] {
+    @apply block;
+  }
+
+  /* === Preview-only nesting paradigm === */
+
+  /* A field-entry whose value is a map, or an array of objects,
+     stacks the key on top and the value below. Leaf entries +
+     entries with primitive arrays keep the inline 120px / 1fr grid.
+     We can't use `:has(> ...)` here — Tailwind's CSS scanner
+     silently drops rules whose `:has(...)` argument starts with a
+     combinator. Descendant-form works fine, and any
+     `data-pyric-field-type='map'` deeper in the subtree implies a
+     non-primitive value, so it's the right semantic anyway. */
+  [data-pyric-ui='document-preview']
+    [data-pyric-field-entry]:has([data-pyric-field-type='map']) {
+    grid-template-columns: 1fr;
+    /* Stacked container: gap between the key row and the nested
+       value below. Slightly larger than the map's own row-gap so
+       container boundaries feel more substantial than their
+       internal beats. */
+    row-gap: 0.65rem;
+  }
+
+  /* Map: vertical stack of entries via row-gap. Each entry is its
+     own self-contained grid (no display:contents). Same-depth
+     siblings still align because both columns are fixed-width. */
+  [data-pyric-ui='document-preview'] [data-pyric-field-type='map'] {
+    display: grid;
+    /* Map-internal row beat — the rhythm between sibling key:value
+       pairs inside one map. */
+    row-gap: 0.6rem;
+  }
+  [data-pyric-ui='document-preview'] [data-pyric-map-entry] {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    column-gap: 1rem;
+    align-items: baseline;
+    margin: 0;
+  }
+  [data-pyric-ui='document-preview'] [data-pyric-map-entry] > dt,
+  [data-pyric-ui='document-preview'] [data-pyric-map-entry] > dd {
+    margin: 0;
+    min-width: 0;
+  }
+  /* Nested-container entries inside a map: same stack rule. Same
+     descendant-form caveat as above re: Tailwind's :has scanner. */
+  [data-pyric-ui='document-preview']
+    [data-pyric-map-entry]:has([data-pyric-field-type='map']) {
+    grid-template-columns: 1fr;
+    row-gap: 0.6rem;
+  }
+
+  /* Indent + dashed left guide on every nested container. Carries
+     the hierarchy visually so `email` reads as a child of
+     `notifications`, not a sibling. The dashed line is intentionally
+     low-contrast — present enough to anchor depth, quiet enough not
+     to compete with the data. */
+  [data-pyric-ui='document-preview'] [data-pyric-field-type='map'],
+  [data-pyric-ui='document-preview']
+    [data-pyric-field-type='array']:has([data-pyric-field-type='map']) {
+    padding-left: 0.75rem;
+    margin-left: 0.25rem;
+    border-left: 1px dashed rgba(138, 138, 150, 0.28);
+  }
+
+  /* Array-of-objects entries: vertical stack with row-gap. Subtle
+     within-array separator on subsequent items so two objects in
+     `recentSessions` don't read as one. */
+  [data-pyric-ui='document-preview']
+    [data-pyric-field-type='array']:has([data-pyric-field-type='map']) {
+    display: grid;
+    /* Array of objects gets a slightly larger row-gap than a map's
+       internal rhythm — array items are conceptually heavier than
+       sibling fields within one map. */
+    row-gap: 0.85rem;
+  }
+  [data-pyric-ui='document-preview']
+    [data-pyric-field-type='array']:has([data-pyric-field-type='map'])
+    > [data-pyric-array-entry] {
+    @apply block list-none;
+  }
+  [data-pyric-ui='document-preview']
+    [data-pyric-field-type='array']:has([data-pyric-field-type='map'])
+    > [data-pyric-array-entry]
+    + [data-pyric-array-entry] {
+    @apply pt-2 border-t border-border-soft/30;
+  }
+
+  /* Arrays of primitives — inline chips. `tags: [admin, beta, pro]`
+     stays a single horizontal row of pills. */
+  [data-pyric-ui='document-preview']
+    [data-pyric-field-type='array']:not(:has([data-pyric-field-type='map'])) {
+    @apply flex flex-wrap gap-1.5;
+    padding-left: 0;
+    margin-left: 0;
+    border-left: none;
+  }
+  [data-pyric-ui='document-preview']
+    [data-pyric-field-type='array']:not(:has([data-pyric-field-type='map']))
+    > [data-pyric-array-entry] {
+    @apply inline-block list-none bg-canvas-bg/60 rounded px-2 text-[12px];
+  }
+  [data-pyric-field-key] {
+    @apply text-muted-gray;
+  }
+
+  /* Field editing (DocumentEditor) — single-row, data-dense layout.
+     Each leaf is one 4-column grid row: key · type · value · menu.
+     Chrome is flattened into the row via `display: contents` so the
+     key input, type chip, and × button sit in named grid tracks
+     rather than stacked above the value. Inputs are content-sized
+     per type — no input ever spans the full container. */
+  [data-pyric-ui='document-editor'] {
+    @apply rounded-lg border border-border-soft bg-panel-bg font-mono text-[13px];
+    /* Tell native widgets (datetime picker, number spinner) to use
+       their dark-mode variants so the calendar popover matches. */
+    color-scheme: dark;
+    width: fit-content;
+    max-width: 100%;
+    padding: 1rem 1.25rem;
+  }
+  /* Each nesting level is its own canonical grid: editor-fields at
+     the root, map-children/array-children at every nested level.
+     Field-entries within a level use `subgrid` so their rows share
+     the same tracks (×, chip, value cells all align within a
+     section). Each level is independent — value columns shrink at
+     deeper levels rather than overflowing into the chip column. */
+  [data-pyric-ui='document-editor'] [data-pyric-editor-fields],
+  [data-pyric-ui='document-editor'] [data-pyric-map-children],
+  [data-pyric-ui='document-editor'] [data-pyric-array-children] {
+    display: grid;
+    grid-template-columns:
+      [key] minmax(0, 8rem)
+      [type] 5.75rem
+      [value] minmax(0, 22rem)
+      [menu] 1.5rem;
+    column-gap: 0.75rem;
+    row-gap: 0.625rem;
+  }
+  [data-pyric-ui='document-editor'] [data-pyric-field-entry] {
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
+    grid-auto-flow: dense;
+    row-gap: 0.5rem;
+    align-items: baseline;
+    min-height: 28px;
+    /* No horizontal padding: each nesting level wraps the row in
+       another field-entry, and any horizontal padding would shift
+       the × column inward by that amount per level. Edge-to-edge
+       rows keep the × aligned at the true column edge everywhere. */
+    padding: 0;
+    border-radius: 4px;
+  }
+  [data-pyric-ui='document-editor'] [data-pyric-field-entry]:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-entry]:focus-within {
+    background: rgba(255, 255, 255, 0.035);
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-entry][data-pyric-error] {
+    background: rgba(239, 68, 68, 0.06);
+  }
+
+  /* Flatten chrome so its children participate in the field-entry
+     grid. The key input, type select, and remove button each get an
+     explicit grid-column. */
+  [data-pyric-ui='document-editor'] [data-pyric-field-chrome] {
+    display: contents;
+  }
+
+  /* Key — reads as a label. No hover chrome flicker. Edit affordance
+     appears only on focus (tab/click). */
+  [data-pyric-field-key-input] {
+    grid-column: key;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--soft-white, #e4e4e7);
+    border-radius: 3px;
+    padding: 0.125rem 0.375rem;
+    font-size: 13px;
+    font-family: inherit;
+    min-width: 0;
+    width: 100%;
+  }
+  [data-pyric-field-key-input]:focus {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.04);
+    outline: none;
+  }
+
+  /* Type select — metadata, not chrome. Visible at rest (opacity
+     keeps it quiet vs. the value text) but readable; reveals fully
+     on row hover/focus. `appearance: none` removes the native arrow
+     so we can fade the whole control uniformly. Click still opens
+     the native menu — no popover needed. */
+  [data-pyric-field-type-select] {
+    grid-column: type;
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: rgba(255, 255, 255, 0.08);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'><path d='M0 0l4 6 4-6z' fill='%23d4d4d8'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.4rem center;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    color: rgba(228, 228, 231, 0.9);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 0.125rem 1rem 0.125rem 0.5rem;
+    min-width: 0;
+    width: 100%;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease,
+      color 0.15s ease;
+  }
+  [data-pyric-field-entry]:hover [data-pyric-field-type-select],
+  [data-pyric-field-entry]:focus-within [data-pyric-field-type-select] {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: var(--soft-white, #e4e4e7);
+  }
+  [data-pyric-field-type-select]:hover {
+    color: var(--soft-white, #e4e4e7);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+  [data-pyric-field-type-select]:focus {
+    outline: none;
+    border-color: var(--primary, #22c55e);
+  }
+  /* The native <option> dropdown — match the dark theme. */
+  [data-pyric-field-type-select] option {
+    background-color: #1a1a22;
+    color: var(--soft-white, #e4e4e7);
+  }
+
+  /* Remove button — hover-revealed. Default invisible so it doesn't
+     compete with the type chip. */
+  [data-pyric-remove] {
+    grid-column: menu;
+    background: transparent;
+    border: none;
+    color: var(--muted-gray, #71717a);
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.12s ease, color 0.12s ease;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+  }
+  [data-pyric-field-entry]:hover [data-pyric-remove],
+  [data-pyric-field-entry]:focus-within [data-pyric-remove] {
+    opacity: 0.6;
+  }
+  [data-pyric-remove]:hover {
+    color: var(--danger, #ef4444);
+    opacity: 1 !important;
+    background: rgba(239, 68, 68, 0.08);
+  }
+
+  /* Value wrapper — each Edit component renders its input(s) inside
+     a `[data-pyric-field-type=…]` wrapper. flex-wrap lets an error
+     message break to a new line below the input without throwing
+     off the field-entry's column alignment. */
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-entry]
+    > [data-pyric-field-type] {
+    grid-column: value;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.375rem;
+  }
+
+  /* Value inputs carry a subtle-but-discoverable box at rest — a
+     faint fill plus a hairline border so the user can always tell
+     "this is an editable cell" apart from "this is empty space",
+     even when the value is blank. Hover and focus brighten the box
+     progressively. Descendant selectors (not `>`) so we reach
+     inputs nested inside type-specific wrappers (e.g. geopoint's
+     <label>s). */
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type]
+    input[type='text']:not([data-pyric-field-key-input]),
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type]
+    input[type='number'],
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type]
+    input[type='datetime-local'],
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type]
+    textarea {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 3px;
+    color: var(--soft-white, #e4e4e7);
+    padding: 0.125rem 0.5rem;
+    font-size: 13px;
+    font-family: inherit;
+    min-width: 0;
+    height: 24px;
+    line-height: 1;
+    transition: background-color 0.12s ease, border-color 0.12s ease;
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type]
+    input:hover:not([data-pyric-field-key-input]),
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type]
+    textarea:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type]
+    input:focus:not([data-pyric-field-key-input]),
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type]
+    textarea:focus {
+    outline: none;
+    border-color: var(--primary, #22c55e);
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  /* Per-type widths — never full-container. */
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='string'] {
+    width: 22rem;
+    max-width: 100%;
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='string']
+    input {
+    width: 100%;
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='number']
+    input {
+    width: 8rem;
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='timestamp']
+    input {
+    width: 14rem;
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='reference'] {
+    width: 22rem;
+    max-width: 100%;
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='reference']
+    input {
+    width: 100%;
+  }
+  /* Geopoint — two narrow number inputs inline. The <label>
+     wrappers around each input also need to shed their own styling
+     so the two inputs sit cleanly side by side. */
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='geopoint']
+    > label {
+    display: contents;
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='geopoint']
+    input {
+    width: 7rem;
+  }
+  /* Bytes — sits at row height until focused, then expands. */
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='bytes'] {
+    width: 22rem;
+    max-width: 100%;
+    align-items: flex-start;
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='bytes']
+    textarea {
+    width: 100%;
+    height: 24px;
+    min-height: 24px;
+    resize: vertical;
+    font-family: inherit;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='bytes']
+    textarea:focus {
+    height: 4.5rem;
+    min-height: 4.5rem;
+    white-space: pre-wrap;
+    overflow: auto;
+  }
+
+  /* Boolean — a true/false <select>, not a checkbox. Reads as a
+     value control: the box treatment matches the other value
+     inputs, with a custom chevron like the type chip. */
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='boolean']
+    [data-pyric-boolean-select] {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: rgba(255, 255, 255, 0.04);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'><path d='M0 0l4 6 4-6z' fill='%23d4d4d8'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.4rem center;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 3px;
+    color: var(--soft-white, #e4e4e7);
+    font-family: inherit;
+    font-size: 13px;
+    height: 24px;
+    width: 6rem;
+    padding: 0.125rem 1.25rem 0.125rem 0.5rem;
+    cursor: pointer;
+    transition: background-color 0.12s ease, border-color 0.12s ease;
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='boolean']
+    [data-pyric-boolean-select]:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='boolean']
+    [data-pyric-boolean-select]:focus {
+    outline: none;
+    border-color: var(--primary, #22c55e);
+    background-color: rgba(255, 255, 255, 0.07);
+  }
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='boolean']
+    [data-pyric-boolean-select] option {
+    background-color: #1a1a22;
+    color: var(--soft-white, #e4e4e7);
+  }
+
+  /* Null placeholder — quiet italic, not a giant inert input. */
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-type='null'] {
+    color: var(--muted-gray, #71717a);
+    font-style: italic;
+    font-size: 12px;
+  }
+
+  /* Add buttons — quiet inline text links. No more 800px dashed
+     pills competing with real fields. */
+  [data-pyric-add-map-entry],
+  [data-pyric-add-array-entry] {
+    grid-column: 1 / -1;
+    justify-self: start;
+    background: transparent;
+    border: none;
+    color: var(--muted-gray, #71717a);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 0.125rem 0.5rem;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  [data-pyric-add-map-entry]:hover,
+  [data-pyric-add-array-entry]:hover {
+    color: var(--soft-white, #e4e4e7);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  [data-pyric-error-message] {
+    flex-basis: 100%;
+    color: var(--danger, #ef4444);
+    font-size: 11px;
+    line-height: 1.3;
+    margin-top: 0.125rem;
+  }
+
+  /* Children block — spans all 4 columns of its parent's grid and
+     starts its own canonical 4-column grid. margin-left + padding
+     visually indent; the dashed left guide reads as the hierarchy
+     stake. */
+  [data-pyric-ui='document-editor'] [data-pyric-array-children],
+  [data-pyric-ui='document-editor'] [data-pyric-map-children] {
+    grid-column: 1 / -1;
+    padding-left: 1rem;
+    border-left: 1px dashed rgba(255, 255, 255, 0.2);
+    margin-top: 0.5rem;
+    margin-left: 0.5rem;
+  }
+  [data-pyric-ui='document-editor'] [data-pyric-array-children] {
+    list-style: none;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  /* Each <li> in an array-children needs to participate in the
+     subgrid — display: contents flattens the li so the inner
+     field-entry becomes the direct subgrid child. */
+  [data-pyric-ui='document-editor'] [data-pyric-array-children] > li {
+    display: contents;
+  }
+  /* Deeper nesting — slightly tighter to keep the editor compact;
+     the dashed guides accumulate to stress hierarchy. */
+  [data-pyric-ui='document-editor']
+    [data-pyric-map-children]
+    [data-pyric-map-children],
+  [data-pyric-ui='document-editor']
+    [data-pyric-map-children]
+    [data-pyric-array-children],
+  [data-pyric-ui='document-editor']
+    [data-pyric-array-children]
+    [data-pyric-map-children],
+  [data-pyric-ui='document-editor']
+    [data-pyric-array-children]
+    [data-pyric-array-children] {
+    row-gap: 0.375rem;
+    padding-left: 0.875rem;
+  }
+  /* Container header row — chrome sits in row 1; children block
+     and add-button stack below with more air to mark the boundary. */
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-entry][data-pyric-field-type='map'],
+  [data-pyric-ui='document-editor']
+    [data-pyric-field-entry][data-pyric-field-type='array'] {
+    row-gap: 0.375rem;
+  }
+
+  /* Lists (CollectionList / DocumentList) */
+  [data-pyric-ui='collection-list'],
+  [data-pyric-ui='document-list'] {
+    @apply rounded-lg border border-border-soft bg-panel-bg overflow-hidden;
+  }
+  [data-pyric-ui='collection-list'][data-pyric-empty],
+  [data-pyric-ui='document-list'][data-pyric-empty] {
+    @apply p-4 text-muted-gray text-[13px] italic;
+  }
+  [data-pyric-ui='collection-list'][data-pyric-loading],
+  [data-pyric-ui='document-list'][data-pyric-loading] {
+    @apply p-4 text-muted-gray text-[13px];
+  }
+  [data-pyric-ui='collection-list'][data-pyric-error],
+  [data-pyric-ui='document-list'][data-pyric-error] {
+    @apply p-4 text-danger text-[13px] bg-danger-soft;
+  }
+  [data-pyric-collection-entry],
+  [data-pyric-document-entry] {
+    @apply border-b border-border-soft/50 last:border-0;
+  }
+  [data-pyric-collection-select],
+  [data-pyric-document-select] {
+    @apply block w-full text-left px-4 py-2.5 text-soft-white hover:bg-canvas-bg/60 transition-colors font-mono text-[13px];
+  }
+  [data-pyric-load-more] {
+    @apply block w-full py-2 text-[12px] text-muted-gray hover:text-soft-white border-t border-border-soft transition-colors;
+  }
+
+  /* ConfirmDialog */
+  [data-pyric-ui='confirm-portal'] {
+    @apply fixed inset-0 z-50 flex items-center justify-center p-4;
+  }
+  [data-pyric-ui='confirm-overlay'] {
+    @apply fixed inset-0 bg-black/60 backdrop-blur-sm;
+  }
+  [data-pyric-ui='confirm-dialog'] {
+    @apply relative z-10 w-full max-w-md rounded-lg border border-border-soft bg-panel-bg p-6 shadow-2xl;
+  }
+  [data-pyric-confirm-title] {
+    @apply text-soft-white font-semibold text-lg mb-2;
+  }
+  [data-pyric-confirm-body] {
+    @apply text-soft-gray text-[13px] mb-5;
+  }
+  [data-pyric-confirm-actions] {
+    @apply flex items-center justify-end gap-2;
+  }
+  [data-pyric-confirm-cancel] {
+    @apply px-3 py-1.5 rounded border border-border-soft text-soft-gray hover:bg-canvas-bg/60 transition-colors text-[13px];
+  }
+  [data-pyric-confirm-confirm] {
+    @apply px-3 py-1.5 rounded bg-primary text-canvas-bg font-medium hover:opacity-90 transition-opacity text-[13px];
+  }
+  [data-pyric-confirm-confirm][data-pyric-destructive] {
+    @apply bg-danger;
+  }
+
+  /* DeleteWithConfirm trigger */
+  [data-pyric-ui='delete-with-confirm'] {
+    @apply px-3 py-1.5 rounded border border-danger/40 text-danger bg-danger-soft hover:bg-danger/20 transition-colors text-[13px];
+  }
+  [data-pyric-ui='delete-with-confirm'][data-pyric-running] {
+    @apply opacity-60 cursor-not-allowed;
+  }
+
+  /* Toast */
+  [data-pyric-ui='toast-region'] {
+    @apply fixed bottom-4 right-4 z-50 flex flex-col gap-2 list-none m-0 p-0 max-w-sm;
+  }
+  [data-pyric-toast] {
+    @apply rounded border border-border-soft bg-panel-bg p-3 shadow-xl flex items-start gap-3;
+  }
+  [data-pyric-toast][data-pyric-toast-kind='success'] {
+    @apply border-primary/40;
+  }
+  [data-pyric-toast][data-pyric-toast-kind='warning'] {
+    @apply border-[#e6c79c]/40;
+  }
+  [data-pyric-toast][data-pyric-toast-kind='error'] {
+    @apply border-danger/40 bg-danger-soft;
+  }
+  [data-pyric-toast-title] {
+    @apply text-soft-white font-medium text-[13px];
+  }
+  [data-pyric-toast-body] {
+    @apply text-soft-gray text-[12px] mt-0.5;
+  }
+  [data-pyric-toast-dismiss] {
+    @apply ml-auto text-muted-gray hover:text-soft-white px-1;
+  }
+
+  /* CopyButton */
+  .showcase-copy-btn {
+    @apply px-3 py-1.5 rounded border border-border-soft bg-panel-bg text-soft-gray hover:bg-canvas-bg/60 transition-colors text-[13px] font-mono;
+  }
+  .showcase-copy-btn[data-copied] {
+    @apply border-primary/40 bg-primary-soft text-primary;
+  }
+
+  /* QueryBuilder */
+  [data-pyric-ui='query-builder'] {
+    @apply space-y-3;
+  }
+  [data-pyric-query-conditions] {
+    @apply list-none m-0 p-0 space-y-2;
+  }
+  [data-pyric-query-condition] {
+    @apply flex items-center gap-2 flex-wrap;
+  }
+  [data-pyric-query-field],
+  [data-pyric-query-value] {
+    @apply flex-1 min-w-[120px] bg-canvas-bg border border-border-soft rounded px-2 py-1.5 text-soft-white text-[13px] font-mono focus:border-primary focus:outline-none;
+  }
+  [data-pyric-query-op] {
+    @apply bg-canvas-bg border border-border-soft rounded px-2 py-1.5 text-soft-gray text-[13px] font-mono focus:border-primary focus:outline-none;
+  }
+  [data-pyric-query-remove] {
+    @apply bg-transparent border border-border-soft rounded h-7 w-7 inline-flex items-center justify-center text-muted-gray hover:text-danger hover:border-danger transition-colors;
+  }
+  [data-pyric-query-add-condition] {
+    @apply text-[12px] text-muted-gray hover:text-soft-white px-2 py-1 rounded border border-dashed border-border-soft hover:border-primary transition-colors;
+  }
+  [data-pyric-query-modifiers] {
+    @apply pt-2 border-t border-border-soft space-y-2;
+  }
+  [data-pyric-query-orderby],
+  [data-pyric-query-limit] {
+    @apply flex items-center gap-2 text-[12px] text-muted-gray;
+  }
+  [data-pyric-query-orderby] > span,
+  [data-pyric-query-limit] > span {
+    @apply min-w-[64px];
+  }
+  [data-pyric-query-orderby-field],
+  [data-pyric-query-limit-input] {
+    @apply flex-1 bg-canvas-bg border border-border-soft rounded px-2 py-1 text-soft-white text-[13px] font-mono focus:border-primary focus:outline-none;
+  }
+  [data-pyric-query-orderby-direction] {
+    @apply bg-canvas-bg border border-border-soft rounded px-2 py-1 text-soft-gray text-[13px] font-mono focus:border-primary focus:outline-none disabled:opacity-40;
+  }
+
+  /* ReferencePicker */
+  [data-pyric-ui='reference-picker'] {
+    @apply space-y-2;
+  }
+  [data-pyric-reference-path-label] {
+    @apply flex flex-col gap-1 text-[12px] text-muted-gray;
+  }
+  [data-pyric-reference-path-input] {
+    @apply bg-canvas-bg border border-border-soft rounded px-2 py-1.5 text-soft-white text-[13px] font-mono focus:border-primary focus:outline-none w-full;
+  }
+  [data-pyric-reference-path-input][aria-invalid='true'] {
+    @apply border-danger;
+  }
+  [data-pyric-reference-actions] {
+    @apply flex gap-2;
+  }
+  [data-pyric-reference-browse-toggle] {
+    @apply px-3 py-1.5 rounded border border-border-soft text-soft-gray hover:bg-canvas-bg/60 transition-colors text-[13px];
+  }
+  [data-pyric-reference-commit] {
+    @apply px-3 py-1.5 rounded bg-primary text-canvas-bg font-medium hover:opacity-90 transition-opacity text-[13px] disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-border-soft disabled:text-muted-gray;
+  }
+  [data-pyric-ui='reference-browse-panel'] {
+    @apply rounded border border-border-soft bg-panel-bg p-3 space-y-2;
+  }
+  [data-pyric-browse-header] {
+    @apply flex items-center gap-2 pb-2 border-b border-border-soft;
+  }
+  [data-pyric-browse-back] {
+    @apply h-6 w-6 inline-flex items-center justify-center text-muted-gray hover:text-soft-white disabled:opacity-30 disabled:cursor-not-allowed;
+  }
+  [data-pyric-browse-location] {
+    @apply text-[12px] text-muted-gray font-mono;
+  }
+  [data-pyric-browse-collections],
+  [data-pyric-browse-documents] {
+    @apply space-y-1 list-none m-0 p-0;
+  }
+  [data-pyric-browse-entry] {
+    @apply flex items-center gap-1;
+  }
+  [data-pyric-browse-select],
+  [data-pyric-browse-pick] {
+    @apply flex-1 text-left px-2 py-1 rounded text-soft-white hover:bg-canvas-bg/60 transition-colors text-[13px] font-mono;
+  }
+  [data-pyric-browse-drill] {
+    @apply h-6 w-6 inline-flex items-center justify-center text-muted-gray hover:text-soft-white;
+  }
+
+  /* ============================================================
+     Traffic monitor — primitives + the @pyric/ui/traffic surface
+     ============================================================ */
+
+  /* Badge — a pill. Kind drives the tone. */
+  [data-pyric-badge] {
+    @apply inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider border border-transparent;
+  }
+  [data-pyric-badge-kind='allow'] {
+    @apply text-[#a4d4a8] border-[#a4d4a8]/30;
+  }
+  [data-pyric-badge-kind='deny'] {
+    @apply text-[#f0a0a0] border-[#f0a0a0]/30;
+  }
+  [data-pyric-badge-kind='unsupported'] {
+    @apply text-muted-gray border-border-soft;
+  }
+  [data-pyric-badge-kind='ambiguous'] {
+    @apply text-[#e6c79c] border-[#e6c79c]/30;
+  }
+  /* Method badges — uniform muted treatment. */
+  [data-pyric-badge-kind='get'],
+  [data-pyric-badge-kind='list'],
+  [data-pyric-badge-kind='create'],
+  [data-pyric-badge-kind='update'],
+  [data-pyric-badge-kind='set'],
+  [data-pyric-badge-kind='delete'] {
+    @apply text-muted-gray;
+  }
+
+  /* SegmentedControl — one tinted container, internal pill buttons. */
+  [data-pyric-ui='segmented-control'] {
+    @apply inline-flex items-center bg-canvas-bg border border-border-soft rounded p-0.5 gap-0.5;
+  }
+  [data-pyric-segment] {
+    @apply px-2 py-[3px] rounded text-[10px] font-mono uppercase tracking-wider text-muted-gray hover:text-soft-white transition-colors;
+  }
+  [data-pyric-segment][data-pyric-active] {
+    @apply bg-border-soft text-soft-white;
+  }
+  [data-pyric-segment][data-pyric-active][data-pyric-segment-tone='error'] {
+    @apply text-[#f0a0a0];
+  }
+  [data-pyric-segment][data-pyric-active][data-pyric-segment-tone='ok'] {
+    @apply text-[#a4d4a8];
+  }
+
+  /* JsonView — collapsible tree. */
+  [data-pyric-ui='json-view'] {
+    @apply font-mono text-[12px] text-soft-white bg-canvas-bg rounded p-2 overflow-x-auto;
+  }
+  [data-pyric-json-children] {
+    @apply pl-4 border-l border-border-soft/50;
+  }
+  [data-pyric-json-key] {
+    @apply text-muted-gray mr-1.5;
+  }
+  [data-pyric-json-key]::after {
+    content: ':';
+  }
+  [data-pyric-json-toggle] {
+    @apply text-left hover:text-soft-white;
+  }
+  [data-pyric-json-summary] {
+    @apply text-muted-gray;
+  }
+  [data-pyric-json-bracket] {
+    @apply text-muted-gray;
+  }
+  [data-pyric-json-type='string'] [data-pyric-json-value] {
+    @apply text-[#a4d4a8];
+  }
+  [data-pyric-json-type='number'] [data-pyric-json-value],
+  [data-pyric-json-type='boolean'] [data-pyric-json-value] {
+    @apply text-[#9cc4e6];
+  }
+  [data-pyric-json-type='null'] [data-pyric-json-value] {
+    @apply text-muted-gray italic;
+  }
+
+  /* TrafficLog — the Chrome DevTools-style event stream. */
+  [data-pyric-ui='traffic-log'][data-pyric-empty] {
+    @apply block;
+  }
+  [data-pyric-traffic-log-items] {
+    @apply list-none m-0 p-1 space-y-0.5;
+  }
+  [data-pyric-traffic-row] {
+    @apply w-full flex items-center gap-2 px-2 py-1 rounded text-left text-[11px] font-mono hover:bg-canvas-bg/60 transition-colors;
+  }
+  [data-pyric-traffic-row][data-pyric-origin='listener'] {
+    @apply opacity-60;
+  }
+  [data-pyric-traffic-row][data-pyric-selected] {
+    @apply bg-canvas-bg;
+  }
+  [data-pyric-traffic-time] {
+    @apply text-muted-gray shrink-0 tabular-nums;
+  }
+  [data-pyric-traffic-path] {
+    @apply text-soft-white truncate flex-1 min-w-0;
+  }
+
+  /* TrafficGroupRow — collapsible batch / listener-run rows. */
+  [data-pyric-traffic-group] {
+    @apply rounded;
+  }
+  [data-pyric-traffic-group-header] {
+    @apply w-full flex items-center gap-2 px-2 py-1 rounded text-left text-[11px] font-mono text-muted-gray hover:bg-canvas-bg/60 transition-colors;
+  }
+  [data-pyric-group-kind-label] {
+    @apply uppercase tracking-wider text-soft-gray;
+  }
+  [data-pyric-group-count]::before {
+    content: '×';
+    @apply text-muted-gray/60 mr-0.5;
+  }
+  [data-pyric-group-denies] {
+    @apply text-[#f0a0a0];
+  }
+  [data-pyric-group-denies]::after {
+    content: ' denied';
+  }
+  [data-pyric-traffic-group-members] {
+    @apply list-none m-0 pl-3 border-l border-border-soft/50 space-y-0.5;
+  }
+
+  /* TrafficDetail — the drill-in panel. */
+  [data-pyric-ui='traffic-detail'] {
+    @apply p-4 space-y-4;
+  }
+  [data-pyric-traffic-detail-header] {
+    @apply space-y-1.5;
+  }
+  [data-pyric-traffic-back] {
+    @apply text-[12px] font-mono text-muted-gray hover:text-soft-white transition-colors;
+  }
+  [data-pyric-traffic-detail-meta] {
+    @apply flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-muted-gray;
+  }
+  [data-pyric-traffic-detail-title] {
+    @apply text-[15px] font-mono text-soft-white break-words;
+  }
+  [data-pyric-traffic-detail-title] [data-pyric-traffic-method] {
+    @apply uppercase mr-2 text-muted-gray;
+  }
+  [data-pyric-traffic-matched-rule] {
+    @apply text-[11px] font-mono text-muted-gray;
+  }
+  [data-pyric-traffic-section] {
+    @apply space-y-1.5;
+  }
+  [data-pyric-section-heading] {
+    @apply text-[10px] uppercase tracking-wider text-muted-gray m-0;
+  }
+  [data-pyric-traffic-reasons] {
+    @apply list-none m-0 p-0 space-y-1 text-[11px] font-mono;
+  }
+  [data-pyric-traffic-reason][data-pyric-reason-verdict='deny'] {
+    @apply text-[#f0a0a0];
+  }
+  [data-pyric-traffic-reason][data-pyric-reason-verdict='allow'] {
+    @apply text-[#a4d4a8];
+  }
+  [data-pyric-traffic-reason][data-pyric-reason-verdict='neutral'] {
+    @apply text-muted-gray;
+  }
+  [data-pyric-traffic-triggered-by] {
+    @apply text-[12px] font-mono text-soft-white;
+  }
+  [data-pyric-traffic-triggered-by] [data-pyric-traffic-method] {
+    @apply uppercase mr-2 text-muted-gray;
+  }
+  [data-pyric-traffic-group] {
+    @apply text-[12px] font-mono text-soft-gray;
+  }
+
+  /* RuleHeatmap — per-rule fire/deny rollup. */
+  [data-pyric-rule-heatmap-items] {
+    @apply list-none m-0 p-1 space-y-0.5;
+  }
+  [data-pyric-rule-row] {
+    @apply w-full flex items-center gap-2 px-2 py-1 rounded text-left text-[11px] font-mono hover:bg-canvas-bg/60 transition-colors relative;
+  }
+  [data-pyric-rule-row][data-pyric-selected] {
+    @apply bg-canvas-bg;
+  }
+  [data-pyric-rule-label] {
+    @apply text-soft-white shrink-0 w-8;
+  }
+  [data-pyric-rule-operations] {
+    @apply text-muted-gray truncate flex-1 min-w-0;
+  }
+  [data-pyric-rule-total] {
+    @apply text-soft-gray tabular-nums shrink-0;
+  }
+  [data-pyric-rule-allows] {
+    @apply text-[#a4d4a8]/70 tabular-nums shrink-0 w-6 text-right;
+  }
+  [data-pyric-rule-denies] {
+    @apply text-[#f0a0a0]/70 tabular-nums shrink-0 w-6 text-right;
+  }
+  /* The proportional deny bar — driven by --pyric-deny-ratio. */
+  [data-pyric-rule-bar] {
+    @apply block h-0.5 rounded-full shrink-0 w-12;
+    background: linear-gradient(
+      to right,
+      #f0a0a0 calc(var(--pyric-deny-ratio) * 100%),
+      var(--border-soft, #2a2a35) calc(var(--pyric-deny-ratio) * 100%)
+    );
+  }
+  [data-pyric-rule-row][data-pyric-rule-heat='high'] [data-pyric-rule-label] {
+    @apply text-[#f0a0a0];
+  }
+
+  /* TrafficStats — the aggregation panel. */
+  [data-pyric-stat-totals] {
+    @apply flex flex-wrap gap-x-4 gap-y-1 mb-3 pb-3 border-b border-border-soft;
+  }
+  [data-pyric-stat] {
+    @apply flex flex-col;
+  }
+  [data-pyric-stat-label] {
+    @apply text-[9px] uppercase tracking-wider text-muted-gray;
+  }
+  [data-pyric-stat-value] {
+    @apply text-[14px] font-mono text-soft-white tabular-nums;
+  }
+  [data-pyric-stat-key='denies'] [data-pyric-stat-value],
+  [data-pyric-stat-key='deny-rate'] [data-pyric-stat-value] {
+    @apply text-[#f0a0a0];
+  }
+  [data-pyric-stat-group] {
+    @apply mb-2;
+  }
+  [data-pyric-stat-group-heading] {
+    @apply text-[9px] uppercase tracking-wider text-muted-gray m-0 mb-1;
+  }
+  [data-pyric-stat-buckets] {
+    @apply list-none m-0 p-0 space-y-0.5;
+  }
+  [data-pyric-stat-bucket] {
+    @apply flex items-center justify-between text-[11px] font-mono;
+  }
+  [data-pyric-stat-bucket-label] {
+    @apply text-soft-gray truncate;
+  }
+  [data-pyric-stat-bucket-count] {
+    @apply text-muted-gray tabular-nums;
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "rtdb-modular-onchildadded-post-subscribe",
+  "matrixRow": "rtdb-modular #134",
+  "description": "After subscribe, adding a NEW child fires onChildAdded exactly once for that key — seed 2 children, subscribe, then write a 3rd child via set(child, …).",
+  "observedAt": "2026-05-18T04:26:31.243Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "initialFires": 2,
+    "postSubscribeFires": 1,
+    "firedKeys": [
+      "k1",
+      "k2",
+      "k3"
+    ],
+    "lastFire": {
+      "key": "k3",
+      "val": {
+        "v": 3
+      }
+    },
+    "firesOncePerNewChild": true
+  }
+}

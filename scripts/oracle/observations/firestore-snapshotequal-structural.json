@@ -1,0 +1,13 @@
+{
+  "name": "firestore-snapshotequal-structural",
+  "matrixRow": "firestore #117",
+  "description": "snapshotEqual semantics — does prod compare structurally or by identity across two fetches of the same query?",
+  "observedAt": "2026-05-17T23:36:47.593Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "identity": true,
+    "twoFetchesSameData": false,
+    "size": 1
+  }
+}

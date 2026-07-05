@@ -1,0 +1,50 @@
+{
+  "name": "auth-row-33-multiple-subscribers-all-fire",
+  "matrixRow": "auth #33",
+  "description": "Multiple subscribers all fire on each state change. Register two onAuthStateChanged subscribers, do a signIn transition, verify both fire.",
+  "observedAt": "2026-05-18T00:12:30.915Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialA": 1,
+    "initialB": 1,
+    "afterSignInA": 2,
+    "afterSignInB": 2,
+    "afterSignOutA": 3,
+    "afterSignOutB": 3,
+    "aSignInFires": 1,
+    "bSignInFires": 1,
+    "aSignOutFires": 1,
+    "bSignOutFires": 1,
+    "bothFiredOnSignIn": true,
+    "bothFiredOnSignOut": true,
+    "firesA": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "XaEgIiNB8pVEwXz3Fw3yFR6toJC2",
+        "ts": 607
+      },
+      {
+        "uid": null,
+        "ts": 1010
+      }
+    ],
+    "firesB": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "XaEgIiNB8pVEwXz3Fw3yFR6toJC2",
+        "ts": 607
+      },
+      {
+        "uid": null,
+        "ts": 1010
+      }
+    ]
+  }
+}

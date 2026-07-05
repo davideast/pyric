@@ -1,0 +1,51 @@
+// Lifecycle module for field immutability and timestamp enforcement.
+//
+// Common pattern: certain fields must never change after document creation
+// (createdBy, createdAt, authorId).
+//
+// Usage:
+//   import { fieldUnchanged, immutableFields, isServerTimestamp } from 'lifecycle';
+//
+//   // Single field:
+//   allow update: if fieldUnchanged('createdBy');
+//
+//   // Multiple fields (replaces chained fieldUnchanged calls):
+//   allow update: if immutableFields(['createdBy', 'createdAt', 'authorId']);
+//
+//   // The dual: users may edit title/body but NOTHING else:
+//   allow update: if onlyFieldsChanged(['title', 'body']);
+//
+//   allow create: if isServerTimestamp('createdAt');
+
+// Ensure a field's value is identical between existing and incoming document.
+// Use on update rules to enforce immutability.
+export function fieldUnchanged(field) {
+  return resource.data[field] == request.resource.data[field];
+}
+
+// Ensure multiple fields are unchanged between existing and incoming document.
+// Uses MapDiff — one expression instead of N chained fieldUnchanged() calls.
+export function immutableFields(fields) {
+  return request.resource.data.diff(resource.data).unchangedKeys().hasAll(fields);
+}
+
+// Ensure a field is set to the server timestamp.
+// Use on create or update rules to enforce server-side time.
+export function isServerTimestamp(field) {
+  return request.resource.data[field] == request.time;
+}
+
+// The dual of immutableFields: every changed field is in the allowed
+// list (fields NOT listed are implicitly immutable). Top-level keys
+// only — nested-map diffs are unreliable in production; flatten the
+// schema instead of reaching for a nested diff.
+export function onlyFieldsChanged(fields) {
+  return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+}
+
+// Exactly n top-level fields changed in this write. n == 1 is the
+// board-integrity / edit-one-field-per-write guard (Pattern 5,
+// generalized beyond games).
+export function nFieldsChanged(n) {
+  return request.resource.data.diff(resource.data).affectedKeys().size() == n;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "auth-createUser-operationType",
+  "matrixRow": "auth #21",
+  "description": "createUserWithEmailAndPassword returns UserCredential with operationType: \"signIn\" (NOT \"register\") per matrix claim — empirically lock the value prod actually emits.",
+  "observedAt": "2026-05-17T23:37:06.928Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "operationType": "signIn",
+    "providerId": null,
+    "userIsAnonymous": false,
+    "userEmail": "oracle-create-1779061026190-4g7ya0@oracle.test",
+    "createdUid": "hU41USkpAuamh674G3oLYeTpMhQ2",
+    "cleanupLeaked": false
+  }
+}

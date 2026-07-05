@@ -1,0 +1,29 @@
+// Tests nested match blocks (subcollections)
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /teams/{teamId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+
+      // Nested subcollection
+      match /members/{memberId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth.uid == memberId;
+        allow delete: if request.auth.uid == memberId;
+      }
+
+      // Another nested subcollection
+      match /projects/{projectId} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null;
+
+        // Deeply nested
+        match /tasks/{taskId} {
+          allow read: if request.auth != null;
+          allow write: if request.auth != null;
+        }
+      }
+    }
+  }
+}

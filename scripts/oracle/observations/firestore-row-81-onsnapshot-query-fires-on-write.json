@@ -1,0 +1,46 @@
+{
+  "name": "firestore-row-81-onsnapshot-query-fires-on-write",
+  "matrixRow": "firestore #81",
+  "description": "onSnapshot(query, cb) fires on writes to the underlying collection. Probes: register a listener on a collection-level query, then perform writes (add a doc, modify, delete) and confirm each write produces a fire reflecting the new state.",
+  "observedAt": "2026-05-18T00:11:50.823Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialFireCount": 1,
+    "initialSize": 0,
+    "afterAddFireCount": 2,
+    "afterAddSize": 1,
+    "afterSetFireCount": 3,
+    "afterSetSize": 2,
+    "afterDeleteFireCount": 4,
+    "afterDeleteSize": 1,
+    "addFired": true,
+    "setFired": true,
+    "deleteFired": true,
+    "fires": [
+      {
+        "size": 0,
+        "ids": []
+      },
+      {
+        "size": 1,
+        "ids": [
+          "Tcd9sSAURQGUapxfOgX6"
+        ]
+      },
+      {
+        "size": 2,
+        "ids": [
+          "Tcd9sSAURQGUapxfOgX6",
+          "known-id"
+        ]
+      },
+      {
+        "size": 1,
+        "ids": [
+          "known-id"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,537 @@
+/**
+ * Tests for the SharedWorker AUTH surface — host.ts auth handlers.
+ *
+ * Strategy mirrors host.test.ts: build a REAL pyric sandbox + getAuth(sandbox),
+ * fake MessagePort objects, and call handleMessage() directly — no SharedWorker
+ * runtime.
+ *
+ * PER-PORT SESSIONS (#754): the worker hosts ONE user pool + data store, but
+ * each port owns its OWN session. Coverage:
+ *   - createUser / signInEmail / signInAnonymously / signOut bind THIS port's
+ *     session; the shared auth handle's global currentUser stays null.
+ *   - ISOLATION: a sign-in on port A fires ONLY port A's onAuthStateChanged;
+ *     two ports can be two different signed-in users at once.
+ *   - getIdToken(Result) resolve the port's session (claims/signInProvider).
+ *   - Errors: wrong-password, email-already-in-use serialize with `.code`.
+ *   - RESTORE: `auth.restorePortSession` re-establishes a session for an
+ *     existing identity on a fresh worker (user DB rides the snapshot);
+ *     unknown uids resolve null (soft), never an error.
+ */
+
+import { describe, it, expect } from 'bun:test';
+import {
+  handleMessage,
+  cleanupPort,
+  type HostCtx,
+  type PortLike,
+} from '../../../src/serve/worker/host.js';
+import type {
+  InboundMessage,
+  OutboundMessage,
+  ResMessage,
+  SnapMessage,
+  SerializedUser,
+  SerializedUserCredential,
+  SerializedIdTokenResult,
+  AuthPersistenceMode,
+} from '../../../src/serve/worker/protocol.js';
+import {
+  initializeSandbox,
+  createMemoryBackend,
+  type PersistenceBackend,
+} from 'pyric/sandbox';
+import { getFirestore } from 'pyric/firestore';
+import { getAuth } from 'pyric/auth';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+function fakePort(): PortLike & { messages: OutboundMessage[]; snapMessages: SnapMessage[] } {
+  const messages: OutboundMessage[] = [];
+  const snapMessages: SnapMessage[] = [];
+  return {
+    messages,
+    snapMessages,
+    postMessage(msg: OutboundMessage) {
+      messages.push(msg);
+      if (msg.t === 'snap') snapMessages.push(msg);
+    },
+  };
+}
+
+type FakePort = ReturnType<typeof fakePort>;
+
+const PERMISSIVE_RULES = `
+  rules_version = '2';
+  service cloud.firestore {
+    match /databases/{database}/documents {
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+  }
+`;
+
+async function makeCtx(opts?: {
+  backend?: PersistenceBackend;
+  key?: string;
+  sessionMode?: AuthPersistenceMode;
+}): Promise<HostCtx & { backend: PersistenceBackend }> {
+  const backend = opts?.backend ?? createMemoryBackend();
+  const key = opts?.key ?? 'auth-worker-test';
+
+  const sandbox = initializeSandbox();
+
+  const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
+  const adminDb = getAdminFirestore(sandbox.withAuth(null));
+  adminDb.setRules(PERMISSIVE_RULES);
+
+  await sandbox.enablePersistence({ key, injectedBackend: backend });
+
+  // Register the auth service with the persistence registry (mirrors entry.ts).
+  getAuth(sandbox);
+
+  const db = getFirestore(sandbox);
+  const ctx: HostCtx & { backend: PersistenceBackend } = {
+    db,
+    sandbox,
+    subs: new Map(),
+    sessionBackend: backend,
+    sessionMode: opts?.sessionMode ?? 'LOCAL',
+    backend,
+  } as HostCtx & { backend: PersistenceBackend };
+  return ctx;
+}
+
+function tick(ms = 10): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function getRes(port: FakePort, id: string): ResMessage | undefined {
+  return port.messages.find((m): m is ResMessage => m.t === 'res' && m.id === id);
+}
+
+async function sendOp(ctx: HostCtx, port: FakePort, msg: InboundMessage): Promise<ResMessage> {
+  await handleMessage(ctx, port, msg);
+  await tick(0);
+  const id = (msg as { id: string }).id;
+  const res = getRes(port, id);
+  if (!res) throw new Error(`No res message for ${id}`);
+  return res;
+}
+
+function okValue<T>(res: ResMessage): T {
+  if (!res.ok) throw new Error(`Expected ok, got error: ${res.error.code} ${res.error.message}`);
+  return res.value as T;
+}
+
+async function currentUser(ctx: HostCtx, port: FakePort): Promise<SerializedUser | null> {
+  return okValue<SerializedUser | null>(
+    await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getCurrentUser' }),
+  );
+}
+
+let _idSeq = 0;
+function id(): string { return `auth-op-${++_idSeq}`; }
+
+// ─── createUser / signIn / signOut (per-port) ─────────────────────────────
+
+describe('worker auth — createUser / signIn / signOut bind the PORT session', () => {
+  it('createUserWithEmailAndPassword signs THIS port in; global currentUser stays null', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'alice@example.com', password: 'password123',
+    });
+    const cred = okValue<SerializedUserCredential>(res);
+    expect(cred.user.email).toBe('alice@example.com');
+    expect(cred.user.isAnonymous).toBe(false);
+    expect(cred.operationType).toBe('signIn');
+    // The PORT is signed in…
+    expect((await currentUser(ctx, port))?.email).toBe('alice@example.com');
+    // …but the shared handle's GLOBAL session is untouched (#754).
+    expect(ctx.auth?.currentUser ?? null).toBeNull();
+  });
+
+  it('signInWithEmailAndPassword works after createUser (same port, after signOut)', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'bob@example.com', password: 'hunter2pw',
+    });
+    await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.signOut' });
+    expect(await currentUser(ctx, port)).toBeNull();
+
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.signInEmail',
+      email: 'bob@example.com', password: 'hunter2pw',
+    });
+    const cred = okValue<SerializedUserCredential>(res);
+    expect(cred.user.email).toBe('bob@example.com');
+    expect((await currentUser(ctx, port))?.email).toBe('bob@example.com');
+  });
+
+  it('signInAnonymously mints an anonymous user; repeat call on the SAME port reuses it', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    const first = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.signInAnonymously',
+    }));
+    expect(first.user.isAnonymous).toBe(true);
+    expect(first.user.email).toBeNull();
+
+    // StrictMode double-mount semantics: same port ⇒ same anonymous identity.
+    const second = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.signInAnonymously',
+    }));
+    expect(second.user.uid).toBe(first.user.uid);
+  });
+
+  it('signOut clears ONLY this port', async () => {
+    const ctx = await makeCtx();
+    const portA = fakePort();
+    const portB = fakePort();
+
+    await sendOp(ctx, portA, { t: 'op', id: id(), method: 'auth.signInAnonymously' });
+    await sendOp(ctx, portB, { t: 'op', id: id(), method: 'auth.signInAnonymously' });
+    await sendOp(ctx, portB, { t: 'op', id: id(), method: 'auth.signOut' });
+
+    expect(await currentUser(ctx, portB)).toBeNull();
+    expect(await currentUser(ctx, portA)).not.toBeNull();
+  });
+});
+
+// ─── PER-PORT ISOLATION (the #754 headline) ───────────────────────────────
+
+describe('worker auth — per-port sessions are isolated', () => {
+  it('two ports signing in anonymously are two DISTINCT users', async () => {
+    const ctx = await makeCtx();
+    const portA = fakePort();
+    const portB = fakePort();
+
+    const a = okValue<SerializedUserCredential>(await sendOp(ctx, portA, {
+      t: 'op', id: id(), method: 'auth.signInAnonymously',
+    }));
+    const b = okValue<SerializedUserCredential>(await sendOp(ctx, portB, {
+      t: 'op', id: id(), method: 'auth.signInAnonymously',
+    }));
+    expect(a.user.uid).not.toBe(b.user.uid);
+  });
+
+  it("a sign-in on port A fires port A's onAuthStateChanged and NOT port B's", async () => {
+    const ctx = await makeCtx();
+    const portA = fakePort();
+    const portB = fakePort();
+
+    await handleMessage(ctx, portA, { t: 'sub', subId: 'a-state', target: 'authState' });
+    await handleMessage(ctx, portB, { t: 'sub', subId: 'b-state', target: 'authState' });
+    await tick();
+
+    // Initial fire: both signed out.
+    expect(portA.snapMessages.at(-1)!.value).toBeNull();
+    expect(portB.snapMessages.at(-1)!.value).toBeNull();
+    const bSnapsBefore = portB.snapMessages.length;
+
+    await sendOp(ctx, portA, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'eve@example.com', password: 'password123',
+    });
+    await tick();
+
+    // Port A saw its own sign-in; port B saw NOTHING (its session is its own).
+    expect((portA.snapMessages.at(-1)!.value as SerializedUser)?.email).toBe('eve@example.com');
+    expect(portB.snapMessages.length).toBe(bSnapsBefore);
+  });
+
+  it('an authState sub opened AFTER sign-in fires with THIS port session', async () => {
+    const ctx = await makeCtx();
+    const portA = fakePort();
+    const portB = fakePort();
+
+    await sendOp(ctx, portA, { t: 'op', id: id(), method: 'auth.signInAnonymously' });
+
+    await handleMessage(ctx, portA, { t: 'sub', subId: 'a-late', target: 'authState' });
+    await handleMessage(ctx, portB, { t: 'sub', subId: 'b-late', target: 'authState' });
+    await tick();
+
+    expect((portA.snapMessages.at(-1)!.value as SerializedUser)?.isAnonymous).toBe(true);
+    expect(portB.snapMessages.at(-1)!.value).toBeNull();
+  });
+
+  it('cleanupPort drops the session (a reconnecting port starts signed out)', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.signInAnonymously' });
+    expect(await currentUser(ctx, port)).not.toBeNull();
+
+    cleanupPort(ctx, port);
+    expect(await currentUser(ctx, port)).toBeNull();
+  });
+});
+
+// ─── Token accessors ──────────────────────────────────────────────────────
+
+describe('worker auth — token accessors (port session)', () => {
+  it('getIdToken returns a token string', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'grace@example.com', password: 'password123',
+    });
+    const res = await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getIdToken' });
+    const token = okValue<string>(res);
+    expect(typeof token).toBe('string');
+    expect(token.length).toBeGreaterThan(0);
+  });
+
+  it('getIdTokenResult returns claims + signInProvider', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'heidi@example.com', password: 'password123',
+    });
+    const res = await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getIdTokenResult' });
+    const result = okValue<SerializedIdTokenResult>(res);
+    expect(result.token.length).toBeGreaterThan(0);
+    expect(result.claims).toBeDefined();
+    expect(result.signInProvider).toBe('password');
+  });
+
+  it('getIdToken with no session on THIS port fails with auth/no-current-user', async () => {
+    const ctx = await makeCtx();
+    const signedIn = fakePort();
+    await sendOp(ctx, signedIn, { t: 'op', id: id(), method: 'auth.signInAnonymously' });
+
+    // A DIFFERENT port has no session — another port's sign-in doesn't help it.
+    const port = fakePort();
+    const res = await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getIdToken' });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe('auth/no-current-user');
+  });
+});
+
+// ─── Errors serialize with `.code` ────────────────────────────────────────
+
+describe('worker auth — error serialization', () => {
+  it('wrong password serializes with the right code', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'ivan@example.com', password: 'correct-pw',
+    });
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.signInEmail',
+      email: 'ivan@example.com', password: 'WRONG-pw',
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toMatch(/^auth\/(wrong-password|invalid-credential)$/);
+    }
+  });
+
+  it('email-already-in-use serializes with the right code', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'judy@example.com', password: 'password123',
+    });
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'judy@example.com', password: 'password123',
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe('auth/email-already-in-use');
+  });
+});
+
+// ─── Per-tab session restore (auth.restorePortSession, #754) ──────────────
+
+describe('worker auth — restorePortSession (per-tab reload / full close)', () => {
+  it('restores a session for an existing identity on a fresh worker (user DB rides the snapshot)', async () => {
+    const backend = createMemoryBackend();
+    const key = 'auth-persist-rt';
+
+    // ── Worker lifetime 1: create + sign in a user on some port. ──
+    const ctx1 = await makeCtx({ backend, key });
+    const port1 = fakePort();
+    const created = okValue<SerializedUserCredential>(await sendOp(ctx1, port1, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'kate@example.com', password: 'password123',
+    }));
+    await tick();
+    await ctx1.sandbox.flush();
+
+    // ── Worker lifetime 2: all tabs closed → worker died → reopen. The PAGE
+    // kept the uid in web storage and re-establishes ITS port's session. ──
+    const ctx2 = await makeCtx({ backend, key });
+    const port2 = fakePort();
+    const restored = okValue<SerializedUser | null>(await sendOp(ctx2, port2, {
+      t: 'op', id: id(), method: 'auth.restorePortSession', uid: created.user.uid,
+    }));
+    expect(restored?.uid).toBe(created.user.uid);
+    expect(restored?.email).toBe('kate@example.com');
+    expect((await currentUser(ctx2, port2))?.uid).toBe(created.user.uid);
+    // Global session still untouched.
+    expect(ctx2.auth?.currentUser ?? null).toBeNull();
+  });
+
+  it('resolves null (soft) for unknown uids — a stale record means signed out', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.restorePortSession', uid: 'gone-uid',
+    });
+    expect(okValue<SerializedUser | null>(res)).toBeNull();
+    expect(await currentUser(ctx, port)).toBeNull();
+  });
+
+  it('fires THIS port authState on a successful restore', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'lara@example.com', password: 'password123',
+    });
+    const uid = (await currentUser(ctx, port))!.uid;
+    cleanupPort(ctx, port);
+
+    const fresh = fakePort();
+    await handleMessage(ctx, fresh, { t: 'sub', subId: 'f-state', target: 'authState' });
+    await tick();
+    expect(fresh.snapMessages.at(-1)!.value).toBeNull();
+
+    await sendOp(ctx, fresh, { t: 'op', id: id(), method: 'auth.restorePortSession', uid });
+    await tick();
+    expect((fresh.snapMessages.at(-1)!.value as SerializedUser)?.uid).toBe(uid);
+  });
+});
+
+// ─── Provider sign-in bridge (auth.acceptIdentity) ─────────────────────────
+
+describe('auth.acceptIdentity — provider sign-in bridge', () => {
+  it('seeds + signs THIS PORT in; currentUser + claims resolve', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    const identity = {
+      uid: 'google.com:alice@example.com',
+      email: 'alice@example.com',
+      displayName: 'Alice',
+      customClaims: { role: 'admin' },
+      providerId: 'google.com',
+    };
+
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.acceptIdentity', identity,
+    });
+    const cred = okValue<SerializedUserCredential>(res);
+    expect(cred.user.uid).toBe(identity.uid);
+    expect(cred.user.email).toBe('alice@example.com');
+    expect(cred.providerId).toBe('google.com');
+    expect(cred.operationType).toBe('signIn');
+
+    expect((await currentUser(ctx, port))?.uid).toBe(identity.uid);
+
+    const tok = okValue<SerializedIdTokenResult>(
+      await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getIdTokenResult' }),
+    );
+    expect(tok.claims.role).toBe('admin');
+  });
+
+  it('does NOT fan the bridged sign-in out to other ports (per-port sessions)', async () => {
+    const ctx = await makeCtx();
+    const watcher = fakePort();
+    await handleMessage(ctx, watcher, { t: 'sub', subId: 'w-auth', target: 'authState' });
+    await tick();
+    const watcherSnaps = watcher.snapMessages.length;
+
+    const actor = fakePort();
+    await sendOp(ctx, actor, {
+      t: 'op', id: id(), method: 'auth.acceptIdentity',
+      identity: { uid: 'github.com:bob@x.com', email: 'bob@x.com', displayName: null, customClaims: {}, providerId: 'github.com' },
+    });
+    await tick();
+
+    // The actor's port session is bob; the watcher's session is untouched.
+    expect((await currentUser(ctx, actor))?.uid).toBe('github.com:bob@x.com');
+    expect(watcher.snapMessages.length).toBe(watcherSnaps);
+    expect(await currentUser(ctx, watcher)).toBeNull();
+  });
+});
+
+// ─── auth.updateProfile (#746) ─────────────────────────────────────────────
+
+describe('auth.updateProfile — port session profile update', () => {
+  it('updates the port session user + is visible via getCurrentUser', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'ivy@example.com', password: 'password123',
+    });
+
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.updateProfile',
+      displayName: 'Ivy', photoURL: 'http://example.com/ivy.png',
+    });
+    const updated = okValue<SerializedUser>(res);
+    expect(updated.displayName).toBe('Ivy');
+    expect(updated.photoURL).toBe('http://example.com/ivy.png');
+    expect(updated.providerData[0]?.displayName).toBe('Ivy');
+
+    // Subsequent getCurrentUser reflects it (port session mutated in place).
+    const cur = await currentUser(ctx, port);
+    expect(cur?.displayName).toBe('Ivy');
+    expect(cur?.photoURL).toBe('http://example.com/ivy.png');
+
+    // Stored record persisted (admin listUsers).
+    const users = okValue<Array<{ uid: string; displayName: string | null; photoUrl: string | null }>>(
+      await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.listUsers' }),
+    );
+    const rec = users.find((u) => u.uid === updated.uid);
+    expect(rec?.displayName).toBe('Ivy');
+    expect(rec?.photoUrl).toBe('http://example.com/ivy.png');
+  });
+
+  it('null clears a field; omitted field untouched', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.createUser',
+      email: 'judy@example.com', password: 'password123',
+    });
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.updateProfile',
+      displayName: 'Judy', photoURL: 'http://example.com/j.png',
+    });
+    // Clear displayName only.
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.updateProfile', displayName: null,
+    });
+    const updated = okValue<SerializedUser>(res);
+    expect(updated.displayName).toBeNull();
+    expect(updated.photoURL).toBe('http://example.com/j.png');
+  });
+
+  it('fails with auth/no-current-user when the port is signed out', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.updateProfile', displayName: 'Nobody',
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe('auth/no-current-user');
+  });
+});

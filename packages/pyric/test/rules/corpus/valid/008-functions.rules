@@ -1,0 +1,36 @@
+// Tests function definitions and calls
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Top-level function
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Function with parameter
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Function with multiple parameters
+    function hasRole(userId, role) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(userId)).data.role == role;
+    }
+
+    // Function calling other functions
+    function isAdmin() {
+      return hasRole(request.auth.uid, 'admin');
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

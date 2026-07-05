@@ -1,0 +1,23 @@
+{
+  "name": "rtdb-modular-onchildmoved-with-orderby",
+  "matrixRow": "rtdb-modular #137",
+  "description": "onChildMoved fires when a child's ordering value changes — only emits under an ordered query. Seed 3 children with priorities, subscribe via query(ref, orderByChild(\"priority\")), update one's priority so its sort position changes, observe the fire (or its absence).",
+  "observedAt": "2026-05-18T04:26:36.618Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "firedOnInitial": 0,
+    "firedOnMove": 1,
+    "lastFire": {
+      "key": "k1",
+      "val": {
+        "priority": 10
+      }
+    },
+    "noInitialReplay": true,
+    "firesOnReorder": true
+  }
+}

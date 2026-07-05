@@ -1,0 +1,50 @@
+{
+  "name": "auth-row-36-observer-object-form-works",
+  "matrixRow": "auth #36",
+  "description": "Observer object form ({next, error, complete}) works alongside the function form. Register one observer as a NextFn and another as {next}; trigger a transition; verify both fire.",
+  "observedAt": "2026-05-18T00:12:32.455Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "initialFn": 1,
+    "initialObs": 1,
+    "afterSignInFn": 2,
+    "afterSignInObs": 2,
+    "afterSignOutFn": 3,
+    "afterSignOutObs": 3,
+    "fnSignInFires": 1,
+    "obsSignInFires": 1,
+    "fnSignOutFires": 1,
+    "obsSignOutFires": 1,
+    "bothFormsFiredOnSignIn": true,
+    "bothFormsFiredOnSignOut": true,
+    "firesFn": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "kTRTjAjcvkVRyXlYWKi7i4r8yfn1",
+        "ts": 629
+      },
+      {
+        "uid": null,
+        "ts": 1032
+      }
+    ],
+    "firesObs": [
+      {
+        "uid": null,
+        "ts": 0
+      },
+      {
+        "uid": "kTRTjAjcvkVRyXlYWKi7i4r8yfn1",
+        "ts": 629
+      },
+      {
+        "uid": null,
+        "ts": 1032
+      }
+    ]
+  }
+}

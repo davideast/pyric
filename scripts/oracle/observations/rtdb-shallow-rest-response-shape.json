@@ -1,0 +1,34 @@
+{
+  "name": "rtdb-shallow-rest-response-shape",
+  "matrixRow": "rtdb #58",
+  "description": "`?shallow=true` REST response shape — write a tree with objects, leaf primitives, and a missing path, then GET each with `?shallow=true`. Locks the response shape the crawl handler depends on: object children → `{key: true, ...}`, leaf primitive → the primitive itself, missing path → `null`.",
+  "observedAt": "2026-05-18T10:20:16.685Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "seedThrew": false,
+    "seedError": null,
+    "objStatus": 200,
+    "objBody": {
+      "a": true,
+      "b": true,
+      "c": true
+    },
+    "objShapeIsKeysTrue": true,
+    "leafStringBody": "hello",
+    "leafStringIsPrimitive": true,
+    "leafNumBody": 42,
+    "leafNumIsPrimitive": true,
+    "leafBoolBody": true,
+    "leafBoolIsPrimitive": true,
+    "missingStatus": 200,
+    "missingBody": null,
+    "missingIsNull": true,
+    "baseBody": {
+      "leaf": true,
+      "leafBool": true,
+      "leafNum": true,
+      "obj": true
+    }
+  }
+}

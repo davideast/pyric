@@ -1,0 +1,33 @@
+// Functions scoped to different match blocks
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Top-level function
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    match /teamA/{docId} {
+      // Function scoped to teamA — not visible to teamB
+      function isTeamAMember() {
+        return isAuthenticated() &&
+          exists(/databases/$(database)/documents/teamA-members/$(request.auth.uid));
+      }
+
+      allow read: if isTeamAMember();
+      allow write: if isTeamAMember();
+    }
+
+    match /teamB/{docId} {
+      // Different function, same pattern, scoped to teamB
+      function isTeamBMember() {
+        return isAuthenticated() &&
+          exists(/databases/$(database)/documents/teamB-members/$(request.auth.uid));
+      }
+
+      allow read: if isTeamBMember();
+      allow write: if isTeamBMember();
+    }
+  }
+}

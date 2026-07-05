@@ -1,0 +1,17 @@
+{
+  "name": "firestore-write-denied-error-code",
+  "matrixRow": "firestore #32",
+  "description": "Rules-denied write — pins the error class/code/message setDoc returns when the target is outside pyric_oracle/*. Companion to firestore-rules-denied-error but namespaced to #32 (setDoc).",
+  "observedAt": "2026-05-17T23:36:54.021Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": true,
+    "code": "permission-denied",
+    "message": "7 PERMISSION_DENIED: Missing or insufficient permissions.",
+    "errorName": "FirebaseError",
+    "constructorName": "FirebaseError",
+    "isFirebaseError": true,
+    "isErrorInstance": true
+  }
+}

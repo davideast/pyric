@@ -1,0 +1,23 @@
+// Tests request.resource.data and resource.data patterns
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /posts/{postId} {
+      // Read existing data
+      allow read: if resource.data.published == true;
+
+      // Validate incoming data
+      allow create: if request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.title.size() <= 200
+                    && request.resource.data.author == request.auth.uid;
+
+      // Compare existing vs incoming
+      allow update: if resource.data.author == request.auth.uid
+                    && request.resource.data.author == resource.data.author;
+
+      // Delete by owner
+      allow delete: if resource.data.author == request.auth.uid;
+    }
+  }
+}

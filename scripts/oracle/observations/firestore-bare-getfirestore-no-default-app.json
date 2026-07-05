@@ -1,0 +1,14 @@
+{
+  "name": "firestore-bare-getfirestore-no-default-app",
+  "matrixRow": "firestore #4",
+  "description": "getFirestore() with no argument and no default Firebase App initialized — locks the FirebaseError code prod throws.",
+  "observedAt": "2026-05-17T23:37:10.104Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": true,
+    "code": "app/no-app",
+    "errorName": "FirebaseError",
+    "message": "Firebase: No Firebase App '[DEFAULT]' has been created - call initializeApp() first (app/no-app)."
+  }
+}

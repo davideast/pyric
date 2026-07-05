@@ -1,0 +1,19 @@
+// Tests path expressions with $() interpolation
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function getUserRole(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.role;
+    }
+
+    function teamHasMember(teamId, uid) {
+      return exists(/databases/$(database)/documents/teams/$(teamId)/members/$(uid));
+    }
+
+    match /teams/{teamId} {
+      allow read: if teamHasMember(teamId, request.auth.uid);
+      allow write: if getUserRole(request.auth.uid) == 'admin';
+    }
+  }
+}

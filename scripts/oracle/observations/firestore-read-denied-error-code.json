@@ -1,0 +1,17 @@
+{
+  "name": "firestore-read-denied-error-code",
+  "matrixRow": "firestore #20",
+  "description": "Rules-denied read — observes the error class, code, and message prod returns when getDoc targets a path outside pyric_oracle/* that the rules deny.",
+  "observedAt": "2026-05-17T23:36:53.081Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": true,
+    "code": "permission-denied",
+    "message": "Missing or insufficient permissions.",
+    "errorName": "FirebaseError",
+    "constructorName": "FirebaseError",
+    "isFirebaseError": true,
+    "isErrorInstance": true
+  }
+}

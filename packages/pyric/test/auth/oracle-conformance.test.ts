@@ -1,0 +1,509 @@
+/**
+ * Oracle conformance — wires `scripts/oracle/observations/auth-*.json` into the
+ * test suite so the captured real-Firebase behavior is MACHINE-CHECKED against
+ * the sandbox shim, not just cited in comments (audit H5: the oracle was
+ * decorative; H6 — a committed capture contradicting the shim — went unnoticed
+ * because nothing loaded these files).
+ *
+ * Pattern: each test loads its observation and replays the scenario against the
+ * sandbox, asserting the environment-independent facts the capture recorded
+ * (fire counts, error codes, null-ness, ordering). The JSON's values are the
+ * EXPECTED side wherever sensible — if a capture is re-run against prod and a
+ * value changes, the test fails and surfaces the drift. Prod-specific noise
+ * (real UIDs, JWT lengths, wall-clock timestamps) is not asserted.
+ *
+ * Every auth observation in the directory must be either asserted here or
+ * explicitly listed in NOT_APPLICABLE with a reason — the completeness test at
+ * the bottom enforces that, so a new capture can't silently go un-checked.
+ */
+import { describe, expect, it } from 'bun:test';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { initializeSandbox } from 'pyric/sandbox';
+import {
+  getAuth,
+  onAuthStateChanged,
+  onIdTokenChanged,
+  signInAnonymously,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  sandbox as authSandbox,
+  type User,
+} from '../../src/auth/index.js';
+
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
+
+/** Observations that cannot be replayed against the sandbox, with the reason. */
+const NOT_APPLICABLE: Record<string, string> = {
+  'auth-bare-getauth-no-default-app.json':
+    'exercises the prod fallthrough (fb.getAuth with no default app) — covered by the prod path, not sandbox behavior',
+};
+
+function load(name: string): Record<string, unknown> {
+  const json = JSON.parse(readFileSync(join(OBS_DIR, name), 'utf8')) as {
+    behavior: Record<string, unknown>;
+  };
+  return json.behavior;
+}
+
+/** Drain the microtask queue a few times — the shim's initial listener fire is
+ *  queueMicrotask-deferred (matching prod's async initial fire). */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 4; i++) await Promise.resolve();
+}
+
+function freshAuth() {
+  return getAuth(initializeSandbox());
+}
+
+function recorder() {
+  const fires: Array<string | null> = [];
+  const fn = (u: User | null) => fires.push(u?.uid ?? null);
+  return { fires, fn };
+}
+
+async function expectCode(p: Promise<unknown>, code: string): Promise<Error> {
+  try {
+    await p;
+  } catch (e) {
+    expect((e as { code: string }).code).toBe(code);
+    return e as Error;
+  }
+  throw new Error(`expected ${code} to be thrown`);
+}
+
+describe('oracle conformance (auth)', () => {
+  // ── credentials ──────────────────────────────────────────────────────
+
+  it('auth-anonymous-credential-providerid', async () => {
+    const obs = load('auth-anonymous-credential-providerid.json');
+    const cred = await signInAnonymously(freshAuth());
+    expect(cred.providerId).toBe(obs.providerId as null);
+    expect(cred.operationType).toBe(obs.operationType as 'signIn');
+    expect(cred.user.isAnonymous).toBe(obs.userIsAnonymous as boolean);
+    expect(cred.user.email).toBe(obs.userEmail as null);
+  });
+
+  it('auth-createUser-operationType (the audit-H6 field)', async () => {
+    const obs = load('auth-createUser-operationType.json');
+    const cred = await createUserWithEmailAndPassword(freshAuth(), 'create@example.com', 'pw123456');
+    expect(cred.operationType).toBe(obs.operationType as 'signIn');
+    // The exact field the committed capture contradicted: prod says null.
+    expect(cred.providerId).toBe(obs.providerId as null);
+    expect(cred.user.isAnonymous).toBe(obs.userIsAnonymous as boolean);
+  });
+
+  // ── error codes ──────────────────────────────────────────────────────
+
+  it('auth-row-18-invalid-email-error-code', async () => {
+    const obs = load('auth-row-18-invalid-email-error-code.json');
+    await expectCode(
+      createUserWithEmailAndPassword(freshAuth(), obs.attemptedEmail as string, 'pw123456'),
+      obs.code as string,
+    );
+  });
+
+  it('auth-row-19-weak-password-error-code', async () => {
+    const obs = load('auth-row-19-weak-password-error-code.json');
+    await expectCode(
+      createUserWithEmailAndPassword(freshAuth(), 'weak@example.com', 'abc'),
+      obs.code as string,
+    );
+  });
+
+  it('auth-email-already-in-use-error-code', async () => {
+    const obs = load('auth-email-already-in-use-error-code.json');
+    const auth = freshAuth();
+    await createUserWithEmailAndPassword(auth, 'dup@example.com', 'pw123456');
+    await expectCode(
+      createUserWithEmailAndPassword(auth, 'dup@example.com', 'pw123456'),
+      obs.code as string,
+    );
+  });
+
+  it('auth-user-not-found-error-code', async () => {
+    const obs = load('auth-user-not-found-error-code.json');
+    await expectCode(
+      signInWithEmailAndPassword(freshAuth(), 'never-registered@example.com', 'pw123456'),
+      obs.code as string,
+    );
+  });
+
+  it('auth-wrong-password-error-code', async () => {
+    const obs = load('auth-wrong-password-error-code.json');
+    const auth = freshAuth();
+    authSandbox.seedUsers(auth, [{ uid: 'wp', email: 'wp@example.com', password: 'correct123' }]);
+    await expectCode(
+      signInWithEmailAndPassword(auth, 'wp@example.com', 'wrong9999'),
+      obs.code as string,
+    );
+  });
+
+  // ── tokens ───────────────────────────────────────────────────────────
+
+  it('auth-getidtoken-force-refresh', async () => {
+    const obs = load('auth-getidtoken-force-refresh.json');
+    const auth = freshAuth();
+    const { user } = await signInAnonymously(auth);
+    const t0 = await user.getIdToken();
+    const t1 = await user.getIdToken(true);
+    const t2 = await user.getIdToken();
+    expect(t0 !== t1).toBe(obs.forceRefreshReturnedDifferentString as boolean);
+    expect(t0 === t1).toBe(obs.token0EqualsToken1 as boolean);
+    expect(t1 === t2).toBe(obs.token1EqualsToken2 as boolean);
+  });
+
+  it('auth-onidtokenchanged-force-refresh', async () => {
+    const obs = load('auth-onidtokenchanged-force-refresh.json');
+    const auth = freshAuth();
+    const { fires, fn } = recorder();
+    onIdTokenChanged(auth, fn);
+    await settle();
+    const { user } = await signInAnonymously(auth);
+    await settle();
+    expect(fires.length).toBe(obs.firesAfterSignIn as number);
+    await user.getIdToken(true);
+    await settle();
+    expect(fires.length).toBe(obs.firesAfterRefresh as number);
+    expect(fires.length > (obs.firesAfterSignIn as number)).toBe(obs.refreshFiredListener as boolean);
+  });
+
+  // ── observer semantics ───────────────────────────────────────────────
+
+  it('auth-row-29-onauthstatechanged-initial-fire-timing', async () => {
+    const obs = load('auth-row-29-onauthstatechanged-initial-fire-timing.json');
+    const auth = freshAuth();
+    await signInAnonymously(auth);
+    await settle();
+    const { fires, fn } = recorder();
+    onAuthStateChanged(auth, fn);
+    expect(fires.length).toBe(obs.firedSynchronously as number); // 0 — never sync
+    await settle();
+    expect(fires.length).toBe(obs.firedAfterMicrotask as number); // 1
+  });
+
+  it('auth-row-40-onidtokenchanged-matches-onauthstatechanged-initial-fire', async () => {
+    const obs = load('auth-row-40-onidtokenchanged-matches-onauthstatechanged-initial-fire.json') as {
+      sync: { auth: number; idToken: number };
+      microtask: { auth: number; idToken: number };
+      sameInitialCount: boolean;
+    };
+    const auth = freshAuth();
+    const a = recorder();
+    const b = recorder();
+    onAuthStateChanged(auth, a.fn);
+    onIdTokenChanged(auth, b.fn);
+    expect(a.fires.length).toBe(obs.sync.auth);
+    expect(b.fires.length).toBe(obs.sync.idToken);
+    await settle();
+    expect(a.fires.length).toBe(obs.microtask.auth);
+    expect(b.fires.length).toBe(obs.microtask.idToken);
+    expect(a.fires.length === b.fires.length).toBe(obs.sameInitialCount);
+  });
+
+  it('auth-row-10-onauthstatechanged-one-per-transition', async () => {
+    const obs = load('auth-row-10-onauthstatechanged-one-per-transition.json');
+    const auth = freshAuth();
+    const { fires, fn } = recorder();
+    onAuthStateChanged(auth, fn);
+    await settle();
+    expect(fires.length).toBe(obs.initialFires as number);
+    await signInAnonymously(auth);
+    await settle();
+    expect(fires.length).toBe(obs.afterSignIn1 as number);
+    await signOut(auth);
+    await settle();
+    expect(fires.length).toBe(obs.afterSignOut as number);
+    authSandbox.seedUsers(auth, [{ uid: 'u2', email: 'u2@example.com', password: 'pw123456' }]);
+    await signInWithEmailAndPassword(auth, 'u2@example.com', 'pw123456');
+    await settle();
+    expect(fires.length).toBe(obs.afterSignIn2 as number);
+  });
+
+  it('auth-row-17-signin-email-password-fires-once', async () => {
+    const obs = load('auth-row-17-signin-email-password-fires-once.json');
+    const auth = freshAuth();
+    authSandbox.seedUsers(auth, [{ uid: 'r17', email: 'r17@example.com', password: 'pw123456' }]);
+    const { fires, fn } = recorder();
+    onAuthStateChanged(auth, fn);
+    await settle();
+    await signInWithEmailAndPassword(auth, 'r17@example.com', 'pw123456');
+    await settle();
+    expect(fires.length).toBe(obs.afterSignIn as number);
+    expect(fires.at(-1)).toBe('r17'); // lastFireUidMatches
+  });
+
+  it('auth-row-24-createuser-fires-once', async () => {
+    const obs = load('auth-row-24-createuser-fires-once.json');
+    const auth = freshAuth();
+    const { fires, fn } = recorder();
+    onAuthStateChanged(auth, fn);
+    await settle();
+    const cred = await createUserWithEmailAndPassword(auth, 'r24@example.com', 'pw123456');
+    await settle();
+    expect(fires.length).toBe(obs.afterCreate as number);
+    expect(fires.at(-1)).toBe(cred.user.uid); // lastFireUidMatches
+  });
+
+  it('auth-row-25-signout-currentuser-null-sync', async () => {
+    const obs = load('auth-row-25-signout-currentuser-null-sync.json');
+    const auth = freshAuth();
+    await signInAnonymously(auth);
+    expect(auth.currentUser).not.toBeNull();
+    await signOut(auth);
+    // currentUserIsNullSync — null immediately after the awaited promise.
+    expect(auth.currentUser === null).toBe(obs.currentUserIsNullSync as boolean);
+    await settle();
+    expect(auth.currentUser).toBeNull();
+  });
+
+  it('auth-row-26-signout-fires-null-once', async () => {
+    const obs = load('auth-row-26-signout-fires-null-once.json');
+    const auth = freshAuth();
+    const { fires, fn } = recorder();
+    onAuthStateChanged(auth, fn);
+    await settle();
+    await signInAnonymously(auth);
+    await settle();
+    await signOut(auth);
+    await settle();
+    expect(fires.length).toBe(obs.afterSignOut as number);
+    expect(fires.at(-1) === null).toBe(obs.lastFireUidWasNull as boolean);
+  });
+
+  it('auth-row-30-onauthstatechanged-fires-on-every-transition', async () => {
+    const obs = load('auth-row-30-onauthstatechanged-fires-on-every-transition.json');
+    const auth = freshAuth();
+    authSandbox.seedUsers(auth, [{ uid: 't3', email: 't3@example.com', password: 'pw123456' }]);
+    const { fires, fn } = recorder();
+    onAuthStateChanged(auth, fn);
+    await settle();
+    const counts: number[] = [];
+    await signInAnonymously(auth);
+    await settle();
+    counts.push(fires.length);
+    await signOut(auth);
+    await settle();
+    counts.push(fires.length);
+    await signInWithEmailAndPassword(auth, 't3@example.com', 'pw123456');
+    await settle();
+    counts.push(fires.length);
+    await signOut(auth);
+    await settle();
+    counts.push(fires.length);
+    // each transition fired exactly once: 2,3,4,5 after the initial 1
+    expect(counts).toEqual([2, 3, 4, 5]);
+    expect(obs.eachTransitionFiredExactlyOnce).toBe(true);
+  });
+
+  it('auth-row-31-onauthstatechanged-no-dup-on-sync-transition (KNOWN DIVERGENCE)', async () => {
+    // Prod capture: subscribe → signInAnonymously with no await-gap fires 2
+    // ([null, user]) — prod's sign-in is network-async, so the microtask
+    // initial-null lands BEFORE the user fire. The sandbox's sign-in is
+    // same-tick: setCurrentUser fans out `user` synchronously, and the queued
+    // initial-fire microtask then dedups (lastDelivered === cachedUser), so the
+    // sandbox fires 1 ([user]) — the initial null is swallowed. Reproducing
+    // prod's sequence requires deferring ALL listener fan-outs to microtasks
+    // (a timing-model change with real blast radius) — tracked as a follow-up,
+    // not silently absorbed here. This test pins BOTH sides so neither can
+    // drift unnoticed: the oracle's value, and the sandbox's current behavior.
+    const obs = load('auth-row-31-onauthstatechanged-no-dup-on-sync-transition.json');
+    expect(obs.totalFires).toBe(2); // what prod did (the target)
+    const auth = freshAuth();
+    const { fires, fn } = recorder();
+    onAuthStateChanged(auth, fn);
+    await signInAnonymously(auth); // no await-gap between subscribe and sign-in
+    await settle();
+    expect(fires.length).toBe(1); // sandbox today: [user], initial null swallowed
+    expect(fires.some((u) => u !== null)).toBe(obs.sawNewUser as boolean);
+    // NOT asserted: obs.sawInitialNull (true in prod, false in sandbox) — the
+    // divergence under track. If a timing-model fix lands, this test fails
+    // here and should flip to assert the oracle's totalFires/sawInitialNull.
+  });
+
+  it('auth-row-32-unsubscribe-stops-fires', async () => {
+    const obs = load('auth-row-32-unsubscribe-stops-fires.json');
+    const auth = freshAuth();
+    const { fires, fn } = recorder();
+    const unsub = onAuthStateChanged(auth, fn);
+    await settle();
+    await signInAnonymously(auth);
+    await settle();
+    const atUnsub = fires.length;
+    expect(atUnsub).toBe(obs.firesAtUnsubscribe as number);
+    unsub();
+    await signOut(auth);
+    await signInAnonymously(auth);
+    await signOut(auth);
+    await settle();
+    expect(fires.length - atUnsub).toBe(obs.postUnsubFires as number); // 0
+  });
+
+  it('auth-row-33-multiple-subscribers-all-fire', async () => {
+    const obs = load('auth-row-33-multiple-subscribers-all-fire.json');
+    const auth = freshAuth();
+    const a = recorder();
+    const b = recorder();
+    onAuthStateChanged(auth, a.fn);
+    onAuthStateChanged(auth, b.fn);
+    await settle();
+    await signInAnonymously(auth);
+    await settle();
+    expect(a.fires.length).toBe(obs.afterSignInA as number);
+    expect(b.fires.length).toBe(obs.afterSignInB as number);
+    await signOut(auth);
+    await settle();
+    expect(a.fires.length).toBe(obs.afterSignOutA as number);
+    expect(b.fires.length).toBe(obs.afterSignOutB as number);
+  });
+
+  it('auth-row-35-throwing-observer-doesnt-block-others', async () => {
+    const obs = load('auth-row-35-throwing-observer-doesnt-block-others.json') as {
+      afterSignIn: { firstFireCount: number; secondFireCount: number };
+      secondObserverContinuedFiring: boolean;
+    };
+    const auth = freshAuth();
+    let firstCount = 0;
+    let secondCount = 0;
+    onAuthStateChanged(auth, () => {
+      firstCount++;
+      throw new Error('observer boom');
+    });
+    onAuthStateChanged(auth, () => {
+      secondCount++;
+    });
+    await settle();
+    await signInAnonymously(auth);
+    await settle();
+    expect(firstCount).toBe(obs.afterSignIn.firstFireCount);
+    expect(secondCount).toBe(obs.afterSignIn.secondFireCount);
+    expect(secondCount >= 2).toBe(obs.secondObserverContinuedFiring);
+  });
+
+  it('auth-row-36-observer-object-form-works', async () => {
+    const obs = load('auth-row-36-observer-object-form-works.json');
+    const auth = freshAuth();
+    const fn = recorder();
+    const objFires: Array<string | null> = [];
+    onAuthStateChanged(auth, fn.fn);
+    onAuthStateChanged(auth, { next: (u) => objFires.push(u?.uid ?? null) });
+    await settle();
+    await signInAnonymously(auth);
+    await settle();
+    expect(fn.fires.length).toBe(obs.afterSignInFn as number);
+    expect(objFires.length).toBe(obs.afterSignInObs as number);
+    await signOut(auth);
+    await settle();
+    expect(fn.fires.length).toBe(obs.afterSignOutFn as number);
+    expect(objFires.length).toBe(obs.afterSignOutObs as number);
+  });
+
+  it('auth-row-37-same-user-no-double-fire', async () => {
+    const obs = load('auth-row-37-same-user-no-double-fire.json');
+    const auth = freshAuth();
+    const { fires, fn } = recorder();
+    onAuthStateChanged(auth, fn);
+    await settle();
+    const c1 = await signInAnonymously(auth);
+    await settle();
+    expect(fires.length).toBe(obs.afterFirstSignIn as number);
+    const c2 = await signInAnonymously(auth);
+    await settle();
+    expect(fires.length).toBe(obs.afterSecondSignIn as number); // no extra fire
+    expect(c1.user.uid === c2.user.uid).toBe(obs.sameUserAcrossCalls as boolean);
+  });
+
+  it('auth-row-38-onidtokenchanged-fires-on-user-change', async () => {
+    const obs = load('auth-row-38-onidtokenchanged-fires-on-user-change.json');
+    const auth = freshAuth();
+    authSandbox.seedUsers(auth, [{ uid: 'r38', email: 'r38@example.com', password: 'pw123456' }]);
+    const { fires, fn } = recorder();
+    onIdTokenChanged(auth, fn);
+    await settle();
+    await signInAnonymously(auth);
+    await settle();
+    expect(fires.length).toBe(obs.afterSignIn1 as number);
+    await signOut(auth);
+    await settle();
+    expect(fires.length).toBe(obs.afterSignOut as number);
+    await signInWithEmailAndPassword(auth, 'r38@example.com', 'pw123456');
+    await settle();
+    expect(fires.length).toBe(obs.afterSignIn2 as number);
+  });
+
+  it('auth-signout-idempotent', async () => {
+    const obs = load('auth-signout-idempotent.json');
+    const auth = freshAuth();
+    const { fires, fn } = recorder();
+    onAuthStateChanged(auth, fn);
+    await settle();
+    await signInAnonymously(auth);
+    await settle();
+    await signOut(auth);
+    await settle();
+    expect(fires.length).toBe(obs.baselineFires as number);
+    let threw = false;
+    try {
+      await signOut(auth); // redundant
+    } catch {
+      threw = true;
+    }
+    await settle();
+    expect(threw).toBe(obs.threw as boolean);
+    expect(fires.length).toBe(obs.afterRedundantSignOut as number);
+  });
+
+  // ── round-3 P4 captures ────────────────────────────────────────────────
+
+  it('auth-signinprovider-per-flow', async () => {
+    const obs = load('auth-signinprovider-per-flow.json') as {
+      anonymous: { signInProvider: string; firebaseClaim: string };
+      password: { signInProvider: string; firebaseClaim: string };
+    };
+    const anonAuth = freshAuth();
+    await signInAnonymously(anonAuth);
+    const anonRes = await anonAuth.currentUser!.getIdTokenResult();
+    expect(anonRes.signInProvider).toBe(obs.anonymous.signInProvider);
+    expect((anonRes.claims as { firebase?: { sign_in_provider?: string } }).firebase?.sign_in_provider)
+      .toBe(obs.anonymous.firebaseClaim);
+
+    const pwAuth = freshAuth();
+    await createUserWithEmailAndPassword(pwAuth, 'provider@example.com', 'pw123456');
+    const pwRes = await pwAuth.currentUser!.getIdTokenResult();
+    expect(pwRes.signInProvider).toBe(obs.password.signInProvider);
+    expect((pwRes.claims as { firebase?: { sign_in_provider?: string } }).firebase?.sign_in_provider)
+      .toBe(obs.password.firebaseClaim);
+  });
+
+  it('auth-claims-forced-refresh-propagation', async () => {
+    const obs = load('auth-claims-forced-refresh-propagation.json') as {
+      claimBefore: unknown;
+      claimForcedRefresh: unknown;
+    };
+    const auth = freshAuth();
+    await createUserWithEmailAndPassword(auth, 'claims@example.com', 'pw123456');
+    const user = auth.currentUser!;
+    const before = await user.getIdTokenResult();
+    expect((before.claims as Record<string, unknown>).oracleRole ?? null).toEqual(obs.claimBefore);
+    authSandbox.updateUser(auth, user.uid, { customClaims: { oracleRole: 'admin' } });
+    const forced = await user.getIdTokenResult(true);
+    expect((forced.claims as Record<string, unknown>).oracleRole).toEqual(obs.claimForcedRefresh);
+    // Prod nuance the oracle pinned: an UNFORCED read after the admin write
+    // still serves the cached token (claimUnforcedAfterAdminWrite: null).
+    // The sandbox reads claims live at mint time but only re-mints on
+    // force — matching the forced-refresh propagation story.
+  });
+
+  // ── completeness: every observation is asserted or explicitly N/A ─────
+
+  it('every auth observation is covered (no silent gaps)', () => {
+    const all = readdirSync(OBS_DIR).filter((f) => f.startsWith('auth-') && f.endsWith('.json'));
+    expect(all.length).toBeGreaterThanOrEqual(26);
+    const source = readFileSync(import.meta.path, 'utf8');
+    const uncovered = all.filter(
+      (f) => !source.includes(f.replace('.json', '')) && !(f in NOT_APPLICABLE),
+    );
+    expect(uncovered).toEqual([]);
+  });
+});

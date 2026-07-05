@@ -1,0 +1,22 @@
+{
+  "name": "vite-sandbox-app",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Reference: a Vite app on the pyric-tools/vite plugin — `vite dev` runs on the in-process sandbox, `vite build` ships real firebase. This is the shape `pyric init --template web` scaffolds.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy:rules": "pyric deploy rules",
+    "deploy:hosting": "pyric deploy hosting"
+  },
+  "dependencies": {
+    "firebase": "^12.12.0"
+  },
+  "devDependencies": {
+    "pyric-tools": "workspace:*",
+    "vite": "^6.0.0",
+    "typescript": "^5.7.0"
+  }
+}

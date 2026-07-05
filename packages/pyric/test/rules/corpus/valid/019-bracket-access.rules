@@ -1,0 +1,19 @@
+// Tests bracket notation for field access
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /data/{docId} {
+      // Bracket access with string literal
+      allow read: if resource.data['status'] == 'published';
+
+      // Bracket access with variable
+      allow create: if request.resource.data[request.auth.uid] == true;
+
+      // 'in' operator
+      allow update: if 'title' in request.resource.data
+                    && 'body' in request.resource.data;
+
+      allow delete: if request.auth != null;
+    }
+  }
+}

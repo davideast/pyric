@@ -1,0 +1,158 @@
+# Workspace-wide build + test gate.
+#
+# Runs on every PR. Delegates to scripts/build.sh
+# (the same orchestrator developers use locally) so CI and local
+# build behavior can't drift.
+#
+# Workspace packages: pyric, pyric-admin, pyric-tools, @pyric/ui,
+# and @pyric/studio.
+
+name: Build & Test
+
+on:
+  # Pure docs PRs are skipped; a mixed PR (any non-doc file) still runs.
+  pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+
+concurrency:
+  # A new push to the same branch/PR cancels the in-flight run instead of
+  # billing both.
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build all packages + run tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Oracle audit gate (no NEW uncited ✓ COMPAT rows)
+        # Runs scripts/oracle/audit.ts and ratchets its high-risk
+        # unprobed-✓ worklist against scripts/oracle/audit-baseline.json.
+        # Fails only when a PR introduces a NEW ✓ COMPAT row with no oracle
+        # observation citing it.
+        # Existing debt is tolerated via the baseline; pay it down by adding
+        # an oracle citation (or downgrading the row) and dropping the id.
+        run: bun run scripts/oracle/audit-gate.ts
+
+      - name: Oracle observation version guard
+        # Fails if any scripts/oracle/observations/*.json was captured against
+        # a firebase version other than the one bun.lock currently resolves —
+        # i.e. a `firebase` bump without re-capturing the prod-behavior record
+        # the COMPAT matrices cite (INF-3/INF-4). Cheap, deterministic.
+        run: bun run scripts/oracle/check-observation-versions.ts
+
+      - name: Build all packages (scripts/build.sh — two-pass stubs then strict)
+        # scripts/build.sh handles the cycle-tolerant bootstrap pass
+        # (declaration stubs for every package) then the strict
+        # topological build. Same script `npm run build` runs locally;
+        # CI and local can't drift.
+        run: bash scripts/build.sh
+
+      - name: Oracle conformance gate (observations × probes)
+        # Loads every observations/*.json (structural floor), asserts each
+        # registry entry's captured prod values are intact (so the prod record
+        # can't be edited to cheat), then RUNS each entry's conformance probe
+        # (bun test) and derives pass/fail. A probe that fails is a LIVE
+        # contradiction and fails the build. Status is derived from the probe,
+        # never a hand-maintained field — see the script header (INF-3).
+        # Runs AFTER the build: the probes import the built packages
+        # (pyric/* → dist), so dist must exist first.
+        run: bun run scripts/oracle/check-observations.ts
+
+      - name: Run tests
+        # `npm run test` cycles through pyric, pyric-admin, pyric-tools,
+        # and @pyric/ui.
+        run: npm run test
+
+  packaging:
+    name: Packaging gate (pack + install + subpath resolution)
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    # Cost: the publish-shape gate runs only when the PR carries the
+    # `ci-packaging` label (apply it on release PRs or ones touching package
+    # manifests / exports / dist layout). Most code PRs do not need it.
+    if: contains(github.event.pull_request.labels.*.name, 'ci-packaging')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The gate's consumer install resolves firebase/firebase-admin (large)
+      # from the registry every run on a cold runner — measured 47s of the
+      # 125s step. Persist the script's isolated npm cache across runs;
+      # resolution/integrity checks still run, only downloads are reused.
+      - name: Cache packaging npm downloads
+        uses: actions/cache@v4
+        with:
+          path: /tmp/npm-cache-pyric-packaging-test
+          key: packaging-npm-${{ runner.os }}-${{ hashFiles('packages/*/package.json') }}
+          restore-keys: packaging-npm-${{ runner.os }}-
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Packaging gate
+        # scripts/packaging-test.sh: static manifest lint (publint + attw types
+        # resolution + exports↔dist drift), then packs every publishable package
+        # via `npm pack` (rewriting workspace:* → ^<version> via
+        # scripts/lib/rewrite-workspace-deps.mjs — the same rewrite the real
+        # `npm run pack` uses), installs the tarballs into a fresh consumer,
+        # asserts every advertised subpath import resolves + the export shapes,
+        # exercises the bin, runs a serve smoke, RUNS the libraries (runtime
+        # asset paths), and pins the ESM-only + subpath-only module contract.
+        run: npm run test:packaging
+
+  install-matrix:
+    name: Install matrix (${{ matrix.pm }})
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    # Cost: same as `packaging`, only runs under the `ci-packaging` label.
+    if: contains(github.event.pull_request.labels.*.name, 'ci-packaging')
+    # Package managers resolve exports / scoped names / local tarballs differently;
+    # a lib that installs under npm can fail under pnpm or bun. Each leg installs
+    # the REAL tarballs and imports every advertised subpath. fail-fast off so one
+    # manager's failure doesn't hide the others'.
+    strategy:
+      fail-fast: false
+      matrix:
+        pm: [npm, pnpm, bun]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm (corepack)
+        if: matrix.pm == 'pnpm'
+        run: corepack enable
+
+      - name: Install workspace deps
+        run: bun install --frozen-lockfile
+
+      - name: Pack the publishable libraries
+        run: npm run pack
+
+      - name: Install matrix — ${{ matrix.pm }}
+        run: bash scripts/install-matrix.sh ${{ matrix.pm }}

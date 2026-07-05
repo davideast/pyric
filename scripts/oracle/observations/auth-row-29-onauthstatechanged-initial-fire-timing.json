@@ -1,0 +1,21 @@
+{
+  "name": "auth-row-29-onauthstatechanged-initial-fire-timing",
+  "matrixRow": "auth #29",
+  "description": "onAuthStateChanged initial-fire timing — does the first fire arrive synchronously on subscribe, after a microtask, or after a macrotask? Fences capture each tier.",
+  "observedAt": "2026-05-17T23:58:46.184Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "signedInUid": "rIzVa3MPbSYiefsiOwEYsChW0Cm1",
+    "firedSynchronously": 0,
+    "firedAfterMicrotask": 1,
+    "firedAfterMacrotask": 1,
+    "firedAfterLongDelay": 1,
+    "fires": [
+      {
+        "uid": "rIzVa3MPbSYiefsiOwEYsChW0Cm1",
+        "fence": "microtask"
+      }
+    ]
+  }
+}

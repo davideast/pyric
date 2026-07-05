@@ -1,0 +1,16 @@
+{
+  "name": "rtdb-modular-update-multipath-atomic",
+  "matrixRow": "rtdb-modular #117",
+  "description": "Multi-path update — update(parentRef, {\"a/x\":1, \"b/y\":2}) — verify both subtrees land in a single call. The \"fan-out\" pattern is RTDB's most distinctive feature.",
+  "observedAt": "2026-05-18T03:36:38.272Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "aX": 1,
+    "bY": 2,
+    "bothLanded": true
+  }
+}

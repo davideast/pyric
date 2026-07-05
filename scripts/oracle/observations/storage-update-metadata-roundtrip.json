@@ -1,0 +1,23 @@
+{
+  "name": "storage-update-metadata-roundtrip",
+  "matrixRow": "storage #90",
+  "description": "uploadBytes, then updateMetadata({customMetadata: {k: \"v\"}}), then getMetadata — verify the customMetadata survived and metageneration bumped.",
+  "observedAt": "2026-05-18T01:30:10.531Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "uploadOk": true,
+    "updateOk": true,
+    "beforeCustom": null,
+    "afterCustom": {
+      "conformance": "storage-row-90",
+      "run": "1779067802523-1wnssz"
+    },
+    "customSurvived": true,
+    "metagenerationBefore": "1",
+    "metagenerationAfter": "2",
+    "metagenerationBumped": true,
+    "error": null,
+    "code": null
+  }
+}

@@ -1,0 +1,262 @@
+/**
+ * Staged-change surfaces: the Review page + the `@pyric/ui/events`
+ * `ProposedChangeDiff` contract. Token-only, dark-minimal; mirrors
+ * `mocks/c-review.html`.
+ */
+
+/* ── Review surface ──────────────────────────────────────────────────── */
+.review {
+  display: block;
+}
+.review__empty {
+  color: var(--faint);
+  font-size: var(--fs-body);
+  padding: 28px 0;
+  margin: 0;
+}
+.review__back {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-label);
+  color: var(--accent);
+  cursor: pointer;
+  margin-bottom: 22px;
+}
+.review__eyebrow {
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.review__title {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.review__meta {
+  margin: 9px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+.review__sep {
+  color: var(--line-2);
+}
+.review__diff {
+  margin-top: 28px;
+}
+
+/* ── Decision ────────────────────────────────────────────────────────── */
+.review__decide {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.review__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.review__apply,
+.review__discard {
+  appearance: none;
+  font: inherit;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.review__apply {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.review__apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.review__discard {
+  border: 1px solid var(--line-2);
+  background: var(--elevated);
+  color: var(--muted);
+}
+.review__conflict {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--diff-remove) 40%, var(--line));
+  background: color-mix(in srgb, var(--diff-remove) 10%, transparent);
+  border-radius: 8px;
+}
+.review__conflict-head {
+  margin: 0 0 6px;
+  font-size: var(--fs-label);
+  color: var(--diff-remove);
+}
+.review__conflict-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+.review__error {
+  margin: 12px 0 0;
+  font-size: var(--fs-label);
+  color: var(--diff-remove);
+}
+.review__help {
+  margin: 12px 0 0;
+  font-size: var(--fs-label);
+  color: var(--faint);
+  line-height: 1.55;
+  max-width: 600px;
+}
+
+/* ── ProposedChangeDiff contract (@pyric/ui/events) ──────────────────── */
+[data-pyric-ui='proposed-change-diff'] [data-pyric-change-group] {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+[data-pyric-change-grouphead] {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+[data-pyric-change-collname] {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--ink);
+}
+[data-pyric-change-count] {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--faint);
+}
+[data-pyric-change-docs] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+[data-pyric-change-doc] {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 16px;
+  align-items: baseline;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+}
+[data-pyric-change-doc]:first-child {
+  border-top: none;
+}
+[data-pyric-change-docid] {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Auth-user row: the account summary sits in the value column (col 2). */
+[data-pyric-change-authmeta] {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--muted);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-pyric-change-fields] {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+[data-pyric-change-field] {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  min-width: 0;
+}
+[data-pyric-change-key] {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+[data-pyric-change-before] {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+[data-pyric-change-arrow] {
+  color: var(--faint);
+}
+[data-pyric-change-after] {
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-pyric-change-field][data-pyric-change-kind='added'] [data-pyric-change-after] {
+  color: var(--diff-add);
+}
+[data-pyric-change-field][data-pyric-change-kind='removed'] [data-pyric-change-key] {
+  color: var(--diff-remove);
+}
+
+/* ── Session: open staged changes (Needs attention) ──────────────────── */
+.session__staged-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--line);
+}
+.session__staged-item:first-child {
+  border-top: none;
+}
+.session__staged-what {
+  min-width: 0;
+}
+.session__staged-title {
+  font-size: var(--fs-body);
+  color: var(--ink);
+}
+.session__staged-meta {
+  font-size: var(--fs-label);
+  color: var(--muted);
+  margin-top: 1px;
+}
+.session__stage-btn {
+  appearance: none;
+  border: 1px solid var(--line-2);
+  background: var(--elevated);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-label);
+  padding: 5px 11px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.session__stage-btn:hover {
+  border-color: var(--line);
+  color: var(--ink);
+}

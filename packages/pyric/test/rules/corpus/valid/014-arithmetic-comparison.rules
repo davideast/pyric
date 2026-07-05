@@ -1,0 +1,24 @@
+// Tests arithmetic and comparison operators
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /scores/{scoreId} {
+      allow create: if request.resource.data.value >= 0
+                    && request.resource.data.value <= 100
+                    && request.resource.data.value is int;
+
+      // Arithmetic in expressions
+      allow update: if request.resource.data.value >= resource.data.value
+                    && request.resource.data.value <= resource.data.value + 10;
+
+      allow read: if true;
+    }
+
+    match /timers/{timerId} {
+      // Timestamp comparison
+      allow create: if request.resource.data.expiresAt > request.time;
+
+      allow read: if true;
+    }
+  }
+}

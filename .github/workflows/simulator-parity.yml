@@ -1,0 +1,84 @@
+# Simulator parity gate — two jobs:
+#   1. simulator-tests — in-process Firestore Rules simulator suite on PRs
+#      that touch the simulator or its grammar (no secrets needed).
+#   2. parity-stress   — production-parity packs against the live Rules
+#      Test API (requires the PARITY_SA_BASE64 repo secret — a minimal SA
+#      holding only `firebaserules.rulesets.test`; skips cleanly when the
+#      secret is absent so external-contributor PRs don't fail).
+#
+# Post-mirror layout: simulator + grammar live under
+# packages/pyric/src/{sandbox/firestore,rules/{grammar,simulator}}/.
+# The suite itself is at packages/pyric/test/{sandbox/firestore/simulator,
+# rules/simulator}/; the live parity packs at packages/pyric/test/rules/parity/.
+
+name: Simulator Parity
+
+on:
+  pull_request:
+    paths:
+      - 'packages/pyric/src/sandbox/firestore/**'
+      - 'packages/pyric/src/rules/grammar/**'
+      - 'packages/pyric/src/rules/simulator/**'
+      - 'packages/pyric/test/sandbox/firestore/simulator/**'
+      - 'packages/pyric/test/rules/**'
+      - '.github/workflows/simulator-parity.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  simulator-tests:
+    name: Unit suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Build
+        # scripts/build.sh handles the cycle-tolerant bootstrap pass
+        # then the strict topological build. Same orchestrator the
+        # main build.yml uses.
+        run: bash scripts/build.sh
+      - name: Run simulator tests
+        run: |
+          bun test packages/pyric/test/sandbox/firestore/simulator
+          bun test packages/pyric/test/rules/simulator
+
+  parity-stress:
+    name: Parity stress (live Rules Test API)
+    runs-on: ubuntu-latest
+    # Don't fail external-contributor PRs that can't access the secret.
+    # When PARITY_SA_BASE64 is empty the test steps short-circuit and the
+    # job reports success with a clear log line. (Restored per
+    # design rationale §5; original block: commit 74d2e34.)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Install
+        run: bun install --frozen-lockfile
+      # No build step: the parity packs import simulator + Test API client
+      # straight from packages/pyric/src via relative paths, and bun runs
+      # TS directly.
+      - name: Check secret availability
+        id: secret-check
+        env:
+          # The parity packs run on a minimal, firebaserules-only service
+    # account — separate from any broader deploy credentials.
+          PARITY_SA_BASE64: ${{ secrets.PARITY_SA_BASE64 }}
+        run: |
+          if [ -z "$PARITY_SA_BASE64" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::PARITY_SA_BASE64 not configured — parity stress skipped. Add the secret (a service account with firebaserules.rulesets.test) to enable production parity gating."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run live parity packs
+        if: steps.secret-check.outputs.available == 'true'
+        env:
+          PARITY_SA_BASE64: ${{ secrets.PARITY_SA_BASE64 }}
+        run: bun test packages/pyric/test/rules/parity

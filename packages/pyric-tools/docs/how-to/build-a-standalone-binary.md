@@ -1,0 +1,107 @@
+# Build a standalone `pyric` binary
+
+Ship `pyric` as a single self-contained executable — no Node, no npm, no
+`node_modules`. Built with [`bun build --compile`](https://bun.sh/docs/bundler/executables).
+
+## Build
+
+From the repo root:
+
+```bash
+bun run compile:standalone        # clean build + all four cross-targets
+```
+
+or, iterating inside the package (assumes `bun run build` already ran):
+
+```bash
+bun run --cwd packages/pyric-tools compile        # all four targets
+bun run --cwd packages/pyric-tools compile host   # just this machine (fast)
+```
+
+Binaries land in `packages/pyric-tools/dist-bin/`:
+
+| File | Platform |
+|---|---|
+| `pyric-linux-x64` | Linux x64 |
+| `pyric-linux-arm64` | Linux arm64 |
+| `pyric-darwin-x64` | macOS Intel |
+| `pyric-darwin-arm64` | macOS Apple Silicon |
+| `pyric` | copy of this host's binary, for local runs |
+
+`dist-bin/` is git-ignored and **outside the npm `files` allowlist** — the
+~100 MB binaries are release artifacts, never published to npm or committed.
+
+Verify a build:
+
+```bash
+bun run --cwd packages/pyric-tools smoke:standalone
+```
+
+## How `serve` works in the binary
+
+Every command runs from the binary, including `serve` — the headline one.
+
+Normally `pyric serve` bundles its `firebase/*` → sandbox SDK shims with esbuild
+**at runtime**, reading the installed `pyric` dist. Neither esbuild's native
+helper nor that on-disk dist exist inside a compiled binary's virtual
+filesystem. But those bundles are **deterministic** — a pure function of
+pyric-tools' wrapper entries and the `pyric` version baked into pyric-tools, not
+your project (serve ships its *own* sandbox; your app just imports `firebase/*`).
+
+So the compile step runs the bundler **once on the build host** and embeds the
+result — the SDK + worker bundles and the Studio UI — into the binary. At
+runtime `serve` materializes those bytes to a temp dir and serves them
+unchanged. `serve`, `serve --ui`, and `serve --bridge` all work fully offline.
+`--no-cache` is a no-op in the binary (there is nothing to rebuild).
+
+## How `init` scaffolds an installable project (vendoring)
+
+`pyric` and `pyric-tools` are unpublished, so a scaffold that depended on them
+from npm would 404 on `bun install`. The binary fixes this by **vendoring**: the
+compile step also `npm pack`s both packages and embeds the tarballs, and
+`pyric init` (in the standalone binary) writes them into `vendor/` and points the
+project's deps at them:
+
+```jsonc
+"devDependencies": { "pyric-tools": "file:vendor/pyric-tools.tgz", "pyric": "file:vendor/pyric.tgz", … },
+"overrides": { "pyric": "file:vendor/pyric.tgz" }
+```
+
+`bun install` then resolves `pyric`/`pyric-tools` from `vendor/` and everything
+else (`firebase`, `vite`, `@inbrowser/agent`, `esbuild`) from npm. The
+`overrides` pin is load-bearing: a **placeholder `pyric` is published to npm at a
+higher version than the local `0.0.0`**, so `pyric-tools`' transitive `pyric@*`
+would otherwise pull that empty stub instead of the vendored package.
+(`pyric-tools`' own `pyric` dep is rewritten to `*` at pack time so it dedupes to
+the override.) `vendor/` is committable (the scaffold ignores only `.pyric/`), so
+a clone installs offline too.
+
+### `--deps npm` — opt out of vendoring
+
+Once the packages are published (or against a private registry), scaffold with
+registry deps instead:
+
+```bash
+pyric init --template web --deps npm                 # ^<binary version>
+pyric init --template web --deps npm --pyric-version 0.1.0
+```
+
+Default is `vendor` in the standalone binary, `npm` otherwise (e.g. `npx pyric`
+from the monorepo). `PYRIC_INIT_DEPS=npm` sets the default; `--deps` overrides it.
+
+Smoke the whole chain (`init → bun install → vite build`, offline for
+pyric/pyric-tools) against a compiled binary:
+
+```bash
+bun run --cwd packages/pyric-tools smoke:vendor
+```
+
+## Contract
+
+## Contract
+
+- **ESM-only**, like the npm package. The binary embeds its own runtime.
+- The embedded SDK bundle is pinned to the `pyric` version compiled in. To ship
+  a new `pyric`, rebuild the binary.
+- Sourcemaps are not embedded (they 4× the size and only serve devtools); the
+  npm `serve` path still emits them.

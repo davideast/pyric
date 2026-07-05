@@ -1,0 +1,15 @@
+// All verified string methods
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /test/{docId} {
+      allow create: if request.resource.data.csv.split(',').size() > 0
+                    && request.resource.data.name.trim().size() > 0
+                    && request.resource.data.name.lower() is string
+                    && request.resource.data.name.upper() is string
+                    && request.resource.data.name.replace('a', 'b') is string
+                    && request.resource.data.name.toUtf8().size() > 0;
+      allow read: if true;
+    }
+  }
+}

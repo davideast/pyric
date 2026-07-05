@@ -1,0 +1,17 @@
+{
+  "name": "rtdb-remove-vs-set-null",
+  "matrixRow": "rtdb #18/#31",
+  "description": "Confirm remove(ref) and set(ref, null) produce the same end state: a subsequent get() returns null in both cases. Locks the documented RTDB invariant that null-write and remove are equivalent.",
+  "observedAt": "2026-05-18T03:36:29.648Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "afterRemove": null,
+    "afterSetNull": null,
+    "bothNull": true,
+    "equivalent": true
+  }
+}

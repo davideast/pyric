@@ -1,0 +1,32 @@
+[
+  {
+    "description": "validCreate allows host to open lobby",
+    "expectation": "ALLOW",
+    "method": "create",
+    "path": "test/room1",
+    "auth": { "uid": "host1" },
+    "data": { "host": "host1", "guest": "", "status": "waiting" },
+    "wrapFunction": "validCreate",
+    "wrapOperation": "create"
+  },
+  {
+    "description": "validCreate denies impersonation",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/room1",
+    "auth": { "uid": "attacker" },
+    "data": { "host": "host1", "guest": "", "status": "waiting" },
+    "wrapFunction": "validCreate",
+    "wrapOperation": "create"
+  },
+  {
+    "description": "validCreate denies pre-filled guest",
+    "expectation": "DENY",
+    "method": "create",
+    "path": "test/room1",
+    "auth": { "uid": "host1" },
+    "data": { "host": "host1", "guest": "sneaky", "status": "waiting" },
+    "wrapFunction": "validCreate",
+    "wrapOperation": "create"
+  }
+]

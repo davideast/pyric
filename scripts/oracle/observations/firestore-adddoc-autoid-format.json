@@ -1,0 +1,17 @@
+{
+  "name": "firestore-adddoc-autoid-format",
+  "matrixRow": "firestore #45",
+  "description": "addDoc auto-id format — observes the length and character set prod mints for auto-ids.",
+  "observedAt": "2026-05-17T23:36:49.494Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "sampleId": "k2pLoloik70g43CZEIv3",
+    "length": 20,
+    "isAllAlphanumeric": true,
+    "hasUpper": true,
+    "hasLower": true,
+    "hasDigit": true,
+    "hasOther": false
+  }
+}

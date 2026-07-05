@@ -1,0 +1,17 @@
+{
+  "name": "auth-row-18-invalid-email-error-code",
+  "matrixRow": "auth #18",
+  "description": "createUserWithEmailAndPassword with a malformed email (no `@`, no domain) — locks the FirebaseError code prod actually emits for the format-validation path. Matrix language says `auth/invalid-email`; this probe verifies that empirically.",
+  "observedAt": "2026-05-18T00:53:17.699Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": true,
+    "code": "auth/invalid-email",
+    "errorName": "FirebaseError",
+    "message": "Firebase: Error (auth/invalid-email).",
+    "attemptedEmail": "not-an-email",
+    "createdUid": null,
+    "cleanupLeaked": false
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "rtdb-modular-orderbykey-window",
+  "matrixRow": "rtdb-modular #143/#146/#147",
+  "description": "query(ref, orderByKey(), startAt(\"b\"), endAt(\"d\")) — seed children with keys a..e; observe windowed matched keys in key order.",
+  "observedAt": "2026-05-18T04:28:06.901Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "matchedKeys": [
+      "b",
+      "c",
+      "d"
+    ],
+    "windowInKeyOrder": true
+  }
+}

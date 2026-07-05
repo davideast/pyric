@@ -1,0 +1,23 @@
+{
+  "name": "rtdb-modular-onchildchanged-fires-on-update",
+  "matrixRow": "rtdb-modular #135",
+  "description": "onChildChanged fires when an existing child is updated — write a child, subscribe, update the child, observe the fire (key + new val).",
+  "observedAt": "2026-05-18T04:26:32.915Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "blockingfun",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "firedOnInitial": 0,
+    "firedOnUpdate": 1,
+    "lastFire": {
+      "key": "k1",
+      "val": {
+        "v": 2
+      }
+    },
+    "noInitialReplay": true,
+    "firesOnceOnUpdate": true
+  }
+}
