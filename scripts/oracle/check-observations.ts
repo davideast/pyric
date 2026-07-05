@@ -3,7 +3,7 @@
  * Oracle conformance gate (observations x probes).
  *
  * The pinned production records live in scripts/oracle/observations/*.json.
- * The registry overlay in scripts/compat/registry.json names the local probe
+ * Typed registry rows in scripts/compat/registry/*.ts name the local probe
  * tests that replay selected observations against the shim. Status is derived:
  * a passing probe means the shim conforms to the pinned observation; a failing
  * probe is either an infrastructure/setup failure or a live contradiction.
@@ -16,13 +16,13 @@ import { join } from 'node:path';
 import {
   REPO_ROOT,
   buildCompatibilityLedger,
-  type ConformanceCheck,
+  type OracleConformanceCheck,
 } from '../compat/ledger.ts';
 
 const REQUIRED = ['name', 'matrixRow', 'description', 'observedAt', 'fbSdkVersion', 'behavior'] as const;
 
 const ledger = buildCompatibilityLedger();
-const checks = ledger.overlay.conformanceChecks;
+const checks = ledger.entries.flatMap((row) => (row.conformanceChecks ?? []).map((check) => ({ ...check, rowId: row.id })));
 const observations = ledger.observations;
 const byName = new Map(observations.map((obs) => [obs.name, obs]));
 
@@ -50,8 +50,9 @@ for (const check of checks) {
 }
 
 type OutcomeKind = 'conforming' | 'live-contradiction' | 'infrastructure' | 'missing';
+type RegisteredCheck = OracleConformanceCheck & { rowId: string };
 interface ProbeOutcome {
-  entry: ConformanceCheck;
+  entry: RegisteredCheck;
   kind: OutcomeKind;
   detail?: string;
 }
@@ -93,7 +94,7 @@ function ensureWorkspaceBuild(): string | null {
   return null;
 }
 
-function runProbe(entry: ConformanceCheck): ProbeOutcome {
+function runProbe(entry: RegisteredCheck): ProbeOutcome {
   const probePath = join(REPO_ROOT, entry.probe);
   if (!existsSync(probePath)) return { entry, kind: 'missing' };
   try {
@@ -115,7 +116,7 @@ let outcomes: ProbeOutcome[] = [];
 if (foundationOk) {
   buildProblem = ensureWorkspaceBuild();
   outcomes = buildProblem
-    ? checks.map((entry) => ({ entry, kind: 'infrastructure', detail: buildProblem }))
+    ? checks.map((entry) => ({ entry, kind: 'infrastructure' as const, detail: buildProblem }))
     : checks.map(runProbe);
 }
 
@@ -131,10 +132,10 @@ if (wantJson) {
     registeredChecks: checks.length,
     structuralProblems: structural,
     integrityProblems,
-    conforming: conforming.map((o) => ({ finding: o.entry.finding, observation: o.entry.observation, probe: o.entry.probe })),
-    liveContradictions: live.map((o) => ({ finding: o.entry.finding, observation: o.entry.observation, probe: o.entry.probe, detail: o.detail })),
-    infrastructureFailures: infrastructure.map((o) => ({ finding: o.entry.finding, observation: o.entry.observation, probe: o.entry.probe, detail: o.detail })),
-    missingProbes: missing.map((o) => ({ finding: o.entry.finding, observation: o.entry.observation, probe: o.entry.probe })),
+    conforming: conforming.map((o) => ({ finding: o.entry.finding, rowId: o.entry.rowId, observation: o.entry.observation, probe: o.entry.probe })),
+    liveContradictions: live.map((o) => ({ finding: o.entry.finding, rowId: o.entry.rowId, observation: o.entry.observation, probe: o.entry.probe, detail: o.detail })),
+    infrastructureFailures: infrastructure.map((o) => ({ finding: o.entry.finding, rowId: o.entry.rowId, observation: o.entry.observation, probe: o.entry.probe, detail: o.detail })),
+    missingProbes: missing.map((o) => ({ finding: o.entry.finding, rowId: o.entry.rowId, observation: o.entry.observation, probe: o.entry.probe })),
   }, null, 2));
 } else {
   console.log('# Oracle conformance gate (observations x probes)\n');
@@ -150,14 +151,14 @@ if (wantJson) {
   if (conforming.length > 0) {
     console.log('## Conforming — probe passes; shim matches the recorded prod behavior\n');
     for (const outcome of conforming) {
-      console.log(`- ${outcome.entry.finding} — ${outcome.entry.guards}`);
+      console.log(`- ${outcome.entry.finding} (${outcome.entry.rowId}) — ${outcome.entry.guards}`);
       console.log(`  probe: ${outcome.entry.probe}`);
     }
   }
   if (live.length > 0) {
     console.log('\n## LIVE contradictions — probe failed after setup succeeded\n');
     for (const outcome of live) {
-      console.error(`- ${outcome.entry.finding} — ${outcome.entry.guards}`);
+      console.error(`- ${outcome.entry.finding} (${outcome.entry.rowId}) — ${outcome.entry.guards}`);
       console.error(`  probe: ${outcome.entry.probe}`);
       if (outcome.detail) console.error(`  ${outcome.detail}`);
     }
@@ -165,13 +166,13 @@ if (wantJson) {
   if (infrastructure.length > 0) {
     console.log('\n## Infrastructure failures — probe could not run cleanly\n');
     for (const outcome of infrastructure) {
-      console.error(`- ${outcome.entry.finding} — ${outcome.entry.probe}`);
+      console.error(`- ${outcome.entry.finding} (${outcome.entry.rowId}) — ${outcome.entry.probe}`);
       if (outcome.detail) console.error(`  ${outcome.detail}`);
     }
   }
   if (missing.length > 0) {
     console.log('\n## Missing probes\n');
-    for (const outcome of missing) console.error(`- ${outcome.entry.finding} — ${outcome.entry.probe}`);
+    for (const outcome of missing) console.error(`- ${outcome.entry.finding} (${outcome.entry.rowId}) — ${outcome.entry.probe}`);
   }
 }
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "Baseline of high-risk, status-✓ COMPAT rows tolerated by the CI gate (scripts/oracle/audit-gate.ts). Each entry is a stable row id for a row that audit.ts flags (score >= 2, ✓ status, no oracle/test evidence and no explicit exception). The gate fails when a PR introduces a row NOT in this list. To pay down debt: add evidence, classify an exception in scripts/compat/registry.json, or downgrade the status, then remove its id here. Regenerate with `bun run scripts/oracle/audit-gate.ts --update`.",
+  "_comment": "Baseline of high-risk, status-✓ COMPAT rows tolerated by the CI gate (scripts/oracle/audit-gate.ts). Each entry is a stable row id for a row that audit.ts flags (score >= 2, ✓ status, no oracle/test evidence and no explicit exception). The gate fails when a PR introduces a row NOT in this list. To pay down debt: add evidence, classify an exception in scripts/compat/registry/*.ts, or downgrade the status, then remove its id here. Regenerate with `bun run scripts/oracle/audit-gate.ts --update`.",
   "generatedFrom": "bun run scripts/oracle/audit.ts --json",
   "ids": [
     "firestore#92",

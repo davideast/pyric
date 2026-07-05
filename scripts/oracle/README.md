@@ -110,12 +110,14 @@ the observation; keep it small and explicit.
 
 The committed oracle now contains 127 observations across Auth,
 Firestore, RTDB, RTDB modular, and Storage. The compatibility ledger is
-derived from the four `COMPAT.md` matrices and the structured overlay in
-`scripts/compat/registry.json`.
+loaded from the typed single-source registry in
+`scripts/compat/registry/*.ts`. The four `COMPAT.md` files are generated
+public docs, not inputs to the compatibility ledger.
 
 Useful commands:
 
 ```sh
+bun run compat:generate         # regenerate public COMPAT.md docs from the registry
 bun run compat:report           # coverage inventory; debt is reported, not failed
 bun run compat:validate         # registry/observation linkage validation
 bun run compat:audit            # high-risk ✓ rows lacking evidence
@@ -124,7 +126,7 @@ bun run compat:oracle-check     # run registry-linked conformance probes
 ```
 
 `compat:oracle-check` is a derived gate: it does not carry a hand-written
-status field. Each registry entry names an observation and a local probe.
+status field. Each registry row can name observations and local probes.
 If the probe passes, Pyric conforms to the pinned production behavior; if
 it fails, the gate classifies the result as either infrastructure/setup or
 a live behavior contradiction.

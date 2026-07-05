@@ -1,3 +1,5 @@
+<!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
+
 # `@pyric/rtdb` compatibility matrix
 
 > ⚠ **EXPERIMENTAL — not v1-supported.** `@pyric/rtdb` is functional but
@@ -850,4 +852,3 @@ The simulator-vs-prod agreement audit (`scripts/oracle/observations/rtdb-simulat
 **Implication for consumers of `validatedWrite`:** the simulator's `SIMULATION_DENIED` signal currently doesn't fire for `.validate` failures during writes. In admin mode this means a write that prod would reject via `.validate` will still be dispatched. In user mode the live rule still enforces, so the deny lands at the prod write — same end-state, but the advisory preflight signal is missing.
 
 **Fix path (out of scope for this PR):** the simulator's write-eval loop should also walk every ancestor's `.validate` rule and require ALL of them to evaluate `true` (or be absent) in addition to a `.write` rule granting access. Tracked as a follow-up engineering task — this PR's job is to document the divergence per the row #71 methodology, not fix the simulator.
-

@@ -1,3 +1,5 @@
+<!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
+
 # `pyric/auth` compatibility matrix
 
 The single readable contract for "what this shim guarantees vs the

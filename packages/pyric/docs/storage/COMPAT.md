@@ -1,3 +1,5 @@
+<!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
+
 # `pyric/storage` compatibility matrix
 
 > ⚠ **EXPERIMENTAL — not v1-supported.** `pyric/storage` is functional but
