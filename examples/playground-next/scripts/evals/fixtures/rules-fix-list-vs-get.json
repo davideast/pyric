@@ -1,0 +1,29 @@
+{
+  "name": "rules-fix-list-vs-get",
+  "description": "Medium: workspace already has a buggy rule that uses resource.data.owner for read (fails on list). Agent should split into get/list. Tests whether the diagnostics-block pitfalls primer is effective.",
+  "prompt": "The /posts list query is failing with permission denied for signed-in users. Fix the rules so that signed-in users can both list /posts AND get individual /posts/{postId}, but only the document's owner can write.",
+  "workspace": {
+    "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /posts/{postId} {\n      allow read: if request.auth != null && resource.data.owner == request.auth.uid;\n      allow write: if request.auth != null && request.resource.data.owner == request.auth.uid;\n    }\n  }\n}\n",
+    "code": "",
+    "appSource": ""
+  },
+  "success": [
+    {
+      "kind": "tool-called",
+      "tool": "write_file",
+      "atLeast": 1
+    },
+    {
+      "kind": "rule-grep",
+      "matches": [
+        "match /posts"
+      ],
+      "doesNotMatch": [
+        "allow read: if request.auth != null && resource.data",
+        "allow read: if resource.data"
+      ]
+    }
+  ],
+  "maxTurns": 12,
+  "maxToolCalls": 10
+}

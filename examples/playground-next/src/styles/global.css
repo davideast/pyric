@@ -1,0 +1,392 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Global styles — minimal. The bulk of layout + chrome lives on
+ * Tailwind utility classes inside React components.
+ *
+ * Inter + JetBrains Mono load lazily from Google Fonts in the
+ * BaseLayout `<head>`. The font-family declarations on `body` (below)
+ * degrade to system fonts if the network request fails.
+ */
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: theme('colors.content-bg');
+    color: theme('colors.soft-white');
+    font-family: theme('fontFamily.display');
+    font-feature-settings: 'cv11', 'ss01';
+    /* Allow pull-to-refresh on Android Chrome. `overflow: hidden`
+       (the prior value) blocked Chrome's PTR gesture from firing at
+       all. Body content is sized to fit the viewport exactly via
+       `#root { height: 100dvh }` below, so nothing actually overflows
+       — body remains "scrollable" only in the metaphorical sense the
+       browser needs to recognize the gesture. */
+    overscroll-behavior-y: auto;
+  }
+
+  #root {
+    /* `100dvh` (dynamic viewport height) follows the iOS/Android soft
+       keyboard — the visible area shrinks when the keyboard opens so
+       the bottom tab bar + ComposeBar stay above it. `100vh` falls
+       back for older browsers; modern ones use the dvh value. */
+    height: 100vh;
+    height: 100dvh;
+    width: 100vw;
+    display: flex;
+    flex-direction: column;
+    /* Lock the playground chrome to the viewport regardless of body
+       scroll state. Without this, opening the soft keyboard or
+       triggering PTR could nudge the layout out of place. */
+    position: fixed;
+    inset: 0;
+  }
+}
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #33333f;
+    border-radius: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #444455;
+  }
+}
+
+/* ----------------------------------------------------------------
+   @pyric/ui styling. The library is headless — everything below is
+   the playground's design choice, applied via `[data-pyric-*]`
+   attribute selectors that the library emits. Mirrors
+   examples/admin-playground's approach, retuned for the playground's
+   own tokens (content-bg / sidebar-bg / soft-white / slate-gray /
+   primary) instead of the showcase palette.
+   ---------------------------------------------------------------- */
+@layer components {
+  /* DocumentPreview */
+  [data-pyric-ui='document-preview'] {
+    @apply rounded-lg border border-[#2a2a35] bg-sidebar-bg p-4 font-mono text-[13px];
+  }
+  /* Responsive grid: at the narrow viewport sizes the Firestore tab
+     occupies (mobile + cramped desktop columns), the label is
+     proportional to container width with a clamp, and the value
+     column is `minmax(0, 1fr)` so it can shrink below its intrinsic
+     content size (default `1fr` is `min-content`-floored, which
+     pushes long unbreakable values — timestamps, ids — past the
+     container edge). Container queries scope to the preview itself
+     so the same component lays out correctly inside a 320px mobile
+     drill-in OR a 1000px desktop pane. */
+  [data-pyric-ui='document-preview'] {
+    container-type: inline-size;
+  }
+  [data-pyric-ui='document-preview'] [data-pyric-field-entry] {
+    @apply grid items-baseline gap-3 py-1.5 border-b border-[#2a2a35]/40 last:border-0;
+    grid-template-columns: minmax(0, clamp(96px, 30%, 160px)) minmax(0, 1fr);
+  }
+  /* Below ~360px container width, stack key above value so neither
+     gets squished. */
+  @container (max-width: 360px) {
+    [data-pyric-ui='document-preview'] [data-pyric-field-entry] {
+      grid-template-columns: minmax(0, 1fr);
+      @apply gap-0;
+    }
+  }
+  [data-pyric-ui='document-preview'] [data-pyric-field-key] {
+    @apply text-slate-gray text-[12px] truncate;
+  }
+  /* Scalar field types — let long values wrap/break inside their
+     grid cell instead of pushing the column wider. */
+  [data-pyric-field-type='string'] {
+    @apply text-soft-white min-w-0 break-words;
+  }
+  [data-pyric-field-type='number'] {
+    @apply text-[#a3d4ff] min-w-0 break-all;
+  }
+  [data-pyric-field-type='boolean'] {
+    @apply text-[#e6c79c] min-w-0;
+  }
+  [data-pyric-field-type='null'] {
+    @apply text-slate-gray italic min-w-0;
+  }
+  [data-pyric-field-type='timestamp'] {
+    @apply text-[#c7a4e4] min-w-0 break-words;
+  }
+  [data-pyric-field-type='geopoint'] {
+    @apply text-[#a3d4ff] min-w-0 break-words;
+  }
+  [data-pyric-field-type='reference'] {
+    @apply text-primary min-w-0 break-all;
+  }
+  [data-pyric-field-type='reference'][data-pyric-clickable] {
+    @apply underline underline-offset-2 hover:bg-primary/10 px-1.5 py-0.5 rounded transition-colors;
+  }
+  [data-pyric-field-type='bytes'] {
+    @apply text-slate-gray bg-content-bg px-1.5 py-0.5 rounded text-[11px] break-all min-w-0;
+  }
+  [data-pyric-field-type='map'],
+  [data-pyric-field-type='array'] {
+    @apply pl-3 border-l border-[#2a2a35] block min-w-0;
+  }
+  [data-pyric-map-entry],
+  [data-pyric-array-entry] {
+    @apply grid gap-2 py-1 list-none;
+    grid-template-columns: minmax(0, clamp(80px, 30%, 120px)) minmax(0, 1fr);
+  }
+  @container (max-width: 360px) {
+    [data-pyric-map-entry],
+    [data-pyric-array-entry] {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  /* DocumentEditor */
+  [data-pyric-ui='document-editor'] {
+    @apply rounded-lg border border-[#2a2a35] bg-sidebar-bg p-4 font-mono text-[13px] space-y-2;
+  }
+  [data-pyric-ui='document-editor'] [data-pyric-field-entry] {
+    @apply space-y-1 p-2 rounded border border-transparent;
+  }
+  [data-pyric-ui='document-editor'] [data-pyric-field-entry][data-pyric-error] {
+    @apply border-[#3a2a2a]/40 bg-[#3a2a2a]/10;
+  }
+  [data-pyric-field-chrome] {
+    @apply flex items-center gap-2 flex-wrap;
+  }
+  [data-pyric-field-key-input] {
+    @apply bg-content-bg border border-[#2a2a35] rounded px-2 py-1 text-soft-white w-32 text-[12px] focus:border-primary focus:outline-none;
+  }
+  [data-pyric-field-type-select] {
+    @apply bg-content-bg border border-[#2a2a35] rounded px-2 py-1 text-slate-gray text-[12px] focus:border-primary focus:outline-none;
+  }
+  [data-pyric-remove] {
+    @apply bg-transparent border border-[#2a2a35] rounded h-7 w-7 inline-flex items-center justify-center text-slate-gray hover:text-[#f0a0a0] hover:border-[#3a2a2a] transition-colors;
+  }
+  [data-pyric-ui='document-editor'] input[type='text']:not([data-pyric-field-key-input]),
+  [data-pyric-ui='document-editor'] input[type='number'],
+  [data-pyric-ui='document-editor'] input[type='datetime-local'],
+  [data-pyric-ui='document-editor'] textarea {
+    @apply bg-content-bg border border-[#2a2a35] rounded px-2 py-1 text-soft-white text-[13px] focus:border-primary focus:outline-none min-w-0 w-full;
+  }
+  [data-pyric-ui='document-editor'] textarea {
+    @apply font-mono min-h-[64px];
+  }
+  [data-pyric-ui='document-editor'] [data-pyric-boolean-select] {
+    @apply bg-content-bg border border-[#2a2a35] rounded px-2 py-1 text-soft-white text-[13px] focus:border-primary focus:outline-none;
+  }
+  [data-pyric-add-map-entry],
+  [data-pyric-add-array-entry] {
+    @apply text-[12px] text-slate-gray hover:text-soft-white px-2 py-1 rounded border border-dashed border-[#2a2a35] hover:border-primary transition-colors;
+  }
+  [data-pyric-error-message] {
+    @apply text-[#f0a0a0] text-[11px] block mt-1;
+  }
+  [data-pyric-array-children],
+  [data-pyric-map-children] {
+    @apply pl-3 border-l border-[#2a2a35] space-y-1 mt-1;
+  }
+
+  /* Lists */
+  [data-pyric-ui='collection-list'],
+  [data-pyric-ui='document-list'] {
+    @apply rounded-lg border border-[#2a2a35] bg-sidebar-bg overflow-hidden;
+  }
+  [data-pyric-ui='collection-list'][data-pyric-empty],
+  [data-pyric-ui='document-list'][data-pyric-empty] {
+    @apply p-4 text-slate-gray text-[13px] italic;
+  }
+  [data-pyric-ui='collection-list'][data-pyric-loading],
+  [data-pyric-ui='document-list'][data-pyric-loading] {
+    @apply p-4 text-slate-gray text-[13px];
+  }
+  [data-pyric-ui='collection-list'][data-pyric-error],
+  [data-pyric-ui='document-list'][data-pyric-error] {
+    @apply p-4 text-[#f0a0a0] text-[13px] bg-[#3a2a2a]/20;
+  }
+  [data-pyric-collection-entry],
+  [data-pyric-document-entry] {
+    @apply border-b border-[#2a2a35]/50 last:border-0;
+  }
+  [data-pyric-collection-select],
+  [data-pyric-document-select] {
+    @apply block w-full text-left px-4 py-2.5 text-soft-white hover:bg-content-bg/60 transition-colors font-mono text-[13px];
+  }
+  [data-pyric-load-more] {
+    @apply block w-full py-2 text-[12px] text-slate-gray hover:text-soft-white border-t border-[#2a2a35] transition-colors;
+  }
+
+  /* Toast — bottom-20 (5rem) so it clears the playground's bottom
+     nav (Workspace / Agent tab bar at the viewport bottom). */
+  [data-pyric-ui='toast-region'] {
+    @apply fixed bottom-20 right-4 z-50 flex flex-col gap-2 list-none m-0 p-0 max-w-sm;
+  }
+  [data-pyric-toast] {
+    @apply rounded border border-[#2a2a35] bg-sidebar-bg p-3 shadow-xl flex items-start gap-3;
+  }
+  [data-pyric-toast][data-pyric-toast-kind='success'] {
+    @apply border-primary/40;
+  }
+  [data-pyric-toast][data-pyric-toast-kind='warning'] {
+    @apply border-[#e6c79c]/40;
+  }
+  [data-pyric-toast][data-pyric-toast-kind='error'] {
+    @apply border-[#3a2a2a]/60 bg-[#3a2a2a]/20;
+  }
+  [data-pyric-toast-title] {
+    @apply text-soft-white font-medium text-[13px];
+  }
+  [data-pyric-toast-body] {
+    @apply text-slate-gray text-[12px] mt-0.5;
+  }
+  [data-pyric-toast-dismiss] {
+    @apply ml-auto text-slate-gray hover:text-soft-white px-1;
+  }
+}
+
+/* ----------------------------------------------------------------
+   @pyric/ui/auth — preview sign-in helper skin (AuthSignInHelper is
+   headless; this reproduces the playground's dark modal styling).
+   Section labels ship as CSS content so the library stays text-free
+   beyond its defaults.
+   ---------------------------------------------------------------- */
+@layer components {
+  [data-pyric-ui='auth-signin-helper'] {
+    @apply flex flex-col gap-5 text-sm text-[#e8e8ee];
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-helper-header] {
+    @apply flex flex-col gap-1;
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-helper-title] {
+    @apply text-base font-semibold;
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-helper-description] {
+    @apply text-xs text-[#9a9aa8];
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-account-list] {
+    @apply flex flex-col gap-2 list-none m-0 p-0;
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-account-list]::before {
+    content: 'Choose an account';
+    @apply text-xs uppercase tracking-wide text-[#9a9aa8];
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-account-pick] {
+    @apply flex w-full items-center gap-3 rounded-lg border border-[#2a2a35] px-3 py-2 text-left hover:border-[#4a4a5a] hover:bg-white/5;
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-add-account-form] {
+    @apply flex flex-col gap-3 border-t border-[#2a2a35] pt-4;
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-add-account-form]::before {
+    content: 'Add a new account';
+    @apply text-xs uppercase tracking-wide text-[#9a9aa8];
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-field] {
+    @apply rounded-lg border border-[#2a2a35] bg-transparent px-3 py-2 outline-none focus:border-[#4a4a5a];
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-field='claims'] {
+    @apply font-mono text-xs;
+    min-height: 4.5rem;
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-claims-error] {
+    @apply text-xs text-red-400;
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-helper-actions] {
+    @apply flex justify-end gap-2;
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-cancel] {
+    @apply rounded-lg px-4 py-2 text-[#9a9aa8] hover:text-white;
+  }
+  [data-pyric-ui='auth-signin-helper'] [data-pyric-submit] {
+    @apply rounded-lg bg-[#5b5bd6] px-4 py-2 font-medium text-white disabled:opacity-40;
+  }
+}
+
+/* ----------------------------------------------------------------
+   @pyric/ui/auth — Firebase panel Auth tab. AuthUserList is the
+   headless emulator-style users table (role-based grid, no <table>);
+   the playground skin gives it the same bordered-panel + row-hover
+   treatment as the Data tab's collection/document lists. The add/edit
+   form is composed locally in AuthTab.tsx (Tailwind classNames), so
+   only the shared <ClaimsField> needs a skin here.
+   ---------------------------------------------------------------- */
+@layer components {
+  [data-pyric-ui='auth-user-list'] {
+    @apply rounded-lg border border-[#2a2a35] bg-sidebar-bg text-[13px] overflow-x-auto;
+  }
+  [data-pyric-ui='auth-user-list'][data-pyric-empty] {
+    @apply p-4 text-slate-gray text-[13px] italic overflow-hidden;
+  }
+  [data-pyric-ui='auth-user-list'][data-pyric-loading] {
+    @apply p-4 text-slate-gray text-[13px];
+  }
+  [data-pyric-ui='auth-user-list'][data-pyric-loading]::before {
+    content: 'Loading users…';
+  }
+  [data-pyric-ui='auth-user-list'][data-pyric-error] {
+    @apply p-4 text-[#f0a0a0] text-[13px] bg-[#3a2a2a]/20;
+  }
+  /* Shared column template for the header row and every user row.
+     min-width keeps the six columns legible in narrow panes — the
+     root scrolls horizontally instead of crushing the cells. */
+  [data-pyric-user-header],
+  [data-pyric-user-entry] {
+    @apply grid items-center gap-3 px-3;
+    grid-template-columns:
+      minmax(140px, 1.6fr) minmax(84px, 0.9fr) minmax(76px, 0.8fr)
+      minmax(76px, 0.8fr) minmax(110px, 1.1fr) 2rem;
+    min-width: 600px;
+  }
+  [data-pyric-user-header] {
+    @apply py-2 text-[11px] uppercase tracking-wide text-slate-gray border-b border-[#2a2a35] bg-content-bg/40;
+  }
+  [data-pyric-user-entry] {
+    @apply py-2 border-b border-[#2a2a35]/50 last:border-0 hover:bg-content-bg/60 transition-colors;
+  }
+  [data-pyric-user-entry][data-pyric-user-disabled] {
+    @apply opacity-50;
+  }
+  [data-pyric-user-cell] {
+    @apply min-w-0 truncate;
+  }
+  [data-pyric-user-cell='created'],
+  [data-pyric-user-cell='signed-in'] {
+    @apply text-slate-gray text-[12px];
+  }
+  [data-pyric-user-cell='uid'] {
+    @apply font-mono text-[12px] text-slate-gray;
+  }
+  [data-pyric-user-cell='actions'] {
+    @apply flex justify-end;
+  }
+  /* Identifier cell is the row's edit affordance. */
+  [data-pyric-user-select] {
+    @apply block w-full min-w-0 truncate text-left text-soft-white underline-offset-2 hover:underline;
+  }
+
+  /* ClaimsField (shared with the sign-in helper, which carries its own
+     scoped skin) — Auth tab form context. */
+  .auth-tab [data-pyric-field='claims'] {
+    @apply w-full min-w-0 rounded-lg border border-[#2a2a35] bg-transparent px-3 py-2 font-mono text-xs text-soft-white placeholder:text-slate-gray/70 outline-none focus:border-[#4a4a5a] transition-colors;
+    min-height: 4.5rem;
+  }
+  .auth-tab [data-pyric-field='claims'][data-pyric-claims-invalid] {
+    @apply border-[#3a2a2a];
+  }
+  .auth-tab [data-pyric-claims-error] {
+    @apply text-[11px] text-[#f0a0a0] mt-1;
+  }
+  .auth-tab [data-pyric-claims-hint] {
+    @apply text-[11px] text-slate-gray mt-1;
+  }
+}

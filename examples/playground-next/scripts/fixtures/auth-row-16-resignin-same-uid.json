@@ -1,0 +1,11 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * Pins matrix row Auth #16.\n *\n * Single claim: signing back in via `signInWithEmailAndPassword`\n * after a `signOut` returns the **same** uid (the password account\n * persists for the sandbox lifetime).\n */\nimport { useEffect, useState } from \"react\";\nimport {\n  getAuth, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword,\n} from \"firebase/auth\";\n\nconst NAME = \"auth-row-16-resignin-same-uid\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    void (async () => {\n      try {\n        const auth = getAuth();\n        const created = await createUserWithEmailAndPassword(auth, \"row16@example.com\", \"p@ss\");\n        const originalUid = created.user.uid;\n        await signOut(auth);\n        const reSigned = await signInWithEmailAndPassword(auth, \"row16@example.com\", \"p@ss\");\n        assert(\n          reSigned.user.uid === originalUid,\n          `re-signed uid should equal original ${originalUid} (got ${reSigned.user.uid})`,\n        );\n        say(`uid persisted across signOut+signIn cycle: ${originalUid}`);\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * Pins matrix row Auth #20.\n *\n * Single claim: `createUserWithEmailAndPassword` auto-signs the new\n * user in — `auth.currentUser` becomes the new user immediately on\n * resolution.\n */\nimport { useEffect, useState } from \"react\";\nimport { getAuth, createUserWithEmailAndPassword } from \"firebase/auth\";\n\nconst NAME = \"auth-row-20-create-user-auto-signs-in\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    void (async () => {\n      try {\n        const auth = getAuth();\n        assert(auth.currentUser === null, \"precondition: no current user before createUser\");\n        const created = await createUserWithEmailAndPassword(auth, \"row20@example.com\", \"p@ss\");\n        assert(auth.currentUser !== null, \"currentUser should be non-null after createUser\");\n        assert(\n          auth.currentUser?.uid === created.user.uid,\n          `currentUser.uid should equal created uid ${created.user.uid} (got ${String(auth.currentUser?.uid)})`,\n        );\n        say(\"createUser auto-signed the new user in\");\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

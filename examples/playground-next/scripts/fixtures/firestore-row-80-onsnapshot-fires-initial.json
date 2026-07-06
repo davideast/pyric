@@ -1,0 +1,17 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeRules",
+      "args": {
+        "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /notes/{noteId} {\n      allow read, write: if request.auth != null && request.auth.uid == noteId;\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * Pins matrix row Firestore #80.\n *\n * Single claim: `onSnapshot(docRef, cb)` fires the initial snapshot\n * (microtask-deferred). After subscribing, the listener callback\n * receives at least one fire without any explicit write happening.\n */\nimport { useEffect, useState } from \"react\";\nimport { doc, onSnapshot } from \"firebase/firestore\";\nimport { getAuth, signInAnonymously } from \"firebase/auth\";\nimport { db } from \"./firebase\";\n\nconst NAME = \"firestore-row-80-onsnapshot-fires-initial\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    let unsub: (() => void) | null = null;\n    void (async () => {\n      try {\n        const a = await signInAnonymously(getAuth());\n        const ref = doc(db, \"notes\", a.user.uid);\n\n        let fires = 0;\n        unsub = onSnapshot(ref, () => { fires += 1; });\n\n        // Give the microtask + any deferred dispatch time to run.\n        await new Promise((r) => setTimeout(r, 100));\n\n        assert(fires >= 1, `expected at least 1 initial fire (got ${fires})`);\n        say(`initial fire delivered (${fires} fire(s))`);\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      } finally {\n        unsub?.();\n      }\n    })();\n    return () => { unsub?.(); };\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

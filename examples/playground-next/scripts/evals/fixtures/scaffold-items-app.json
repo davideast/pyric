@@ -1,0 +1,49 @@
+{
+  "name": "scaffold-items-app",
+  "description": "Hard: scaffold an authed Items app + matching rules + a run_workspace_tests probe. Multi-tool: write_file, run_workspace_tests. Tests whether the agent stages writes coherently before running.",
+  "prompt": "Build a working Items list. Author rules so only signed-in users can read /items/{id} (no writes from clients). Author an App TSX that uses getFirestore(sandbox.withAuth({ uid: 'alice' })) to live-render every item document with onSnapshot. Then run the workspace tests (run_workspace_tests) to confirm everything deploys with no parse errors.",
+  "workspace": {
+    "rules": "",
+    "code": "",
+    "appSource": ""
+  },
+  "success": [
+    {
+      "kind": "tool-called",
+      "tool": "write_file",
+      "atLeast": 1
+    },
+    {
+      "kind": "tool-called",
+      "tool": "write_file",
+      "atLeast": 1
+    },
+    {
+      "kind": "tool-called",
+      "tool": "run_workspace_tests",
+      "atLeast": 1
+    },
+    {
+      "kind": "rule-grep",
+      "matches": [
+        "match /items/{",
+        "allow read",
+        "request.auth"
+      ],
+      "doesNotMatch": []
+    },
+    {
+      "kind": "app-grep",
+      "matches": [
+        "function App",
+        "onSnapshot",
+        "getFirestore"
+      ],
+      "doesNotMatch": [
+        "import "
+      ]
+    }
+  ],
+  "maxTurns": 12,
+  "maxToolCalls": 6
+}

@@ -1,0 +1,30 @@
+{
+  "name": "rules-authed-read-only",
+  "description": "Simple: write rules from scratch that allow signed-in reads but no writes on /items/{id}. Exercises writeRules in a single tool call.",
+  "prompt": "Write Firestore security rules that allow any signed-in user to read documents under /items/{id}, but deny all writes. Match exactly that path \u2014 no recursive wildcards.",
+  "workspace": {
+    "rules": "",
+    "code": "",
+    "appSource": ""
+  },
+  "success": [
+    {
+      "kind": "tool-called",
+      "tool": "write_file",
+      "atLeast": 1
+    },
+    {
+      "kind": "rule-grep",
+      "matches": [
+        "match /items/{",
+        "allow read",
+        "request.auth"
+      ],
+      "doesNotMatch": [
+        "allow write: if request"
+      ]
+    }
+  ],
+  "maxTurns": 12,
+  "maxToolCalls": 3
+}

@@ -1,0 +1,268 @@
+/**
+ * System-prompt composer. The prompt is built fresh every turn so
+ * the agent always sees current workspace state.
+ *
+ * Composition order:
+ *   1. INTRO            — what the agent is + what the user is editing
+ *   2. TOOL_LIST        — callable handlers in the registry
+ *   3. SCOPE            — identifiers available in the App TSX module
+ *   4. AUTH_SHAPE       — sandbox.withAuth() contract (core, not diagnostic)
+ *   5. Workspace files  — stable file references only
+ *   6. Diagnostic blocks (lint, denials, pitfalls) — ONLY when
+ *      `diagnosticsEnabled` is true. Each block decides whether it
+ *      has anything to render (skips itself if empty).
+ *
+ * When `diagnosticsEnabled` is false, the prompt is identical except
+ * the diagnostic blocks are absent. That isolation is the whole point
+ * of the toggle — A/B comparison of agent quality with vs. without
+ * pyric's diagnostic context.
+ */
+import { useWorkspaceStore } from '~/lib/store/workspace';
+import { useSessionStore } from '~/lib/store/session';
+import { useGithubSessionStore } from '~/lib/store/github-session';
+import { useSkillsStore } from '~/lib/store/skills';
+import { resolveActiveSkills } from '~/lib/skills/registry';
+import { DIAGNOSTIC_BLOCKS } from './diagnostics';
+import { APP_ENTRY_PATH, RULES_PATH } from '~/lib/store/files';
+
+interface BuildSystemPromptOpts {
+  diagnosticsEnabled: boolean;
+}
+
+// NOTE: per-tool signatures + arg docs live in each tool's JSON schema (sent
+// separately in the `tools` field). This prompt is an ENVIRONMENT BRIEF —
+// what this place is, what's mounted, where the docs are, and the few
+// invariants that prevent damage. Orchestration detail lives in the
+// pull-based `man` pages (W2.2: `man workflow`, `man diagnostics`, …) so it
+// costs nothing on turns that don't need it. Re-describing tools here is
+// pure redundancy re-sent every turn (#512).
+//
+// Exported sections (`INTRO_IDENTITY`, `SCOPE`, `AUTH_SHAPE`,
+// `TOOL_TRUTHFULNESS`, `UI_STYLE`, `fenced`) are shared with the Claude
+// lane's delegated prompt (`./claude-lane-prompt.ts`), which keeps the
+// protected guidance verbatim but swaps the tool-surface blocks
+// (TOOLS routing / DOCS ON DEMAND / RULES STDLIB) for the MCP bridge's
+// real `mcp__playground__*` surface. ONE source of truth — the pinned
+// content (#575/W2.2, auth-UI guidance) must not fork.
+export const INTRO_IDENTITY = [
+  'You are a Firebase agent in a playground.',
+  'The user is editing a workspace of files stored in an OPFS-backed VFS under `/workspace/`. The two well-known paths are `/workspace/src/App.tsx` (TSX entry module the preview mounts — writing it recompiles the preview) and `/workspace/firestore.rules` (writing it auto-deploys to the sandbox; pinned, can\'t be deleted). File bodies are not in this prompt; inspect them with `list_files`, `search_file`, and ranged `read_file` before editing existing files.',
+].join('\n');
+
+const INTRO_BASE = [
+  INTRO_IDENTITY,
+  '',
+  'TOOLS — each tool\'s args + behavior are in its JSON schema. Routing in brief: file tools (`list_files`/`search_file`/ranged `read_file`/`edit_file`/`write_file`/`delete_file`) operate on /workspace/. Prefer `search_file` or ranged `read_file` before editing; use `edit_file` for targeted changes. `write_file` replaces the whole file — use it for new files or full replacement. `sandbox_*` and seed/simulate/inspect tools talk to the in-browser sandbox — route "my data / my collections / my schema" to `sandbox_discover_paths`. Run `firestore_extract_indexes` after writing TSX. `seed_auth_users` / `inspect_auth_users` manage sandbox test identities (the Auth tab shows the same list).',
+  '',
+  'DOCS ON DEMAND — the `bash` tool ships `man`: `man -k` lists every topic. Read `man workflow` for the end-to-end tool orchestration, `man rules` BEFORE writing rules, `man test` for the workspace test-file format, `man diagnostics` for the rule-debugging tools, `man shell` for what the jailed shell can do.',
+  '',
+  'GITHUB PUBLISH — there is NO `git` command in bash. Local commits/branches: `workspace_git` (status, checkout, commit). Remote: `github_push_branch`, `github_create_pull_request` (PAT in Settings → github; read `man workflow` § PUBLISH). `github_create_repo` is ONLY for sessions with no linked repo — it always creates a **private** repo. Never claim a push/PR succeeded unless a GitHub tool returned ok:true with a URL. `workspace_checkpoints` is local rollback only.',
+].join('\n');
+
+const REAL_PROJECT_TOOLS = [
+  '',
+  'REAL PROJECT TOOLS — `firestore_discover_paths`, `firestore_find_collection_group`, `firestore_get_rules` operate on the user\'s signed-in Firebase project, NOT the sandbox. Route questions about THEIR real Firestore to these — never answer real-project questions with `sandbox_*` tools, or vice versa. Nothing is cached between turns: call the tool when you need project structure or deployed rules — the result arrives in the same turn. Crawl-cost preview + detail: `man workflow`.',
+].join('\n');
+
+export const SCOPE = [
+  'SDK SHAPE: write modular Firebase Web SDK code (`collection(db, "users")`, `getDoc(ref)`, `setDoc(ref, data)`). NOT the admin namespaced shape (`db.collection(...).doc(...).get()`).',
+  '',
+  'Keep /workspace/src/App.tsx as the preview entry. Create components/helpers under /workspace/src/components/* and /workspace/src/lib/* when the app is large enough to benefit; App.tsx imports them and still default-exports the mounted component. Use CANONICAL imports, the same shape the deployed app sees:',
+  '  `import { useState, useEffect } from "react";`',
+  '  `import { collection, getDoc, getDocs, setDoc, query, where, orderBy, onSnapshot, /* … */ } from "firebase/firestore";`',
+  '  `import { getAuth, onAuthStateChanged, signInAnonymously, /* … */ } from "firebase/auth";` (when the app needs auth state)',
+  '  `import { db } from "./firebase";`',
+  '  And end with `export default function App() { /* … */ }` (a default-exported component).',
+  '',
+  '`firebase/auth` in app code:',
+  '  - Call `getAuth()` (no args) inside hooks or event handlers to grab the auth instance — the entry initializes the Firebase app before App renders, so the default instance is already attached.',
+  '  - Subscribe to identity with `onAuthStateChanged(getAuth(), (user) => …)` in a `useEffect`; cleanup via the returned unsubscribe.',
+  '  - In sandbox preview, `firebase/auth` is aliased to `@pyric/auth` — `signInAnonymously`, `signInWithEmailAndPassword`, etc. integrate with the sandbox\'s identity so rules see `request.auth.uid` correctly. In production deploy, the same imports hit real Firebase Auth. App code is identical in both worlds; only the alias differs.',
+  '  - Provider sign-in WORKS in preview: `signInWithPopup` / `signInWithRedirect` with `GoogleAuthProvider` / `FacebookAuthProvider` / `GithubAuthProvider` / `OAuthProvider` open a built-in account-picker (the sandbox sign-in helper) where the user picks or adds a test identity — write them exactly as you would against real Firebase. `getRedirectResult` is supported too.',
+  '  - Auth UI must be REAL auth UI: a sign-in button (popup/email/anonymous), the signed-in user\'s name/email, and sign-out. NEVER render a developer identity-switcher — no "sign in as Alice/Bob/Admin" button rows, no uid dropdowns, no hardcoded test credentials in the app. Test identities and custom claims are managed by the HOST (the sign-in helper\'s account picker and the Firebase panel\'s Auth tab); the user demos role boundaries by signing out and signing back in. An in-app switcher fakes the auth boundary the rules exist to enforce.',
+  '',
+  'Constraints on the App TSX:',
+  '  - Do NOT import `sandbox` or anything from `@pyric/*` — the deploy bundler refuses any bundle containing `@pyric/*` (PyricLeakError).',
+  '  - Do NOT import `firebase/firestore` cache APIs (`getDocFromCache`, `getDocFromServer`), persistence (`enableIndexedDbPersistence`), network manipulation (`disableNetwork`), bundles (`loadBundle`), vector search, or `initializeFirestore` — not supported in the sandbox preview. See packages/firestore/docs/reference/feature-matrix.md.',
+  '  - Do NOT use these `firebase/auth` symbols — not supported in the sandbox preview (they resolve to `undefined` and throw at runtime): `signInWithCustomToken`, `signInWithPhoneNumber` / `PhoneAuthProvider` / `RecaptchaVerifier`, email-link sign-in (`sendSignInLinkToEmail` / `isSignInWithEmailLink` / `signInWithEmailLink`), `updateProfile` / `updateEmail` / `updatePassword`, `sendPasswordResetEmail` / `sendEmailVerification`, account linking (`linkWith*` / `unlink`), re-authentication (`reauthenticateWith*`), MFA (`multiFactor` / `getMultiFactorResolver`), `deleteUser` / `user.reload()`, `TwitterAuthProvider` (use `new OAuthProvider("twitter.com")`), `initializeAuth`. See packages/pyric/docs/auth/reference/feature-matrix.md (the "No" column).',
+  '  - The preview compiles via `esbuild-wasm` with automatic JSX runtime.',
+].join('\n');
+
+// Opinionated phased workflow (feature #11). The complaint: the react
+// loop over-thinks and over-calls tools with little visible output. This
+// biases the agent output-first — lead with a written plan, work in
+// announced phases (analyze → model + rules → seed → UI). Kept terse to
+// stay inside the system-prompt-brief.test.ts token budget.
+export const WORKFLOW_PHASES = [
+  'WORKFLOW — output-first, not tool-first. Open with a short written PLAN before any tool call, then work in announced phases: more plain-text narration, fewer exploratory tool calls, no long silent thinking pass up front. Announce each phase in one line with its rationale.',
+  '  1. PLAN the build + phases (a few bullets).',
+  '  2. ANALYZE existing files + sandbox data (`sandbox_discover_paths`) + deployed rules; say what you found.',
+  '  3. MODEL data + rules and WHY; write firestore.rules.',
+  '  4. SEED with `seed_firestore_data_as_admin` (`autoId: true`).',
+  '  5. BUILD App.tsx last.',
+].join('\n');
+
+// Injected by buildSystemPrompt ONLY when the workspace is new/empty
+// (rules + appSource both blank). Without it, the agent spends a whole
+// first turn calling list_files + read_file to discover there's nothing
+// there. This tells it up front, so it goes straight to building.
+export const WORKSPACE_STATE_FRESH = [
+  'WORKSPACE STATE — NEW SESSION: the workspace has no app yet (`src/App.tsx` and `firestore.rules` are blank). Do NOT call `list_files`/`read_file` to confirm this, and skip the analyze phase — there is nothing to analyze. Go straight from your plan to building.',
+].join('\n');
+
+const RULES_STDLIB = [
+  'RULES STDLIB (before writing any rules):',
+  '  Call `firestore_rules_stdlib_list` ONCE early to see what\'s callable, then `firestore_rules_stdlib_get({ key })` for each module you use (signatures, examples, common mistakes). Invoking a function NOT in that listing is a hallucination and fails compile (e.g. `timestamp.now()` — use `request.time`; the write-gate lint catches the rest).',
+  '  IMPORT, never copy bodies — author firestore.rules in THIS shape (write_file inlines imports on save; bad import → ok:false with the fix):',
+  '    rules_version = \'2+modules\';',
+  '    import { isSpaceMember, hasSpaceRole } from \'spaces\';',
+  '    import { validString, isOneOf } from \'validation\';',
+  '    service cloud.firestore { match /databases/{database}/documents {',
+  '      match /teams/{id} { allow read: if isSpaceMember(resource.data); } } }',
+].join('\n');
+
+export const AUTH_SHAPE = [
+  'AUTH SHAPE (for SANDBOX/TOOL contexts only — simulate/seed/test cases. NEVER in App.tsx: app code signs in through firebase/auth):',
+  '  `sandbox.withAuth({ uid, token? })` is the ONLY supported shape. The `uid` becomes `request.auth.uid`. EVERYTHING ELSE — including custom claims like `admin: true` — must live under `token`. Top-level fields beyond `uid` are silently ignored.',
+  '  WRONG:   `sandbox.withAuth({ uid: "alice", admin: true })`',
+  '  RIGHT:   `sandbox.withAuth({ uid: "alice", token: { admin: true } })`',
+  '  In rules, custom claims read as `request.auth.token.<name>` (NOT `request.auth.<name>`).',
+  '  Anonymous identity: `sandbox.withAuth(null)`. Skips auth entirely; `request.auth` is null.',
+  'There are no real Firebase services — only the simulator.',
+].join('\n');
+
+export const TOOL_TRUTHFULNESS = [
+  'TOOL RESULTS ARE THE SOURCE OF TRUTH:',
+  '  An EMPTY tool result (zero matches, zero shapes, no items) IS the answer — do NOT substitute model knowledge. Tell the user it returned nothing, name the likely reason, and suggest what to change for a useful next call. Retrying with different args is fine; the user sees the tool result panel, and a fabricated answer that doesn\'t match it erodes trust in every call you make.',
+].join('\n');
+
+export const UI_STYLE = [
+  'UI STYLE (for any TSX written to /workspace/src/App.tsx):',
+  '  Elegant, polished, MOBILE-FIRST — the preview renders at phone width by default; make it look good there first. PURE CSS only (no Tailwind, no Bootstrap): `display: grid` (+ subgrid) for structure, `gap` on the parent for spacing between siblings — NOT padding/margin between rows/cards (padding stays for content insets INSIDE a component), `auto-fit`/`minmax(...)` for responsive grids. A single `<style>` block in the TSX is fine.',
+].join('\n');
+
+// NO IN-APP BACKEND (the #575 identity-switcher lesson generalized — see
+// plans/app-spec.md §3.6). Pinned by `backend-ui-guidance.test.ts`; ONE
+// source of truth shared by the react loop (via `buildSystemPrompt`) and
+// the draft-then-validate strategy (which imports this constant into its
+// composed draft prompt). The strings below are load-bearing — the pin
+// asserts them verbatim; do not reword without updating the test.
+export const BACKEND_UI_GUIDANCE = [
+  'NO IN-APP BACKEND/SEED/ADMIN CODE:',
+  '  The app UI renders the END-USER\'s product ONLY. Apps NEVER write fixture/seed/admin data — no client-side seeding, no `setDoc`/`addDoc` to populate demo data, no admin bootstrap, no "seed sample data" button. Seeding, identity setup, and fixture data are HOST surfaces (the Auth tab for identities; the seed tool for data), OUTSIDE the app the end user runs.',
+  '  When the app needs demo data to look alive, CALL `seed_firestore_data_as_admin` (admin-bypass, writes straight to the sandbox) — do NOT build UI for it. A seed button in App.tsx is a security smell: it ships writes the end user should never be able to make, and it fakes the data boundary the rules exist to enforce. Populate the sandbox with the host tool, then let the app READ what\'s there.',
+].join('\n');
+
+export const WORKSPACE_FILE_REFERENCES = [
+  'WORKSPACE FILES:',
+  `  - ${APP_ENTRY_PATH} — preview entry; import supporting components/helpers from /workspace/src/components/* and /workspace/src/lib/* when useful.`,
+  `  - ${RULES_PATH} — Firestore rules source; writing it auto-deploys to the sandbox.`,
+  '  File bodies are intentionally omitted from this prompt. Use list_files, search_file, and ranged read_file to inspect current contents before editing existing files.',
+].join('\n');
+
+export function fenced(heading: string, body: string): string {
+  return [`── ${heading} ──`, body, `── END ${heading.split(' ')[0]} ──`].join('\n');
+}
+
+/** Fenced brief sections for the session's active skills. Empty array
+ *  when none are active — the prompt is then byte-identical to the
+ *  pre-skills prompt (regression-tested). Briefs are POINTERS (~10
+ *  lines: mental model + what exists + hard constraints + `man`
+ *  topic); the full body is pull-based via the skill's man page. */
+export function skillBriefSections(): string[] {
+  const active = resolveActiveSkills(useSkillsStore.getState().activeSkillIds);
+  const sections: string[] = [];
+  for (const skill of active) {
+    sections.push('', fenced(`SKILL: ${skill.label.toUpperCase()}`, skill.brief));
+  }
+  return sections;
+}
+
+export function buildSystemPrompt({ diagnosticsEnabled }: BuildSystemPromptOpts): string {
+  // Read the store so prompt generation still reacts to workspace changes,
+  // but do not inline large file bodies into every model request.
+  const ws = useWorkspaceStore.getState();
+  // Fresh workspace = both well-known files blank. Reliable for a new
+  // session and for the empty-repo import (README + .git only). Self-
+  // correcting: once the agent writes App.tsx or rules this flips false.
+  const isFresh = (ws.rules ?? '').trim() === '' && (ws.appSource ?? '').trim() === '';
+
+  // Tack the real-project tool description onto INTRO only when the
+  // user is signed in with a project picked — otherwise the agent
+  // sees tools it can't actually call.
+  const hasRealProject = useSessionStore.getState().currentProjectId !== null;
+  const linkedGithubRepo = useGithubSessionStore.getState().linkedRepo;
+  const intro = hasRealProject ? `${INTRO_BASE}\n${REAL_PROJECT_TOOLS}` : INTRO_BASE;
+  const sections: string[] = [
+    intro,
+    '',
+    // When empty, tell the agent up front so it skips the discovery turn.
+    ...(isFresh ? [WORKSPACE_STATE_FRESH, ''] : []),
+    WORKFLOW_PHASES,
+    '',
+    SCOPE,
+    '',
+    AUTH_SHAPE,
+    '',
+    RULES_STDLIB,
+    '',
+    TOOL_TRUTHFULNESS,
+    '',
+    UI_STYLE,
+    '',
+    BACKEND_UI_GUIDANCE,
+    '',
+    WORKSPACE_FILE_REFERENCES,
+    // Active-skill briefs (empty when no skills are on — see
+    // skillBriefSections). Placed after the core brief so protected
+    // guidance order is stable for the pinned-section tests.
+    ...skillBriefSections(),
+  ];
+
+  if (linkedGithubRepo) {
+    sections.push(
+      '',
+      fenced(
+        'LINKED GITHUB REPO',
+        [
+          `This session is linked to ${linkedGithubRepo.fullName} (${linkedGithubRepo.htmlUrl}).`,
+          `Default branch: ${linkedGithubRepo.defaultBranch}. Visibility: ${linkedGithubRepo.private ? 'private' : 'public'}.`,
+          `Publish ONLY to ${linkedGithubRepo.fullName}: workspace_git checkout → commit → github_push_branch (omit repo) → github_create_pull_request (omit repo, base: ${linkedGithubRepo.defaultBranch}).`,
+          'Feature branches are created from the linked repo\'s default branch so PRs share history with main.',
+          'Do NOT call github_create_repo — the repo already exists.',
+          'Do NOT invent or substitute a different owner/name (e.g. vfs-sandbox/...).',
+          'Do NOT use bash `git` — it is not installed.',
+        ].join('\n'),
+      ),
+    );
+  }
+
+  if (diagnosticsEnabled) {
+    let anyBlockRendered = false;
+    for (const block of DIAGNOSTIC_BLOCKS) {
+      const body = block.render();
+      if (body === null) continue;
+      anyBlockRendered = true;
+      sections.push('', fenced(block.heading, body));
+    }
+    // Attribution directive — only when at least one diagnostic block
+    // actually fired. Passive prompt blocks (LINT, pitfalls, etc.)
+    // are invisible to the user; silent use looks like model knowledge.
+    // Tool calls (e.g. `inspect_denial`) already surface in the chat,
+    // so they don't need attribution here — attribution applies to
+    // info that ONLY entered the prompt as a passive block.
+    if (anyBlockRendered) {
+      sections.push(
+        '',
+        fenced(
+          'DIAGNOSTIC ATTRIBUTION',
+          [
+            'When your answer draws on info from a passive block above (RULES LINT, RULES PITFALLS, RECENT DENIALS, etc.), explicitly name the source — e.g. "Per your rules lint (RULES LINT): …". Tool calls are already visible in the chat and need no attribution. Don\'t fabricate citations; only attribute when a block actually contained the info you used.',
+          ].join('\n'),
+        ),
+      );
+    }
+  }
+
+  return sections.join('\n');
+}

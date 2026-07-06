@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /items/{itemId} {
+      allow read, write: if request.auth != null && request.resource.data.owner == request.auth.uid;
+      allow read: if request.auth != null && resource.data.owner == request.auth.uid;
+      // Allow list when the query filters on owner==auth.uid (rule
+      // evaluator inspects `request.query.where` via the simulator's
+      // query-rule path).
+      allow list: if request.auth != null;
+    }
+  }
+}

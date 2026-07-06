@@ -1,0 +1,12 @@
+{
+  "id": "docs-immutable-owner",
+  "domain": "docs",
+  "auth": "email/password",
+  "security": "owner update with immutable ownerId",
+  "prompt": "Build a docs app where the owner (resource.data.ownerId equals the caller's uid) can update /docs/{docId}, but the update must not change the ownerId field (request.resource.data.ownerId must equal resource.data.ownerId). Non-owners are denied. Use email/password sign-in. Write the Firestore rules and a minimal App.tsx.",
+  "cases": [
+    { "method": "update", "path": "docs/d1", "auth": { "uid": "alice" }, "resource": { "ownerId": "alice" }, "data": { "ownerId": "alice", "title": "v2" }, "expect": "ALLOW" },
+    { "method": "update", "path": "docs/d1", "auth": { "uid": "alice" }, "resource": { "ownerId": "alice" }, "data": { "ownerId": "bob", "title": "v2" }, "expect": "DENY" },
+    { "method": "update", "path": "docs/d1", "auth": { "uid": "bob" }, "resource": { "ownerId": "alice" }, "data": { "ownerId": "alice" }, "expect": "DENY" }
+  ]
+}

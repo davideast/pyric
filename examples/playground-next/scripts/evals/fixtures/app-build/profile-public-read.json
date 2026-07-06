@@ -1,0 +1,13 @@
+{
+  "id": "profile-public-read",
+  "domain": "profiles",
+  "auth": "anonymous",
+  "security": "public read, owner-only write",
+  "prompt": "Build a profile app where any visitor (even signed-out) can read a profile at /users/{uid}, but only the owner whose uid matches can create or update their own profile. Use anonymous sign-in. Write the Firestore rules and a minimal App.tsx.",
+  "cases": [
+    { "method": "get", "path": "users/alice", "auth": null, "expect": "ALLOW" },
+    { "method": "update", "path": "users/alice", "auth": { "uid": "alice" }, "expect": "ALLOW" },
+    { "method": "update", "path": "users/alice", "auth": { "uid": "bob" }, "expect": "DENY" },
+    { "method": "update", "path": "users/alice", "auth": null, "expect": "DENY" }
+  ]
+}

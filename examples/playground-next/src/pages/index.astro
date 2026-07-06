@@ -1,0 +1,7 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import { HomePage } from '~/components/HomePage';
+---
+<BaseLayout title="Playground — Home">
+  <HomePage client:only="react" />
+</BaseLayout>

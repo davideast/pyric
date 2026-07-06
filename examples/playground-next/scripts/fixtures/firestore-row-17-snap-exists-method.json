@@ -1,0 +1,17 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeRules",
+      "args": {
+        "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /notes/{noteId} {\n      allow read, write: if request.auth != null && request.auth.uid == noteId;\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * Pins matrix row Firestore #17.\n *\n * Single claim: `DocumentSnapshot.exists` is normalized to **method**\n * form (`snap.exists()` returns boolean) to match the modular SDK.\n * Sandbox callers can rely on calling `snap.exists()`.\n */\nimport { useEffect, useState } from \"react\";\nimport { doc, getDoc, setDoc } from \"firebase/firestore\";\nimport { getAuth, signInAnonymously } from \"firebase/auth\";\nimport { db } from \"./firebase\";\n\nconst NAME = \"firestore-row-17-snap-exists-method\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    void (async () => {\n      try {\n        const a = await signInAnonymously(getAuth());\n        const ref = doc(db, \"notes\", a.user.uid);\n\n        // Missing doc: exists() should be callable AND return false.\n        const missing = await getDoc(ref);\n        assert(typeof missing.exists === \"function\", \"snap.exists should be a function (got \" + typeof missing.exists + \")\");\n        const missingBool = (missing.exists as () => boolean)();\n        assert(missingBool === false, `missing doc exists() should be false (got ${missingBool})`);\n\n        // Existing doc: exists() should be callable AND return true.\n        await setDoc(ref, { v: 1 });\n        const present = await getDoc(ref);\n        assert(typeof present.exists === \"function\", \"snap.exists should be a function on existing doc too\");\n        const presentBool = (present.exists as () => boolean)();\n        assert(presentBool === true, `present doc exists() should be true (got ${presentBool})`);\n\n        say(\"snap.exists is method form on both missing and present docs\");\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

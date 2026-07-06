@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    // /admin-area is gated on a custom claim — only callers whose ID
+    // token carries `admin == true` (set via sandbox.seedUsers) can
+    // write. Civilians authenticate fine but the rule denies them.
+    match /admin-area/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.admin == true;
+    }
+  }
+}

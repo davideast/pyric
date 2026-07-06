@@ -1,0 +1,11 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * Pins matrix row Auth #26.\n *\n * Single claim: `signOut` fires `onAuthStateChanged` with `null`\n * exactly once. Setup: sign in (1 fire), wait for steady state,\n * record baseline, then signOut and verify exactly one new fire and\n * that the new fire is `null`.\n */\nimport { useEffect, useState } from \"react\";\nimport { getAuth, onAuthStateChanged, signInAnonymously, signOut } from \"firebase/auth\";\n\nconst NAME = \"auth-row-26-signout-fires-null-once\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    const auth = getAuth();\n    const fires: Array<string> = [];\n    const unsub = onAuthStateChanged(auth, (u) => fires.push(u ? u.uid : \"null\"));\n\n    void (async () => {\n      try {\n        await signInAnonymously(auth);\n        await new Promise((r) => setTimeout(r, 30));\n        const baseline = fires.length;\n        say(`baseline fires after sign-in: ${baseline}`);\n\n        await signOut(auth);\n        await new Promise((r) => setTimeout(r, 50));\n\n        const newFires = fires.slice(baseline);\n        assert(\n          newFires.length === 1,\n          `signOut should produce exactly 1 fire (got ${newFires.length}: [${newFires.join(\",\")}])`,\n        );\n        assert(newFires[0] === \"null\", `signOut fire should be 'null' (got ${newFires[0]})`);\n        say(\"signOut fired listener once with null\");\n        unsub();\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n    return () => { unsub(); };\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "playground-inference-api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloud Function Gen 2 host for the playground's resumable inference server (Option C). Bundled from ../../src by scripts/build-fn.ts; main points at the built lib/index.js.",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "@google-cloud/functions-framework": "^3.4.0"
+  }
+}

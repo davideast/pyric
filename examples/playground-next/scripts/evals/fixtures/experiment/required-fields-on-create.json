@@ -1,0 +1,19 @@
+{
+  "id": "experiment/required-fields-on-create",
+  "skill": "firebase-security-rules",
+  "description": "Creating /tasks/{id} requires title:string, done:bool, ownerId==auth.uid; owner-only read.",
+  "prompt": "Write Firestore rules so creating a document at /tasks/{taskId} is allowed only for signed-in users when the new document has a string 'title', a boolean 'done', and an 'ownerId' equal to request.auth.uid. Deny creates that are missing any of these fields or whose ownerId is not the caller. Reads of a task are allowed only to its owner.",
+  "successSpec": {
+    "name": "experiment/conformance",
+    "args": {
+      "cases": [
+        { "method": "create", "path": "tasks/t1", "auth": { "uid": "alice" }, "data": { "title": "buy milk", "done": false, "ownerId": "alice" }, "expect": "ALLOW" },
+        { "method": "create", "path": "tasks/t1", "auth": { "uid": "alice" }, "data": { "title": "x", "done": false, "ownerId": "bob" }, "expect": "DENY" },
+        { "method": "create", "path": "tasks/t1", "auth": { "uid": "alice" }, "data": { "title": "x", "ownerId": "alice" }, "expect": "DENY" },
+        { "method": "create", "path": "tasks/t1", "auth": null, "expect": "DENY" },
+        { "method": "get", "path": "tasks/t1", "auth": { "uid": "alice" }, "resource": { "ownerId": "alice" }, "expect": "ALLOW" },
+        { "method": "get", "path": "tasks/t1", "auth": { "uid": "bob" }, "resource": { "ownerId": "alice" }, "expect": "DENY" }
+      ]
+    }
+  }
+}

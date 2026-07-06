@@ -1,0 +1,9 @@
+# Built by scripts/build-fn.ts (Bun bundle of ../../src). The deploy
+# zips this whole dir; lib/index.js is the function entry per
+# package.json "main", regenerated on every build.
+lib/
+
+# Service account JSON the deploy copies in so the function's RTDB
+# client can mint a firebase.database-scoped token. A credential —
+# written fresh on every deploy, MUST NOT be committed.
+sa.json

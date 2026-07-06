@@ -1,0 +1,17 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeRules",
+      "args": {
+        "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /notes/{noteId} {\n      allow read, write: if request.auth != null && request.auth.uid == noteId;\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * firestore-onsnapshot: live updates fire on writes from the same\n * user. Tests the snapshot-listener path end-to-end.\n */\nimport { useEffect, useState } from \"react\";\nimport { doc, onSnapshot, setDoc, updateDoc, serverTimestamp } from \"firebase/firestore\";\nimport { getAuth, signInAnonymously } from \"firebase/auth\";\nimport { db } from \"./firebase\";\n\nconst NAME = \"firestore-onsnapshot\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    let unsub: (() => void) | null = null;\n    void (async () => {\n      try {\n        const auth = getAuth();\n        const a = await signInAnonymously(auth);\n        const ref = doc(db, \"notes\", a.user.uid);\n\n        const snaps: Array<{ exists: boolean; v?: number }> = [];\n        unsub = onSnapshot(ref, (s) => {\n          const exists = typeof s.exists === \"function\" ? (s.exists as () => boolean)() : s.exists;\n          const data = exists ? (s.data() as { v?: number } | undefined) : undefined;\n          snaps.push({ exists: Boolean(exists), v: data?.v });\n        });\n\n        await new Promise((r) => setTimeout(r, 50));\n        await setDoc(ref, { v: 1, createdAt: serverTimestamp() });\n        await new Promise((r) => setTimeout(r, 50));\n        await updateDoc(ref, { v: 2 });\n        await new Promise((r) => setTimeout(r, 50));\n        await updateDoc(ref, { v: 3 });\n        await new Promise((r) => setTimeout(r, 100));\n\n        // Initial fire (missing doc) + 3 writes.\n        assert(snaps.length >= 4, `expected ≥4 snaps, got ${snaps.length}`);\n        assert(snaps[0]?.exists === false, \"first snap should be missing\");\n        assert(snaps[snaps.length - 1]?.v === 3, `last snap should have v=3 (got ${snaps[snaps.length - 1]?.v})`);\n        say(`saw ${snaps.length} snaps, final v=${snaps[snaps.length - 1]?.v}`);\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      } finally {\n        unsub?.();\n      }\n    })();\n    return () => { unsub?.(); };\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeRules",
+      "args": {
+        "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    // Anyone signed in can grant themselves membership.\n    match /members/{userId} {\n      allow read, write: if request.auth != null && request.auth.uid == userId;\n    }\n    // Writing to /shared requires the user to have a /members entry.\n    match /shared/{docId} {\n      allow read: if request.auth != null;\n      allow write: if request.auth != null\n        && exists(/databases/$(db)/documents/members/$(request.auth.uid));\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * rules-cross-doc-get: rules use get() to read a separate doc as\n * part of a write check. Verifies cross-document rule evaluation\n * in the simulator.\n *\n * Scenario: a \"members\" doc lists which uids may write to \"shared\".\n * The rule reads members/{uid} and allows write only if found.\n */\nimport { useEffect, useState } from \"react\";\nimport { doc, getDoc, setDoc } from \"firebase/firestore\";\nimport { getAuth, signInAnonymously } from \"firebase/auth\";\nimport { db } from \"./firebase\";\n\nconst NAME = \"rules-cross-doc-get\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    void (async () => {\n      try {\n        const a = await signInAnonymously(getAuth());\n        const sharedRef = doc(db, \"shared\", \"note\");\n\n        // Attempt to write before being a member — should be denied.\n        let denied = false;\n        try {\n          await setDoc(sharedRef, { body: \"first attempt\" });\n        } catch { denied = true; }\n        assert(denied, \"write should be denied before membership\");\n        say(\"pre-membership write correctly denied\");\n\n        // Become a member. Membership doc is owner-only (any auth user\n        // can grant themselves membership in this toy scenario).\n        await setDoc(doc(db, \"members\", a.user.uid), { joinedAt: Date.now() });\n        say(\"granted self membership\");\n\n        // Retry the write — should now succeed.\n        await setDoc(sharedRef, { body: \"after membership\", author: a.user.uid });\n        const snap = await getDoc(sharedRef);\n        const body = (snap.data() as { body: string }).body;\n        assert(body === \"after membership\", `body should match (got ${body})`);\n        say(\"post-membership write succeeded\");\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

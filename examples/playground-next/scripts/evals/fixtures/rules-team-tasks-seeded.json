@@ -1,0 +1,28 @@
+{
+  "name": "rules-team-tasks-seeded",
+  "description": "Experiment A (#787): identical to rules-team-tasks but the workspace STARTS with a 2+modules stub \u2014 measures whether pattern-completion (vs instruction) gets agents to keep/extend imports.",
+  "prompt": "Author firestore.rules for a team task tracker. Data model: /teams/{teamId} docs have a `members` map of uid -> role ('admin' or 'editor'). /teams/{teamId}/tasks/{taskId} docs have `title` (string 1-80 chars), `status` ('open' | 'done'), and `author` (uid). Requirements: only team members may read team docs and tasks; any member may create a task but the task's author must be their own uid and the title/status must be valid; only the task's author may update a task (title/status only \u2014 author immutable); only team admins may delete tasks. Check the rules stdlib before writing \u2014 import what fits. Write the rules to /workspace/firestore.rules and lint them.",
+  "workspace": {
+    "rules": "rules_version = '2+modules';\nimport { isSpaceMember, hasSpaceRole, validMemberCreate } from 'spaces';\nimport { validString, isOneOf } from 'validation';\nimport { isAuthor } from 'content';\nimport { onlyFieldsChanged } from 'lifecycle';\n\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    // Add match blocks here. Call the imported stdlib functions\n    // directly in allow conditions \u2014 write_file inlines imports on save.\n  }\n}\n",
+    "appSource": ""
+  },
+  "maxTurns": 12,
+  "success": [
+    {
+      "kind": "tool-called",
+      "tool": "write_file",
+      "atLeast": 1
+    },
+    {
+      "kind": "rule-grep",
+      "matches": [
+        "match /teams/{",
+        "members"
+      ],
+      "doesNotMatch": [
+        "allow read: if true",
+        "allow write: if true"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeRules",
+      "args": {
+        "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /orders/{orderId} {\n      allow read: if request.auth != null;\n      allow write: if request.auth != null\n        && request.resource.data.author == request.auth.uid\n        && request.resource.data.price is int\n        && request.resource.data.price < 1000\n        && request.resource.data.itemId is string\n        && request.resource.data.itemId.size() > 0;\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * rules-data-validation: rules check request.resource.data shape +\n * field constraints. Valid writes pass; invalid writes deny.\n */\nimport { useEffect, useState } from \"react\";\nimport { doc, setDoc } from \"firebase/firestore\";\nimport { getAuth, signInAnonymously } from \"firebase/auth\";\nimport { db } from \"./firebase\";\n\nconst NAME = \"rules-data-validation\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    void (async () => {\n      try {\n        const a = await signInAnonymously(getAuth());\n        const ref = (id: string) => doc(db, \"orders\", id);\n\n        // Valid: has author, has price < 1000, has nonempty itemId.\n        await setDoc(ref(\"ok-1\"), { author: a.user.uid, price: 99, itemId: \"burger\" });\n        say(\"valid write allowed\");\n\n        // Invalid: price too high.\n        let denied1 = false;\n        try { await setDoc(ref(\"bad-1\"), { author: a.user.uid, price: 5000, itemId: \"burger\" }); } catch { denied1 = true; }\n        assert(denied1, \"price>=1000 should be denied\");\n\n        // Invalid: missing itemId.\n        let denied2 = false;\n        try { await setDoc(ref(\"bad-2\"), { author: a.user.uid, price: 50 }); } catch { denied2 = true; }\n        assert(denied2, \"missing itemId should be denied\");\n\n        // Invalid: author != caller.\n        let denied3 = false;\n        try { await setDoc(ref(\"bad-3\"), { author: \"someone-else\", price: 50, itemId: \"burger\" }); } catch { denied3 = true; }\n        assert(denied3, \"wrong author should be denied\");\n\n        say(\"all 3 invalid writes denied\");\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

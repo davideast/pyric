@@ -1,0 +1,11 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * Pins matrix row Auth #23.\n *\n * Single claim: `createUserWithEmailAndPassword`'s created `User` has\n * `isAnonymous: false`, `email: <input>`, `displayName: null`.\n */\nimport { useEffect, useState } from \"react\";\nimport { getAuth, createUserWithEmailAndPassword } from \"firebase/auth\";\n\nconst NAME = \"auth-row-23-create-user-shape\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    void (async () => {\n      try {\n        const created = await createUserWithEmailAndPassword(getAuth(), \"row23@example.com\", \"p@ss\");\n        assert(created.user.isAnonymous === false, \"isAnonymous should be false\");\n        assert(created.user.email === \"row23@example.com\",\n          `email should be 'row23@example.com' (got ${String(created.user.email)})`);\n        assert(created.user.displayName === null,\n          `displayName should be null (got ${String(created.user.displayName)})`);\n        say(\"created User shape matches spec\");\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

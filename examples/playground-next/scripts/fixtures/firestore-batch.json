@@ -1,0 +1,17 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeRules",
+      "args": {
+        "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /tasks/{taskId} {\n      allow read, list: if request.auth != null;\n      allow write: if request.auth != null && request.resource.data.owner == request.auth.uid;\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * firestore-batch: writeBatch commits multiple ops atomically. Tests\n * batch ergonomics + that all docs become visible after commit.\n */\nimport { useEffect, useState } from \"react\";\nimport { collection, doc, getDocs, query, where, writeBatch } from \"firebase/firestore\";\nimport { getAuth, signInAnonymously } from \"firebase/auth\";\nimport { db } from \"./firebase\";\n\nconst NAME = \"firestore-batch\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    void (async () => {\n      try {\n        const a = await signInAnonymously(getAuth());\n        const tasks = collection(db, \"tasks\");\n\n        const batch = writeBatch(db);\n        for (let i = 0; i < 4; i++) {\n          batch.set(doc(tasks, `t${i}`), { owner: a.user.uid, idx: i, done: false });\n        }\n        await batch.commit();\n\n        const snap = await getDocs(query(tasks, where(\"owner\", \"==\", a.user.uid)));\n        assert(snap.size === 4, `expected 4 tasks, got ${snap.size}`);\n        say(`batch committed ${snap.size} tasks`);\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

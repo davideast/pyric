@@ -1,0 +1,12 @@
+.astro/
+.env
+.env.local
+dist/
+node_modules/
+
+# Built by scripts/build-sw.ts; regenerated on every dev/build.
+public/sw.js
+scripts/evals/experiments/
+scripts/evals/metrics/
+scripts/evals/app-build-metrics/
+scripts/evals/.app-oracle/

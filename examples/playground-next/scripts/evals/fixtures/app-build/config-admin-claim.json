@@ -1,0 +1,13 @@
+{
+  "id": "config-admin-claim",
+  "domain": "config",
+  "auth": "email/password + admin custom claim",
+  "security": "role-based (admin claim)",
+  "prompt": "Build a config admin panel where any signed-in user can read /config/{configId}, but only a user whose auth token has a custom claim admin == true can create, update, or delete it. Use email/password sign-in. Write the Firestore rules and a minimal App.tsx.",
+  "cases": [
+    { "method": "get", "path": "config/app", "auth": { "uid": "alice" }, "expect": "ALLOW" },
+    { "method": "update", "path": "config/app", "auth": { "uid": "admin1", "token": { "admin": true } }, "expect": "ALLOW" },
+    { "method": "update", "path": "config/app", "auth": { "uid": "alice", "token": { "admin": false } }, "expect": "DENY" },
+    { "method": "update", "path": "config/app", "auth": null, "expect": "DENY" }
+  ]
+}

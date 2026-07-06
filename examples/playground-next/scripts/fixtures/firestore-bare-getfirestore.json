@@ -1,0 +1,17 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeRules",
+      "args": {
+        "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /users/{userId} {\n      allow read, write: if request.auth != null && request.auth.uid == userId;\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * firestore-bare-getfirestore: regression for PR #397. The agent\n * frequently writes `const db = getFirestore();` instead of importing\n * the virtual `db` from \"./firebase\". Before the wrap fix, this fell\n * through to real firebase/firestore and threw `app/no-app`.\n */\nimport { useEffect, useState } from \"react\";\nimport { getFirestore, doc, getDoc, setDoc, serverTimestamp } from \"firebase/firestore\";\nimport { getAuth, signInAnonymously } from \"firebase/auth\";\n\nconst NAME = \"firestore-bare-getfirestore\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    void (async () => {\n      try {\n        // Bare getFirestore() — the buggy shape that PR #397 fixed.\n        const localDb = getFirestore();\n        const auth = getAuth();\n        const a = await signInAnonymously(auth);\n\n        await setDoc(doc(localDb, \"users\", a.user.uid), {\n          uid: a.user.uid, createdAt: serverTimestamp(),\n        });\n        const snap = await getDoc(doc(localDb, \"users\", a.user.uid));\n        assert(snap.exists, \"doc should exist after setDoc\");\n        const data = snap.data() as { uid?: string } | undefined;\n        assert(data?.uid === a.user.uid, `uid mismatch (got ${data?.uid})`);\n        say(\"bare getFirestore() works — no app/no-app\");\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

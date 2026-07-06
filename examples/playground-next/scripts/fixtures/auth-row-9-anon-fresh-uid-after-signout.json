@@ -1,0 +1,11 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * Pins matrix row Auth #9.\n *\n * Single claim: after `signOut`, a subsequent `signInAnonymously`\n * mints a fresh uid (the prior anonymous identity is gone).\n */\nimport { useEffect, useState } from \"react\";\nimport { getAuth, signInAnonymously, signOut } from \"firebase/auth\";\n\nconst NAME = \"auth-row-9-anon-fresh-uid-after-signout\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    void (async () => {\n      try {\n        const auth = getAuth();\n        const a = await signInAnonymously(auth);\n        const firstUid = a.user.uid;\n        await signOut(auth);\n        const b = await signInAnonymously(auth);\n        assert(\n          b.user.uid !== firstUid,\n          `second anon sign-in after signOut should mint a fresh uid (both were ${firstUid})`,\n        );\n        say(`uid before=${firstUid} after=${b.user.uid} — distinct`);\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}

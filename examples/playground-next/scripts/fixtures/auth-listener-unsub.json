@@ -1,0 +1,17 @@
+{
+  "role": "assistant",
+  "toolCalls": [
+    {
+      "name": "writeRules",
+      "args": {
+        "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /{document=**} { allow read, write: if request.auth != null; }\n  }\n}\n"
+      }
+    },
+    {
+      "name": "writeApp",
+      "args": {
+        "source": "/**\n * auth-listener-unsub: an explicitly-unsubscribed listener must not\n * fire on subsequent state changes. This is the precondition the\n * \"no observer leak across re-mounts\" guarantee depends on.\n */\nimport { useEffect, useState } from \"react\";\nimport { getAuth, onAuthStateChanged, signInAnonymously, signOut } from \"firebase/auth\";\n\nconst NAME = \"auth-listener-unsub\";\n\nexport default function App() {\n  const [log, setLog] = useState<string[]>([]);\n  const say = (m: string) => { setLog((l) => [...l, m]); console.log(`[${NAME}] ${m}`); };\n  const done = (ok: boolean, why?: string) => console.log(`[${NAME}] DONE ${ok ? \"ok\" : \"fail: \" + why}`);\n  const assert = (cond: unknown, msg: string) => { if (!cond) throw new Error(msg); };\n\n  useEffect(() => {\n    const auth = getAuth();\n    const fires: Array<string> = [];\n    const unsub = onAuthStateChanged(auth, (u) => fires.push(u ? u.uid : \"null\"));\n\n    void (async () => {\n      try {\n        await signInAnonymously(auth);\n        // Microtask boundary so subscribe-replay (if any) has run.\n        await Promise.resolve();\n        const firesBeforeUnsub = fires.length;\n        say(`fires before unsub: ${firesBeforeUnsub}`);\n\n        unsub();\n        await signOut(auth);\n        await signInAnonymously(auth);\n        await new Promise((r) => setTimeout(r, 50));\n\n        assert(\n          fires.length === firesBeforeUnsub,\n          `post-unsub fires should not increase (was ${firesBeforeUnsub}, now ${fires.length}: ${fires.join(\",\")})`,\n        );\n        say(\"no fires after unsub — good\");\n        done(true);\n      } catch (e) {\n        done(false, e instanceof Error ? e.message : String(e));\n      }\n    })();\n  }, []);\n\n  return <pre>{log.join(\"\\n\")}</pre>;\n}\n"
+      }
+    }
+  ]
+}
