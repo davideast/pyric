@@ -839,6 +839,71 @@ describe('shared playground worker ops', () => {
     expect(status.ok).toBe(true);
     expect(status.value).toMatchObject({ status: 'active' });
   });
+
+  it('RTDB shared ops honor the per-call auth lens', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    const rules = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'rtdb-lens-rules',
+      method: 'setDatabaseRules',
+      source: {
+        rules: {
+          profiles: {
+            $uid: {
+              '.read': 'auth.uid === $uid',
+              '.write': 'auth.uid === $uid',
+            },
+          },
+        },
+      },
+    });
+    expect(rules.ok).toBe(true);
+
+    const signedOutWrite = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'rtdb-lens-signed-out-write',
+      method: 'rtdb.set',
+      path: '/profiles/alice',
+      value: { displayName: 'Alice' },
+    });
+    expect(signedOutWrite.ok).toBe(false);
+    if (!signedOutWrite.ok) expect(signedOutWrite.error.code).toBe('PERMISSION_DENIED');
+
+    const aliceWrite = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'rtdb-lens-alice-write',
+      method: 'rtdb.set',
+      path: '/profiles/alice',
+      value: { displayName: 'Alice' },
+      actAs: { mode: 'as', uid: 'alice' },
+    });
+    expect(aliceWrite.ok).toBe(true);
+
+    const bobRead = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'rtdb-lens-bob-read',
+      method: 'rtdb.get',
+      path: '/profiles/alice',
+      actAs: { mode: 'as', uid: 'bob' },
+    });
+    expect(bobRead.ok).toBe(false);
+    if (!bobRead.ok) expect(bobRead.error.code).toBe('PERMISSION_DENIED');
+
+    const aliceRead = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'rtdb-lens-alice-read',
+      method: 'rtdb.get',
+      path: '/profiles/alice',
+      actAs: { mode: 'as', uid: 'alice' },
+    });
+    expect(aliceRead.ok).toBe(true);
+    expect(aliceRead.value).toMatchObject({
+      exists: true,
+      value: { displayName: 'Alice' },
+    });
+  });
 });
 
 // ─── txnCommit read-set validation (multi-tab conflict) ───────────────────

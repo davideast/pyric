@@ -11,7 +11,7 @@
  * This file is BUNDLED FOR THE BROWSER by `../bundler.ts` (esbuild) — it is
  * never imported by node-side pyric-tools code. Bundle splitting must keep it
  * a single shared chunk: two copies would mean two sandboxes (P0 validation
- * constraint, design rationale §9).
+ * constraint, design rationale section 9).
  */
 import {
   initializeSandbox,
@@ -247,7 +247,7 @@ if (!useWorker) try {
     diagnostics.seededDocs = docs ? Object.keys(docs).length : 0;
   }
   if (payload.persist) {
-    // ── persist mode (flow doc §3c): the substrate is durable. The
+    // ── persist mode (flow doc section 3c): the substrate is durable. The
     // sandbox's OWN persistence controller with an HTTP backend over
     // /__pyric/state — it owns restore-on-attach (wrapper re-hydration),
     // debounced auto-flush, and the beforeunload safety flush.
@@ -400,7 +400,7 @@ if (!useWorker) try {
   );
 }
 
-// ── auth session persistence (flow doc §3c — client-fidelity item): real
+// ── auth session persistence (flow doc section 3c — client-fidelity item): real
 // Firebase keeps you signed in across reloads by default. Restore BEFORE
 // subscribing so the initial signed-out emission can't clear the stored
 // session; a session only resolves while its uid still exists in the user
@@ -439,7 +439,7 @@ if (useWorker && workerDb) {
   });
 }
 
-// ── provenance (flow doc §3a): make the shim's presence unmistakable.
+// ── provenance (flow doc section 3a): make the shim's presence unmistakable.
 // Source says `firebase/*`; what runs is the pyric sandbox — say so loudly
 // once, and explain any stack frame that points into /__pyric/sdk/. ────────
 console.info(

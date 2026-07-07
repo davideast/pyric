@@ -9,7 +9,7 @@
  *   2. EMULATOR — the Firebase emulator's rules engine (same evaluator as
  *      production), when reachable. The emulator needs NO secret and is
  *      deterministic, so this is the oracle the behavior tracks confirm
- *      disputed semantics against (plan §2, STOP §5.4).
+ *      disputed semantics against (plan section 2, STOP section 5.4).
  *   3. EXPECTED — the documented prod verdict from the corpus
  *      (`expectedProd`), cited to the ledger / upstream clone.
  *

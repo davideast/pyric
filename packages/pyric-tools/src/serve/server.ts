@@ -7,10 +7,8 @@
  * configured), and exposes two seams the `/__pyric/` namespace plugs into
  * (`namespaceHandler`) and the import-map injection uses (`transformHtml`).
  *
- * UX parity targets (from the firebase-tools source dive — see
- * `plans/pyric-serve-assessment.md` §1): the `=== Serving from` banner, the
- * labeled `Local server:` line, port 5000 default with scan-forward on
- * conflict (macOS AirPlay squats 5000 — spike finding #4), SIGINT →
+ * UX parity targets: the `=== Serving from` banner, the labeled `Local server:`
+ * line, port 5000 default with scan-forward on conflict, and SIGINT →
  * `Shutting down...`.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';

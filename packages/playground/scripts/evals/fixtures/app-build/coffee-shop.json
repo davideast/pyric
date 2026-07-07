@@ -1,0 +1,22 @@
+{
+  "id": "coffee-shop",
+  "tier": 2,
+  "domain": "orders+menu",
+  "auth": "email/password or provider",
+  "security": "menu admin-write, orders owner-create/read",
+  "prompt": "Create a coffee shop ordering app where users can place orders and admins can create menu items.",
+  "_provenance": "T2 ladder fixture (workstation-benchmarks.md section 3a). Verbatim user prompt from the 2026-06-10 live session in which draft-validate produced rules but no UI on Kimi K2.6 and MiniMax M3 — user-found failures become permanent regression fixtures.",
+  "_caseNotes": "Held-out cases assert only what the prompt unambiguously implies (no anon-menu-read or admin-order-management assumptions). `list` cases use doc-style paths: the simulator's collection-path list matching is a known parity defect (conductor log 2026-06-10); doc-path list is the rules-engine-faithful encoding.",
+  "cases": [
+    { "method": "create", "path": "menuItems/latte", "auth": { "uid": "admin1", "token": { "admin": true } }, "data": { "name": "Latte", "price": 4.5 }, "expect": "ALLOW" },
+    { "method": "create", "path": "menuItems/latte", "auth": { "uid": "alice" }, "data": { "name": "Latte", "price": 4.5 }, "expect": "DENY" },
+    { "method": "create", "path": "menuItems/latte", "auth": null, "data": { "name": "Latte", "price": 4.5 }, "expect": "DENY" },
+    { "method": "get", "path": "menuItems/latte", "auth": { "uid": "alice" }, "expect": "ALLOW" },
+    { "method": "list", "path": "menuItems/any", "auth": { "uid": "alice" }, "expect": "ALLOW" },
+    { "method": "create", "path": "orders/o1", "auth": { "uid": "alice" }, "data": { "userId": "alice", "items": ["latte"], "status": "pending" }, "expect": "ALLOW" },
+    { "method": "create", "path": "orders/o1", "auth": { "uid": "alice" }, "data": { "userId": "bob", "items": ["latte"], "status": "pending" }, "expect": "DENY" },
+    { "method": "create", "path": "orders/o1", "auth": null, "data": { "userId": "alice", "items": ["latte"], "status": "pending" }, "expect": "DENY" },
+    { "method": "get", "path": "orders/o1", "auth": { "uid": "alice" }, "resource": { "userId": "alice", "items": ["latte"], "status": "pending" }, "expect": "ALLOW" },
+    { "method": "get", "path": "orders/o1", "auth": { "uid": "mallory" }, "resource": { "userId": "alice", "items": ["latte"], "status": "pending" }, "expect": "DENY" }
+  ]
+}

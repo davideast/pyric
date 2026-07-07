@@ -3,7 +3,7 @@
  * actual behavior against the live Rules Test API.
  *
  * Resurrected from the pre-cutover suite (deleted in be3c2b2; restored per
- * the design rationale §5 and round-3 track P3). Scenarios are
+ * the design rationale section 5 and round-3 track P3). Scenarios are
  * unchanged; only the bootstrap moved from `initializeAgentApp` to
  * `parityScope()` (firebase-admin cert credential from PARITY_SA_BASE64).
  *

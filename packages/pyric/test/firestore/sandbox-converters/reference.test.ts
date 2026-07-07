@@ -1,7 +1,7 @@
 /**
  * Item 3 — DocumentReference converter + LocalEnvironment parity tests.
  *
- * Plan §Item 3 test contract:
+ * Plan section Item 3 test contract:
  *   - Seed `{ author: refToUsersU1 }`; rule
  *     `resource.data.author is reference` returns true.
  *   - `resource.data.author.path == 'users/u1'` evaluates correctly.

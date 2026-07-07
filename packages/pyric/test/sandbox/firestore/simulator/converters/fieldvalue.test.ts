@@ -1,7 +1,7 @@
 /**
  * Item 2 — FieldValue sentinel parity tests.
  *
- * Plan §Item 2 test contract:
+ * Plan section Item 2 test contract:
  *   - Counter: seed `{count:0}`; three `increment(1)` writes through
  *     the simulator land `{count:3}`.
  *   - arrayUnion is dedup'd; arrayRemove no-ops on missing values.

@@ -129,6 +129,11 @@ function DenialList({
                   className={`inline-block h-2 w-2 shrink-0 rounded-full ${SEVERITY_DOT[sev]}`}
                 />
                 <span className="font-mono text-xs uppercase">{d.method}</span>
+                {d.service !== 'firestore' ? (
+                  <span className="text-[0.6rem] uppercase tracking-wide text-slate-gray">
+                    {d.service}
+                  </span>
+                ) : null}
                 {d.origin === 'listener' ? (
                   <span className="text-[0.6rem] uppercase tracking-wide text-slate-gray">
                     watch
@@ -177,6 +182,7 @@ function DenialDetail({
             {denial.unsupported ? 'unsupported' : 'denied'}
           </Badge>
           <span className="font-mono text-sm text-soft-white">
+            {denial.service !== 'firestore' ? `${denial.service} · ` : ''}
             {denial.method} {denial.path}
           </span>
         </div>
@@ -256,8 +262,9 @@ function RerunPanel({
   const [asUser, setAsUser] = useState<RerunResult | 'pending' | null>(null);
   const [edited, setEdited] = useState<EditedRulesetRerun | 'pending' | null>(null);
 
-  const canImpersonate = !!onRerunAsUser && !!denial.auth?.uid;
-  const canEdited = !!onRerunAgainstRules;
+  const firestoreReplay = denial.service === 'firestore';
+  const canImpersonate = firestoreReplay && !!onRerunAsUser && !!denial.auth?.uid;
+  const canEdited = firestoreReplay && !!onRerunAgainstRules;
 
   async function runAsUser() {
     if (!onRerunAsUser) return;

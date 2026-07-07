@@ -1,7 +1,7 @@
 /**
  * Item 5 — VectorValue converter + wire round-trip tests.
  *
- * Plan §Item 5 test contract:
+ * Plan section Item 5 test contract:
  *   - Seed `{ embedding: new Vector([0.1, 0.2, 0.3]) }`. Discover
  *     reports `kind: 'vector', dimension: 3`.
  *   - Round-trip via the encoder/decoder produces the same value.

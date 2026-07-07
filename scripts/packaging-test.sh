@@ -224,8 +224,8 @@ if ! grep -R "Shared sandbox" packages/pyric-tools/dist/serve/playground-ui/_ast
    ! grep -R "Isolated session" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1 ||
    ! grep -R "sandboxMode" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1; then
   echo "  ✗ stale embedded Playground bundle: missing per-session sandbox mode code" >&2
-  echo "    Run: PLAYGROUND_BASE=/__pyric/playground/ bun run --cwd examples/playground-next build" >&2
-  echo "         cp -R examples/playground-next/dist/client/. packages/pyric-tools/dist/serve/playground-ui/" >&2
+  echo "    Run: PLAYGROUND_BASE=/__pyric/playground/ bun run --cwd packages/playground build" >&2
+  echo "         cp -R packages/playground/dist/client/. packages/pyric-tools/dist/serve/playground-ui/" >&2
   exit 1
 fi
 # All four swap/boot entries are load-bearing: defaultSdkEntries() throws at plugin
@@ -534,7 +534,7 @@ NODESMOKE
 
 # ─── Phase 5.7: module-system contract (pins the ESM-only + subpath-only API) ──
 # The library is ESM-only and subpath-only BY DESIGN (plans/packaging-hardening.md
-# §4). Pin both so a future exports-map edit can't silently add a CJS/`require`
+# section 4). Pin both so a future exports-map edit can't silently add a CJS/`require`
 # entry or a root export without this failing. Asserted from the INSTALLED package:
 #   - ESM import of a subpath RESOLVES (the supported path works);
 #   - require() of that subpath FAILS — the exports map offers no `require`/`default`

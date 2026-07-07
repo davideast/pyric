@@ -78,7 +78,7 @@ Today, `pyric/auth` writes to the field; reading from other service handles is t
 ## What's next (deferred follow-ups, not in this PR)
 
 - **`getFirestore(sandbox)` per-call identity read.** Add a `(sandbox)` overload on `pyric/firestore`'s `getFirestore` that reads `sandbox.currentUser` for each op. Lets agent code call `getFirestore(sandbox)` once and have Firestore see auth changes from `pyric/auth`'s sign-in flows automatically.
-- **Playground alias swap.** Add `firebase/auth` → `pyric/auth` to the playground-next preview build's esbuild aliases.
+- **Playground alias swap.** Add `firebase/auth` → `pyric/auth` to the playground preview build's esbuild aliases.
 - **Agent system-prompt update.** Drop the "no `firebase/auth` in `appSource`" rule and document the v0 deny-list as the new boundary.
 
 ## Position in the Pyric stack

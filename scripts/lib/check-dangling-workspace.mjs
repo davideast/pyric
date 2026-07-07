@@ -10,7 +10,7 @@
 //   - Typos in workspace dep names
 //
 // Why this exists: dropping @inbrowser/resumable from the workspace
-// (post-mirror-followups §1) almost shipped without an overrides entry
+// (post-mirror-followups section 1) almost shipped without an overrides entry
 // for @inbrowser/relay's busted transitive workspace: ref. This check
 // surfaces the symmetric local mistake — a dangling workspace: ref in
 // OUR own package.json files — at PR time instead of bun-install time.

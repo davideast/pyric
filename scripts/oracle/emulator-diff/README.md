@@ -5,7 +5,7 @@ This harness is the deterministic, **no-secret** stopgap: the Firebase emulator'
 rules engine is the *same evaluator as production* for expression semantics, so
 diffing pyric's local simulator against it catches the whole `RULES-*` class for
 free. It is the oracle the behavior tracks (esp. T3) confirm disputed semantics
-against before flipping a test (plan §2, STOP §5.4).
+against before flipping a test (plan section 2, STOP section 5.4).
 
 ## Files
 
@@ -56,5 +56,5 @@ the narrower `false || (err)` direction against a live emulator.
 
 1. Re-run the harness; the fixed case stops showing `✗`.
 2. Confirm against a live emulator (`--oracle-url`) for any disputed semantic
-   before flipping a unit test (plan §2).
+   before flipping a unit test (plan section 2).
 3. Remove the case from the corpus, or flip its `expectDivergence` to `false`.

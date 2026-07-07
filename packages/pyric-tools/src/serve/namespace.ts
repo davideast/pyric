@@ -1,6 +1,6 @@
 /**
  * The `/__pyric/` reserved namespace — pyric's analog of firebase serve's
- * `/__/firebase/` (see `plans/pyric-serve-assessment.md` §1/§4):
+ * `/__/firebase/` namespace:
  *
  *   /__pyric/sdk/<file>.js   the bundled SDK files (import-map targets +
  *                            the injected init script + shared chunks)

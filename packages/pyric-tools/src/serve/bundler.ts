@@ -4,9 +4,8 @@
  *
  * esbuild (a real dependency — the `pyric` bin runs under node via npx, so
  * Bun.build is unavailable) bundles the wrapper entries in `entries/` with
- * SPLITTING so the shared runtime chunk holds exactly ONE sandbox per page —
- * both the auth and firestore bundles must close over the same instance
- * (proven by the P0 spike, `plans/pyric-serve-assessment.md` §9).
+ * SPLITTING so the shared runtime chunk holds exactly ONE sandbox per page:
+ * both the auth and firestore bundles must close over the same instance.
  *
  * Three bundler plugins make pyric browser-standalone:
  *   - `pyric/*` resolver — resolves `pyric/...` specifiers from THIS package's
@@ -84,8 +83,6 @@ export function resolveStudioUiDir(): string | null {
 export function resolvePlaygroundUiDir(): string | null {
   const candidates = [
     new URL('./playground-ui/', import.meta.url),
-    new URL('../../../playground-next/dist/client/', import.meta.url),
-    new URL('../../../../examples/playground-next/dist/client/', import.meta.url),
   ];
   for (const candidate of candidates) {
     const dir = fileURLToPath(candidate);

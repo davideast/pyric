@@ -56,7 +56,8 @@ export function TrafficDetail({
   formatTime = defaultFormatTime,
   className,
 }: TrafficDetailProps) {
-  const requestData = event.request?.resourceData;
+  const requestData = event.request?.resourceData ?? event.request?.data;
+  const durationMs = event.evalMs ?? event.durationMs ?? 0;
 
   return (
     <div className={className} data-pyric-ui="traffic-detail">
@@ -74,8 +75,9 @@ export function TrafficDetail({
         <div data-pyric-traffic-detail-meta="">
           <Badge kind={event.result}>{event.result}</Badge>
           <span data-pyric-traffic-origin="">{event.origin}</span>
+          {event.service ? <span data-pyric-traffic-service="">{event.service}</span> : null}
           <span data-pyric-traffic-time="">{formatTime(event.at)}</span>
-          <span data-pyric-traffic-eval-ms="">{event.evalMs.toFixed(1)}ms</span>
+          <span data-pyric-traffic-eval-ms="">{durationMs.toFixed(1)}ms</span>
         </div>
         <p data-pyric-traffic-detail-title="">
           <span data-pyric-traffic-method="">{event.method}</span>

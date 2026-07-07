@@ -396,13 +396,13 @@ remains unchanged.
   `firebase/database` inside the playground preview iframe is
   aliased to `@pyric/rtdb`'s modular surface. Three-file scope
   expansion:
-  - `examples/playground-next/src/lib/preview/virtual-imports-plugin.ts`
+  - `packages/playground/src/lib/preview/virtual-imports-plugin.ts`
     adds a `firebase/database` entry to the `ALIASES` map listing the
     exports the synthetic re-export module surfaces.
-  - `examples/playground-next/src/lib/preview/preview-scope.ts` adds
+  - `packages/playground/src/lib/preview/preview-scope.ts` adds
     a `'firebase/database'` slot to `PreviewModuleId` and the
     `PreviewScope` interface, constrained via `Pick<typeof PyricRtdbModular, ...>`.
-  - `examples/playground-next/src/components/AppPreview.tsx` installs
+  - `packages/playground/src/components/AppPreview.tsx` installs
     the slot at runtime: imports the modular surface from `@pyric/rtdb`,
     wraps `getDatabase` so a bare-arg call defaults to the runner's
     sandbox (mirrors the `getAuth` / `getFirestore` wrap), and supplies
@@ -411,7 +411,7 @@ remains unchanged.
   The `sandbox.*` test-driver namespace (`setRules`, `setData`,
   `snapshotState`) is deliberately omitted from the alias — it's
   runner-side only, not app code. The deploy bundler at
-  `examples/playground-next/src/lib/deploy/bundleApp.ts` already lists
+  `packages/playground/src/lib/deploy/bundleApp.ts` already lists
   `firebase/database` as `external` and resolves it to esm.sh's
   upstream module; the metafile gate (`assertNoPyricLeak`) still trips
   on any direct `@pyric/rtdb` import in deployed app code, so the
@@ -464,7 +464,7 @@ the oracle locks it.
 | 94 | `getDatabase(ctx)` returns a tagged sandbox-target handle (frozen identity) | — | Phase 3 |
 | 95 | `getDatabase(sandbox)` returns a tagged sandbox-live handle (per-op identity) | — | Phase 3 |
 | 96 | `getDatabase(app)` returns a tagged prod target | ? | upstream `firebase/database` contract; not currently probed in isolation |
-| 97 | `getDatabase()` (no argument) — wrapped in the playground preview to default to the sandbox; raw call delegates to prod | ✓ (wrap, fixture passing) | Phase 3 Tier 5: virtualized in the playground preview scope. Wired at `examples/playground-next/src/components/AppPreview.tsx` (slot install with bare-call wrap), `examples/playground-next/src/lib/preview/virtual-imports-plugin.ts` (alias map), and `examples/playground-next/src/lib/preview/preview-scope.ts` (type-level slot). Mirrors the `getAuth` / `getFirestore` wrap pattern. Demo fixture: `examples/playground-next/scripts/fixtures/rtdb-set-get-roundtrip.tsx` (bare `getDatabase()` + `set`/`get`/`remove` round-trip with anon sign-in) — passes end-to-end through the `bun run debug:fixtures` Playwright suite (revived in the playground-next rtdb-fixture follow-up; the suite previously couldn't load `@pyric/rtdb` in the client because its top-level re-export of `DataHandler` pulled `firebase-admin`, now stubbed via `examples/playground-next/src/lib/node-shims/firebase-admin.ts`). |
+| 97 | `getDatabase()` (no argument) — wrapped in the playground preview to default to the sandbox; raw call delegates to prod | ✓ (wrap, fixture passing) | Phase 3 Tier 5: virtualized in the playground preview scope. Wired at `packages/playground/src/components/AppPreview.tsx` (slot install with bare-call wrap), `packages/playground/src/lib/preview/virtual-imports-plugin.ts` (alias map), and `packages/playground/src/lib/preview/preview-scope.ts` (type-level slot). Mirrors the `getAuth` / `getFirestore` wrap pattern. Demo fixture: `packages/playground/scripts/fixtures/rtdb-set-get-roundtrip.tsx` (bare `getDatabase()` + `set`/`get`/`remove` round-trip with anon sign-in) — passes end-to-end through the `bun run debug:fixtures` Playwright suite (revived in the playground rtdb-fixture follow-up; the suite previously couldn't load `@pyric/rtdb` in the client because its top-level re-export of `DataHandler` pulled `firebase-admin`, now stubbed via `packages/playground/src/lib/node-shims/firebase-admin.ts`). |
 | 98 | Two `getDatabase(sandbox)` calls share state (same underlying `LocalEnvironment`) | — | Phase 3 |
 | 99 | Handle dispatch by `TARGET_SYMBOL` brand — refs route to their owning target via a `refToTarget` WeakMap (mirror of firestore's pattern) | — | Phase 3 |
 

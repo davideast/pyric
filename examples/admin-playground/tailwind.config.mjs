@@ -1,6 +1,6 @@
 /**
  * Tailwind 3 config — design tokens for the admin-playground
- * showcase. Mirrors `examples/playground-next/`'s palette so the
+ * showcase. Mirrors `packages/playground/`'s palette so the
  * two surfaces feel consistent; minor adjustments for a tighter
  * showcase canvas (slightly darker bg + more contrast on dividers).
  */

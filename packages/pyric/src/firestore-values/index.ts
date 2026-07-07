@@ -63,7 +63,7 @@ import { Vector } from '../rules/simulator/wrappers/vector.js';
 
 /**
  * Decode a base64url string (`-`/`_` alphabet, no padding) back into a
- * Uint8Array. Mirrors the encode path in `Bytes.toBase64` (RFC 4648 §5).
+ * Uint8Array. Mirrors the encode path in `Bytes.toBase64` (RFC 4648 section 5).
  */
 function base64UrlDecode(s: string): Uint8Array {
   const std = s.replace(/-/g, '+').replace(/_/g, '/');

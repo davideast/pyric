@@ -506,6 +506,8 @@ export interface RtdbValueSubMessage {
   t: 'sub';
   subId: string;
   target: { service: 'rtdb'; path: string };
+  /** Mirrors Firestore subscriptions: absent/app-session uses this port's session. */
+  actAs?: AuthLens;
 }
 
 export type SubMessage = FirestoreSubMessage | AuthSubMessage | EventSubMessage | RtdbValueSubMessage;

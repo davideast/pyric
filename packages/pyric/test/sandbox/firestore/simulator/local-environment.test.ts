@@ -653,7 +653,7 @@ service cloud.firestore {
     });
 
     test('two listeners on the same target are tracked as distinct records', () => {
-      // Source survey §2 dedups at the EventManager via canonical keys
+      // Source survey section 2 dedups at the EventManager via canonical keys
       // and shares one upstream subscription across N listeners. The
       // sandbox doesn't have an upstream — every listener is its own
       // computation — so identical targets must register as separate
@@ -918,7 +918,7 @@ service cloud.firestore {
 
   describe('snapshot listeners (Slice 3 — change detection)', () => {
     // Slice 3 fires listeners on writes. Suppression matches findings
-    // §5: doc listeners only fire when the data actually changes;
+    // section 5: doc listeners only fire when the data actually changes;
     // query listeners only fire when the change set is non-empty.
 
     test('doc listener fires again when its target is updated', () => {
@@ -998,7 +998,7 @@ service cloud.firestore {
     });
 
     test('doc listener suppresses no-op writes (post-image equals pre-image)', () => {
-      // findings §5: production's View suppresses by absence rather
+      // findings section 5: production's View suppresses by absence rather
       // than re-firing identical snapshots. We mirror that with a
       // shape-equality check.
       const env = new LocalEnvironment();
@@ -1450,7 +1450,7 @@ service cloud.firestore {
     //   Part B — `deployRules` re-evaluates every active listener under
     //            the new rules; flips surface as added/removed/error/clear.
     //
-    // §4.1 of design rationale divergence: production
+    // section 4.1 of design rationale divergence: production
     // does NOT re-evaluate active listeners on rule change. The sandbox
     // does, because the playground's value is seeing rule effects live.
 
@@ -1788,7 +1788,7 @@ service cloud.firestore {
   });
 
   describe('snapshot listeners (Slice 7 — env-level error subscription)', () => {
-    // Two-level model per source survey §9: a stream error fans out to
+    // Two-level model per source survey section 9: a stream error fans out to
     // BOTH the listener's own `errorCallback` AND every env-level
     // subscriber registered via `onSnapshotError`. The playground uses
     // the env-level channel to surface stream errors as toasts without

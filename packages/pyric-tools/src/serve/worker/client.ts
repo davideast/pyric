@@ -304,7 +304,7 @@ function rpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
 
 /**
  * Like {@link rpc} but stamps the active default auth lens onto the op message
- * (Pyric Studio). Used by the Firestore DATA ops so a `setLens(...)` choice
+ * (Pyric Studio). Used by data-service ops so a `setLens(...)` choice
  * carries per op without every call site threading `actAs`. Auth ops + version
  * use the bare {@link rpc} so they never carry a lens.
  *
@@ -1205,27 +1205,27 @@ function hydrateRtdbSnapshot(refHandle: RtdbRefHandle, wire: unknown): RtdbDataS
 export async function rtdbGet(r: RtdbRefHandle): Promise<RtdbDataSnapshot> {
   return hydrateRtdbSnapshot(
     r,
-    await rpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.get', path: r.path }),
+    await dataRpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.get', path: r.path }),
   );
 }
 
 export async function rtdbSet(r: RtdbRefHandle, value: unknown): Promise<void> {
-  await rpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.set', path: r.path, value });
+  await dataRpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.set', path: r.path, value });
 }
 
 export async function rtdbUpdate(r: RtdbRefHandle, values: Record<string, unknown>): Promise<void> {
-  await rpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.update', path: r.path, values });
+  await dataRpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.update', path: r.path, values });
 }
 
 export async function rtdbRemove(r: RtdbRefHandle): Promise<void> {
-  await rpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.remove', path: r.path });
+  await dataRpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.remove', path: r.path });
 }
 
 export function rtdbPush(r: RtdbRefHandle, value?: unknown): RtdbRefHandle & PromiseLike<RtdbRefHandle> {
   const key = generateRtdbPushId();
   const pushed = makeRtdbRef(r.port, `${r.path}/${key}`);
   const settledRef = makeRtdbRef(r.port, pushed.path);
-  const promise = rpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.push', path: r.path, key, value })
+  const promise = dataRpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.push', path: r.path, key, value })
     .then(() => settledRef);
   return Object.assign(pushed, {
     then: promise.then.bind(promise),
@@ -1243,7 +1243,10 @@ export function rtdbOnValue(
     next: (wire) => next(hydrateRtdbSnapshot(r, wire)),
     error,
   });
-  r.port.postMessage({ t: 'sub', subId, target: { service: 'rtdb', path: r.path } } satisfies InboundMessage);
+  const msg: InboundMessage = _defaultLens
+    ? { t: 'sub', subId, target: { service: 'rtdb', path: r.path }, actAs: _defaultLens }
+    : { t: 'sub', subId, target: { service: 'rtdb', path: r.path } };
+  r.port.postMessage(msg);
   return () => {
     _snapSubs.delete(subId);
     r.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);

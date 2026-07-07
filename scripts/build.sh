@@ -76,13 +76,13 @@ cp -R packages/studio/dist/app/. packages/pyric-tools/dist/serve/studio-ui/
 
 echo ""
 echo "━━━ Phase 4: Playground app ━━━"
-echo "▸ Building examples/playground-next (base /__pyric/playground/)"
-rm -rf examples/playground-next/dist
-PLAYGROUND_BASE=/__pyric/playground/ bun run --cwd examples/playground-next build
+echo "▸ Building packages/playground (base /__pyric/playground/)"
+rm -rf packages/playground/dist
+PLAYGROUND_BASE=/__pyric/playground/ bun run --cwd packages/playground build
 echo "▸ Embedding playground app → packages/pyric-tools/dist/serve/playground-ui/"
 rm -rf packages/pyric-tools/dist/serve/playground-ui
 mkdir -p packages/pyric-tools/dist/serve/playground-ui
-cp -R examples/playground-next/dist/client/. packages/pyric-tools/dist/serve/playground-ui/
+cp -R packages/playground/dist/client/. packages/pyric-tools/dist/serve/playground-ui/
 
 echo ""
 echo "✅ All packages built successfully"

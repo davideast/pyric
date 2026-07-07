@@ -8,7 +8,7 @@ const shimDir = fileURLToPath(new URL('./src/lib/node-shims', import.meta.url));
 /**
  * Static-output Astro app — the admin-playground is a component
  * showcase. Components mount via React islands; all interactivity
- * lives client-side. Mirrors `examples/playground-next/`'s setup
+ * lives client-side. Mirrors `packages/playground/`'s setup
  * so the design tokens + font loading transfer cleanly.
  *
  * Node-stdlib shims: `@pyric/firestore-rules`'s resolver module

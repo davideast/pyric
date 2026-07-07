@@ -3,7 +3,7 @@
  *
  * Extracted from the pre-cutover `parity-stress-integration.test.ts`
  * (deleted in be3c2b2, resurrected 2026-06 per
- * the design rationale §5) so the restored stress packs and
+ * the design rationale section 5) so the restored stress packs and
  * the new round-1/2 fix-class packs share one classification pipeline.
  *
  * Production is the source of truth. Per case:

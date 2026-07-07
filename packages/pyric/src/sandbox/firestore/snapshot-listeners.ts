@@ -7,8 +7,8 @@
  * snapshot, suppress no-ops, fire surviving callbacks. See
  * the design rationale for the slice plan and
  * the design rationale for the production
- * patterns these types are adapted from (firebase-js-sdk 4.14.1, §3,
- * §4, §5).
+ * patterns these types are adapted from (firebase-js-sdk 4.14.1, section 3,
+ * section 4, section 5).
  */
 import type { DocumentData } from './local-state.js';
 import type { Operation } from './local-environment.js';
@@ -61,7 +61,7 @@ export type SnapshotTarget =
  * `'default'`. `includeMetadataChanges` is a documented no-op in the
  * sandbox: `metadata.hasPendingWrites` and `metadata.fromCache` are
  * stubbed as constant `false`, so metadata-only transitions never occur.
- * See findings §6.
+ * See findings section 6.
  */
 export interface SnapshotListenerOptions {
   includeMetadataChanges?: boolean;
@@ -71,13 +71,13 @@ export interface SnapshotListenerOptions {
 /**
  * Callback shape is a placeholder until Slice 2 introduces the public
  * `QuerySnapshot` / `DocumentSnapshot` types. Typed as `unknown` here so
- * Slice 1 does not lock in a snapshot shape that survey item §4 says
+ * Slice 1 does not lock in a snapshot shape that survey item section 4 says
  * needs careful construction (lazy `docs`, cached `docChanges()`).
  */
 export type SnapshotCallback = (snapshot: unknown) => void;
 
 /**
- * Stream errors. Per findings §9, listener errors are stream-level —
+ * Stream errors. Per findings section 9, listener errors are stream-level —
  * once delivered, the listener is silently terminated (no further
  * snapshots). Slice 7 wires this end-to-end; the field exists in the
  * record now so Slice 1 doesn't have to re-shape it later.
@@ -149,7 +149,7 @@ export interface ListenerRecord {
    */
   currentDocs?: { path: string; data: DocumentData }[];
   /**
-   * Set when an error has been delivered. Per findings §9 — once true,
+   * Set when an error has been delivered. Per findings section 9 — once true,
    * the dispatch loop must skip this record. Slice 7 wires the flip.
    */
   errored: boolean;
@@ -158,7 +158,7 @@ export interface ListenerRecord {
 // ─────────────────────────────────────────────────────────────────────
 // Public snapshot data shapes — Slice 2.
 //
-// Web-SDK-shaped (per firebase-js-sdk 4.14.1, source-survey §4). These
+// Web-SDK-shaped (per firebase-js-sdk 4.14.1, source-survey section 4). These
 // are intentionally distinct from the Admin-shaped types in
 // `admin-compat/types.ts` — `metadata`, `query`, `docChanges()`, and
 // `exists()` as a method are Web-SDK conventions agent code expects
@@ -170,7 +170,7 @@ export interface ListenerRecord {
  * Mirrors `firebase/firestore`'s `SnapshotMetadata`. In the sandbox both
  * fields are stubbed as constant `false` — there's no offline cache and
  * no pending-writes window. Documented divergence: `includeMetadataChanges`
- * therefore has no observable effect (findings §6).
+ * therefore has no observable effect (findings section 6).
  */
 export interface SnapshotMetadata {
   readonly hasPendingWrites: false;
@@ -244,7 +244,7 @@ export interface QuerySnapshot {
   readonly docs: QueryDocumentSnapshot[];
   forEach(callback: (snap: QueryDocumentSnapshot) => void): void;
   /**
-   * Per findings §4: cached by `includeMetadataChanges` value; throws if
+   * Per findings section 4: cached by `includeMetadataChanges` value; throws if
    * called with `true` when the listener did not subscribe with
    * `includeMetadataChanges: true`. The Slice 2 implementation produces
    * "all docs added" on the first fire — Slice 3 supplies real diffs.
@@ -343,7 +343,7 @@ function buildQueryDocumentSnapshot(
  *
  * The returned `docChanges()` is cached by `includeMetadataChanges`
  * and throws on flag-mismatch when the listener didn't subscribe with
- * the option (per findings §4) — that throw is wired by passing
+ * the option (per findings section 4) — that throw is wired by passing
  * `excludesMetadataChanges: !options.includeMetadataChanges` from the
  * listener record, which Slice 3 hooks into the dispatch path.
  */
@@ -386,7 +386,7 @@ export function buildQuerySnapshot(
             '{ includeMetadataChanges: true } to onSnapshot().',
         );
       }
-      // Sandbox metadata never transitions (findings §6) so the two
+      // Sandbox metadata never transitions (findings section 6) so the two
       // cached arrays are identical in practice — keeping the cache key
       // separate matches production's contract verbatim and lets us add
       // distinct semantics later without breaking call sites.

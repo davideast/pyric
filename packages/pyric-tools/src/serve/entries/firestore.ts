@@ -81,7 +81,7 @@ export const getFirestore = (
         pyricGetFirestore((target ?? sandbox) as never)
 ) as typeof pyricGetFirestore;
 
-// ── §3c tier 2: ACCEPTED, sandbox-managed (no-op + one-time notice). ──────
+// ── section 3c tier 2: ACCEPTED, sandbox-managed (no-op + one-time notice). ──────
 // Apps configure client caching unconditionally; a missing named export
 // fails the page at IMPORT time (the firebase/app failure class). None of
 // these are emulated — the sandbox (in-page OR worker) IS the source of

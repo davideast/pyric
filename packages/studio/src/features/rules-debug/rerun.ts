@@ -103,6 +103,7 @@ export async function rerunAgainstRules(
  */
 export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunResult> {
   const db = getSandboxFirestore(sandbox.withAuth(denial.auth as AuthState));
+  const resourceData = documentData(denial.resourceData);
   try {
     switch (denial.method) {
       case 'get':
@@ -114,17 +115,17 @@ export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunRe
         break;
       case 'create':
       case 'set':
-        await setDoc(doc(db, denial.path), denial.resourceData ?? {});
+        await setDoc(doc(db, denial.path), resourceData);
         break;
       case 'update':
-        await updateDoc(doc(db, denial.path), denial.resourceData ?? {});
+        await updateDoc(doc(db, denial.path), resourceData);
         break;
       case 'delete':
         await deleteDoc(doc(db, denial.path));
         break;
       default:
         // Defensive: an addDoc-style auto-id create reproduces against the parent.
-        await addDoc(collection(db, parentCollection(denial.path)), denial.resourceData ?? {});
+        await addDoc(collection(db, parentCollection(denial.path)), resourceData);
     }
     return { outcome: 'allow' };
   } catch (e) {
@@ -135,6 +136,12 @@ export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunRe
     const code = e instanceof SandboxError ? e.code : 'unknown';
     return { outcome: 'error', code, message: e instanceof Error ? e.message : String(e) };
   }
+}
+
+function documentData(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 function parentCollection(path: string): string {

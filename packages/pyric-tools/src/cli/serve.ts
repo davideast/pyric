@@ -4,7 +4,7 @@
  * SIGINT shutdown) with the sandbox-flavored extras firebase can't do: the
  * served page runs an in-browser backend, your `firestore.rules` deploy into
  * it at page load, and unmodified `firebase/*` imports resolve to pyric via a
- * served import map (see `plans/pyric-serve-assessment.md`).
+ * served import map.
  *
  * Orchestration: firebase.json (optional — warn + serve cwd without it) →
  * rules load (fail fast on broken rules) → SDK bundle (cached per pyric
@@ -38,7 +38,7 @@ interface HostingConfig {
 
 /** Extract the single hosting config `pyric serve` v1 supports. Arrays
  *  (multi-site) take the first entry with a warning — multi-site is out of
- *  scope (plan §6). */
+ *  scope (plan section 6). */
 export function extractHosting(config: FirebaseJson | null): HostingConfig | null {
   const h = config?.hosting;
   if (!h || typeof h !== 'object') return null;
@@ -105,7 +105,7 @@ export async function startServe(opts: {
   /** Watch firestore.rules and hot-reload over SSE. Default true when a
    *  rules file exists. */
   watch?: boolean;
-  /** Persist sandbox state to `.pyric/state/state.json` (flow doc §3c).
+  /** Persist sandbox state to `.pyric/state/state.json` (flow doc section 3c).
    *  Ephemeral remains the default. */
   persist?: boolean;
   /** With `--persist`: discard any existing state file and re-seed from
@@ -165,7 +165,7 @@ export async function startServe(opts: {
   // records for the verify loop, persist is for cross-reload durability.
   const capture = (opts.capture ?? true) ? createCaptureStore(opts.cwd) : null;
 
-  // --persist: the state store IS the durable sandbox (§3c). Load eagerly so
+  // --persist: the state store IS the durable sandbox (section 3c). Load eagerly so
   // a corrupt/mismatched file fails the start (inspect-or-delete message)
   // instead of silently serving ephemeral.
   const state = opts.persist ? createStateStore(opts.cwd) : null;

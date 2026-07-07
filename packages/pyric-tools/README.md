@@ -93,7 +93,7 @@ the library — the canonical, always-current list is the
 
 ### Gaps from the playground tool surface
 
-The `examples/playground-next/` app ships richer diagnostic tools that
+The `packages/playground/` app ships richer diagnostic tools that
 the `pyric bridge` does NOT register out of the box today. They're
 playground-specific orchestrators built on top of `useRuntimeStore`
 and other browser-only state:

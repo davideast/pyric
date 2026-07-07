@@ -98,6 +98,7 @@ import {
 } from 'pyric/storage';
 import {
   getDatabase as pyricGetDatabase,
+  getAdminDatabase as pyricGetAdminDatabase,
   ref as rtdbRef,
   get as rtdbGet,
   set as rtdbSet,
@@ -393,12 +394,25 @@ function lensDb(ctx: HostCtx, actAs?: AuthLens): Firestore {
 
   // { mode: 'as', uid } → a frozen-identity handle; rules evaluate as `uid`.
   const handles = (ctx.lensHandles ??= new Map());
-  let handle = handles.get(actAs.uid);
+  const key = lensCacheKey(actAs);
+  let handle = handles.get(key);
   if (!handle) {
-    handle = pyricGetFirestore(ctx.sandbox.withAuth({ uid: actAs.uid }));
-    handles.set(actAs.uid, handle);
+    handle = pyricGetFirestore(ctx.sandbox.withAuth(authStateForLens(actAs)));
+    handles.set(key, handle);
   }
   return handle;
+}
+
+function authStateForLens(actAs: Extract<AuthLens, { mode: 'as' }>): { uid: string; token?: Record<string, unknown> } {
+  return actAs.token === undefined
+    ? { uid: actAs.uid }
+    : { uid: actAs.uid, token: actAs.token };
+}
+
+function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
+  return actAs.token === undefined
+    ? actAs.uid
+    : `${actAs.uid}:${JSON.stringify(actAs.token)}`;
 }
 
 /**
@@ -445,6 +459,36 @@ function sessionDb(ctx: HostCtx, port: PortLike): Firestore {
   if (!handle) {
     handle = pyricGetFirestore(ctx.sandbox.withAuth(session.state));
     cache.set(session.user.uid, handle);
+  }
+  return handle;
+}
+
+function sessionRtdb(ctx: HostCtx, port: PortLike): Database {
+  const session = portSession(ctx, port);
+  if (!session) return ensureRtdb(ctx);
+  const cache = (ctx.sessionRtdbs ??= new Map());
+  let handle = cache.get(session.user.uid);
+  if (!handle) {
+    handle = pyricGetDatabase(ctx.sandbox.withAuth(session.state));
+    cache.set(session.user.uid, handle);
+  }
+  return handle;
+}
+
+function lensRtdb(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike): Database {
+  if (!actAs || actAs.mode === 'app-session') {
+    return sessionRtdb(ctx, port);
+  }
+  if (actAs.mode === 'admin') {
+    return (ctx.adminRtdb ??= pyricGetAdminDatabase(ctx.sandbox));
+  }
+
+  const handles = (ctx.lensRtdbs ??= new Map());
+  const key = lensCacheKey(actAs);
+  let handle = handles.get(key);
+  if (!handle) {
+    handle = pyricGetDatabase(ctx.sandbox.withAuth(authStateForLens(actAs)));
+    handles.set(key, handle);
   }
   return handle;
 }
@@ -854,15 +898,17 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
 
     case 'rtdb.get': {
       try {
-        ok(port, msg.id, rtdbSnapToWire(await rtdbGet(rtdbRef(ensureRtdb(ctx), msg.path))));
+        const db = lensRtdb(ctx, msg.actAs, port);
+        ok(port, msg.id, rtdbSnapToWire(await rtdbGet(rtdbRef(db, msg.path))));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
     case 'rtdb.set': {
       try {
+        const db = lensRtdb(ctx, msg.actAs, port);
         const value = resolveRtdbSentinels(msg.value);
-        await rtdbSet(rtdbRef(ensureRtdb(ctx), msg.path), value as never);
+        await rtdbSet(rtdbRef(db, msg.path), value as never);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -870,7 +916,8 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
 
     case 'rtdb.update': {
       try {
-        await rtdbUpdate(rtdbRef(ensureRtdb(ctx), msg.path), resolveRtdbSentinels(msg.values) as Record<string, unknown>);
+        const db = lensRtdb(ctx, msg.actAs, port);
+        await rtdbUpdate(rtdbRef(db, msg.path), resolveRtdbSentinels(msg.values) as Record<string, unknown>);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -878,7 +925,8 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
 
     case 'rtdb.remove': {
       try {
-        await rtdbRemove(rtdbRef(ensureRtdb(ctx), msg.path));
+        const db = lensRtdb(ctx, msg.actAs, port);
+        await rtdbRemove(rtdbRef(db, msg.path));
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -886,10 +934,11 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
 
     case 'rtdb.push': {
       try {
+        const db = lensRtdb(ctx, msg.actAs, port);
         const childPath = `${msg.path}/${msg.key}`;
         if (msg.value !== undefined) {
           await rtdbSet(
-            rtdbRef(ensureRtdb(ctx), childPath),
+            rtdbRef(db, childPath),
             resolveRtdbSentinels(msg.value) as never,
           );
         }
@@ -901,7 +950,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
 
     case 'rtdb.adminSnapshot': {
       try {
-        ok(port, msg.id, rtdbSandbox.snapshotState(ensureRtdb(ctx)));
+        ok(port, msg.id, rtdbSandbox.snapshotState(lensRtdb(ctx, { mode: 'admin' }, port)));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -1074,9 +1123,11 @@ function applyWriteToBatch(
  * can re-establish it under the new identity (see resubscribeSessionSubs).
  * Parallel to `ctx.subs` (which holds only the unsub fns).
  */
-const _sessionSubs = new WeakMap<HostCtx, Map<PortLike, Map<string, FirestoreSubMessage>>>();
+type SessionBoundSubMessage = FirestoreSubMessage | RtdbValueSubMessage;
 
-function sessionSubsFor(ctx: HostCtx, port: PortLike): Map<string, FirestoreSubMessage> {
+const _sessionSubs = new WeakMap<HostCtx, Map<PortLike, Map<string, SessionBoundSubMessage>>>();
+
+function sessionSubsFor(ctx: HostCtx, port: PortLike): Map<string, SessionBoundSubMessage> {
   let byPort = _sessionSubs.get(ctx);
   if (!byPort) {
     byPort = new Map();
@@ -1106,8 +1157,12 @@ function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
     const unsub = portSubs?.get(subId);
     if (unsub) unsub();
     portSubs?.delete(subId);
-    bound.delete(subId); // handleSub re-records it
-    handleSub(ctx, port, msg);
+    bound.delete(subId); // handleSub/handleRtdbSub re-records it
+    if (isRtdbSub(msg)) {
+      handleRtdbSub(ctx, port, msg);
+    } else {
+      handleSub(ctx, port, msg);
+    }
   }
 }
 
@@ -1152,8 +1207,13 @@ function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessage): 
   const portSubs = ctx.subs.get(port)!;
   if (portSubs.has(msg.subId)) return;
 
+  if (!msg.actAs) {
+    ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
+    sessionSubsFor(ctx, port).set(msg.subId, msg);
+  }
+
   try {
-    const ref = rtdbRef(ensureRtdb(ctx), msg.target.path);
+    const ref = rtdbRef(lensRtdb(ctx, msg.actAs, port), msg.target.path);
     const unsub = rtdbOnValue(
       ref as DatabaseReference,
       (snap) => post(port, { t: 'snap', subId: msg.subId, value: rtdbSnapToWire(snap) }),

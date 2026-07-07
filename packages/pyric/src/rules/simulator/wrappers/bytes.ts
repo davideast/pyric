@@ -38,7 +38,7 @@ function toHex(bytes: Uint8Array): string {
 function toBase64Url(bytes: Uint8Array): string {
   // btoa exists in browsers and Node 16+; we encode the byte string
   // through it, then map the standard alphabet to URL-safe (- _) and
-  // strip padding per RFC 4648 §5.
+  // strip padding per RFC 4648 section 5.
   let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
   const std = btoa(bin);

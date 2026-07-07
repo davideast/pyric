@@ -231,7 +231,7 @@ service firebase.storage {
     expect(result.current.tasks).toEqual([]);
   });
 
-  describe('createFolder (the §3 pinned default)', () => {
+  describe('createFolder (the section 3 pinned default)', () => {
     it('writes a zero-byte <path>/ placeholder that is hidden from items at every level', async () => {
       const storage = makeStorage('folder');
       await uploadBytes(ref(storage, 'docs/a.txt'), new Blob(['a']));

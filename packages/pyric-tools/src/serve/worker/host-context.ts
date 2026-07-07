@@ -42,6 +42,12 @@ export interface HostCtx {
   storage?: FirebaseStorage;
   /** Shared RTDB handle. Lazily created for the playground shared-runtime path. */
   rtdb?: Database;
+  /** Cached admin (rules-bypass) RTDB handle for Studio/Playground data inspection. */
+  adminRtdb?: Database;
+  /** Per-uid RTDB handles carrying a port session's real identity. */
+  sessionRtdbs?: Map<string, Database>;
+  /** Per-uid/token RTDB handles for the Studio impersonation lens. */
+  lensRtdbs?: Map<string, Database>;
   /** Current active rules metadata for shared-runtime diagnostics and revert. */
   activeRules?: {
     firestore?: ActiveRulesState;

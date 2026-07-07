@@ -1,5 +1,5 @@
 /** `exportUsers` → `seedUsers` round-trip + `restoreSession` — the auth
- *  substrate for sandbox persistence (pyric-persist plan 0.1, flow doc §3c). */
+ *  substrate for sandbox persistence (pyric-persist plan 0.1, flow doc section 3c). */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {

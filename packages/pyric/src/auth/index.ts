@@ -697,7 +697,7 @@ export const sandbox = {
   /**
    * Export the user DB in the exact shape {@link sandbox.seedUsers}
    * accepts — `exportUsers` → `seedUsers` round-trips losslessly (the
-   * persistence substrate, the design rationale §3c).
+   * persistence substrate, the design rationale section 3c).
    * Provider-flow identities without a password export with a documented
    * sentinel; anonymous users are not exported (ephemeral by design).
    */

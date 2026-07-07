@@ -1,6 +1,6 @@
 /**
  * On-disk state store for `pyric serve --persist` — the substrate side of
- * flow doc §3c ("persistence = an autosaved seed").
+ * flow doc section 3c ("persistence = an autosaved seed").
  *
  * The file is an ENVELOPE around two sections:
  *   - `firestore`: the `@pyric/sandbox` persistence controller's own blob
@@ -137,7 +137,7 @@ export function createStateStore(projectDir: string): StateStore {
     },
     writeSection(section, value) {
       const current = load() ?? { version: STATE_FILE_VERSION, firestore: null, auth: null };
-      // Data-loss guard (flow doc §3c / pre-mortem #2): a `sandbox.reset()`
+      // Data-loss guard (flow doc section 3c / pre-mortem #2): a `sandbox.reset()`
       // makes the persistence controller flush EMPTY firestore over the
       // live file (pyric flushes on session_boundary by design), and the
       // backend write can't tell that from a legitimate delete-all. Before

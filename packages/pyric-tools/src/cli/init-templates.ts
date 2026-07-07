@@ -5,7 +5,7 @@
  * plugin: `vite dev` runs the app's CANONICAL `firebase/*` imports against the
  * in-process sandbox; `vite build` ships the real `firebase` package. One
  * toolchain, no graduation cliff — the sandbox↔Firebase swap is environmental
- * (dev vs build), never a code edit (the design rationale §9).
+ * (dev vs build), never a code edit (the design rationale section 9).
  *
  * `static` is the serve-era scaffold (no bundler): a static app `pyric serve`
  * runs against the in-page sandbox via a runtime import map. For pre-built /

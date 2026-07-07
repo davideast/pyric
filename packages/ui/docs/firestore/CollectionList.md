@@ -59,7 +59,7 @@ useCollectionList({
 });
 ```
 
-See `examples/playground-next/src/components/FirestoreTab.tsx` for a sandbox-introspection example using `getRunner().readState()`.
+See `packages/playground/src/components/FirestoreTab.tsx` for a sandbox-introspection example using `getRunner().readState()`.
 
 ## Styling hooks
 

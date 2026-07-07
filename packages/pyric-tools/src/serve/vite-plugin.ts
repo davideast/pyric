@@ -154,7 +154,7 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
   // (`worker/client.js`, the bridge client) that the entries statically import.
   const pyricToolsRoot = packageRootOf(entries.init);
 
-  // §8 refinement: a firebase import is "pyric-internal" iff its importer lives
+  // section 8 refinement: a firebase import is "pyric-internal" iff its importer lives
   // under the resolved pyric package root — keyed on the root, not a `/pyric/`
   // substring (which a user project path could false-positive).
   const isPyricImporter = (importer: string | undefined): boolean => {

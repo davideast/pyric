@@ -16,7 +16,7 @@
  * package — one toolchain, the swap is environmental (dev vs build), never a
  * code edit. `static` is the serve-era no-bundler scaffold (`pyric serve`).
  *
- * Agent-first contract (the design rationale §CLI UX):
+ * Agent-first contract (the design rationale section CLI UX):
  *   - NEVER prompts — every choice is a flag with a default.
  *   - Idempotent: existing files are merged (package.json) or skipped;
  *     rerunning is safe. `--force` overwrites scaffold-owned files only.

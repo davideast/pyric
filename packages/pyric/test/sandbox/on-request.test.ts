@@ -142,7 +142,7 @@ describe('Sandbox.onRequest', () => {
   it('emits one event per write in a transaction with shared groupId', () => {
     // Pre-existing bug: `transaction()` writes appended to EventLog but
     // never fired emitRequest. Fixed alongside the unified-channel work
-    // — see design rationale §"Bugs to
+    // — see design rationale section "Bugs to
     // fix BEFORE wiring onEvent".
     const { sandbox, env } = makeSandbox();
     const events: RequestEvent[] = [];
@@ -377,7 +377,7 @@ describe('Sandbox.onRequest', () => {
     // swaps the env, so any onRequest callback attached to the old env
     // was silently dropped. Fixed by moving the subscriber registries
     // up to SandboxImpl — see design rationale
-    // decision.md §"Bugs to fix BEFORE wiring onEvent".
+    // decision.md section "Bugs to fix BEFORE wiring onEvent".
     const { sandbox, env } = makeSandbox();
     const events: RequestEvent[] = [];
     onRequest(sandbox, (e) => events.push(e));

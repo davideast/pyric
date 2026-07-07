@@ -47,6 +47,7 @@ export type { CrawlOptions, CrawlStructureResult, CrawlStructureSpec, StructureN
 // ADDITIVE re-export.
 export {
   getDatabase,
+  getAdminDatabase,
   ref,
   child,
   get,

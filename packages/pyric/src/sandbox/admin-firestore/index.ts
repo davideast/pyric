@@ -100,7 +100,7 @@ export type {
  * `includeMetadataChanges` flag is accepted for API parity but has no
  * observable effect in the sandbox: there's no offline cache and no
  * pending-writes window, so `metadata.fromCache` and
- * `metadata.hasPendingWrites` are always `false` (snapshot-listeners.ts §6).
+ * `metadata.hasPendingWrites` are always `false` (snapshot-listeners.ts section 6).
  */
 export type SnapshotListenOptions = SnapshotListenerOptions;
 
