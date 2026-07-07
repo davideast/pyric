@@ -59,8 +59,16 @@ import {
   WorkspaceImportError,
 } from '~/lib/workspace/import-from-github';
 import '~/lib/debug/expose';
+import {
+  isPlaygroundCommandMessage,
+  isStudioEmbedSearch,
+  playgroundHomeHref,
+  playgroundSessionHref,
+  readPlaygroundSandboxMode,
+} from '~/lib/studio-embed';
 import { useLlmStore } from '~/lib/store/llm';
 import { ApiKeyForm } from './ApiKeyForm';
+import { AgentModeControl } from './AgentModeControl';
 import { buildApiKeyField } from './byok-field';
 import { AuthModal } from './AuthModal';
 import {
@@ -91,6 +99,9 @@ type EnhanceState =
   | { kind: 'error'; text: string; message: string };
 
 export function HomePage() {
+  const embeddedInStudio =
+    typeof window !== 'undefined' && isStudioEmbedSearch(window.location.search);
+  const playgroundBase = import.meta.env.BASE_URL;
   const { sessions, loading, userId } = useHomeSessions();
   const [prompt, setPrompt] = useState('');
   // Skills chosen for the session about to be created (via the `/`
@@ -102,6 +113,7 @@ export function HomePage() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }, []);
+  const clearSelectedSkills = useCallback(() => setSelectedSkills([]), []);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
@@ -162,6 +174,54 @@ export function HomePage() {
   const [keysOpen, setKeysOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const openKeys = useCallback(() => {
+    setSettingsOpen(false);
+    setAuthOpen(false);
+    setKeysOpen(true);
+  }, []);
+  const openSettings = useCallback(() => {
+    setKeysOpen(false);
+    setAuthOpen(false);
+    setSettingsOpen(true);
+  }, []);
+  const openAccount = useCallback(() => {
+    setKeysOpen(false);
+    setSettingsOpen(false);
+    setAuthOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!embeddedInStudio || typeof window === 'undefined') return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (!isPlaygroundCommandMessage(event.data)) return;
+      switch (event.data.type) {
+        case 'pyric:playground:open-keys':
+          openKeys();
+          break;
+        case 'pyric:playground:open-settings':
+          openSettings();
+          break;
+        case 'pyric:playground:open-account':
+          openAccount();
+          break;
+        case 'pyric:playground:set-model': {
+          const provider = PROVIDERS[event.data.providerId];
+          if (!provider) return;
+          const modelId = provider.models.some((m) => m.id === event.data.modelId)
+            ? event.data.modelId
+            : provider.defaultModelId;
+          useLlmStore.getState().setProvider(event.data.providerId, modelId);
+          if (event.data.effort) {
+            useLlmStore.getState().setOpenrouterEffort(event.data.effort);
+          }
+          break;
+        }
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [embeddedInStudio, openAccount, openKeys, openSettings]);
   // Bumped by handleSaveKeys after keys are written to localStorage.
   // `hasKey` depends on it so the enhance button leaves its "Set API
   // key" state the moment a key is saved (byok is localStorage-backed,
@@ -316,6 +376,9 @@ export function HomePage() {
     setImportBlockers(null);
     try {
       const sessionId = newSessionId();
+      const sandboxMode = typeof window !== 'undefined'
+        ? readPlaygroundSandboxMode(window.location.search)
+        : 'isolated';
       let githubRepo: SessionMeta['githubRepo'] | undefined;
       let payload: SessionPayload;
 
@@ -371,6 +434,7 @@ export function HomePage() {
         preview,
         payload,
         githubRepo,
+        sandboxMode,
       });
       if (trimmed) stashPendingPrompt(sessionId, trimmed, 'send');
       // Commit the just-saved session to IndexedDB before navigating.
@@ -378,7 +442,10 @@ export function HomePage() {
       // controller's debounced + beforeunload flush would otherwise race
       // (and lose) the navigation, dropping us into the bounce-back loop.
       await flushSessions();
-      window.location.href = `/playground?session=${encodeURIComponent(sessionId)}`;
+      window.location.href = playgroundSessionHref(sessionId, {
+        base: playgroundBase,
+        embedded: embeddedInStudio,
+      });
     } catch (e) {
       setStarting(false);
       setStartPhase(null);
@@ -413,16 +480,19 @@ export function HomePage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-content-bg text-soft-white">
-      <TopBar
-        title="home"
-        onOpenKeys={() => setKeysOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenAccount={() => setAuthOpen(true)}
-      >
-        <div className="hidden md:flex">
-          <ModelPicker />
-        </div>
-      </TopBar>
+      {!embeddedInStudio ? (
+        <TopBar
+          title="home"
+          homeHref={playgroundHomeHref({ base: playgroundBase })}
+          onOpenKeys={openKeys}
+          onOpenSettings={openSettings}
+          onOpenAccount={openAccount}
+        >
+          <div className="hidden md:flex">
+            <ModelPicker />
+          </div>
+        </TopBar>
+      ) : null}
 
       <main className="flex-1 overflow-y-auto custom-scrollbar px-4 sm:px-6 lg:px-10 py-10 sm:py-14">
         <div className="mx-auto w-full max-w-6xl">
@@ -449,6 +519,7 @@ export function HomePage() {
                 onKeyDown={handleKeyDown}
                 selectedSkills={selectedSkills}
                 onToggleSkill={toggleSelectedSkill}
+                onClearSkills={clearSelectedSkills}
                 onEnhance={runEnhancement}
                 onCancelEnhance={cancelEnhancement}
                 enhance={enhance}
@@ -457,8 +528,8 @@ export function HomePage() {
                 canEnhance={canEnhance}
                 enhanceStreaming={enhanceStreaming}
                 hasKey={hasKey}
-                onOpenKeys={() => setKeysOpen(true)}
-                onOpenSettings={() => setSettingsOpen(true)}
+                onOpenKeys={openKeys}
+                onOpenSettings={openSettings}
                 starting={starting}
                 canStart={canStart}
                 githubBlockReason={githubBlockReason}
@@ -508,6 +579,8 @@ export function HomePage() {
                     <SessionCard
                       key={s.id}
                       session={s}
+                      playgroundBase={playgroundBase}
+                      embeddedInStudio={embeddedInStudio}
                       isConfirmingDelete={confirmingDeleteId === s.id}
                       onConfirmDelete={() => setConfirmingDeleteId(s.id)}
                       onCancelDelete={() => setConfirmingDeleteId(null)}
@@ -532,16 +605,16 @@ export function HomePage() {
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
 
       <Modal open={keysOpen} onClose={() => setKeysOpen(false)} ariaLabel="API keys">
-        <div className="md:hidden mb-4">
-          <p className="text-[11px] uppercase tracking-wider text-slate-gray mb-2">
-            Active model
-          </p>
-          <ModelPicker />
-        </div>
-        <ApiKeyForm
-          title="API keys"
-          subtitle="Bring your own keys. Stored in this browser only — never sent to a server we control."
-          fields={PROVIDER_LIST.map((def) => buildApiKeyField(def)).filter((f) => f !== null)}
+          <div className={embeddedInStudio ? 'mb-4' : 'md:hidden mb-4'}>
+            <p className="text-[11px] uppercase tracking-wider text-slate-gray mb-2">
+              Active model
+            </p>
+            <ModelPicker />
+          </div>
+          <ApiKeyForm
+            title="API keys"
+            subtitle="Bring your own keys. Stored in this browser only — never sent to a server we control."
+            fields={PROVIDER_LIST.map((def) => buildApiKeyField(def)).filter((f) => f !== null)}
           onSubmit={handleSaveKeys}
           submitLabel="Save"
           footerText="Update or remove anytime."
@@ -561,6 +634,7 @@ interface PromptComposerProps {
   /** Skills picked for the session-to-be (`/` menu + chips). */
   selectedSkills: string[];
   onToggleSkill: (id: string) => void;
+  onClearSkills: () => void;
   onEnhance: () => void;
   onCancelEnhance: () => void;
   enhance: EnhanceState;
@@ -599,6 +673,7 @@ function PromptComposer({
   onPromptChange,
   selectedSkills,
   onToggleSkill,
+  onClearSkills,
   onSubmit,
   onKeyDown,
   onEnhance,
@@ -660,7 +735,6 @@ function PromptComposer({
     })),
     onSelect: (item) => onToggleSkill(item.id),
   });
-  const activeSkillDefs = listSkills().filter((s) => selectedSkills.includes(s.id));
 
   return (
     <form
@@ -695,29 +769,12 @@ function PromptComposer({
         />
       </div>
 
-      {/* Selected skills for the session-to-be — chip per skill, click
-          removes. Discovery hint points at the `/` menu. */}
-      {activeSkillDefs.length > 0 ? (
-        <div className="flex items-center gap-1.5 flex-wrap -mt-1">
-          {activeSkillDefs.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => onToggleSkill(s.id)}
-              title={`${s.description} — click to remove`}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#a4d4a8]/60 bg-[#14201a] text-[#a4d4a8] text-[10px] font-mono"
-            >
-              <span className="material-symbols-outlined text-[12px]" aria-hidden>
-                {s.icon}
-              </span>
-              {s.label}
-              <span className="material-symbols-outlined text-[12px]" aria-hidden>
-                close
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <AgentModeControl
+        activeSkillIds={selectedSkills}
+        onToggleSkill={onToggleSkill}
+        onClearSkills={onClearSkills}
+        className="-mt-1"
+      />
 
       {enhance.kind !== 'idle' ? (
         <EnhancePreview
@@ -933,6 +990,8 @@ function EnhancePreview({
 
 interface SessionCardProps {
   session: SessionMeta;
+  playgroundBase: string;
+  embeddedInStudio: boolean;
   isConfirmingDelete: boolean;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
@@ -941,12 +1000,17 @@ interface SessionCardProps {
 
 function SessionCard({
   session,
+  playgroundBase,
+  embeddedInStudio,
   isConfirmingDelete,
   onConfirmDelete,
   onCancelDelete,
   onDelete,
 }: SessionCardProps) {
-  const href = `/playground?session=${encodeURIComponent(session.id)}`;
+  const href = playgroundSessionHref(session.id, {
+    base: playgroundBase,
+    embedded: embeddedInStudio,
+  });
   return (
     <li
       className={[

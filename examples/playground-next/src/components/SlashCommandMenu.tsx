@@ -16,7 +16,7 @@
  * `onKeyDown(e)` FIRST in its own key handler (returns true when the
  * key was consumed by the menu).
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 export interface SlashItem {
   id: string;
@@ -76,6 +76,39 @@ export function stripSlashToken(value: string, token: SlashToken): string {
   return before + after;
 }
 
+export type SlashMenuPlacement = 'below' | 'above';
+
+export interface SlashMenuLayout {
+  placement: SlashMenuPlacement;
+  maxHeight: number;
+}
+
+const MENU_GAP = 8;
+const MENU_MIN_HEIGHT = 96;
+const MENU_MAX_HEIGHT = 320;
+
+export function resolveSlashMenuLayout({
+  anchorTop,
+  anchorBottom,
+  viewportHeight,
+}: {
+  anchorTop: number;
+  anchorBottom: number;
+  viewportHeight: number;
+}): SlashMenuLayout {
+  const below = Math.max(0, viewportHeight - anchorBottom - MENU_GAP);
+  const above = Math.max(0, anchorTop - MENU_GAP);
+  const placement: SlashMenuPlacement =
+    below < MENU_MIN_HEIGHT && above > below ? 'above' : 'below';
+  const available = placement === 'below' ? below : above;
+  const viewportFloor = Math.max(48, viewportHeight - MENU_GAP * 2);
+  const minHeight = Math.min(MENU_MIN_HEIGHT, viewportFloor);
+  return {
+    placement,
+    maxHeight: Math.max(minHeight, Math.min(MENU_MAX_HEIGHT, available)),
+  };
+}
+
 interface UseSlashCommandsOpts {
   value: string;
   onChange: (next: string) => void;
@@ -88,6 +121,11 @@ interface UseSlashCommandsOpts {
 
 export function useSlashCommands({ value, onChange, items, onSelect, textareaRef }: UseSlashCommandsOpts) {
   const [highlight, setHighlight] = useState(0);
+  const [layout, setLayout] = useState<SlashMenuLayout>({
+    placement: 'below',
+    maxHeight: MENU_MAX_HEIGHT,
+  });
+  const activeOptionRef = useRef<HTMLButtonElement | null>(null);
   // Esc dismisses the menu for THIS token; typing a different token
   // (or moving to a new `/`) re-arms it.
   const dismissedRef = useRef<string | null>(null);
@@ -101,6 +139,34 @@ export function useSlashCommands({ value, onChange, items, onSelect, textareaRef
   );
   const open = token !== null && filtered.length > 0 && dismissedRef.current !== tokenKey;
   const active = Math.min(highlight, Math.max(0, filtered.length - 1));
+
+  useEffect(() => {
+    if (!open) return;
+    const updateLayout = () => {
+      const anchor = textareaRef.current;
+      if (!anchor || typeof window === 'undefined') return;
+      const rect = anchor.getBoundingClientRect();
+      setLayout(
+        resolveSlashMenuLayout({
+          anchorTop: rect.top,
+          anchorBottom: rect.bottom,
+          viewportHeight: window.innerHeight,
+        }),
+      );
+    };
+    updateLayout();
+    window.addEventListener('resize', updateLayout);
+    window.addEventListener('scroll', updateLayout, true);
+    return () => {
+      window.removeEventListener('resize', updateLayout);
+      window.removeEventListener('scroll', updateLayout, true);
+    };
+  }, [filtered.length, open, textareaRef, tokenKey]);
+
+  useEffect(() => {
+    if (!open) return;
+    activeOptionRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [active, open]);
 
   const select = (item: SlashItem) => {
     if (!token) return;
@@ -142,7 +208,12 @@ export function useSlashCommands({ value, onChange, items, onSelect, textareaRef
 
   const menu = open ? (
     <div
-      className="absolute bottom-full left-0 right-0 mb-1 z-40 rounded-md border border-[#2a2a35] bg-[#14141c] shadow-xl overflow-hidden"
+      className={[
+        'absolute left-0 right-0 z-40 rounded-md border border-[#2a2a35]',
+        'bg-[#14141c] shadow-xl overflow-y-auto overscroll-contain custom-scrollbar',
+        layout.placement === 'below' ? 'top-full mt-1 origin-top' : 'bottom-full mb-1 origin-bottom',
+      ].join(' ')}
+      style={{ maxHeight: `${layout.maxHeight}px` }}
       role="listbox"
       aria-label="Slash commands"
     >
@@ -152,6 +223,7 @@ export function useSlashCommands({ value, onChange, items, onSelect, textareaRef
           type="button"
           role="option"
           aria-selected={i === active}
+          ref={i === active ? activeOptionRef : null}
           // Mouse down (not click) so the textarea keeps focus.
           onMouseDown={(e) => {
             e.preventDefault();
@@ -159,16 +231,23 @@ export function useSlashCommands({ value, onChange, items, onSelect, textareaRef
           }}
           onMouseEnter={() => setHighlight(i)}
           className={[
-            'w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors',
+            'w-full grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2 text-left transition-colors',
             i === active ? 'bg-[#20202c]' : 'bg-transparent',
           ].join(' ')}
         >
           <span className="material-symbols-outlined text-[16px] text-slate-gray shrink-0" aria-hidden>
             {item.icon}
           </span>
-          <span className="text-[12px] font-mono text-soft-white shrink-0">/{item.id}</span>
-          <span className="text-[11px] text-slate-gray truncate min-w-0 flex-1">
-            {item.description}
+          <span className="min-w-0 grid gap-0.5 sm:grid-cols-[minmax(0,max-content)_minmax(0,1fr)] sm:items-baseline sm:gap-3">
+            <span
+              className="min-w-0 whitespace-nowrap truncate text-[12px] font-mono text-soft-white"
+              title={`/${item.id}`}
+            >
+              /{item.id}
+            </span>
+            <span className="text-[11px] text-slate-gray truncate min-w-0">
+              {item.description}
+            </span>
           </span>
           {item.active !== undefined ? (
             <span

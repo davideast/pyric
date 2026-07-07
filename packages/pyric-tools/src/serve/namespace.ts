@@ -1,6 +1,6 @@
 /**
  * The `/__pyric/` reserved namespace — pyric's analog of firebase serve's
- * `/__/firebase/` (see the design rationale §1/§4):
+ * `/__/firebase/` (see `plans/pyric-serve-assessment.md` §1/§4):
  *
  *   /__pyric/sdk/<file>.js   the bundled SDK files (import-map targets +
  *                            the injected init script + shared chunks)
@@ -97,6 +97,9 @@ export interface NamespaceOptions {
    *  imports `@pyric/studio`). Absent when `--ui` is off or the build is
    *  missing. */
   studioUiDir?: string;
+  /** `--ui` (Pyric Studio): the built playground app, mounted under
+   *  `/__pyric/playground/` for Studio's Playground tab. */
+  playgroundUiDir?: string;
 }
 
 /** The page's persistence backend speaks this route:
@@ -250,6 +253,22 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       // Immutable-friendly: bundle filenames are content-hashed chunks or
       // cache-keyed outputs; still no-store in dev for simplicity.
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
+      createReadStream(file).pipe(res);
+      return true;
+    }
+    if (opts.playgroundUiDir && (url.pathname === '/__pyric/playground' || url.pathname.startsWith('/__pyric/playground/'))) {
+      if (url.pathname === '/__pyric/playground') {
+        res.writeHead(301, { location: '/__pyric/playground/' }).end();
+        return true;
+      }
+      const rel = url.pathname.slice('/__pyric/playground'.length) || '/';
+      let file = resolveStaticFile(opts.playgroundUiDir, rel);
+      if (!file && !extname(rel)) file = resolveStaticFile(opts.playgroundUiDir, '/index.html');
+      if (!file) {
+        res.writeHead(404).end('not found');
+        return true;
+      }
+      res.writeHead(200, { 'content-type': contentTypeFor(file), 'cache-control': 'no-store' });
       createReadStream(file).pipe(res);
       return true;
     }

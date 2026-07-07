@@ -4,7 +4,7 @@
  * SIGINT shutdown) with the sandbox-flavored extras firebase can't do: the
  * served page runs an in-browser backend, your `firestore.rules` deploy into
  * it at page load, and unmodified `firebase/*` imports resolve to pyric via a
- * served import map (see the design rationale).
+ * served import map (see `plans/pyric-serve-assessment.md`).
  *
  * Orchestration: firebase.json (optional — warn + serve cwd without it) →
  * rules load (fail fast on broken rules) → SDK bundle (cached per pyric
@@ -14,9 +14,10 @@ import { dirname, join, resolve } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, resolvePlaygroundUiDir, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
 import {
   isStandalone,
+  materializePlaygroundUi,
   materializeServeAssets,
   materializeStudioUi,
   embeddedWorkerVersion,
@@ -290,15 +291,25 @@ export async function startServe(opts: {
   // resolved by file path (never imported), so a missing build is a clear
   // warning rather than a crash; the data routes still mount.
   let studioUiDir: string | undefined;
+  let playgroundUiDir: string | undefined;
   if (opts.ui) {
     // Standalone: the Studio app was embedded at compile time; materialize it.
     const dir = isStandalone() ? await materializeStudioUi() : resolveStudioUiDir();
+    const playgroundDir = isStandalone() ? await materializePlaygroundUi() : resolvePlaygroundUiDir();
     if (dir) {
       studioUiDir = dir;
     } else {
       logger.note(
         '  ⚠ --ui: built Studio app not found (run the full build first). ' +
           'The data routes are mounted, but /__pyric/ui/ will 404.',
+      );
+    }
+    if (playgroundDir) {
+      playgroundUiDir = playgroundDir;
+    } else {
+      logger.note(
+        '  ⚠ --ui: built Playground app not found (run the full build first). ' +
+          'The Studio data routes are mounted, but /__pyric/playground/ will 404.',
       );
     }
   }
@@ -310,6 +321,7 @@ export async function startServe(opts: {
     capture: capture ?? undefined,
     studio,
     studioUiDir,
+    playgroundUiDir,
   });
   const handle = await startStaticServer({
     publicDir,
@@ -334,7 +346,7 @@ export async function startServe(opts: {
 
   // Discovery pointer (the Claude Code plugin's stdio proxy reads this so it
   // never has to guess the dynamic port). Written next to the project state
-  // when --bridge is on; removed on clean shutdown. design rationale
+  // when --bridge is on; removed on clean shutdown. plans/pyric-plugin.
   if (mount) {
     const pointer = join(opts.cwd, '.pyric', 'serve.json');
     try {

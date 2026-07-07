@@ -235,30 +235,33 @@ describe('listSeeded + clearCollection', () => {
 
 function makeSharedBackend(): PersistenceBackend & { store: Map<string, Map<string, unknown>> } {
   const store = new Map<string, Map<string, unknown>>();
-  const bucket = (key: string) => {
-    let records = store.get(key);
-    if (!records) {
-      records = new Map<string, unknown>();
-      store.set(key, records);
+  const bucketFor = (key: string): Map<string, unknown> => {
+    let bucket = store.get(key);
+    if (!bucket) {
+      bucket = new Map();
+      store.set(key, bucket);
     }
-    return records;
+    return bucket;
   };
   return {
     store,
     async getRecord(key, recordId) {
-      return store.get(key)?.get(recordId) ?? null;
+      const value = store.get(key)?.get(recordId);
+      return value === undefined ? null : structuredClone(value);
     },
     async listRecords(key) {
       return [...(store.get(key)?.keys() ?? [])];
     },
     async putRecords(key, records) {
-      const target = bucket(key);
-      for (const [recordId, value] of records) target.set(recordId, value);
+      const bucket = bucketFor(key);
+      for (const [recordId, value] of records) {
+        bucket.set(recordId, structuredClone(value));
+      }
     },
     async deleteRecords(key, recordIds) {
-      const target = store.get(key);
-      if (!target) return;
-      for (const recordId of recordIds) target.delete(recordId);
+      const bucket = store.get(key);
+      if (!bucket) return;
+      for (const recordId of recordIds) bucket.delete(recordId);
     },
     async clear(key) {
       store.delete(key);

@@ -19,8 +19,10 @@ import {
 /** OpenRouter reasoning effort (maps to a thinking budget on thinking models). */
 export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
 
-const SELECTION_KEY = 'pyric.studio.llm.selection';
-const EFFORT_KEY = 'pyric.studio.openrouter.effort';
+const SELECTION_KEY = 'pyric.playground.llm.selection';
+const EFFORT_KEY = 'pyric.playground.openrouter.effort';
+const LEGACY_SELECTION_KEY = 'pyric.studio.llm.selection';
+const LEGACY_EFFORT_KEY = 'pyric.studio.openrouter.effort';
 const VALID_EFFORTS: readonly ReasoningEffort[] = ['off', 'low', 'medium', 'high'];
 
 export interface LlmSelection {
@@ -41,6 +43,22 @@ function isProviderId(id: string): id is ProviderId {
   return Object.prototype.hasOwnProperty.call(PROVIDERS, id);
 }
 
+function readWithLegacyMigration(
+  ls: Storage | null,
+  storageKey: string,
+  legacyStorageKey: string,
+): string | null {
+  if (!ls) return null;
+  const current = ls.getItem(storageKey);
+  if (current !== null) return current;
+  const legacy = ls.getItem(legacyStorageKey);
+  if (legacy !== null) {
+    ls.setItem(storageKey, legacy);
+    return legacy;
+  }
+  return null;
+}
+
 /** Read + validate the persisted selection, falling back to the defaults. A
  *  stale model id (provider changed its list) snaps to that provider's default. */
 function readInitial(): LlmSelection {
@@ -50,7 +68,7 @@ function readInitial(): LlmSelection {
   let effort: ReasoningEffort = 'medium';
 
   try {
-    const raw = ls?.getItem(SELECTION_KEY);
+    const raw = readWithLegacyMigration(ls, SELECTION_KEY, LEGACY_SELECTION_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as { providerId?: string; modelId?: string };
       if (parsed.providerId && isProviderId(parsed.providerId)) {
@@ -66,7 +84,7 @@ function readInitial(): LlmSelection {
     /* ignore malformed persisted selection */
   }
 
-  const rawEffort = ls?.getItem(EFFORT_KEY);
+  const rawEffort = readWithLegacyMigration(ls, EFFORT_KEY, LEGACY_EFFORT_KEY);
   if (rawEffort && VALID_EFFORTS.includes(rawEffort as ReasoningEffort)) {
     effort = rawEffort as ReasoningEffort;
   }

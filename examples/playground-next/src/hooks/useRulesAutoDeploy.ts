@@ -27,7 +27,7 @@
  * single source of truth.
  */
 import { useEffect, useRef } from 'react';
-import { getRunner } from '~/lib/sandbox/runner';
+import { deployDatabaseRules, deployFirestoreRules } from '~/lib/sandbox/runtime';
 import { useRuntimeStore } from '~/lib/store/runtime';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 
@@ -35,6 +35,7 @@ const DEBOUNCE_MS = 300;
 
 export function useRulesAutoDeploy(): void {
   const rules = useWorkspaceStore((s) => s.rules);
+  const databaseRules = useWorkspaceStore((s) => s.databaseRules);
   const setLastDeploy = useRuntimeStore((s) => s.setLastDeploy);
   /** True once the first non-empty rules value has been deployed.
    *  Survives re-renders so a debounce-eligible edit doesn't get
@@ -52,9 +53,9 @@ export function useRulesAutoDeploy(): void {
     }
 
     const deploy = (): void => {
-      const runner = getRunner();
-      const result = runner.deployRules(rules);
-      setLastDeploy({ ok: result.ok, messages: result.messages, at: Date.now() });
+      void deployFirestoreRules(rules).then((result) => {
+        setLastDeploy({ ok: result.ok, messages: result.messages, at: Date.now() });
+      });
     };
 
     if (!firstDeployedRef.current) {
@@ -68,4 +69,15 @@ export function useRulesAutoDeploy(): void {
     const id = setTimeout(deploy, DEBOUNCE_MS);
     return () => clearTimeout(id);
   }, [rules, setLastDeploy]);
+
+  useEffect(() => {
+    if (databaseRules.trim().length === 0) return;
+
+    const id = setTimeout(() => {
+      void deployDatabaseRules(databaseRules).then((result) => {
+        setLastDeploy({ ok: result.ok, messages: result.messages, at: Date.now() });
+      });
+    }, firstDeployedRef.current ? DEBOUNCE_MS : 0);
+    return () => clearTimeout(id);
+  }, [databaseRules, setLastDeploy]);
 }

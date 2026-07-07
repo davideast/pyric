@@ -35,6 +35,7 @@ import {
   SessionError,
   type SessionMeta,
   type SessionPayload,
+  type PlaygroundSandboxMode,
 } from '~/lib/sessions';
 import { reportAutosave } from '~/lib/store/autosave';
 import { disposeSessionsSandbox, getSessionsSandbox } from '~/lib/sessions/sandbox';
@@ -51,6 +52,12 @@ import { useSkillsStore } from '~/lib/store/skills';
 import { useGithubSessionStore } from '~/lib/store/github-session';
 import { useTraceStore } from '~/lib/store/trace';
 import { useWorkspaceStore } from '~/lib/store/workspace';
+import {
+  isStudioEmbedSearch,
+  playgroundHomeHref,
+  readPlaygroundSandboxMode,
+} from '~/lib/studio-embed';
+import { setActivePlaygroundSandboxMode } from '~/lib/sandbox/runtime';
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 
@@ -76,6 +83,8 @@ export interface SessionRoutingState {
   takeOver: () => Promise<void>;
   /** GitHub repo linked at session creation (home page). */
   githubRepo: SessionMeta['githubRepo'] | null;
+  sandboxMode: PlaygroundSandboxMode;
+  setSandboxMode: (mode: PlaygroundSandboxMode) => Promise<void>;
 }
 
 export function useSessionRouting(): SessionRoutingState {
@@ -84,13 +93,23 @@ export function useSessionRouting(): SessionRoutingState {
   const [error, setError] = useState<string | null>(null);
   const [isWriter, setIsWriter] = useState(true);
   const [githubRepo, setGithubRepo] = useState<SessionMeta['githubRepo'] | null>(null);
+  const [sandboxMode, setSandboxModeState] = useState<PlaygroundSandboxMode>(() =>
+    typeof window === 'undefined' ? 'isolated' : readPlaygroundSandboxMode(window.location.search),
+  );
   /** Stable linked repo for autosave — mirrors `githubRepo` state. */
   const githubRepoRef = useRef<SessionMeta['githubRepo'] | null>(null);
+  const sandboxModeRef = useRef<PlaygroundSandboxMode>(sandboxMode);
 
   const applyGithubRepo = useCallback((repo: SessionMeta['githubRepo'] | null) => {
     githubRepoRef.current = repo;
     setGithubRepo(repo);
     useGithubSessionStore.getState().setLinkedRepo(repo);
+  }, []);
+
+  const applySandboxMode = useCallback((mode: PlaygroundSandboxMode) => {
+    sandboxModeRef.current = mode;
+    setActivePlaygroundSandboxMode(mode);
+    setSandboxModeState(mode);
   }, []);
 
   /** True during the initial hydration pass — the auto-save effect
@@ -124,10 +143,17 @@ export function useSessionRouting(): SessionRoutingState {
   // ─── Hydration ─────────────────────────────────────────────────────
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const embedded = isStudioEmbedSearch(window.location.search);
+    const fallbackMode = readPlaygroundSandboxMode(window.location.search);
+    applySandboxMode(fallbackMode);
+    const homeHref = playgroundHomeHref({
+      base: import.meta.env.BASE_URL,
+      embedded,
+    });
     const id = new URLSearchParams(window.location.search).get('session');
     if (!id) {
       // Direct navigation to /playground without a session → home.
-      window.location.replace('/');
+      window.location.replace(homeHref);
       return;
     }
     setSessionId(id);
@@ -174,6 +200,7 @@ export function useSessionRouting(): SessionRoutingState {
         const { meta, payload } = await loadSession(userId, id);
         if (cancelled) return;
         applyGithubRepo(meta.githubRepo ?? null);
+        applySandboxMode(meta.sandboxMode ?? fallbackMode);
         hydratedSessionRef.current = id;
         applyPayload(payload);
         hydratingRef.current = false;
@@ -191,7 +218,7 @@ export function useSessionRouting(): SessionRoutingState {
           // The id in the URL doesn't correspond to a session this
           // user owns. Best UX is to drop back to home rather than
           // render a stuck "loading" screen.
-          window.location.replace('/');
+          window.location.replace(homeHref);
           return;
         }
         setError(e instanceof Error ? e.message : String(e));
@@ -206,7 +233,7 @@ export function useSessionRouting(): SessionRoutingState {
       lockRef.current?.release();
       lockRef.current = null;
     };
-  }, [applyWriterStatus, applyGithubRepo]);
+  }, [applyWriterStatus, applyGithubRepo, applySandboxMode]);
 
   // ─── Take over (read-only tab → writer) ─────────────────────────────
   const takeOver = useCallback(async () => {
@@ -231,13 +258,48 @@ export function useSessionRouting(): SessionRoutingState {
       const { meta, payload } = await loadSession(target.userId, target.sessionId);
       hydratingRef.current = true;
       applyGithubRepo(meta.githubRepo ?? null);
+      applySandboxMode(meta.sandboxMode ?? sandboxModeRef.current);
       applyPayload(payload);
     } catch (e) {
       console.warn('[playground] take-over re-sync failed:', e);
     } finally {
       hydratingRef.current = false;
     }
-  }, [applyWriterStatus, applyGithubRepo]);
+  }, [applyWriterStatus, applyGithubRepo, applySandboxMode]);
+
+  const setSandboxMode = useCallback(
+    async (mode: PlaygroundSandboxMode) => {
+      const target = targetRef.current;
+      if (mode === sandboxModeRef.current) return;
+      if (!target) return;
+      if (lockRef.current && lockRef.current.status() !== 'writer') return;
+
+      const payload = capturePayload();
+      reportAutosave({ status: 'saving' });
+      try {
+        await saveSession(target.userId, {
+          id: target.sessionId,
+          payload,
+          sandboxMode: mode,
+          ...(githubRepoRef.current ? { githubRepo: githubRepoRef.current } : {}),
+        });
+        try {
+          await getSessionsSandbox().getSandbox().flush();
+        } catch {
+          /* persistence not enabled / flush raced disposal — best-effort */
+        }
+        applySandboxMode(mode);
+        reportAutosave({ status: 'saved', at: Date.now() });
+      } catch (e) {
+        reportAutosave({
+          status: 'error',
+          message: e instanceof Error ? e.message : String(e),
+        });
+        throw e;
+      }
+    },
+    [applySandboxMode],
+  );
 
   // ─── Auto-save ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -262,6 +324,7 @@ export function useSessionRouting(): SessionRoutingState {
         await saveSession(target.userId, {
           id: target.sessionId,
           payload,
+          sandboxMode: sandboxModeRef.current,
           ...(githubRepoRef.current ? { githubRepo: githubRepoRef.current } : {}),
         });
         reportAutosave({ status: 'saved', at: Date.now() });
@@ -327,7 +390,16 @@ export function useSessionRouting(): SessionRoutingState {
     };
   }, [loaded]);
 
-  return { sessionId, loaded, error, isWriter, takeOver, githubRepo };
+  return {
+    sessionId,
+    loaded,
+    error,
+    isWriter,
+    takeOver,
+    githubRepo,
+    sandboxMode,
+    setSandboxMode,
+  };
 }
 
 function applyPayload(payload: SessionPayload): void {
@@ -340,6 +412,7 @@ function applyPayload(payload: SessionPayload): void {
   // script editor; it's intentionally ignored on load now.
   const ws = useWorkspaceStore.getState();
   ws.setRules(payload.workspace.rules);
+  ws.setDatabaseRules(payload.workspace.databaseRules ?? '');
   ws.setAppSource(payload.workspace.appSource);
 
   // Chat — clear any pre-existing messages, then append from the
@@ -364,6 +437,7 @@ function capturePayload(): SessionPayload {
     version: 1,
     workspace: {
       rules: ws.rules,
+      databaseRules: ws.databaseRules,
       // `code` was the sandbox-script editor body; retained as an
       // empty string in the payload so older session readers don't
       // break on a missing field.

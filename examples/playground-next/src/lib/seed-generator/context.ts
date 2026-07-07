@@ -6,7 +6,7 @@ import type { SeedUser } from 'pyric/auth';
 import { deriveIdentities } from '~/lib/agent/spec/derive';
 import { readAppSpecFromVfs, SPEC_PATH } from '~/lib/conformance/conformance-check';
 import type { AppSpecV1 } from '~/lib/agent/spec/schema';
-import { getRunner } from '~/lib/sandbox/runner';
+import { readFirestoreState } from '~/lib/sandbox/runtime';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 import { TESTS_DIR } from '~/lib/tools/core/runWorkspaceTests';
 import { getVFS } from '~/lib/vfs';
@@ -119,7 +119,7 @@ export async function buildSeedContextBundle(
   const testSeeds = await readTestSeeds(readFile);
   const rulesCollections = extractCollectionNamesFromRules(rules);
   const appCollections = extractCollectionNamesFromApp(appSource);
-  const existingCollections = rootCollectionIds(getRunner().readState());
+  const existingCollections = rootCollectionIds(await readFirestoreState());
 
   const authoritativeIdentities = spec ? deriveIdentities(spec) : null;
 

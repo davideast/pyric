@@ -5,7 +5,7 @@
  * dist`, a team keeps `vite dev` (HMR, source maps) with the in-process sandbox
  * standing in for Firebase. The app's `firebase/*` imports are UNCHANGED — the
  * plugin swaps them at the module-resolution layer (`resolveId`), the same way
- * `pyric serve` swaps via a runtime import map. (Design: the design rationale.)
+ * `pyric serve` swaps via a runtime import map. (Design: `plans/pyric-vite-plugin.md`.)
  *
  * Dev-only (`apply: 'serve'`): a production `vite build` ships the real `firebase`
  * package — the swap is a development affordance and never reaches prod output.
@@ -45,6 +45,7 @@ import {
   collectFirebaseBindings,
   stubModuleSource,
   defaultSdkEntries,
+  resolvePlaygroundUiDir,
   resolveStudioUiDir,
   pyricPackageRoot,
   bundleWorker,
@@ -430,11 +431,19 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
           }
         : undefined;
       let studioUiDir: string | undefined;
+      let playgroundUiDir: string | undefined;
       if (uiEnabled) {
         studioUiDir = resolveStudioUiDir() ?? undefined;
+        playgroundUiDir = resolvePlaygroundUiDir() ?? undefined;
         if (!studioUiDir) {
           server.config.logger.warn(
             '[pyric] ui: built Studio app not found; /__pyric/ui/ will 404 ' +
+              '(run the full build, or reinstall pyric-tools).',
+          );
+        }
+        if (!playgroundUiDir) {
+          server.config.logger.warn(
+            '[pyric] ui: built Playground app not found; /__pyric/playground/ will 404 ' +
               '(run the full build, or reinstall pyric-tools).',
           );
         }
@@ -447,6 +456,7 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         capture,
         studio,
         studioUiDir,
+        playgroundUiDir,
       });
 
       // DNS-rebinding guard for the /__pyric/* surface. Vite has its own host

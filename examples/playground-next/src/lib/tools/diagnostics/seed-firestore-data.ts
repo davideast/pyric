@@ -40,7 +40,7 @@
  * callbacks N times.
  */
 import type { ToolHandler, ToolResult } from '@inbrowser/agent';
-import { getRunner } from '~/lib/sandbox/runner';
+import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 import { generateDocId } from '~/lib/sandbox/seed-apply';
 
 /** Hard cap. Above this, reject the whole call — never silently
@@ -139,12 +139,7 @@ export function buildSeedFirestoreDataHandler(): ToolHandler {
       }
       const operations = parsed.operations;
 
-      // Admin surface via the runner singleton (constructs at first
-      // call, idempotent — no warm-up handshake needed). MUST be the
-      // runner's `admin` wrapper, not `getSandbox().admin`: admin
-      // writes emit no sandbox events, so only the wrapper's
-      // scheduled flush gets seeded data into the persisted blob.
-      const admin = getRunner().admin;
+      const runtime = getPlaygroundRuntime();
 
       let applied = 0;
       const errors: SeedError[] = [];
@@ -177,7 +172,7 @@ export function buildSeedFirestoreDataHandler(): ToolHandler {
               target = `${segments.join('/')}/${generateDocId()}`;
               generated.push(target);
             }
-            admin.setDocument(target, op.data);
+            await runtime.adminSetDocument(target, op.data);
             applied++;
           } else {
             // method === 'delete' — `data` field (if any) is silently
@@ -186,7 +181,7 @@ export function buildSeedFirestoreDataHandler(): ToolHandler {
             // path returns `{ deleted: false }` without throwing, but
             // we still count it as "applied" because the OPERATION
             // succeeded (the post-state matches what was requested).
-            admin.deleteDocument(op.path);
+            await runtime.adminDeleteDocument(op.path);
             applied++;
           }
         } catch (e) {

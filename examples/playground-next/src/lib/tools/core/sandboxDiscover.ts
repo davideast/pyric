@@ -23,29 +23,11 @@
 import type { ToolHandler } from '@inbrowser/agent';
 import { createFirestoreDiscoverTools } from 'pyric-tools/discover';
 import { trimDiscoverResult } from '../diagnostics/firestore-discover';
-import { getRunner } from '~/lib/sandbox/runner';
 import { createSandboxCrawlerFirestore } from '~/lib/sandbox/crawler-firestore';
+import { readFirestoreState } from '~/lib/sandbox/runtime';
 
 export function buildSandboxDiscoverHandler(): ToolHandler {
-  const firestore = createSandboxCrawlerFirestore(() =>
-    getRunner().readState() as Record<string, unknown>,
-  );
-  // The sandbox crawler-firestore satisfies the structural
-  // `CrawlerFirestore` subset `createFirestoreDiscoverTools` uses. The
-  // `collectionGroup` method is also present (sandbox-backed), so the
-  // shape line up cleanly — no admin-only methods are reachable.
-  const tools = createFirestoreDiscoverTools({
-    resolveDb: () => firestore as never,
-  });
-  const discover = tools.find((t) => t.name === 'firestore_discover_paths');
-  if (!discover) {
-    throw new Error(
-      'sandbox_discover_paths: createFirestoreDiscoverTools did not return firestore_discover_paths — @pyric/firestore contract changed.',
-    );
-  }
-  const inner = discover.execute;
   return {
-    ...discover,
     name: 'sandbox_discover_paths',
     parallelSafe: true, // read-only (0.2.0 parallelDispatch)
     description:
@@ -53,7 +35,22 @@ export function buildSandboxDiscoverHandler(): ToolHandler {
       'Use this when the user asks about "my data", "what collections do I have", "show me my schema", or before generating rules/code that needs to know the shape of the data. ' +
       'This reads the sandbox state populated by prior `runOnce` calls or by your `writeCode` seeds — it does NOT need a signed-in Firebase project. If the sandbox is empty (no `runOnce` has populated it yet), the result will be empty; in that case write+run a seed first.',
     async execute(args, ctx) {
-      const result = await inner(args, ctx);
+      const snapshot = await readFirestoreState();
+      const firestore = createSandboxCrawlerFirestore(() => snapshot);
+      // The sandbox crawler-firestore satisfies the structural
+      // `CrawlerFirestore` subset `createFirestoreDiscoverTools` uses. The
+      // `collectionGroup` method is also present (sandbox-backed), so the
+      // shape line up cleanly — no admin-only methods are reachable.
+      const tools = createFirestoreDiscoverTools({
+        resolveDb: () => firestore as never,
+      });
+      const discover = tools.find((t) => t.name === 'firestore_discover_paths');
+      if (!discover) {
+        throw new Error(
+          'sandbox_discover_paths: createFirestoreDiscoverTools did not return firestore_discover_paths — @pyric/firestore contract changed.',
+        );
+      }
+      const result = await discover.execute(args, ctx);
       if (result.ok) return { ...result, data: trimDiscoverResult(result.data) };
       return result;
     },

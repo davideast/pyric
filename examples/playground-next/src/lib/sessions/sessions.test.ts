@@ -140,6 +140,44 @@ describe('saveSession + loadSession', () => {
     expect(loaded.meta.githubRepo?.htmlUrl).toBe(linked.htmlUrl);
   });
 
+  it('round-trips sandboxMode and preserves it across autosaves', async () => {
+    await freshSandbox();
+    const first = await saveSession(ALICE, {
+      id: 's-sandbox',
+      payload: makePayload('with sandbox mode'),
+      sandboxMode: 'shared',
+    });
+    expect(first.sandboxMode).toBe('shared');
+
+    const second = await saveSession(ALICE, {
+      id: 's-sandbox',
+      payload: makePayload('autosaved'),
+    });
+    expect(second.sandboxMode).toBe('shared');
+
+    const changed = await saveSession(ALICE, {
+      id: 's-sandbox',
+      payload: makePayload('mode changed'),
+      sandboxMode: 'isolated',
+    });
+    expect(changed.sandboxMode).toBe('isolated');
+
+    const loaded = await loadSession(ALICE, 's-sandbox');
+    expect(loaded.meta.sandboxMode).toBe('isolated');
+  });
+
+  it('keeps legacy sessions without sandboxMode valid', async () => {
+    await freshSandbox();
+    const meta = await saveSession(ALICE, {
+      id: 's-legacy',
+      payload: makePayload('legacy'),
+    });
+    expect(meta.sandboxMode).toBeUndefined();
+
+    const loaded = await loadSession(ALICE, 's-legacy');
+    expect(loaded.meta.sandboxMode).toBeUndefined();
+  });
+
   it('round-trips local trace telemetry in the payload', async () => {
     await freshSandbox();
     const payload: SessionPayload = {

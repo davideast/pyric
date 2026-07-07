@@ -59,7 +59,7 @@ import {
   SimulateFirestoreRulesHandler,
   type TestCase,
 } from 'pyric/rules';
-import { getRunner } from '~/lib/sandbox/runner';
+import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 import {
   classifyFixResults,
   classifyRegressions,
@@ -100,7 +100,16 @@ export function buildTryRulesEditHandler(): ToolHandler<TryRulesEditArgs, TryRul
       required: ['proposedRules'],
     },
     async execute(args) {
-      const sandbox = getRunner().getSandbox();
+      let sandbox;
+      try {
+        sandbox = getPlaygroundRuntime().requireInProcessRunner('try_rules_edit').getSandbox();
+      } catch (e) {
+        return {
+          ok: false,
+          summary: `try_rules_edit · ${e instanceof Error ? e.message : String(e)}`,
+          data: emptyData(),
+        };
+      }
       const events: SandboxEvent[] = sandbox.history();
       const env = getInternalEnv(sandbox);
       const originalState = env.snapshot();

@@ -27,7 +27,7 @@ export function ThemeSwitcher() {
   return (
     <button
       type="button"
-      className="studio__iconbtn"
+      className="studio-theme-toggle"
       data-testid="theme-switch"
       data-theme-choice={choice}
       aria-label={`Theme: ${LABEL[choice]}. Click to change.`}

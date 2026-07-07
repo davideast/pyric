@@ -6,7 +6,7 @@
  * NOT in localStorage settings.
  *
  * Consumers:
- *   - `SkillChips` (composer UI) — toggle + display
+ *   - `AgentModeControl` (composer UI) — toggle + display
  *   - `buildSystemPrompt` / `buildClaudeLanePrompt` — inject briefs
  *   - agent-shell `man` — expose active skills' pages
  *   - tools listing — merge active skills' tool handlers

@@ -1,8 +1,6 @@
 /**
- * A tiny module store for "is the AI settings page open", so any surface (the
- * model selector's "Set key", an assist's "no API key" prompt) can open it
- * without threading props through the shell. Mirrors the `navigation.tsx`
- * module-store + `useSyncExternalStore` pattern.
+ * Compatibility navigation hook for AI settings. Settings is a first-class tab
+ * in Studio V1; callers that previously opened the modal now route there.
  */
 
 import { useSyncExternalStore } from 'react';
@@ -15,6 +13,7 @@ function emit(): void {
 }
 
 export function openSettings(): void {
+  if (typeof window !== 'undefined') window.location.hash = 'settings';
   if (open) return;
   open = true;
   emit();

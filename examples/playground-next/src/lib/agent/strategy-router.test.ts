@@ -71,6 +71,19 @@ describe('routePrompt', () => {
       routePrompt('Lock down the comments collection so only the post owner can delete').strategy,
     ).toBe('draft-validate');
   });
+
+  test('Firebase tooling profile routes to react even for build/data/security-shaped prompts', () => {
+    const d = routePrompt(DV_PROMPT, { promptProfile: 'firebase-tooling' });
+    expect(d.strategy).toBe('react');
+    expect(d.reason).toContain('firebase-tooling');
+  });
+
+  test('active skill strategy preference routes without becoming a user override', () => {
+    const d = routePrompt(DV_PROMPT, { strategyPreference: 'react' });
+    expect(d.strategy).toBe('react');
+    expect(d.source).toBe('heuristic');
+    expect(d.reason).toContain('active skill prefers react');
+  });
 });
 
 // ─── createRoutedStrategy — delegation, override, escalation ─────────
@@ -114,6 +127,21 @@ describe('createRoutedStrategy', () => {
     expect(routedEv && 'data' in routedEv ? (routedEv.data as { strategy: string }).strategy : null).toBe('draft-validate');
     expect(dv.calls.length).toBe(1);
     expect(react.calls.length).toBe(0);
+  });
+
+  test('Firebase tooling profile does not enter draft-validate', async () => {
+    const react = stubStrategy('react', [{ kind: 'text', chunk: 'r' }]);
+    const dv = stubStrategy('dv', [{ kind: 'text', chunk: 'd' }]);
+    const routed = createRoutedStrategy({
+      makeReact: () => react,
+      makeDraftValidate: () => dv,
+      promptProfile: 'firebase-tooling',
+    });
+    const events = await collect(routed, makeInput(DV_PROMPT));
+    const routedEv = events.find((e) => e.kind === 'custom' && e.name === 'strategy_routed');
+    expect(routedEv && 'data' in routedEv ? (routedEv.data as { strategy: string }).strategy : null).toBe('react');
+    expect(react.calls.length).toBe(1);
+    expect(dv.calls.length).toBe(0);
   });
 
   test('explicit override ALWAYS wins over the heuristic', async () => {

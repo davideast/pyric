@@ -96,11 +96,26 @@ import {
   getMetadata as storageGetMetadata,
   type FirebaseStorage,
 } from 'pyric/storage';
+import {
+  getDatabase as pyricGetDatabase,
+  ref as rtdbRef,
+  get as rtdbGet,
+  set as rtdbSet,
+  update as rtdbUpdate,
+  remove as rtdbRemove,
+  onValue as rtdbOnValue,
+  serverTimestamp as rtdbServerTimestamp,
+  sandbox as rtdbSandbox,
+  type Database,
+  type DatabaseReference,
+  type DataSnapshot,
+} from 'pyric/database/modular';
 
 import type {
   InboundMessage,
   OpMessage,
   FirestoreSubMessage,
+  RtdbValueSubMessage,
   UnsubMessage,
   ToolMessage,
   TargetDescriptor,
@@ -115,6 +130,7 @@ import {
   isSentinelMarker,
   isAuthSub,
   isEventSub,
+  isRtdbSub,
 } from './protocol.js';
 // The canonical agent tool dispatcher — reused on the worker so a bridged agent
 // executes against THIS sandbox (one backend for app + Studio + agent), instead
@@ -283,6 +299,18 @@ function resolveSentinels(value: unknown): unknown {
   return value;
 }
 
+function resolveRtdbSentinels(value: unknown): unknown {
+  if (value && typeof value === 'object') {
+    const marker = value as { __rtdbSentinel?: unknown };
+    if (marker.__rtdbSentinel === 'serverTimestamp') return rtdbServerTimestamp();
+    if (Array.isArray(value)) return value.map(resolveRtdbSentinels);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = resolveRtdbSentinels(v);
+    return out;
+  }
+  return value;
+}
+
 function resolveSentinel(marker: SentinelMarker): unknown {
   switch (marker.__sentinel) {
     case 'serverTimestamp': return serverTimestamp();
@@ -428,6 +456,58 @@ function sessionDb(ctx: HostCtx, port: PortLike): Firestore {
  *  `pyric/storage` ops enforce rules, so the host reads through them. */
 function ensureStorage(ctx: HostCtx): FirebaseStorage {
   return (ctx.storage ??= getStorage(initializeApp({ sandbox: ctx.sandbox })));
+}
+
+function ensureRtdb(ctx: HostCtx): Database {
+  return (ctx.rtdb ??= pyricGetDatabase(ctx.sandbox));
+}
+
+async function bestEffortFlush(ctx: HostCtx): Promise<void> {
+  try {
+    await ctx.sandbox.flush?.();
+  } catch {
+    // Admin playground writes should report the mutation result. Persistence
+    // flush failures are lifecycle/diagnostic events, not write denials.
+  }
+}
+
+function rtdbSnapToWire(snap: DataSnapshot): unknown {
+  return {
+    key: snap.key,
+    exists: snap.exists(),
+    value: snap.val(),
+    size: snap.size,
+  };
+}
+
+function normalizeDatabaseRules(source: unknown): { rules: Record<string, unknown> } | null {
+  if (source === null) return null;
+  if (typeof source === 'string') {
+    return JSON.parse(source) as { rules: Record<string, unknown> };
+  }
+  if (typeof source === 'object' && source !== null) {
+    return source as { rules: Record<string, unknown> };
+  }
+  throw new Error('RTDB rules must be a rules JSON object or JSON string.');
+}
+
+function firestoreRuleMessages(result: { warnings?: Array<{ severity?: string; message?: string }>; parseError?: { line?: number; column?: number; expected?: unknown; actual?: string } | null }) {
+  const messages: Array<{ severity: 'info' | 'warn' | 'error'; text: string; line?: number; column?: number }> = [];
+  if (result.parseError) {
+    messages.push({
+      severity: 'error',
+      text: `PARSE ERROR: expected ${String(result.parseError.expected ?? 'valid rules')}`,
+      line: result.parseError.line,
+      column: result.parseError.column,
+    });
+  }
+  for (const warning of result.warnings ?? []) {
+    messages.push({
+      severity: warning.severity === 'error' ? 'error' : warning.severity === 'warning' ? 'warn' : 'info',
+      text: String(warning.message ?? warning),
+    });
+  }
+  return messages;
 }
 
 async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
@@ -672,10 +752,156 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
       break;
     }
 
-    case 'setRules': {
+    case 'setRules':
+    case 'setFirestoreRules': {
       try {
         const result = sandboxOps.setRules(db, msg.source);
-        ok(port, msg.id, { warnings: result.warnings });
+        const messages = firestoreRuleMessages(result);
+        const okDeploy = !messages.some((m) => m.severity === 'error');
+        ctx.activeRules ??= {};
+        const previous = ctx.activeRules.firestore?.status === 'active'
+          ? ctx.activeRules.firestore.source
+          : ctx.activeRules.firestore?.lastKnownGood;
+        ctx.activeRules.firestore = {
+          source: okDeploy ? msg.source : ctx.activeRules.firestore?.source ?? msg.source,
+          updatedAt: Date.now(),
+          status: okDeploy ? 'active' : 'error',
+          messages,
+          ...(previous ? { lastKnownGood: previous } : {}),
+        };
+        ok(port, msg.id, { warnings: result.warnings, messages, ok: okDeploy });
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'setDatabaseRules': {
+      try {
+        const db = ensureRtdb(ctx);
+        const rules = normalizeDatabaseRules(msg.source);
+        const previous = ctx.activeRules?.database?.status === 'active'
+          ? ctx.activeRules.database.source
+          : ctx.activeRules?.database?.lastKnownGood;
+        rtdbSandbox.setRules(db, rules);
+        ctx.activeRules ??= {};
+        ctx.activeRules.database = {
+          source: rules,
+          updatedAt: Date.now(),
+          status: 'active',
+          messages: [],
+          ...(previous ? { lastKnownGood: previous } : {}),
+        };
+        ok(port, msg.id, { ok: true, messages: [] });
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'getActiveRules': {
+      ok(port, msg.id, msg.service ? ctx.activeRules?.[msg.service] ?? null : ctx.activeRules ?? {});
+      break;
+    }
+
+    case 'getRulesStatus': {
+      ok(port, msg.id, msg.service ? ctx.activeRules?.[msg.service] ?? null : ctx.activeRules ?? {});
+      break;
+    }
+
+    case 'admin.getDocument': {
+      try {
+        ok(port, msg.id, ctx.sandbox.admin.getDocument(msg.path));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'admin.listDocuments': {
+      try {
+        ok(port, msg.id, ctx.sandbox.admin.listDocuments(msg.path));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'admin.setDocument': {
+      try {
+        ctx.sandbox.admin.setDocument(msg.path, msg.data as Record<string, unknown>);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'admin.deleteDocument': {
+      try {
+        const deleted = ctx.sandbox.admin.deleteDocument(msg.path);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, deleted);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'admin.readState': {
+      try {
+        const snap = sandboxOps.snapshotState(ctx.adminDb ?? lensDb(ctx, { mode: 'admin' }));
+        const out: Record<string, unknown> = {};
+        const prefix = msg.path ?? '';
+        for (const [path, data] of Object.entries(snap)) {
+          if (prefix && !path.startsWith(prefix)) continue;
+          if (msg.maxDepth !== undefined && path.split('/').length > msg.maxDepth) continue;
+          out[path] = data;
+        }
+        ok(port, msg.id, out);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.get': {
+      try {
+        ok(port, msg.id, rtdbSnapToWire(await rtdbGet(rtdbRef(ensureRtdb(ctx), msg.path))));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.set': {
+      try {
+        const value = resolveRtdbSentinels(msg.value);
+        await rtdbSet(rtdbRef(ensureRtdb(ctx), msg.path), value as never);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.update': {
+      try {
+        await rtdbUpdate(rtdbRef(ensureRtdb(ctx), msg.path), resolveRtdbSentinels(msg.values) as Record<string, unknown>);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.remove': {
+      try {
+        await rtdbRemove(rtdbRef(ensureRtdb(ctx), msg.path));
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.push': {
+      try {
+        const childPath = `${msg.path}/${msg.key}`;
+        if (msg.value !== undefined) {
+          await rtdbSet(
+            rtdbRef(ensureRtdb(ctx), childPath),
+            resolveRtdbSentinels(msg.value) as never,
+          );
+        }
+        const normalizedPath = `/${childPath.split('/').filter(Boolean).join('/')}`;
+        ok(port, msg.id, { key: msg.key, path: normalizedPath });
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'rtdb.adminSnapshot': {
+      try {
+        ok(port, msg.id, rtdbSandbox.snapshotState(ensureRtdb(ctx)));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -921,6 +1147,24 @@ function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void
   portSubs.set(msg.subId, unsub);
 }
 
+function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessage): void {
+  ensurePortSubs(ctx, port);
+  const portSubs = ctx.subs.get(port)!;
+  if (portSubs.has(msg.subId)) return;
+
+  try {
+    const ref = rtdbRef(ensureRtdb(ctx), msg.target.path);
+    const unsub = rtdbOnValue(
+      ref as DatabaseReference,
+      (snap) => post(port, { t: 'snap', subId: msg.subId, value: rtdbSnapToWire(snap) }),
+    );
+    portSubs.set(msg.subId, unsub);
+  } catch (e) {
+    const { code, message } = serializeError(e);
+    post(port, { t: 'snap', subId: msg.subId, value: { __error: { code, message } } });
+  }
+}
+
 /** Register the real sandbox listener for a resolved target; returns its unsub.
  *  Split out of handleSub so the throwing surface (resolveTarget + onSnapshot)
  *  is inside handleSub's try/catch. */
@@ -1036,6 +1280,8 @@ export async function handleMessage(
       handleAuthSub(ctx, port, msg);
     } else if (isEventSub(msg)) {
       handleEventSub(ctx, port, msg);
+    } else if (isRtdbSub(msg)) {
+      handleRtdbSub(ctx, port, msg);
     } else {
       handleSub(ctx, port, msg);
     }

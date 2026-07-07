@@ -27,6 +27,8 @@ import type {
   PersistedTraceTelemetryV1,
 } from '../store/trace';
 
+export type PlaygroundSandboxMode = 'shared' | 'isolated';
+
 /** Metadata visible on the home page session list. */
 export interface SessionMeta {
   /** UUID v4 minted when the session was first saved. */
@@ -66,6 +68,8 @@ export interface SessionMeta {
     private: boolean;
     linkedAt: number;
   };
+  /** Runtime backing for the playground session. Legacy sessions omit it. */
+  sandboxMode?: PlaygroundSandboxMode;
 }
 
 export interface SessionRemoteExportMeta {
@@ -96,6 +100,7 @@ export interface SessionPayload {
   version: 1;
   workspace: {
     rules: string;
+    databaseRules?: string;
     code: string;
     appSource: string;
   };
@@ -141,6 +146,8 @@ export interface SessionSaveInput {
   /** Linked GitHub repo metadata — written on first save when the home
    *  page creates a repo; preserved across subsequent autosaves. */
   githubRepo?: SessionMeta['githubRepo'];
+  /** Runtime backing for this session; preserved across autosaves. */
+  sandboxMode?: PlaygroundSandboxMode;
 }
 
 /** Error code surfaced by sessions APIs. */

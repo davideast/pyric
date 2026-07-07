@@ -40,6 +40,7 @@ import {
   type SessionDoc,
   type SessionMeta,
   type SessionPayload,
+  type PlaygroundSandboxMode,
   type SessionRemoteExportMeta,
   type SessionSaveInput,
 } from './types';
@@ -47,6 +48,7 @@ import {
 export type {
   SessionMeta,
   SessionPayload,
+  PlaygroundSandboxMode,
   SessionRemoteExportMeta,
   SessionSaveInput,
 } from './types';
@@ -238,6 +240,11 @@ export async function saveSession(
       : priorData?.githubRepo
         ? { githubRepo: priorData.githubRepo }
         : {}),
+    ...(input.sandboxMode
+      ? { sandboxMode: input.sandboxMode }
+      : normalizeSandboxMode(priorData?.sandboxMode)
+        ? { sandboxMode: normalizeSandboxMode(priorData?.sandboxMode) }
+        : {}),
   };
 
   const docToWrite: SessionDoc = {
@@ -353,7 +360,14 @@ function toMeta(raw: Partial<SessionDoc>, id: string): SessionMeta {
           },
         }
       : {}),
+    ...(normalizeSandboxMode(raw.sandboxMode)
+      ? { sandboxMode: normalizeSandboxMode(raw.sandboxMode) }
+      : {}),
   };
+}
+
+function normalizeSandboxMode(value: unknown): PlaygroundSandboxMode | undefined {
+  return value === 'shared' || value === 'isolated' ? value : undefined;
 }
 
 function coerceMillis(value: unknown): number | undefined {

@@ -9,7 +9,7 @@
  *
  * The function reuses the same relay singleton the Astro endpoints
  * use (`src/lib/server/relay.ts`); the `createExpressHandlers` shim
- * from `@inbrowser/relay` adapts the Web-standard
+ * from `@inbrowser/relay/adapters/express` adapts the Web-standard
  * relay output to the Functions-Framework `(req, res)` shape.
  *
  * Bundled to `lib/index.js` by `scripts/build-fn.ts` (Bun, target

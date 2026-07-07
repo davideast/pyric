@@ -23,6 +23,7 @@ import { buildSandboxDiscoverHandler } from './sandboxDiscover';
 import { buildFirestoreExtractIndexesHandler } from './firestoreExtractIndexes';
 import { buildFirestoreRulesStdlibHandlers } from './firestoreRulesStdlib';
 import { inspectDenialHandler } from './inspectDenial';
+import { buildSeedFirestoreDataHandler } from '../diagnostics/seed-firestore-data';
 
 import { runWorkspaceTestsHandler } from './runWorkspaceTests';
 import { bashHandler } from './bash';
@@ -40,6 +41,7 @@ export const CORE_TOOLS: readonly ToolHandler[] = [
   buildFirestoreExtractIndexesHandler(),
   ...buildFirestoreRulesStdlibHandlers(),
   inspectDenialHandler,
+  buildSeedFirestoreDataHandler(),
   // W1 dev loop: one call runs the whole /workspace/tests suite.
   runWorkspaceTestsHandler as ToolHandler,
   // W2.1 bash action surface: persistent workspace shell + builtins.

@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import type { CompactionMarker } from '~/lib/agent/context-management';
 import { useWorkspaceStore } from '~/lib/store/workspace';
-import { APP_ENTRY_PATH, RULES_PATH } from '~/lib/store/files';
+import { APP_ENTRY_PATH, DATABASE_RULES_PATH, RULES_PATH } from '~/lib/store/files';
 import type { DelegatedActivity } from '~/lib/llm/claude-transcript';
 
 export type { DelegatedActivity };
@@ -288,6 +288,7 @@ function shadowPriorFor(path: string): string | undefined {
   // the pre-agent content for the session's first write to them.
   const ws = useWorkspaceStore.getState();
   if (path === RULES_PATH) return ws.rules;
+  if (path === DATABASE_RULES_PATH) return ws.databaseRules;
   if (path === APP_ENTRY_PATH) return ws.appSource;
   return undefined;
 }

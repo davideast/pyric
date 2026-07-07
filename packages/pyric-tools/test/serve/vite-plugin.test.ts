@@ -3,7 +3,7 @@
  *  resolution check through a real Vite pluginContainer (middlewareMode, binds no
  *  port), and the /__pyric runtime surface by driving the captured connect
  *  middleware with mock req/res (NO real dev server — see the integration block's
- *  header for why). The full browser e2e lives in the M1 validation (design rationale §7b). */
+ *  header for why). The full browser e2e lives in the M1 spike (plans/pyric-vite-plugin.md §7b). */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import path, { join } from 'node:path';
 import { Writable } from 'node:stream';
@@ -584,6 +584,18 @@ describe('ui: Pyric Studio mount (parity with serve --ui)', () => {
     expect(index.statusCode).toBe(200);
     expect(String(index.headers['content-type'])).toContain('text/html');
     expect(index.body.toLowerCase()).toContain('<!doctype html');
+    const playgroundHome = await callPyric(handler, {
+      path: '/__pyric/playground/?embed=studio',
+    });
+    expect(playgroundHome.statusCode).toBe(200);
+    expect(String(playgroundHome.headers['content-type'])).toContain('text/html');
+    expect(playgroundHome.body.toLowerCase()).toContain('<!doctype html');
+    const playgroundSession = await callPyric(handler, {
+      path: '/__pyric/playground/playground?embed=studio',
+    });
+    expect(playgroundSession.statusCode).toBe(200);
+    expect(String(playgroundSession.headers['content-type'])).toContain('text/html');
+    expect(playgroundSession.body.toLowerCase()).toContain('<!doctype html');
   });
 
   // The workspace/project routes mount whenever `ui` is on (they need only the

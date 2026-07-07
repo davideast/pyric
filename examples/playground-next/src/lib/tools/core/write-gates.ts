@@ -38,7 +38,7 @@ import {
 } from 'pyric/rules';
 import { replay, type SandboxEvent } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
-import { getRunner } from '~/lib/sandbox/runner';
+import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 import { APP_ENTRY_PATH } from '~/lib/store/files';
 import {
   classifyRegressions,
@@ -142,7 +142,7 @@ export interface RulesGateDeps {
 }
 
 function runnerDeps(): RulesGateDeps {
-  const sandbox = getRunner().getSandbox();
+  const sandbox = getPlaygroundRuntime().requireInProcessRunner('Rules write history validation').getSandbox();
   return {
     history: () => sandbox.history(),
     snapshot: () => getInternalEnv(sandbox).snapshot(),

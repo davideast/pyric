@@ -17,7 +17,13 @@ import { buildClaudeLanePrompt } from '~/lib/agent/claude-lane-prompt';
 import { AGENT_SHELL_BUILTINS } from '~/lib/agent-shell/builtins';
 import { listToolHandlersForProfile } from '~/lib/tools';
 import { useSkillsStore } from '~/lib/store/skills';
-import { __setSkillsForTest, type SkillDefinition } from './registry';
+import {
+  __setSkillsForTest,
+  resolveActiveSkills,
+  resolvePromptProfile,
+  resolveWorkbenchIntent,
+  type SkillDefinition,
+} from './registry';
 
 const FIXTURE_TOOL: ToolHandler = {
   name: 'fixture_skill_tool',
@@ -38,10 +44,41 @@ const FIXTURE_SKILL: SkillDefinition = {
   tools: () => [FIXTURE_TOOL],
 };
 
+const TOOLING_SKILL: SkillDefinition = {
+  id: 'fixture-tooling',
+  label: 'Fixture tooling',
+  icon: 'policy',
+  description: 'test-only Firebase tooling skill',
+  brief: 'FIXTURE TOOLING BRIEF',
+  manTopic: 'fixture-tooling',
+  manSummary: 'fixture tooling one-line summary',
+  manBody: 'fixture tooling body',
+  promptProfile: 'firebase-tooling',
+  primarySurface: 'firebase',
+  defaultFirebaseSubtab: 'sandbox',
+  toolProfilePreference: 'diagnostic',
+  strategyPreference: 'react',
+};
+
+const FILE_TOOLING_SKILL: SkillDefinition = {
+  id: 'fixture-file-tooling',
+  label: 'Fixture file tooling',
+  icon: 'rule',
+  description: 'test-only file-focused Firebase tooling skill',
+  brief: 'FIXTURE FILE TOOLING BRIEF',
+  manTopic: 'fixture-file-tooling',
+  manSummary: 'fixture file tooling one-line summary',
+  manBody: 'fixture file tooling body',
+  promptProfile: 'firebase-tooling',
+  primarySurface: 'file',
+  defaultFirebaseSubtab: 'traffic',
+  defaultFilePath: '/workspace/firestore.rules',
+};
+
 const man = AGENT_SHELL_BUILTINS.find((c) => c.name === 'man')!;
 
 beforeEach(() => {
-  __setSkillsForTest([FIXTURE_SKILL]);
+  __setSkillsForTest([FIXTURE_SKILL, TOOLING_SKILL, FILE_TOOLING_SKILL]);
   useSkillsStore.getState().clear();
 });
 
@@ -100,5 +137,29 @@ describe('skill framework invariants', () => {
     useSkillsStore.getState().toggleSkill('fixture-skill');
     const namesOn = listToolHandlersForProfile('authoring').map((t) => t.name);
     expect(namesOn).toContain('fixture_skill_tool');
+  });
+
+  test('active tooling skill switches prompt profile to Firebase tooling', () => {
+    expect(resolvePromptProfile(resolveActiveSkills([]))).toBe('app-builder');
+    useSkillsStore.getState().toggleSkill('fixture-tooling');
+    const active = resolveActiveSkills(useSkillsStore.getState().activeSkillIds);
+    expect(resolvePromptProfile(active)).toBe('firebase-tooling');
+    expect(resolveWorkbenchIntent(active)).toMatchObject({
+      promptProfile: 'firebase-tooling',
+      primarySurface: 'firebase',
+      defaultFirebaseSubtab: 'sandbox',
+      toolProfilePreference: 'diagnostic',
+      strategyPreference: 'react',
+    });
+  });
+
+  test('latest active tooling skill controls concrete workbench defaults', () => {
+    const s = useSkillsStore.getState();
+    s.toggleSkill('fixture-tooling');
+    s.toggleSkill('fixture-file-tooling');
+    const intent = resolveWorkbenchIntent(resolveActiveSkills(useSkillsStore.getState().activeSkillIds));
+    expect(intent.primarySurface).toBe('file');
+    expect(intent.defaultFirebaseSubtab).toBe('traffic');
+    expect(intent.defaultFilePath).toBe('/workspace/firestore.rules');
   });
 });

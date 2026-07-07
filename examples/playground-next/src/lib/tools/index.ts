@@ -72,6 +72,7 @@ const AUTHORING_TOOL_NAMES = new Set([
   'inspect_denial',
   'inspect_auth_users',
   'seed_auth_users',
+  'seed_firestore_data_as_admin',
   'workspace_checkpoints',
   'bash',
   // Git / GitHub publish tools. Registered in buildToolRegistry() but
@@ -94,29 +95,45 @@ export function filterToolsForProfile(
   return tools.filter((t) => wanted.has(t.name));
 }
 
-export function listToolHandlersForCurrentSettings(): ToolHandler[] {
+export interface ToolRegistrationOptions {
+  forceDiagnostics?: boolean;
+}
+
+function shouldRegisterDiagnostics(
+  settings: ReturnType<typeof useSettingsStore.getState>,
+  options?: ToolRegistrationOptions,
+): boolean {
+  return options?.forceDiagnostics === true || settings.pyricDiagnosticsEnabled;
+}
+
+export function listToolHandlersForCurrentSettings(
+  options?: ToolRegistrationOptions,
+): ToolHandler[] {
   const settings = useSettingsStore.getState();
   const tools: ToolHandler[] = [
     ...(CORE_TOOLS as readonly ToolHandler[]),
     ...(AUTH_TOOLS as readonly ToolHandler[]),
     workspaceCheckpointsHandler as ToolHandler,
   ];
-  if (settings.pyricDiagnosticsEnabled) {
+  if (shouldRegisterDiagnostics(settings, options)) {
     tools.push(...getDiagnosticTools());
   }
   return tools;
 }
 
-export function listToolHandlersForProfile(profile: ToolProfile): ToolHandler[] {
+export function listToolHandlersForProfile(
+  profile: ToolProfile,
+  options?: ToolRegistrationOptions,
+): ToolHandler[] {
   // Skill tools append AFTER the profile filter — the user's explicit
   // activation is the gate, not the profile allowlist.
   return [
-    ...filterToolsForProfile(listToolHandlersForCurrentSettings(), profile),
+    ...filterToolsForProfile(listToolHandlersForCurrentSettings(options), profile),
     ...getActiveSkillTools(),
   ];
 }
 
-export function buildToolRegistry(): ToolRegistry {
+export function buildToolRegistry(options?: ToolRegistrationOptions): ToolRegistry {
   const registry = createToolRegistry();
   for (const t of CORE_TOOLS) registry.register(t);
   // Sandbox auth user-admin twins of the Auth tab (B3.2) — always on.
@@ -127,7 +144,7 @@ export function buildToolRegistry(): ToolRegistry {
   const settings = useSettingsStore.getState();
   let diagnosticNames: string[] = [];
   const disabledByUser: string[] = [];
-  if (settings.pyricDiagnosticsEnabled) {
+  if (shouldRegisterDiagnostics(settings, options)) {
     // `getDiagnosticTools()` evaluates auth + project state AND
     // per-tool flags at call time, so signing in mid-session or
     // flipping a per-tool toggle takes effect on the next submit.
@@ -151,7 +168,9 @@ export function buildToolRegistry(): ToolRegistry {
       [...CORE_TOOLS, ...AUTH_TOOLS, workspaceCheckpointsHandler, workspaceGitHandler, ...GITHUB_TOOLS].map((t) => t.name).join(', '),
       diagnosticNames.length > 0
         ? `+ diagnostic: ${diagnosticNames.join(', ')}`
-        : '(no diagnostic tools — sign in + pick a project to enable)',
+        : options?.forceDiagnostics === true
+          ? '(no diagnostic tools — unavailable in this context)'
+          : '(no diagnostic tools — sign in + pick a project to enable)',
       disabledByUser.length > 0
         ? `| user-disabled: ${disabledByUser.join(', ')}`
         : '',

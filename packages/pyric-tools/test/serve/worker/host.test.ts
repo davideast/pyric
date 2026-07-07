@@ -763,6 +763,84 @@ describe('setRules', () => {
   });
 });
 
+describe('shared playground worker ops', () => {
+  it('admin Firestore ops are per-call and do not require the global lens', async () => {
+    const ctx = await makeCtx(DENY_ALL_RULES);
+    const port = fakePort();
+
+    const set = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'admin-set',
+      method: 'admin.setDocument',
+      path: 'notes/n1',
+      data: { text: 'shared' },
+    });
+    expect(set.ok).toBe(true);
+
+    const get = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'admin-get',
+      method: 'admin.getDocument',
+      path: 'notes/n1',
+    });
+    expect(get.ok).toBe(true);
+    expect(get.value).toEqual({ text: 'shared' });
+
+    const denied = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'app-get',
+      method: 'getDoc',
+      path: 'notes/n1',
+    });
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe('permission-denied');
+  });
+
+  it('RTDB shared ops use the worker-owned database and active rules', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    const rules = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'rtdb-rules',
+      method: 'setDatabaseRules',
+      source: { rules: { '.read': true, '.write': true } },
+    });
+    expect(rules.ok).toBe(true);
+
+    const set = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'rtdb-set',
+      method: 'rtdb.set',
+      path: '/counters/global',
+      value: { clicks: 1 },
+    });
+    expect(set.ok).toBe(true);
+
+    const get = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'rtdb-get',
+      method: 'rtdb.get',
+      path: '/counters/global',
+    });
+    expect(get.ok).toBe(true);
+    expect(get.value).toMatchObject({
+      key: 'global',
+      exists: true,
+      value: { clicks: 1 },
+    });
+
+    const status = await sendOp(ctx, port, {
+      t: 'op',
+      id: 'rtdb-status',
+      method: 'getRulesStatus',
+      service: 'database',
+    });
+    expect(status.ok).toBe(true);
+    expect(status.value).toMatchObject({ status: 'active' });
+  });
+});
+
 // ─── txnCommit read-set validation (multi-tab conflict) ───────────────────
 
 describe('txnCommit read-set validation', () => {

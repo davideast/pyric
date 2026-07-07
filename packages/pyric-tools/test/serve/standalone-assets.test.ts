@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import {
   embeddedWorkerVersion,
   isStandalone,
+  materializePlaygroundUi,
   materializeServeAssets,
   materializeStudioUi,
   type EmbeddedAssets,
@@ -29,10 +30,15 @@ const STUDIO_BLOB: Record<string, string> = {
   'index.html': b64('<!doctype html>studio'),
   'assets/app.js': b64('// studio bundle'),
 };
+const PLAYGROUND_BLOB: Record<string, string> = {
+  'index.html': b64('<!doctype html>playground'),
+  '_astro/app.js': b64('// playground bundle'),
+};
 const TMP_ROOT = join(tmpdir(), `pyric-serve-${VERSION}`);
 
 let sdkCalls = 0;
 let studioCalls = 0;
+let playgroundCalls = 0;
 
 beforeAll(() => {
   rmSync(TMP_ROOT, { recursive: true, force: true });
@@ -46,6 +52,10 @@ beforeAll(() => {
     studio: async () => {
       studioCalls++;
       return { ...STUDIO_BLOB };
+    },
+    playground: async () => {
+      playgroundCalls++;
+      return { ...PLAYGROUND_BLOB };
     },
   };
   globalThis.__PYRIC_EMBEDDED__ = embedded;
@@ -110,6 +120,24 @@ describe('materializeStudioUi', () => {
     const before = studioCalls;
     await materializeStudioUi();
     expect(studioCalls).toBe(before);
+  });
+});
+
+describe('materializePlaygroundUi', () => {
+  it('rebuilds the playground tree, preserving nested relpaths', async () => {
+    const dir = await materializePlaygroundUi();
+    expect(dir).toBe(join(TMP_ROOT, 'playground-ui'));
+    for (const [rel, blob] of Object.entries(PLAYGROUND_BLOB)) {
+      const onDisk = readFileSync(join(dir!, rel));
+      expect(onDisk.equals(Buffer.from(blob, 'base64'))).toBe(true);
+    }
+    expect(existsSync(join(dir!, '_astro', 'app.js'))).toBe(true);
+  });
+
+  it('is idempotent across calls', async () => {
+    const before = playgroundCalls;
+    await materializePlaygroundUi();
+    expect(playgroundCalls).toBe(before);
   });
 });
 

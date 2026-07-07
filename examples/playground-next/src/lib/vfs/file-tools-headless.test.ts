@@ -75,14 +75,16 @@ describe('workspace file tools run headlessly', () => {
     expect(files).toContain('/workspace/src/App.tsx');
   });
 
-  test('delete_file removes a scratch file but refuses the pinned rules file', async () => {
+  test('delete_file removes a scratch file but refuses pinned rules files', async () => {
     resetVFS();
     await writeFile.execute({ path: '/workspace/scratch.ts', content: 'x' }, ctx);
     const d = await deleteFile.execute({ path: '/workspace/scratch.ts' }, ctx);
     expect((d.data as { deleted: boolean }).deleted).toBe(true);
-    const pinned = await deleteFile.execute({ path: '/workspace/firestore.rules' }, ctx);
-    expect((pinned.data as { deleted: boolean; reason?: string }).deleted).toBe(false);
-    expect((pinned.data as { reason?: string }).reason).toBe('PINNED');
+    for (const path of ['/workspace/firestore.rules', '/workspace/database.rules.json']) {
+      const pinned = await deleteFile.execute({ path }, ctx);
+      expect((pinned.data as { deleted: boolean; reason?: string }).deleted).toBe(false);
+      expect((pinned.data as { reason?: string }).reason).toBe('PINNED');
+    }
   });
 
   test('read_file on a missing path surfaces a not-found-style failure, not a crash', async () => {

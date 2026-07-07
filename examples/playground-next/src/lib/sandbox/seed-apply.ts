@@ -25,15 +25,20 @@
  * The slice of `Sandbox['admin']` this module needs. Accepting the
  * narrow surface (rather than a whole runner) keeps the logic unit-
  * testable against a fake and makes the dependency explicit: callers
- * pass `getRunner().admin` — the wrapper that schedules the per-session
- * persistence flush — NOT `getSandbox().admin` (admin writes emit no
- * sandbox events, so only the wrapper's flush reaches the persisted
- * blob; see `runner.ts`).
+ * pass the active playground runtime — shared sessions write through
+ * the SharedWorker, isolated sessions write through the runner's admin
+ * wrapper.
  */
 export interface AdminSeedSurface {
   setDocument(path: string, data: Record<string, unknown>): void;
   deleteDocument(path: string): { deleted: boolean } | void;
   listDocuments(prefix: string): { path: string; data: unknown; phantom?: true }[];
+}
+
+export interface AsyncAdminSeedSurface {
+  setDocument(path: string, data: Record<string, unknown>): Promise<void>;
+  deleteDocument(path: string): Promise<unknown>;
+  listDocuments(prefix: string): Promise<{ path: string; data: unknown; phantom?: true }[]>;
 }
 
 /** One document to seed: an id (auto-generated if blank) + its body. */
@@ -199,6 +204,40 @@ export function applySeed(
   return { applied, failed: errors.length, errors };
 }
 
+export async function applySeedAsync(
+  admin: AsyncAdminSeedSurface,
+  collection: string,
+  docs: SeedDoc[],
+): Promise<ApplyResult> {
+  const coll = collection.trim();
+  if (!isValidCollectionId(coll)) {
+    return {
+      applied: 0,
+      failed: docs.length,
+      errors: docs.map((d) => ({
+        id: d.id || '(auto)',
+        error: `Invalid collection id "${collection}".`,
+      })),
+    };
+  }
+  let applied = 0;
+  const errors: ApplyResult['errors'] = [];
+  for (const doc of docs) {
+    const id = doc.id.trim() || generateDocId();
+    try {
+      if (!isValidDocId(id)) {
+        errors.push({ id, error: `Invalid document id "${id}".` });
+        continue;
+      }
+      await admin.setDocument(`${coll}/${id}`, doc.data);
+      applied++;
+    } catch (e) {
+      errors.push({ id, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { applied, failed: errors.length, errors };
+}
+
 /**
  * Delete every (non-phantom) document in a collection through the
  * admin surface. Phantom entries are synthesized parent docs with no
@@ -217,6 +256,21 @@ export function clearCollection(admin: AdminSeedSurface, collection: string): nu
   return cleared;
 }
 
+export async function clearCollectionAsync(
+  admin: AsyncAdminSeedSurface,
+  collection: string,
+): Promise<number> {
+  const coll = collection.trim();
+  if (!isValidCollectionId(coll)) return 0;
+  const docs = (await admin.listDocuments(coll)).filter((d) => !d.phantom);
+  let cleared = 0;
+  for (const d of docs) {
+    await admin.deleteDocument(d.path);
+    cleared++;
+  }
+  return cleared;
+}
+
 /**
  * Summarize what's currently seeded in a collection (id + field count)
  * for the panel's "what's seeded" readout. Reads through the same
@@ -230,6 +284,21 @@ export function listSeeded(
   if (!isValidCollectionId(coll)) return [];
   return admin
     .listDocuments(coll)
+    .filter((d) => !d.phantom)
+    .map((d) => ({
+      id: d.path.split('/').pop() ?? d.path,
+      fieldCount:
+        d.data && typeof d.data === 'object' ? Object.keys(d.data as object).length : 0,
+    }));
+}
+
+export async function listSeededAsync(
+  admin: AsyncAdminSeedSurface,
+  collection: string,
+): Promise<{ id: string; fieldCount: number }[]> {
+  const coll = collection.trim();
+  if (!isValidCollectionId(coll)) return [];
+  return (await admin.listDocuments(coll))
     .filter((d) => !d.phantom)
     .map((d) => ({
       id: d.path.split('/').pop() ?? d.path,

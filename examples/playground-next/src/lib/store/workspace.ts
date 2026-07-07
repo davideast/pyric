@@ -53,9 +53,11 @@ export interface DeployTarget {
 
 interface WorkspaceState {
   rules: string;
+  databaseRules: string;
   appSource: string;
   deployTarget: DeployTarget | null;
   setRules: (next: string) => void;
+  setDatabaseRules: (next: string) => void;
   setAppSource: (next: string) => void;
   setDeployTarget: (next: DeployTarget | null) => void;
 }
@@ -84,9 +86,11 @@ function writePersistedDeployTarget(target: DeployTarget | null): void {
 
 export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   rules: '',
+  databaseRules: '',
   appSource: '',
   deployTarget: readPersistedDeployTarget(),
   setRules: (rules) => set({ rules }),
+  setDatabaseRules: (databaseRules) => set({ databaseRules }),
   setAppSource: (appSource) => set({ appSource }),
   setDeployTarget: (deployTarget) => {
     writePersistedDeployTarget(deployTarget);
@@ -105,6 +109,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
 // `__pyricTestSeed`.
 export interface PyricTestSeed {
   rules?: string;
+  databaseRules?: string;
   appSource?: string;
   deployTarget?: DeployTarget | null;
 }
@@ -117,6 +122,7 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
   window.__pyricTestSeed = (partial) => {
     const store = useWorkspaceStore.getState();
     if (partial.rules !== undefined) store.setRules(partial.rules);
+    if (partial.databaseRules !== undefined) store.setDatabaseRules(partial.databaseRules);
     if (partial.appSource !== undefined) store.setAppSource(partial.appSource);
     if (partial.deployTarget !== undefined) store.setDeployTarget(partial.deployTarget);
   };

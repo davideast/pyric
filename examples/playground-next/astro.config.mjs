@@ -148,6 +148,7 @@ const clientOnlyProcessEnvDefine = {
 
 export default defineConfig({
   output: 'static',
+  base: process.env.PLAYGROUND_BASE ?? '/',
   adapter: node({ mode: 'standalone' }),
   integrations: [react(), tailwind({ applyBaseStyles: true })],
   vite: {

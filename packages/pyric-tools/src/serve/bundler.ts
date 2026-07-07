@@ -6,7 +6,7 @@
  * Bun.build is unavailable) bundles the wrapper entries in `entries/` with
  * SPLITTING so the shared runtime chunk holds exactly ONE sandbox per page —
  * both the auth and firestore bundles must close over the same instance
- * (proven by the P0 validation, the design rationale §9).
+ * (proven by the P0 spike, `plans/pyric-serve-assessment.md` §9).
  *
  * Three bundler plugins make pyric browser-standalone:
  *   - `pyric/*` resolver — resolves `pyric/...` specifiers from THIS package's
@@ -69,6 +69,23 @@ export function resolveStudioUiDir(): string | null {
   const candidates = [
     new URL('./studio-ui/', import.meta.url),
     new URL('../../../studio/dist/app/', import.meta.url),
+  ];
+  for (const candidate of candidates) {
+    const dir = fileURLToPath(candidate);
+    if (existsSync(dir)) return dir;
+  }
+  return null;
+}
+
+/**
+ * Resolve the built playground app dir. `pyric serve --ui` embeds this as the
+ * first-class Studio Playground tab under `/__pyric/playground/`.
+ */
+export function resolvePlaygroundUiDir(): string | null {
+  const candidates = [
+    new URL('./playground-ui/', import.meta.url),
+    new URL('../../../playground-next/dist/client/', import.meta.url),
+    new URL('../../../../examples/playground-next/dist/client/', import.meta.url),
   ];
   for (const candidate of candidates) {
     const dir = fileURLToPath(candidate);

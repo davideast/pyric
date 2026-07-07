@@ -75,8 +75,8 @@ export function ComposeBar({
     onSubmit(text);
   };
 
-  // `/` command menu — items are the session's skills (selection
-  // toggles the skills store; the chips row above reflects state).
+  // `/` command menu — items are the session's skills. Selection
+  // toggles the skills store; AgentModeControl reflects the state.
   // One pragmatic store read in an otherwise presentational component:
   // threading toggle props through PlaygroundPage buys nothing here.
   const activeSkillIds = useSkillsStore((s) => s.activeSkillIds);

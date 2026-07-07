@@ -36,6 +36,7 @@
  */
 import {
   AUTH_SHAPE,
+  FIREBASE_TOOLING_FILE_REFERENCES,
   INTRO_IDENTITY,
   SCOPE,
   TOOL_TRUTHFULNESS,
@@ -46,6 +47,8 @@ import {
 } from './system-prompt';
 import { lintBlock } from './diagnostics/lint-block';
 import { pitfallsBlock } from './diagnostics/pitfalls-block';
+import { resolveActiveSkills, resolvePromptProfile } from '~/lib/skills/registry';
+import { useSkillsStore } from '~/lib/store/skills';
 
 interface BuildClaudeLanePromptOpts {
   diagnosticsEnabled: boolean;
@@ -73,26 +76,57 @@ const MCP_TOOLS = [
   'WORKFLOW — you own the whole turn; there is no outer agent dispatching for you. A typical build/modify request: read the current files → consult the stdlib (and lint candidates) → write rules + App TSX + tests via `mcp__playground__write_file` → run `mcp__playground__run_workspace_tests` → iterate until green → reply with a concise summary of what changed and why. Your file writes land in the user\'s workspace when the turn ends.',
 ].join('\n');
 
+const MCP_FIREBASE_TOOLING_PROFILE = [
+  'FIREBASE TOOLING MODE — this is not an app build.',
+  '  Do NOT create or edit `/workspace/src/App.tsx` unless the user explicitly asks for an app, UI, or preview. Primary outputs are rules, tests, audit reports, schema notes, simulations, and evidence-backed recommendations.',
+  '  In this delegated lane, only the listed `mcp__playground__*` tools are callable. Use file tools, rules lint, Firestore simulations, workspace tests, and the rules stdlib for evidence.',
+  '  Browser-only evidence such as Auth users, Traffic rows, sandbox discovery, and RTDB runtime inspection is not available through this MCP bridge. If a tooling task needs that evidence, say so explicitly and proceed with the available workspace/rules evidence.',
+].join('\n');
+
+const MCP_FIREBASE_TOOLING_WORKFLOW = [
+  'WORKFLOW — evidence-first Firebase tooling. Plan briefly, inspect only the relevant files/evidence, analyze risks or data-model tradeoffs, then propose or apply rules/tests/seed artifacts only when requested.',
+  'Do not end by building App.tsx. Verify with lint, simulation, or workspace tests when useful.',
+].join('\n');
+
 /**
  * Build the Claude lane's system prompt. Mirrors
  * `buildSystemPrompt`'s section order so the protected guidance reads
  * identically; only the tool-surface sections differ.
  */
 export function buildClaudeLanePrompt({ diagnosticsEnabled }: BuildClaudeLanePromptOpts): string {
+  const promptProfile = resolvePromptProfile(
+    resolveActiveSkills(useSkillsStore.getState().activeSkillIds),
+  );
+  const profileSections =
+    promptProfile === 'firebase-tooling'
+      ? [
+          MCP_FIREBASE_TOOLING_PROFILE,
+          '',
+          MCP_FIREBASE_TOOLING_WORKFLOW,
+          '',
+          AUTH_SHAPE,
+          '',
+          TOOL_TRUTHFULNESS,
+          '',
+          FIREBASE_TOOLING_FILE_REFERENCES,
+        ]
+      : [
+          SCOPE,
+          '',
+          AUTH_SHAPE,
+          '',
+          TOOL_TRUTHFULNESS,
+          '',
+          UI_STYLE,
+          '',
+          WORKSPACE_FILE_REFERENCES,
+        ];
   const sections: string[] = [
     INTRO_IDENTITY,
     '',
     MCP_TOOLS,
     '',
-    SCOPE,
-    '',
-    AUTH_SHAPE,
-    '',
-    TOOL_TRUTHFULNESS,
-    '',
-    UI_STYLE,
-    '',
-    WORKSPACE_FILE_REFERENCES,
+    ...profileSections,
     // Active-skill briefs — same shared mechanism as buildSystemPrompt
     // (empty when no skills are active). NOTE: skill man pages are a
     // playground-shell surface; the MCP bash mounts the same builtins,

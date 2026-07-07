@@ -17,22 +17,15 @@
  */
 import type { ToolHandler } from '@inbrowser/agent';
 import {
-  getAuth,
-  sandbox as authSandbox,
   type AuthUserRecord,
   type CreateUserRequest,
 } from 'pyric/auth';
-import type { Sandbox } from 'pyric/sandbox';
-import { getRunner } from '~/lib/sandbox/runner';
-import { applyAuthSeedUsers, MAX_AUTH_SEED_USERS } from '~/lib/sandbox/seed-auth-apply';
+import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
+import { applyAuthSeedUsersAsync, MAX_AUTH_SEED_USERS } from '~/lib/sandbox/seed-auth-apply';
 
 /** Same cap + rationale as `seed_firestore_data_as_admin`: reject the
  *  whole call above the cap — never silently truncate. */
 const MAX_USERS = MAX_AUTH_SEED_USERS;
-
-function sandboxAuth() {
-  return getAuth(getRunner().getSandbox() as Sandbox);
-}
 
 export interface InspectAuthUsersData {
   count: number;
@@ -49,7 +42,7 @@ export const inspectAuthUsersHandler: ToolHandler<
     'List every identity in the in-browser sandbox Auth user database: uid, email, displayName, providers, custom claims, disabled, emailVerified, created/last-sign-in timestamps. Use this to see which test identities exist (and with which claims) before writing auth-gated rules or app flows, or to verify what seed_auth_users / the sign-in helper created. Read-only; an empty list means no identity has been seeded or signed in yet this session.',
   parameters: { type: 'object', properties: {} },
   async execute() {
-    const users = authSandbox.listUsers(sandboxAuth());
+    const users = await getPlaygroundRuntime().listAuthUsers();
     return {
       ok: true,
       summary: `inspect_auth_users · ${users.length} identit${users.length === 1 ? 'y' : 'ies'}`,
@@ -114,7 +107,7 @@ export const seedAuthUsersHandler: ToolHandler<SeedAuthUsersArgs, SeedAuthUsersD
         data: { created: [], failed: users.length, code: 'TOO_MANY_USERS' },
       };
     }
-    const batch = applyAuthSeedUsers(users);
+    const batch = await applyAuthSeedUsersAsync(users);
     const errors = batch.errors.map((e) => ({ index: e.index, error: e.error }));
     return {
       ok: true,

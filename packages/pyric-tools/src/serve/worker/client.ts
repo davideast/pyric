@@ -120,6 +120,35 @@ export interface ClientDb {
   readonly port: MessagePort;
 }
 
+export interface ClientRtdb {
+  readonly __kind: 'client-rtdb';
+  readonly port: MessagePort;
+}
+
+export interface RtdbRefHandle {
+  readonly __kind: 'rtdb-ref';
+  readonly port: MessagePort;
+  readonly path: string;
+  readonly key: string | null;
+  readonly parent: RtdbRefHandle | null;
+  readonly root: RtdbRefHandle;
+  toString(): string;
+}
+
+export interface RtdbDataSnapshot {
+  readonly key: string | null;
+  readonly size: number;
+  exists(): boolean;
+  val(): unknown;
+  child(path: string): RtdbDataSnapshot;
+  hasChild(path: string): boolean;
+  hasChildren(): boolean;
+  exportVal(): unknown;
+  toJSON(): unknown;
+  forEach(cb: (child: RtdbDataSnapshot) => boolean | void): boolean;
+  readonly ref: RtdbRefHandle;
+}
+
 /** Client-side document reference — carries a DocRef descriptor + port. */
 export interface DocRefHandle {
   readonly __kind: 'doc-ref';
@@ -974,6 +1003,265 @@ export async function setRules(db: ClientDb, source: string): Promise<{ warnings
     source,
   });
   return result as { warnings: unknown[] };
+}
+
+export async function setFirestoreRules(
+  db: ClientDb,
+  source: string,
+): Promise<{ ok: boolean; warnings: unknown[]; messages: unknown[] }> {
+  const result = await rpc(db.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'setFirestoreRules',
+    source,
+  });
+  return result as { ok: boolean; warnings: unknown[]; messages: unknown[] };
+}
+
+export async function setDatabaseRules(
+  db: ClientDb | ClientRtdb,
+  source: unknown,
+): Promise<{ ok: boolean; messages: unknown[] }> {
+  const result = await rpc(db.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'setDatabaseRules',
+    source,
+  });
+  return result as { ok: boolean; messages: unknown[] };
+}
+
+export async function getActiveRules(
+  db: ClientDb | ClientRtdb,
+  service?: 'firestore' | 'database',
+): Promise<unknown> {
+  return rpc(db.port, { t: 'op', id: nextId(), method: 'getActiveRules', service });
+}
+
+export async function getRulesStatus(
+  db: ClientDb | ClientRtdb,
+  service?: 'firestore' | 'database',
+): Promise<unknown> {
+  return rpc(db.port, { t: 'op', id: nextId(), method: 'getRulesStatus', service });
+}
+
+export async function adminGetDocument(db: ClientDb, path: string): Promise<Record<string, unknown> | null> {
+  return (await rpc(db.port, { t: 'op', id: nextId(), method: 'admin.getDocument', path })) as Record<string, unknown> | null;
+}
+
+export async function adminListDocuments(
+  db: ClientDb,
+  path: string,
+): Promise<Array<{ path: string; data: unknown; phantom?: boolean }>> {
+  return (await rpc(db.port, { t: 'op', id: nextId(), method: 'admin.listDocuments', path })) as Array<{ path: string; data: unknown; phantom?: boolean }>;
+}
+
+export async function adminSetDocument(db: ClientDb, path: string, data: unknown): Promise<void> {
+  await rpc(db.port, { t: 'op', id: nextId(), method: 'admin.setDocument', path, data });
+}
+
+export async function adminDeleteDocument(db: ClientDb, path: string): Promise<boolean> {
+  return (await rpc(db.port, { t: 'op', id: nextId(), method: 'admin.deleteDocument', path })) as boolean;
+}
+
+export async function adminReadState(
+  db: ClientDb,
+  opts: { path?: string; maxDepth?: number } = {},
+): Promise<Record<string, unknown>> {
+  return (await rpc(db.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'admin.readState',
+    ...opts,
+  })) as Record<string, unknown>;
+}
+
+// ─── RTDB shared-worker modular subset ────────────────────────────────────
+
+export function rtdbGetDatabase(source?: ClientDb | string | URL, name?: string): ClientRtdb {
+  if (source && typeof source === 'object' && 'port' in source) {
+    return { __kind: 'client-rtdb', port: source.port as MessagePort };
+  }
+  const firestore = getFirestore(source ?? '/__pyric/sdk/worker.js', name);
+  return { __kind: 'client-rtdb', port: firestore.port };
+}
+
+function normalizeRtdbPath(path?: string): string {
+  const joined = (path ?? '/').split('/').filter(Boolean).join('/');
+  return joined ? `/${joined}` : '/';
+}
+
+function rtdbKey(path: string): string | null {
+  const parts = path.split('/').filter(Boolean);
+  return parts.at(-1) ?? null;
+}
+
+const RTDB_PUSH_CHARS =
+  '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz';
+let lastRtdbPushTime = 0;
+const lastRtdbRandChars: number[] = new Array(12).fill(0);
+
+function generateRtdbPushId(now: number = Date.now()): string {
+  const duplicateTime = now === lastRtdbPushTime;
+  lastRtdbPushTime = now;
+
+  const timeStampChars: string[] = new Array(8);
+  let ts = now;
+  for (let i = 7; i >= 0; i--) {
+    timeStampChars[i] = RTDB_PUSH_CHARS.charAt(ts % 64);
+    ts = Math.floor(ts / 64);
+  }
+  if (ts !== 0) throw new Error('RTDB push-id: timestamp overflow.');
+
+  if (!duplicateTime) {
+    for (let i = 0; i < 12; i++) lastRtdbRandChars[i] = Math.floor(Math.random() * 64);
+  } else {
+    let i: number;
+    for (i = 11; i >= 0 && lastRtdbRandChars[i] === 63; i--) lastRtdbRandChars[i] = 0;
+    if (i < 0) {
+      for (let j = 0; j < 12; j++) lastRtdbRandChars[j] = Math.floor(Math.random() * 64);
+    } else {
+      lastRtdbRandChars[i] = (lastRtdbRandChars[i] ?? 0) + 1;
+    }
+  }
+
+  let id = timeStampChars.join('');
+  for (let i = 0; i < 12; i++) id += RTDB_PUSH_CHARS.charAt(lastRtdbRandChars[i]!);
+  return id;
+}
+
+function makeRtdbRef(port: MessagePort, path: string): RtdbRefHandle {
+  const normalized = normalizeRtdbPath(path);
+  const parts = normalized.split('/').filter(Boolean);
+  const parentPath = parts.length > 0 ? `/${parts.slice(0, -1).join('/')}` : '/';
+  const self: RtdbRefHandle = {
+    __kind: 'rtdb-ref',
+    port,
+    path: normalized,
+    key: rtdbKey(normalized),
+    get parent() {
+      return normalized === '/' ? null : makeRtdbRef(port, parentPath);
+    },
+    get root() {
+      return makeRtdbRef(port, '/');
+    },
+    toString() {
+      return `worker://rtdb${normalized}`;
+    },
+  };
+  return self;
+}
+
+export function rtdbRef(db: ClientRtdb, path?: string): RtdbRefHandle {
+  return makeRtdbRef(db.port, path ?? '/');
+}
+
+export function rtdbChild(parent: RtdbRefHandle, path: string): RtdbRefHandle {
+  return makeRtdbRef(parent.port, `${parent.path}/${path}`);
+}
+
+function valueAt(root: unknown, path: string): unknown {
+  let current = root;
+  for (const segment of path.split('/').filter(Boolean)) {
+    if (current === null || typeof current !== 'object') return null;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current === undefined ? null : current;
+}
+
+function makeRtdbSnapshot(refHandle: RtdbRefHandle, value: unknown, exists?: boolean): RtdbDataSnapshot {
+  const childValue = (path: string) => valueAt(value, path);
+  const size =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.keys(value as Record<string, unknown>).length
+      : 0;
+  const snapshot: RtdbDataSnapshot = {
+    key: refHandle.key,
+    size,
+    exists: () => exists ?? (value !== null && value !== undefined),
+    val: () => value ?? null,
+    child: (path) => makeRtdbSnapshot(rtdbChild(refHandle, path), childValue(path)),
+    hasChild: (path) => childValue(path) !== null && childValue(path) !== undefined,
+    hasChildren: () => size > 0,
+    exportVal: () => value ?? null,
+    toJSON: () => value ?? null,
+    forEach: (cb) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+      for (const [key, childVal] of Object.entries(value as Record<string, unknown>)) {
+        if (cb(makeRtdbSnapshot(rtdbChild(refHandle, key), childVal)) === true) return true;
+      }
+      return false;
+    },
+    ref: refHandle,
+  };
+  return snapshot;
+}
+
+function hydrateRtdbSnapshot(refHandle: RtdbRefHandle, wire: unknown): RtdbDataSnapshot {
+  const payload = wire as { value?: unknown; exists?: boolean; key?: string | null };
+  return makeRtdbSnapshot(refHandle, payload.value ?? null, payload.exists);
+}
+
+export async function rtdbGet(r: RtdbRefHandle): Promise<RtdbDataSnapshot> {
+  return hydrateRtdbSnapshot(
+    r,
+    await rpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.get', path: r.path }),
+  );
+}
+
+export async function rtdbSet(r: RtdbRefHandle, value: unknown): Promise<void> {
+  await rpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.set', path: r.path, value });
+}
+
+export async function rtdbUpdate(r: RtdbRefHandle, values: Record<string, unknown>): Promise<void> {
+  await rpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.update', path: r.path, values });
+}
+
+export async function rtdbRemove(r: RtdbRefHandle): Promise<void> {
+  await rpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.remove', path: r.path });
+}
+
+export function rtdbPush(r: RtdbRefHandle, value?: unknown): RtdbRefHandle & PromiseLike<RtdbRefHandle> {
+  const key = generateRtdbPushId();
+  const pushed = makeRtdbRef(r.port, `${r.path}/${key}`);
+  const settledRef = makeRtdbRef(r.port, pushed.path);
+  const promise = rpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.push', path: r.path, key, value })
+    .then(() => settledRef);
+  return Object.assign(pushed, {
+    then: promise.then.bind(promise),
+    catch: promise.catch.bind(promise),
+  });
+}
+
+export function rtdbOnValue(
+  r: RtdbRefHandle,
+  next: (snap: RtdbDataSnapshot) => void,
+  error?: (err: unknown) => void,
+): Unsubscribe {
+  const subId = nextSubId();
+  _snapSubs.set(subId, {
+    next: (wire) => next(hydrateRtdbSnapshot(r, wire)),
+    error,
+  });
+  r.port.postMessage({ t: 'sub', subId, target: { service: 'rtdb', path: r.path } } satisfies InboundMessage);
+  return () => {
+    _snapSubs.delete(subId);
+    r.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+  };
+}
+
+export function rtdbOff(_r: RtdbRefHandle, _eventType?: unknown, _callback?: unknown): void {
+  // Firebase's `off` is callback-specific. The worker bridge exposes unsubscribe
+  // functions from `onValue`; this no-op preserves common app code that calls it
+  // defensively during cleanup.
+}
+
+export function rtdbServerTimestamp(): { readonly __rtdbSentinel: 'serverTimestamp' } {
+  return { __rtdbSentinel: 'serverTimestamp' };
+}
+
+export function rtdbConnectDatabaseEmulator(): void {
+  // Shared worker sandbox is already local.
 }
 
 // ════════════════════════════════════════════════════════════════════════

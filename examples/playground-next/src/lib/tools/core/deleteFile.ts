@@ -1,6 +1,6 @@
 /**
  * `delete_file` — remove a file from the OPFS VFS. Refuses paths in
- * the pinned set (`firestore.rules`) because rules deployment
+ * the pinned set (`firestore.rules`, `database.rules.json`) because rules deployment
  * targets a known location; deleting it would silently break the
  * deploy/lint loop until the agent re-creates it.
  */
@@ -29,7 +29,7 @@ function assertWithinWorkspace(path: string): void {
 export const deleteFileHandler: ToolHandler<DeleteFileArgs, DeleteFileData> = {
   name: 'delete_file',
   description:
-    "Remove a file from the OPFS VFS. The path must be under /workspace/. Pinned files (firestore.rules) can't be deleted — the call returns `{ deleted: false, reason: 'PINNED' }` so the agent can branch on it. Deleting a non-existent file returns `{ deleted: false, reason: 'NOT_FOUND' }` (not an error).",
+    "Remove a file from the OPFS VFS. The path must be under /workspace/. Pinned files (firestore.rules, database.rules.json) can't be deleted — the call returns `{ deleted: false, reason: 'PINNED' }` so the agent can branch on it. Deleting a non-existent file returns `{ deleted: false, reason: 'NOT_FOUND' }` (not an error).",
   parameters: {
     type: 'object',
     properties: {

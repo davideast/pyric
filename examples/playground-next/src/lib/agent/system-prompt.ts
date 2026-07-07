@@ -21,9 +21,12 @@ import { useWorkspaceStore } from '~/lib/store/workspace';
 import { useSessionStore } from '~/lib/store/session';
 import { useGithubSessionStore } from '~/lib/store/github-session';
 import { useSkillsStore } from '~/lib/store/skills';
-import { resolveActiveSkills } from '~/lib/skills/registry';
+import {
+  resolveActiveSkills,
+  resolvePromptProfile,
+} from '~/lib/skills/registry';
 import { DIAGNOSTIC_BLOCKS } from './diagnostics';
-import { APP_ENTRY_PATH, RULES_PATH } from '~/lib/store/files';
+import { APP_ENTRY_PATH, DATABASE_RULES_PATH, RULES_PATH } from '~/lib/store/files';
 
 interface BuildSystemPromptOpts {
   diagnosticsEnabled: boolean;
@@ -102,12 +105,33 @@ export const WORKFLOW_PHASES = [
   '  5. BUILD App.tsx last.',
 ].join('\n');
 
+export const FIREBASE_TOOLING_PROFILE = [
+  'FIREBASE TOOLING MODE — this is not an app build.',
+  '  Do NOT create or edit `/workspace/src/App.tsx` unless the user explicitly asks for an app, UI, or preview. Do not end the task by building an app.',
+  '  Primary outputs are rules, workspace tests, seed data, Auth users, audit reports, schema notes, simulations, and evidence-backed recommendations.',
+  '  Use local sandbox/workspace evidence first: active rules, sandbox data shape, Auth users, traffic/denials, and files. Real-project tools are for explicitly requested signed-in project work only.',
+  '  Keep the Firebase workbench as the visible state of the world: Sandbox, Data, Auth, Traffic, Seed, and File.',
+].join('\n');
+
+export const FIREBASE_TOOLING_WORKFLOW = [
+  'WORKFLOW — evidence-first Firebase tooling. Open with a short written PLAN, then gather only the evidence needed for the requested audit/model/rules task.',
+  '  1. PLAN the Firebase task and name the evidence you need.',
+  '  2. INSPECT relevant workspace files, sandbox data/auth, rules, traffic, or tests.',
+  '  3. ANALYZE risks, schema, access, or modeling tradeoffs with concrete evidence.',
+  '  4. PROPOSE or APPLY rules/tests/seed/auth changes only when requested.',
+  '  5. VERIFY with lint, simulation, traffic, or workspace tests where useful. Do not build App.tsx unless explicitly asked.',
+].join('\n');
+
 // Injected by buildSystemPrompt ONLY when the workspace is new/empty
 // (rules + appSource both blank). Without it, the agent spends a whole
 // first turn calling list_files + read_file to discover there's nothing
 // there. This tells it up front, so it goes straight to building.
 export const WORKSPACE_STATE_FRESH = [
   'WORKSPACE STATE — NEW SESSION: the workspace has no app yet (`src/App.tsx` and `firestore.rules` are blank). Do NOT call `list_files`/`read_file` to confirm this, and skip the analyze phase — there is nothing to analyze. Go straight from your plan to building.',
+].join('\n');
+
+export const WORKSPACE_STATE_FRESH_FIREBASE_TOOLING = [
+  'WORKSPACE STATE — NEW FIREBASE TOOLING SESSION: the workspace may be empty. Do not treat that as a reason to build an app. Inspect only the files or sandbox evidence needed for the requested Firebase audit, rules, seed, auth, or data-modeling task.',
 ].join('\n');
 
 const RULES_STDLIB = [
@@ -160,6 +184,14 @@ export const WORKSPACE_FILE_REFERENCES = [
   '  File bodies are intentionally omitted from this prompt. Use list_files, search_file, and ranged read_file to inspect current contents before editing existing files.',
 ].join('\n');
 
+export const FIREBASE_TOOLING_FILE_REFERENCES = [
+  'WORKSPACE FILES:',
+  `  - ${RULES_PATH} — Firestore rules source; writing it auto-deploys to the sandbox.`,
+  `  - ${DATABASE_RULES_PATH} — Realtime Database rules source; writing it auto-deploys when the selected runtime supports RTDB rules.`,
+  `  - ${APP_ENTRY_PATH} — optional preview entry. In Firebase tooling mode, edit this only when the user explicitly asks for an app or preview UI.`,
+  '  File bodies are intentionally omitted from this prompt. Use list_files, search_file, and ranged read_file to inspect current contents before editing existing files.',
+].join('\n');
+
 export function fenced(heading: string, body: string): string {
   return [`── ${heading} ──`, body, `── END ${heading.split(' ')[0]} ──`].join('\n');
 }
@@ -193,26 +225,46 @@ export function buildSystemPrompt({ diagnosticsEnabled }: BuildSystemPromptOpts)
   const hasRealProject = useSessionStore.getState().currentProjectId !== null;
   const linkedGithubRepo = useGithubSessionStore.getState().linkedRepo;
   const intro = hasRealProject ? `${INTRO_BASE}\n${REAL_PROJECT_TOOLS}` : INTRO_BASE;
+  const activeSkills = resolveActiveSkills(useSkillsStore.getState().activeSkillIds);
+  const promptProfile = resolvePromptProfile(activeSkills);
+  const profileSections =
+    promptProfile === 'firebase-tooling'
+      ? [
+          ...(isFresh ? [WORKSPACE_STATE_FRESH_FIREBASE_TOOLING, ''] : []),
+          FIREBASE_TOOLING_PROFILE,
+          '',
+          FIREBASE_TOOLING_WORKFLOW,
+          '',
+          AUTH_SHAPE,
+          '',
+          RULES_STDLIB,
+          '',
+          TOOL_TRUTHFULNESS,
+          '',
+          FIREBASE_TOOLING_FILE_REFERENCES,
+        ]
+      : [
+          ...(isFresh ? [WORKSPACE_STATE_FRESH, ''] : []),
+          WORKFLOW_PHASES,
+          '',
+          SCOPE,
+          '',
+          AUTH_SHAPE,
+          '',
+          RULES_STDLIB,
+          '',
+          TOOL_TRUTHFULNESS,
+          '',
+          UI_STYLE,
+          '',
+          BACKEND_UI_GUIDANCE,
+          '',
+          WORKSPACE_FILE_REFERENCES,
+        ];
   const sections: string[] = [
     intro,
     '',
-    // When empty, tell the agent up front so it skips the discovery turn.
-    ...(isFresh ? [WORKSPACE_STATE_FRESH, ''] : []),
-    WORKFLOW_PHASES,
-    '',
-    SCOPE,
-    '',
-    AUTH_SHAPE,
-    '',
-    RULES_STDLIB,
-    '',
-    TOOL_TRUTHFULNESS,
-    '',
-    UI_STYLE,
-    '',
-    BACKEND_UI_GUIDANCE,
-    '',
-    WORKSPACE_FILE_REFERENCES,
+    ...profileSections,
     // Active-skill briefs (empty when no skills are on — see
     // skillBriefSections). Placed after the core brief so protected
     // guidance order is stable for the pinned-section tests.

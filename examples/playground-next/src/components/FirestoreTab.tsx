@@ -35,7 +35,7 @@
  * The lister is rebuilt on every poll-tick (1s) so newly-written
  * collections appear without a manual refresh.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   collection as collFn,
   getFirestore,
@@ -53,7 +53,13 @@ import {
   type UseDocumentEditorResult,
 } from '@pyric/ui/firestore';
 import { useToast } from '@pyric/ui/primitives';
-import { getRunner } from '~/lib/sandbox/runner';
+import {
+  getWorkerDb,
+  getPlaygroundRuntime,
+  isSharedSandboxMode,
+  readFirestoreState,
+  sharedWorkerRuntime,
+} from '~/lib/sandbox/runtime';
 
 /**
  * Admin-mode read hooks. The Firestore tab is a Firebase-Console
@@ -77,9 +83,10 @@ function useAdminCollectionDocs(collPath: string): {
   const [docs, setDocs] = useState<QueryDocumentSnapshot[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   useEffect(() => {
-    const sandbox = getRunner().getSandbox();
+    let disposed = false;
     const refresh = (): void => {
-      const raw = sandbox.admin.listDocuments(collPath);
+      void getPlaygroundRuntime().adminListDocuments(collPath).then((raw) => {
+        if (disposed) return;
       // Phantom entries are synthesized parent docs with no stored
       // data of their own — useful for the discover crawler, noise
       // for an admin user list. Filter them out.
@@ -89,10 +96,14 @@ function useAdminCollectionDocs(collPath: string): {
           .map((d) => makeQueryDocSnap(d.path, d.data as Record<string, unknown>)),
       );
       setIsLoading(false);
+      });
     };
     refresh();
     const id = window.setInterval(refresh, 1000);
-    return () => window.clearInterval(id);
+    return () => {
+      disposed = true;
+      window.clearInterval(id);
+    };
   }, [collPath]);
   return { docs, isLoading };
 }
@@ -104,15 +115,20 @@ function useAdminDoc(path: string): {
   const [snapshot, setSnapshot] = useState<DocumentSnapshot | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   useEffect(() => {
-    const sandbox = getRunner().getSandbox();
+    let disposed = false;
     const refresh = (): void => {
-      const data = sandbox.admin.getDocument(path) as Record<string, unknown> | null;
+      void getPlaygroundRuntime().adminGetDocument(path).then((data) => {
+        if (disposed) return;
       setSnapshot(makeDocSnap(path, data));
       setIsLoading(false);
+      });
     };
     refresh();
     const id = window.setInterval(refresh, 1000);
-    return () => window.clearInterval(id);
+    return () => {
+      disposed = true;
+      window.clearInterval(id);
+    };
   }, [path]);
   return { snapshot, isLoading };
 }
@@ -171,14 +187,23 @@ export function FirestoreTab() {
   // null`. Subscriptions ride here; *writes* below go through
   // `sandbox.admin.*` to bypass rules entirely.
   const firestore = useMemo<Firestore>(() => {
-    return getFirestore(getRunner().getSandbox().withAuth(null));
+    return isSharedSandboxMode()
+      ? (getWorkerDb() as unknown as Firestore)
+      : getFirestore(getPlaygroundRuntime().requireInProcessRunner('Firestore tab isolated runtime').getSandbox().withAuth(null));
   }, []);
 
   // Admin handle for rule-bypassing writes — the RUNNER's wrapper, not
   // `getSandbox().admin`: admin writes emit no sandbox events, so only
   // the wrapper's scheduled flush lands console edits in the
   // per-session persisted blob. Identity-agnostic; one per mount.
-  const sandboxAdmin = useMemo(() => getRunner().admin, []);
+  const sandboxAdmin = useMemo(() => {
+    return {
+      getDocument: (path: string) => getPlaygroundRuntime().adminGetDocument(path),
+      listDocuments: (path: string) => getPlaygroundRuntime().adminListDocuments(path),
+      setDocument: (path: string, data: unknown) => getPlaygroundRuntime().adminSetDocument(path, data),
+      deleteDocument: (path: string) => getPlaygroundRuntime().adminDeleteDocument(path),
+    };
+  }, []);
 
   const [view, setView] = useState<View>({ kind: 'collections' });
   const [editing, setEditing] = useState(false);
@@ -194,11 +219,21 @@ export function FirestoreTab() {
     return () => window.clearInterval(id);
   }, [view.kind]);
 
-  const collections = useMemo<CollectionReference[]>(() => {
-    // `tick` is in the dep array so the memo re-runs on each poll.
-    void tick;
-    const state = getRunner().readState();
-    return rootCollectionIds(state).map((id) => collFn(firestore, id));
+  const [collections, setCollections] = useState<CollectionReference[]>([]);
+  useEffect(() => {
+    let disposed = false;
+    void readFirestoreState().then((state) => {
+      if (disposed) return;
+      const refs = rootCollectionIds(state).map((id) => (
+        isSharedSandboxMode()
+          ? sharedWorkerRuntime.collection(getWorkerDb(), id)
+          : collFn(firestore, id)
+      ) as unknown as CollectionReference);
+      setCollections(refs);
+    });
+    return () => {
+      disposed = true;
+    };
   }, [firestore, tick]);
 
   return (
@@ -217,7 +252,7 @@ export function FirestoreTab() {
                 // Firebase-Console analog; the operator should be able
                 // to seed data even when the user's rules deny
                 // anonymous writes.
-                sandboxAdmin.setDocument(`${id}/${firstId}`, {});
+                await sandboxAdmin.setDocument(`${id}/${firstId}`, {});
                 toast({ title: `Created ${id}/${firstId}`, kind: 'success' });
                 setTick((n) => n + 1);
               } catch (e) {
@@ -247,7 +282,7 @@ export function FirestoreTab() {
               if (!editor) return;
               try {
                 // Admin write — bypasses rules (see component header).
-                sandboxAdmin.setDocument(view.ref.path, editor.toData());
+                await sandboxAdmin.setDocument(view.ref.path, editor.toData());
                 toast({ title: 'Saved', kind: 'success' });
                 setEditing(false);
               } catch (e) {
@@ -261,7 +296,7 @@ export function FirestoreTab() {
             onDelete={async () => {
               try {
                 // Admin delete — bypasses rules.
-                sandboxAdmin.deleteDocument(view.ref.path);
+                await sandboxAdmin.deleteDocument(view.ref.path);
                 toast({ title: 'Deleted', kind: 'success' });
                 setView({ kind: 'documents', coll: view.coll });
               } catch (e) {

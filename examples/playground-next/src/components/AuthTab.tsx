@@ -2,8 +2,8 @@
  * Auth sub-tab of the Firebase panel (epic plan §8 B3.1) — the
  * emulator-style user-admin view over the SANDBOX's auth user database,
  * composed from `@pyric/ui/auth` (B1/B2) against
- * `getAuth(getRunner().getSandbox())` — the same handle the preview's
- * `firebase/auth` alias resolves to, so identities created by the
+ * the active playground runtime — SharedWorker in shared sessions,
+ * in-process runner in isolated sessions — so identities created by the
  * running app, the sign-in helper, or the agent's `seed_auth_users`
  * all appear here live (coarse `subscribeUsers` re-list).
  *
@@ -17,9 +17,7 @@
  *     and this panel wants visible labels (emulator-style). Submit
  *     payloads and validation come from the hook unchanged.
  */
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { getAuth } from 'pyric/auth';
-import type { Sandbox } from 'pyric/sandbox';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
   AuthUserList,
   ClaimsField,
@@ -27,12 +25,11 @@ import {
   DeleteUserWithConfirm,
   providerLabel,
   useAuthUserEditor,
-  useAuthUsers,
   type AuthUserFormSubmit,
 } from '@pyric/ui/auth';
-import type { AuthUserRecord } from 'pyric/auth';
+import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
 import { ConfirmProvider } from '@pyric/ui/primitives';
-import { getRunner } from '~/lib/sandbox/runner';
+import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 
 type PanelState =
   | { kind: 'list' }
@@ -46,31 +43,72 @@ const INPUT_CLS =
   'focus:border-[#4a4a5a] transition-colors';
 
 export function AuthTab() {
-  const auth = useMemo(() => getAuth(getRunner().getSandbox() as Sandbox), []);
+  const [users, setUsers] = useState<AuthUserRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [filter, setFilter] = useState('');
+  const [tick, setTick] = useState(0);
+  const refresh = useCallback(() => setTick((n) => n + 1), []);
+  useEffect(() => {
+    let disposed = false;
+    setIsLoading(true);
+    void getPlaygroundRuntime().listAuthUsers()
+      .then((next) => {
+        if (disposed) return;
+        setUsers(next);
+        setError(null);
+      })
+      .catch((e) => {
+        if (!disposed) setError(e instanceof Error ? e : new Error(String(e)));
+      })
+      .finally(() => {
+        if (!disposed) setIsLoading(false);
+      });
+    const id = window.setInterval(refresh, 1000);
+    return () => {
+      disposed = true;
+      window.clearInterval(id);
+    };
+  }, [refresh, tick]);
+
   const {
-    users,
-    isLoading,
-    error,
-    filter,
-    setFilter,
     createUser,
     updateUser,
     deleteUser,
     clearUsers,
-  } = useAuthUsers(auth);
+  } = useMemo(() => ({
+    createUser: async (request: CreateUserRequest) => {
+      await getPlaygroundRuntime().adminCreateUser(request);
+      refresh();
+    },
+    updateUser: async (uid: string, request: UpdateUserRequest) => {
+      await getPlaygroundRuntime().adminUpdateUser(uid, request);
+      refresh();
+    },
+    deleteUser: async (uid: string) => {
+      await getPlaygroundRuntime().adminDeleteUser(uid);
+      refresh();
+    },
+    clearUsers: async () => {
+      await getPlaygroundRuntime().adminClearUsers();
+      refresh();
+    },
+  }), [refresh]);
   const [panel, setPanel] = useState<PanelState>({ kind: 'list' });
   const [formError, setFormError] = useState<string | null>(null);
 
   const submit = (s: AuthUserFormSubmit): void => {
-    try {
-      if (s.mode === 'create') createUser(s.request);
-      else updateUser(s.uid, s.request);
-      setFormError(null);
-      setPanel({ kind: 'list' });
-    } catch (e) {
-      // e.g. auth/uid-already-exists — keep the form open with the reason.
-      setFormError(e instanceof Error ? e.message : String(e));
-    }
+    void (async () => {
+      try {
+        if (s.mode === 'create') await createUser(s.request);
+        else await updateUser(s.uid, s.request);
+        setFormError(null);
+        setPanel({ kind: 'list' });
+      } catch (e) {
+        // e.g. auth/uid-already-exists — keep the form open with the reason.
+        setFormError(e instanceof Error ? e.message : String(e));
+      }
+    })();
   };
   const closeForm = (): void => {
     setFormError(null);

@@ -41,7 +41,7 @@ import {
   type TestCase,
   type RuleEvaluation,
 } from 'pyric/rules';
-import { getRunner } from '~/lib/sandbox/runner';
+import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 import { useRuntimeStore, type TrafficEntry } from '~/lib/store/runtime';
 import {
   buildDiagnosis,
@@ -167,10 +167,10 @@ export function buildDebugFirestoreRulesHandler(): ToolHandler<FullArgs, DebugFi
       //    owner=Y" without an extra round-trip. Wrapped in
       //    try/catch because admin reads from a fresh sandbox can
       //    throw on non-existent collection paths (treated as null).
-      const sandbox = getRunner().getSandbox();
-      const env = getInternalEnv(sandbox);
       let sandboxStateAtPath: Record<string, unknown> | null = null;
       try {
+        const sandbox = getPlaygroundRuntime().requireInProcessRunner('debug_firestore_rules sandbox state lookup').getSandbox();
+        const env = getInternalEnv(sandbox);
         const doc = env.getDocument(event.path);
         sandboxStateAtPath = (doc as Record<string, unknown> | null) ?? null;
       } catch {

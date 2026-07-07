@@ -19,8 +19,12 @@
  * (cheap) and defer classification (regex over app source) to
  * `queueMicrotask` for the denial path — keeps the hot path tight.
  */
-import { useEffect } from 'react';
-import { getRunner } from '~/lib/sandbox/runner';
+import { useEffect, useSyncExternalStore } from 'react';
+import {
+  getPlaygroundRuntime,
+  getPlaygroundSandboxMode,
+  subscribePlaygroundSandboxMode,
+} from '~/lib/sandbox/runtime';
 import { useRuntimeStore, type DenialBlurb, type TrafficEntry } from '~/lib/store/runtime';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 import { classifyAppDenials } from '~/lib/preview/denial-classifier';
@@ -119,16 +123,20 @@ function buildRequestShape(ev: RequestEvent): unknown {
 export function useDenialCapture(): void {
   const pushTraffic = useRuntimeStore((s) => s.pushTraffic);
   const pushDenial = useRuntimeStore((s) => s.pushDenial);
+  const sandboxMode = useSyncExternalStore(
+    subscribePlaygroundSandboxMode,
+    getPlaygroundSandboxMode,
+    getPlaygroundSandboxMode,
+  );
 
   useEffect(() => {
-    const sandbox = getRunner().getSandbox();
-    return sandbox.onEvent((event) => {
+    const handleEvent = (event: { kind: string } | RequestEvent) => {
       // The traffic panel + denial alarm both ride on `kind: 'request'`
       // events. Other kinds (snapshot_delivery, listener lifecycle,
       // session_boundary) are ignored here — separate consumers in the
       // playground handle those when they need to.
       if (event.kind !== 'request') return;
-      const ev = event;
+      const ev = event as RequestEvent;
 
       // Hot path: shrink + push to the traffic buffer first so the
       // simulator's `evalMs` accounting doesn't include this work.
@@ -157,6 +165,10 @@ export function useDenialCapture(): void {
         };
         pushDenial(blurb);
       });
+    };
+
+    return getPlaygroundRuntime().subscribeEvents((events) => {
+      for (const event of events) handleEvent(event as RequestEvent);
     });
-  }, [pushTraffic, pushDenial]);
+  }, [pushTraffic, pushDenial, sandboxMode]);
 }

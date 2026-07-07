@@ -42,7 +42,7 @@
  */
 import type { ToolHandler } from '@inbrowser/agent';
 import { getInternalEnv } from 'pyric/sandbox/internal';
-import { getRunner } from '~/lib/sandbox/runner';
+import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 import {
   buildFixturePayload,
   type GenerateFixtureFromSessionArgs,
@@ -88,7 +88,17 @@ export function buildGenerateFixtureFromSessionHandler(): ToolHandler<
       // `seed_firestore_data_as_admin` — the runner constructs at
       // first call (idempotent), so this is safe to invoke
       // unconditionally with no warm-up handshake.
-      const sandbox = getRunner().getSandbox();
+      let sandbox;
+      try {
+        sandbox = getPlaygroundRuntime().requireInProcessRunner('generate_fixture_from_session').getSandbox();
+      } catch (e) {
+        const empty = buildFixturePayload([], {}, args);
+        return {
+          ok: false,
+          summary: `generate_fixture_from_session · ${e instanceof Error ? e.message : String(e)}`,
+          data: empty.data,
+        };
+      }
       const events = sandbox.history();
       const env = getInternalEnv(sandbox);
       const state = env.snapshot();

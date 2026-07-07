@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ToolHandler } from '@inbrowser/agent';
-import { filterToolsForProfile } from './index';
+import { useSettingsStore } from '~/lib/store/settings';
+import { filterToolsForProfile, listToolHandlersForProfile } from './index';
 
 function tool(name: string): ToolHandler {
   return { name, description: name, parameters: { type: 'object', properties: {} }, execute: async () => ({ ok: true, summary: name }) } as ToolHandler;
@@ -42,10 +43,24 @@ describe('filterToolsForProfile', () => {
     expect(names).toContain('write_file');
     expect(names).toContain('run_workspace_tests');
     expect(names).toContain('bash');
+    expect(names).toContain('seed_firestore_data_as_admin');
     expect(names).not.toContain('debug_firestore_rules');
   });
 
   test('diagnostic profile preserves the full registered list', () => {
     expect(filterToolsForProfile(ALL, 'diagnostic').map((t) => t.name)).toEqual(ALL.map((t) => t.name));
+  });
+
+  test('admin fixture seeding is visible even when diagnostics are disabled', () => {
+    const previous = useSettingsStore.getState().pyricDiagnosticsEnabled;
+    useSettingsStore.setState({ pyricDiagnosticsEnabled: false });
+    try {
+      const authoringNames = listToolHandlersForProfile('authoring').map((t) => t.name);
+      const draftNames = listToolHandlersForProfile('draft').map((t) => t.name);
+      expect(authoringNames).toContain('seed_firestore_data_as_admin');
+      expect(draftNames).toContain('seed_firestore_data_as_admin');
+    } finally {
+      useSettingsStore.setState({ pyricDiagnosticsEnabled: previous });
+    }
   });
 });

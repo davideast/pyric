@@ -20,24 +20,23 @@ import { ApiKeyForm } from './ApiKeyForm';
 import { BottomTabBar } from './BottomTabBar';
 import { ComposeBar } from './ComposeBar';
 import { ResumeTurnBanner } from './ResumeTurnBanner';
-import { SkillChips } from './SkillChips';
+import { SessionAgentModeControl } from './AgentModeControl';
 import { Modal } from './Modal';
 import { OutputTab } from './OutputTab';
 import { FilesPanel } from './FilesPanel';
-import { FirebaseTab, type FirebaseSubTab } from './FirebaseTab';
+import type { FirebaseSubTab } from './FirebaseTab';
 import { PanelTabs, type Tab } from './PanelTabs';
 import { TerminalPanel } from './TerminalPanel';
 import { AuthModal } from './AuthModal';
 import { AutosaveStatus } from './AutosaveStatus';
 import { SessionReadOnlyBanner } from './SessionReadOnlyBanner';
 import { SettingsModal } from './SettingsModal';
-import { WorkspacePanel } from './WorkspacePanel';
+import { WorkspacePanel, type WorkspaceTabId } from './WorkspacePanel';
 import { StatusBar } from './StatusBar';
 import { TopBar } from './TopBar';
 import { ToastProvider } from '@pyric/ui/primitives';
 import { useAgentLoop } from '~/hooks/useAgentLoop';
 import { useDenialCapture } from '~/hooks/useDenialCapture';
-import { useIsMobile } from '~/hooks/useIsMobile';
 import { useRulesAutoDeploy } from '~/hooks/useRulesAutoDeploy';
 import { useSessionRouting } from '~/hooks/useSessionRouting';
 import { ensureBufferPolyfill } from '~/lib/git/buffer-polyfill';
@@ -62,11 +61,18 @@ import { useEnhancerStore } from '~/lib/store/enhancer';
 import { useLlmStore } from '~/lib/store/llm';
 import { useMobileNavStore } from '~/lib/store/mobile-nav';
 import { useOpenRouterModelsStore } from '~/lib/store/openrouterModels';
-import { useRuntimeStore } from '~/lib/store/runtime';
 import { useSettingsStore } from '~/lib/store/settings';
 import { useWorkspaceStore } from '~/lib/store/workspace';
+import { useFilesStore } from '~/lib/store/files';
 import { getAllTurnTraces, useTraceStore } from '~/lib/store/trace';
 import { useSkillsStore } from '~/lib/store/skills';
+import { resolveActiveSkills, resolveWorkbenchIntent } from '~/lib/skills/registry';
+import {
+  isPlaygroundCommandMessage,
+  isStudioEmbedSearch,
+  playgroundHomeHref,
+  type PlaygroundSandboxMode,
+} from '~/lib/studio-embed';
 import { listToolHandlersForProfile } from '~/lib/tools';
 import { completeRedirectSignIn } from '~/lib/firebase/auth';
 import { installDiagnosticsGlobals, logPage } from '~/lib/llm/inference/diagnostics';
@@ -85,8 +91,10 @@ function readStoredSplit(): number {
   return Number.isFinite(v) && v >= SPLIT_MIN && v <= SPLIT_MAX ? v : SPLIT_DEFAULT;
 }
 
-
 export function PlaygroundPage() {
+  const embeddedInStudio =
+    typeof window !== 'undefined' && isStudioEmbedSearch(window.location.search);
+  const playgroundBase = import.meta.env.BASE_URL;
   // Hydrate workspace + chat from `?session={id}` on mount, then
   // auto-save changes back to the sandbox. Missing/unknown id
   // redirects to `/` — the workspace page only renders for a real
@@ -95,14 +103,63 @@ export function PlaygroundPage() {
   const sessionRouting = useSessionRouting();
 
   const [activeTab, setActiveTab] = useState<string>('agent');
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTabId>('preview');
   const [agentSubTab, setAgentSubTab] = useState<AgentSubTab>('chat');
   // Firebase sub-tab state lifted up so the denial banner can land
   // on 'traffic' even when the Firebase panel is already mounted on
   // 'data', and so cross-tab navigation (Suggestions → Traffic) works.
-  const [firebaseSubTab, setFirebaseSubTab] = useState<FirebaseSubTab>('ideas');
+  const [firebaseSubTab, setFirebaseSubTab] = useState<FirebaseSubTab>('sandbox');
   const [keysOpen, setKeysOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const openKeys = useCallback(() => {
+    setSettingsOpen(false);
+    setAuthOpen(false);
+    setKeysOpen(true);
+  }, []);
+  const openSettings = useCallback(() => {
+    setKeysOpen(false);
+    setAuthOpen(false);
+    setSettingsOpen(true);
+  }, []);
+  const openAccount = useCallback(() => {
+    setKeysOpen(false);
+    setSettingsOpen(false);
+    setAuthOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!embeddedInStudio || typeof window === 'undefined') return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (!isPlaygroundCommandMessage(event.data)) return;
+      switch (event.data.type) {
+        case 'pyric:playground:open-keys':
+          openKeys();
+          break;
+        case 'pyric:playground:open-settings':
+          openSettings();
+          break;
+        case 'pyric:playground:open-account':
+          openAccount();
+          break;
+        case 'pyric:playground:set-model': {
+          const provider = PROVIDERS[event.data.providerId];
+          if (!provider) return;
+          const modelId = provider.models.some((m) => m.id === event.data.modelId)
+            ? event.data.modelId
+            : provider.defaultModelId;
+          useLlmStore.getState().setProvider(event.data.providerId, modelId);
+          if (event.data.effort) {
+            useLlmStore.getState().setOpenrouterEffort(event.data.effort);
+          }
+          break;
+        }
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [embeddedInStudio, openAccount, openKeys, openSettings]);
 
   // Complete the Google redirect flow on app load — only matters
   // when the user picked the redirect fallback (popup is the
@@ -264,7 +321,6 @@ export function PlaygroundPage() {
   useRulesAutoDeploy();
   useUnreadTracking();
   const mobileTab = useMobileNavStore((s) => s.activeTab);
-  const isMobile = useIsMobile();
   const providerId = useLlmStore((s) => s.providerId);
   const modelId = useLlmStore((s) => s.modelId);
   const openrouterModelsById = useOpenRouterModelsStore((s) => s.byId);
@@ -280,11 +336,30 @@ export function PlaygroundPage() {
   // Active skills change the system prompt (briefs) — the context-window
   // memo below lists this as a dep so the meter updates on toggle.
   const activeSkillIds = useSkillsStore((s) => s.activeSkillIds);
+  const activeSkillKey = activeSkillIds.join('\u0000');
+  const activeSkills = useMemo(
+    () => resolveActiveSkills(activeSkillIds),
+    [activeSkillKey],
+  );
+  const workbenchIntent = useMemo(
+    () => resolveWorkbenchIntent(activeSkills),
+    [activeSkills],
+  );
+  const setActiveFilePath = useFilesStore((s) => s.setActiveFilePath);
+
+  useEffect(() => {
+    setWorkspaceTab(workbenchIntent.primarySurface);
+    if (workbenchIntent.defaultFirebaseSubtab) {
+      setFirebaseSubTab(workbenchIntent.defaultFirebaseSubtab);
+    }
+    if (workbenchIntent.defaultFilePath) {
+      setActiveFilePath(workbenchIntent.defaultFilePath);
+    }
+  }, [activeSkillKey, setActiveFilePath, workbenchIntent]);
 
   // (The pending-prompt auto-fire lives lower down — it depends on
   // `runEnhancement`, which is declared further into the component.)
   const pendingPromptFiredRef = useRef(false);
-  const liveDenials = useRuntimeStore((s) => s.liveDenials);
   const enhancePromptEnabled = useSettingsStore((s) => s.enhancePromptEnabled);
   const setEnhancePromptEnabled = useSettingsStore((s) => s.setEnhancePromptEnabled);
   const appSource = useWorkspaceStore((s) => s.appSource);
@@ -315,21 +390,6 @@ export function PlaygroundPage() {
   // session honors the saved preference.
   const enhanceModeActive = canEnhance && enhancePromptEnabled;
 
-  // Denials tab badge — count + tone derived from *unacknowledged*
-  // denials only. Clicking into a denial (running Analyze) marks it
-  // acknowledged; the row stays in the panel but the alarm UI drops.
-  // Any unexpected unacknowledged denial bumps tone to `error`;
-  // otherwise `warn`.
-  const denialsBadge = useMemo(() => {
-    const unread = liveDenials.filter((d) => !d.acknowledged);
-    if (unread.length === 0) return undefined;
-    const hasUnexpected = unread.some((d) => d.classification === 'unexpected');
-    return {
-      text: String(unread.length),
-      tone: hasUnexpected ? ('error' as const) : ('warn' as const),
-    };
-  }, [liveDenials]);
-
   const rightTabs: readonly Tab[] = useMemo(
     () => [
       // Agent = chat history + active turn. Was 'Activity' before the
@@ -342,14 +402,12 @@ export function PlaygroundPage() {
       // (now retired) Repo tab.
       { id: 'terminal', label: 'Terminal' },
       { id: 'output', label: 'Output' },
-      // Firebase = Data + Traffic + Suggestions + Deploy sub-tabs.
-      // Replaces the standalone Firestore / Suggestions / Deploy tabs.
-      // The roll-up denial badge stays at the top level so unread
-      // denials are visible from any other right-panel tab.
-      { id: 'firebase', label: 'Firebase', ...(denialsBadge ? { badge: denialsBadge } : {}) },
     ],
-    [denialsBadge],
+    [],
   );
+  const visibleRightTab = rightTabs.some((tab) => tab.id === activeTab)
+    ? activeTab
+    : 'agent';
 
   const totals = useMemo(() => {
     let turns = 0;
@@ -600,8 +658,26 @@ export function PlaygroundPage() {
   }, []);
 
   const handleOpenAccount = useCallback(() => {
-    setAuthOpen(true);
-  }, []);
+    openAccount();
+  }, [openAccount]);
+
+  const handleSandboxModeChange = useCallback(
+    (mode: PlaygroundSandboxMode) => {
+      if (mode === sessionRouting.sandboxMode) return;
+      if (
+        typeof window !== 'undefined' &&
+        !window.confirm(
+          'Switch this Playground session sandbox mode? The Playground runtime will reload.',
+        )
+      ) {
+        return;
+      }
+      void sessionRouting.setSandboxMode(mode).then(() => {
+        if (typeof window !== 'undefined') window.location.reload();
+      });
+    },
+    [sessionRouting],
+  );
 
   const sessionState = sending ? 'streaming' : error ? 'failed' : 'idle';
   // Trigger re-read of byok.hasKey() across renders by reading
@@ -652,15 +728,19 @@ export function PlaygroundPage() {
 
   const contextWindow = useMemo(() => {
     const delegated = isDelegatedProvider(providerId);
+    const forceDiagnostics = workbenchIntent.promptProfile === 'firebase-tooling';
+    const diagnosticsEnabled = pyricDiagnosticsEnabled || forceDiagnostics;
     const systemPrompt = delegated
-      ? buildClaudeLanePrompt({ diagnosticsEnabled: pyricDiagnosticsEnabled })
-      : buildSystemPrompt({ diagnosticsEnabled: pyricDiagnosticsEnabled });
+      ? buildClaudeLanePrompt({ diagnosticsEnabled })
+      : buildSystemPrompt({ diagnosticsEnabled });
     const toolProfile = selectToolProfileForPrompt({
       prompt: '', // turn-granular estimate — draft prompt excluded (see liveContextInputs)
       settings: { pyricDiagnosticsEnabled, strategyMode },
       delegated,
+      promptProfile: workbenchIntent.promptProfile,
+      preference: workbenchIntent.toolProfilePreference,
     });
-    const tools = listToolHandlersForProfile(toolProfile);
+    const tools = listToolHandlersForProfile(toolProfile, { forceDiagnostics });
     return buildContextWindowSnapshot({
       messages: contextInputs.messages,
       compactionMarkers: contextInputs.compactionMarkers,
@@ -692,6 +772,8 @@ export function PlaygroundPage() {
     providerId,
     pyricDiagnosticsEnabled,
     strategyMode,
+    workbenchIntent.promptProfile,
+    workbenchIntent.toolProfilePreference,
   ]);
 
   // Render a minimal placeholder while the session payload loads.
@@ -714,26 +796,29 @@ export function PlaygroundPage() {
 
   return (
     <ToastProvider>
-      <TopBar
-        title="playground"
-        sessionState={sessionState}
-        githubRepo={sessionRouting.githubRepo}
-        onOpenKeys={() => setKeysOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenAccount={handleOpenAccount}
-      >
-        {/* Desktop carries the picker in the TopBar. Mobile hides it
-            here (the bar is tight) and renders it inside the key
-            modal — the user opens that modal to set keys, and seeing
-            the picker right there makes the relationship obvious. */}
-        <div className="hidden md:flex">
-          <ModelPicker />
-        </div>
-        {/* Ambient-autosave indicator — driven by the real save
-            lifecycle reported from useSessionRouting. Its popover
-            carries the persistence truth copy + the sign-in step. */}
-        <AutosaveStatus onOpenAccount={handleOpenAccount} />
-      </TopBar>
+      {!embeddedInStudio ? (
+        <TopBar
+          title="playground"
+          homeHref={playgroundHomeHref({ base: playgroundBase })}
+          sessionState={sessionState}
+          githubRepo={sessionRouting.githubRepo}
+          onOpenKeys={openKeys}
+          onOpenSettings={openSettings}
+          onOpenAccount={handleOpenAccount}
+        >
+          {/* Desktop carries the picker in the TopBar. Mobile hides it
+              here (the bar is tight) and renders it inside the key
+              modal — the user opens that modal to set keys, and seeing
+              the picker right there makes the relationship obvious. */}
+          <div className="hidden md:flex">
+            <ModelPicker />
+          </div>
+          {/* Ambient-autosave indicator — driven by the real save
+              lifecycle reported from useSessionRouting. Its popover
+              carries the persistence truth copy + the sign-in step. */}
+          <AutosaveStatus onOpenAccount={handleOpenAccount} />
+        </TopBar>
+      ) : null}
 
       {/* Writer-lock banner — another tab holds this session's writer
           lock, so this tab is view-only until the user takes over. */}
@@ -753,7 +838,7 @@ export function PlaygroundPage() {
         {/* Desktop: two panes (Workspace · Agent) with a drag-resize
             handle between them. Preview + the file editor live inside
             WorkspacePanel on the left; the right panel hosts Agent /
-            Files / Terminal / Output / Firebase tabs.
+            Files / Terminal / Output tabs.
             Mobile: two bottom-tabs (App · Agent). App shows the
             WorkspacePanel (whose Preview sub-tab serves the
             preview-only surface that used to be a standalone panel);
@@ -765,11 +850,34 @@ export function PlaygroundPage() {
           ].join(' ')}
         >
           <WorkspacePanel
+            promptProfile={workbenchIntent.promptProfile}
+            activeTab={workspaceTab}
+            onTabChange={setWorkspaceTab}
             onFixRequest={handleFixRequest}
             onOpenDenials={() => {
-              useMobileNavStore.getState().setActive('agent');
-              setActiveTab('firebase');
+              useMobileNavStore.getState().setActive('app');
+              setWorkspaceTab('firebase');
               setFirebaseSubTab('traffic');
+            }}
+            firebaseProps={{
+              onSendPrompt: (prompt) => void send(prompt),
+              sendBusy: sending,
+              onAfterSend: () => {
+                setActiveTab('agent');
+                setAgentSubTab('chat');
+              },
+              subTab: firebaseSubTab,
+              onSubTabChange: setFirebaseSubTab,
+              sessionId: sessionRouting.sessionId,
+              contextWindow,
+              sandboxMode: sessionRouting.sandboxMode,
+              sandboxModeDisabled: !sessionRouting.isWriter,
+              onSandboxModeChange: handleSandboxModeChange,
+              onNavigateAgent: () => {
+                setActiveTab('agent');
+                setAgentSubTab('chat');
+              },
+              promptProfile: workbenchIntent.promptProfile,
             }}
           />
         </main>
@@ -787,23 +895,23 @@ export function PlaygroundPage() {
           <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-[#2a2a35] group-hover:bg-[#3a3a48] transition-colors" />
         </div>
 
-        {/* Agent — Activity / Output / Suggestions / Firestore. */}
+        {/* Agent — Activity / Files / Terminal / Output. */}
         <aside
           className={[
             'md:flex md:w-[var(--split-r)] flex-col min-w-0 bg-sidebar-bg',
             mobileTab === 'agent' ? 'flex w-full' : 'hidden md:flex',
           ].join(' ')}
         >
-          <PanelTabs tabs={rightTabs} activeTab={activeTab} onTabChange={setActiveTab} />
+          <PanelTabs tabs={rightTabs} activeTab={visibleRightTab} onTabChange={setActiveTab} />
 
           {/* Keep every right-panel tab MOUNTED at all times — `hidden`
               just toggles display so each tab's local state (xterm
-              instance, FilesPanel sub-tab, FirebaseTab sub-tab, etc.)
+              instance, FilesPanel sub-tab, etc.)
               survives a switch away and back. Conditional rendering
               would unmount the components and lose the terminal's
               scrollback, the file editor's draft, etc. */}
           <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-            <RightTabPane active={activeTab === 'agent'}>
+            <RightTabPane active={visibleRightTab === 'agent'}>
               <AgentPanel
                 activeSubTab={agentSubTab}
                 onSubTabChange={setAgentSubTab}
@@ -821,31 +929,13 @@ export function PlaygroundPage() {
                 onRetryEnhancement={handleRetryEnhancement}
               />
             </RightTabPane>
-            <RightTabPane active={activeTab === 'output'}>
+            <RightTabPane active={visibleRightTab === 'output'}>
               <OutputTab />
             </RightTabPane>
-            <RightTabPane active={activeTab === 'firebase'}>
-              <FirebaseTab
-                onSendPrompt={(prompt) => void send(prompt)}
-                sendBusy={sending}
-                onAfterSend={() => {
-                  setActiveTab('agent');
-                  setAgentSubTab('chat');
-                }}
-                subTab={firebaseSubTab}
-                onSubTabChange={setFirebaseSubTab}
-                sessionId={sessionRouting.sessionId}
-                contextWindow={contextWindow}
-                onNavigateAgent={() => {
-                  setActiveTab('agent');
-                  setAgentSubTab('chat');
-                }}
-              />
-            </RightTabPane>
-            <RightTabPane active={activeTab === 'files'}>
+            <RightTabPane active={visibleRightTab === 'files'}>
               <FilesPanel />
             </RightTabPane>
-            <RightTabPane active={activeTab === 'terminal'}>
+            <RightTabPane active={visibleRightTab === 'terminal'}>
               <TerminalPanel />
             </RightTabPane>
           </div>
@@ -867,9 +957,10 @@ export function PlaygroundPage() {
           {/* Interrupted-turn recovery: one-tap resume for a reply cut
               short by a reload/tab discard (see inference/reattach.ts). */}
           <ResumeTurnBanner sending={sending} onSend={send} disabled={!hasKey} />
-          {/* Session-scoped skill toggles (renders nothing while the
-              registry is empty). */}
-          <SkillChips />
+          {/* Compact session intent control. Slash commands handle fast
+              activation; this keeps enable/disable discoverable without
+              rendering the whole skill registry in the footer. */}
+          <SessionAgentModeControl className="px-3 py-1" />
           <ComposeBar
             externalText={externalCompose}
             onSubmit={handleSubmit}
@@ -881,7 +972,9 @@ export function PlaygroundPage() {
                 ? enhanceModeActive
                   ? 'Sketch a rough idea — the enhancer will shape it…'
                   : 'Ask the agent anything…'
-                : `Paste a ${activeProvider.label} API key first (top-right key icon)`
+                : embeddedInStudio
+                  ? `Paste a ${activeProvider.label} API key first (key icon in the Studio bar)`
+                  : `Paste a ${activeProvider.label} API key first (top-right key icon)`
             }
             enhanceMode={enhanceModeActive}
             contextWindow={contextWindow}
@@ -909,20 +1002,20 @@ export function PlaygroundPage() {
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
 
       <Modal open={keysOpen} onClose={() => setKeysOpen(false)} ariaLabel="API keys">
-        {/* Picker rendered inside the modal on mobile so the user can
-            switch providers + models in the same place they manage
-            keys. Desktop has the picker in the TopBar; rendering it
-            again here would be redundant. */}
-        <div className="md:hidden mb-4">
-          <p className="text-[11px] uppercase tracking-wider text-slate-gray mb-2">
-            Active model
-          </p>
-          <ModelPicker />
-        </div>
-        <ApiKeyForm
-          title="API keys"
-          subtitle="Bring your own keys. Stored in this browser only — never sent to a server we control."
-          fields={PROVIDER_LIST.map((def) => buildApiKeyField(def)).filter((f) => f !== null)}
+          {/* Picker rendered inside the modal on mobile so the user can
+              switch providers + models in the same place they manage
+              keys. Desktop has the picker in the TopBar; rendering it
+              again here would be redundant. */}
+          <div className={embeddedInStudio ? 'mb-4' : 'md:hidden mb-4'}>
+            <p className="text-[11px] uppercase tracking-wider text-slate-gray mb-2">
+              Active model
+            </p>
+            <ModelPicker />
+          </div>
+          <ApiKeyForm
+            title="API keys"
+            subtitle="Bring your own keys. Stored in this browser only — never sent to a server we control."
+            fields={PROVIDER_LIST.map((def) => buildApiKeyField(def)).filter((f) => f !== null)}
           onSubmit={handleSaveKeys}
           submitLabel="Save"
           footerText="Update or remove anytime."
@@ -936,8 +1029,8 @@ export function PlaygroundPage() {
  * Right-panel tab wrapper that keeps the child mounted regardless of
  * whether the tab is currently active. We hide via `display: none`
  * instead of unmounting so the terminal's xterm instance + shell
- * state, the FilesPanel's open sub-tab, the FirebaseTab's selection,
- * etc. all survive a switch away and back. `inert` removes the
+ * state and the FilesPanel's open sub-tab survive a switch away and
+ * back. `inert` removes the
  * subtree from the tab order while hidden.
  */
 function RightTabPane({

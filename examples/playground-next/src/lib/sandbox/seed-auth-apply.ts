@@ -10,7 +10,7 @@ import {
 import type { Sandbox } from 'pyric/sandbox';
 import type { SeedUser } from 'pyric/auth';
 
-import { getRunner } from '~/lib/sandbox/runner';
+import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 
 export const MAX_AUTH_SEED_USERS = 100;
 
@@ -21,7 +21,7 @@ export interface AuthSeedApplyResult {
 }
 
 function sandboxAuth() {
-  return getAuth(getRunner().getSandbox() as Sandbox);
+  return getAuth(getPlaygroundRuntime().requireInProcessRunner('applyAuthSeedUsers').getSandbox() as Sandbox);
 }
 
 /** Map spec-derived SeedUser to CreateUserRequest. */
@@ -63,6 +63,45 @@ export function applyAuthSeedUsers(users: CreateUserRequest[]): AuthSeedApplyRes
     const req = users[i]!;
     try {
       created.push(authSandbox.createUser(auth, req).uid);
+    } catch (e) {
+      errors.push({
+        index: i,
+        uid: req.uid ?? `(index ${i})`,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  return { created, failed: errors.length, errors };
+}
+
+export async function applyAuthSeedUsersAsync(users: CreateUserRequest[]): Promise<AuthSeedApplyResult> {
+  if (users.length === 0) {
+    return { created: [], failed: 0, errors: [] };
+  }
+  if (users.length > MAX_AUTH_SEED_USERS) {
+    return {
+      created: [],
+      failed: users.length,
+      errors: [
+        {
+          index: 0,
+          uid: '',
+          error: `Exceeds ${MAX_AUTH_SEED_USERS}-user cap (${users.length} requested).`,
+        },
+      ],
+    };
+  }
+
+  const runtime = getPlaygroundRuntime();
+  const created: string[] = [];
+  const errors: AuthSeedApplyResult['errors'] = [];
+
+  for (let i = 0; i < users.length; i++) {
+    const req = users[i]!;
+    try {
+      const user = await runtime.adminCreateUser(req);
+      created.push(user.uid);
     } catch (e) {
       errors.push({
         index: i,

@@ -14,13 +14,10 @@
  * the admin-write path; this is the "fill it fast" front door.
  *
  * Strictly session-scoped + ephemeral (app-spec §3.6): writes go
- * through `getRunner().admin` — the wrapper that schedules the
- * per-session persistence flush P3 established — so seeded data rides
- * the current session's sandbox blob and nothing else. Switching
- * sessions is a full navigation that constructs a fresh runner against
- * a different key, so a different session shows different data. NOTHING
- * here writes a workspace file or a spec field; this is runtime state,
- * never an artifact, never generated app code.
+ * through the active playground runtime, so shared Studio sessions use
+ * the SharedWorker and isolated sessions use their in-process runner.
+ * NOTHING here writes a workspace file or a spec field; this is
+ * runtime state, never an artifact, never generated app code.
  *
  * Styling follows the house tab idiom (dark theme, `[data-pyric-*]`
  * tokens) — same skin language as AuthTab / FirestoreTab.
@@ -33,12 +30,12 @@ import { buildSeedContextBundle } from '~/lib/seed-generator/context';
 import { generateSeedProposal } from '~/lib/seed-generator/generate';
 import { parseSeedProposal } from '~/lib/seed-generator/parse';
 import type { SeedProposalV1 } from '~/lib/seed-generator/schema';
-import { getRunner } from '~/lib/sandbox/runner';
+import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 import {
-  applySeed,
-  clearCollection,
+  applySeedAsync,
+  clearCollectionAsync,
   isValidCollectionId,
-  listSeeded,
+  listSeededAsync,
   parseSeedJson,
 } from '~/lib/sandbox/seed-apply';
 import { useSeedGeneratorStore } from '~/lib/store/seed-generator';
@@ -90,7 +87,6 @@ function rootCollectionIds(state: Record<string, unknown>): string[] {
 
 export function DataSeedTab() {
   const { toast } = useToast();
-  const admin = useMemo(() => getRunner().admin, []);
   const { providerId, modelId } = useLlmStore();
   const generation = useSeedGeneratorStore((s) => s.generation);
 
@@ -126,17 +122,35 @@ export function DataSeedTab() {
     });
   }, [tick]);
 
-  const existingCollections = useMemo(() => {
-    void tick;
-    return rootCollectionIds(getRunner().readState());
+  const [existingCollections, setExistingCollections] = useState<string[]>([]);
+  useEffect(() => {
+    let disposed = false;
+    void getPlaygroundRuntime().readFirestoreState().then((state) => {
+      if (!disposed) setExistingCollections(rootCollectionIds(state));
+    });
+    return () => {
+      disposed = true;
+    };
   }, [tick]);
 
   const coll = collection.trim();
   const collValid = coll.length > 0 && isValidCollectionId(coll);
-  const seeded = useMemo(() => {
-    void tick;
-    return collValid ? listSeeded(admin, coll) : [];
-  }, [admin, coll, collValid, tick]);
+  const [seeded, setSeeded] = useState<{ id: string; fieldCount: number }[]>([]);
+  useEffect(() => {
+    let disposed = false;
+    if (!collValid) {
+      setSeeded([]);
+      return () => {
+        disposed = true;
+      };
+    }
+    void listSeededAsync(getPlaygroundRuntime(), coll).then((next) => {
+      if (!disposed) setSeeded(next);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [coll, collValid, tick]);
 
   const busy =
     generation?.state === 'streaming' ||
@@ -220,36 +234,47 @@ export function DataSeedTab() {
     (id: string, proposal: SeedProposalV1) => {
       const store = useSeedGeneratorStore.getState();
       store.setState(id, 'applying');
-      const result = applySeedProposal(admin, proposal, { spec: specSnapshot });
-      setTick((n) => n + 1);
-      store.setState(id, 'applied');
+      void (async () => {
+        try {
+          const result = await applySeedProposal(getPlaygroundRuntime(), proposal, { spec: specSnapshot });
+          setTick((n) => n + 1);
+          store.setState(id, 'applied');
 
-      const fs = result.firestore;
-      const auth = result.auth;
-      const parts: string[] = [];
-      if (fs.applied > 0) {
-        parts.push(`${fs.applied} doc${fs.applied === 1 ? '' : 's'} in ${fs.collections} collection${fs.collections === 1 ? '' : 's'}`);
-      }
-      if (auth.created.length > 0) {
-        parts.push(`${auth.created.length} auth identit${auth.created.length === 1 ? 'y' : 'ies'}`);
-      }
-      toast({
-        title: parts.length > 0 ? 'Seed applied' : 'Nothing applied',
-        body:
-          fs.failed + auth.failed > 0
-            ? `${fs.failed + auth.failed} failure(s) — check data shapes.`
-            : parts.join(' · ') || undefined,
-        kind: fs.failed + auth.failed > 0 ? 'error' : 'success',
-      });
+          const fs = result.firestore;
+          const auth = result.auth;
+          const parts: string[] = [];
+          if (fs.applied > 0) {
+            parts.push(`${fs.applied} doc${fs.applied === 1 ? '' : 's'} in ${fs.collections} collection${fs.collections === 1 ? '' : 's'}`);
+          }
+          if (auth.created.length > 0) {
+            parts.push(`${auth.created.length} auth identit${auth.created.length === 1 ? 'y' : 'ies'}`);
+          }
+          toast({
+            title: parts.length > 0 ? 'Seed applied' : 'Nothing applied',
+            body:
+              fs.failed + auth.failed > 0
+                ? `${fs.failed + auth.failed} failure(s) — check data shapes.`
+                : parts.join(' · ') || undefined,
+            kind: fs.failed + auth.failed > 0 ? 'error' : 'success',
+          });
 
-      const firstColl = Object.keys(proposal.firestore)[0];
-      if (firstColl && isValidCollectionId(firstColl)) {
-        setCollection(firstColl);
-        const docs = proposal.firestore[firstColl];
-        setJson(JSON.stringify(docs, null, 2));
-      }
+          const firstColl = Object.keys(proposal.firestore)[0];
+          if (firstColl && isValidCollectionId(firstColl)) {
+            setCollection(firstColl);
+            const docs = proposal.firestore[firstColl];
+            setJson(JSON.stringify(docs, null, 2));
+          }
+        } catch (e) {
+          store.setError(id, e instanceof Error ? e.message : String(e));
+          toast({
+            title: 'Seed apply failed',
+            body: e instanceof Error ? e.message : String(e),
+            kind: 'error',
+          });
+        }
+      })();
     },
-    [admin, specSnapshot, toast],
+    [specSnapshot, toast],
   );
 
   const handleEditProposal = useCallback((id: string, proposal: SeedProposalV1) => {
@@ -291,29 +316,35 @@ export function DataSeedTab() {
       toast({ title: 'Could not parse documents', body: parsed.error, kind: 'error' });
       return;
     }
-    const result = applySeed(admin, coll, parsed.docs);
-    setTick((n) => n + 1);
-    if (result.failed === 0) {
-      toast({ title: `Seeded ${result.applied} doc${result.applied === 1 ? '' : 's'} → ${coll}`, kind: 'success' });
-      setJson('');
-    } else {
-      toast({
-        title: `Seeded ${result.applied}, ${result.failed} failed`,
-        body: result.errors.map((e) => `${e.id}: ${e.error}`).join('; '),
-        kind: 'error',
-      });
-    }
-  }, [admin, coll, collValid, json, toast]);
+    void applySeedAsync(getPlaygroundRuntime(), coll, parsed.docs).then((result) => {
+      setTick((n) => n + 1);
+      if (result.failed === 0) {
+        toast({ title: `Seeded ${result.applied} doc${result.applied === 1 ? '' : 's'} → ${coll}`, kind: 'success' });
+        setJson('');
+      } else {
+        toast({
+          title: `Seeded ${result.applied}, ${result.failed} failed`,
+          body: result.errors.map((e) => `${e.id}: ${e.error}`).join('; '),
+          kind: 'error',
+        });
+      }
+    }).catch((e) => {
+      toast({ title: 'Seed failed', body: e instanceof Error ? e.message : String(e), kind: 'error' });
+    });
+  }, [coll, collValid, json, toast]);
 
   const clear = useCallback(() => {
     if (!collValid) return;
-    const cleared = clearCollection(admin, coll);
-    setTick((n) => n + 1);
-    toast({
-      title: cleared > 0 ? `Cleared ${cleared} doc${cleared === 1 ? '' : 's'} from ${coll}` : `${coll} was already empty`,
-      kind: cleared > 0 ? 'success' : 'info',
+    void clearCollectionAsync(getPlaygroundRuntime(), coll).then((cleared) => {
+      setTick((n) => n + 1);
+      toast({
+        title: cleared > 0 ? `Cleared ${cleared} doc${cleared === 1 ? '' : 's'} from ${coll}` : `${coll} was already empty`,
+        kind: cleared > 0 ? 'success' : 'info',
+      });
+    }).catch((e) => {
+      toast({ title: 'Clear failed', body: e instanceof Error ? e.message : String(e), kind: 'error' });
     });
-  }, [admin, coll, collValid, toast]);
+  }, [coll, collValid, toast]);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto custom-scrollbar bg-content-bg p-4 text-[13px] text-soft-white">

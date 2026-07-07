@@ -3,7 +3,12 @@
  * (Keyboard/menu behavior is exercised live via Playwright.)
  */
 import { describe, expect, test } from 'bun:test';
-import { filterSlashItems, slashTokenAt, stripSlashToken } from './SlashCommandMenu';
+import {
+  filterSlashItems,
+  resolveSlashMenuLayout,
+  slashTokenAt,
+  stripSlashToken,
+} from './SlashCommandMenu';
 
 const ITEMS = [
   { id: 'game-rules', icon: 'x', label: 'Game rules', description: 'turn-based games' },
@@ -58,5 +63,37 @@ describe('stripSlashToken', () => {
     const v = 'build chess /game please';
     const token = slashTokenAt(v, 17)!;
     expect(stripSlashToken(v, token)).toBe('build chess please');
+  });
+});
+
+describe('resolveSlashMenuLayout', () => {
+  test('prefers the bottom edge when there is room below the input', () => {
+    expect(
+      resolveSlashMenuLayout({
+        anchorTop: 250,
+        anchorBottom: 430,
+        viewportHeight: 900,
+      }),
+    ).toEqual({ placement: 'below', maxHeight: 320 });
+  });
+
+  test('flips above when a bottom-pinned composer has no room below', () => {
+    const layout = resolveSlashMenuLayout({
+      anchorTop: 640,
+      anchorBottom: 720,
+      viewportHeight: 760,
+    });
+    expect(layout.placement).toBe('above');
+    expect(layout.maxHeight).toBe(320);
+  });
+
+  test('keeps short mobile viewports bounded instead of growing indefinitely', () => {
+    const layout = resolveSlashMenuLayout({
+      anchorTop: 120,
+      anchorBottom: 250,
+      viewportHeight: 360,
+    });
+    expect(layout.placement).toBe('below');
+    expect(layout.maxHeight).toBeLessThanOrEqual(320);
   });
 });

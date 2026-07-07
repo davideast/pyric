@@ -10,7 +10,7 @@
  *      `result: 'deny'` against proposed rules; any whose new
  *      decision is `ALLOW` is an unblocked fix.
  *
- * The handler that wires `getRunner().getSandbox()` is in
+ * The handler that wires the active in-process sandbox is in
  * `try-rules-edit.ts`. This file holds the pure logic so tests can
  * exercise it without the runner singleton or workspace-dep chain.
  */

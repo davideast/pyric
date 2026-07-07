@@ -106,7 +106,12 @@ import { compileApp, type CompileResult } from '~/lib/preview/compile';
 import type { PreviewScope } from '~/lib/preview/preview-scope';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 import { useFilesStore } from '~/lib/store/files';
-import { getRunner } from '~/lib/sandbox/runner';
+import {
+  getWorkerDb,
+  getPlaygroundRuntime,
+  isSharedSandboxMode,
+  sharedWorkerRuntime,
+} from '~/lib/sandbox/runtime';
 import { DenialBanner } from './DenialBanner';
 import { EmptyState } from './EmptyState';
 import { IframePreview } from './IframePreview';
@@ -266,8 +271,10 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
   }, [fullscreen]);
 
   const Component = useMemo(() => {
-    const runner = getRunner();
-    const scope: PreviewScope = {
+    const shared = isSharedSandboxMode();
+    const runner = shared ? null : getPlaygroundRuntime().requireInProcessRunner('App preview isolated runtime');
+    const workerDb = shared ? getWorkerDb() : null;
+    const scope = {
       react: React,
       'react/jsx-runtime': ReactJsxRuntime as unknown as Record<string, unknown>,
       'react/jsx-dev-runtime': ReactJsxDevRuntime as unknown as Record<string, unknown>,
@@ -289,36 +296,38 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
         // tells the agent to prefer `import { db } from "./firebase"`.
         // Inner cast picks one overload at TS-check time — runtime
         // dispatch happens inside `@pyric/firestore.getFirestore`.
-        getFirestore: ((target?: Parameters<typeof getFirestore>[0]) =>
-          getFirestore((target ?? runner.getSandbox()) as Sandbox)) as typeof getFirestore,
-        onSnapshot,
-        collection,
-        collectionGroup,
-        doc,
-        getDoc,
-        getDocs,
-        setDoc,
-        addDoc,
-        updateDoc,
-        deleteDoc,
-        query,
-        where,
+        getFirestore: shared
+          ? ((target?: unknown) => (target && typeof target === 'object' ? target : workerDb)) as typeof getFirestore
+          : ((target?: Parameters<typeof getFirestore>[0]) =>
+              getFirestore((target ?? runner!.getSandbox()) as Sandbox)) as typeof getFirestore,
+        onSnapshot: shared ? sharedWorkerRuntime.onSnapshot : onSnapshot,
+        collection: shared ? sharedWorkerRuntime.collection : collection,
+        collectionGroup: shared ? sharedWorkerRuntime.collectionGroup : collectionGroup,
+        doc: shared ? sharedWorkerRuntime.doc : doc,
+        getDoc: shared ? sharedWorkerRuntime.getDoc : getDoc,
+        getDocs: shared ? sharedWorkerRuntime.getDocs : getDocs,
+        setDoc: shared ? sharedWorkerRuntime.setDoc : setDoc,
+        addDoc: shared ? sharedWorkerRuntime.addDoc : addDoc,
+        updateDoc: shared ? sharedWorkerRuntime.updateDoc : updateDoc,
+        deleteDoc: shared ? sharedWorkerRuntime.deleteDoc : deleteDoc,
+        query: shared ? sharedWorkerRuntime.query : query,
+        where: shared ? sharedWorkerRuntime.where : where,
         or,
         and,
-        orderBy,
-        limit,
-        limitToLast,
-        startAt,
-        startAfter,
-        endAt,
-        endBefore,
-        runTransaction,
-        writeBatch,
-        serverTimestamp,
-        increment,
-        arrayUnion,
-        arrayRemove,
-        deleteField,
+        orderBy: shared ? sharedWorkerRuntime.orderBy : orderBy,
+        limit: shared ? sharedWorkerRuntime.limit : limit,
+        limitToLast: shared ? sharedWorkerRuntime.limitToLast : limitToLast,
+        startAt: shared ? sharedWorkerRuntime.startAt : startAt,
+        startAfter: shared ? sharedWorkerRuntime.startAfter : startAfter,
+        endAt: shared ? sharedWorkerRuntime.endAt : endAt,
+        endBefore: shared ? sharedWorkerRuntime.endBefore : endBefore,
+        runTransaction: shared ? sharedWorkerRuntime.runTransaction : runTransaction,
+        writeBatch: shared ? sharedWorkerRuntime.writeBatch : writeBatch,
+        serverTimestamp: shared ? sharedWorkerRuntime.serverTimestamp : serverTimestamp,
+        increment: shared ? sharedWorkerRuntime.increment : increment,
+        arrayUnion: shared ? sharedWorkerRuntime.arrayUnion : arrayUnion,
+        arrayRemove: shared ? sharedWorkerRuntime.arrayRemove : arrayRemove,
+        deleteField: shared ? sharedWorkerRuntime.deleteField : deleteField,
         FieldValue,
         Timestamp,
         refEqual,
@@ -340,16 +349,22 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
       // the entry-source's `initializeApp(firebaseConfig)`, so app
       // code stays portable between worlds.
       'firebase/auth': {
-        getAuth: ((target?: Parameters<typeof getAuth>[0]) =>
-          getAuth((target ?? runner.getSandbox()) as Sandbox)) as typeof getAuth,
+        getAuth: shared
+          ? (((target?: unknown) => sharedWorkerRuntime.getAuth(
+              target && typeof target === 'object' && '__kind' in target
+                ? target as Parameters<typeof sharedWorkerRuntime.getAuth>[0]
+                : workerDb!,
+            )) as unknown as typeof getAuth)
+          : ((target?: Parameters<typeof getAuth>[0]) =>
+              getAuth((target ?? runner!.getSandbox()) as Sandbox)) as typeof getAuth,
         connectAuthEmulator,
-        onAuthStateChanged,
-        onIdTokenChanged,
-        signInAnonymously,
-        signInWithEmailAndPassword,
-        createUserWithEmailAndPassword,
-        signOut,
-        setPersistence,
+        onAuthStateChanged: shared ? sharedWorkerRuntime.onAuthStateChanged : onAuthStateChanged,
+        onIdTokenChanged: shared ? sharedWorkerRuntime.onIdTokenChanged : onIdTokenChanged,
+        signInAnonymously: shared ? sharedWorkerRuntime.signInAnonymously : signInAnonymously,
+        signInWithEmailAndPassword: shared ? sharedWorkerRuntime.signInWithEmailAndPassword : signInWithEmailAndPassword,
+        createUserWithEmailAndPassword: shared ? sharedWorkerRuntime.createUserWithEmailAndPassword : createUserWithEmailAndPassword,
+        signOut: shared ? sharedWorkerRuntime.signOut : signOut,
+        setPersistence: shared ? sharedWorkerRuntime.setPersistence : setPersistence,
         signInWithPopup,
         signInWithCredential,
         signInWithRedirect,
@@ -383,23 +398,25 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
       // (`bundleApp.ts::assertNoPyricLeak`) still trips on any
       // direct `@pyric/rtdb` import in deployed app code.
       'firebase/database': {
-        getDatabase: ((target?: Parameters<typeof getDatabase>[0]) =>
-          getDatabase((target ?? runner.getSandbox()) as Sandbox)) as typeof getDatabase,
-        ref: rtdbRef,
-        child: rtdbChild,
-        get: rtdbGet,
-        set: rtdbSet,
-        update: rtdbUpdate,
-        remove: rtdbRemove,
-        push: rtdbPush,
-        onValue: rtdbOnValue,
-        off: rtdbOff,
-        serverTimestamp: rtdbServerTimestamp,
-        connectDatabaseEmulator,
+        getDatabase: shared
+          ? ((() => sharedWorkerRuntime.rtdbGetDatabase(workerDb!)) as unknown as typeof getDatabase)
+          : ((target?: Parameters<typeof getDatabase>[0]) =>
+              getDatabase((target ?? runner!.getSandbox()) as Sandbox)) as typeof getDatabase,
+        ref: shared ? sharedWorkerRuntime.rtdbRef : rtdbRef,
+        child: shared ? sharedWorkerRuntime.rtdbChild : rtdbChild,
+        get: shared ? sharedWorkerRuntime.rtdbGet : rtdbGet,
+        set: shared ? sharedWorkerRuntime.rtdbSet : rtdbSet,
+        update: shared ? sharedWorkerRuntime.rtdbUpdate : rtdbUpdate,
+        remove: shared ? sharedWorkerRuntime.rtdbRemove : rtdbRemove,
+        push: shared ? sharedWorkerRuntime.rtdbPush : rtdbPush,
+        onValue: shared ? sharedWorkerRuntime.rtdbOnValue : rtdbOnValue,
+        off: shared ? sharedWorkerRuntime.rtdbOff : rtdbOff,
+        serverTimestamp: shared ? sharedWorkerRuntime.rtdbServerTimestamp : rtdbServerTimestamp,
+        connectDatabaseEmulator: shared ? sharedWorkerRuntime.rtdbConnectDatabaseEmulator : connectDatabaseEmulator,
       },
-      './firebase': { db: runner.getDb() },
+      './firebase': { db: shared ? workerDb : runner!.getDb() },
     };
-    const resolved = evaluate(scope, runner.getSandbox());
+    const resolved = evaluate(scope as unknown as PreviewScope, shared ? { runtime: 'shared-worker' } : runner!.getSandbox());
     if (typeof resolved !== 'function') return null;
     return resolved as React.ComponentType;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -413,7 +430,7 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
   // reset, when the runner's sandbox may be fresh; the hook re-installs
   // whenever the handle identity changes (StrictMode-safe paired effect).
   const previewAuth = useMemo(
-    () => getAuth(getRunner().getSandbox() as Sandbox),
+    () => (isSharedSandboxMode() ? null : getAuth(getPlaygroundRuntime().requireInProcessRunner('Preview auth helper').getSandbox() as Sandbox)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [resetKey],
   );
@@ -439,7 +456,7 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
       ].join(' ')}
     >
       <DenialBanner onOpenDenials={onOpenDenials} />
-      <PreviewAuthHelper auth={previewAuth} />
+      {previewAuth ? <PreviewAuthHelper auth={previewAuth} /> : null}
       <div className="flex-1 min-h-0 relative">
         <IframePreview Component={Component} />
         <button

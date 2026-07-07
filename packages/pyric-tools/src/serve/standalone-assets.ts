@@ -31,6 +31,9 @@ export interface EmbeddedAssets {
   sdk: () => Promise<Record<string, string>>;
   /** Lazy: Studio UI relpath (posix) -> base64 bytes (index.html, assets/*). */
   studio: () => Promise<Record<string, string>>;
+  /** Lazy: Playground UI relpath (posix) -> base64 bytes. Optional for older
+   *  compiled binaries; missing means `/__pyric/playground/` is unavailable. */
+  playground?: () => Promise<Record<string, string>>;
   /** Lazy: packed npm tarballs of the unpublished workspace packages
    *  (`pyric.tgz`, `pyric-tools.tgz`) -> base64. Used by `pyric init` to vendor
    *  them into a scaffolded project so `bun install` resolves them offline
@@ -147,5 +150,18 @@ export async function materializeStudioUi(): Promise<string> {
   const dir = join(tmpdir(), `pyric-serve-${e.version}`, 'studio-ui');
   materialize(dir, await e.studio(), e.version);
   studioDirOnce = dir;
+  return dir;
+}
+
+let playgroundDirOnce: string | null = null;
+
+/** Materialize the embedded Playground UI tree to a temp dir for `serve --ui`. */
+export async function materializePlaygroundUi(): Promise<string | null> {
+  if (playgroundDirOnce) return playgroundDirOnce;
+  const e = embedded();
+  if (!e.playground) return null;
+  const dir = join(tmpdir(), `pyric-serve-${e.version}`, 'playground-ui');
+  materialize(dir, await e.playground(), e.version);
+  playgroundDirOnce = dir;
   return dir;
 }

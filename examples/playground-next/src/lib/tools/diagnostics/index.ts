@@ -27,7 +27,6 @@ import { buildFirestoreDiscoverHandlers } from './firestore-discover';
 import { buildFirestoreRulesInspectHandler } from './firestore-rules-inspect';
 import { buildGenerateFixtureFromSessionHandler } from './generate-fixture-from-session';
 import { buildInspectFirestoreTrafficHandler } from './inspect-firestore-traffic';
-import { buildSeedFirestoreDataHandler } from './seed-firestore-data';
 import { buildSimulateFirestoreWriteHandler } from './simulate-firestore-write';
 import { buildTryRulesEditHandler } from './try-rules-edit';
 
@@ -86,16 +85,6 @@ export const DIAGNOSTIC_TOOL_MANIFEST: readonly DiagnosticToolEntry[] = [
     description:
       'inspect_firestore_traffic. Structured dump of every Firestore op the in-browser sandbox has evaluated this session (reads, writes, denials, paths, durations) with decision/path/origin filters. Distinct from `inspect_denial` (drill-down into ONE denial) — this is the WHOLE log for spotting cross-session patterns. Sandbox-local, no auth needed.',
     build: () => [buildInspectFirestoreTrafficHandler()],
-  },
-  {
-    key: 'seed_firestore_data_as_admin',
-    label: 'Firestore: seed data as admin (sandbox)',
-    description:
-      'seed_firestore_data_as_admin. Bulk admin-bypass set/delete against the in-browser sandbox for fixture setup BEFORE rule-enforcement tests. Local sandbox only this PR (no live-mode); method limited to set/delete; 100-entry cap per call; seeded paths wake onSnapshot listeners.',
-    // No auth or project needed — local sandbox only. Returned
-    // unconditionally so the tool is always available when both the
-    // master switch and the per-tool flag are on.
-    build: () => [buildSeedFirestoreDataHandler()],
   },
   {
     key: 'generate_fixture_from_session',

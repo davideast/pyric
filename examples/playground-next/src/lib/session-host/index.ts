@@ -81,7 +81,7 @@ import { finalizeClaudeTranscript } from '~/lib/llm/claude-transcript';
 import { useLlmStore } from '~/lib/store/llm';
 import { useSettingsStore, resolveMaxTurns } from '~/lib/store/settings';
 import { useTraceStore, type HostCtx } from '~/lib/store/trace';
-import { getRunner } from '~/lib/sandbox/runner';
+import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 import { buildToolRegistry, filterToolsForProfile } from '~/lib/tools';
 import { createDraftThenValidateStrategy } from '~/lib/agent/strategies/draft-then-validate';
 import {
@@ -99,6 +99,8 @@ import { buildSystemPrompt } from '~/lib/agent/system-prompt';
 import { makeDiagnosticsContext } from '~/lib/agent/diagnostics';
 import { resolveModelHistory } from './model-history';
 import { pruneToolHistoryWithStats, withPrunedHistory } from '~/lib/agent/prune-history';
+import { resolveActiveSkills, resolveWorkbenchIntent } from '~/lib/skills/registry';
+import { useSkillsStore } from '~/lib/store/skills';
 import { logPage } from '~/lib/llm/inference/diagnostics';
 import { setServerJobProgressListener } from '~/lib/llm/inference';
 import {
@@ -109,25 +111,24 @@ import {
 import type { Tracer, TraceEvent } from '@inbrowser/agent';
 
 /**
- * Real `SandboxHandle` backed by the shared `SandboxRunner` singleton.
- * The `runOnce` tool drives this directly via the runner, but exposing
- * it on `ToolContext` keeps other agents framework-style tools wired
- * to the same instance if they reach for `ctx.sandbox` later.
+ * Real `SandboxHandle` backed by the active Playground runtime. In
+ * shared mode, supported data-plane calls route to the SharedWorker;
+ * unsupported legacy `run(code)` fails loudly instead of touching an
+ * isolated runner.
  *
  * Reseed is currently a no-op — Phase 5+ wires presets and surfaces
  * a fresh instance via `disposeRunner()` + `getRunner()`.
  */
 function realSandbox(): SandboxHandle {
-  const r = getRunner();
   return {
     async run(code) {
-      return r.run(code);
+      return getPlaygroundRuntime().requireInProcessRunner('ctx.sandbox.run').run(code);
     },
     async deployRules(source) {
-      return r.deployRules(source);
+      return getPlaygroundRuntime().deployFirestoreRules(source);
     },
     async readState(opts) {
-      return r.readState(opts);
+      return getPlaygroundRuntime().readFirestoreState(opts);
     },
     reseed() {},
     dispose() {
@@ -224,9 +225,19 @@ export async function runOneTurn(
   // Phase 2: a real tool registry. Today contains `writeRules`. The
   // list grows as we add capabilities — agent sees them at function-
   // declaration time and can call any of them.
-  const registry = buildToolRegistry();
+  const workbenchIntent = resolveWorkbenchIntent(
+    resolveActiveSkills(useSkillsStore.getState().activeSkillIds),
+  );
+  const forceDiagnostics = workbenchIntent.promptProfile === 'firebase-tooling';
+  const registry = buildToolRegistry({ forceDiagnostics });
   const dispatch = createDispatch(registry);
-  const toolProfile = selectToolProfileForPrompt({ prompt, settings, delegated });
+  const toolProfile = selectToolProfileForPrompt({
+    prompt,
+    settings,
+    delegated,
+    promptProfile: workbenchIntent.promptProfile,
+    preference: workbenchIntent.toolProfilePreference,
+  });
   const visibleTools = filterToolsForProfile(registry.list(), toolProfile);
   const metrics = createMetricsCollector();
 
@@ -334,6 +345,8 @@ export async function runOneTurn(
         makeDraftValidate: () =>
           createDraftThenValidateStrategy({ maxRepairs: settings.draftMaxRepairs }),
         override: settings.strategyMode,
+        promptProfile: workbenchIntent.promptProfile,
+        strategyPreference: workbenchIntent.strategyPreference,
       });
   const session = createAgentSession({
     tracer,
@@ -364,7 +377,8 @@ export async function runOneTurn(
     tools: dispatch,
     toolList: visibleTools,
     toolContext: (): ToolContext => {
-      const diagnosticsEnabled = useSettingsStore.getState().pyricDiagnosticsEnabled;
+      const diagnosticsEnabled =
+        useSettingsStore.getState().pyricDiagnosticsEnabled || forceDiagnostics;
       return {
         workspace: {
           presetId: '',
@@ -395,10 +409,12 @@ export async function runOneTurn(
     systemPromptBuilder: () =>
       delegated
         ? buildClaudeLanePrompt({
-            diagnosticsEnabled: useSettingsStore.getState().pyricDiagnosticsEnabled,
+            diagnosticsEnabled:
+              useSettingsStore.getState().pyricDiagnosticsEnabled || forceDiagnostics,
           })
         : buildSystemPrompt({
-            diagnosticsEnabled: useSettingsStore.getState().pyricDiagnosticsEnabled,
+            diagnosticsEnabled:
+              useSettingsStore.getState().pyricDiagnosticsEnabled || forceDiagnostics,
           }),
     metrics,
     history: uiToCoreHistory(history),

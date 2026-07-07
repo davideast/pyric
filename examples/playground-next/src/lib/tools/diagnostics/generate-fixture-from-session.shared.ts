@@ -5,7 +5,7 @@
  * pulling in workspace dependencies.
  *
  * The handler module imports from here; tests import from here. The
- * handler keeps the `getRunner()` / `getInternalEnv()` calls that are
+ * handler keeps the runtime / `getInternalEnv()` calls that are
  * environment-coupled.
  */
 import type { SandboxEvent } from 'pyric/sandbox';

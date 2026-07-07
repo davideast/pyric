@@ -106,22 +106,20 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════════
- * C-PARTI SHELL: ported from the design rationale.
+ * C-PARTI SHELL: ported from `plans/pyric-studio/mocks/c-result.html`.
  * Every raw value from the mock is replaced by a role token. The structure
  * (prompt spine → frame bar → scroll region, centred column) is preserved.
  * ════════════════════════════════════════════════════════════════════════ */
 
 .studio {
   --maxw: 820px;
-  /* The shared content column: the data browsers, the scroll surfaces, and the
-     bar all center to this, so nothing shifts between tabs. Sized so the
-     Firestore 3-panel browser lands near the console's ~360/360/613 panes. */
-  --wide: 1400px;
-  --gutter: 28px;
+  --wide: 1440px;
+  --gutter: clamp(16px, 3vw, 32px);
   height: 100vh;
+  min-width: 0;
   display: grid;
-  /* one bar · content */
-  grid-template-rows: 50px 1fr;
+  grid-template-rows: 54px 1fr;
+  overflow-x: hidden;
 }
 
 .studio__col {
@@ -137,17 +135,21 @@
    up with the content's left/right edges and never shift when switching tabs. */
 .studio__bar {
   border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  min-width: 0;
 }
 .studio__bar-inner {
   width: 100%;
   max-width: var(--wide);
   margin: 0 auto;
-  height: 50px;
+  height: 54px;
   display: flex;
   align-items: center;
-  gap: 16px;
+  justify-content: space-between;
+  gap: 14px;
   padding: 0 var(--gutter);
   min-width: 0;
+  overflow: hidden;
 }
 .studio__brand {
   font-weight: 600;
@@ -179,31 +181,97 @@
 /* Inline nav tabs. */
 .studio__nav {
   display: flex;
-  gap: 2px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
+  flex: 1 1 auto;
+  height: 100%;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.studio__nav::-webkit-scrollbar {
+  display: none;
 }
 .studio__nav-tab {
   appearance: none;
-  background: none;
-  border: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--muted);
-  padding: 5px 10px;
-  border-radius: 6px;
+  padding: 0 12px;
+  height: 100%;
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.12s, background 0.12s;
+  transition: color 0.12s, border-color 0.12s;
 }
 .studio__nav-tab:hover {
-  color: var(--ink);
-  background: var(--panel);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 .studio__nav-tab[aria-current="page"] {
-  color: var(--accent);
-  background: var(--accent-tint);
-  font-weight: 500;
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+.studio__bar-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.studio__playground-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.studio-icon-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.studio-icon-button:hover {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--elevated);
+}
+
+.studio-playground-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.studio-playground-model select {
+  height: 30px;
+  max-width: 180px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--elevated);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-caption);
+  padding: 0 7px;
+  outline: none;
+}
+.studio-playground-model select:focus {
+  border-color: var(--line-2);
 }
 
 /* Right cluster: command · settings · theme. */
@@ -242,8 +310,7 @@
   padding: 2px 6px;
 }
 
-/* Icon buttons (settings gear + theme toggle), shared chrome. */
-.studio__iconbtn {
+.studio-theme-toggle {
   appearance: none;
   display: inline-flex;
   align-items: center;
@@ -258,7 +325,7 @@
   line-height: 1;
   cursor: pointer;
 }
-.studio__iconbtn:hover {
+.studio-theme-toggle:hover {
   border-color: var(--line-2);
   color: var(--ink);
 }
@@ -305,31 +372,305 @@
 /* ── Content region: one surface, framed per route ───────────────────── */
 .studio__content {
   min-height: 0;
+  min-width: 0;
+  position: relative;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Scroll surfaces (session · rules · traffic): one centered wide column, the
    SAME width as the data browsers, so the page width (and the top bar aligned
    to it) never changes when switching tabs. */
-.studio__content[data-surface='session'] > *,
-.studio__content[data-surface='rules'] > *,
+.studio__content[data-surface='home'] > *,
+.studio__content[data-surface='rtdb'] > *,
 .studio__content[data-surface='traffic'] > *,
-.studio__content[data-surface='review'] > * {
+.studio__content[data-surface='settings'] > * {
   display: block;
   width: 100%;
   max-width: var(--wide);
   margin: 0 auto;
-  padding: 32px var(--gutter) 72px;
+  padding: clamp(22px, 4vw, 40px) var(--gutter) 72px;
 }
 
 /* Full-height data browsers (firestore · auth · storage): fill the viewport so
    the browser's own panes scroll internally instead of the whole page. */
 .studio__content[data-surface='firestore'],
 .studio__content[data-surface='auth'],
-.studio__content[data-surface='storage'] {
+.studio__content[data-surface='storage'],
+.studio__content[data-surface='playground'] {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.studio-surface {
+  container-type: inline-size;
+}
+.studio-surface__intro {
+  display: grid;
+  gap: 6px;
+  max-width: 680px;
+  margin-bottom: 22px;
+}
+.studio-surface__eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+.studio-surface__title {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(18px, 2vw, 24px);
+  line-height: 1.2;
+  font-weight: 650;
+}
+.studio-surface__copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+}
+.studio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 12px;
+}
+.studio-card,
+.studio-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.studio-card {
+  appearance: none;
+  display: grid;
+  gap: 10px;
+  min-height: 132px;
+  padding: 16px;
+  color: inherit;
+  text-align: left;
+}
+button.studio-card {
+  cursor: pointer;
+}
+button.studio-card:hover {
+  border-color: var(--line-2);
+  background: color-mix(in srgb, var(--panel) 80%, var(--elevated));
+}
+.studio-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--faint);
+  font-size: var(--fs-caption);
+  line-height: 1.2;
+}
+.studio-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--elevated);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-label);
+  padding: 7px 11px;
+  cursor: pointer;
+}
+.studio-button:hover {
+  border-color: var(--line-2);
+}
+.studio-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.studio-button--primary {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  color: var(--accent);
+}
+.studio-button--danger {
+  color: var(--diff-remove);
+}
+.studio-panel {
+  padding: 16px;
+}
+.studio-panel__title {
+  margin: 0 0 10px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.studio-home__grid {
+  align-items: stretch;
+}
+.studio-home__tile[aria-disabled='true'] {
+  cursor: default;
+}
+.studio-home__tile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.studio-home__tile-label {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+.studio-home__tile-desc {
+  color: var(--muted);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+}
+.studio-empty {
+  min-height: min(560px, 70vh);
+  display: grid !important;
+  place-items: center;
+}
+.studio-empty__panel {
+  width: min(100%, 520px);
+  border: 1px dashed var(--line-2);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 28px;
+  text-align: center;
+}
+.studio-settings__grid > * {
+  min-width: 0;
+}
+
+.studio-playground {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  background: var(--bg);
+}
+.studio-playground__frame {
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: var(--elevated);
+}
+.studio__surface-slot {
+  min-width: 0;
+}
+.studio__surface-slot--playground {
+  min-height: 0;
+}
+.studio__content[data-surface='playground'] > .studio__surface-slot--playground {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.studio__surface-slot--playground[data-active='false'] {
+  position: absolute;
+  inset: 0;
+  display: flex !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: 0;
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  overflow: hidden;
+}
+.studio__surface-slot--playground > .studio-playground {
+  flex: 1;
+}
+.studio-settings__actions,
+.studio-settings__branch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.studio-settings__grid {
+  display: grid;
+  grid-template-columns: minmax(min(100%, 560px), 1.1fr) minmax(min(100%, 320px), 0.9fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+.studio-settings__ai {
+  max-width: none;
+  max-height: none;
+  box-shadow: none;
+}
+.studio-settings__panel {
+  display: grid;
+  gap: 12px;
+}
+.studio-settings__choice-group {
+  display: grid;
+  gap: 8px;
+}
+.studio-settings__choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  padding: 12px;
+  cursor: pointer;
+}
+.studio-settings__choice:has(input:checked) {
+  border-color: var(--accent);
+}
+.studio-settings__choice input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.studio-settings__choice span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.studio-settings__choice strong {
+  color: var(--ink);
+  font-size: var(--fs-body);
+}
+.studio-settings__choice small {
+  color: var(--muted);
+  font-size: var(--fs-label);
+  line-height: 1.45;
+}
+.studio-settings__row,
+.studio-settings__branch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.studio-settings__label {
+  color: var(--muted);
+}
+.studio-settings__muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+.studio-settings__file {
+  display: none;
+}
+.studio-settings__branches {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
 }
 .studio__content[data-surface='firestore'] > *,
 .studio__content[data-surface='auth'] > *,
@@ -551,77 +892,61 @@
   .studio {
     --gutter: 16px;
     height: 100dvh;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: 54px 1fr;
   }
 
-  /* ── The bar fits the viewport: its inner row wraps (no horizontal overflow),
-        and the nav moves OUT of the row into a slide-from-top drawer. ── */
   .studio__bar {
-    position: relative; /* anchor for the drawer */
-    z-index: 50; /* bar + drawer sit above the tap-outside backdrop (z 40) */
+    position: relative;
+    z-index: 10;
   }
   .studio__bar-inner {
     max-width: none;
-    flex-wrap: wrap;
-    height: auto;
-    min-height: 50px;
-    padding-top: 8px;
-    padding-bottom: 8px;
-    gap: 8px 10px;
+    height: 54px;
+    padding-inline: 10px;
+    gap: 8px;
   }
-  /* Hamburger to the right of the brand row; tools wrap below, left-aligned. */
   .studio__menu {
-    display: inline-flex;
-    margin-left: auto;
+    display: none;
   }
   .studio__bar-tools {
-    margin-left: 0;
+    display: none;
   }
 
-  /* ── Nav: a slide-from-top expandable list, toggled by the hamburger ── */
-  .studio__nav {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    flex-direction: column;
-    gap: 2px;
-    overflow: visible;
-    background: var(--bg);
-    border-bottom: 1px solid var(--line);
-    box-shadow: 0 18px 36px -16px rgba(0, 0, 0, 0.6);
-    padding: 8px var(--gutter) 12px;
-    transform: translateY(-12px);
-    opacity: 0;
-    pointer-events: none;
-    transition: transform 0.18s ease, opacity 0.18s ease;
-    z-index: 45;
+  .studio__bar-actions {
+    gap: 5px;
   }
-  .studio__nav[data-open] {
-    transform: translateY(0);
-    opacity: 1;
-    pointer-events: auto;
+
+  .studio__playground-actions {
+    gap: 4px;
+  }
+
+  .studio-playground-model select {
+    max-width: 112px;
+  }
+
+  .studio-playground-model select:nth-of-type(2) {
+    display: none;
+  }
+
+  .studio__nav {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-inline: 2px;
   }
   .studio__nav-tab {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 11px 8px;
-    font-size: 14px;
+    flex: 0 0 auto;
+    padding: 0 10px;
+    font-size: 13px;
   }
-  /* Tap-outside to close the open drawer. */
   .studio__nav-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 40;
-    background: transparent;
+    display: none;
   }
 
   /* ── Surface working areas: full width, tighter gutter ── */
-  .studio__content[data-surface='session'] > *,
-  .studio__content[data-surface='rules'] > *,
+  .studio__content[data-surface='home'] > *,
+  .studio__content[data-surface='rtdb'] > *,
   .studio__content[data-surface='traffic'] > *,
+  .studio__content[data-surface='settings'] > *,
   .studio__content[data-surface='storage'] > *,
   .studio__content[data-surface='firestore'] > *,
   .studio__content[data-surface='auth'] > * {
@@ -636,5 +961,16 @@
   .studio__palette {
     max-width: none;
     margin: 0 12px;
+  }
+
+  .studio-settings__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-set__field,
+  .studio-settings__row,
+  .studio-settings__branch {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

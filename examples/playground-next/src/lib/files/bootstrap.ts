@@ -11,7 +11,7 @@
  * rewriting it yet (Phase C swaps the read direction).
  */
 import { useWorkspaceStore } from '~/lib/store/workspace';
-import { APP_ENTRY_PATH, RULES_PATH, useFilesStore } from '~/lib/store/files';
+import { APP_ENTRY_PATH, DATABASE_RULES_PATH, RULES_PATH, useFilesStore } from '~/lib/store/files';
 import { getVFS } from '~/lib/vfs';
 
 let bootstrapPromise: Promise<void> | null = null;
@@ -45,6 +45,7 @@ export function bootstrapWorkspaceFiles(): Promise<void> {
   bootstrapPromise = (async () => {
     const ws = useWorkspaceStore.getState();
     await seedFile(RULES_PATH, ws.rules ?? '');
+    await seedFile(DATABASE_RULES_PATH, ws.databaseRules ?? '');
     await seedFile(APP_ENTRY_PATH, ws.appSource ?? '');
     useFilesStore.getState().bumpTree();
     installWriteMirror();
@@ -65,6 +66,7 @@ function installWriteMirror(): void {
 
 const mirrorRoutes: Record<string, (content: string) => void> = {
   [RULES_PATH]: (content) => useWorkspaceStore.getState().setRules(content),
+  [DATABASE_RULES_PATH]: (content) => useWorkspaceStore.getState().setDatabaseRules(content),
   [APP_ENTRY_PATH]: (content) => useWorkspaceStore.getState().setAppSource(content),
 };
 
@@ -124,11 +126,13 @@ export async function resyncWorkspaceMirror(): Promise<void> {
       return '';
     }
   };
-  const [rules, appSource] = await Promise.all([
+  const [rules, databaseRules, appSource] = await Promise.all([
     readOrEmpty(RULES_PATH),
+    readOrEmpty(DATABASE_RULES_PATH),
     readOrEmpty(APP_ENTRY_PATH),
   ]);
   mirrorRoutes[RULES_PATH]!(rules);
+  mirrorRoutes[DATABASE_RULES_PATH]!(databaseRules);
   mirrorRoutes[APP_ENTRY_PATH]!(appSource);
   const files = useFilesStore.getState();
   files.bumpTree();

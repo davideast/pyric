@@ -22,6 +22,7 @@ import type {
   StrategyRunInput,
 } from '@inbrowser/agent';
 import { parseRules } from './strategies/draft-then-validate';
+import type { AgentPromptProfile, SkillStrategyPreference } from '~/lib/skills/registry';
 
 // ─── Classification ──────────────────────────────────────────────────
 
@@ -69,7 +70,27 @@ const DATA_SECURITY_RE =
  * rules-shaped, so routing a prompt with no data/security surface to it
  * would produce a ruleset nobody asked for.
  */
-export function routePrompt(prompt: string): RouteDecision {
+export function routePrompt(
+  prompt: string,
+  opts: {
+    promptProfile?: AgentPromptProfile;
+    strategyPreference?: SkillStrategyPreference;
+  } = {},
+): RouteDecision {
+  if (opts.promptProfile === 'firebase-tooling') {
+    return {
+      strategy: 'react',
+      source: 'heuristic',
+      reason: 'firebase-tooling skill active',
+    };
+  }
+  if (opts.strategyPreference && opts.strategyPreference !== 'auto') {
+    return {
+      strategy: opts.strategyPreference,
+      source: 'heuristic',
+      reason: `active skill prefers ${opts.strategyPreference}`,
+    };
+  }
   let p = prompt.trim();
   const polite = POLITE_PREFIX_RE.exec(p);
   if (polite) p = p.slice(polite[0].length);
@@ -184,6 +205,10 @@ export interface RoutedStrategyConfig {
   makeDraftValidate: () => AgentStrategy;
   /** Explicit user override from settings; 'auto'/undefined → heuristic. */
   override?: RoutedStrategyName | 'auto';
+  /** Active prompt profile. Firebase tooling stays on ReAct under auto. */
+  promptProfile?: AgentPromptProfile;
+  /** Active skill routing preference. This is routed provenance, not a user override. */
+  strategyPreference?: SkillStrategyPreference;
 }
 
 interface EscalationEvidence {
@@ -228,7 +253,10 @@ export function createRoutedStrategy(config: RoutedStrategyConfig): AgentStrateg
       const decision: RouteDecision =
         config.override && config.override !== 'auto'
           ? { strategy: config.override, source: 'override', reason: 'settings strategyMode' }
-          : routePrompt(input.prompt);
+          : routePrompt(input.prompt, {
+              promptProfile: config.promptProfile,
+              strategyPreference: config.strategyPreference,
+            });
 
       yield { kind: 'custom', name: 'strategy_routed', data: { ...decision } };
 

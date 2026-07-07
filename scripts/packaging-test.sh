@@ -40,7 +40,6 @@ declare -a PYRIC_SUBPATHS=(
   "pyric/app"
   "pyric/auth"
   "pyric/database"
-  "pyric/firestore-values"
   "pyric/firestore"
   "pyric/rules"
   "pyric/rules/node"
@@ -62,25 +61,17 @@ declare -a PYRIC_ADMIN_SUBPATHS=(
 declare -a PYRIC_TOOLS_SUBPATHS=(
   "pyric-tools/auth"
   "pyric-tools/bridge"
-  "pyric-tools/credentials"
-  "pyric-tools/credentials/node"
   "pyric-tools/deploy"
   "pyric-tools/discover"
-  "pyric-tools/registry"
-  "pyric-tools/serve/worker"
   "pyric-tools/vite"
 )
 declare -a PYRIC_UI_SUBPATHS=(
   "@pyric/ui/agents"
   "@pyric/ui/auth"
   "@pyric/ui/auth/hooks"
-  "@pyric/ui/events"
-  "@pyric/ui/events/hooks"
   "@pyric/ui/firestore"
   "@pyric/ui/firestore/hooks"
   "@pyric/ui/primitives"
-  "@pyric/ui/rules"
-  "@pyric/ui/rules/hooks"
   "@pyric/ui/storage"
   "@pyric/ui/storage/hooks"
   "@pyric/ui/traffic"
@@ -173,11 +164,12 @@ TARBALL_UI=$(pack_one packages/ui)
 # npm would publish and validates the manifest — assert it's non-trivial and ships
 # dist/. (A full `npm publish --dry-run` additionally checks version/tag legality
 # against the registry; that's non-hermetic + depends on what's already published,
-# so it's a release-prep step, not a CI gate — see design rationale)
+# so it's a release-prep step, not a CI gate — see plans/packaging-hardening.md.)
 # Then assert the load-bearing RUNTIME ASSETS are actually inside the published
 # tarball: `files: ["dist","README.md"]` is a whitelist, so a build that forgets to
 # copy an asset (the .ohm grammars / stdlib .rules) ships a tarball that imports
-# fine but throws the instant the rules engine loads its grammar.
+# fine but throws the instant the rules engine loads its grammar. (mcp is
+# sunsetting → out of scope.)
 echo ""
 echo "━━━ Phase 2.5: publish file-set + asset presence ━━━"
 packset_check() {
@@ -220,11 +212,22 @@ assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/cli/index\.js$' "pyric-tools
 # entries from dist/serve/entries. Both are `files:["dist"]`-whitelisted assets that
 # import fine but 404 / break the swap for installed users if the build drops them.
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/studio-ui/index\.html$' "pyric-tools ships the Studio app shell (vite plugin ui + serve --ui)"
+assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/playground-ui/index\.html$' "pyric-tools ships the embedded Playground app shell (Studio Playground tab)"
 # index.html hard-references hashed assets/*.{js,css}; without them the served app
 # renders a blank root that 404s its own bundle. The index.html fallback only fires
 # for extension-less paths, so a dropped assets/ dir would pass an index-only check.
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/studio-ui/assets/.*\.js$' "pyric-tools ships the Studio app JS bundle"
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/studio-ui/assets/.*\.css$' "pyric-tools ships the Studio app CSS bundle"
+assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/playground-ui/_astro/.*\.js$' "pyric-tools ships the embedded Playground JS bundle"
+assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/playground-ui/_astro/.*\.css$' "pyric-tools ships the embedded Playground CSS bundle"
+if ! grep -R "Shared sandbox" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1 ||
+   ! grep -R "Isolated session" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1 ||
+   ! grep -R "sandboxMode" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1; then
+  echo "  ✗ stale embedded Playground bundle: missing per-session sandbox mode code" >&2
+  echo "    Run: PLAYGROUND_BASE=/__pyric/playground/ bun run --cwd examples/playground-next build" >&2
+  echo "         cp -R examples/playground-next/dist/client/. packages/pyric-tools/dist/serve/playground-ui/" >&2
+  exit 1
+fi
 # All four swap/boot entries are load-bearing: defaultSdkEntries() throws at plugin
 # construction if any is missing. Guard each, not just firestore.
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/app\.js$' "pyric-tools ships the firebase/app swap entry"
@@ -530,7 +533,7 @@ NODESMOKE
 ( cd "$WORK/consumer" && node __runtime-smoke.mjs )
 
 # ─── Phase 5.7: module-system contract (pins the ESM-only + subpath-only API) ──
-# The library is ESM-only and subpath-only BY DESIGN (design rationale
+# The library is ESM-only and subpath-only BY DESIGN (plans/packaging-hardening.md
 # §4). Pin both so a future exports-map edit can't silently add a CJS/`require`
 # entry or a root export without this failing. Asserted from the INSTALLED package:
 #   - ESM import of a subpath RESOLVES (the supported path works);
@@ -574,4 +577,4 @@ rm -rf "$WORK"
 
 trap - ERR
 echo ""
-echo "✓ packaging gate PASS — all 5 packages pack, install, and resolve every advertised subpath."
+echo "✓ packaging gate PASS — all 4 packages pack, install, and resolve every advertised subpath."

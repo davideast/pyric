@@ -5,21 +5,22 @@
  * Path conventions:
  *   - Every path is absolute under the OPFS VFS.
  *   - `/workspace/firestore.rules` is the rules file.
+ *   - `/workspace/database.rules.json` is the Realtime Database rules file.
  *   - `/workspace/src/App.tsx` is the App preview entry.
  *   - Any other file under `/workspace/` is user-owned and freely editable.
  *
  * `pinnedPaths` lists paths the FilesPanel must not allow deleting.
- * `firestore.rules` lives there because Firestore rules deployment
- * targets a file at a known location — losing it would break the
- * deploy/rules-lint loop.
+ * Rules files live there because deployment targets known locations —
+ * losing them would break the deploy/rules-lint loop.
  */
 import { create } from 'zustand';
 
 export const WORKSPACE_ROOT = '/workspace';
 export const RULES_PATH = '/workspace/firestore.rules';
+export const DATABASE_RULES_PATH = '/workspace/database.rules.json';
 export const APP_ENTRY_PATH = '/workspace/src/App.tsx';
 
-export const PINNED_PATHS: readonly string[] = [RULES_PATH];
+export const PINNED_PATHS: readonly string[] = [RULES_PATH, DATABASE_RULES_PATH];
 
 interface FilesState {
   activeFilePath: string | null;

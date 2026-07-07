@@ -1,6 +1,6 @@
 /** `/__pyric/` namespace + HTML injection (plan step 1.4). */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace, injectServeTags, sdkImportMap } from '../../src/serve/namespace.js';
@@ -91,6 +91,8 @@ describe('namespace over the real server', () => {
     const h = await startStaticServer({
       publicDir: site,
       port: 0,
+      host: '127.0.0.1',
+      portScanLimit: 200,
       logger: silentServeLogger(),
       namespaceHandler: ns,
       transformHtml: (html) => injectServeTags(html),
@@ -114,5 +116,40 @@ describe('namespace over the real server', () => {
     const html = await (await fetch(h.url + '/')).text();
     expect(html).toContain('type="importmap"');
     expect(html).toContain('/__pyric/sdk/init.js');
+  });
+
+  it('serves embedded Studio and Playground apps with SPA fallback', async () => {
+    const { site, sdk } = fixture();
+    const appRoot = join(site, 'apps');
+    const studioRoot = join(appRoot, 'studio');
+    const playgroundRoot = join(appRoot, 'playground');
+    mkdirSync(join(studioRoot, 'assets'), { recursive: true });
+    mkdirSync(join(playgroundRoot, '_astro'), { recursive: true });
+    writeFileSync(join(studioRoot, 'index.html'), '<!doctype html>studio');
+    writeFileSync(join(studioRoot, 'assets', 'app.js'), '// studio');
+    writeFileSync(join(playgroundRoot, 'index.html'), '<!doctype html>playground');
+    writeFileSync(join(playgroundRoot, '_astro', 'app.js'), '// playground');
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      studioUiDir: studioRoot,
+      playgroundUiDir: playgroundRoot,
+    });
+    const h = await startStaticServer({
+      publicDir: site,
+      port: 0,
+      host: '127.0.0.1',
+      portScanLimit: 200,
+      logger: silentServeLogger(),
+      namespaceHandler: ns,
+    });
+    handles.push(h);
+
+    expect((await fetch(h.url + '/__pyric/ui', { redirect: 'manual' })).status).toBe(301);
+    expect(await (await fetch(h.url + '/__pyric/ui/deep/link')).text()).toContain('studio');
+    expect((await fetch(h.url + '/__pyric/playground', { redirect: 'manual' })).status).toBe(301);
+    expect(await (await fetch(h.url + '/__pyric/playground/?embed=studio')).text()).toContain('playground');
+    expect(await (await fetch(h.url + '/__pyric/playground/playground?embed=studio')).text()).toContain('playground');
+    expect((await fetch(h.url + '/__pyric/playground/_astro/app.js')).status).toBe(200);
   });
 });

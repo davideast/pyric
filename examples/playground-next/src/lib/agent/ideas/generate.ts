@@ -20,7 +20,7 @@ import type { NormalizedRequest } from '@inbrowser/relay';
 import { createInference } from '~/lib/llm/inference';
 import { listAllFiles } from '~/lib/files/file-tree';
 import { WORKSPACE_ROOT } from '~/lib/store/files';
-import { getRunner } from '~/lib/sandbox/runner';
+import { readFirestoreState } from '~/lib/sandbox/runtime';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 import { useChatStore } from '~/lib/store/chat';
 import type { FirebaseIdea } from '~/lib/firebase-ideas';
@@ -78,10 +78,10 @@ function valueType(v: unknown): string {
 
 /** Per-collection field summary from the sandbox snapshot. One sampled
  *  doc per collection; field names + types only, never values. */
-function summarizeSchema(): string {
+async function summarizeSchema(): Promise<string> {
   let state: Record<string, unknown>;
   try {
-    state = getRunner().readState({ maxDepth: 6 });
+    state = await readFirestoreState({ maxDepth: 6 });
   } catch {
     return '';
   }
@@ -134,7 +134,7 @@ export async function buildIdeasDigest(): Promise<IdeasDigest> {
   const ws = useWorkspaceStore.getState();
   const rules = (ws.rules ?? '').trim();
   const appSummary = summarizeApp(ws.appSource ?? '');
-  const schema = summarizeSchema();
+  const schema = await summarizeSchema();
   const prompts = recentUserPrompts();
 
   let files: string[] = [];

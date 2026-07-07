@@ -20,13 +20,14 @@ export interface TopBarProps {
   /** Opens the account/sign-in modal (`AuthModal`). Labeled as
    *  account — sign-in is for deploys, not a prerequisite to save. */
   onOpenAccount?: () => void;
+  homeHref?: string;
   children?: React.ReactNode;
 }
 
-function Brand() {
+function Brand({ homeHref = '/' }: { homeHref?: string }) {
   return (
     <a
-      href="/"
+      href={homeHref}
       title="Home"
       aria-label="Pyric home"
       className="flex items-center gap-2.5 text-soft-white/70 hover:text-soft-white transition-colors rounded -ml-1 px-1"
@@ -51,6 +52,7 @@ export function TopBar({
   onOpenKeys,
   onOpenSettings,
   onOpenAccount,
+  homeHref,
   children,
 }: TopBarProps) {
   return (
@@ -67,7 +69,7 @@ export function TopBar({
       }}
     >
       <div className="flex items-center gap-3 min-w-0">
-        <Brand />
+        <Brand homeHref={homeHref} />
         {/* Page title is redundant with the Brand on mobile — there's
             only one page. Show it from `sm:` and up. */}
         {title ? (

@@ -6,15 +6,15 @@ import type { CreateUserRequest } from 'pyric/auth';
 import type { AppSpecV1 } from '~/lib/agent/spec/schema';
 import { deriveIdentities } from '~/lib/agent/spec/derive';
 import {
-  applyAuthSeedUsers,
+  applyAuthSeedUsersAsync,
   seedUserToCreateRequest,
   type AuthSeedApplyResult,
 } from '~/lib/sandbox/seed-auth-apply';
 import {
-  applySeed,
+  applySeedAsync,
   isValidCollectionId,
   parseSeedJson,
-  type AdminSeedSurface,
+  type AsyncAdminSeedSurface,
   type ApplyResult,
 } from '~/lib/sandbox/seed-apply';
 
@@ -32,11 +32,11 @@ export interface ApplyProposalResult {
   auth: AuthSeedApplyResult;
 }
 
-export function applySeedProposal(
-  admin: AdminSeedSurface,
+export async function applySeedProposal(
+  admin: AsyncAdminSeedSurface,
   proposal: SeedProposalV1,
   opts: { spec: AppSpecV1 | null },
-): ApplyProposalResult {
+): Promise<ApplyProposalResult> {
   const firestoreErrors: FirestoreApplySummary['errors'] = [];
   let applied = 0;
   let failed = 0;
@@ -63,7 +63,7 @@ export function applySeedProposal(
       });
       continue;
     }
-    const result: ApplyResult = applySeed(admin, collectionId, parsed.docs);
+    const result: ApplyResult = await applySeedAsync(admin, collectionId, parsed.docs);
     applied += result.applied;
     failed += result.failed;
     for (const err of result.errors) {
@@ -86,7 +86,7 @@ export function applySeedProposal(
     );
   }
 
-  const auth = applyAuthSeedUsers(authRequests);
+  const auth = await applyAuthSeedUsersAsync(authRequests);
 
   return {
     firestore: { collections, applied, failed, errors: firestoreErrors },

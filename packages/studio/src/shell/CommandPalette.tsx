@@ -53,10 +53,10 @@ export function CommandPalette({
 
   // Deterministic actions: jump to a surface, open settings. No agent involved.
   const actions = useMemo<PaletteAction[]>(() => {
-    const list: PaletteAction[] = ROUTES.filter((r) => !r.hidden).map((r) => ({
+    const list: PaletteAction[] = ROUTES.map((r) => ({
       id: `nav:${r.id}`,
       label: r.label,
-      blurb: r.blurb,
+      blurb: r.description,
       run: () => {
         onNavigate(r.id);
         onClose();

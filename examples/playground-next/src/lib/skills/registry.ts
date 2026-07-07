@@ -20,7 +20,19 @@
 import type { ToolHandler } from '@inbrowser/agent';
 // Definition modules import ONLY types from this file (no runtime
 // cycle); the registry lists them explicitly.
+import {
+  firebaseAuditSkill,
+  firestoreRulesAuditSkill,
+  rtdbDataModelSkill,
+  rtdbSecurityRulesSkill,
+} from './firebase-tooling';
 import { firestoreGameRulesSkill } from './firestore-game-rules';
+
+export type AgentPromptProfile = 'app-builder' | 'firebase-tooling';
+export type WorkbenchSurface = 'preview' | 'firebase' | 'file';
+export type FirebaseWorkbenchSubtab = 'sandbox' | 'data' | 'auth' | 'traffic' | 'seed';
+export type SkillToolProfilePreference = 'authoring' | 'diagnostic';
+export type SkillStrategyPreference = 'auto' | 'react' | 'draft-validate';
 
 export interface SkillDefinition {
   /** Stable id — persisted in session payloads; never rename. */
@@ -46,6 +58,18 @@ export interface SkillDefinition {
   manBody: string;
   /** Extra tool handlers available while the skill is active. */
   tools?: () => ToolHandler[];
+  /** Prompt mode selected while this skill is active. */
+  promptProfile?: AgentPromptProfile;
+  /** Preferred left workbench surface when this skill becomes active. */
+  primarySurface?: WorkbenchSurface;
+  /** Preferred Firebase workbench sub-tab when this skill becomes active. */
+  defaultFirebaseSubtab?: FirebaseWorkbenchSubtab;
+  /** Preferred file to show when this skill becomes active. */
+  defaultFilePath?: string;
+  /** Tool profile to prefer under this skill. */
+  toolProfilePreference?: SkillToolProfilePreference;
+  /** Strategy to prefer under this skill. */
+  strategyPreference?: SkillStrategyPreference;
   /**
    * (P4) Shape block for the prompt enhancer — replaces the default
    * five-property app shape when this skill is active.
@@ -56,7 +80,13 @@ export interface SkillDefinition {
 /** All known skills, in chip display order. Definition modules are
  *  imported at top and listed explicitly — adding a skill is one
  *  import plus one array entry. */
-const REGISTERED: readonly SkillDefinition[] = [firestoreGameRulesSkill];
+const REGISTERED: readonly SkillDefinition[] = [
+  firestoreGameRulesSkill,
+  firebaseAuditSkill,
+  firestoreRulesAuditSkill,
+  rtdbSecurityRulesSkill,
+  rtdbDataModelSkill,
+];
 
 /** Test seam: unit tests inject fixture skills without touching the
  *  shipped registry. Never call outside tests. */
@@ -83,4 +113,69 @@ export function resolveActiveSkills(ids: readonly string[]): SkillDefinition[] {
     if (s) out.push(s);
   }
   return out;
+}
+
+export interface WorkbenchIntent {
+  promptProfile: AgentPromptProfile;
+  primarySurface: WorkbenchSurface;
+  defaultFirebaseSubtab?: FirebaseWorkbenchSubtab;
+  defaultFilePath?: string;
+  toolProfilePreference?: SkillToolProfilePreference;
+  strategyPreference?: SkillStrategyPreference;
+}
+
+function latestIntentSkill(skills: readonly SkillDefinition[]): SkillDefinition | undefined {
+  for (let i = skills.length - 1; i >= 0; i--) {
+    const skill = skills[i]!;
+    if (
+      skill.promptProfile ||
+      skill.primarySurface ||
+      skill.defaultFirebaseSubtab ||
+      skill.defaultFilePath ||
+      skill.toolProfilePreference ||
+      skill.strategyPreference
+    ) {
+      return skill;
+    }
+  }
+  return undefined;
+}
+
+/** Resolve active skills to the session's prompt profile. App-building
+ *  remains the default; any active Firebase tooling skill switches the
+ *  base prompt out of App.tsx-first mode. */
+export function resolvePromptProfile(
+  activeSkills: readonly SkillDefinition[],
+): AgentPromptProfile {
+  return activeSkills.some((skill) => skill.promptProfile === 'firebase-tooling')
+    ? 'firebase-tooling'
+    : 'app-builder';
+}
+
+/** Resolve active skills to the workbench defaults used by the UI,
+ *  tool profile, and strategy router. The most recently activated
+ *  intent-bearing skill wins for concrete surface defaults. */
+export function resolveWorkbenchIntent(
+  activeSkills: readonly SkillDefinition[],
+): WorkbenchIntent {
+  const promptProfile = resolvePromptProfile(activeSkills);
+  const latest = latestIntentSkill(activeSkills);
+  const primarySurface =
+    latest?.primarySurface ?? (promptProfile === 'firebase-tooling' ? 'firebase' : 'preview');
+  return {
+    promptProfile,
+    primarySurface,
+    ...(latest?.defaultFirebaseSubtab ? { defaultFirebaseSubtab: latest.defaultFirebaseSubtab } : {}),
+    ...(latest?.defaultFilePath ? { defaultFilePath: latest.defaultFilePath } : {}),
+    ...(latest?.toolProfilePreference
+      ? { toolProfilePreference: latest.toolProfilePreference }
+      : promptProfile === 'firebase-tooling'
+        ? { toolProfilePreference: 'diagnostic' as const }
+        : {}),
+    ...(latest?.strategyPreference
+      ? { strategyPreference: latest.strategyPreference }
+      : promptProfile === 'firebase-tooling'
+        ? { strategyPreference: 'react' as const }
+        : {}),
+  };
 }
