@@ -19,3 +19,6 @@ export const deny = (): Expr => expr('false');
 
 /** Always allow (true). */
 export const always = (): Expr => expr('true');
+
+/** Always allow (true). Readable alias for always(). */
+export const allow = always;

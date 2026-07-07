@@ -121,6 +121,44 @@ await rtdb.rules.deploy(scope, {
 });
 ```
 
+If you author rules with `defineRtdbRules()`, pass the document directly:
+
+```ts
+import { z } from 'zod';
+import {
+  defineRtdbRules,
+  deny,
+  pathOwnerOnly,
+} from 'pyric/rules/rtdb';
+import { fromServiceAccount, rtdb } from 'pyric-tools/deploy';
+
+const scope = await fromServiceAccount('./service-account.json');
+
+const rules = defineRtdbRules({
+  paths: {
+    '/': { read: deny(), write: deny() },
+    '/profiles/$uid': {
+      read: pathOwnerOnly('$uid'),
+      write: pathOwnerOnly('$uid'),
+      schema: z.object({
+        displayName: z.string(),
+      }),
+    },
+  },
+});
+
+const check = rules.check();
+if (!check.ok) throw new Error(check.errors[0].message);
+
+await rtdb.rules.deploy(scope, {
+  rules,
+  databaseUrl: 'https://demo-default-rtdb.firebaseio.com',
+});
+```
+
+For CLI workflows, write `rules.toJSON()` to the file referenced by
+`firebase.json.database.rules`, then run `pyric deploy database`.
+
 ## Register the deploy tools with an agent
 
 When the caller uses `@inbrowser/agent`, register the RTDB deploy factory next

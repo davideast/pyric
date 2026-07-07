@@ -5,6 +5,7 @@ entrypoint.
 
 ```ts
 import {
+  defineRtdbRules,
   RtdbMapper,
   createRtdbRulesTools,
   SimulateHandler,
@@ -14,6 +15,96 @@ import {
 It re-exports the RTDB rule mapper, expression parser, validator, linter,
 simulation handler, write handler, rule constraints, and the rules-focused tool
 factory.
+
+## Constraints authoring
+
+### `defineRtdbRules(definition): RtdbRulesDocument`
+
+Create an in-memory RTDB rules document from path constraints.
+
+```ts
+import { defineRtdbRules, deny, pathOwnerOnly } from 'pyric/rules/rtdb';
+
+const rules = defineRtdbRules({
+  paths: {
+    '/': { read: deny(), write: deny() },
+    '/profiles/$uid': {
+      read: pathOwnerOnly('$uid'),
+      write: pathOwnerOnly('$uid'),
+    },
+  },
+});
+```
+
+`definition`:
+
+```ts
+type RtdbRulesDefinition = {
+  databaseUrl?: string;
+  paths: Record<string, PathDef> | ((ctx: RulesetContext) => void);
+};
+```
+
+`databaseUrl` is optional. Methods that need an IR use an explicit method
+argument first, then `definition.databaseUrl`, then the local fallback
+`https://local-rtdb.firebaseio.com`.
+
+### `RtdbRulesDocument`
+
+```ts
+interface RtdbRulesDocument {
+  toJSON(): { rules: Record<string, unknown> };
+  toIR(databaseUrl?: string): RtdbIR;
+  check(databaseUrl?: string): RtdbRulesCheckResult;
+  simulate(input: RtdbRulesSimulationInput, opts?: { databaseUrl?: string }): SimulateResult;
+}
+```
+
+`toJSON()` returns Firebase RTDB rules JSON. `toIR()` returns Pyric's RTDB rule
+IR. `check()` returns parser and linter findings without throwing for compile
+failures. `simulate()` normalises friendly input and delegates to
+`SimulateHandler`.
+
+```ts
+const check = rules.check();
+
+const result = rules.simulate({
+  operation: 'read',
+  path: '/profiles/alice',
+  auth: 'alice',
+  data: {},
+});
+```
+
+`RtdbRulesSimulationInput` accepts the existing simulation fields plus these
+authoring conveniences:
+
+```ts
+type RtdbRulesSimulationInput = {
+  operation: 'read' | 'write' | 'validate';
+  path: string;
+  auth?: string | { uid: string; token?: Record<string, unknown> } | null;
+  data?: Record<string, unknown>;
+  mockData?: Record<string, unknown>;
+  newData?: unknown;
+};
+```
+
+`auth: 'alice'` becomes `{ uid: 'alice', token: {} }`. `data` is an alias for
+`mockData`; if both are supplied, `mockData` is used.
+
+`RtdbRulesCheckResult`:
+
+```ts
+type RtdbRulesCheckResult = {
+  ok: boolean;
+  errors: RtdbRulesFinding[];
+  warnings: RtdbRulesFinding[];
+  ir?: RtdbIR;
+};
+```
+
+Compile failures return an error finding with code `COMPILE_ERROR`.
 
 ## Rule JSON and IR
 
@@ -165,12 +256,37 @@ user-mode data operations.
 
 ## Constraint helpers
 
-`pyric/rules/rtdb` also re-exports the RTDB rule constraint helpers from
-`pyric/rules/rtdb-constraints`, including:
+`pyric/rules/rtdb` also re-exports the RTDB rule constraint helpers. The
+canonical constraints-only package path is `pyric/rules/rtdb/constraints`.
+`pyric/rules/rtdb-constraints` remains available as a compatibility alias.
 
-- boolean composition: `expr`, `all`, `any`, `not`, `deny`, `always`
+The helper groups are:
+
+- boolean composition: `expr`, `all`, `any`, `not`, `deny`, `always`, `allow`
 - auth and ownership predicates: `authenticated`, `ownPath`, `ownField`
 - schema predicates: `hasChildren`, `hasChild`, `fieldIsString`,
   `fieldIsNumber`, `fieldIsBoolean`, `fieldEnum`
 - policy helpers: `pathOwnerOnly`, `fieldOwnerOnly`, `ownerOrNew`,
   `hasRole`, `isMember`, `required`, `transition`
+
+### `PathDef`
+
+```ts
+interface PathDef {
+  read?: Expr;
+  write?: Expr;
+  validate?: Expr;
+  schema?: z.ZodObject<any>;
+  fieldConstraints?: Record<string, Expr[]>;
+  indexOn?: string[];
+  children?: Record<string, PathDef>;
+}
+```
+
+`schema` supports Zod object fields composed from strings, numbers, booleans,
+enums, literals, unions of supported types, nested objects, and optional fields.
+Unsupported Zod types throw during compilation.
+
+Game-oriented helpers such as `turnGuard`, `flip`, and `winCheckHelper` remain
+exported for compatibility. Treat them as recipes rather than the primary
+constraints API.

@@ -48,6 +48,10 @@
       "types": "./dist/rules/rtdb.d.ts",
       "import": "./dist/rules/rtdb.js"
     },
+    "./rules/rtdb/constraints": {
+      "types": "./dist/database/constraints/index.d.ts",
+      "import": "./dist/database/constraints/index.js"
+    },
     "./rules/rtdb-constraints": {
       "types": "./dist/database/constraints/index.d.ts",
       "import": "./dist/database/constraints/index.js"
