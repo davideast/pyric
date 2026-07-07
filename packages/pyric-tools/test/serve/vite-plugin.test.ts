@@ -68,8 +68,8 @@ describe('resolveId — the importer-aware swap', () => {
     expect(resolveId('firebase/storage', pyricImporter)).toBe('\0pyric:fb-stub:firebase/storage');
   });
 
-  it('leaves non-served firebase from user/library code on real firebase', () => {
-    expect(resolveId('firebase/database', userImporter)).toBeNull();
+  it('swaps RTDB and leaves non-served firebase from user/library code on real firebase', () => {
+    expect(resolveId('firebase/database', userImporter)).toBe(entries.database);
     expect(resolveId('firebase/storage', userImporter)).toBeNull();
   });
 

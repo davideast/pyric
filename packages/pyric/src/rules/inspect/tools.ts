@@ -13,7 +13,7 @@
  * lifecycle (test, simulate, lint, resolve-modules).
  */
 import type { ToolHandler } from '@inbrowser/agent';
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '../../project-scope.js';
 import { InspectFirestoreRulesHandler } from './handler.js';
 
 export interface FirestoreInspectToolDeps {

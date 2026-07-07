@@ -19,7 +19,7 @@
  */
 
 import type { ToolHandler } from '@inbrowser/agent';
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '../project-scope.js';
 import { resolveModules } from './modules/resolver.js';
 import { SimulateFirestoreRulesHandler } from './simulator/handler.js';
 import { createFirestoreRulesStdlibTools } from './stdlib-tools.js';
