@@ -70,6 +70,7 @@ export {
   not,
   deny,
   always,
+  allow,
   authenticated,
   ownPath,
   ownField,
@@ -109,10 +110,20 @@ export {
   winCheckHelper,
   schemaRules,
   ruleset,
+  defineRtdbRules,
 } from '../database/constraints/index.js';
 export type {
   Expr,
   PathDef,
+  RtdbRulesCheckResult,
+  RtdbRulesDefinition,
+  RtdbRulesDocument,
+  RtdbRulesFinding,
+  RtdbRulesFindingRule,
+  RtdbRulesJson,
+  RtdbRulesSimulationAuth,
+  RtdbRulesSimulationInput,
   RulesetContext,
+  SchemaRulesResult,
   Segment,
 } from '../database/constraints/index.js';

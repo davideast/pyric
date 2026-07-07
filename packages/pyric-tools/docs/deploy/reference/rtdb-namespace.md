@@ -38,7 +38,8 @@ instance discovery.
 
 ### `deploy(scope, input): Promise<void>`
 
-Deploy a complete RTDB rules JSON document.
+Deploy a complete RTDB rules JSON document or an RTDB rules document created by
+`defineRtdbRules()`.
 
 ```ts
 await rtdb.rules.deploy(scope, {
@@ -47,8 +48,16 @@ await rtdb.rules.deploy(scope, {
 });
 ```
 
-`rulesJson` must contain a top-level `rules` object. The function maps the JSON
-through `RtdbMapper.mapToIR` before writing it to the RTDB rules endpoint.
+```ts
+await rtdb.rules.deploy(scope, {
+  rules,
+  databaseUrl: 'https://demo-default-rtdb.firebaseio.com',
+});
+```
+
+`rulesJson` must contain a top-level `rules` object. When `rules` is supplied,
+the function calls `rules.toJSON()`. The function maps the JSON through
+`RtdbMapper.mapToIR` before writing it to the RTDB rules endpoint.
 
 ### `discoverDefaultDatabaseUrl(scope): Promise<RtdbRulesDiscoveryResult>`
 
@@ -77,10 +86,9 @@ Throws when no URL can be resolved.
 ### `RtdbDeployRulesInput`
 
 ```ts
-interface RtdbDeployRulesInput {
-  rulesJson: unknown;
-  databaseUrl?: string;
-}
+type RtdbDeployRulesInput =
+  | { rulesJson: unknown; databaseUrl?: string }
+  | { rules: RtdbRulesDocument; databaseUrl?: string };
 ```
 
 ### `RtdbFetchRulesInput`
@@ -103,6 +111,9 @@ interface RtdbFetchRulesInput {
 The handler names match the host-backed RTDB rules tools from
 `pyric/rules/rtdb`. Do not register both factories in the same registry unless
 the registry supports explicit replacement.
+
+Tool calls remain JSON-only. Pass `rules.toJSON()` as `rulesJson` when deploying
+a generated rules document through an agent registry.
 
 ## CLI config shape
 

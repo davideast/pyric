@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
+  allow,
   buildRuleExpression,
   createRtdbRulesTools,
+  defineRtdbRules,
   parseExpression,
   RtdbMapper,
 } from '../../src/rules/rtdb.js';
@@ -35,5 +39,28 @@ describe('pyric/rules/rtdb facade', () => {
     const ir = RtdbMapper.mapToIR({ rules: { users: { '$uid': { '.read': 'auth.uid === $uid' } } } }, null, host().databaseUrl);
     expect(ir.service).toBe('realtime-database');
     expect(ir.databaseUrl).toBe(host().databaseUrl);
+  });
+
+  test('exports the constraints document API through the facade', () => {
+    const rules = defineRtdbRules({
+      paths: { '/': { read: allow() } },
+    });
+
+    expect(rules.toJSON()).toEqual({ rules: { '.read': true } });
+  });
+
+  test('declares canonical and compatibility constraints package paths', () => {
+    const pkg = JSON.parse(
+      readFileSync(resolve(import.meta.dir, '../../package.json'), 'utf-8'),
+    ) as { exports: Record<string, unknown> };
+
+    expect(pkg.exports['./rules/rtdb/constraints']).toEqual({
+      types: './dist/database/constraints/index.d.ts',
+      import: './dist/database/constraints/index.js',
+    });
+    expect(pkg.exports['./rules/rtdb-constraints']).toEqual({
+      types: './dist/database/constraints/index.d.ts',
+      import: './dist/database/constraints/index.js',
+    });
   });
 });

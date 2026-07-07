@@ -4,15 +4,21 @@ import {
   WriteRulesHandler,
   type RtdbHost,
   type RtdbIR,
+  type RtdbRulesDocument,
 } from 'pyric/rules/rtdb';
 import { AdminApiError, type ProjectScope } from '../scope.js';
 
 const RTDB_ADMIN_API = 'https://firebasedatabase.googleapis.com/v1beta';
 
-export interface RtdbDeployRulesInput {
-  rulesJson: unknown;
-  databaseUrl?: string;
-}
+export type RtdbDeployRulesInput =
+  | {
+    rulesJson: unknown;
+    databaseUrl?: string;
+  }
+  | {
+    rules: RtdbRulesDocument;
+    databaseUrl?: string;
+  };
 
 export interface RtdbFetchRulesInput {
   databaseUrl?: string;
@@ -55,6 +61,24 @@ function extractDatabaseUrl(instance: unknown): string | null {
   if (typeof name !== 'string') return null;
   const instanceId = name.split('/').filter(Boolean).at(-1);
   return instanceId ? `https://${instanceId}.firebaseio.com` : null;
+}
+
+function isRtdbRulesDocument(value: unknown): value is RtdbRulesDocument {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { toJSON?: unknown }).toJSON === 'function'
+  );
+}
+
+function rulesJsonFromInput(input: RtdbDeployRulesInput): unknown {
+  if ('rules' in input) {
+    if (!isRtdbRulesDocument(input.rules)) {
+      throw new Error('rtdb.rules.deploy: input.rules must be an RTDB rules document');
+    }
+    return input.rules.toJSON();
+  }
+  return input.rulesJson;
 }
 
 export async function discoverDefaultDatabaseUrl(scope: ProjectScope): Promise<RtdbRulesDiscoveryResult> {
@@ -127,7 +151,7 @@ export async function fetchRules(scope: ProjectScope, input: RtdbFetchRulesInput
 
 export async function deployRules(scope: ProjectScope, input: RtdbDeployRulesInput): Promise<void> {
   const databaseUrl = await resolveDatabaseUrl(scope, input.databaseUrl);
-  const ir = RtdbMapper.mapToIR(input.rulesJson, null, databaseUrl);
+  const ir = RtdbMapper.mapToIR(rulesJsonFromInput(input), null, databaseUrl);
   const result = await new WriteRulesHandler().execute(hostFor(scope, databaseUrl), ir);
   if (!result.success) {
     throw new Error(`${result.error.code}: ${result.error.message}`);

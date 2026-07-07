@@ -11,7 +11,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { hosting, functions, type ProjectScope } from '../../src/deploy/index.js';
+import { defineRtdbRules, deny } from 'pyric/rules/rtdb';
+import { hosting, functions, rtdb, type ProjectScope } from '../../src/deploy/index.js';
 
 const originalFetch = globalThis.fetch;
 beforeEach(() => { globalThis.fetch = originalFetch; });
@@ -102,5 +103,30 @@ describe('functions.grantPublicInvoker (L14 smoke)', () => {
     });
     expect(calls[0].url).toContain('/projects/p/locations/us-central1/services/svc-abc:setIamPolicy');
     expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer TKN-x');
+  });
+});
+
+describe('rtdb.rules.deploy', () => {
+  it('accepts an RTDB rules document and writes the compiled JSON', async () => {
+    const { calls } = installFetchMock([jsonResponse(200, {})]);
+    const rules = defineRtdbRules({
+      paths: {
+        '/': { read: deny(), write: deny() },
+      },
+    });
+
+    await rtdb.rules.deploy(makeScope('TKN-doc'), {
+      databaseUrl: 'https://p-default-rtdb.firebaseio.com',
+      rules,
+    });
+
+    expect(calls[0].url).toBe('https://p-default-rtdb.firebaseio.com/.settings/rules.json?access_token=TKN-doc');
+    expect(calls[0].init?.method).toBe('PUT');
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual({
+      rules: {
+        '.read': false,
+        '.write': false,
+      },
+    });
   });
 });

@@ -1,5 +1,5 @@
 export type { Expr, Segment, PathDef, RulesetContext } from './types.js';
-export { expr, all, any, not, deny, always } from './compose.js';
+export { expr, all, any, not, deny, always, allow } from './compose.js';
 export {
   authenticated, ownPath, ownField, isNew,
   hasChildren, hasChild, fieldIsString, fieldIsNumber, fieldIsBoolean, fieldEnum,
@@ -16,4 +16,16 @@ export {
 } from './data.js';
 export { turnGuard, flip, winCheckHelper } from './game.js';
 export { schemaRules } from './schema.js';
+export type { SchemaRulesResult } from './schema.js';
 export { ruleset } from './ruleset.js';
+export { defineRtdbRules } from './document.js';
+export type {
+  RtdbRulesCheckResult,
+  RtdbRulesDefinition,
+  RtdbRulesDocument,
+  RtdbRulesFinding,
+  RtdbRulesFindingRule,
+  RtdbRulesJson,
+  RtdbRulesSimulationAuth,
+  RtdbRulesSimulationInput,
+} from './document.js';
