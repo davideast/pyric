@@ -112,7 +112,7 @@ Firestore rules, indexes, and database primitives. See [`firestore` namespace](.
 
 ### `const rtdb`
 
-Realtime Database rules primitives:
+Realtime Database rules primitives. See [`rtdb` namespace](./rtdb-namespace.md):
 
 - `rtdb.rules.{ fetch, deploy, discoverDefaultDatabaseUrl, resolveDatabaseUrl }`
 

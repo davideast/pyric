@@ -43,6 +43,7 @@ Documentation is organised under [`docs/`](./) following the [Diataxis](https://
 - **First time here?** Work through [Deploy a Cloud Function](./tutorials/01-deploy-a-cloud-function.md).
 - **Setting up auth?** See [Build a `ProjectScope` from a service account](./how-to/build-projectscope-from-service-account.md).
 - **Building an agent?** See [Register deploy tools with an agent](./how-to/register-tools-with-an-agent.md) and the [API reference](./reference/api.md).
+- **Deploying Realtime Database rules?** See [Deploy Realtime Database rules](./how-to/deploy-realtime-database-rules.md) and the [`rtdb` namespace reference](./reference/rtdb-namespace.md).
 
 ## Position in the Pyric stack
 
