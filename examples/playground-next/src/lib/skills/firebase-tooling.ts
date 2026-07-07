@@ -65,6 +65,166 @@ CONSTRAINTS
   ].join('\n'),
 };
 
+export const playgroundFirebaseAuthModelSkill: SkillDefinition = {
+  id: 'playground-firebase-auth-model',
+  label: 'Firebase auth',
+  icon: 'passkey',
+  description:
+    'Design or audit sandbox Auth users, provider flows, custom claims, UID data mapping, and rule simulations without building an app.',
+  ...FIREBASE_TOOLING_DEFAULTS,
+  primarySurface: 'firebase',
+  defaultFirebaseSubtab: 'auth',
+  brief: [
+    'This is Firebase Auth modeling inside Pyric Playground, not an app build. Do not create App.tsx unless explicitly asked.',
+    'Auth is identity; rules are authorization. Map users, UIDs, provider states, and custom claims to rules and data.',
+    'Use sandbox Auth evidence first: inspect_auth_users, seed_auth_users, rules, data, simulations, tests, traffic, and denials.',
+    'Do not fake auth with in-app identity switchers or hardcoded test-user buttons. The Auth tab and sign-in helper own identities.',
+    'READ `man playground-firebase-auth-model` before designing or auditing auth behavior.',
+  ].join('\n'),
+  manTopic: 'playground-firebase-auth-model',
+  manSummary: 'sandbox Auth modeling: users, providers, claims, UID data, rules evidence',
+  manBody: `PLAYGROUND-FIREBASE-AUTH-MODEL(7)     sandbox Auth modeling
+
+MENTAL MODEL
+  Authentication answers who the user is. Security Rules answer what
+  that identity may do. In Playground, the Auth tab and auth tools are
+  the source of sandbox identities; the app should use real Firebase
+  auth APIs only when the user asks for preview UI.
+
+WORKFLOW
+  1. Identify identities: anonymous, signed-in, owner, member,
+     admin/custom-claim, disabled/deleted, linked-provider, and any
+     service/admin fixture.
+  2. Inspect or seed sandbox users with inspect_auth_users and
+     seed_auth_users. Put custom claims under token fields so rules
+     read them through request.auth.token.<name>.
+  3. Map UID to data: profile docs, owner fields, membership docs,
+     public/private profile fields, and any duplicated display fields.
+  4. Cross-check rules: request.auth == null, request.auth.uid, and
+     request.auth.token.<name> must line up with the seeded users and
+     fixture data.
+  5. Verify with focused simulations, workspace tests, traffic, or
+     denials. Cover signed-out, owner, other user, member, admin,
+     invalid claim, missing profile, disabled/deleted, and sign-out
+     cases when relevant.
+
+RULES
+  - UID is the stable bridge from Auth to Firestore, RTDB, and Storage.
+  - Use custom claims for coarse global roles. Use document data for
+    resource membership and ownership.
+  - Users must not be able to grant themselves roles or claims through
+    writable profile fields.
+  - Account creation, sign-in, sign-out, provider linking, and provider
+    collision are different states; model them separately when they
+    affect data or rules.
+  - Admin/server actions bypass rules. Use them only for fixture setup,
+    maintenance, or explicitly trusted flows.
+  - Pyric is the local sandbox for this work.
+
+OUTPUT SHAPE
+  ## Firebase Auth Model
+  ### Identity Model
+  ### UID And Data Mapping
+  ### Claims And Roles
+  ### Access Matrix
+  ### Seed Users And Fixtures
+  ### Verification Evidence
+  ### Risks And Next Steps`,
+  enhancerShape: [
+    '  - The auth identities to model: anonymous, signed-in, owner, member, admin/custom-claim, disabled/deleted, or linked provider.',
+    '  - The Firebase resources those identities must access.',
+    '  - The UID, profile-doc, custom-claim, and membership data that rules will depend on.',
+    '  - The sandbox evidence to produce: users, fixtures, simulations, traffic, tests, or an audit report.',
+    '  - The desired output as an auth/rules model, not an app.',
+  ].join('\n'),
+};
+
+export const playgroundFirestoreQueryIndexesSkill: SkillDefinition = {
+  id: 'playground-firestore-query-indexes',
+  label: 'Firestore queries',
+  icon: 'query_stats',
+  description:
+    'Design Firestore query shapes, pagination, collection groups, denormalized reads, and composite indexes with firestore_extract_indexes.',
+  ...FIREBASE_TOOLING_DEFAULTS,
+  primarySurface: 'firebase',
+  defaultFirebaseSubtab: 'data',
+  brief: [
+    'This is Firestore query and index design, not an app build. Do not create App.tsx unless the user explicitly asks.',
+    'Inventory each query: path, filters, sort, limit, cursor, listener needs, auth identity, and expected result size.',
+    'Rules are not filters. List queries must prove their allowed scope with matching query constraints.',
+    'Run firestore_extract_indexes after query code changes. If it returns zero shapes, report that and fix the source shape; never invent index JSON.',
+    'READ `man playground-firestore-query-indexes` before finalizing query/index guidance.',
+  ].join('\n'),
+  manTopic: 'playground-firestore-query-indexes',
+  manSummary: 'Firestore queries and indexes: query shape, rules proof, extraction, verification',
+  manBody: `PLAYGROUND-FIRESTORE-QUERY-INDEXES(7)   query and index design
+
+MENTAL MODEL
+  Firestore query design is an index proof. A good model names what
+  the product must read, proves the query is allowed by rules, and
+  extracts the composite indexes required by the code.
+
+WORKFLOW
+  1. Inventory query intents: screen/report/listener, collection path,
+     collection group, filters, orderBy fields, limit, cursor strategy,
+     auth identity, and expected result size.
+  2. Choose the read shape: direct document, top-level collection,
+     subcollection, collection group, denormalized summary, or fanout.
+  3. Classify complexity: simple single-field query, composite query,
+     array query, cursor/pagination query, collection group query, or
+     query that should become a denormalized read.
+  4. Prove rules compatibility. A list query is not filtered by rules;
+     the query constraints must show it can only return documents the
+     identity may read.
+  5. Inspect or write query code in modular SDK shape, preferably inside
+     a function body: query(collection(...), where(...), orderBy(...)).
+     Switch the left workbench to File when editing query code.
+  6. Run firestore_extract_indexes after query code changes. If the
+     extractor finds zero shapes, do not fabricate indexes; explain
+     whether the code was missing, top-level, admin-chain syntax, or no
+     query pattern matched.
+  7. Handle extractor output: keep the firestore.indexes.json-shaped
+     config, review warnings, and address overshootSuspected. Use a
+     targeted @firestore-mutex annotation only when mutually exclusive
+     branches create extra enumerated shapes.
+  8. Verify in Pyric with data, auth identities, simulations, workspace
+     tests, traffic, or denials where relevant.
+
+QUERY RULES
+  - Model reads first. Slow Firestore apps usually download too many
+    documents, not scan too many.
+  - Simple queries touch one field; composite queries combine fields or
+    filters/order requirements and need explicit index awareness.
+  - Arrays need array operators such as array-contains or
+    array-contains-any. Avoid awkward map-as-tag shapes unless that is
+    the real access pattern.
+  - Pagination should use cursors, not ever-growing limits.
+  - Subcollections can remove a where clause for single-parent reads.
+  - Firestore reads are shallow; document reads do not include
+    subcollections.
+  - Collection group queries solve cross-parent subcollection reads and
+    require index awareness.
+  - Denormalization is a spectrum. Duplicate slow-changing display data
+    when it removes repeated lookups or impossible joins.
+  - Pyric is the local sandbox for this work.
+
+OUTPUT SHAPE
+  ## Firestore Query And Index Plan
+  ### Query Inventory
+  ### Data Shape Decisions
+  ### Rules Compatibility
+  ### Extracted Indexes
+  ### Verification Evidence
+  ### Risks And Next Steps`,
+  enhancerShape: [
+    '  - The Firestore read screens, reports, listeners, or searches to support.',
+    '  - The path, filter, sort, limit, cursor, collection group, or denormalized read shape involved.',
+    '  - The security-rule scope the query must prove.',
+    '  - The expected index extraction or firestore.indexes.json output.',
+    '  - The desired output as a query/index plan with verification evidence, not an app.',
+  ].join('\n'),
+};
+
 export const firestoreRulesAuditSkill: SkillDefinition = {
   id: 'firestore-rules-audit',
   label: 'Firestore rules audit',

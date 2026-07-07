@@ -19,9 +19,11 @@ import { listToolHandlersForProfile } from '~/lib/tools';
 import { useSkillsStore } from '~/lib/store/skills';
 import {
   __setSkillsForTest,
+  listSkills,
   resolveActiveSkills,
   resolvePromptProfile,
   resolveWorkbenchIntent,
+  skillById,
   type SkillDefinition,
 } from './registry';
 
@@ -161,5 +163,37 @@ describe('skill framework invariants', () => {
     expect(intent.primarySurface).toBe('file');
     expect(intent.defaultFirebaseSubtab).toBe('traffic');
     expect(intent.defaultFilePath).toBe('/workspace/firestore.rules');
+  });
+
+  test('shipped Firebase Auth and query/index skills have tooling defaults', () => {
+    __setSkillsForTest(null);
+    const ids = listSkills().map((skill) => skill.id);
+    expect(ids).toContain('playground-firebase-auth-model');
+    expect(ids).toContain('playground-firestore-query-indexes');
+
+    const authSkill = skillById('playground-firebase-auth-model');
+    expect(authSkill).toBeDefined();
+    expect(authSkill?.manBody).toContain('seed_auth_users');
+    expect(authSkill?.manBody).not.toContain('Firebase Emulator');
+    expect(resolveWorkbenchIntent([authSkill!])).toMatchObject({
+      promptProfile: 'firebase-tooling',
+      primarySurface: 'firebase',
+      defaultFirebaseSubtab: 'auth',
+      toolProfilePreference: 'diagnostic',
+      strategyPreference: 'react',
+    });
+
+    const querySkill = skillById('playground-firestore-query-indexes');
+    expect(querySkill).toBeDefined();
+    expect(querySkill?.manBody).toContain('firestore_extract_indexes');
+    expect(querySkill?.manBody).toContain('zero shapes');
+    expect(querySkill?.manBody).not.toContain('Firebase Emulator');
+    expect(resolveWorkbenchIntent([querySkill!])).toMatchObject({
+      promptProfile: 'firebase-tooling',
+      primarySurface: 'firebase',
+      defaultFirebaseSubtab: 'data',
+      toolProfilePreference: 'diagnostic',
+      strategyPreference: 'react',
+    });
   });
 });

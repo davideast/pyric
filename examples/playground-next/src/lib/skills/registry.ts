@@ -23,6 +23,8 @@ import type { ToolHandler } from '@inbrowser/agent';
 import {
   firebaseAuditSkill,
   firestoreRulesAuditSkill,
+  playgroundFirebaseAuthModelSkill,
+  playgroundFirestoreQueryIndexesSkill,
   rtdbDataModelSkill,
   rtdbSecurityRulesSkill,
 } from './firebase-tooling';
@@ -83,7 +85,9 @@ export interface SkillDefinition {
 const REGISTERED: readonly SkillDefinition[] = [
   firestoreGameRulesSkill,
   firebaseAuditSkill,
+  playgroundFirebaseAuthModelSkill,
   firestoreRulesAuditSkill,
+  playgroundFirestoreQueryIndexesSkill,
   rtdbSecurityRulesSkill,
   rtdbDataModelSkill,
 ];

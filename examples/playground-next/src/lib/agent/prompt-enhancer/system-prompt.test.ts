@@ -10,7 +10,11 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { buildEnhancerPrompt, ENHANCER_SYSTEM_PROMPT } from './system-prompt';
-import { firebaseAuditSkill } from '~/lib/skills/firebase-tooling';
+import {
+  firebaseAuditSkill,
+  playgroundFirebaseAuthModelSkill,
+  playgroundFirestoreQueryIndexesSkill,
+} from '~/lib/skills/firebase-tooling';
 import { firestoreGameRulesSkill } from '~/lib/skills/firestore-game-rules';
 
 describe('ENHANCER_SYSTEM_PROMPT domain purity', () => {
@@ -74,6 +78,24 @@ describe('buildEnhancerPrompt — skill-aware shapes (P4)', () => {
     expect(p).toContain('not an app');
     expect(p).not.toContain('two collections');
     expect(p).not.toContain('If the idea is a GAME');
+  });
+
+  test('active Firebase Auth model skill shapes auth/rules requests', () => {
+    const p = buildEnhancerPrompt([playgroundFirebaseAuthModelSkill]);
+    expect(p).toContain('The user activated the "Firebase auth" skill');
+    expect(p).toContain('custom-claim');
+    expect(p).toContain('auth/rules model');
+    expect(p).toContain('not an app');
+    expect(p).not.toContain('two collections');
+  });
+
+  test('active Firestore query/index skill shapes query proof requests', () => {
+    const p = buildEnhancerPrompt([playgroundFirestoreQueryIndexesSkill]);
+    expect(p).toContain('The user activated the "Firestore queries" skill');
+    expect(p).toContain('firestore.indexes.json');
+    expect(p).toContain('security-rule scope');
+    expect(p).toContain('not an app');
+    expect(p).not.toContain('two collections');
   });
 
   test('no active skills = the pinned default (single source of the game shape)', () => {
