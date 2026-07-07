@@ -14,6 +14,7 @@ import {
   SDK_MODULES,
   defaultSdkEntries,
   resolveStudioUiDir,
+  resolvePlaygroundUiDir,
   pyricPackageRoot,
   bundleWorker,
   workerSourceHash,
@@ -560,10 +561,16 @@ describe('M3 — bridge fold (handler-based)', () => {
 // studio-ui assets vendored in this package's dist (the same bytes the standalone
 // embeds). Requires the studio build (CI builds first; resolveStudioUiDir finds
 // packages/studio/dist/app when run from src).
+//
+// Playground is different on purpose: source/dev tests must not discover
+// packages/playground/dist/client as a hidden fallback. Only packaged pyric-tools
+// serves embedded Playground bytes from dist/serve/playground-ui, which the
+// packaging gate verifies.
 // Skip the app-serving case (only) when the studio build is absent, with a clear
 // reason rather than a cryptic status mismatch; resolveStudioUiDir mirrors the
 // production resolution. CI always builds first, so it exercises every case.
 const studioBuilt = resolveStudioUiDir() !== null;
+const playgroundBuilt = resolvePlaygroundUiDir() !== null;
 
 describe('ui: Pyric Studio mount (parity with serve --ui)', () => {
   const tmps: string[] = [];
@@ -584,6 +591,11 @@ describe('ui: Pyric Studio mount (parity with serve --ui)', () => {
     expect(index.statusCode).toBe(200);
     expect(String(index.headers['content-type'])).toContain('text/html');
     expect(index.body.toLowerCase()).toContain('<!doctype html');
+  });
+
+  it.skipIf(!playgroundBuilt)('ui:true → serves the embedded Playground app at /__pyric/playground/', async () => {
+    const tmp = mkTmp('pyric-vite-playground-');
+    const handler = await bootPlugin({ ui: true }, tmp);
     const playgroundHome = await callPyric(handler, {
       path: '/__pyric/playground/?embed=studio',
     });
