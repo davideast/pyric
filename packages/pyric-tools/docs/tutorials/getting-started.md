@@ -111,7 +111,7 @@ npx pyric snapshot        # dump sandbox state to a file
 A local Firebase-shaped dev loop where the backend lives in your browser
 tab, rules are enforced for real, and an agent can safely operate on all
 of it — and the same app code deploys unchanged against real Firebase
-(`pyric deploy <rules|indexes|hosting|functions>`).
+(`pyric deploy <rules|indexes|database|hosting|functions>`).
 
 ## Where next
 

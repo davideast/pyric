@@ -1,6 +1,6 @@
 # Tool factories
 
-Three factories wrap the namespaces as `@inbrowser/agent` `ToolHandler[]`. Each takes a `ProjectScopedDeps` shape and returns the handlers for its domain.
+Four factories wrap the namespaces as `@inbrowser/agent` `ToolHandler[]`. Each takes a `ProjectScopedDeps` shape and returns the handlers for its domain.
 
 ```ts
 interface ProjectScopedDeps {
@@ -32,6 +32,17 @@ Two handlers.
 |---|---|---|
 | `hosting_deploy` | `hosting.deployFiles` | `DeployHostingResult` |
 | `hosting_ensure_site` | `hosting.sites.ensure` | `EnsureSiteResult` |
+
+## `createRtdbDeployTools(deps): ToolHandler[]`
+
+Two handlers covering Realtime Database rules. `databaseUrl` is optional; when
+omitted the tool tries to discover the single default RTDB instance for the
+project.
+
+| Tool name | Backing call | `data` shape |
+|---|---|---|
+| `rtdb_get_rules` | `rtdb.rules.fetch` | `{ ir: RtdbIR }` |
+| `rtdb_deploy_rules` | `rtdb.rules.deploy` | `undefined` |
 
 ## `createFunctionsDeployTools(deps): ToolHandler[]`
 
@@ -85,6 +96,7 @@ Per pre-mortem M8, every handler checks `ctx.signal.aborted` before starting wor
 import { createToolRegistry } from '@inbrowser/agent';
 import {
   createFirestoreDeployTools,
+  createRtdbDeployTools,
   createHostingDeployTools,
   createFunctionsDeployTools,
 } from 'pyric-tools/deploy';
@@ -92,6 +104,7 @@ import {
 const registry = createToolRegistry();
 const deps = { scope };
 for (const h of createFirestoreDeployTools(deps)) registry.register(h);
+for (const h of createRtdbDeployTools(deps)) registry.register(h);
 for (const h of createHostingDeployTools(deps)) registry.register(h);
 for (const h of createFunctionsDeployTools(deps)) registry.register(h);
 ```

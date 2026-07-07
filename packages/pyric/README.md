@@ -14,6 +14,7 @@ backend, plus Pyric's rules tooling and sandbox runtime.
 | `pyric/storage` | Storage modular SDK mirror plus storage admin tools |
 | `pyric/rules` | Firestore rules parser, linter, validator, simulator, stdlib tooling |
 | `pyric/rules/node` | Node-only rules module resolution helpers |
+| `pyric/rules/rtdb` | Realtime Database rules facade: mapper, parser/linter, simulator, deploy/read rule tool factory |
 | `pyric/rules/rtdb-constraints` | Realtime Database rules constraint helpers |
 | `pyric/sandbox` | In-process Firebase sandbox runtime |
 | `pyric/sandbox/internal` | Adapter-only internal protocol surface |

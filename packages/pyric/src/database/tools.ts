@@ -19,6 +19,9 @@ export interface RtdbAdminToolDeps {
   host: RtdbHost;
 }
 
+export type RtdbRulesToolDeps = RtdbAdminToolDeps;
+export type RtdbDataToolDeps = RtdbAdminToolDeps;
+
 /** JSON Schema for the optional per-call `auth` argument shared by
  *  every data tool. When supplied, the operation goes through
  *  `host.getClientForUser(auth)` so rules are enforced; when omitted,
@@ -48,7 +51,7 @@ function assertSafeCrawlPath(path: string): void {
   }
 }
 
-export function createRtdbAdminTools(deps: RtdbAdminToolDeps): ToolHandler[] {
+export function createRtdbRulesTools(deps: RtdbRulesToolDeps): ToolHandler[] {
   const { host } = deps;
   const db = getRtdbTools(host);
 
@@ -74,29 +77,6 @@ export function createRtdbAdminTools(deps: RtdbAdminToolDeps): ToolHandler[] {
         };
         const data = buildRuleExpression(expression, context, pathVariables);
         return { ok: true, summary: `Built ${context} expression`, data };
-      },
-    },
-    {
-      name: 'rtdb_crawl_structure',
-      description:
-        'Discover the shape of the Realtime Database by recursively fetching paths without downloading values. Returns a tree of paths with child counts. Use this to understand what data exists before generating code or writing rules.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Starting path, defaults to root /' },
-          maxDepth: { type: 'number', description: 'How many levels deep to crawl, defaults to 10' },
-          maxChildren: { type: 'number', description: 'Max children to explore per node, defaults to 100' },
-        },
-      },
-      async execute(args) {
-        const params = (args ?? {}) as { path?: string; maxDepth?: number; maxChildren?: number };
-        if (params.path !== undefined) assertSafeCrawlPath(params.path);
-        const result = await db.crawlStructure(params);
-        return {
-          ok: result.success,
-          summary: result.success ? 'Crawled structure' : `Crawl failed: ${result.error.code}`,
-          data: result,
-        };
       },
     },
     {
@@ -154,6 +134,37 @@ export function createRtdbAdminTools(deps: RtdbAdminToolDeps): ToolHandler[] {
         return {
           ok: result.success,
           summary: result.success ? 'Rules deployed' : `Deploy failed: ${result.error.code}`,
+          data: result,
+        };
+      },
+    },
+  ];
+}
+
+export function createRtdbDataTools(deps: RtdbDataToolDeps): ToolHandler[] {
+  const { host } = deps;
+  const db = getRtdbTools(host);
+
+  return [
+    {
+      name: 'rtdb_crawl_structure',
+      description:
+        'Discover the shape of the Realtime Database by recursively fetching paths without downloading values. Returns a tree of paths with child counts. Use this to understand what data exists before generating code or writing rules.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Starting path, defaults to root /' },
+          maxDepth: { type: 'number', description: 'How many levels deep to crawl, defaults to 10' },
+          maxChildren: { type: 'number', description: 'Max children to explore per node, defaults to 100' },
+        },
+      },
+      async execute(args) {
+        const params = (args ?? {}) as { path?: string; maxDepth?: number; maxChildren?: number };
+        if (params.path !== undefined) assertSafeCrawlPath(params.path);
+        const result = await db.crawlStructure(params);
+        return {
+          ok: result.success,
+          summary: result.success ? 'Crawled structure' : `Crawl failed: ${result.error.code}`,
           data: result,
         };
       },
@@ -294,5 +305,12 @@ export function createRtdbAdminTools(deps: RtdbAdminToolDeps): ToolHandler[] {
         };
       },
     },
+  ];
+}
+
+export function createRtdbAdminTools(deps: RtdbAdminToolDeps): ToolHandler[] {
+  return [
+    ...createRtdbRulesTools(deps),
+    ...createRtdbDataTools(deps),
   ];
 }

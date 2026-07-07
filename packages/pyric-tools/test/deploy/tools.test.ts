@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { createToolRegistry, createDispatch } from '@inbrowser/agent';
 import {
   createFirestoreDeployTools,
+  createRtdbDeployTools,
   createHostingDeployTools,
   createFunctionsDeployTools,
   type ProjectScope,
@@ -64,6 +65,31 @@ describe('createHostingDeployTools', () => {
   });
 });
 
+describe('createRtdbDeployTools', () => {
+  const tools = createRtdbDeployTools({ scope });
+
+  it('emits RTDB deploy tool set', () => {
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      'rtdb_deploy_rules',
+      'rtdb_get_rules',
+    ]);
+  });
+
+  it('deploys explicit database rules without discovery', async () => {
+    installMock([new Response('{}', { status: 200 })]);
+    const tool = tools.find((t) => t.name === 'rtdb_deploy_rules');
+    expect(tool).toBeDefined();
+    const result = await tool!.execute(
+      {
+        databaseUrl: 'https://p-default-rtdb.firebaseio.com',
+        rulesJson: { rules: { '.read': false, '.write': false } },
+      },
+      ctx,
+    );
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe('createFunctionsDeployTools', () => {
   const tools = createFunctionsDeployTools({ scope });
 
@@ -76,10 +102,11 @@ describe('cross-factory composition', () => {
   it('full Deployment Agent registry assembles cleanly (smoke)', () => {
     const registry = createToolRegistry();
     for (const t of createFirestoreDeployTools({ scope })) registry.register(t);
+    for (const t of createRtdbDeployTools({ scope })) registry.register(t);
     for (const t of createHostingDeployTools({ scope })) registry.register(t);
     for (const t of createFunctionsDeployTools({ scope })) registry.register(t);
     const names = registry.list().map((h) => h.name);
-    expect(names.length).toBe(10);
+    expect(names.length).toBe(12);
     // No duplicate names — register would have thrown.
     expect(new Set(names).size).toBe(names.length);
   });

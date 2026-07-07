@@ -1,5 +1,9 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { createRtdbAdminTools } from '../../src/database/tools.js';
+import {
+  createRtdbAdminTools,
+  createRtdbDataTools,
+  createRtdbRulesTools,
+} from '../../src/database/tools.js';
 import type { RtdbHost } from '../../src/database/host.js';
 
 const VALID_RULES = { rules: { '.read': 'auth !== null', '.write': 'false' } };
@@ -27,6 +31,25 @@ beforeEach(() => {
 afterEach(() => { global.fetch = realFetch; });
 
 describe('createRtdbAdminTools', () => {
+  test('rules and data factories split the legacy tool set', () => {
+    const host = makeHost();
+    expect(createRtdbRulesTools({ host }).map((t) => t.name).sort()).toEqual([
+      'rtdb_build_expression',
+      'rtdb_deploy_rules',
+      'rtdb_get_rules',
+      'rtdb_simulate_access',
+    ]);
+    expect(createRtdbDataTools({ host }).map((t) => t.name).sort()).toEqual([
+      'rtdb_crawl_structure',
+      'rtdb_delete',
+      'rtdb_get',
+      'rtdb_push',
+      'rtdb_set',
+      'rtdb_update',
+      'rtdb_validated_write',
+    ]);
+  });
+
   test('returns 11 tools', () => {
     const tools = createRtdbAdminTools({ host: makeHost() });
     expect(tools).toHaveLength(11);

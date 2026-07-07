@@ -45,6 +45,7 @@ declare -a PYRIC_SUBPATHS=(
   "pyric/rules"
   "pyric/rules/node"
   "pyric/rules/extract"
+  "pyric/rules/rtdb"
   "pyric/rules/rtdb-constraints"
   "pyric/sandbox"
   "pyric/sandbox/admin-compat"

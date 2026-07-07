@@ -16,6 +16,7 @@ import { createToolRegistry, type ToolHandler, type ToolRegistry } from '@inbrow
 import { fromServiceAccount, type ProjectScope } from '../deploy/index.js';
 import {
   createFirestoreDeployTools,
+  createRtdbDeployTools,
   createHostingDeployTools,
   createFunctionsDeployTools,
 } from '../deploy/index.js';
@@ -28,7 +29,8 @@ import {
 } from 'pyric/firestore';
 import { createFirestoreDiscoverTools } from '../discover/index.js';
 import { createAuthAdminTools } from '../auth/index.js';
-import { createRtdbAdminTools, type RtdbHost } from 'pyric/database';
+import { createRtdbDataTools } from 'pyric/database';
+import { createRtdbRulesTools, type RtdbHost } from 'pyric/rules/rtdb';
 
 /**
  * Admin SDK deps for the Firestore admin-mode + user-mode dispatch factories.
@@ -127,6 +129,7 @@ export async function composeMcpRegistry(
   const factories: ToolHandler[][] = [
     // Control plane — every profile.
     createFirestoreDeployTools({ scope }),
+    ...(opts.rtdbHost && profile !== 'browser-parity' ? [] : [createRtdbDeployTools({ scope })]),
     createHostingDeployTools({ scope }),
     createFunctionsDeployTools({ scope }),
     // Rules tooling — full + browser-parity.
@@ -151,7 +154,10 @@ export async function composeMcpRegistry(
         ]
       : []),
     ...(opts.rtdbHost && profile !== 'browser-parity'
-      ? [createRtdbAdminTools({ host: opts.rtdbHost })]
+      ? [
+          createRtdbRulesTools({ host: opts.rtdbHost }),
+          createRtdbDataTools({ host: opts.rtdbHost }),
+        ]
       : []),
   ];
   for (const handlers of factories) {

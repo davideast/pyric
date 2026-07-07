@@ -47,7 +47,7 @@ The main pieces:
 3. **Ask an agent for help** through `pyric serve --bridge` or the included
    [Claude Code plugin](pyric-plugin/README.md).
 4. **Ship deliberately** by building normally against real Firebase and using
-   `pyric deploy <rules|indexes|hosting|functions>` when you want Pyric's
+   `pyric deploy <rules|indexes|database|hosting|functions>` when you want Pyric's
    deploy helpers.
 
 ## Packages

@@ -31,6 +31,7 @@ import * as rulesImpl from './firestore/rules.js';
 import * as indexesImpl from './firestore/indexes.js';
 import * as databasesImpl from './firestore/databases.js';
 import * as recipesImpl from './firestore/recipes.js';
+import * as rtdbRulesImpl from './rtdb/rules.js';
 import { grantPublicInvoker } from './functions/iam.js';
 import type { HostingJsonConfig } from './hosting/spec.js';
 import type { ProjectScope } from './scope.js';
@@ -239,6 +240,17 @@ export const firestore = {
   },
   databases: {
     provision: databasesImpl.provision,
+  },
+};
+
+// ─── realtime database namespace ────────────────────────────────────
+
+export const rtdb = {
+  rules: {
+    fetch: rtdbRulesImpl.fetchRules,
+    deploy: rtdbRulesImpl.deployRules,
+    discoverDefaultDatabaseUrl: rtdbRulesImpl.discoverDefaultDatabaseUrl,
+    resolveDatabaseUrl: rtdbRulesImpl.resolveDatabaseUrl,
   },
 };
 

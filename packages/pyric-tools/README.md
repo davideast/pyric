@@ -11,10 +11,13 @@ The Pyric CLI + programmatic helpers for `firebase-tools`-shaped work
 | `pyric bridge` | Stand up an HTTP+WebSocket bridge an MCP client (Claude Code, Cursor) connects to |
 | `pyric serve` | Local dev server with the pyric sandbox standing in for Firebase: serves `hosting.public`, resolves unmodified `firebase/*` imports to a pyric sandbox via a served import map, deploys + hot-reloads `firestore.rules` (SSE), opens an emulator-style sign-in helper for `signInWithPopup`/`signInWithRedirect`. The sandbox runs in a **SharedWorker by default** — one backend shared by every tab of the origin (live cross-tab sync), kept in the browser's IndexedDB so **data survives a refresh/restart by default**; a per-tab in-page sandbox is the fallback when SharedWorker is unavailable. Flags + exit codes: [CLI reference](docs/reference/cli.md#pyric-serve); persistence, ephemeral runs, clearing data, and SharedWorker tips: [persistence & multi-tab](docs/how-to/serve-persistence-and-multi-tab.md) |
 | `pyric snapshot` | Promote lived sandbox state (live `serve --persist`, else `.pyric/state/state.json`) to a committable fixture; `pyric serve --seed <fixture>` re-serves it (docs + users). `--out`, `--port`, `--force`, `--json` |
-| `pyric deploy <target>` | Deploy `rules` / `indexes` / `hosting` / `functions` to a real Firebase project |
+| `pyric deploy <target>` | Deploy `rules` / `indexes` / `database` / `hosting` / `functions` to a real Firebase project |
 | `pyric rules:lint <path>` | Lint a Firestore rules file |
-| `pyric rules:validate <path>` | Validate against a project |
+| `pyric rules:validate <path>` | Validate Firestore rules structure |
 | `pyric rules:simulate` | Local rules simulator |
+| `pyric database:rules:lint <path>` | Lint a Realtime Database rules JSON file |
+| `pyric database:rules:validate <path>` | Validate Realtime Database rules expressions |
+| `pyric database:rules:simulate` | Local Realtime Database rules simulator |
 | `pyric auth:configure-provider <id> <enabled>` | Identity Toolkit: enable/disable an auth provider |
 | `pyric auth:manage-domains <add\|remove\|list> [domain]` | Identity Toolkit: authorized domains |
 | `pyric firestore:discover [collection]` | Crawl a Firestore to infer schema |
@@ -63,7 +66,7 @@ rulesHash}`.
 
 | Subpath | Surface |
 |---|---|
-| `pyric-tools/deploy` | `fromServiceAccount`, `getDeploy`, `createFirestoreDeployTools`, `createHostingDeployTools`, `createFunctionsDeployTools` |
+| `pyric-tools/deploy` | `fromServiceAccount`, `getDeploy`, `createFirestoreDeployTools`, `createRtdbDeployTools`, `createHostingDeployTools`, `createFunctionsDeployTools` |
 | `pyric-tools/bridge` | `createBridge`, `startServer` (Node) / `connectBridge` (browser via conditional export). Vite integration is `pyricSandbox({ bridge })` in `pyric-tools/vite`. |
 | `pyric-tools/vite` | `pyricSandbox(opts)`, the dev-only firebase→sandbox swap plugin. Opts: `rules`, `persist`/`fresh`, `seed`, `capture`, `bridge` (MCP), `ui` (Pyric Studio at `/__pyric/ui/`, parity with `serve --ui`). |
 | `pyric-tools/discover` | `crawl`, `findCollectionGroup`, `createRestCrawlerFirestore`, `createFirestoreDiscoverTools` |

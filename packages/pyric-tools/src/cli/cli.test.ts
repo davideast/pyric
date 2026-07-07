@@ -20,6 +20,11 @@ import { describe, it, expect, mock } from 'bun:test';
 import { parseArgs } from './parse-args.js';
 import { runDeploy, runHostingChannelDeploy } from './deploy.js';
 import { runRulesLint, runRulesValidate, runRulesSimulate } from './rules.js';
+import {
+  runDatabaseRulesLint,
+  runDatabaseRulesValidate,
+  runDatabaseRulesSimulate,
+} from './database-rules.js';
 import { runAuthConfigureProvider, runAuthManageDomains } from './auth.js';
 import { runFirestoreDiscover } from './discover.js';
 import { runInit } from './init.js';
@@ -773,6 +778,67 @@ describe('runRulesSimulate', () => {
     const callArgs = (simulateFn.mock.calls[0] ?? []) as [string, unknown[]];
     expect(callArgs[0]).toBe('inline rules');
     expect(callArgs[1]).toHaveLength(2);
+  });
+});
+
+// ── database rules ───────────────────────────────────────────────────
+
+describe('runDatabaseRulesLint', () => {
+  it('errors out when no path given', async () => {
+    const io = bufferIo();
+    const code = await runDatabaseRulesLint(parseArgs(['database:rules:lint']), { ...io });
+    expect(code).toBe(1);
+    expect(io.getErr()).toContain('missing rules-file path');
+  });
+
+  it('prints RTDB expression lints as JSON', async () => {
+    const io = bufferIo();
+    const code = await runDatabaseRulesLint(parseArgs(['database:rules:lint', 'database.rules.json']), {
+      ...io,
+      cwd: '/tmp',
+      readFile: (async () => '{"rules":{".read":true,".write":false}}') as never,
+    });
+    expect(code).toBe(0);
+    const out = JSON.parse(io.getOut()) as { warnings: Array<{ code: string }> };
+    expect(out.warnings.map((finding) => finding.code).sort()).toEqual([
+      'HARDCODED_FALSE',
+      'HARDCODED_TRUE',
+    ]);
+  });
+});
+
+describe('runDatabaseRulesValidate', () => {
+  it('reports RTDB expression parse errors', async () => {
+    const io = bufferIo();
+    const code = await runDatabaseRulesValidate(parseArgs(['database:rules:validate', 'database.rules.json']), {
+      ...io,
+      cwd: '/tmp',
+      readFile: (async () => '{"rules":{".read":"auth.uid =="}}') as never,
+    });
+    expect(code).toBe(0);
+    const out = JSON.parse(io.getOut()) as { errors: Array<{ code: string }> };
+    expect(out.errors.some((finding) => finding.code === 'PARSE_ERROR')).toBe(true);
+  });
+});
+
+describe('runDatabaseRulesSimulate', () => {
+  it('simulates inline RTDB rules from stdin', async () => {
+    const io = bufferIo();
+    const code = await runDatabaseRulesSimulate(parseArgs(['database:rules:simulate', '--stdin']), {
+      ...io,
+      readStdin: async () =>
+        JSON.stringify({
+          rulesJson: { rules: { '.read': true } },
+          operation: 'read',
+          path: '/sample',
+          auth: null,
+          mockData: {},
+        }),
+    });
+    expect(code).toBe(0);
+    const result = JSON.parse(io.getOut()) as { success: boolean; data: { allowed: boolean } };
+    expect(result.success).toBe(true);
+    expect(result.data.allowed).toBe(true);
   });
 });
 

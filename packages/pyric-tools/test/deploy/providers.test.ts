@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { hostingProvider } from '../../src/deploy/providers/hosting.js';
 import { storageProvider } from '../../src/deploy/providers/storage.js';
 import { firestoreRulesProvider, firestoreIndexesProvider } from '../../src/deploy/providers/firestore.js';
+import { databaseRulesProvider } from '../../src/deploy/providers/database.js';
 import type { ConfigSource } from '../../src/deploy/provider.js';
 import type { FirebaseJson, FirebaseRc } from '../../src/cli/firebase-json.js';
 
@@ -12,6 +13,7 @@ function src(opts: {
   files?: Record<string, string>;
   projectId?: string;
   gitBranch?: string | null;
+  env?: Record<string, string | undefined>;
 }): ConfigSource {
   return {
     firebaseJson: opts.firebaseJson ?? {},
@@ -19,6 +21,7 @@ function src(opts: {
     flags: new Map(Object.entries(opts.flags ?? {})),
     projectId: opts.projectId ?? 'demo',
     cwd: '/proj',
+    env: opts.env,
     readFile: async (path) => {
       const f = (opts.files ?? {})[path];
       if (f === undefined) throw new Error(`ENOENT ${path}`);
@@ -144,5 +147,40 @@ describe('firestore providers resolveConfig', () => {
       src({ firebaseJson: { firestore: { indexes: 'idx.json' } }, files: { '/proj/idx.json': '{bad' } }),
     );
     expect(bad.ok).toBe(false);
+  });
+});
+
+describe('databaseRulesProvider.resolveConfig', () => {
+  it('usage error with no database.rules path', async () => {
+    expect((await databaseRulesProvider.resolveConfig('deploy', src({}))).ok).toBe(false);
+  });
+
+  it('reads RTDB rules JSON and honors --database-url', async () => {
+    const r = await databaseRulesProvider.resolveConfig(
+      'deploy',
+      src({
+        firebaseJson: { database: { rules: 'database.rules.json' } },
+        flags: { 'database-url': 'https://demo-default-rtdb.firebaseio.com' },
+        files: { '/proj/database.rules.json': '{"rules":{".read":false}}' },
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.units[0].databaseUrl).toBe('https://demo-default-rtdb.firebaseio.com');
+      expect(r.units[0].rulesJson).toEqual({ rules: { '.read': false } });
+    }
+  });
+
+  it('uses FIREBASE_DATABASE_URL when no flag is present', async () => {
+    const r = await databaseRulesProvider.resolveConfig(
+      'deploy',
+      src({
+        firebaseJson: { database: { rules: 'database.rules.json' } },
+        env: { FIREBASE_DATABASE_URL: 'https://env-db.firebaseio.com' },
+        files: { '/proj/database.rules.json': '{"rules":{".read":true}}' },
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.units[0].databaseUrl).toBe('https://env-db.firebaseio.com');
   });
 });
