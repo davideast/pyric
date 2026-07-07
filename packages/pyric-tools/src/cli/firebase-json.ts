@@ -19,6 +19,11 @@ export interface FirebaseJson {
     indexes?: string;
     database?: string;
   };
+  /** Realtime Database rules path plus optional explicit instance URL. */
+  database?: {
+    rules?: string;
+    url?: string;
+  };
   hosting?: unknown;
   functions?: unknown;
   /** Storage rules + (optional) target bucket. A single object, or an array for

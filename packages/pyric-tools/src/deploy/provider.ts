@@ -76,6 +76,7 @@ export interface ConfigSource {
   flags: ReadonlyMap<string, string | boolean>;
   projectId: string;
   cwd: string;
+  env?: Record<string, string | undefined>;
   readFile(path: string): Promise<string>;
   getGitBranch(): Promise<string | null>;
 }

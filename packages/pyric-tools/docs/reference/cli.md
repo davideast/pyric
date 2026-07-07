@@ -23,13 +23,14 @@ Run `pyric --help` for the same surface inline, or `pyric --version`.
 | `PYRIC_VERBOSE` | all | Verbose logging when set. |
 | `FIREBASE_SA_BASE64` | `deploy`, `auth:*`, `firestore:discover` | base64-encoded service-account JSON. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | `deploy`, `auth:*`, `firestore:discover` | Filesystem path to service-account JSON. |
+| `FIREBASE_DATABASE_URL` | `deploy database` | Realtime Database instance URL, used when `--database-url` and `firebase.json.database.url` are absent. |
 | `PYRIC_SA_PATH` | `bridge --mode prod` | Service-account path for prod bridge mode. |
 
 Commands that touch a **real Firebase project** (`deploy`, `auth:*`,
 `firestore:discover`, `bridge --mode prod`) require credentials via
 `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`, plus a project id via
 `--project` / `PYRIC_PROJECT` / `.firebaserc`. The local sandbox commands
-(`serve`, `init`, `snapshot`, `verify`, `rules:*`) need none.
+(`serve`, `init`, `snapshot`, `verify`, `rules:*`, `database:rules:*`) need none.
 
 ---
 
@@ -136,12 +137,17 @@ real Firebase project (guarded). See [bridge](../bridge/README.md).
 
 ## Deploy
 
-### `pyric deploy <rules|indexes|hosting|functions>`
+### `pyric deploy <rules|indexes|database|hosting|functions>`
 
 Deploy to a real Firebase project. Each target has its own surface (selectors,
 agent I/O via `--schema` / `--json`, preview channels for hosting). The full
 deploy documentation lives in [`../deploy/`](../deploy/README.md) — including the
 [CLI agent I/O reference](../deploy/reference/cli-agent-io.md).
+
+`pyric deploy database` reads `firebase.json.database.rules` as a Realtime
+Database rules JSON file. The database URL is resolved in this order:
+`--database-url`, `FIREBASE_DATABASE_URL`, `firebase.json.database.url`, then
+single default instance discovery via the RTDB management API.
 
 ### `pyric hosting:channel:deploy <channelId> [--expires <ttl>]`
 
@@ -170,6 +176,22 @@ Local rules simulator.
 | Flag | Description |
 |---|---|
 | `--stdin` | Read a scripted simulation from stdin instead of running the interactive smoke-test. |
+
+### `pyric database:rules:lint <path>`
+
+Run the Realtime Database rules JSON expression linter against a file.
+
+### `pyric database:rules:validate <path>`
+
+Validate Realtime Database rules JSON expressions against the local parser and
+expression validator.
+
+### `pyric database:rules:simulate [--stdin]`
+
+Local Realtime Database rules simulator. With no flags, reads
+`firebase.json.database.rules` and runs a sample anonymous read. With `--stdin`,
+reads a JSON payload with `rulesJson` or `rulesPath`, `operation`, `path`,
+optional `auth`, `mockData`, and `newData`.
 
 ---
 

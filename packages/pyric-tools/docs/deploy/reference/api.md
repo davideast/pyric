@@ -110,6 +110,12 @@ Firestore rules, indexes, and database primitives. See [`firestore` namespace](.
 - `firestore.indexes.{ create, deployAll, getStatus }`
 - `firestore.databases.{ provision }`
 
+### `const rtdb`
+
+Realtime Database rules primitives. See [`rtdb` namespace](./rtdb-namespace.md):
+
+- `rtdb.rules.{ fetch, deploy, discoverDefaultDatabaseUrl, resolveDatabaseUrl }`
+
 ### `const recipes`
 
 Paste-in templates for `firestore.rules.ensure`:
@@ -136,6 +142,13 @@ Returns two handlers:
 
 - `hosting_deploy`
 - `hosting_ensure_site`
+
+### `createRtdbDeployTools(deps): ToolHandler[]`
+
+Returns two handlers:
+
+- `rtdb_get_rules`
+- `rtdb_deploy_rules`
 
 ### `createFunctionsDeployTools(deps): ToolHandler[]`
 
@@ -177,5 +190,9 @@ Re-exported from the relevant submodule:
 - `QueryScope`, `IndexFieldOrder`, `ArrayConfig`, `IndexState`, `ApiScope`, `Density`, `VectorConfig`, `IndexField`, `Index`, `IndexesConfigEntry`, `IndexesConfig`, `IndexOperation`.
 - `DeployIndexesOptions`, `PerIndexOutcome`, `DeployIndexesOutcome`.
 - `GetIndexStatusOutcome`.
+
+### Realtime Database
+
+- `RtdbDeployRulesInput`, `RtdbFetchRulesInput`, `RtdbRulesDiscoveryResult`.
 
 See [Error codes by operation](./error-codes.md) for the values each error union can take.

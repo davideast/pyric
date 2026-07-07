@@ -69,6 +69,14 @@ describe('runDeploy dispatch', () => {
     expect(err.join('')).toContain('storage');
   });
 
+  it('database is an accepted target, usage error without a database block', async () => {
+    const { deps, err } = harness();
+    const code = await runDeploy(parsed(['database']), deps);
+    expect(code).toBe(1);
+    expect(err.join('')).not.toContain('unknown target');
+    expect(err.join('')).toContain('database.rules');
+  });
+
   it('login user lacking cloud-platform -> scope-upgrade preflight fails fast', async () => {
     const { deps, err } = harness({
       resolveScope: async () => ({
@@ -93,5 +101,18 @@ describe('runDeploy dispatch', () => {
     expect(await runDeploy(parsed(['hosting']), deps)).toBe(1);
     expect(err.join('')).not.toContain('cloud-platform'); // preflight passed (firebase covers hosting)
     expect(err.join('')).toContain('hosting'); // reached resolveConfig
+  });
+
+  it('login user lacking firebase.database -> scope-upgrade preflight fails fast', async () => {
+    const { deps, err } = harness({
+      resolveScope: async () => ({
+        scope: { projectId: 'demo', resolveToken: async () => 'tkn' },
+        source: 'login',
+        grantedScopes: ['https://www.googleapis.com/auth/firebase'],
+      }),
+    });
+    expect(await runDeploy(parsed(['database']), deps)).toBe(1);
+    expect(err.join('')).toContain('firebase.database');
+    expect(err.join('')).toContain('pyric login');
   });
 });

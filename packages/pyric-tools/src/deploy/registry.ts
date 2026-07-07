@@ -16,10 +16,12 @@ import { functionsProvider } from './providers/functions.js';
 import { hostingProvider } from './providers/hosting.js';
 import { storageProvider } from './providers/storage.js';
 import { firestoreRulesProvider, firestoreIndexesProvider } from './providers/firestore.js';
+import { databaseRulesProvider } from './providers/database.js';
 
 export const DEPLOY_PROVIDERS: readonly DeployProvider[] = [
   firestoreRulesProvider,
   firestoreIndexesProvider,
+  databaseRulesProvider,
   hostingProvider,
   functionsProvider,
   storageProvider,

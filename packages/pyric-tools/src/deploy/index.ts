@@ -43,7 +43,7 @@ export { withResolvedScope } from './with-resolved-scope.js';
 // per F4. The previous `pyric-tools/deploy/{hosting,functions}` sub-path
 // exports are removed.
 
-export { hosting, functions, firestore, recipes } from './namespaces.js';
+export { hosting, functions, firestore, rtdb, recipes } from './namespaces.js';
 export type { DeployHostingScopedOptions, DeployFunctionsLocalOptions } from './namespaces.js';
 
 // ─── Firestore namespace types (Slice 4) ──────────────────────────────
@@ -73,6 +73,11 @@ export type {
   DeployIndexesOutcome,
   GetIndexStatusOutcome,
 } from './firestore/indexes.js';
+export type {
+  RtdbDeployRulesInput,
+  RtdbFetchRulesInput,
+  RtdbRulesDiscoveryResult,
+} from './rtdb/rules.js';
 
 // ─── Portable primitive types — still useful for direct consumers ────
 //
@@ -130,6 +135,7 @@ export {
 // ─── Tool factories (Slice 9) ────────────────────────────────────────
 export {
   createFirestoreDeployTools,
+  createRtdbDeployTools,
   createHostingDeployTools,
   createFunctionsDeployTools,
   type ProjectScopedDeps,

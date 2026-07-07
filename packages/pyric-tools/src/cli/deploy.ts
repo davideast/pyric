@@ -5,7 +5,7 @@
  * `PYRIC_PROJECT` / `.firebaserc`; resolves a service-account scope
  * from env.
  *
- * Supported targets: `rules`, `indexes`, `hosting`, `functions`.
+ * Supported targets: `rules`, `indexes`, `database`, `hosting`, `functions`.
  * `functions` requires `--source <dir>` and a JSON-formatted
  * `--config` (FunctionDeployConfig[]); this is the minimum to make
  * the CLI a real handle on the library — extras (multi-function
@@ -23,6 +23,7 @@ import { readFile } from 'node:fs/promises';
 import type { ToolHandler } from '@inbrowser/agent';
 import {
   createFirestoreDeployTools,
+  createRtdbDeployTools,
   createHostingDeployTools,
   createFunctionsDeployTools,
   type ProjectScope,
@@ -56,8 +57,10 @@ export interface DeployDeps {
   ensureApis?: typeof ensureApisEnabled;
   readFile?: typeof readFile;
   createFirestoreDeployTools?: typeof createFirestoreDeployTools;
+  createRtdbDeployTools?: typeof createRtdbDeployTools;
   createHostingDeployTools?: typeof createHostingDeployTools;
   createFunctionsDeployTools?: typeof createFunctionsDeployTools;
+  env?: Record<string, string | undefined>;
   /**
    * Current git branch resolver for `--channel auto` — used in tests.
    * Defaults to `git rev-parse --abbrev-ref HEAD`. Resolves `null`
@@ -84,7 +87,7 @@ export interface DeployDeps {
 //                      (mirror of firebase-tools' global -j/--json,
 //                      clones/firebase-tools/src/index.ts:16)
 // Every deploy target wraps a ToolHandler, so adding one = one entry
-// here. Hosting is wired today; rules/indexes/functions are follow-ups.
+// here. Hosting is wired today; rules/indexes/database/functions are follow-ups.
 interface AgentIoEntry {
   toolName: string;
   tools(deps: DeployDeps, scope: ProjectScope): ToolHandler[];
@@ -130,7 +133,7 @@ export async function runDeploy(parsed: ParsedArgs, deps: DeployDeps = {}): Prom
   }
   if (machineOutput && !agentIo) {
     err.write(
-      `pyric deploy ${target}: --json is not wired for '${target}' yet (hosting only; rules/indexes/functions are follow-ups).\n`,
+      `pyric deploy ${target}: --json is not wired for '${target}' yet (hosting only; rules/indexes/database/functions are follow-ups).\n`,
     );
     return 1;
   }
@@ -211,6 +214,7 @@ export async function runDeploy(parsed: ParsedArgs, deps: DeployDeps = {}): Prom
       flags: parsed.flags,
       projectId: scope.projectId,
       cwd,
+      env: deps.env ?? process.env,
       readFile: (p) => readFileFn(p, 'utf-8') as Promise<string>,
       getGitBranch: () => (deps.getGitBranch ?? getGitBranch)(cwd),
     },
@@ -252,6 +256,8 @@ function resolveDeployTools(provider: DeployProvider, scope: ProjectScope, deps:
         ? deps.createHostingDeployTools
         : provider.target === 'rules' || provider.target === 'indexes'
           ? deps.createFirestoreDeployTools
+          : provider.target === 'database'
+            ? deps.createRtdbDeployTools
           : undefined;
   return override ? override({ scope }) : provider.tools(scope);
 }
@@ -348,7 +354,7 @@ function printToolSchema(
 ): number {
   if (!agentIo) {
     err.write(
-      `pyric deploy ${target}: --schema is not wired for '${target}' yet (hosting only; rules/indexes/functions are follow-ups).\n`,
+      `pyric deploy ${target}: --schema is not wired for '${target}' yet (hosting only; rules/indexes/database/functions are follow-ups).\n`,
     );
     return 1;
   }

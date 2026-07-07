@@ -11,6 +11,7 @@ export const SCOPES = {
   openid: 'openid',
   email: 'email',
   firebase: 'https://www.googleapis.com/auth/firebase',
+  firebaseDatabase: 'https://www.googleapis.com/auth/firebase.database',
   datastore: 'https://www.googleapis.com/auth/datastore',
   cloudPlatform: 'https://www.googleapis.com/auth/cloud-platform',
 } as const;

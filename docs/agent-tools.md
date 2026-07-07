@@ -49,19 +49,26 @@ read, batch, transact, undo/redo, inspect the event log.
 `firestore_extract_indexes` — derive composite-index definitions from query
 shapes.
 
-## Realtime Database — `createRtdbAdminTools` (`pyric/database`)
+## Realtime Database rules — `createRtdbRulesTools` (`pyric/rules/rtdb`)
 
-Data plane + rules tooling for RTDB.
+Rules tooling for RTDB. `createRtdbAdminTools` (`pyric/database`) remains as a
+backwards-compatible union of the rules and data factories.
+
+`rtdb_get_rules` · `rtdb_deploy_rules` · `rtdb_simulate_access` ·
+`rtdb_build_expression`
+
+## Realtime Database data — `createRtdbDataTools` (`pyric/database`)
+
+Data plane tooling for RTDB.
 
 `rtdb_get` · `rtdb_set` · `rtdb_update` · `rtdb_push` · `rtdb_delete` ·
-`rtdb_validated_write` · `rtdb_crawl_structure` · `rtdb_get_rules` ·
-`rtdb_deploy_rules` · `rtdb_simulate_access` · `rtdb_build_expression`
+`rtdb_validated_write` · `rtdb_crawl_structure`
 
 ## Storage control plane — `createStorageAdminTools` (`pyric/storage`)
 
 `storage_get_status` · `storage_provision`
 
-## Deploy — `createFirestoreDeployTools` / `createHostingDeployTools` / `createFunctionsDeployTools` (`pyric-tools/deploy`)
+## Deploy — `createFirestoreDeployTools` / `createRtdbDeployTools` / `createHostingDeployTools` / `createFunctionsDeployTools` (`pyric-tools/deploy`)
 
 The Firebase control plane over REST — no `firebase-tools` CLI required.
 Docs: [`packages/pyric-tools/docs/deploy/`](../packages/pyric-tools/docs/deploy/README.md).
@@ -69,6 +76,7 @@ Docs: [`packages/pyric-tools/docs/deploy/`](../packages/pyric-tools/docs/deploy/
 `firestore_get_rules` · `firestore_deploy_rules` · `firestore_ensure_rules` ·
 `firestore_provision_database` · `firestore_deploy_indexes` ·
 `firestore_create_index` · `firestore_get_index_status` ·
+`rtdb_get_rules` · `rtdb_deploy_rules` ·
 `hosting_deploy` · `hosting_ensure_site` ·
 `functions_deploy`
 
@@ -84,7 +92,10 @@ Identity Toolkit project configuration.
 
 ---
 
-**Total: 51 tools.** Removed since the legacy project-level SDK:
+**Total: 51 unique tool names.** There are 53 factory entries when counting the
+scope-based `createRtdbDeployTools` `rtdb_get_rules` / `rtdb_deploy_rules`
+handlers separately from the host-backed RTDB rules factory. Removed since the
+legacy project-level SDK:
 `firebase_get_project`, `firebase_get_client_config` (died with that
 package; project overview is now `sandbox_inspect` +
 `firestore_discover_paths` + `auth_get_config` composed).

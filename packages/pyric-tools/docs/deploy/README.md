@@ -1,12 +1,12 @@
 # `pyric-tools/deploy`
 
-Firebase control-plane primitives — Hosting, Cloud Functions Gen 2, Firestore rules, indexes, and database provisioning — without the `firebase` CLI. Pure-fetch over OAuth access tokens; works in Node and the browser alike.
+Firebase control-plane primitives — Hosting, Cloud Functions Gen 2, Firestore rules, Firestore indexes, Firestore database provisioning, and Realtime Database rules — without the `firebase` CLI. Pure-fetch over OAuth access tokens; works in Node and the browser alike.
 
 The package is organised around three things:
 
 - **`ProjectScope`** — a tiny `{ projectId, resolveToken }` pair every primitive takes as its first argument. Build one from a service-account JSON (Node) or from `firebaseAuth.currentUser.getIdToken()` (browser).
-- **Namespaced primitives** — `hosting`, `functions`, `firestore`, and `recipes`. Each groups the operations for one Firebase product.
-- **Tool factories** — `createHostingDeployTools`, `createFunctionsDeployTools`, `createFirestoreDeployTools`. Each returns a `ToolHandler[]` ready to feed an `@inbrowser/agent` registry.
+- **Namespaced primitives** — `hosting`, `functions`, `firestore`, `rtdb`, and `recipes`. Each groups the operations for one Firebase product.
+- **Tool factories** — `createHostingDeployTools`, `createFunctionsDeployTools`, `createFirestoreDeployTools`, `createRtdbDeployTools`. Each returns a `ToolHandler[]` ready to feed an `@inbrowser/agent` registry.
 
 ## Install
 
@@ -43,6 +43,7 @@ Documentation is organised under [`docs/`](./) following the [Diataxis](https://
 - **First time here?** Work through [Deploy a Cloud Function](./tutorials/01-deploy-a-cloud-function.md).
 - **Setting up auth?** See [Build a `ProjectScope` from a service account](./how-to/build-projectscope-from-service-account.md).
 - **Building an agent?** See [Register deploy tools with an agent](./how-to/register-tools-with-an-agent.md) and the [API reference](./reference/api.md).
+- **Deploying Realtime Database rules?** See [Deploy Realtime Database rules](./how-to/deploy-realtime-database-rules.md) and the [`rtdb` namespace reference](./reference/rtdb-namespace.md).
 
 ## Position in the Pyric stack
 

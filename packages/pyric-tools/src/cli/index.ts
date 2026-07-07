@@ -9,11 +9,14 @@
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json] [--include-passwords]
  *   pyric mcp
- *   pyric deploy <rules|indexes|hosting|functions>
+ *   pyric deploy <rules|indexes|database|hosting|functions>
  *   pyric hosting:channel:deploy <channelId> [--expires <ttl>]
  *   pyric rules:lint <path>
  *   pyric rules:validate <path>
  *   pyric rules:simulate [--stdin]
+ *   pyric database:rules:lint <path>
+ *   pyric database:rules:validate <path>
+ *   pyric database:rules:simulate [--stdin]
  *   pyric auth:configure-provider <provider> <true|false>
  *   pyric auth:manage-domains <add|remove|list> [domain]
  *   pyric firestore:discover [collection]
@@ -30,6 +33,7 @@
  *   PYRIC_VERBOSE                    — set to 1 for per-tool-call logging
  *   FIREBASE_SA_BASE64               — base64-encoded service-account JSON (deploy / auth / discover)
  *   GOOGLE_APPLICATION_CREDENTIALS   — path to service-account JSON (deploy / auth / discover)
+ *   FIREBASE_DATABASE_URL            — Realtime Database URL for deploy database
  *   PYRIC_OAUTH_CLIENT_ID            — Google "Desktop app" OAuth client id (pyric login)
  *   PYRIC_OAUTH_CLIENT_SECRET        — its client secret (pyric login; required by Google)
  *   PYRIC_REFRESH_TOKEN              — CI refresh token from `pyric login --ci`
@@ -45,6 +49,11 @@ import { parseArgs, type ParsedArgs } from './parse-args.js';
 import { runDeploy, runHostingChannelDeploy } from './deploy.js';
 import { runLoginCommand, runLogoutCommand, runWhoamiCommand } from './login.js';
 import { runRulesLint, runRulesValidate, runRulesSimulate } from './rules.js';
+import {
+  runDatabaseRulesLint,
+  runDatabaseRulesValidate,
+  runDatabaseRulesSimulate,
+} from './database-rules.js';
 import { runAuthConfigureProvider, runAuthManageDomains } from './auth.js';
 import { runFirestoreDiscover } from './discover.js';
 import { runInit, runVendor } from './init.js';
@@ -69,11 +78,14 @@ USAGE
   pyric init [dir] [--template=web|node]
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--rules=firestore.rules]
-  pyric deploy <rules|indexes|hosting|functions>
+  pyric deploy <rules|indexes|database|hosting|functions>
   pyric hosting:channel:deploy <channelId> [--expires <ttl>]
   pyric rules:lint <path>
   pyric rules:validate <path>
   pyric rules:simulate [--stdin]
+  pyric database:rules:lint <path>
+  pyric database:rules:validate <path>
+  pyric database:rules:simulate [--stdin]
   pyric auth:configure-provider <anonymous|email|phone|google> <true|false>
   pyric auth:manage-domains <add|remove|list> [domain]
   pyric firestore:discover [collection]
@@ -110,7 +122,7 @@ COMMANDS
                              replays the latest \`pyric serve\` capture (.pyric/last-session.json).
                              --rules=PATH (default firestore.rules), --json. Exit 1 on
                              any real divergence.
-  deploy [target]            Deploy rules / indexes / hosting / functions.
+  deploy [target]            Deploy rules / indexes / database / hosting / functions.
                              hosting: deploys the firebase.json hosting block
                              (rewrites/redirects/headers/cleanUrls/trailingSlash/
                              appAssociation/i18n + ignore globs). --only
@@ -126,11 +138,18 @@ COMMANDS
                              firebase.json); bare --json = machine output for
                              a normal deploy (results to stdout, errors to
                              stderr, as JSON).
+                             database: deploys firebase.json database.rules.
+                             URL precedence: --database-url,
+                             FIREBASE_DATABASE_URL, firebase.json
+                             database.url, then default instance discovery.
   hosting:channel:deploy     Mirror of \`deploy hosting --channel <channelId>\`
                              (firebase-tools spelling) — identical behavior.
   rules:lint                 Run firestore-rules linter against a file.
   rules:validate             Validate firestore-rules structure against a file.
   rules:simulate             Local rules simulator (smoke-test or --stdin scripted).
+  database:rules:lint        Run Realtime Database rules JSON expression linter.
+  database:rules:validate    Validate Realtime Database rules JSON expressions.
+  database:rules:simulate    Local RTDB rules simulator (smoke-test or --stdin scripted).
   auth:configure-provider    Identity Toolkit: enable/disable an auth provider.
   auth:manage-domains        Identity Toolkit: add/remove/list authorized domains.
   firestore:discover         Crawl a Firestore to infer schema.
@@ -211,6 +230,7 @@ CREDENTIALS
     4. ~/.pyric/credentials.json     the \`pyric login\` user (granted scopes only)
     5. ADC                           \`gcloud auth application-default login\` (ambient)
   PYRIC_PROJECT / --project          project id for user/ADC creds (else .firebaserc default)
+  FIREBASE_DATABASE_URL              Realtime Database URL for \`pyric deploy database\`
 `);
 }
 
@@ -439,6 +459,12 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       return await runRulesValidate(parsed);
     case 'rules:simulate':
       return await runRulesSimulate(parsed);
+    case 'database:rules:lint':
+      return await runDatabaseRulesLint(parsed);
+    case 'database:rules:validate':
+      return await runDatabaseRulesValidate(parsed);
+    case 'database:rules:simulate':
+      return await runDatabaseRulesSimulate(parsed);
     case 'auth:configure-provider':
       return await runAuthConfigureProvider(parsed);
     case 'auth:manage-domains':

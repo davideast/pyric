@@ -13,8 +13,16 @@ export * from './types.js';
 export type { RtdbHost } from './host.js';
 export { fetchDatabase } from './host.js';
 export { getRtdbTools } from './resolver.js';
-export { createRtdbAdminTools } from './tools.js';
-export type { RtdbAdminToolDeps } from './tools.js';
+export {
+  createRtdbAdminTools,
+  createRtdbDataTools,
+  createRtdbRulesTools,
+} from './tools.js';
+export type {
+  RtdbAdminToolDeps,
+  RtdbDataToolDeps,
+  RtdbRulesToolDeps,
+} from './tools.js';
 export * from './mapper.js';
 export { GenerateIRInputSchema, RtdbIRErrorCode } from './ir/spec.js';
 export type { GenerateIRInput, GenerateIRSpec } from './ir/spec.js';

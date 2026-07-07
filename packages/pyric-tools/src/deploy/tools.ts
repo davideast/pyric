@@ -20,8 +20,9 @@
  */
 
 import type { ToolHandler } from '@inbrowser/agent';
-import { firestore, hosting, functions } from './namespaces.js';
+import { firestore, hosting, functions, rtdb } from './namespaces.js';
 import type { ProjectScope } from './scope.js';
+import type { RtdbIR } from 'pyric/rules/rtdb';
 import type {
   IndexesConfig,
   IndexesConfigEntry,
@@ -64,10 +65,60 @@ export interface DeployToolData {
   hosting_deploy: DeployHostingResult;
   hosting_ensure_site: EnsureSiteResult;
   functions_deploy: DeployFunctionsResult;
+  rtdb_get_rules: { ir: RtdbIR };
+  rtdb_deploy_rules: undefined;
 }
 
 export interface ProjectScopedDeps {
   scope: ProjectScope;
+}
+
+// ─── Realtime Database deploy tools ─────────────────────────────────
+
+export function createRtdbDeployTools(deps: ProjectScopedDeps): ToolHandler[] {
+  const { scope } = deps;
+  return [
+    {
+      name: 'rtdb_get_rules',
+      description: 'Fetch the deployed Realtime Database rules for this project or an explicit database URL.',
+      parameters: {
+        type: 'object',
+        properties: {
+          databaseUrl: { type: 'string' },
+        },
+      },
+      async execute(args) {
+        const { databaseUrl } = args as { databaseUrl?: string };
+        try {
+          const ir = await rtdb.rules.fetch(scope, { databaseUrl });
+          return { ok: true, summary: `Fetched RTDB rules from ${ir.databaseUrl}`, data: { ir } };
+        } catch (e) {
+          return { ok: false, summary: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    },
+    {
+      name: 'rtdb_deploy_rules',
+      description: 'Deploy Realtime Database security rules JSON. Pass databaseUrl or let the tool discover the single default RTDB instance.',
+      parameters: {
+        type: 'object',
+        properties: {
+          rulesJson: { type: 'object' },
+          databaseUrl: { type: 'string' },
+        },
+        required: ['rulesJson'],
+      },
+      async execute(args) {
+        const { rulesJson, databaseUrl } = args as { rulesJson: unknown; databaseUrl?: string };
+        try {
+          await rtdb.rules.deploy(scope, { rulesJson, databaseUrl });
+          return { ok: true, summary: 'Deployed Realtime Database rules' };
+        } catch (e) {
+          return { ok: false, summary: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    },
+  ];
 }
 
 // ─── Firestore deploy tools ──────────────────────────────────────────
