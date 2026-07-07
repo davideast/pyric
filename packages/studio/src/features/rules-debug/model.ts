@@ -21,7 +21,14 @@
  * is a projection, no re-derivation from out-of-band state.
  */
 
-import type { AuthState, RequestEvent, SandboxEvent } from 'pyric/sandbox';
+import type {
+  AuthState,
+  RequestEvent,
+  SandboxEvent,
+  SandboxOperationEvent,
+} from 'pyric/sandbox';
+
+type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent;
 
 /** A single denied operation, projected from a `result:'deny'` request event. */
 export interface Denial {
@@ -30,7 +37,9 @@ export interface Denial {
   /** Wall-clock at op start (ms since epoch). */
   at: number;
   /** The operation the rule rejected. */
-  method: RequestEvent['method'];
+  method: RequestEvent['method'] | string;
+  /** Service whose rules rejected the operation. */
+  service: 'firestore' | 'auth' | 'storage' | 'rtdb' | string;
   /** Full resource path (e.g. `notes/abc`). */
   path: string;
   /** The `request.auth` identity the rule evaluated under (`null` = anonymous). */
@@ -41,19 +50,34 @@ export interface Denial {
   /** Raw simulator trace lines (`Rule #N (ops) → deny`, plus context lines). */
   reasons: string[];
   /** Proposed write payload (create/update/set). Absent on reads + delete. */
-  resourceData?: Record<string, unknown>;
+  resourceData?: unknown;
   /** Existing doc state the rule saw (`null`/`exists:false` ⇒ absent doc). */
-  resourceBefore?: { data: Record<string, unknown> | null; exists: boolean };
+  resourceBefore?: { data: unknown; exists: boolean };
   /** Where the op came from (user op, listener re-eval, batch, transaction). */
-  origin: RequestEvent['origin'];
+  origin: RequestEvent['origin'] | SandboxOperationEvent['origin'];
   /** `'unsupported'` denials (simulator hit an unmodelled feature) are flagged
    *  so the UI can distinguish them from a genuine rule rejection. */
   unsupported: boolean;
 }
 
 /** Type guard: a request event the rules engine rejected (deny or unsupported). */
-function isDeniedRequest(e: SandboxEvent): e is RequestEvent {
-  return e.kind === 'request' && (e.result === 'deny' || e.result === 'unsupported');
+function isDeniedRequest(e: SandboxEvent): e is DeniedSandboxEvent {
+  return (
+    (e.kind === 'request' || e.kind === 'operation') &&
+    (e.result === 'deny' || e.result === 'unsupported')
+  );
+}
+
+function serviceOf(e: DeniedSandboxEvent): string {
+  return 'service' in e && typeof e.service === 'string' ? e.service : 'firestore';
+}
+
+function requestDataOf(e: DeniedSandboxEvent): unknown {
+  const request = e.request;
+  if (!request) return undefined;
+  if ('resourceData' in request && request.resourceData !== undefined) return request.resourceData;
+  if ('data' in request) return request.data;
+  return undefined;
 }
 
 /**
@@ -74,19 +98,21 @@ export function selectDenials(events: readonly SandboxEvent[]): Denial[] {
 }
 
 /** Project one `result:'deny'`/`'unsupported'` request event to a {@link Denial}. */
-export function toDenial(e: RequestEvent): Denial {
+export function toDenial(e: DeniedSandboxEvent): Denial {
   const d: Denial = {
     id: e.id,
     at: e.at,
     method: e.method,
-    path: e.path,
+    service: serviceOf(e),
+    path: e.path ?? '(service)',
     auth: e.auth,
-    reasons: e.reasons,
+    reasons: e.reasons ?? [],
     origin: e.origin,
     unsupported: e.result === 'unsupported',
   };
-  if (e.matchedRule) d.matchedRule = e.matchedRule;
-  if (e.request?.resourceData) d.resourceData = e.request.resourceData;
+  if ('matchedRule' in e && e.matchedRule) d.matchedRule = e.matchedRule;
+  const requestData = requestDataOf(e);
+  if (requestData !== undefined) d.resourceData = requestData;
   if (e.resourceBefore) d.resourceBefore = e.resourceBefore;
   return d;
 }
@@ -118,6 +144,8 @@ export function explainDenial(denial: Denial): RuleExplanation {
   let headline: string;
   if (denial.unsupported) {
     headline = `The simulator hit an unmodelled rules feature evaluating ${denial.method} ${denial.path}.`;
+  } else if (denial.service !== 'firestore') {
+    headline = `${denial.service} rules denied ${denial.method} on ${denial.path}.`;
   } else if (implicitDeny) {
     headline = `No rule allowed ${denial.method} on ${denial.path}: implicit deny (no matching \`allow\`).`;
   } else {

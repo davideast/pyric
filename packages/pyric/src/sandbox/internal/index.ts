@@ -11,7 +11,7 @@
  * External adapter authors shouldn't rely on this — when the protocol
  * stabilizes (post-multi-service architecture) it'll be promoted.
  *
- * Documented in the design rationale §"Migration
+ * Documented in the design rationale section "Migration
  * scope summary".
  */
 export { getInternalEnv } from './sandbox-impl.js';
@@ -27,6 +27,10 @@ export { getInternalEnv } from './sandbox-impl.js';
 export {
   emitSandboxEvent,
   stampProvenance,
+  makeSandboxCommitEvent,
+  makeSandboxListenerEvent,
+  makeSandboxOperationEvent,
+  makeSandboxRuntimeErrorEvent,
   makeServiceMutationEvent,
 } from './sandbox-impl.js';
 

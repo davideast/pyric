@@ -34,7 +34,7 @@ export interface StoragePreview {
   render: (ctx: StoragePreviewContext) => ReactNode;
 }
 
-/** 256KB — the §3 default cap for the text-family preview. */
+/** 256KB — the section 3 default cap for the text-family preview. */
 export const TEXT_PREVIEW_MAX_BYTES = 256 * 1024;
 
 function contentTypeOf(metadata: FullMetadata): string {
@@ -97,7 +97,7 @@ export const textPreview: StoragePreview = {
     ) : null,
 };
 
-/** The §3 defaults: image, text/json; everything else is
+/** The section 3 defaults: image, text/json; everything else is
  *  metadata-only (the inspector's `data-pyric-preview-none` state). */
 export const defaultStoragePreviews: ReadonlyArray<StoragePreview> = [
   imagePreview,

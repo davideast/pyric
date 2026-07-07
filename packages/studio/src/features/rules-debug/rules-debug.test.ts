@@ -91,10 +91,11 @@ describe('rules-debug model: denial → rule → context', () => {
 
   it('flags an implicit deny (no matching allow) distinctly', () => {
     // Hand-built denial with no matchedRule → implicit deny.
-    const d: Denial = {
-      id: 'r1', at: Date.now(), method: 'get', path: 'secret/x',
-      auth: { uid: 'bob' }, reasons: ['no allow rule matched'], origin: 'user', unsupported: false,
-    };
+	    const d: Denial = {
+	      id: 'r1', at: Date.now(), method: 'get', path: 'secret/x',
+	      service: 'firestore',
+	      auth: { uid: 'bob' }, reasons: ['no allow rule matched'], origin: 'user', unsupported: false,
+	    };
     const exp = explainDenial(d);
     expect(exp.implicitDeny).toBe(true);
     expect(exp.headline).toContain('implicit deny');
@@ -163,10 +164,11 @@ describe('rules-debug re-run: as the attempting user (impersonation client)', ()
     };
   }
 
-  const denial: Denial = {
-    id: 'r1', at: 0, method: 'get', path: 'notes/n1',
-    auth: { uid: 'alice' }, reasons: [], origin: 'user', unsupported: false,
-  };
+	  const denial: Denial = {
+	    id: 'r1', at: 0, method: 'get', path: 'notes/n1',
+	    service: 'firestore',
+	    auth: { uid: 'alice' }, reasons: [], origin: 'user', unsupported: false,
+	  };
 
   it('sets {mode:as,uid}, re-issues, and restores the app-session lens (allow path)', async () => {
     const client = fakeClient(false);

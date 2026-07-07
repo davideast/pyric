@@ -9,13 +9,14 @@
  * and recommends a scoped / dev key. The keyless alternative (a `pyric serve`
  * relay that holds the key server-side) is a follow-up behind the same seam.
  *
- * One slot per provider, namespaced under `pyric.studio.byok.<id>`. Most
+ * One slot per provider, namespaced under `pyric.playground.byok.<id>`. Most
  * providers ("apiKey") need a secret string; Ollama is local-first and needs a
  * base URL instead ("baseUrl"). The discriminated union lets the settings UI
  * render the right control without special-casing per provider.
  */
 
-const PREFIX = 'pyric.studio.byok.';
+const PREFIX = 'pyric.playground.byok.';
+const LEGACY_PREFIX = 'pyric.studio.byok.';
 
 function safeLocalStorage(): Storage | null {
   try {
@@ -78,17 +79,29 @@ export type ByokSlot = ApiKeyByokSlot | BaseUrlByokSlot;
 
 export function createApiKeySlot(id: string, label: string, helpUrl: string): ApiKeyByokSlot {
   const storageKey = `${PREFIX}${id}`;
+  const legacyStorageKey = `${LEGACY_PREFIX}${id}`;
+  const readStored = (ls: Storage | null): string | null => {
+    if (!ls) return null;
+    const current = ls.getItem(storageKey);
+    if (current !== null) return current;
+    const legacy = ls.getItem(legacyStorageKey);
+    if (legacy !== null) {
+      ls.setItem(storageKey, legacy);
+      return legacy;
+    }
+    return null;
+  };
   return {
     kind: 'apiKey',
     label,
     helpUrl,
     hasKey() {
       const ls = safeLocalStorage();
-      return ls ? !!ls.getItem(storageKey) : false;
+      return !!readStored(ls);
     },
     getKey() {
       const ls = safeLocalStorage();
-      return ls ? ls.getItem(storageKey) : null;
+      return readStored(ls);
     },
     setKey(key: string) {
       safeLocalStorage()?.setItem(storageKey, key);
@@ -108,6 +121,18 @@ export function createBaseUrlSlot(
   defaultBaseUrl: string,
 ): BaseUrlByokSlot {
   const storageKey = `${PREFIX}${id}`;
+  const legacyStorageKey = `${LEGACY_PREFIX}${id}`;
+  const readStored = (ls: Storage | null): string | null => {
+    if (!ls) return null;
+    const current = ls.getItem(storageKey);
+    if (current !== null) return current;
+    const legacy = ls.getItem(legacyStorageKey);
+    if (legacy !== null) {
+      ls.setItem(storageKey, legacy);
+      return legacy;
+    }
+    return null;
+  };
   return {
     kind: 'baseUrl',
     label,
@@ -119,11 +144,11 @@ export function createBaseUrlSlot(
     },
     getStoredKey() {
       const ls = safeLocalStorage();
-      return ls ? ls.getItem(storageKey) : null;
+      return readStored(ls);
     },
     getKey() {
       const ls = safeLocalStorage();
-      return (ls ? ls.getItem(storageKey) : null) ?? defaultBaseUrl;
+      return readStored(ls) ?? defaultBaseUrl;
     },
     setKey(url: string) {
       safeLocalStorage()?.setItem(storageKey, url);

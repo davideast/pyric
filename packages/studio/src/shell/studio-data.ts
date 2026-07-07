@@ -31,7 +31,12 @@ import {
 } from 'pyric/firestore';
 import { sandbox as authSandbox, type CreateUserRequest } from 'pyric/auth';
 import { setRules as workerSetRules } from 'pyric-tools/serve/worker';
-import type { RequestEvent, SandboxEvent, SandboxSnapshot } from 'pyric/sandbox';
+import type {
+  RequestEvent,
+  SandboxEvent,
+  SandboxOperationEvent,
+  SandboxSnapshot,
+} from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
@@ -227,18 +232,44 @@ export function useStudioEvents(): readonly SandboxEvent[] {
   return seedReady ? seed.events : liveEvents;
 }
 
+function isTrafficEvent(e: SandboxEvent): e is RequestEvent | SandboxOperationEvent {
+  return e.kind === 'request' || e.kind === 'operation';
+}
+
+function toTrafficEvent(e: RequestEvent | SandboxOperationEvent): TrafficEvent {
+  if (e.kind === 'request') {
+    return e as unknown as TrafficEvent;
+  }
+  return {
+    kind: 'operation',
+    service: e.service,
+    id: e.id,
+    at: e.at,
+    durationMs: e.durationMs,
+    method: e.method,
+    path: e.path ?? '(service)',
+    auth: e.auth,
+    result: e.result,
+    reasons: e.reasons ?? [],
+    request: e.request,
+    resourceBefore: e.resourceBefore,
+    resourceAfter: e.resourceAfter,
+    origin: e.origin,
+    groupId: e.groupId,
+    groupKind: e.groupKind,
+    triggeredBy: e.triggeredBy,
+  };
+}
+
 /**
- * The request events (Traffic). `RequestEvent` is structurally identical to
- * `@pyric/ui`'s `TrafficEvent` (locked in `traffic-monitor-decision.md`), so the
- * `kind: 'request'` slice of the unified stream IS the traffic feed: no adapter.
+ * The traffic feed. Firestore still emits legacy `request` events; RTDB and
+ * other services can emit canonical `operation` events. Adapt both into the
+ * headless `@pyric/ui/traffic` shape.
  */
 export function useStudioTraffic(): TrafficEvent[] {
   const events = useStudioEvents();
   return useMemo<TrafficEvent[]>(
-    () =>
-      events.filter(
-        (e): e is RequestEvent => e.kind === 'request',
-      ) as unknown as TrafficEvent[],
+    () => events.filter(isTrafficEvent).map(toTrafficEvent),
     [events],
   );
 }

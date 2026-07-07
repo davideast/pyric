@@ -27,7 +27,7 @@ export interface ConfirmDialogProps {
 /**
  * Headless confirmation dialog. Hand-rolled (we evaluated Radix
  * Dialog at M4 but Radix's Presence + Portal stack doesn't render
- * under our bun:test + JSDOM env — see plan §7 risk #1).
+ * under our bun:test + JSDOM env — see plan section 7 risk #1).
  *
  * Provides:
  *   - Portal to `document.body` (so the dialog can escape parent

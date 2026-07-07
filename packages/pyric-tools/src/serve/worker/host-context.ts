@@ -9,6 +9,7 @@
  */
 
 import type { Firestore } from 'pyric/firestore';
+import type { Database } from 'pyric/database/modular';
 import type { Sandbox, PersistenceBackend } from 'pyric/sandbox';
 import type { Auth, MintedSession } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';
@@ -39,6 +40,19 @@ export interface HostCtx {
   /** The shared Storage handle (Pyric Studio data browse). Lazily created on
    *  the first storage op via `getStorage(initializeApp({ sandbox }))`. */
   storage?: FirebaseStorage;
+  /** Shared RTDB handle. Lazily created for the playground shared-runtime path. */
+  rtdb?: Database;
+  /** Cached admin (rules-bypass) RTDB handle for Studio/Playground data inspection. */
+  adminRtdb?: Database;
+  /** Per-uid RTDB handles carrying a port session's real identity. */
+  sessionRtdbs?: Map<string, Database>;
+  /** Per-uid/token RTDB handles for the Studio impersonation lens. */
+  lensRtdbs?: Map<string, Database>;
+  /** Current active rules metadata for shared-runtime diagnostics and revert. */
+  activeRules?: {
+    firestore?: ActiveRulesState;
+    database?: ActiveRulesState;
+  };
   /** Per-port subscription registry. Map<port, Map<subId, unsub>>. */
   subs: Map<PortLike, Map<string, () => void>>;
   /**
@@ -128,6 +142,14 @@ export interface HostCtx {
     name: string,
     args: Record<string, unknown>,
   ) => Promise<{ ok: boolean; summary: string; data?: unknown }>;
+}
+
+export interface ActiveRulesState {
+  source: unknown;
+  updatedAt: number;
+  status: 'active' | 'error';
+  messages: Array<{ severity: 'info' | 'warn' | 'error'; text: string; line?: number; column?: number }>;
+  lastKnownGood?: unknown;
 }
 
 // ─── Utility: post a typed reply to a port ───────────────────────────────

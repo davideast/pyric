@@ -1,6 +1,6 @@
 /** Sign-in helper controller — the testable core behind the helper UI.
  *  Runs against a real sandbox; no DOM. (Moved from
- *  examples/playground-next/src/lib/preview/auth-flow-controller.test.ts
+ *  packages/playground/src/lib/preview/auth-flow-controller.test.ts
  *  when the controller graduated into `@pyric/ui/auth`.) */
 import { describe, test, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';

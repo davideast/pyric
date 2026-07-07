@@ -15,7 +15,13 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
-import type { SandboxEvent, ServiceMutationEvent } from 'pyric/sandbox';
+import type {
+  SandboxCommitEvent,
+  SandboxEvent,
+  SandboxListenerEvent,
+  SandboxOperationEvent,
+  ServiceMutationEvent,
+} from 'pyric/sandbox';
 
 const FIRESTORE_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -34,7 +40,17 @@ import {
   sandbox as authSandbox,
 } from '../../src/auth/index.js';
 import { getStorageSandbox, ref as storageRef, uploadBytes, deleteObject, updateMetadata } from '../../src/storage/index.js';
-import { getDatabase, ref as dbRef, set, update, remove, runTransaction } from '../../src/database/index.js';
+import {
+  getAdminDatabase,
+  getDatabase,
+  onValue,
+  ref as dbRef,
+  sandbox as rtdbSandbox,
+  set,
+  update,
+  remove,
+  runTransaction,
+} from '../../src/database/index.js';
 
 let dbSeq = 0;
 function uniqueDbName(label: string): string {
@@ -45,6 +61,18 @@ function mutations(events: SandboxEvent[]): ServiceMutationEvent[] {
   return events.filter(
     (e): e is ServiceMutationEvent & typeof e => e.kind === 'service_mutation',
   );
+}
+
+function operations(events: SandboxEvent[]): SandboxOperationEvent[] {
+  return events.filter((e): e is SandboxOperationEvent & typeof e => e.kind === 'operation');
+}
+
+function commits(events: SandboxEvent[]): SandboxCommitEvent[] {
+  return events.filter((e): e is SandboxCommitEvent & typeof e => e.kind === 'commit');
+}
+
+function listeners(events: SandboxEvent[]): SandboxListenerEvent[] {
+  return events.filter((e): e is SandboxListenerEvent & typeof e => e.kind === 'listener');
 }
 
 function provenanceOK(e: ServiceMutationEvent): void {
@@ -233,6 +261,104 @@ describe('Studio T1 — RTDB emits service_mutation events', () => {
     expect(txn!.path).toBe('/counter');
     expect(txn!.after).toBe(2);
     expect(txn!.detail?.committed).toBe(true);
+  });
+
+  it('emits canonical operation and commit events for RTDB writes', async () => {
+    const sandbox = initializeSandbox();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+
+    const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    await set(dbRef(db, 'rooms/r1'), { name: 'lobby' });
+
+    const op = operations(events).find((e) => e.service === 'rtdb' && e.path === '/rooms/r1');
+    expect(op).toBeDefined();
+    expect(op!.method).toBe('set');
+    expect(op!.result).toBe('allow');
+    expect(op!.origin).toBe('user');
+    expect((op!.auth as { uid: string }).uid).toBe('alice');
+    expect(op!.resourceAfter).toEqual({ data: { name: 'lobby' }, exists: true });
+
+    const commit = commits(events).find((e) => e.service === 'rtdb' && e.path === '/rooms/r1');
+    expect(commit).toBeDefined();
+    expect(commit!.method).toBe('set');
+    expect(commit!.nextState).toEqual({ name: 'lobby' });
+  });
+
+  it('emits canonical listener lifecycle events for RTDB onValue', async () => {
+    const sandbox = initializeSandbox();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+
+    const db = getDatabase(sandbox.withAuth(null));
+    const seen: unknown[] = [];
+    const unsub = onValue(dbRef(db, 'rooms/r1'), (snap) => seen.push(snap.val()));
+    await set(dbRef(db, 'rooms/r1'), { name: 'lobby' });
+    unsub();
+
+    expect(seen).toEqual([null, { name: 'lobby' }]);
+    const rtdbListeners = listeners(events).filter((e) => e.service === 'rtdb');
+    expect(rtdbListeners.some((e) => e.phase === 'attach' && e.target.path === '/rooms/r1')).toBe(true);
+    expect(rtdbListeners.some((e) => e.phase === 'delivery' && e.target.path === '/rooms/r1')).toBe(true);
+    expect(rtdbListeners.some((e) => e.phase === 'detach' && e.target.path === '/rooms/r1')).toBe(true);
+  });
+
+  it('emits deny operation details for RTDB rules failures', async () => {
+    const sandbox = initializeSandbox();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+
+    const db = getDatabase(sandbox.withAuth({ uid: 'bob' }));
+    rtdbSandbox.setRules(db, {
+      rules: {
+        private: {
+          '.read': 'auth != null && auth.uid == "alice"',
+          '.write': 'auth != null && auth.uid == "alice"',
+        },
+      },
+    });
+
+    await expect(set(dbRef(db, 'private/item'), { secret: true })).rejects.toThrow(
+      'PERMISSION_DENIED',
+    );
+
+    const denied = operations(events).find(
+      (e) => e.service === 'rtdb' && e.path === '/private/item' && e.result === 'deny',
+    );
+    expect(denied).toBeDefined();
+    expect(denied!.method).toBe('set');
+    expect(denied!.rules?.engine).toBe('rtdb');
+    expect(denied!.reasons.length).toBeGreaterThan(0);
+  });
+
+  it('emits admin RTDB operations without mutating user auth', async () => {
+    const sandbox = initializeSandbox();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+
+    const userDb = getDatabase(sandbox.withAuth({ uid: 'bob' }));
+    rtdbSandbox.setRules(userDb, {
+      rules: {
+        private: {
+          '.read': 'auth != null && auth.uid == "alice"',
+          '.write': 'auth != null && auth.uid == "alice"',
+        },
+      },
+    });
+
+    const adminDb = getAdminDatabase(sandbox);
+    await set(dbRef(adminDb, 'private/item'), { secret: true });
+
+    const adminOp = operations(events).find(
+      (e) => e.service === 'rtdb' && e.path === '/private/item' && e.origin === 'admin',
+    );
+    expect(adminOp).toBeDefined();
+    expect(adminOp!.result).toBe('not-applicable');
+    expect(adminOp!.auth).toBeNull();
+
+    await expect(set(dbRef(userDb, 'private/item'), { secret: false })).rejects.toThrow(
+      'PERMISSION_DENIED',
+    );
   });
 });
 

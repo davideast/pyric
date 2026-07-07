@@ -13,11 +13,16 @@ export type TrafficMethod =
   | 'create'
   | 'update'
   | 'set'
-  | 'delete';
+  | 'delete'
+  | 'remove'
+  | 'push'
+  | 'listen'
+  | 'transaction'
+  | (string & {});
 
-export type TrafficResult = 'allow' | 'deny' | 'unsupported';
+export type TrafficResult = 'allow' | 'deny' | 'unsupported' | 'error' | 'not-applicable';
 
-export type TrafficOrigin = 'user' | 'listener' | 'transaction' | 'batch';
+export type TrafficOrigin = 'user' | 'listener' | 'transaction' | 'batch' | 'admin' | 'system';
 
 export interface TrafficAuthState {
   uid: string;
@@ -25,7 +30,7 @@ export interface TrafficAuthState {
 }
 
 export interface TrafficResourceState {
-  data: Record<string, unknown> | null;
+  data: unknown;
   exists: boolean;
 }
 
@@ -37,11 +42,17 @@ export interface TrafficMatchedRule {
 export interface TrafficEvent {
   /** Unique per emission. */
   id: string;
+  /** Source event kind. Firestore request events omit this in older adapters. */
+  kind?: 'request' | 'operation';
+  /** Service that emitted the event. Omitted means Firestore. */
+  service?: 'firestore' | 'auth' | 'storage' | 'rtdb' | (string & {});
   /** `Date.now()` at op start. */
   at: number;
   /** Simulator eval duration in ms. De-featured in the UI (local
    *  simulator) — present for the detail panel only. */
-  evalMs: number;
+  evalMs?: number;
+  /** Canonical service-operation duration. */
+  durationMs?: number;
   method: TrafficMethod;
   path: string;
   auth: TrafficAuthState | null;
@@ -49,7 +60,7 @@ export interface TrafficEvent {
   /** Simulator debug messages — `Rule #N (op) → ALLOW` format. */
   reasons: string[];
   /** Proposed write payload — absent on reads + delete. */
-  request?: { resourceData?: Record<string, unknown> };
+  request?: { data?: unknown; resourceData?: unknown; query?: unknown };
   /** Existing doc state before the write (or the read target). */
   resourceBefore?: TrafficResourceState;
   /** Projected doc state after the write — absent on reads. */
@@ -59,8 +70,9 @@ export interface TrafficEvent {
   origin: TrafficOrigin;
   /** Shared across ops in one batch or transaction. */
   groupId?: string;
+  groupKind?: 'batch' | 'transaction' | (string & {});
   /** For listener re-evals — the originating user op. */
-  triggeredBy?: { method: string; path: string };
+  triggeredBy?: { method: string; path?: string };
 }
 
 /**

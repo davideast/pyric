@@ -110,5 +110,5 @@ off `data-pyric-provider-id` instead — the library ships no assets.
   backend grows `createSignInCredential` (tracked follow-up); claims still
   flow into rules evaluation via the seeded identity.
 - A live consumer: the playground's
-  [`PreviewAuthHelper`](../../../../examples/playground-next/src/components/PreviewAuthHelper.tsx)
+  [`PreviewAuthHelper`](../../../../packages/playground/src/components/PreviewAuthHelper.tsx)
   + its `global.css` skin.

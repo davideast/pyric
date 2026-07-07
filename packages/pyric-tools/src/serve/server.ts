@@ -7,10 +7,8 @@
  * configured), and exposes two seams the `/__pyric/` namespace plugs into
  * (`namespaceHandler`) and the import-map injection uses (`transformHtml`).
  *
- * UX parity targets (from the firebase-tools source dive — see
- * the design rationale §1): the `=== Serving from` banner, the
- * labeled `Local server:` line, port 5000 default with scan-forward on
- * conflict (macOS AirPlay squats 5000 — v1 scope finding #4), SIGINT →
+ * UX parity targets: the `=== Serving from` banner, the labeled `Local server:`
+ * line, port 5000 default with scan-forward on conflict, and SIGINT →
  * `Shutting down...`.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -269,7 +267,7 @@ export function listenWithScan(
     const tryListen = (): void => {
       const onError = (err: NodeJS.ErrnoException): void => {
         server.removeListener('error', onError);
-        if ((err.code === 'EADDRINUSE' || err.code === 'EACCES') && attempt - port < limit) {
+        if (port !== 0 && (err.code === 'EADDRINUSE' || err.code === 'EACCES') && attempt - port < limit) {
           logger.note(`  ⚠ port ${attempt} is in use${attempt === 5000 ? ' (macOS AirPlay commonly holds 5000)' : ''} — trying ${attempt + 1}`);
           attempt += 1;
           tryListen();

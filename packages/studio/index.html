@@ -1,10 +1,8 @@
 <!doctype html>
 <!--
-  No hard-coded `data-theme`: the default is "system" (the token stylesheet's
-  prefers-color-scheme rules apply). The inline script below applies the user's
-  persisted CHOICE before first paint to avoid a flash; `shell/theme.tsx` owns it
-  from there. Fonts are loaded here so the `--font-*` tokens resolve to webfonts;
-  swap the token + this <link> to re-type the whole app.
+  Studio is dark-only for V1 so it stays aligned with the embedded playground.
+  Fonts are loaded here so the `--font-*` tokens resolve to webfonts; swap the
+  token + this <link> to re-type the whole app.
 -->
 <html lang="en">
   <head>
@@ -12,13 +10,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pyric Studio</title>
     <script>
-      // Pre-paint theme: mirror the persisted choice onto <html data-theme>.
-      // "system" (or no choice) leaves the attribute off so the OS pref drives.
+      // Pre-paint theme: force the V1 dark palette and clear older overrides.
       try {
-        var c = localStorage.getItem('pyric-studio:theme');
-        if (c === 'light' || c === 'dark')
-          document.documentElement.setAttribute('data-theme', c);
+        localStorage.setItem('pyric-studio:theme', 'dark');
       } catch (e) {}
+      document.documentElement.setAttribute('data-theme', 'dark');
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

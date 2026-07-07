@@ -188,4 +188,20 @@ describe('client↔host event stream + runtime policy (Studio data plane)', () =
     await client.setPolicy(db, policy);
     expect(await client.getPolicy(db)).toEqual(policy);
   });
+
+  it('RTDB push mints a synchronous key and writes through the shared worker', async () => {
+    const { db } = await connectClient();
+    const rtdb = client.rtdbGetDatabase(db);
+    const root = client.rtdbRef(rtdb, 'scores');
+
+    const pushed = client.rtdbPush(root, { value: 7 });
+
+    expect(pushed.key).toMatch(/^[-0-9A-Z_a-z]{20}$/);
+    expect(pushed.path).toBe(`/scores/${pushed.key}`);
+    await pushed;
+
+    const snap = await client.rtdbGet(pushed);
+    expect(snap.exists()).toBe(true);
+    expect(snap.val()).toEqual({ value: 7 });
+  });
 });

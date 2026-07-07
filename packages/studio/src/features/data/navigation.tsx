@@ -12,7 +12,7 @@
  *   #auth/<uid>                         the focused user
  *   #storage/<object/path>              the focused object
  *   ?lens=app                           app-session lens (admin is the default, omitted)
- *   #rules?denial=<id>                  the Rules surface focus
+ *   #traffic?denial=<id>                traffic drill-in for a denied request
  *
  * `useDataNav()` reads the hash via `useSyncExternalStore`; `navigate(...)` /
  * `setLens(...)` / `navigateDenial(...)` write it.
@@ -53,7 +53,7 @@ export type DataTarget =
 interface NavState {
   target: DataTarget | null;
   lens: DataLens;
-  /** The denial to focus in the Rules surface (a Session "Debug" jump). */
+  /** The denial to focus in the Traffic surface. */
   selectedDenialId: string | null;
 }
 
@@ -75,7 +75,7 @@ function deriveNav(raw: string): NavState {
   } else if (tab === 'storage') {
     target = { view: 'storage', objectPath: rest.length ? rest.join('/') : null };
   }
-  const selectedDenialId = tab === 'rules' ? query.denial ?? null : null;
+  const selectedDenialId = tab === 'traffic' ? query.denial ?? null : null;
   return { target, lens, selectedDenialId };
 }
 
@@ -140,7 +140,7 @@ function setLensHash(lens: DataLens): void {
 
 function navigateDenialHash(id: string): void {
   const cur = parseHash();
-  writeHash(serializeHash({ tab: 'rules', query: { denial: id, lens: cur.query.lens } }));
+  writeHash(serializeHash({ tab: 'traffic', query: { denial: id, lens: cur.query.lens } }));
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
@@ -155,9 +155,9 @@ export interface DataNavValue {
   navigate: (target: DataTarget) => void;
   /** Route a detected cross-ref to the right sub-view + target. */
   navigateRef: (ref: CrossRef) => void;
-  /** The denial the Rules surface should focus (a Session "Debug" jump). */
+  /** The denial the Traffic surface should focus. */
   selectedDenialId: string | null;
-  /** Jump to the Rules surface and focus a specific denial by event id. */
+  /** Jump to Traffic and focus a specific denial by event id. */
   navigateDenial: (id: string) => void;
 }
 

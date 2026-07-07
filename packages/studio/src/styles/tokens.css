@@ -50,23 +50,23 @@
 /* ── DARK (default) ─ minimal neutral ──────────────────────────────────── */
 :root {
   /* Surfaces: calm, low-contrast neutral steps. */
-  --bg: #0c0c0d; /* app canvas */
-  --panel: #151517; /* sunken rows / cards / code */
-  --elevated: #1b1b1e; /* raised controls */
+  --bg: #16161a; /* app canvas */
+  --panel: #1e1e24; /* sunken rows / cards / code */
+  --elevated: #24242c; /* raised controls */
 
   /* Text hierarchy carries the design; near-white -> muted -> faint. */
-  --ink: #ededee;
-  --muted: #9a9aa1;
-  --faint: #65656b;
+  --ink: #fbfbfe;
+  --muted: #72728a;
+  --faint: #72728a;
 
   /* Lines: sparing hairlines. */
-  --line: #232326;
-  --line-2: #2f2f34;
+  --line: #2a2a35;
+  --line-2: #3a3a48;
 
   /* The ONE accent, used rarely. */
-  --accent: #5e8bff;
-  --accent-tint: #181b25; /* subtle accent wash */
-  --accent-ink: #ffffff;
+  --accent: #19cc61;
+  --accent-tint: #15251c; /* subtle accent wash */
+  --accent-ink: #06120a;
 
   /* Deny inverts to a light fill in dark (the mock's filled-deny chip). */
   --deny: #ededee;

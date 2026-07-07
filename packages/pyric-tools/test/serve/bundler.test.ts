@@ -129,7 +129,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     expect(names).toContain('init.js');
     // splitting produced shared chunk(s); the runtime/sandbox must NOT be
     // duplicated into both entry bundles. Chunk names self-identify as the
-    // sandbox shim (provenance, flow doc §3a).
+    // sandbox shim (provenance, flow doc section 3a).
     const chunks = names.filter((n) => n.startsWith('pyric-sandbox-'));
     expect(chunks.length).toBeGreaterThanOrEqual(1);
     const authSrc = readFileSync(result.files.find((f) => f.endsWith('/auth.js'))!, 'utf8');
@@ -147,7 +147,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     }
   }, 30_000);
 
-  it('built bundles export the §3c tier-2 surface (import-time failure class)', async () => {
+  it('built bundles export the section 3c tier-2 surface (import-time failure class)', async () => {
     const { bundleSdk, defaultSdkEntries } = await import('../../src/serve/bundler.js');
     const { mkdtempSync } = await import('node:fs');
     const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-tier2-'));

@@ -20,7 +20,7 @@ attributes failures).
 | ? | **Unverified** — claim from docs that we haven't yet observed prod-side |
 
 Probe references: `playground:<name>` means a fixture under
-`examples/playground-next/scripts/fixtures/<name>.tsx`. `unit:<file>`
+`packages/playground/scripts/fixtures/<name>.tsx`. `unit:<file>`
 means a Bun test in `packages/auth/test/<file>`.
 
 ---

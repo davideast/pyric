@@ -1,0 +1,127 @@
+export const STUDIO_EMBED_PARAM = 'embed';
+export const STUDIO_EMBED_VALUE = 'studio';
+export const PLAYGROUND_SANDBOX_PARAM = 'sandbox';
+export const STUDIO_NAVIGATE_SETTINGS_MESSAGE = 'pyric:studio:navigate-settings';
+export const PLAYGROUND_OPEN_KEYS_MESSAGE = 'pyric:playground:open-keys';
+export const PLAYGROUND_OPEN_SETTINGS_MESSAGE = 'pyric:playground:open-settings';
+export const PLAYGROUND_OPEN_ACCOUNT_MESSAGE = 'pyric:playground:open-account';
+export const PLAYGROUND_SET_MODEL_MESSAGE = 'pyric:playground:set-model';
+
+export type StudioSettingsSection = 'ai' | 'playground' | 'diagnostics';
+
+export interface StudioNavigateSettingsMessage {
+  type: typeof STUDIO_NAVIGATE_SETTINGS_MESSAGE;
+  section?: StudioSettingsSection;
+}
+
+export type PlaygroundProviderId =
+  | 'gemini'
+  | 'openrouter'
+  | 'ollama'
+  | 'llamaServer'
+  | 'claude';
+
+export type PlaygroundReasoningEffort = 'off' | 'low' | 'medium' | 'high';
+export type PlaygroundSandboxMode = 'shared' | 'isolated';
+
+export type PlaygroundCommandMessage =
+  | { type: typeof PLAYGROUND_OPEN_KEYS_MESSAGE }
+  | { type: typeof PLAYGROUND_OPEN_SETTINGS_MESSAGE }
+  | { type: typeof PLAYGROUND_OPEN_ACCOUNT_MESSAGE }
+  | {
+      type: typeof PLAYGROUND_SET_MODEL_MESSAGE;
+      providerId: PlaygroundProviderId;
+      modelId: string;
+      effort?: PlaygroundReasoningEffort;
+    };
+
+export function isStudioEmbedSearch(search: string): boolean {
+  return new URLSearchParams(search).get(STUDIO_EMBED_PARAM) === STUDIO_EMBED_VALUE;
+}
+
+export function readPlaygroundSandboxMode(search: string): PlaygroundSandboxMode {
+  const params = new URLSearchParams(search);
+  const raw = params.get(PLAYGROUND_SANDBOX_PARAM);
+  if (raw === 'shared') return 'shared';
+  if (raw === 'isolated') return 'isolated';
+  return params.get(STUDIO_EMBED_PARAM) === STUDIO_EMBED_VALUE ? 'shared' : 'isolated';
+}
+
+export function isPlaygroundCommandMessage(value: unknown): value is PlaygroundCommandMessage {
+  if (typeof value !== 'object' || value === null) return false;
+  const type = (value as { type?: unknown }).type;
+  if (
+    type === PLAYGROUND_OPEN_KEYS_MESSAGE ||
+    type === PLAYGROUND_OPEN_SETTINGS_MESSAGE ||
+    type === PLAYGROUND_OPEN_ACCOUNT_MESSAGE
+  ) {
+    return true;
+  }
+  if (type !== PLAYGROUND_SET_MODEL_MESSAGE) return false;
+  const message = value as { providerId?: unknown; modelId?: unknown; effort?: unknown };
+  const providerId = message.providerId;
+  const effort = message.effort;
+  return (
+    (providerId === 'gemini' ||
+      providerId === 'openrouter' ||
+      providerId === 'ollama' ||
+      providerId === 'llamaServer' ||
+      providerId === 'claude') &&
+    typeof message.modelId === 'string' &&
+    message.modelId.length > 0 &&
+    (effort === undefined ||
+      effort === 'off' ||
+      effort === 'low' ||
+      effort === 'medium' ||
+      effort === 'high')
+  );
+}
+
+export function normalizePlaygroundBase(base: string): string {
+  if (!base || base === '.') return '/';
+  const withLeading = base.startsWith('/') ? base : `/${base}`;
+  return withLeading.endsWith('/') ? withLeading : `${withLeading}/`;
+}
+
+export function playgroundHomeHref({
+  base = '/',
+  embedded = false,
+  sandboxMode,
+}: {
+  base?: string;
+  embedded?: boolean;
+  sandboxMode?: PlaygroundSandboxMode;
+} = {}): string {
+  const url = new URL(normalizePlaygroundBase(base), 'https://pyric.local');
+  if (embedded) url.searchParams.set(STUDIO_EMBED_PARAM, STUDIO_EMBED_VALUE);
+  if (sandboxMode) url.searchParams.set(PLAYGROUND_SANDBOX_PARAM, sandboxMode);
+  return `${url.pathname}${url.search}`;
+}
+
+export function playgroundSessionHref(
+  sessionId: string,
+  {
+    base = '/',
+    embedded = false,
+    sandboxMode,
+  }: {
+    base?: string;
+    embedded?: boolean;
+    sandboxMode?: PlaygroundSandboxMode;
+  } = {},
+): string {
+  const url = new URL(`${normalizePlaygroundBase(base)}playground`, 'https://pyric.local');
+  url.searchParams.set('session', sessionId);
+  if (embedded) url.searchParams.set(STUDIO_EMBED_PARAM, STUDIO_EMBED_VALUE);
+  if (sandboxMode) url.searchParams.set(PLAYGROUND_SANDBOX_PARAM, sandboxMode);
+  return `${url.pathname}${url.search}`;
+}
+
+export function postStudioSettingsNavigation(section?: StudioSettingsSection): void {
+  if (typeof window === 'undefined' || window.parent === window) return;
+  const message: StudioNavigateSettingsMessage = {
+    type: STUDIO_NAVIGATE_SETTINGS_MESSAGE,
+    ...(section ? { section } : {}),
+  };
+  window.parent.postMessage(message, window.location.origin);
+}

@@ -74,6 +74,15 @@ export {
   writeBatch,
   runTransaction,
   setRules,
+  setFirestoreRules,
+  setDatabaseRules,
+  getActiveRules,
+  getRulesStatus,
+  adminGetDocument,
+  adminListDocuments,
+  adminSetDocument,
+  adminDeleteDocument,
+  adminReadState,
   type ClientWriteBatch,
   type ClientTransaction,
   // Auth
@@ -115,6 +124,23 @@ export {
   getPolicy,
   // Sandbox snapshot export (Pyric Studio rules re-run: fork + test edited rules)
   getSnapshot,
+  // RTDB shared-worker preview bridge. Aliased to avoid colliding with Storage
+  // `ref` and Firestore sentinels in this worker barrel.
+  rtdbGetDatabase,
+  rtdbRef,
+  rtdbChild,
+  rtdbGet,
+  rtdbSet,
+  rtdbUpdate,
+  rtdbRemove,
+  rtdbPush,
+  rtdbOnValue,
+  rtdbOff,
+  rtdbServerTimestamp,
+  rtdbConnectDatabaseEmulator,
+  type ClientRtdb,
+  type RtdbRefHandle,
+  type RtdbDataSnapshot,
 } from './client.js';
 
 export type {

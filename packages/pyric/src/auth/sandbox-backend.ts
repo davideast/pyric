@@ -643,7 +643,7 @@ export class SandboxBackend {
   /**
    * Export the user DB as `SeedUser`s — the exact shape `seedUsers`
    * accepts, so export → seed round-trips (the persistence substrate,
-   * the design rationale §3c). Identities with an email but no
+   * the design rationale section 3c). Identities with an email but no
    * password (provider-flow users created via `createSignInCredential`)
    * export with {@link NO_PASSWORD_SENTINEL} so they survive the
    * round-trip (same trick hosts already use when seeding popup

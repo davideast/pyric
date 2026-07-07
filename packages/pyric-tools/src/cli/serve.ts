@@ -4,7 +4,7 @@
  * SIGINT shutdown) with the sandbox-flavored extras firebase can't do: the
  * served page runs an in-browser backend, your `firestore.rules` deploy into
  * it at page load, and unmodified `firebase/*` imports resolve to pyric via a
- * served import map (see the design rationale).
+ * served import map.
  *
  * Orchestration: firebase.json (optional — warn + serve cwd without it) →
  * rules load (fail fast on broken rules) → SDK bundle (cached per pyric
@@ -14,9 +14,10 @@ import { dirname, join, resolve } from 'node:path';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, resolvePlaygroundUiDir, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
 import {
   isStandalone,
+  materializePlaygroundUi,
   materializeServeAssets,
   materializeStudioUi,
   embeddedWorkerVersion,
@@ -37,7 +38,7 @@ interface HostingConfig {
 
 /** Extract the single hosting config `pyric serve` v1 supports. Arrays
  *  (multi-site) take the first entry with a warning — multi-site is out of
- *  scope (plan §6). */
+ *  scope (plan section 6). */
 export function extractHosting(config: FirebaseJson | null): HostingConfig | null {
   const h = config?.hosting;
   if (!h || typeof h !== 'object') return null;
@@ -104,7 +105,7 @@ export async function startServe(opts: {
   /** Watch firestore.rules and hot-reload over SSE. Default true when a
    *  rules file exists. */
   watch?: boolean;
-  /** Persist sandbox state to `.pyric/state/state.json` (flow doc §3c).
+  /** Persist sandbox state to `.pyric/state/state.json` (flow doc section 3c).
    *  Ephemeral remains the default. */
   persist?: boolean;
   /** With `--persist`: discard any existing state file and re-seed from
@@ -164,7 +165,7 @@ export async function startServe(opts: {
   // records for the verify loop, persist is for cross-reload durability.
   const capture = (opts.capture ?? true) ? createCaptureStore(opts.cwd) : null;
 
-  // --persist: the state store IS the durable sandbox (§3c). Load eagerly so
+  // --persist: the state store IS the durable sandbox (section 3c). Load eagerly so
   // a corrupt/mismatched file fails the start (inspect-or-delete message)
   // instead of silently serving ephemeral.
   const state = opts.persist ? createStateStore(opts.cwd) : null;
@@ -290,15 +291,25 @@ export async function startServe(opts: {
   // resolved by file path (never imported), so a missing build is a clear
   // warning rather than a crash; the data routes still mount.
   let studioUiDir: string | undefined;
+  let playgroundUiDir: string | undefined;
   if (opts.ui) {
     // Standalone: the Studio app was embedded at compile time; materialize it.
     const dir = isStandalone() ? await materializeStudioUi() : resolveStudioUiDir();
+    const playgroundDir = isStandalone() ? await materializePlaygroundUi() : resolvePlaygroundUiDir();
     if (dir) {
       studioUiDir = dir;
     } else {
       logger.note(
         '  ⚠ --ui: built Studio app not found (run the full build first). ' +
           'The data routes are mounted, but /__pyric/ui/ will 404.',
+      );
+    }
+    if (playgroundDir) {
+      playgroundUiDir = playgroundDir;
+    } else {
+      logger.note(
+        '  ⚠ --ui: built Playground app not found (run the full build first). ' +
+          'The Studio data routes are mounted, but /__pyric/playground/ will 404.',
       );
     }
   }
@@ -310,6 +321,7 @@ export async function startServe(opts: {
     capture: capture ?? undefined,
     studio,
     studioUiDir,
+    playgroundUiDir,
   });
   const handle = await startStaticServer({
     publicDir,
@@ -334,7 +346,7 @@ export async function startServe(opts: {
 
   // Discovery pointer (the Claude Code plugin's stdio proxy reads this so it
   // never has to guess the dynamic port). Written next to the project state
-  // when --bridge is on; removed on clean shutdown. design rationale
+  // when --bridge is on; removed on clean shutdown. plans/pyric-plugin.
   if (mount) {
     const pointer = join(opts.cwd, '.pyric', 'serve.json');
     try {

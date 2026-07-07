@@ -45,7 +45,7 @@ export interface UseDocumentListResult {
  * `loadMore` / `createDocument` / `deleteDocument` / `refresh`.
  * Realtime subscriptions for a collection live in
  * `useFirestoreCollection`; combining the two (paginated + realtime)
- * is non-trivial and deferred — see design rationale §M6.
+ * is non-trivial and deferred — see design rationale section M6.
  */
 export function useDocumentList({
   collection,

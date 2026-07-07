@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # Monorepo build script — handles cross-package deps via two-pass:
 #   1. Clean all dist/ to remove stale artifacts
-#   2. Emit .d.ts stubs for the library packages (--emitDeclarationOnly --noCheck)
+#   2. Emit .d.ts stubs for ALL packages (--emitDeclarationOnly --noCheck)
 #   3. Full tsc build in topological order
 #
-# Packages:
-#   pyric           — modular SDK adapters + sandbox + rules
-#   pyric-admin     — admin-shape adapters
+# After ADR-001 cutover (Wave 9), packages are:
+#   pyric           — modular SDK adapters + sandbox + rules (umbrella)
+#   pyric-admin     — admin-shape adapters (umbrella)
 #   pyric-tools     — CLI + deploy + bridge + discover + auth-config
 #   @pyric/ui       — headless React components
-#   @pyric/studio   — local data/debugging console embedded by pyric-tools
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -44,7 +43,7 @@ for dir in packages/*/; do
   fi
 done
 
-# ── Phase 1: Declaration stubs (library packages) ──────────────────────
+# ── Phase 1: Declaration stubs (all packages) ──────────────────────────
 echo ""
 echo "━━━ Phase 1: Declaration stubs ━━━"
 emit_stubs "pyric"
@@ -74,6 +73,16 @@ echo "▸ Embedding studio app → packages/pyric-tools/dist/serve/studio-ui/"
 rm -rf packages/pyric-tools/dist/serve/studio-ui
 mkdir -p packages/pyric-tools/dist/serve/studio-ui
 cp -R packages/studio/dist/app/. packages/pyric-tools/dist/serve/studio-ui/
+
+echo ""
+echo "━━━ Phase 4: Playground app ━━━"
+echo "▸ Building packages/playground (base /__pyric/playground/)"
+rm -rf packages/playground/dist
+PLAYGROUND_BASE=/__pyric/playground/ bun run --cwd packages/playground build
+echo "▸ Embedding playground app → packages/pyric-tools/dist/serve/playground-ui/"
+rm -rf packages/pyric-tools/dist/serve/playground-ui
+mkdir -p packages/pyric-tools/dist/serve/playground-ui
+cp -R packages/playground/dist/client/. packages/pyric-tools/dist/serve/playground-ui/
 
 echo ""
 echo "✅ All packages built successfully"

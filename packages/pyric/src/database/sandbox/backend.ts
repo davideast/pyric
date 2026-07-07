@@ -19,7 +19,13 @@
  * input shape the simulator expects.
  */
 import type { AuthState, Sandbox } from 'pyric/sandbox';
-import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import {
+  emitSandboxEvent,
+  makeSandboxCommitEvent,
+  makeSandboxListenerEvent,
+  makeSandboxOperationEvent,
+  makeServiceMutationEvent,
+} from 'pyric/sandbox/internal';
 import {
   DataTree,
   cloneJson,
@@ -29,7 +35,11 @@ import {
 } from './data-tree.js';
 import { generatePushId } from './push-id.js';
 import { resolveSentinels } from './sentinels.js';
-import { RulesEvaluator, permissionDenied } from './rules-eval.js';
+import {
+  RulesEvaluator,
+  permissionDenied,
+  type RuleEvaluationDetails,
+} from './rules-eval.js';
 import { executeQuery, type QueryRow, type QuerySpec } from './query.js';
 import { normalizeWrite, coerceArrays } from './normalize.js';
 
@@ -42,6 +52,8 @@ import { normalizeWrite, coerceArrays } from './normalize.js';
  * SDK's "absent path → val === null && exists === false".
  */
 export interface ValueListener {
+  id: string;
+  auth: AuthState;
   cb: (snap: { val: JsonValue; exists: boolean; key: string | null }) => void;
   path: string;
   /**
@@ -92,6 +104,8 @@ export interface ValueListener {
  *     wiring lands in Tier 3 with the rest of `query`.
  */
 export interface ChildListener {
+  id: string;
+  auth: AuthState;
   event: 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
   path: string;
   cb: (snap: { key: string; val: JsonValue }) => void;
@@ -153,6 +167,155 @@ export class RtdbBackend {
     }
   }
 
+  private nextListenerId(): string {
+    this.nextId += 1;
+    return `rtdb-listener-${this.nextId.toString(36)}`;
+  }
+
+  private nextGroupId(prefix: string): string {
+    this.nextId += 1;
+    return `rtdb-${prefix}-${this.nextId.toString(36)}`;
+  }
+
+  private emitOperation(
+    auth: AuthState,
+    method: string,
+    path: string,
+    result: 'allow' | 'deny' | 'unsupported' | 'error' | 'not-applicable',
+    evaluation: RuleEvaluationDetails | undefined,
+    fields: {
+      at?: number;
+      durationMs?: number;
+      origin?: 'user' | 'listener' | 'transaction' | 'batch' | 'admin' | 'system';
+      request?: { data?: unknown; resourceData?: unknown; query?: unknown };
+      resourceBefore?: { data: unknown; exists: boolean };
+      resourceAfter?: { data: unknown; exists: boolean };
+      groupId?: string;
+      groupKind?: 'batch' | 'transaction';
+      triggeredBy?: { method: string; path?: string };
+      detail?: Record<string, unknown>;
+    } = {},
+  ): void {
+    if (!this.sandbox) return;
+    try {
+      emitSandboxEvent(
+        this.sandbox,
+        makeSandboxOperationEvent({
+          service: 'rtdb',
+          method,
+          path: canonicalPath(path),
+          auth,
+          result,
+          origin: fields.origin ?? 'user',
+          durationMs: fields.durationMs,
+          reasons: evaluation?.reasons,
+          rules: evaluation
+            ? {
+                engine: 'rtdb',
+                matchedPath: evaluation.matchedPath,
+                matchedRule: evaluation.matchedRule,
+                pathVariableBindings: evaluation.pathVariableBindings,
+                reason: evaluation.reason,
+                errorCode: evaluation.errorCode,
+              }
+            : undefined,
+          request: fields.request,
+          resourceBefore: fields.resourceBefore,
+          resourceAfter: fields.resourceAfter,
+          groupId: fields.groupId,
+          groupKind: fields.groupKind,
+          triggeredBy: fields.triggeredBy,
+          detail: fields.detail,
+          at: fields.at,
+        }),
+        { service: 'rtdb' },
+      );
+    } catch {
+      // Observational — never let telemetry break RTDB semantics.
+    }
+  }
+
+  private emitCommit(
+    auth: AuthState,
+    method: string,
+    path: string,
+    fields: {
+      data?: unknown;
+      priorState?: unknown;
+      nextState?: unknown;
+      groupId?: string;
+      groupKind?: 'batch' | 'transaction';
+      replay?: { requestTime?: number; autoId?: string; sentinels?: Array<{ field: string; kind: string }> };
+      detail?: Record<string, unknown>;
+    } = {},
+  ): void {
+    if (!this.sandbox) return;
+    try {
+      emitSandboxEvent(
+        this.sandbox,
+        makeSandboxCommitEvent({
+          service: 'rtdb',
+          method,
+          path: canonicalPath(path),
+          auth,
+          data: fields.data,
+          priorState: fields.priorState,
+          nextState: fields.nextState,
+          groupId: fields.groupId,
+          groupKind: fields.groupKind,
+          replay: fields.replay,
+          detail: fields.detail,
+        }),
+        { service: 'rtdb' },
+      );
+    } catch {
+      // Observational — never let telemetry break RTDB semantics.
+    }
+  }
+
+  private emitListener(
+    phase: 'attach' | 'detach' | 'delivery' | 'suppressed' | 'errored',
+    listener: Pick<ValueListener | ChildListener, 'id' | 'path'>,
+    auth: AuthState,
+    fields: {
+      event?: ChildListener['event'] | 'value';
+      result?: 'allow' | 'deny' | 'unsupported' | 'error';
+      size?: number;
+      sample?: unknown;
+      reason?: string;
+      error?: { code?: string; message: string; reasons?: string[] };
+      triggeredBy?: { method: string; path?: string };
+      detail?: Record<string, unknown>;
+    } = {},
+  ): void {
+    if (!this.sandbox) return;
+    try {
+      emitSandboxEvent(
+        this.sandbox,
+        makeSandboxListenerEvent({
+          service: 'rtdb',
+          phase,
+          listenerId: listener.id,
+          target: {
+            kind: fields.event ?? 'value',
+            path: canonicalPath(listener.path),
+          },
+          auth,
+          result: fields.result,
+          size: fields.size,
+          sample: fields.sample,
+          reason: fields.reason,
+          error: fields.error,
+          triggeredBy: fields.triggeredBy,
+          detail: fields.detail,
+        }),
+        { service: 'rtdb' },
+      );
+    } catch {
+      // Observational — never let telemetry break RTDB semantics.
+    }
+  }
+
   // ─── Admin-plane (rule-bypass) operations ───────────────────────────
   //
   // Used by the `sandbox.setData` / `sandbox.snapshotState` test
@@ -184,17 +347,142 @@ export class RtdbBackend {
     return this.tree.snapshot();
   }
 
+  adminGet(path: string): JsonValue {
+    const value = this.tree.read(path);
+    this.emitOperation(null, 'get', path, 'not-applicable', undefined, {
+      origin: 'admin',
+      resourceBefore: { data: value, exists: value !== null },
+    });
+    return value;
+  }
+
+  adminGetQuery(path: string, spec: QuerySpec): QueryRow[] {
+    const rows = executeQuery(this.tree.read(path), spec);
+    this.emitOperation(null, 'get', path, 'not-applicable', undefined, {
+      origin: 'admin',
+      request: { query: spec },
+      resourceBefore: { data: rowsToVal(rows), exists: rows.length > 0 },
+    });
+    return rows;
+  }
+
+  adminSet(path: string, value: JsonValue): void {
+    const now = Date.now();
+    const before = this.tree.read(path);
+    const resolved = normalizeWrite(
+      resolveSentinels(value, now, before) as JsonValue,
+      path === '/' ? '' : path,
+    );
+    this.emitOperation(null, resolved === null ? 'remove' : 'set', path, 'not-applicable', undefined, {
+      origin: 'admin',
+      request: { data: value, resourceData: value },
+      resourceBefore: { data: before, exists: before !== null },
+      resourceAfter: { data: resolved, exists: resolved !== null },
+    });
+    const priors = this.snapshotChildListenerParents();
+    this.tree.write(path, resolved);
+    this.fanOut([path]);
+    this.fanOutChildren(priors);
+    const after = this.tree.read(path);
+    const method = after === null ? 'remove' : 'set';
+    this.emitCommit(null, method, path, {
+      data: value,
+      priorState: before,
+      nextState: after,
+      replay: { requestTime: now },
+      detail: { admin: true },
+    });
+  }
+
+  adminUpdate(path: string, patch: Record<string, JsonValue>): void {
+    const now = Date.now();
+    const before = this.tree.read(path);
+    const isMultiPath = Object.keys(patch).some((k) => k.includes('/'));
+    const priors = this.snapshotChildListenerParents();
+    if (isMultiPath) {
+      const expanded: Record<string, JsonValue> = {};
+      for (const [k, v] of Object.entries(patch)) {
+        const absPath = joinPath([...pathSegments(path), ...pathSegments(k)]);
+        expanded[absPath] = normalizeWrite(
+          resolveSentinels(v, now, this.tree.read(absPath)) as JsonValue,
+          absPath,
+        );
+      }
+      this.emitOperation(null, 'update', path, 'not-applicable', undefined, {
+        origin: 'admin',
+        request: { data: patch, resourceData: patch },
+        resourceBefore: { data: before, exists: before !== null },
+        detail: { admin: true, multiPath: true, paths: Object.keys(expanded) },
+      });
+      this.tree.multiUpdate(expanded);
+      this.fanOut(Object.keys(expanded));
+      this.fanOutChildren(priors);
+      const after = this.tree.read(path);
+      this.emitCommit(null, 'update', path, {
+        data: patch,
+        priorState: before,
+        nextState: after,
+        replay: { requestTime: now },
+        detail: { admin: true, multiPath: true, paths: Object.keys(expanded) },
+      });
+      return;
+    }
+
+    const resolvedPatch: Record<string, JsonValue> = {};
+    const touched: string[] = [];
+    for (const [k, v] of Object.entries(patch)) {
+      const sub = joinPath([...pathSegments(path), ...pathSegments(k)]);
+      touched.push(sub);
+      resolvedPatch[k] = normalizeWrite(
+        resolveSentinels(v, now, this.tree.read(sub)) as JsonValue,
+        sub,
+      );
+    }
+    this.emitOperation(null, 'update', path, 'not-applicable', undefined, {
+      origin: 'admin',
+      request: { data: patch, resourceData: patch },
+      resourceBefore: { data: before, exists: before !== null },
+      detail: { admin: true, multiPath: false, keys: Object.keys(resolvedPatch) },
+    });
+    this.tree.shallowUpdate(path, resolvedPatch);
+    this.fanOut(touched);
+    this.fanOutChildren(priors);
+    const after = this.tree.read(path);
+    this.emitCommit(null, 'update', path, {
+      data: patch,
+      priorState: before,
+      nextState: after,
+      replay: { requestTime: now },
+      detail: { admin: true, multiPath: false, keys: Object.keys(resolvedPatch) },
+    });
+  }
+
+  adminRemove(path: string): void {
+    this.adminSet(path, null);
+  }
+
   // ─── User-plane (rule-gated) operations ────────────────────────────
 
   get(auth: AuthState, path: string): JsonValue {
-    if (
-      this.rules.check('read', path === '/' ? '/' : path, {
-        auth,
-        mockData: this.tree.snapshot() as Record<string, unknown>,
-      }) !== 'allow'
-    ) {
+    const at = Date.now();
+    const before = this.tree.read(path);
+    const evaluation = this.rules.evaluate('read', path === '/' ? '/' : path, {
+      auth,
+      mockData: this.tree.snapshot() as Record<string, unknown>,
+    });
+    if (evaluation.check !== 'allow') {
+      this.emitOperation(auth, 'get', path, 'deny', evaluation, {
+        at,
+        durationMs: Date.now() - at,
+        resourceBefore: { data: before, exists: before !== null },
+      });
       throw permissionDenied();
     }
+    this.emitOperation(auth, 'get', path, 'allow', evaluation, {
+      at,
+      durationMs: Date.now() - at,
+      resourceBefore: { data: before, exists: before !== null },
+    });
     // Return the stored (integer-keyed) shape. Array coercion (DB-B2) is
     // a `DataSnapshot.val()`-render concern applied by the snapshot
     // wrapper — structural ops (`forEach`/`child`/`size`) walk the node.
@@ -228,16 +516,32 @@ export class RtdbBackend {
     // null/empty subtrees. An object that prunes to nothing is a delete
     // (`set(ref, {})` === `remove(ref)`).
     const resolved = normalizeWrite(resolved0, path === '/' ? '' : path);
-    if (
-      this.rules.check('write', path === '/' ? '/' : path, {
-        auth,
-        mockData: this.tree.snapshot() as Record<string, unknown>,
-        newData: resolved,
-      }) !== 'allow'
-    ) {
+    const before = this.tree.read(path);
+    const at = Date.now();
+    const evaluation = this.rules.evaluate('write', path === '/' ? '/' : path, {
+      auth,
+      mockData: this.tree.snapshot() as Record<string, unknown>,
+      newData: resolved,
+    });
+    const resourceBefore = { data: before, exists: before !== null };
+    const resourceAfter = { data: resolved, exists: resolved !== null };
+    if (evaluation.check !== 'allow') {
+      this.emitOperation(auth, op, path, 'deny', evaluation, {
+        at,
+        durationMs: Date.now() - at,
+        request: { data: value, resourceData: value },
+        resourceBefore,
+        resourceAfter,
+      });
       throw permissionDenied();
     }
-    const before = this.tree.read(path);
+    this.emitOperation(auth, op, path, 'allow', evaluation, {
+      at,
+      durationMs: Date.now() - at,
+      request: { data: value, resourceData: value },
+      resourceBefore,
+      resourceAfter,
+    });
     const priors = this.snapshotChildListenerParents();
     this.tree.write(path, resolved);
     this.fanOut([path]);
@@ -248,6 +552,12 @@ export class RtdbBackend {
     // subtree was deleted).
     const after = this.tree.read(path);
     const effectiveOp = after === null ? 'remove' : op;
+    this.emitCommit(auth, effectiveOp, path, {
+      data: value,
+      priorState: before,
+      nextState: after,
+      replay: { requestTime: now },
+    });
     this.emitRtdbEvent(auth, effectiveOp, canonicalPath(path), { before, after });
   }
 
@@ -267,6 +577,7 @@ export class RtdbBackend {
     const now = Date.now();
     const isMultiPath = Object.keys(patch).some((k) => k.includes('/'));
     if (isMultiPath) {
+      const groupId = this.nextGroupId('update');
       // Each key is treated as a path relative to `path`. Resolve
       // sentinels per-leaf so a key whose value contains a
       // `serverTimestamp()` lands as a number.
@@ -283,21 +594,46 @@ export class RtdbBackend {
       // entire update — the multi-path atomicity contract.
       const mock = this.tree.snapshot() as Record<string, unknown>;
       for (const [absPath, value] of Object.entries(expanded)) {
-        if (
-          this.rules.check('write', absPath, {
-            auth,
-            mockData: mock,
-            newData: value,
-          }) !== 'allow'
-        ) {
+        const at = Date.now();
+        const before = this.tree.read(absPath);
+        const evaluation = this.rules.evaluate('write', absPath, {
+          auth,
+          mockData: mock,
+          newData: value,
+        });
+        const common = {
+          at,
+          durationMs: Date.now() - at,
+          origin: 'batch' as const,
+          request: { data: value, resourceData: value },
+          resourceBefore: { data: before, exists: before !== null },
+          resourceAfter: { data: value, exists: value !== null },
+          groupId,
+          groupKind: 'batch' as const,
+          detail: { multiPath: true, rootPath: canonicalPath(path) },
+        };
+        if (evaluation.check !== 'allow') {
+          this.emitOperation(auth, 'update', absPath, 'deny', evaluation, common);
           throw permissionDenied();
         }
+        this.emitOperation(auth, 'update', absPath, 'allow', evaluation, common);
       }
       // Apply atomically via the tree's overlap-checked multi-write.
+      const beforeRoot = this.tree.read(path);
       const priors = this.snapshotChildListenerParents();
       this.tree.multiUpdate(expanded);
       this.fanOut(Object.keys(expanded));
       this.fanOutChildren(priors);
+      const afterRoot = this.tree.read(path);
+      this.emitCommit(auth, 'update', path, {
+        data: patch,
+        priorState: beforeRoot,
+        nextState: afterRoot,
+        groupId,
+        groupKind: 'batch',
+        replay: { requestTime: now },
+        detail: { multiPath: true, paths: Object.keys(expanded) },
+      });
       this.emitRtdbEvent(auth, 'update', canonicalPath(path), {
         after: expanded,
         detail: { multiPath: true, paths: Object.keys(expanded) },
@@ -316,23 +652,49 @@ export class RtdbBackend {
     }
     const mock = this.tree.snapshot() as Record<string, unknown>;
     const touched: string[] = [];
+    const groupId = this.nextGroupId('update');
     for (const [k, v] of Object.entries(resolvedPatch)) {
       const sub = joinPath([...pathSegments(path), ...pathSegments(k)]);
       touched.push(sub);
-      if (
-        this.rules.check('write', sub, {
-          auth,
-          mockData: mock,
-          newData: v,
-        }) !== 'allow'
-      ) {
+      const at = Date.now();
+      const before = this.tree.read(sub);
+      const evaluation = this.rules.evaluate('write', sub, {
+        auth,
+        mockData: mock,
+        newData: v,
+      });
+      const common = {
+        at,
+        durationMs: Date.now() - at,
+        origin: 'batch' as const,
+        request: { data: v, resourceData: v },
+        resourceBefore: { data: before, exists: before !== null },
+        resourceAfter: { data: v, exists: v !== null },
+        groupId,
+        groupKind: 'batch' as const,
+        detail: { multiPath: false, rootPath: canonicalPath(path), key: k },
+      };
+      if (evaluation.check !== 'allow') {
+        this.emitOperation(auth, 'update', sub, 'deny', evaluation, common);
         throw permissionDenied();
       }
+      this.emitOperation(auth, 'update', sub, 'allow', evaluation, common);
     }
+    const beforeRoot = this.tree.read(path);
     const priors = this.snapshotChildListenerParents();
     this.tree.shallowUpdate(path, resolvedPatch);
     this.fanOut(touched);
     this.fanOutChildren(priors);
+    const afterRoot = this.tree.read(path);
+    this.emitCommit(auth, 'update', path, {
+      data: patch,
+      priorState: beforeRoot,
+      nextState: afterRoot,
+      groupId,
+      groupKind: 'batch',
+      replay: { requestTime: now },
+      detail: { multiPath: false, keys: Object.keys(resolvedPatch) },
+    });
     this.emitRtdbEvent(auth, 'update', canonicalPath(path), {
       after: resolvedPatch,
       detail: { multiPath: false, keys: Object.keys(resolvedPatch) },
@@ -364,36 +726,95 @@ export class RtdbBackend {
     // Rules check at subscribe time. A denied subscribe never gets
     // the initial fire — matches production where the listener errors
     // out before any callback.
-    if (
-      this.rules.check('read', path === '/' ? '/' : path, {
-        auth,
-        mockData: this.tree.snapshot() as Record<string, unknown>,
-      }) !== 'allow'
-    ) {
+    const listenerId = this.nextListenerId();
+    const at = Date.now();
+    const evaluation = this.rules.evaluate('read', path === '/' ? '/' : path, {
+      auth,
+      mockData: this.tree.snapshot() as Record<string, unknown>,
+    });
+    if (evaluation.check !== 'allow') {
+      this.emitOperation(auth, 'listen', path, 'deny', evaluation, {
+        at,
+        durationMs: Date.now() - at,
+        request: query ? { query } : undefined,
+        origin: 'listener',
+      });
+      this.emitListener('errored', { id: listenerId, path }, auth, {
+        event: 'value',
+        result: 'deny',
+        error: {
+          code: 'PERMISSION_DENIED',
+          message: 'PERMISSION_DENIED: Permission denied',
+          reasons: evaluation.reasons,
+        },
+      });
       throw permissionDenied();
     }
-    const listener: ValueListener = { cb, path, query };
+    this.emitOperation(auth, 'listen', path, 'allow', evaluation, {
+      at,
+      durationMs: Date.now() - at,
+      request: query ? { query } : undefined,
+      origin: 'listener',
+    });
+    const listener: ValueListener = { id: listenerId, auth, cb, path, query };
     this.valueListeners.add(listener);
+    this.emitListener('attach', listener, auth, {
+      event: 'value',
+      result: 'allow',
+      detail: query ? { query } : undefined,
+    });
     // Initial fire — for queries we record the initial window so the
     // diff check on the next write knows what "the previous result"
     // was. For plain listeners we just feed the path snapshot.
     if (query) {
       const initialWindow = executeQuery(this.tree.read(path), query);
       listener.lastWindow = initialWindow;
-      cb({
+      const snap = {
         val: rowsToVal(initialWindow),
         exists: initialWindow.length > 0,
         key: this.keyForPath(path),
-      });
+      };
+      try {
+        cb(snap);
+        this.emitListener('delivery', listener, auth, {
+          event: 'value',
+          size: initialWindow.length,
+          sample: snap.val,
+          detail: { initial: true, query: true },
+        });
+      } catch (e) {
+        this.emitListener('errored', listener, auth, {
+          event: 'value',
+          result: 'error',
+          error: { message: e instanceof Error ? e.message : String(e) },
+          detail: { initial: true, query: true },
+        });
+      }
     } else {
       const snap = this.makeSnap(path);
       // Record the initial value so a subsequent no-change write is
       // suppressed (DB-B8).
       listener.lastValue = snap.val;
-      cb(snap);
+      try {
+        cb(snap);
+        this.emitListener('delivery', listener, auth, {
+          event: 'value',
+          size: snap.exists ? 1 : 0,
+          sample: snap.val,
+          detail: { initial: true },
+        });
+      } catch (e) {
+        this.emitListener('errored', listener, auth, {
+          event: 'value',
+          result: 'error',
+          error: { message: e instanceof Error ? e.message : String(e) },
+          detail: { initial: true },
+        });
+      }
     }
     return () => {
       this.valueListeners.delete(listener);
+      this.emitListener('detach', listener, auth, { event: 'value' });
     };
   }
 
@@ -405,15 +826,27 @@ export class RtdbBackend {
    * children with mixed read permissions).
    */
   getQuery(auth: AuthState, path: string, spec: QuerySpec): QueryRow[] {
-    if (
-      this.rules.check('read', path === '/' ? '/' : path, {
-        auth,
-        mockData: this.tree.snapshot() as Record<string, unknown>,
-      }) !== 'allow'
-    ) {
+    const at = Date.now();
+    const evaluation = this.rules.evaluate('read', path === '/' ? '/' : path, {
+      auth,
+      mockData: this.tree.snapshot() as Record<string, unknown>,
+    });
+    if (evaluation.check !== 'allow') {
+      this.emitOperation(auth, 'get', path, 'deny', evaluation, {
+        at,
+        durationMs: Date.now() - at,
+        request: { query: spec },
+      });
       throw permissionDenied();
     }
-    return executeQuery(this.tree.read(path), spec);
+    const rows = executeQuery(this.tree.read(path), spec);
+    this.emitOperation(auth, 'get', path, 'allow', evaluation, {
+      at,
+      durationMs: Date.now() - at,
+      request: { query: spec },
+      resourceBefore: { data: rowsToVal(rows), exists: rows.length > 0 },
+    });
+    return rows;
   }
 
   /** The last segment of `path`, or `null` for root. Mirrors
@@ -467,15 +900,35 @@ export class RtdbBackend {
         // `rtdb-modular-onvalue-with-query.json` — a write OUTSIDE the
         // window doesn't fire the query listener.
         const nextWindow = executeQuery(this.tree.read(listener.path), listener.query);
-        if (windowsEqual(listener.lastWindow ?? [], nextWindow)) continue;
-        listener.lastWindow = nextWindow;
-        try {
-          listener.cb({
-            val: rowsToVal(nextWindow),
-            exists: nextWindow.length > 0,
-            key: this.keyForPath(listener.path),
+        if (windowsEqual(listener.lastWindow ?? [], nextWindow)) {
+          this.emitListener('suppressed', listener, listener.auth, {
+            event: 'value',
+            reason: 'no-op',
+            detail: { query: true },
           });
-        } catch {
+          continue;
+        }
+        listener.lastWindow = nextWindow;
+        const snap = {
+          val: rowsToVal(nextWindow),
+          exists: nextWindow.length > 0,
+          key: this.keyForPath(listener.path),
+        };
+        this.emitListener('delivery', listener, listener.auth, {
+          event: 'value',
+          size: nextWindow.length,
+          sample: snap.val,
+          detail: { query: true },
+        });
+        try {
+          listener.cb(snap);
+        } catch (e) {
+          this.emitListener('errored', listener, listener.auth, {
+            event: 'value',
+            result: 'error',
+            error: { message: e instanceof Error ? e.message : String(e) },
+            detail: { query: true },
+          });
           // Swallow — see plain-listener branch below.
         }
         continue;
@@ -487,12 +940,26 @@ export class RtdbBackend {
       const snap = this.makeSnap(listener.path);
       const last = listener.lastValue;
       if (last !== undefined && deepEqualJson(last, snap.val)) {
+        this.emitListener('suppressed', listener, listener.auth, {
+          event: 'value',
+          reason: 'no-op',
+        });
         continue;
       }
       listener.lastValue = snap.val;
+      this.emitListener('delivery', listener, listener.auth, {
+        event: 'value',
+        size: snap.exists ? 1 : 0,
+        sample: snap.val,
+      });
       try {
         listener.cb(snap);
-      } catch {
+      } catch (e) {
+        this.emitListener('errored', listener, listener.auth, {
+          event: 'value',
+          result: 'error',
+          error: { message: e instanceof Error ? e.message : String(e) },
+        });
         // Swallow — matches `firebase/database` which doesn't let
         // one observer's throw block another. The faulty listener
         // is the caller's problem.
@@ -558,7 +1025,15 @@ export class RtdbBackend {
     // shape `get()` would return (DB-B2).
     const currentForFn = current === null ? null : coerceArrays(cloneJson(current)) as JsonValue;
     const proposed = updateFn(currentForFn);
+    const groupId = this.nextGroupId('transaction');
     if (proposed === undefined) {
+      this.emitOperation(auth, 'transaction', path, 'not-applicable', undefined, {
+        origin: 'transaction',
+        groupId,
+        groupKind: 'transaction',
+        resourceBefore: { data: current, exists: current !== null },
+        detail: { committed: false, aborted: true },
+      });
       // Abort — no write, no rule check, no listener fire. Resolve with
       // the pre-transaction value (oracle pinned for the seeded case:
       // `afterValOnServer: 100` preserved).
@@ -583,13 +1058,23 @@ export class RtdbBackend {
       const priorRoot = this.tree.snapshot();
       this.tree.write(path, resolved);
       this.fanOut([path]);
-      if (
-        this.rules.check('write', path === '/' ? '/' : path, {
-          auth,
-          mockData: priorRoot as Record<string, unknown>,
-          newData: resolved,
-        }) !== 'allow'
-      ) {
+      const at = Date.now();
+      const evaluation = this.rules.evaluate('write', path === '/' ? '/' : path, {
+        auth,
+        mockData: priorRoot as Record<string, unknown>,
+        newData: resolved,
+      });
+      if (evaluation.check !== 'allow') {
+        this.emitOperation(auth, 'transaction', path, 'deny', evaluation, {
+          at,
+          durationMs: Date.now() - at,
+          origin: 'transaction',
+          request: { data: proposed, resourceData: proposed },
+          resourceBefore: { data: current, exists: current !== null },
+          resourceAfter: { data: resolved, exists: resolved !== null },
+          groupId,
+          groupKind: 'transaction',
+        });
         // Roll back the local apply and re-fan-out so listeners see
         // the restored value. Then throw the transaction-specific
         // denial shape.
@@ -597,6 +1082,25 @@ export class RtdbBackend {
         this.fanOut([path]);
         throw transactionPermissionDenied();
       }
+      this.emitOperation(auth, 'transaction', path, 'allow', evaluation, {
+        at,
+        durationMs: Date.now() - at,
+        origin: 'transaction',
+        request: { data: proposed, resourceData: proposed },
+        resourceBefore: { data: current, exists: current !== null },
+        resourceAfter: { data: resolved, exists: resolved !== null },
+        groupId,
+        groupKind: 'transaction',
+      });
+      this.emitCommit(auth, 'transaction', path, {
+        data: proposed,
+        priorState: current,
+        nextState: resolved,
+        groupId,
+        groupKind: 'transaction',
+        replay: { requestTime: now },
+        detail: { committed: true, applyLocally: true },
+      });
       this.emitRtdbEvent(auth, 'transaction', canonicalPath(path), {
         before: current,
         after: resolved,
@@ -606,17 +1110,46 @@ export class RtdbBackend {
     }
     // applyLocally: false — rule-check FIRST, write only if allowed,
     // listeners see only the committed value.
-    if (
-      this.rules.check('write', path === '/' ? '/' : path, {
-        auth,
-        mockData: this.tree.snapshot() as Record<string, unknown>,
-        newData: resolved,
-      }) !== 'allow'
-    ) {
+    const at = Date.now();
+    const evaluation = this.rules.evaluate('write', path === '/' ? '/' : path, {
+      auth,
+      mockData: this.tree.snapshot() as Record<string, unknown>,
+      newData: resolved,
+    });
+    if (evaluation.check !== 'allow') {
+      this.emitOperation(auth, 'transaction', path, 'deny', evaluation, {
+        at,
+        durationMs: Date.now() - at,
+        origin: 'transaction',
+        request: { data: proposed, resourceData: proposed },
+        resourceBefore: { data: current, exists: current !== null },
+        resourceAfter: { data: resolved, exists: resolved !== null },
+        groupId,
+        groupKind: 'transaction',
+      });
       throw transactionPermissionDenied();
     }
+    this.emitOperation(auth, 'transaction', path, 'allow', evaluation, {
+      at,
+      durationMs: Date.now() - at,
+      origin: 'transaction',
+      request: { data: proposed, resourceData: proposed },
+      resourceBefore: { data: current, exists: current !== null },
+      resourceAfter: { data: resolved, exists: resolved !== null },
+      groupId,
+      groupKind: 'transaction',
+    });
     this.tree.write(path, resolved);
     this.fanOut([path]);
+    this.emitCommit(auth, 'transaction', path, {
+      data: proposed,
+      priorState: current,
+      nextState: resolved,
+      groupId,
+      groupKind: 'transaction',
+      replay: { requestTime: now },
+      detail: { committed: true, applyLocally: false },
+    });
     this.emitRtdbEvent(auth, 'transaction', canonicalPath(path), {
       before: current,
       after: resolved,
@@ -669,28 +1202,67 @@ export class RtdbBackend {
     path: string,
     cb: (snap: { key: string; val: JsonValue }) => void,
   ): () => void {
-    if (
-      this.rules.check('read', path === '/' ? '/' : path, {
-        auth,
-        mockData: this.tree.snapshot() as Record<string, unknown>,
-      }) !== 'allow'
-    ) {
+    const listenerId = this.nextListenerId();
+    const at = Date.now();
+    const evaluation = this.rules.evaluate('read', path === '/' ? '/' : path, {
+      auth,
+      mockData: this.tree.snapshot() as Record<string, unknown>,
+    });
+    if (evaluation.check !== 'allow') {
+      this.emitOperation(auth, 'listen', path, 'deny', evaluation, {
+        at,
+        durationMs: Date.now() - at,
+        origin: 'listener',
+        detail: { event },
+      });
+      this.emitListener('errored', { id: listenerId, path }, auth, {
+        event,
+        result: 'deny',
+        error: {
+          code: 'PERMISSION_DENIED',
+          message: 'PERMISSION_DENIED: Permission denied',
+          reasons: evaluation.reasons,
+        },
+      });
       throw permissionDenied();
     }
-    const listener: ChildListener = { event, path, cb };
+    this.emitOperation(auth, 'listen', path, 'allow', evaluation, {
+      at,
+      durationMs: Date.now() - at,
+      origin: 'listener',
+      detail: { event },
+    });
+    const listener: ChildListener = { id: listenerId, auth, event, path, cb };
     this.childListeners.add(listener);
+    this.emitListener('attach', listener, auth, {
+      event,
+      result: 'allow',
+    });
     // Initial replay — only `child_added` replays existing children.
     if (event === 'child_added') {
       for (const { key, val } of this.directChildren(path)) {
+        this.emitListener('delivery', listener, auth, {
+          event,
+          size: 1,
+          sample: { key, val },
+          detail: { initial: true },
+        });
         try {
           cb({ key, val });
-        } catch {
+        } catch (e) {
+          this.emitListener('errored', listener, auth, {
+            event,
+            result: 'error',
+            error: { message: e instanceof Error ? e.message : String(e) },
+            detail: { initial: true },
+          });
           // Swallow — see fanOut.
         }
       }
     }
     return () => {
       this.childListeners.delete(listener);
+      this.emitListener('detach', listener, auth, { event });
     };
   }
 
@@ -718,6 +1290,7 @@ export class RtdbBackend {
         if (joinPath(pathSegments(l.path)) !== canonical) continue;
         if (callback !== undefined && l.cb !== callback) continue;
         this.valueListeners.delete(l);
+        this.emitListener('detach', l, l.auth, { event: 'value' });
       }
     }
     // Child listeners.
@@ -738,6 +1311,7 @@ export class RtdbBackend {
         if (joinPath(pathSegments(l.path)) !== canonical) continue;
         if (callback !== undefined && l.cb !== callback) continue;
         this.childListeners.delete(l);
+        this.emitListener('detach', l, l.auth, { event: l.event });
       }
     }
   }
@@ -826,9 +1400,19 @@ export class RtdbBackend {
           case 'child_moved': events = []; break; // ordered-query only
         }
         for (const ev of events) {
+          this.emitListener('delivery', listener, listener.auth, {
+            event: listener.event,
+            size: 1,
+            sample: ev,
+          });
           try {
             listener.cb(ev);
-          } catch {
+          } catch (e) {
+            this.emitListener('errored', listener, listener.auth, {
+              event: listener.event,
+              result: 'error',
+              error: { message: e instanceof Error ? e.message : String(e) },
+            });
             // Swallow — see fanOut.
           }
         }

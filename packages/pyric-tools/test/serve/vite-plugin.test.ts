@@ -3,7 +3,7 @@
  *  resolution check through a real Vite pluginContainer (middlewareMode, binds no
  *  port), and the /__pyric runtime surface by driving the captured connect
  *  middleware with mock req/res (NO real dev server — see the integration block's
- *  header for why). The full browser e2e lives in the M1 validation (design rationale §7b). */
+ *  header for why). The full browser e2e lives in the M1 spike (plans/pyric-vite-plugin.md section 7b). */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import path, { join } from 'node:path';
 import { Writable } from 'node:stream';
@@ -14,6 +14,7 @@ import {
   SDK_MODULES,
   defaultSdkEntries,
   resolveStudioUiDir,
+  resolvePlaygroundUiDir,
   pyricPackageRoot,
   bundleWorker,
   workerSourceHash,
@@ -73,7 +74,7 @@ describe('resolveId — the importer-aware swap', () => {
   });
 
   it('does not false-positive on a user path containing "pyric"', () => {
-    // §8 refinement: keyed on the package ROOT, not a /pyric/ substring.
+    // section 8 refinement: keyed on the package ROOT, not a /pyric/ substring.
     const lookalike = '/home/me/projects/pyric-clone/src/main.ts';
     expect(resolveId('firebase/firestore', lookalike)).toBe(entries.firestore);
   });
@@ -195,7 +196,7 @@ describe('integration — real vite dev pluginContainer', () => {
 // stack AND that the real handler (closed over the real `createBridgeMount`)
 // serves the bridge tier. We pull OUR layer out of `server.middlewares.stack` and
 // drive it with a mock req/res — so Vite's other internal middlewares don't choke
-// on the mock req, and (per the §-above lesson) we never `listen()` or `fetch()`.
+// on the mock req, and (per the section -above lesson) we never `listen()` or `fetch()`.
 // middlewareMode has no httpServer, so the WS upgrade + port-derived `bridgeUrl`
 // are NOT covered here — that's the env-gated e2e (vite-plugin-bridge-e2e.test.ts).
 describe('integration — bridge mounts in a real vite dev server (middlewareMode)', () => {
@@ -344,7 +345,7 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
 // NOTE (unit): asserts the workerReady===false → in-page output in ISOLATION
 // (configureServer never ran → workerReady is its initial false). The worker-READY
 // branch is covered in the next block; the bundle-FAILURE catch is covered by source
-// inspection (see the §4 note at the end of this file).
+// inspection (see the section 4 note at the end of this file).
 describe('M2 — transformIndexHtml in-page output (workerReady false, configureServer not run)', () => {
   it('forces the in-page path when workerReady is false', () => {
     const out = (plugin.transformIndexHtml as (h: string) => string)('<html><head></head></html>');
@@ -560,10 +561,16 @@ describe('M3 — bridge fold (handler-based)', () => {
 // studio-ui assets vendored in this package's dist (the same bytes the standalone
 // embeds). Requires the studio build (CI builds first; resolveStudioUiDir finds
 // packages/studio/dist/app when run from src).
+//
+// Playground is different on purpose: source/dev tests must not discover
+// packages/playground/dist/client as a hidden fallback. Only packaged pyric-tools
+// serves embedded Playground bytes from dist/serve/playground-ui, which the
+// packaging gate verifies.
 // Skip the app-serving case (only) when the studio build is absent, with a clear
 // reason rather than a cryptic status mismatch; resolveStudioUiDir mirrors the
 // production resolution. CI always builds first, so it exercises every case.
 const studioBuilt = resolveStudioUiDir() !== null;
+const playgroundBuilt = resolvePlaygroundUiDir() !== null;
 
 describe('ui: Pyric Studio mount (parity with serve --ui)', () => {
   const tmps: string[] = [];
@@ -584,6 +591,23 @@ describe('ui: Pyric Studio mount (parity with serve --ui)', () => {
     expect(index.statusCode).toBe(200);
     expect(String(index.headers['content-type'])).toContain('text/html');
     expect(index.body.toLowerCase()).toContain('<!doctype html');
+  });
+
+  it.skipIf(!playgroundBuilt)('ui:true → serves the embedded Playground app at /__pyric/playground/', async () => {
+    const tmp = mkTmp('pyric-vite-playground-');
+    const handler = await bootPlugin({ ui: true }, tmp);
+    const playgroundHome = await callPyric(handler, {
+      path: '/__pyric/playground/?embed=studio',
+    });
+    expect(playgroundHome.statusCode).toBe(200);
+    expect(String(playgroundHome.headers['content-type'])).toContain('text/html');
+    expect(playgroundHome.body.toLowerCase()).toContain('<!doctype html');
+    const playgroundSession = await callPyric(handler, {
+      path: '/__pyric/playground/playground?embed=studio',
+    });
+    expect(playgroundSession.statusCode).toBe(200);
+    expect(String(playgroundSession.headers['content-type'])).toContain('text/html');
+    expect(playgroundSession.body.toLowerCase()).toContain('<!doctype html');
   });
 
   // The workspace/project routes mount whenever `ui` is on (they need only the

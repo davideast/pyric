@@ -20,7 +20,7 @@ attributes failures).
 | ? | **Unverified** — claim from docs that we haven't yet observed prod-side |
 
 Probe references: `playground:<name>` means a fixture under
-`examples/playground-next/scripts/fixtures/<name>.tsx`. `unit:<file>`
+`packages/playground/scripts/fixtures/<name>.tsx`. `unit:<file>`
 means a Bun test in `packages/pyric/test/firestore/<file>`.
 
 Targets:
@@ -355,7 +355,7 @@ Rows currently marked **—** that we might want to fill (rough priority):
 ## Probe coverage summary
 
 - **Unit (`packages/pyric/test/firestore/`):** ~80 tests across 4 files cover the bulk of the surface. The two main files are `sandbox-target.test.ts` (frozen-ctx, the API-shape conformance suite) and `sandbox-live-identity.test.ts` (per-op identity behavior). `prod-target.test.ts` runs against an emulator; `prod-integration.test.ts` requires a real project (gated).
-- **Playground fixtures (`examples/playground-next/scripts/fixtures/`):** 8 firestore-related fixtures: `firestore-bare-getfirestore`, `firestore-onsnapshot`, `firestore-query`, `firestore-transaction`, `firestore-batch`, `firestore-sentinels`, `rules-cross-doc-get`, `rules-data-validation`. Run via `bun run debug:fixtures`.
+- **Playground fixtures (`packages/playground/scripts/fixtures/`):** 8 firestore-related fixtures: `firestore-bare-getfirestore`, `firestore-onsnapshot`, `firestore-query`, `firestore-transaction`, `firestore-batch`, `firestore-sentinels`, `rules-cross-doc-get`, `rules-data-validation`. Run via `bun run debug:fixtures`.
 
 ## Next refactors per the methodology
 

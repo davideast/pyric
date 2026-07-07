@@ -2,7 +2,7 @@
  * Production-parity stress test — live Firestore Rules Test API.
  *
  * Resurrected from the pre-cutover suite (deleted in be3c2b2; restored per
- * the design rationale §5 and round-3 track P3). The 12 packs
+ * the design rationale section 5 and round-3 track P3). The 12 packs
  * are byte-identical to the originals; only the bootstrap changed:
  * `initializeAgentApp({ credentialEnvVar })` (died with packages/sdk) →
  * `parityScope()` (firebase-admin cert credential from PARITY_SA_BASE64).

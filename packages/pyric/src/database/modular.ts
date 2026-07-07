@@ -73,11 +73,13 @@ type SandboxTarget = {
   kind: 'sandbox';
   backend: RtdbBackend;
   auth: AuthState;
+  admin?: boolean;
 };
 type SandboxLiveTarget = {
   kind: 'sandbox-live';
   backend: RtdbBackend;
   sandbox: Sandbox;
+  admin?: boolean;
 };
 type ProdTarget = { kind: 'prod'; db: fb.Database };
 type Target = SandboxTarget | SandboxLiveTarget | ProdTarget;
@@ -88,6 +90,7 @@ function isSandboxKind(t: Target): t is SandboxTarget | SandboxLiveTarget {
 
 /** Resolve the active identity for a sandbox-flavored target. */
 function authFor(t: SandboxTarget | SandboxLiveTarget): AuthState {
+  if (t.admin) return null;
   return t.kind === 'sandbox' ? t.auth : t.sandbox.currentUser;
 }
 
@@ -389,6 +392,31 @@ export function getDatabase(
 }
 
 /**
+ * Sandbox-only rules-bypass RTDB handle. Mirrors Firestore's
+ * `getAdminFirestore(sandbox)` for Studio/Playground data browsers and
+ * controlled admin tools. A prod-backed app has no client-side rules-bypass
+ * equivalent and is rejected loudly.
+ */
+export function getAdminDatabase(sandbox: Sandbox): Database;
+export function getAdminDatabase(ctx: SandboxContext): Database;
+export function getAdminDatabase(app: PyricApp): Database;
+export function getAdminDatabase(target: Sandbox | SandboxContext | PyricApp): Database {
+  if (isPyricApp(target)) {
+    if (target[APP_TARGET] !== 'sandbox') {
+      throw new TypeError(
+        'getAdminDatabase: the admin (rules-bypass) lens is sandbox-only — ' +
+          'a prod-backed app has no way to bypass deployed security rules.',
+      );
+    }
+    return getAdminDatabase(target.sandbox);
+  }
+  const sandbox = isSandboxContext(target) ? target.sandbox : target;
+  const backend = getOrCreateBackend(sandbox);
+  const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true };
+  return { [TARGET_SYMBOL]: t };
+}
+
+/**
  * Brand-based test for the {@link PyricApp} overload. Reads the
  * `APP_TARGET` symbol that `pyric/app`'s `initializeApp` stamps on
  * every handle. Cheap + collision-free: a `Sandbox` / `FirebaseApp`
@@ -514,7 +542,9 @@ export async function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
     const q = r as Query;
     const target = targetOf(q.ref as unknown as object);
     if (isSandboxKind(target)) {
-      const rows = target.backend.getQuery(authFor(target), q.ref._path, q._spec);
+      const rows = target.admin
+        ? target.backend.adminGetQuery(q.ref._path, q._spec)
+        : target.backend.getQuery(authFor(target), q.ref._path, q._spec);
       return buildSandboxQuerySnap(target, q.ref, rows);
     }
     // Prod — q._fbQuery was built via fb.query() at construction time.
@@ -525,7 +555,9 @@ export async function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
   const ref0 = r as DatabaseReference;
   const target = targetOf(ref0 as unknown as object);
   if (isSandboxKind(target)) {
-    const val = target.backend.get(authFor(target), ref0._path);
+    const val = target.admin
+      ? target.backend.adminGet(ref0._path)
+      : target.backend.get(authFor(target), ref0._path);
     return buildSandboxSnap(target, ref0, val);
   }
   const snap = await fb.get(ref0 as unknown as fb.DatabaseReference);
@@ -544,7 +576,11 @@ export async function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
 export async function set(r: DatabaseReference, value: unknown): Promise<void> {
   const target = targetOf(r as unknown as object);
   if (isSandboxKind(target)) {
-    target.backend.set(authFor(target), r._path, value as JsonValue);
+    if (target.admin) {
+      target.backend.adminSet(r._path, value as JsonValue);
+    } else {
+      target.backend.set(authFor(target), r._path, value as JsonValue);
+    }
     return;
   }
   await fb.set(r as unknown as fb.DatabaseReference, value);
@@ -569,11 +605,15 @@ export async function update(
 ): Promise<void> {
   const target = targetOf(r as unknown as object);
   if (isSandboxKind(target)) {
-    target.backend.update(
-      authFor(target),
-      r._path,
-      values as Record<string, JsonValue>,
-    );
+    if (target.admin) {
+      target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
+    } else {
+      target.backend.update(
+        authFor(target),
+        r._path,
+        values as Record<string, JsonValue>,
+      );
+    }
     return;
   }
   await fb.update(r as unknown as fb.DatabaseReference, values);
@@ -589,7 +629,11 @@ export async function update(
 export async function remove(r: DatabaseReference): Promise<void> {
   const target = targetOf(r as unknown as object);
   if (isSandboxKind(target)) {
-    target.backend.remove(authFor(target), r._path);
+    if (target.admin) {
+      target.backend.adminRemove(r._path);
+    } else {
+      target.backend.remove(authFor(target), r._path);
+    }
     return;
   }
   await fb.remove(r as unknown as fb.DatabaseReference);

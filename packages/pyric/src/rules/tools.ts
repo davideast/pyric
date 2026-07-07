@@ -108,7 +108,7 @@ export function createFirestoreRulesTools(
     // name (returning raw rules source); composeMcpRegistry would
     // reject the duplicate. Browser callers that want the parsed
     // inspect (AST + summary + findings) wire `createFirestoreInspectTool`
-    // directly from `@pyric/firestore-rules` — see playground-next's
+    // directly from `@pyric/firestore-rules` — see playground's
     // `firestore-rules-inspect.ts`.
     handlers.push({
       name: 'firestore_test_rules',

@@ -351,6 +351,21 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'batchCommit'; writes: WriteDescriptor[] }
   | { t: 'op'; id: string; method: 'txnCommit'; reads: TxnReadEntry[]; writes: WriteDescriptor[] }
   | { t: 'op'; id: string; method: 'setRules'; source: string }
+  | { t: 'op'; id: string; method: 'setFirestoreRules'; source: string }
+  | { t: 'op'; id: string; method: 'setDatabaseRules'; source: unknown }
+  | { t: 'op'; id: string; method: 'getActiveRules'; service?: 'firestore' | 'database' }
+  | { t: 'op'; id: string; method: 'getRulesStatus'; service?: 'firestore' | 'database' }
+  | { t: 'op'; id: string; method: 'admin.getDocument'; path: string }
+  | { t: 'op'; id: string; method: 'admin.listDocuments'; path: string }
+  | { t: 'op'; id: string; method: 'admin.setDocument'; path: string; data: unknown }
+  | { t: 'op'; id: string; method: 'admin.deleteDocument'; path: string }
+  | { t: 'op'; id: string; method: 'admin.readState'; path?: string; maxDepth?: number }
+  | { t: 'op'; id: string; method: 'rtdb.get'; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.set'; path: string; value: unknown }
+  | { t: 'op'; id: string; method: 'rtdb.update'; path: string; values: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'rtdb.remove'; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.push'; path: string; key: string; value?: unknown }
+  | { t: 'op'; id: string; method: 'rtdb.adminSnapshot' }
   // Collection enumeration (Pyric Studio data browse): the modular SDK has no
   // client `listCollections`, so the host enumerates the sandbox keyspace via
   // `getInternalEnv(sandbox)`. Reply: `{ ids: string[] }`.
@@ -487,7 +502,15 @@ export interface EventSubMessage {
   target: 'events';
 }
 
-export type SubMessage = FirestoreSubMessage | AuthSubMessage | EventSubMessage;
+export interface RtdbValueSubMessage {
+  t: 'sub';
+  subId: string;
+  target: { service: 'rtdb'; path: string };
+  /** Mirrors Firestore subscriptions: absent/app-session uses this port's session. */
+  actAs?: AuthLens;
+}
+
+export type SubMessage = FirestoreSubMessage | AuthSubMessage | EventSubMessage | RtdbValueSubMessage;
 
 /** Type guard: is this an auth subscription (vs a Firestore / event one)? */
 export function isAuthSub(msg: SubMessage): msg is AuthSubMessage {
@@ -497,6 +520,15 @@ export function isAuthSub(msg: SubMessage): msg is AuthSubMessage {
 /** Type guard: is this an event-stream subscription? */
 export function isEventSub(msg: SubMessage): msg is EventSubMessage {
   return msg.target === 'events';
+}
+
+export function isRtdbSub(msg: SubMessage): msg is RtdbValueSubMessage {
+  return (
+    typeof msg.target === 'object' &&
+    msg.target !== null &&
+    'service' in msg.target &&
+    msg.target.service === 'rtdb'
+  );
 }
 
 /** Tear down a previously registered snapshot listener. */

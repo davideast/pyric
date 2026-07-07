@@ -145,7 +145,7 @@ describe('onSnapshot — DocumentReference, options + callbacks', () => {
 
     expect(calls).toHaveLength(1);
     // Sandbox metadata is constant — `includeMetadataChanges` is documented
-    // as a no-op (snapshot-listeners.ts §6).
+    // as a no-op (snapshot-listeners.ts section 6).
     expect(calls[0]!.metadata.hasPendingWrites).toBe(false);
     expect(calls[0]!.metadata.fromCache).toBe(false);
   });

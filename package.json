@@ -4,7 +4,6 @@
   "workspaces": [
     "packages/*",
     "examples/admin-playground",
-    "examples/playground-next",
     "examples/vite-sandbox-app"
   ],
   "overrides": {

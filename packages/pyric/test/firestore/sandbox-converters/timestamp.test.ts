@@ -1,7 +1,7 @@
 /**
  * Item 1 — Timestamp + serverTimestamp parity tests.
  *
- * Plan §Item 1 test contract:
+ * Plan section Item 1 test contract:
  *   - Rule `resource.data.createdAt is timestamp` returns true for:
  *     (a) seed data containing `new Date()`,
  *     (b) writes with `serverTimestamp()` sentinel,

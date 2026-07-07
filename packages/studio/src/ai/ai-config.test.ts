@@ -85,6 +85,13 @@ describe('byok slots', () => {
     expect(createApiKeySlot('p-b', 'B', '').getKey()).toBe('key-b');
   });
 
+  it('migrates legacy Studio BYOK keys into the shared playground namespace', () => {
+    lsStore.set('pyric.studio.byok.legacy-provider', 'legacy-key');
+    const slot = createApiKeySlot('legacy-provider', 'Legacy', '');
+    expect(slot.getKey()).toBe('legacy-key');
+    expect(lsStore.get('pyric.playground.byok.legacy-provider')).toBe('legacy-key');
+  });
+
   it('is reactive: setKey/clearKey bump the version + notify (so useLlmClient re-derives)', () => {
     let notified = 0;
     const unsub = subscribeKeys(() => notified++);
@@ -124,7 +131,7 @@ describe('llm selection store', () => {
   it('persists the selection + effort to localStorage', () => {
     setProvider('openrouter');
     setEffort('high');
-    expect(lsStore.get('pyric.studio.llm.selection')).toContain('openrouter');
-    expect(lsStore.get('pyric.studio.openrouter.effort')).toBe('high');
+    expect(lsStore.get('pyric.playground.llm.selection')).toContain('openrouter');
+    expect(lsStore.get('pyric.playground.openrouter.effort')).toBe('high');
   });
 });

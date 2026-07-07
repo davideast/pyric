@@ -443,7 +443,7 @@ export class LocalEnvironment {
    * Subscribers notified when a snapshot listener is marked errored
    * (Slice 7). Mirrors `denialListeners` but fires from the listener
    * dispatch path, not from one-shot operation evaluation. Two-level
-   * model per source survey §9: the listener's own `errorCallback`
+   * model per source survey section 9: the listener's own `errorCallback`
    * receives the error AND every env-level subscriber receives it —
    * the playground subscribes here to surface stream errors as toasts
    * the same way it surfaces denials today.
@@ -458,7 +458,7 @@ export class LocalEnvironment {
    * 5 (transaction/batch deferral). Stored as a flat `Map<id, record>`
    * per the implementation plan; query-canonicalization-based dedup
    * (production's `EventManager` shape) is layered on later when caching
-   * actually saves work — see source survey §2 for the eventual target
+   * actually saves work — see source survey section 2 for the eventual target
    * shape. Each record carries its own target so future slices can scan
    * and group on demand without restructuring the registry first.
    */
@@ -727,7 +727,7 @@ export class LocalEnvironment {
    * listener's `SnapshotTarget` so the host UI can attribute the error
    * to a specific watch (e.g. "listener on `games/g1` errored").
    *
-   * Per source survey §9, this is the playground-side channel: stream
+   * Per source survey section 9, this is the playground-side channel: stream
    * errors fan out to both the listener's own `errorCallback` AND every
    * env-level subscriber here. Subscriber throws are swallowed so a
    * faulty UI handler can't destabilize the simulator.
@@ -811,7 +811,7 @@ export class LocalEnvironment {
 
     // Slice 2 — fire the initial snapshot. Synchronous on purpose:
     // production also delivers the cached snapshot synchronously when
-    // the EventManager already has data for the target (findings §2),
+    // the EventManager already has data for the target (findings section 2),
     // and the sandbox always has data because there's no remote stream
     // to wait on. Errors are routed through the listener's
     // `errorCallback`, never thrown out of `addSnapshotListener` —
@@ -918,7 +918,7 @@ export class LocalEnvironment {
    * Walk every active snapshot listener and fire those whose target
    * intersects `touchedPaths`. Called by the write-path commit hooks
    * — `execute` (single write) and the two `applyBatch` call-sites
-   * (batch + transaction). Suppresses no-op snapshots per findings §5
+   * (batch + transaction). Suppresses no-op snapshots per findings section 5
    * (View-level suppression rather than `isEqual`): doc listeners only
    * fire when the underlying data shape changes; query listeners only
    * fire when the change list is non-empty.
@@ -1028,7 +1028,7 @@ export class LocalEnvironment {
     // Suppression: empty change set ⇒ nothing observable changed for
     // this listener (e.g., a write that landed under a different
     // collection but tripped the cheap pre-filter, or a write whose
-    // post-image equals its pre-image). Match findings §5.
+    // post-image equals its pre-image). Match findings section 5.
     const changes = snap.docChanges();
     if (changes.length === 0) {
       this.emitSnapshotSuppressed({
@@ -1391,7 +1391,7 @@ export class LocalEnvironment {
    * listener is re-evaluated under the new rules. This **diverges from
    * production** (where rule changes don't affect already-attached
    * listeners) and is intentional per the design rationale
-   * §4.1 — the playground's value is seeing rule changes reflected
+   * section 4.1 — the playground's value is seeing rule changes reflected
    * immediately in live UI. Concretely:
    *   - A doc that was unreadable but is now readable fires a snapshot
    *     (and clears the listener's `errored` flag if applicable).
@@ -1420,7 +1420,7 @@ export class LocalEnvironment {
   /**
    * Walk every active listener and recompute its snapshot under the
    * current rules. Called by {@link deployRules} after a successful
-   * rules swap (Slice 6 §4.1). Iteration follows the same
+   * rules swap (Slice 6 section 4.1). Iteration follows the same
    * snapshot-then-skip-orphans pattern as {@link notifyListenersForPaths}
    * — a callback may add or remove listeners (StrictMode + HMR both
    * routinely do this), and the dispatch loop must not iterate a

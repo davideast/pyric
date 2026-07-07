@@ -739,6 +739,131 @@ export interface ServiceMutationEvent {
 }
 
 /**
+ * Canonical service operation event. This is the service-neutral successor to
+ * Firestore's `request` traffic shape: every user-visible operation can be
+ * represented here, whether it is backed by security rules (Firestore/RTDB/
+ * Storage) or by a service control plane (Auth).
+ *
+ * Existing Firestore `request` events remain for compatibility. New cross-
+ * service consumers should prefer `operation` because it carries an explicit
+ * `service` discriminator and does not require RTDB/Storage/Auth to pretend
+ * their state is a Firestore document.
+ */
+export interface SandboxOperationEvent {
+  kind: 'operation';
+  id: string;
+  at: number;
+  service: EventService;
+  method: string;
+  path?: string;
+  auth: AuthState;
+  result: 'allow' | 'deny' | 'unsupported' | 'error' | 'not-applicable';
+  origin: 'user' | 'listener' | 'transaction' | 'batch' | 'admin' | 'system';
+  durationMs?: number;
+  reasons?: string[];
+  rules?: {
+    engine: 'firestore' | 'rtdb' | 'storage';
+    matchedPath?: string;
+    matchedRule?: string;
+    ruleIndex?: number;
+    operations?: string[];
+    pathVariableBindings?: Record<string, string>;
+    reason?: string;
+    errorCode?: string;
+  };
+  request?: {
+    data?: unknown;
+    resourceData?: unknown;
+    query?: unknown;
+  };
+  resourceBefore?: {
+    data: unknown;
+    exists: boolean;
+  };
+  resourceAfter?: {
+    data: unknown;
+    exists: boolean;
+  };
+  groupId?: string;
+  groupKind?: 'batch' | 'transaction';
+  triggeredBy?: { method: string; path?: string };
+  detail?: Record<string, unknown>;
+}
+
+/**
+ * Canonical committed mutation event. Unlike `operation`, this fires only when
+ * state actually changed. Replay and branch tooling should eventually consume
+ * these service adapters instead of filtering Firestore-only `write` events.
+ */
+export interface SandboxCommitEvent {
+  kind: 'commit';
+  id: string;
+  at: number;
+  service: EventService;
+  method: string;
+  path?: string;
+  auth: AuthState;
+  data?: unknown;
+  priorState?: unknown;
+  nextState?: unknown;
+  groupId?: string;
+  groupKind?: 'batch' | 'transaction';
+  replay?: {
+    requestTime?: number;
+    autoId?: string;
+    sentinels?: Array<{ field: string; kind: string }>;
+  };
+  detail?: Record<string, unknown>;
+}
+
+/**
+ * Canonical listener lifecycle/delivery event. Firestore's existing snapshot
+ * delivery/lifecycle variants are preserved; this shape gives RTDB and future
+ * service listeners the same debuggable surface.
+ */
+export interface SandboxListenerEvent {
+  kind: 'listener';
+  id: string;
+  at: number;
+  service: EventService;
+  phase: 'attach' | 'detach' | 'delivery' | 'suppressed' | 'errored';
+  listenerId: string;
+  target: {
+    kind: string;
+    path?: string;
+    query?: unknown;
+  };
+  auth: AuthState;
+  result?: 'allow' | 'deny' | 'unsupported' | 'error';
+  size?: number;
+  sample?: unknown;
+  reason?: string;
+  error?: {
+    code?: string;
+    message: string;
+    reasons?: string[];
+  };
+  triggeredBy?: { method: string; path?: string };
+  detail?: Record<string, unknown>;
+}
+
+/** Canonical non-rules operational failure. */
+export interface SandboxRuntimeErrorEvent {
+  kind: 'runtime_error';
+  id: string;
+  at: number;
+  service: EventService;
+  method: string;
+  path?: string;
+  auth: AuthState;
+  error: {
+    code?: string;
+    message: string;
+  };
+  detail?: Record<string, unknown>;
+}
+
+/**
  * Discriminated union of every event the sandbox emits to
  * {@link Sandbox.onEvent} subscribers.
  *
@@ -775,7 +900,7 @@ export type EventActor =
  */
 export type AuthLens =
   | { mode: 'admin' }
-  | { mode: 'as'; uid: string }
+  | { mode: 'as'; uid: string; token?: Record<string, unknown> }
   | { mode: 'app-session' };
 
 /**
@@ -801,6 +926,10 @@ export type SandboxEvent = (
   | ListenerLifecycleEvent
   | SessionBoundaryEvent
   | ServiceMutationEvent
+  | SandboxOperationEvent
+  | SandboxCommitEvent
+  | SandboxListenerEvent
+  | SandboxRuntimeErrorEvent
 ) &
   EventProvenance;
 

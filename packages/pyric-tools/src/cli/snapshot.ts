@@ -1,6 +1,6 @@
 /**
  * `pyric snapshot` — promote lived sandbox state to a committable fixture
- * (flow doc §3c: seed.json is intent, `.pyric/state/` is runtime, promote
+ * (flow doc section 3c: seed.json is intent, `.pyric/state/` is runtime, promote
  * bridges them).
  *
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json]

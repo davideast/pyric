@@ -55,6 +55,17 @@ export function permissionDenied(): Error {
  */
 export type RuleCheck = 'allow' | 'deny' | 'no-rule';
 
+export interface RuleEvaluationDetails {
+  check: RuleCheck;
+  reasons: string[];
+  matchedPath?: string;
+  matchedRule?: string;
+  reason?: string;
+  pathVariableBindings?: Record<string, string>;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 export interface EvalContext {
   /** Identity for `request.auth`. `null` is anonymous. */
   auth: AuthState;
@@ -102,7 +113,20 @@ export class RulesEvaluator {
     path: string,
     ctx: EvalContext,
   ): RuleCheck {
-    if (this.ir === null) return 'allow';
+    return this.evaluate(operation, path, ctx).check;
+  }
+
+  evaluate(
+    operation: 'read' | 'write' | 'validate',
+    path: string,
+    ctx: EvalContext,
+  ): RuleEvaluationDetails {
+    if (this.ir === null) {
+      return {
+        check: 'allow',
+        reasons: ['No RTDB rules loaded; default allow.'],
+      };
+    }
     // The simulator's SimulationInputSchema requires `auth` to be
     // either `null` or `{ uid: string, token: Record<string, unknown> }` —
     // `token` is mandatory, not optional. `AuthState` from
@@ -121,11 +145,32 @@ export class RulesEvaluator {
       newData: ctx.newData,
     });
     if (!result.success) {
-      if (result.error.code === 'NO_MATCHING_RULE') return 'no-rule';
+      if (result.error.code === 'NO_MATCHING_RULE') {
+        return {
+          check: 'no-rule',
+          reasons: [result.error.message],
+          errorCode: result.error.code,
+          errorMessage: result.error.message,
+        };
+      }
       // INVALID_INPUT / IR_NOT_GENERATED / EVALUATION_ERROR — treat as
       // no-rule (user-mode callers fold to deny).
-      return 'no-rule';
+      return {
+        check: 'no-rule',
+        reasons: [result.error.message],
+        errorCode: result.error.code,
+        errorMessage: result.error.message,
+      };
     }
-    return result.data.allowed ? 'allow' : 'deny';
+    return {
+      check: result.data.allowed ? 'allow' : 'deny',
+      reasons: [
+        `${result.data.matchedPath} ${operation} ${result.data.allowed ? 'ALLOW' : 'DENY'}: ${result.data.reason}`,
+      ],
+      matchedPath: result.data.matchedPath,
+      matchedRule: result.data.matchedRule,
+      reason: result.data.reason,
+      pathVariableBindings: result.data.pathVariableBindings,
+    };
   }
 }

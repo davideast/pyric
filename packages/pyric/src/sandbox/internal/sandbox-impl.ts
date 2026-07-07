@@ -27,7 +27,11 @@ import type {
   Sandbox,
   SandboxAdmin,
   SandboxContext,
+  SandboxCommitEvent,
   SandboxEvent,
+  SandboxListenerEvent,
+  SandboxOperationEvent,
+  SandboxRuntimeErrorEvent,
   SandboxSnapshot,
   ServiceMutationEvent,
   SessionBoundaryEvent,
@@ -696,5 +700,53 @@ export function makeServiceMutationEvent(
     id: makeSandboxEventId(),
     at: Date.now(),
     ...fields,
+  };
+}
+
+export function makeSandboxOperationEvent(
+  fields: Omit<SandboxOperationEvent, 'kind' | 'id' | 'at'> & { at?: number },
+): SandboxOperationEvent {
+  const { at, ...rest } = fields;
+  return {
+    kind: 'operation',
+    id: makeSandboxEventId(),
+    at: at ?? Date.now(),
+    ...rest,
+  };
+}
+
+export function makeSandboxCommitEvent(
+  fields: Omit<SandboxCommitEvent, 'kind' | 'id' | 'at'> & { at?: number },
+): SandboxCommitEvent {
+  const { at, ...rest } = fields;
+  return {
+    kind: 'commit',
+    id: makeSandboxEventId(),
+    at: at ?? Date.now(),
+    ...rest,
+  };
+}
+
+export function makeSandboxListenerEvent(
+  fields: Omit<SandboxListenerEvent, 'kind' | 'id' | 'at'> & { at?: number },
+): SandboxListenerEvent {
+  const { at, ...rest } = fields;
+  return {
+    kind: 'listener',
+    id: makeSandboxEventId(),
+    at: at ?? Date.now(),
+    ...rest,
+  };
+}
+
+export function makeSandboxRuntimeErrorEvent(
+  fields: Omit<SandboxRuntimeErrorEvent, 'kind' | 'id' | 'at'> & { at?: number },
+): SandboxRuntimeErrorEvent {
+  const { at, ...rest } = fields;
+  return {
+    kind: 'runtime_error',
+    id: makeSandboxEventId(),
+    at: at ?? Date.now(),
+    ...rest,
   };
 }

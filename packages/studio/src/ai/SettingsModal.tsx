@@ -115,6 +115,45 @@ function ProviderRow({ providerId }: { providerId: ProviderId }) {
   );
 }
 
+export function SettingsContent({
+  headingId,
+  showClose,
+  onClose,
+}: {
+  headingId?: string;
+  showClose?: boolean;
+  onClose?: () => void;
+}) {
+  const providers = useMemo(() => PROVIDER_LIST.map((p) => p.id), []);
+
+  return (
+    <>
+      <header className="ai-set__head">
+        <h2 id={headingId} className="ai-set__title">AI settings</h2>
+        {showClose && onClose ? (
+          <button type="button" className="ai-set__close" onClick={onClose} aria-label="Close">
+            esc
+          </button>
+        ) : null}
+      </header>
+      <p className="ai-set__note">
+        Bring your own key. Keys are stored in this browser's localStorage and never
+        leave it. Studio is an admin console, so prefer a scoped or dev key. A
+        server-side relay (no key in the browser) is a later option.
+      </p>
+      <div className="ai-set__model">
+        <span className="ai-set__modellabel">Model for assists</span>
+        <ModelSelector />
+      </div>
+      <div className="ai-set__rows">
+        {providers.map((id) => (
+          <ProviderRow key={id} providerId={id} />
+        ))}
+      </div>
+    </>
+  );
+}
+
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   // Esc closes.
   useEffect(() => {
@@ -126,7 +165,6 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  const providers = useMemo(() => PROVIDER_LIST.map((p) => p.id), []);
   if (!open) return null;
 
   return (
@@ -135,29 +173,10 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
         className="ai-set"
         role="dialog"
         aria-modal="true"
-        aria-label="AI settings"
+        aria-labelledby="ai-settings-modal-title"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <header className="ai-set__head">
-          <h2 className="ai-set__title">AI settings</h2>
-          <button type="button" className="ai-set__close" onClick={onClose} aria-label="Close">
-            esc
-          </button>
-        </header>
-        <p className="ai-set__note">
-          Bring your own key. Keys are stored in this browser's localStorage and never
-          leave it. Studio is an admin console, so prefer a scoped or dev key. A
-          server-side relay (no key in the browser) is a later option.
-        </p>
-        <div className="ai-set__model">
-          <span className="ai-set__modellabel">Model for assists</span>
-          <ModelSelector />
-        </div>
-        <div className="ai-set__rows">
-          {providers.map((id) => (
-            <ProviderRow key={id} providerId={id} />
-          ))}
-        </div>
+        <SettingsContent headingId="ai-settings-modal-title" showClose onClose={onClose} />
       </div>
     </div>
   );
