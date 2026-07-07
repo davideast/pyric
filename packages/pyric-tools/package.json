@@ -20,6 +20,10 @@
       "types": "./dist/credentials/node/index.d.ts",
       "import": "./dist/credentials/node/index.js"
     },
+    "./verify": {
+      "types": "./dist/verify/index.d.ts",
+      "import": "./dist/verify/index.js"
+    },
     "./bridge": {
       "types": "./dist/bridge/server.d.ts",
       "node": {

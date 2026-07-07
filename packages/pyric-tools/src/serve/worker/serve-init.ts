@@ -28,11 +28,13 @@
  */
 
 import { sandbox as sandboxOps } from 'pyric/firestore';
+import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database/modular';
 import { sandbox as authOps, type SeedUser } from 'pyric/auth';
 import type { PersistenceBackend } from 'pyric/sandbox';
 import { serializeToBuckets, bundleRecords, parseBundle } from 'pyric/sandbox';
 import type { InitPayload } from '../namespace.js';
 import { ensureAuth, type HostCtx } from './host.js';
+import { buildVerifyFixture } from '../../verify/fixture.js';
 
 /** Injected environment — `fetch` is the only ambient the worker init needs
  *  (capture POSTs through it). Injectable so tests drive it with a stub. */
@@ -128,6 +130,17 @@ export function applyServeInit(
       result.rulesDeployed = true;
     }
   }
+  if (payload.databaseRules) {
+    const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
+    rtdbSandbox.setRules(rtdb, payload.databaseRules);
+    ctx.activeRules ??= {};
+    ctx.activeRules.database = {
+      source: payload.databaseRules,
+      updatedAt: Date.now(),
+      status: 'active',
+      messages: [],
+    };
+  }
 
   // 2. Auth users — seed BEFORE docs so any owner-uid the rules reference
   //    resolves, and before session restore so there is a DB to restore into.
@@ -152,11 +165,23 @@ export function applyServeInit(
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const flush = (): void => {
-      const body = JSON.stringify({
-        rules: payload.rules ?? '',
-        events: ctx.sandbox.history(),
-        state: ctx.sandbox.snapshot().firestore,
-      });
+      const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
+      const rtdbState =
+        payload.databaseRules || ctx.sandbox.history().some((event) => event.service === 'rtdb')
+          ? rtdbSandbox.snapshotState(rtdb)
+          : undefined;
+      const auth = ensureAuth(ctx);
+      const body = JSON.stringify(buildVerifyFixture({
+        sandbox: ctx.sandbox,
+        firestoreRules: payload.rules,
+        rtdbRules: payload.databaseRules ?? null,
+        rtdbState,
+        rtdbDatabaseUrl: payload.databaseUrl ?? null,
+        authState: {
+          users: authOps.exportUsers(auth),
+          currentUser: ctx.sandbox.currentUser,
+        },
+      }));
       // Relative URL resolves against the worker script's origin (same origin
       // as the page). Fire-and-forget — capture failures never break ops.
       env

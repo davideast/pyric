@@ -96,6 +96,24 @@ describe('parseArgs', () => {
     const p = parseArgs(['rules:simulate', '--stdin']);
     expect(p.flags.get('stdin')).toBe(true);
   });
+
+  it('preserves repeated long flags in order', () => {
+    const p = parseArgs([
+      'verify',
+      '--service',
+      'firestore',
+      '--service',
+      'rtdb',
+      '--rules=firestore=firestore.rules',
+      '--rules',
+      'rtdb=database.rules.json',
+    ]);
+    expect(p.flags.get('service')).toEqual(['firestore', 'rtdb']);
+    expect(p.flags.get('rules')).toEqual([
+      'firestore=firestore.rules',
+      'rtdb=database.rules.json',
+    ]);
+  });
 });
 
 // ── deploy ────────────────────────────────────────────────────────────

@@ -112,9 +112,9 @@ export const db = getFirestore(initializeSandbox());`,
 });
 
 describe('the real wrapper entries (plan step 1.2)', () => {
-  it('defaultSdkEntries locates app + auth + firestore entries', () => {
+  it('defaultSdkEntries locates app + auth + firestore + database entries', () => {
     const entries = (require('../../src/serve/bundler.js') as typeof import('../../src/serve/bundler.js')).defaultSdkEntries();
-    expect(Object.keys(entries).sort()).toEqual(['app', 'auth', 'firestore', 'init']);
+    expect(Object.keys(entries).sort()).toEqual(['app', 'auth', 'database', 'firestore', 'init']);
   });
 
   it('bundles browser-standalone with a SINGLE shared runtime chunk', async () => {
@@ -125,6 +125,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     const names = result.files.map((f) => f.split('/').pop()!);
     expect(names).toContain('app.js');
     expect(names).toContain('auth.js');
+    expect(names).toContain('database.js');
     expect(names).toContain('firestore.js');
     expect(names).toContain('init.js');
     // splitting produced shared chunk(s); the runtime/sandbox must NOT be
@@ -133,8 +134,10 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     const chunks = names.filter((n) => n.startsWith('pyric-sandbox-'));
     expect(chunks.length).toBeGreaterThanOrEqual(1);
     const authSrc = readFileSync(result.files.find((f) => f.endsWith('/auth.js'))!, 'utf8');
+    const dbSrc = readFileSync(result.files.find((f) => f.endsWith('/database.js'))!, 'utf8');
     const fsSrc = readFileSync(result.files.find((f) => f.endsWith('/firestore.js'))!, 'utf8');
     expect(authSrc).toMatch(/from\s*["']\.\/pyric-sandbox-/);
+    expect(dbSrc).toMatch(/from\s*["']\.\/pyric-sandbox-/);
     expect(fsSrc).toMatch(/from\s*["']\.\/pyric-sandbox-/);
     expect(authSrc).not.toMatch(/initializeSandbox/); // sandbox lives in the chunk
     expect(fsSrc).not.toMatch(/initializeSandbox/);
@@ -222,6 +225,17 @@ describe('the real wrapper entries (plan step 1.2)', () => {
       'GithubAuthProvider', 'OAuthProvider', 'setPersistence',
     ]) {
       expect(auth.has(name)).toBe(true);
+    }
+
+    const database = exportedNames(result.files.find((f) => f.endsWith('/database.js'))!);
+    for (const name of [
+      'getDatabase', 'ref', 'child', 'get', 'set', 'update', 'remove', 'push',
+      'onValue', 'off', 'serverTimestamp', 'connectDatabaseEmulator',
+      'runTransaction', 'query', 'orderByChild', 'orderByKey', 'orderByValue',
+      'startAt', 'startAfter', 'endAt', 'endBefore', 'equalTo',
+      'limitToFirst', 'limitToLast',
+    ]) {
+      expect(database.has(name)).toBe(true);
     }
   }, 30_000);
 });

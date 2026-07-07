@@ -77,7 +77,7 @@ USAGE
   pyric serve [flags]
   pyric init [dir] [--template=web|node]
   pyric snapshot [--out=FILE]
-  pyric verify [fixture|dir] [--rules=firestore.rules]
+  pyric verify [fixture|dir] [--service firestore|rtdb] [--rules service=path]
   pyric deploy <rules|indexes|database|hosting|functions>
   pyric hosting:channel:deploy <channelId> [--expires <ttl>]
   pyric rules:lint <path>
@@ -116,12 +116,12 @@ COMMANDS
                              .pyric/state/state.json) to a committable fixture that
                              \`pyric serve --seed FILE\` re-serves. Passwords are redacted
                              by default (--include-passwords keeps them). --port, --force, --json.
-  verify [fixture|dir]       Replay a captured sandbox session against your rules and
-                             report real divergences — writes that worked in the sandbox
-                             but would be DENIED by the rules you're shipping. No arg
-                             replays the latest \`pyric serve\` capture (.pyric/last-session.json).
-                             --rules=PATH (default firestore.rules), --json. Exit 1 on
-                             any real divergence.
+  verify [fixture|dir]       Replay a captured sandbox session against candidate rules
+                             for the Firestore/RTDB services present in the fixture.
+                             No arg replays the latest \`pyric serve\` capture
+                             (.pyric/last-session.json). --service filters services.
+                             --rules service=path overrides firebase.json resolution
+                             (repeat for mixed captures). --json. Exit 1 on divergence.
   deploy [target]            Deploy rules / indexes / database / hosting / functions.
                              hosting: deploys the firebase.json hosting block
                              (rewrites/redirects/headers/cleanUrls/trailingSlash/
@@ -238,10 +238,11 @@ function printVersion(): void {
   process.stdout.write(`${VERSION}\n`);
 }
 
-function splitCommaList(value: string | boolean | undefined): string[] {
-  if (typeof value !== 'string') return [];
-  return value
-    .split(',')
+function splitCommaList(value: string | boolean | Array<string | boolean> | undefined): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values
+    .filter((v): v is string => typeof v === 'string')
+    .flatMap((v) => v.split(','))
     .map((v) => v.trim())
     .filter((v) => v.length > 0);
 }

@@ -22,7 +22,7 @@ import {
   materializeStudioUi,
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
-import { loadProjectRules, watchProjectRules } from '../serve/rules.js';
+import { loadProjectDatabaseRules, loadProjectRules, watchProjectRules } from '../serve/rules.js';
 import { createEventHub, createPyricNamespace, injectServeTags, type InitPayload } from '../serve/namespace.js';
 import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from '../serve/state-store.js';
 import { diskProjectStore, diskWorkspace } from '../serve/studio/index.js';
@@ -77,6 +77,7 @@ export function serveJsonLine(runtime: ServeRuntime): string {
     uiUrl: runtime.uiUrl,
     mcpUrl: runtime.mcpUrl,
     rulesHash: runtime.payload().rulesHash,
+    databaseRulesHash: runtime.payload().databaseRulesHash ?? null,
     persist: runtime.persist !== null,
     restoredDocs: runtime.persist?.restoredDocs ?? 0,
     restoredUsers: runtime.persist?.restoredUsers ?? 0,
@@ -157,7 +158,14 @@ export async function startServe(opts: {
   // Held in a mutable box — the watcher swaps it and the payload producer
   // always serves the live version.
   const loaded = await loadProjectRules(opts.cwd, config);
-  const live = { rules: loaded.rules, rulesHash: loaded.rulesHash };
+  const loadedDatabase = await loadProjectDatabaseRules(opts.cwd, config);
+  const live = {
+    rules: loaded.rules,
+    rulesHash: loaded.rulesHash,
+    databaseRules: loadedDatabase.rules,
+    databaseRulesHash: loadedDatabase.rulesHash,
+    databaseUrl: loadedDatabase.databaseUrl,
+  };
 
   // --capture (default on): the capture store writes .pyric/last-session.json
   // whenever the page pushes its session fixture via POST /__pyric/capture.
@@ -264,6 +272,9 @@ export async function startServe(opts: {
   const payload = (): InitPayload => ({
     rules: live.rules,
     rulesHash: live.rulesHash,
+    databaseRules: live.databaseRules,
+    databaseRulesHash: live.databaseRulesHash,
+    databaseUrl: live.databaseUrl,
     bridgeUrl: mount && origin.port > 0 ? mount.wsUrl(origin) : null,
     // Precedence: once a state file exists, the lived state is the truth —
     // --seed applies only on the first (state-less) run.
@@ -394,6 +405,11 @@ export async function startServe(opts: {
     loaded.rules
       ? `✔ rules    ${loaded.sourcePath} → deployed to the in-page sandbox (hash ${loaded.rulesHash})`
       : `• rules    no firestore.rules — sandbox runs with default rules`,
+  );
+  logger.info(
+    loadedDatabase.rules
+      ? `✔ rules    ${loadedDatabase.sourcePath} → deployed to the RTDB sandbox (hash ${loadedDatabase.rulesHash})`
+      : `• rules    no database.rules — RTDB sandbox runs with default rules`,
   );
   if (uiUrl) {
     logger.info(`✔ studio   Pyric Studio: ${uiUrl}`);

@@ -25,6 +25,13 @@ export interface LoadedRules {
   sourcePath: string | null;
 }
 
+export interface LoadedDatabaseRules {
+  rules: { rules: Record<string, unknown> } | null;
+  rulesHash: string | null;
+  sourcePath: string | null;
+  databaseUrl: string | null;
+}
+
 export function rulesHashOf(source: string): string {
   return createHash('sha256').update(source).digest('hex').slice(0, 12);
 }
@@ -91,6 +98,49 @@ export async function loadProjectRules(
   return { rules, rulesHash: rulesHashOf(rules), sourcePath: path };
 }
 
+export async function loadProjectDatabaseRules(
+  cwd: string,
+  config: FirebaseJson | null,
+): Promise<LoadedDatabaseRules> {
+  const configured = config?.database?.rules;
+  if (!configured) {
+    return {
+      rules: null,
+      rulesHash: null,
+      sourcePath: null,
+      databaseUrl: config?.database?.url ?? null,
+    };
+  }
+
+  const path = isAbsolute(configured) ? configured : join(cwd, configured);
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`pyric serve: firebase.json points database.rules at ${path}, but it does not exist.`);
+    }
+    throw e;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    throw new Error(`pyric serve: ${path} failed to parse as RTDB rules JSON: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.rules)) {
+    throw new Error(`pyric serve: ${path} must contain a top-level "rules" object.`);
+  }
+
+  return {
+    rules: parsed as { rules: Record<string, unknown> },
+    rulesHash: rulesHashOf(raw),
+    sourcePath: path,
+    databaseUrl: config?.database?.url ?? null,
+  };
+}
+
 /**
  * Watch the rules file and invoke `onChange` with freshly prepared
  * (resolved + linted) source. Broken intermediate saves are LOGGED and
@@ -121,4 +171,8 @@ export function watchProjectRules(
       );
     }, debounceMs);
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

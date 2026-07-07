@@ -38,7 +38,7 @@ import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 
 /** Modules the import map serves. Keys are the bare specifiers app code uses. */
-export const SDK_MODULES = ['firebase/app', 'firebase/auth', 'firebase/firestore'] as const;
+export const SDK_MODULES = ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/database'] as const;
 
 /**
  * The wrapper entries shipped with pyric-tools, located relative to this
@@ -54,7 +54,13 @@ export function defaultSdkEntries(): Record<string, string> {
     if (existsSync(ts)) return ts;
     throw new Error(`pyric serve: missing SDK entry '${name}' next to ${here}`);
   };
-  return { app: pick('app'), auth: pick('auth'), firestore: pick('firestore'), init: pick('init') };
+  return {
+    app: pick('app'),
+    auth: pick('auth'),
+    firestore: pick('firestore'),
+    database: pick('database'),
+    init: pick('init'),
+  };
 }
 
 /**

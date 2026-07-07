@@ -52,7 +52,7 @@ is unavailable). `firestore.rules` is deployed and hot-reloaded over SSE.
 | `--persist` | off | Persist sandbox state (docs + auth users) to a committable `.pyric/state/state.json`. Once a state file exists it wins; `--seed` then applies only on the first run. (On the SharedWorker path data is already durable in IndexedDB; this adds the on-disk, shareable copy.) |
 | `--fresh` | off | With `--persist`: discard the existing state file and re-seed from scratch. Does not clear the browser's IndexedDB. |
 | `--seed <file>` | — | Load a `"collection/doc" → fields` JSON map admin-style before app code runs. Also accepts a `pyric snapshot` state file (detected by its `version` key) — seeds docs + auth users. |
-| `--no-capture` | capture on | Disable the session capture. By default serve writes `.pyric/last-session.json` for `pyric verify` to replay. |
+| `--no-capture` | capture on | Disable the session capture. By default serve writes `.pyric/last-session.json` for `pyric verify` to replay. Captures use `pyric.verify.fixture.v1`, with one event timeline and per-service Firestore/RTDB rules + state blocks. |
 | `--no-watch` | watch on | Disable `firestore.rules` hot-reload. |
 | `--no-open` | auto-open on | Don't auto-open the browser. (Auto-open is already suppressed under `--json`, no TTY, and CI.) |
 | `--no-cache` | cache on | Rebuild the served SDK + worker bundles instead of using `~/.pyric/serve-cache`. |
@@ -95,18 +95,34 @@ See [promote sandbox state to a fixture](../how-to/promote-sandbox-state-to-a-fi
 <a id="pyric-verify"></a>
 ### `pyric verify [fixture|dir] [flags]`
 
-Replay a captured sandbox session against a ruleset and report **real
-divergences** — writes that succeeded in the sandbox but would be denied by the
-rules you're shipping. With no positional argument it replays the latest
-`pyric serve` capture at `.pyric/last-session.json`.
+Replay a captured sandbox session against candidate rules. Captures can contain
+Firestore and Realtime Database services; `verify` checks the verifiable
+services present in the fixture unless `--service` filters them. With no
+positional argument it replays the latest `pyric serve` capture at
+`.pyric/last-session.json`.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--rules <path>` | `firestore.rules` | Ruleset to verify against. |
+| `--service <firestore\|rtdb>` | all services in fixture | Verify one service. Repeat to verify several selected services. `database` is accepted as an alias for `rtdb`. |
+| `--rules <service=path>` | from `firebase.json` | Candidate rules to verify against. Repeat for mixed-service captures. Firestore rules are source files; RTDB rules are JSON files. |
 | `--json` | off | Machine output on stdout. |
 
-**Exit code:** `1` on any real divergence, `0` otherwise. autoid-alias /
-time-drift / sentinel-drift divergences are informational and do not fail.
+Default candidate rules come from `firebase.json.firestore.rules` and
+`firebase.json.database.rules`. Captured rules are informational and are not
+used as the candidate ruleset.
+
+**Exit code:** `1` on any failing divergence, `0` otherwise. Missing fixture or
+missing candidate rules exits `2`. Firestore auto-id aliases, time drift, and
+sentinel drift are informational and do not fail.
+
+Examples:
+
+```sh
+pyric verify
+pyric verify journeys/ --rules firestore=firestore.rules
+pyric verify --service rtdb --rules rtdb=database.rules.json
+pyric verify --rules firestore=firestore.rules --rules rtdb=database.rules.json
+```
 
 See [verify against a captured session](../how-to/verify-against-a-captured-session.md).
 

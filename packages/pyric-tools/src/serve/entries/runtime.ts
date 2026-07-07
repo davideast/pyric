@@ -20,6 +20,7 @@ import {
   bundleRecords,
 } from 'pyric/sandbox';
 import { getFirestore, sandbox as sandboxOps } from 'pyric/firestore';
+import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database/modular';
 import { getAuth, onAuthStateChanged, signOut, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
   getFirestore as workerGetFirestore,
@@ -33,6 +34,7 @@ import {
 import { SessionStore } from './session-store.js';
 import { keepaliveSafe } from './keepalive.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
+import { buildVerifyFixture } from '../../verify/fixture.js';
 
 /**
  * The DEFAULT-ON worker path (Phase 3c): when SharedWorker is available the
@@ -136,6 +138,10 @@ interface InitPayload {
   rules: string | null;
   /** sha256 prefix of the rules source — diagnostics + hot-reload diffing. */
   rulesHash: string | null;
+  /** Firebase RTDB rules JSON, when firebase.json has database.rules. */
+  databaseRules?: { rules: Record<string, unknown> } | null;
+  databaseRulesHash?: string | null;
+  databaseUrl?: string | null;
   /** Bridge WS URL when `--bridge` is on (P2); null otherwise. */
   bridgeUrl: string | null;
   /** `--seed` documents (path → fields), applied admin-style before app code runs.
@@ -157,7 +163,9 @@ interface InitPayload {
 interface ServeDiagnostics {
   sandboxReady: boolean;
   rulesDeployed: boolean;
+  databaseRulesDeployed: boolean;
   rulesHash: string | null;
+  databaseRulesHash: string | null;
   initError: string | null;
   bridgeConnected: boolean;
   seededDocs: number;
@@ -176,7 +184,9 @@ declare global {
 const diagnostics: ServeDiagnostics = {
   sandboxReady: true,
   rulesDeployed: false,
+  databaseRulesDeployed: false,
   rulesHash: null,
+  databaseRulesHash: null,
   initError: null,
   bridgeConnected: false,
   seededDocs: 0,
@@ -209,6 +219,11 @@ if (!useWorker) try {
     }
     diagnostics.rulesDeployed = true;
     diagnostics.rulesHash = payload.rulesHash;
+  }
+  if (payload.databaseRules) {
+    rtdbSandbox.setRules(getDatabase(sandbox), payload.databaseRules);
+    diagnostics.databaseRulesDeployed = true;
+    diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
   }
   // Auth users land first in either mode (persist restore or state-file
   // fixture) so restored docs' owner uids resolve in rules and the session
@@ -355,11 +370,22 @@ if (!useWorker) try {
     // --persist — capture is about the verify loop, persist is about
     // cross-reload durability.
     const flushCapture = (): void => {
-      const body = JSON.stringify({
-        rules: payload.rules ?? '',
-        events: sandbox.history(),
-        state: sandbox.snapshot().firestore,
-      });
+      const rtdbState =
+        payload.databaseRules || sandbox.history().some((event) => event.service === 'rtdb')
+          ? rtdbSandbox.snapshotState(getDatabase(sandbox))
+          : undefined;
+      const auth = getAuth(sandbox);
+      const body = JSON.stringify(buildVerifyFixture({
+        sandbox,
+        firestoreRules: payload.rules,
+        rtdbRules: payload.databaseRules ?? null,
+        rtdbState,
+        rtdbDatabaseUrl: payload.databaseUrl ?? null,
+        authState: {
+          users: authOps.exportUsers(auth),
+          currentUser: auth.currentUser,
+        },
+      }));
       fetch('/__pyric/capture', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
