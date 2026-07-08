@@ -8,7 +8,7 @@
  * a warning saying exactly that). Keep this module free of side effects and
  * heavy imports: the loader thread re-instantiates it in isolation.
  */
-import { mapFirebaseSpecifier } from './mapping.js';
+import { rewriteSpecifier } from './exempt.js';
 
 interface ResolveContext {
   parentURL?: string;
@@ -26,5 +26,5 @@ export function resolve(
   context: ResolveContext,
   nextResolve: (specifier: string, context?: ResolveContext) => Promise<ResolveResult>,
 ): Promise<ResolveResult> {
-  return nextResolve(mapFirebaseSpecifier(specifier) ?? specifier, context);
+  return nextResolve(rewriteSpecifier(specifier, context.parentURL) ?? specifier, context);
 }

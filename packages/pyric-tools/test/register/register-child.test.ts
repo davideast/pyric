@@ -93,6 +93,25 @@ console.log('CJS_OK');
 `,
   );
 
+  // Mirror-exemption fixture (the merged-stack repro, scoped to this
+  // branch): a USER import of firebase-admin/database is rewritten to
+  // pyric-admin/database, whose OWN prod-arm import of
+  // firebase-admin/database (getDatabaseWithUrl et al.) must resolve to
+  // REAL firebase-admin — without the exemption that import self-rewrites
+  // and the load crashes with "does not provide an export named
+  // 'getDatabaseWithUrl'".
+  writeFileSync(
+    join(fixtureDir, 'prod-arm.mjs'),
+    `import assert from 'node:assert';
+const db = await import('firebase-admin/database');
+const direct = await import('pyric-admin/database');
+assert.strictEqual(db, direct, 'user import of firebase-admin/database must BE pyric-admin/database');
+assert.strictEqual(db.getDatabaseWithUrl, undefined, 'surface must be pyric-admin, not real firebase-admin');
+assert.strictEqual(typeof db.getDatabase, 'function');
+console.log('PROD_ARM_OK');
+`,
+  );
+
   // Inertness probe: reports whether the rewrite happened + factory presence.
   writeFileSync(
     join(fixtureDir, 'probe.mjs'),
@@ -115,6 +134,15 @@ describe('pyric-tools/register (child process)', () => {
     const res = runNode('main.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
     expect(res.stderr).toContain('pyric-tools/register: active');
     expect(res.stdout).toContain('ESM_OK');
+    expect(res.status).toBe(0);
+  });
+
+  it("rewrites user imports but EXEMPTS the mirrors' own prod-arm imports", () => {
+    const res = runNode('prod-arm.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
+    expect(res.stderr).toContain('pyric-tools/register: active');
+    // The success line is only reachable when pyric-admin/database loaded,
+    // i.e. its internal firebase-admin/database import stayed unrewritten.
+    expect(res.stdout).toContain('PROD_ARM_OK');
     expect(res.status).toBe(0);
   });
 
