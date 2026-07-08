@@ -4,7 +4,7 @@
  *
  * Subcommands:
  *   pyric bridge [--mode sandbox|prod] [--port N] [--project ID] …
- *   pyric dev [--port N] [--host H] [--no-cache] [--bridge] [--ui] [--seed FILE] [--no-watch] [--no-open] [--no-capture] [--json] [--persist] [--fresh]
+ *   pyric dev [--port N] [--host H] [--no-cache] [--bridge] [--ui] [--seed FILE] [--no-watch] [--no-open] [--no-capture] [--no-run] [--json] [--persist] [--fresh] [-- <cmd>]
  *   pyric init [dir] [--template web|node] [--name N] [--force] [--json]
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json] [--include-passwords]
@@ -74,7 +74,7 @@ project) to external MCP clients (Claude Code, Cursor, ...).
 
 USAGE
   pyric bridge [flags]
-  pyric dev [flags]
+  pyric dev [flags] [-- <cmd>]
   pyric init [dir] [--template=web|node]
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
@@ -100,7 +100,10 @@ COMMANDS
   bridge                     Start the HTTP+WebSocket bridge external MCP clients point at.
   dev                        Serve the app locally with the pyric sandbox standing in for
                              Firebase — unmodified firebase/* imports hit an in-page sandbox
-                             with your firestore.rules deployed.
+                             with your firestore.rules deployed. Also runs your own dev
+                             command (\`-- <cmd>\`, else the package.json \`dev\` script) with
+                             unchanged firebase-admin/firebase imports routed to the
+                             sandbox (PYRIC_SANDBOX + \`--import pyric-tools/register\`).
   init [dir]                 Scaffold a pyric project. --template=web (default; canonical
                              firebase/* app served by \`pyric dev\`) or node (script-style).
                              --name=NAME --force (overwrite scaffold files) --json (machine
@@ -201,6 +204,14 @@ CORE FLAGS (dev)
   --fresh            With --persist: discard the existing state file and
                      re-seed from scratch (escape hatch when you've edited
                      seed.json).
+  -- <cmd>           Run <cmd> once the host is up, with PYRIC_SANDBOX set and
+                     NODE_OPTIONS extended with --import pyric-tools/register
+                     so firebase-admin/firebase resolve to the sandbox. When
+                     omitted, the package.json \`dev\` script runs (via the
+                     detected package manager); no script → host-only.
+  --no-run           Never run a child command (host-only, for users with
+                     their own process manager). --json implies --no-run
+                     unless a \`-- <cmd>\` is given explicitly.
   --json             One machine-readable line on stdout ({url, port, mcpUrl,
                      rulesHash, persist, restoredDocs, restoredUsers}); the
                      banner moves to stderr. Readiness probe:
