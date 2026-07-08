@@ -53,6 +53,7 @@ describe('resolveId — the importer-aware swap', () => {
     expect(resolveId('firebase/app', userImporter)).toBe(entries.app);
     expect(resolveId('firebase/auth', userImporter)).toBe(entries.auth);
     expect(resolveId('firebase/firestore', userImporter)).toBe(entries.firestore);
+    expect(resolveId('firebase/storage', userImporter)).toBe(entries.storage);
   });
 
   it('swaps a node_modules library importer too (transitive deps)', () => {
@@ -68,9 +69,9 @@ describe('resolveId — the importer-aware swap', () => {
     expect(resolveId('firebase/storage', pyricImporter)).toBe('\0pyric:fb-stub:firebase/storage');
   });
 
-  it('swaps RTDB and leaves non-served firebase from user/library code on real firebase', () => {
+  it('swaps RTDB and Storage from user/library code', () => {
     expect(resolveId('firebase/database', userImporter)).toBe(entries.database);
-    expect(resolveId('firebase/storage', userImporter)).toBeNull();
+    expect(resolveId('firebase/storage', userImporter)).toBe(entries.storage);
   });
 
   it('does not false-positive on a user path containing "pyric"', () => {
@@ -173,7 +174,7 @@ describe('integration — real vite dev pluginContainer', () => {
     if (server) await server.close();
   });
 
-  it('swaps firebase/firestore through Vite resolution', async () => {
+  it('swaps firebase/firestore and firebase/storage through Vite resolution', async () => {
     const { createServer } = await import('vite');
     server = (await createServer({
       configFile: false,
@@ -185,6 +186,8 @@ describe('integration — real vite dev pluginContainer', () => {
     })) as unknown as typeof server;
     const r = await server!.pluginContainer.resolveId('firebase/firestore', userImporter);
     expect(r?.id).toBe(entries.firestore);
+    const storage = await server!.pluginContainer.resolveId('firebase/storage', userImporter);
+    expect(storage?.id).toBe(entries.storage);
     const stub = await server!.pluginContainer.resolveId('firebase/firestore', pyricImporter);
     expect(stub?.id).toContain('pyric:fb-stub');
   });

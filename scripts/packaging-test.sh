@@ -204,11 +204,13 @@ if ! grep -R "Shared sandbox" packages/pyric-tools/dist/serve/playground-ui/_ast
   echo "         cp -R packages/playground/dist/client/. packages/pyric-tools/dist/serve/playground-ui/" >&2
   exit 1
 fi
-# All four swap/boot entries are load-bearing: defaultSdkEntries() throws at plugin
+# All swap/boot entries are load-bearing: defaultSdkEntries() throws at plugin
 # construction if any is missing. Guard each, not just firestore.
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/app\.js$' "pyric-tools ships the firebase/app swap entry"
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/auth\.js$' "pyric-tools ships the firebase/auth swap entry"
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/firestore\.js$' "pyric-tools ships the firebase/firestore swap entry"
+assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/database\.js$' "pyric-tools ships the firebase/database swap entry"
+assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/storage\.js$' "pyric-tools ships the firebase/storage swap entry"
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/init\.js$' "pyric-tools ships the sandbox boot entry"
 
 # ─── Phase 3: install all tarballs into a fresh consumer project ──────

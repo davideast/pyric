@@ -14,6 +14,7 @@ function fixture() {
   writeFileSync(join(site, 'index.html'), '<!doctype html><html><head><title>t</title></head><body></body></html>');
   writeFileSync(join(sdk, 'auth.js'), 'export const getAuth = 1;');
   writeFileSync(join(sdk, 'database.js'), 'export const getDatabase = 1;');
+  writeFileSync(join(sdk, 'storage.js'), 'export const getStorage = 1;');
   writeFileSync(join(sdk, 'init.js'), '// init');
   return { site, sdk };
 }
@@ -67,6 +68,7 @@ describe('injectServeTags', () => {
       'firebase/auth',
       'firebase/database',
       'firebase/firestore',
+      'firebase/storage',
     ]);
   });
 });
@@ -113,6 +115,9 @@ describe('namespace over the real server', () => {
     const database = await fetch(h.url + '/__pyric/sdk/database.js');
     expect(database.status).toBe(200);
     expect(database.headers.get('content-type')).toContain('javascript');
+    const storage = await fetch(h.url + '/__pyric/sdk/storage.js');
+    expect(storage.status).toBe(200);
+    expect(storage.headers.get('content-type')).toContain('javascript');
     expect((await fetch(h.url + '/__pyric/sdk/../../etc/passwd')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/sdk/nope.js')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/unknown')).status).toBe(404);

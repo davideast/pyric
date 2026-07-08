@@ -37,6 +37,8 @@ describe('firebase stub generation (drift-proof list)', () => {
     expect(bindings.get('firebase/app')?.has('initializeApp')).toBe(true);
     // `import { get, set, … } from 'firebase/database'`
     expect(bindings.get('firebase/database')?.has('ref')).toBe(true);
+    // `import * as fb from 'firebase/storage'`
+    expect(bindings.get('firebase/storage')?.has('getStorage')).toBe(true);
     // NAMESPACE-accessed members (`import * as fb`; `fb.where(...)`): pyric
     // builds the prod filter eagerly even on the sandbox path, so these MUST be
     // collected or `fb.where` is undefined at runtime ("(void 0) is not a
@@ -112,9 +114,9 @@ export const db = getFirestore(initializeSandbox());`,
 });
 
 describe('the real wrapper entries (plan step 1.2)', () => {
-  it('defaultSdkEntries locates app + auth + firestore + database entries', () => {
+  it('defaultSdkEntries locates app + auth + firestore + database + storage entries', () => {
     const entries = (require('../../src/serve/bundler.js') as typeof import('../../src/serve/bundler.js')).defaultSdkEntries();
-    expect(Object.keys(entries).sort()).toEqual(['app', 'auth', 'database', 'firestore', 'init']);
+    expect(Object.keys(entries).sort()).toEqual(['app', 'auth', 'database', 'firestore', 'init', 'storage']);
   });
 
   it('bundles browser-standalone with a SINGLE shared runtime chunk', async () => {
@@ -127,6 +129,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     expect(names).toContain('auth.js');
     expect(names).toContain('database.js');
     expect(names).toContain('firestore.js');
+    expect(names).toContain('storage.js');
     expect(names).toContain('init.js');
     // splitting produced shared chunk(s); the runtime/sandbox must NOT be
     // duplicated into both entry bundles. Chunk names self-identify as the
@@ -136,9 +139,11 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     const authSrc = readFileSync(result.files.find((f) => f.endsWith('/auth.js'))!, 'utf8');
     const dbSrc = readFileSync(result.files.find((f) => f.endsWith('/database.js'))!, 'utf8');
     const fsSrc = readFileSync(result.files.find((f) => f.endsWith('/firestore.js'))!, 'utf8');
+    const storageSrc = readFileSync(result.files.find((f) => f.endsWith('/storage.js'))!, 'utf8');
     expect(authSrc).toMatch(/from\s*["']\.\/pyric-sandbox-/);
     expect(dbSrc).toMatch(/from\s*["']\.\/pyric-sandbox-/);
     expect(fsSrc).toMatch(/from\s*["']\.\/pyric-sandbox-/);
+    expect(storageSrc).toMatch(/from\s*["']\.\/pyric-sandbox-/);
     expect(authSrc).not.toMatch(/initializeSandbox/); // sandbox lives in the chunk
     expect(fsSrc).not.toMatch(/initializeSandbox/);
     for (const f of result.files) {
@@ -236,6 +241,15 @@ describe('the real wrapper entries (plan step 1.2)', () => {
       'limitToFirst', 'limitToLast',
     ]) {
       expect(database.has(name)).toBe(true);
+    }
+
+    const storage = exportedNames(result.files.find((f) => f.endsWith('/storage.js'))!);
+    for (const name of [
+      'getStorage', 'ref', 'listAll', 'getMetadata', 'connectStorageEmulator',
+      'uploadBytes', 'uploadString', 'getBytes', 'getBlob', 'deleteObject',
+      'updateMetadata', 'StorageError',
+    ]) {
+      expect(storage.has(name)).toBe(true);
     }
   }, 30_000);
 });

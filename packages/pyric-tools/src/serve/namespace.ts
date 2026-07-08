@@ -311,6 +311,7 @@ export function sdkImportMap(): Record<string, string> {
     'firebase/auth': '/__pyric/sdk/auth.js',
     'firebase/database': '/__pyric/sdk/database.js',
     'firebase/firestore': '/__pyric/sdk/firestore.js',
+    'firebase/storage': '/__pyric/sdk/storage.js',
   };
 }
 
