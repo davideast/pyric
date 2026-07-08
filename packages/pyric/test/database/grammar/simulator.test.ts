@@ -64,6 +64,17 @@ describe('DataSnapshot', () => {
     expect(new DataSnapshot({}).hasChildren()).toBe(false);
     expect(new DataSnapshot(null).hasChildren()).toBe(false);
   });
+
+  test('hasChildren(keys) requires ALL listed keys to be present', () => {
+    const snap = new DataSnapshot({ title: 't', body: 'b' });
+    expect(snap.hasChildren(['title', 'body'])).toBe(true);
+    expect(snap.hasChildren(['title'])).toBe(true);
+    // Missing `body` — prod denies; the sandbox previously dropped the arg
+    // and returned "has any children" (true), the bug this closes.
+    expect(new DataSnapshot({ title: 't' }).hasChildren(['title', 'body'])).toBe(false);
+    // No children at all.
+    expect(new DataSnapshot(null).hasChildren(['title'])).toBe(false);
+  });
 });
 
 describe('evaluateExpression', () => {
@@ -150,5 +161,19 @@ describe('evaluateExpression', () => {
   test('null auth does not throw when accessing .uid', () => {
     // auth.uid when auth is null returns null (member access on null)
     expect(() => evalExpr('auth.uid === "x"', baseCtx)).not.toThrow();
+  });
+
+  test('array literal evaluates to a JS array', () => {
+    expect(evalExpr("['a', 'b']", baseCtx)).toEqual(['a', 'b']);
+    expect(evalExpr('[]', baseCtx)).toEqual([]);
+    expect(evalExpr('[1, 2, 3]', baseCtx)).toEqual([1, 2, 3]);
+  });
+
+  test('newData.hasChildren([...]) enforces all-keys-present through the grammar', () => {
+    const withBody = { ...baseCtx, newData: new DataSnapshot({ title: 't', body: 'b' }) };
+    expect(evalExpr("newData.hasChildren(['title', 'body'])", withBody)).toBe(true);
+
+    const missingBody = { ...baseCtx, newData: new DataSnapshot({ title: 't' }) };
+    expect(evalExpr("newData.hasChildren(['title', 'body'])", missingBody)).toBe(false);
   });
 });

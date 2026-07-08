@@ -77,4 +77,31 @@ describe('parseExpression', () => {
     const authCount = result.referencedIdentifiers.filter(id => id === 'auth').length;
     expect(authCount).toBe(1);
   });
+
+  test('parses hasChildren with an array-literal argument', () => {
+    // The single most common `.validate` idiom — previously a PARSE FAIL,
+    // which silently skipped the rule (see simulation/handler).
+    const result = parseExpression("newData.hasChildren(['title', 'body'])");
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test('parses an empty array literal', () => {
+    expect(parseExpression('newData.hasChildren([])').valid).toBe(true);
+  });
+
+  test('parses array literals with mixed element types', () => {
+    expect(parseExpression("['a', 1, true, null]").valid).toBe(true);
+  });
+
+  test('parses a nested array literal', () => {
+    expect(parseExpression("newData.hasChildren([['a'], ['b']])").valid).toBe(true);
+  });
+
+  test('collects identifiers referenced inside an array literal', () => {
+    const result = parseExpression('newData.hasChildren([auth.uid])');
+    expect(result.valid).toBe(true);
+    expect(result.referencedIdentifiers).toContain('auth');
+    expect(result.referencedIdentifiers).toContain('newData');
+  });
 });
