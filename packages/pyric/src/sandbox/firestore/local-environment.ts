@@ -20,6 +20,7 @@ import { lintFirestoreRules, parseToAST, type LintResult } from 'pyric/rules';
 import type {
   TestCase,
   FirestoreRules,
+  ListQuery,
   TestResult,
   TestFirestoreRulesResult,
 } from 'pyric/rules';
@@ -284,6 +285,17 @@ function buildRequestEvent(input: EmitRequestInput): import('../types.js').Reque
   if (input.triggeredBy !== undefined) out.triggeredBy = input.triggeredBy;
   if (input.detail !== undefined) out.detail = input.detail;
   return out;
+}
+
+function listQueryFromStructured(structured: QueryConstraints): ListQuery | undefined {
+  if (structured.limit == null && structured.offset == null && structured.orderBy == null) {
+    return undefined;
+  }
+  return {
+    ...(structured.limit != null ? { limit: structured.limit } : {}),
+    ...(structured.offset != null ? { offset: structured.offset } : {}),
+    ...(structured.orderBy != null ? { orderBy: structured.orderBy } : {}),
+  };
 }
 
 export interface OperationResult {
@@ -1192,6 +1204,8 @@ export class LocalEnvironment {
     // collection path falls through to no match and is denied.
     const listPath = `${collection}/__listPlaceholder__`;
     const structured: QueryConstraints = constraints?.structured ?? {};
+    const requestQuery = listQueryFromStructured(structured);
+    const requestDetail = requestQuery ? { query: requestQuery } : undefined;
     const evalAt = Date.now();
     const evalStart = performance.now();
     // ── RULES-B11 gate: prove the query before evaluating the rule. ──
@@ -1202,6 +1216,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
         debugMessages: [message], origin: 'listener',
+        ...(requestDetail ? { detail: requestDetail } : {}),
         ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
       });
       return {
@@ -1223,6 +1238,7 @@ export class LocalEnvironment {
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
         debugMessages: [`Simulation error: ${simResult.error.message}`],
         origin: 'listener',
+        ...(requestDetail ? { detail: requestDetail } : {}),
         ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
       });
       return {
@@ -1237,6 +1253,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'unsupported',
         debugMessages: renderLegacyDebugMessages(result), origin: 'listener',
+        ...(requestDetail ? { detail: requestDetail } : {}),
         ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
       });
       throw new SimulatorUnsupportedError(
@@ -1248,6 +1265,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
         debugMessages: renderLegacyDebugMessages(result), origin: 'listener',
+        ...(requestDetail ? { detail: requestDetail } : {}),
         ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
       });
       return {
@@ -1262,6 +1280,7 @@ export class LocalEnvironment {
     this.emitRequest({
       at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'allow',
       debugMessages: renderLegacyDebugMessages(result), origin: 'listener',
+      ...(requestDetail ? { detail: requestDetail } : {}),
       ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
     });
     // RULES-B11 — the proof + list-rule eval decided the WHOLE query; no
@@ -1660,6 +1679,13 @@ export class LocalEnvironment {
     query?: QueryConstraints,
     bypassRules?: boolean,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
+    const structured: QueryConstraints = query ?? {};
+    const requestQuery = listQueryFromStructured(structured);
+    const requestDetail = {
+      ...(bypassRules ? { admin: true } : {}),
+      ...(requestQuery ? { query: requestQuery } : {}),
+    };
+    const detail = Object.keys(requestDetail).length > 0 ? requestDetail : undefined;
     // Studio admin lens (Gap #2): skip the query-proof gate + `list` rule
     // eval entirely and return every candidate. The proof model ("rules
     // are not filters") doesn't apply when rules are off — admin sees the
@@ -1669,6 +1695,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: Date.now(), evalMs: 0, method: 'list', path: listPath, auth, result: 'allow',
         debugMessages: ['admin lens — rules bypassed (Studio Gap #2)'], origin: 'user',
+        ...(detail ? { detail } : {}),
       });
       return { allowed: true, docs: candidates };
     }
@@ -1677,7 +1704,6 @@ export class LocalEnvironment {
     // document-style path with a synthetic placeholder segment (same
     // convention as silentReadCollection).
     const placeholderPath = `${listPath}/__listPlaceholder__`;
-    const structured: QueryConstraints = query ?? {};
     const evalAt = Date.now();
     const evalStart = performance.now();
     // ── RULES-B11 gate: prove the query before evaluating the rule. ──
@@ -1688,6 +1714,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'deny',
         debugMessages: [message], origin: 'user',
+        ...(detail ? { detail } : {}),
       });
       const error = makeError('permission-denied', message, {
         request: { method: 'list', path: listPath, auth },
@@ -1705,6 +1732,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'deny',
         debugMessages: [`Simulation error: ${simResult.error.message}`], origin: 'user',
+        ...(detail ? { detail } : {}),
       });
       return {
         allowed: false,
@@ -1718,6 +1746,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'unsupported',
         debugMessages: renderLegacyDebugMessages(result), origin: 'user',
+        ...(detail ? { detail } : {}),
       });
       throw new SimulatorUnsupportedError(
         unsupportedMessage('list', listPath, renderLegacyDebugMessages(result)),
@@ -1729,6 +1758,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'deny',
         debugMessages, origin: 'user',
+        ...(detail ? { detail } : {}),
       });
       const error = makeError('permission-denied', `list ${listPath} denied by rules`, {
         request: { method: 'list', path: listPath, auth },
@@ -1740,6 +1770,7 @@ export class LocalEnvironment {
     this.emitRequest({
       at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'allow',
       debugMessages: renderLegacyDebugMessages(result), origin: 'user',
+      ...(detail ? { detail } : {}),
     });
     // RULES-B11 — no per-doc `get` filtering: the proof + list rule
     // decided the whole query (prod's model — the old per-doc loop was

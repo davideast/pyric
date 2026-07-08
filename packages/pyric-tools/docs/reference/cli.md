@@ -104,6 +104,7 @@ positional argument it replays the latest `pyric serve` capture at
 | Flag | Default | Description |
 |---|---|---|
 | `--service <firestore\|rtdb>` | all services in fixture | Verify one service. Repeat to verify several selected services. `database` is accepted as an alias for `rtdb`. |
+| `--engine <sandbox\|rules-test-api\|both>` | `sandbox` | Choose the verification engine. `rules-test-api` and `both` require `--project` or another deploy-compatible credential source. Rules Test API verification is Firestore-only. |
 | `--rules <service=path>` | from `firebase.json` | Candidate rules to verify against. Repeat for mixed-service captures. Firestore rules are source files; RTDB rules are JSON files. |
 | `--json` | off | Machine output on stdout. |
 
@@ -120,11 +121,27 @@ Examples:
 ```sh
 pyric verify
 pyric verify journeys/ --rules firestore=firestore.rules
+pyric verify journeys/checkout.json --engine rules-test-api --project demo-app
+pyric verify journeys/checkout.json --engine both --project demo-app
 pyric verify --service rtdb --rules rtdb=database.rules.json
 pyric verify --rules firestore=firestore.rules --rules rtdb=database.rules.json
 ```
 
 See [verify against a captured session](../how-to/verify-against-a-captured-session.md).
+
+### `pyric verify cases [fixture] [flags]`
+
+Derive Firestore Rules Test API cases from a captured fixture without running
+verification.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--service firestore` | `firestore` | The service to derive cases for. Only Firestore is supported. |
+| `--out <path>` | stdout | Write the derived case JSON to a file. |
+
+```sh
+pyric verify cases journeys/checkout.json --service firestore --out journeys/checkout.cases.json
+```
 
 ### `pyric mcp-proxy`
 

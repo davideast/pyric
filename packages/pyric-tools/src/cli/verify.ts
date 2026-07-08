@@ -1,19 +1,23 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import {
+  deriveRulesTestCases,
   fixtureVerifiableServices,
   parseVerifyFixture,
   verifyFixture,
   VerifyInputError,
   type PyricVerifyFixture,
+  type VerifyEngine,
   type VerifiableService,
   type VerifyDivergence,
+  type VerifyFixtureOptions,
   type VerifyResult,
   type VerifyRulesInput,
   type VerifyServiceResult,
 } from '../verify/index.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
+import { resolveScope } from './scope.js';
 
 export type Fixture = PyricVerifyFixture;
 
@@ -22,6 +26,10 @@ export interface FixtureResult {
   description?: string;
   ok: boolean;
   result: VerifyResult;
+}
+
+export interface VerifyCliDeps {
+  resolveScope?: typeof resolveScope;
 }
 
 export const SERVE_CAPTURE_PATH = '.pyric/last-session.json';
@@ -34,9 +42,9 @@ export async function runFixture(
   name: string,
   fixture: Fixture,
   rules: VerifyRulesInput,
-  services?: VerifiableService[],
+  options: Omit<VerifyFixtureOptions, 'rules'> = {},
 ): Promise<FixtureResult> {
-  const result = await verifyFixture(fixture, { rules, ...(services ? { services } : {}) });
+  const result = await verifyFixture(fixture, { rules, ...options });
   return {
     name,
     ...(fixture.description !== undefined ? { description: fixture.description } : {}),
@@ -48,11 +56,11 @@ export async function runFixture(
 export async function checkDirectory(
   dir: string,
   rules: VerifyRulesInput,
-  services?: VerifiableService[],
+  options: Omit<VerifyFixtureOptions, 'rules'> = {},
 ): Promise<{ results: FixtureResult[]; allOk: boolean }> {
   const files = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
   const results = await Promise.all(
-    files.map((f) => runFixture(basename(f, '.json'), loadFixture(join(dir, f)), rules, services)),
+    files.map((f) => runFixture(basename(f, '.json'), loadFixture(join(dir, f)), rules, options)),
   );
   return { results, allOk: results.every((r) => r.ok) };
 }
@@ -83,9 +91,13 @@ export function formatResults(results: FixtureResult[]): string {
   return lines.join('\n');
 }
 
-export async function runVerify(parsed: ParsedArgs): Promise<number> {
+export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): Promise<number> {
   const cwd = process.cwd();
   const json = parsed.flags.get('json') === true;
+
+  if (parsed.positional[0] === 'cases') {
+    return runVerifyCases(parsed, cwd);
+  }
 
   const target = parsed.positional[0];
   const inputPath = resolve(cwd, target ?? SERVE_CAPTURE_PATH);
@@ -123,6 +135,14 @@ export async function runVerify(parsed: ParsedArgs): Promise<number> {
     return 2;
   }
 
+  let engines: VerifyEngine[];
+  try {
+    engines = parseEngines(parsed.flags.get('engine'));
+  } catch (e) {
+    process.stderr.write(`pyric verify: ${messageOf(e)}\n`);
+    return 2;
+  }
+
   let rulesResolution: { rules: VerifyRulesInput; paths: Partial<Record<VerifiableService, string>> };
   try {
     rulesResolution = await resolveCandidateRules(cwd, services, parsed.flags.get('rules'));
@@ -131,10 +151,28 @@ export async function runVerify(parsed: ParsedArgs): Promise<number> {
     return 2;
   }
 
+  let rulesTestApi: VerifyFixtureOptions['rulesTestApi'];
+  if (engines.includes('rulesTestApi')) {
+    try {
+      const resolved = await (deps.resolveScope ?? resolveScope)({
+        projectId: stringFlag(parsed.flags.get('project')),
+      });
+      rulesTestApi = { scope: resolved.scope };
+    } catch (e) {
+      process.stderr.write(`pyric verify: ${messageOf(e)}\n`);
+      return 2;
+    }
+  }
+
   let results: FixtureResult[];
   try {
     results = await Promise.all(
-      loaded.map((item) => runFixture(item.name, item.fixture, rulesResolution.rules, services)),
+      loaded.map((item) =>
+        runFixture(item.name, item.fixture, rulesResolution.rules, {
+          services,
+          engines,
+          ...(rulesTestApi ? { rulesTestApi } : {}),
+        })),
     );
   } catch (e) {
     const prefix = e instanceof VerifyInputError ? 'invalid input' : 'failed to replay';
@@ -147,6 +185,7 @@ export async function runVerify(parsed: ParsedArgs): Promise<number> {
     process.stdout.write(
       JSON.stringify({
         ok: allOk,
+        engines,
         rulesPaths: rulesResolution.paths,
         results: results.map((result) => ({
           name: result.name,
@@ -173,6 +212,41 @@ export async function runVerify(parsed: ParsedArgs): Promise<number> {
   return allOk ? 0 : 1;
 }
 
+function runVerifyCases(parsed: ParsedArgs, cwd: string): number {
+  const target = parsed.positional[1];
+  const inputPath = resolve(cwd, target ?? SERVE_CAPTURE_PATH);
+  if (!existsSync(inputPath)) {
+    process.stderr.write(`pyric verify cases: no such fixture: ${inputPath}\n`);
+    return 2;
+  }
+
+  const services = flagStrings(parsed.flags.get('service')).map(toVerifiableService);
+  if (services.some((service) => service !== 'firestore')) {
+    process.stderr.write('pyric verify cases: only --service firestore is supported for Rules Test API case derivation.\n');
+    return 2;
+  }
+
+  let fixture: Fixture;
+  try {
+    fixture = loadFixture(inputPath);
+  } catch (e) {
+    process.stderr.write(`pyric verify cases: failed to load fixture: ${messageOf(e)}\n`);
+    return 2;
+  }
+
+  const result = deriveRulesTestCases(fixture, {
+    service: 'firestore',
+  });
+  const output = JSON.stringify(result, null, 2) + '\n';
+  const out = stringFlag(parsed.flags.get('out'));
+  if (out) {
+    writeFileSync(resolve(cwd, out), output);
+  } else {
+    process.stdout.write(output);
+  }
+  return result.ok ? 0 : 1;
+}
+
 function loadFixturesFromDirectory(dir: string): Array<{ name: string; fixture: Fixture }> {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
@@ -196,6 +270,29 @@ function selectedServices(flag: FlagValue | undefined, fixtures: Fixture[]): Ver
     throw new Error('fixture does not contain firestore or rtdb rules services.');
   }
   return [...union].sort();
+}
+
+function parseEngines(flag: FlagValue | undefined): VerifyEngine[] {
+  const raw = flagStrings(flag);
+  if (raw.length === 0) return ['sandbox'];
+  const out: VerifyEngine[] = [];
+  for (const item of raw) {
+    if (item === 'both') {
+      pushUnique(out, 'sandbox');
+      pushUnique(out, 'rulesTestApi');
+    } else if (item === 'sandbox') {
+      pushUnique(out, 'sandbox');
+    } else if (item === 'rules-test-api' || item === 'rulesTestApi') {
+      pushUnique(out, 'rulesTestApi');
+    } else {
+      throw new Error(`unsupported verify engine '${item}'. Supported engines: sandbox, rules-test-api, both.`);
+    }
+  }
+  return out;
+}
+
+function pushUnique<T>(items: T[], item: T): void {
+  if (!items.includes(item)) items.push(item);
 }
 
 async function resolveCandidateRules(
@@ -281,6 +378,11 @@ function flagStrings(value: FlagValue | undefined): string[] {
   return values.filter((item): item is string => typeof item === 'string' && item.length > 0);
 }
 
+function stringFlag(value: FlagValue | undefined): string | undefined {
+  if (Array.isArray(value)) return value.find((item): item is string => typeof item === 'string');
+  return typeof value === 'string' ? value : undefined;
+}
+
 function failingDivergences(divergences: VerifyDivergence[]): VerifyDivergence[] {
   return divergences.filter((divergence) => divergence.kind !== 'expected-drift');
 }
@@ -290,12 +392,20 @@ function formatDivergence(divergence: VerifyDivergence): string {
     const method = divergence.method ? `${divergence.method} ` : '';
     return `now-denied: ${method}${divergence.path ?? ''}${divergence.reason ? ` (${divergence.reason})` : ''}`;
   }
+  if (divergence.kind === 'now-allowed') {
+    const method = divergence.method ? `${divergence.method} ` : '';
+    return `now-allowed: ${method}${divergence.path ?? ''}${divergence.reason ? ` (${divergence.reason})` : ''}`;
+  }
   if (divergence.kind === 'state-drift') {
     const where = `${divergence.path ?? ''}${divergence.field ? `.${divergence.field}` : ''}`;
     return `state-drift: ${where}: ${JSON.stringify(divergence.before)} -> ${JSON.stringify(divergence.after)}`;
   }
   if (divergence.kind === 'unsupported') {
     return `unsupported: ${divergence.method ?? 'operation'} ${divergence.path ?? ''}: ${divergence.reason}`;
+  }
+  if (divergence.kind === 'engine-drift') {
+    const method = divergence.method ? `${divergence.method} ` : '';
+    return `engine-drift: ${method}${divergence.path ?? ''}: sandbox=${divergence.sandbox}, rulesTestApi=${divergence.rulesTestApi}`;
   }
   return `${divergence.drift}: ${divergence.path ?? ''}`;
 }

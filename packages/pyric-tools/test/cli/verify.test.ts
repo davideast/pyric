@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
@@ -7,7 +7,7 @@ import { getFirestore } from 'pyric/sandbox/admin-firestore';
 import { initializeSandbox } from 'pyric/sandbox';
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../src/verify/index.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
-import { runVerify } from '../../src/cli/verify.js';
+import { runVerify, type VerifyCliDeps } from '../../src/cli/verify.js';
 
 const ALICE_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -49,6 +49,8 @@ const DENY_ALL_RTDB_RULES = {
   },
 };
 
+const originalFetch = global.fetch;
+
 async function captureFirestoreFixture(): Promise<PyricVerifyFixture> {
   const sandbox = initializeSandbox();
   const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
@@ -84,11 +86,11 @@ async function captureRtdbFixture(): Promise<PyricVerifyFixture> {
   });
 }
 
-async function verifyIn(dir: string, argv: string[]): Promise<number> {
+async function verifyIn(dir: string, argv: string[], deps?: VerifyCliDeps): Promise<number> {
   const prev = process.cwd();
   process.chdir(dir);
   try {
-    return await runVerify(parseArgs(['verify', ...argv]));
+    return await runVerify(parseArgs(['verify', ...argv]), deps);
   } finally {
     process.chdir(prev);
   }
@@ -106,6 +108,7 @@ function writeFirebaseJson(dir: string, config: Record<string, unknown>): void {
 }
 
 afterEach(() => {
+  global.fetch = originalFetch;
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -210,5 +213,82 @@ describe('runVerify', () => {
     writeFileSync(join(dir, 'firestore.rules'), DENY_ALL_FIRESTORE_RULES);
     writeFileSync(join(dir, 'session.json'), JSON.stringify(await captureFirestoreFixture()));
     expect(await verifyIn(dir, ['session.json', '--json'])).toBe(1);
+  });
+
+  it('derives Rules Test API cases to an output file', async () => {
+    const dir = tmp();
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(await captureFirestoreFixture()));
+    const code = await verifyIn(dir, ['cases', 'session.json', '--service', 'firestore', '--out', 'session.cases.json']);
+    expect(code).toBe(0);
+    const out = JSON.parse(readFileSync(join(dir, 'session.cases.json'), 'utf8'));
+    expect(out.service).toBe('firestore');
+    expect(out.testCases.length).toBeGreaterThan(0);
+  });
+
+  it('runs the Rules Test API engine with a project scope resolver', async () => {
+    const dir = tmp();
+    writeFirebaseJson(dir, { firestore: { rules: 'firestore.rules' } });
+    writeFileSync(join(dir, 'firestore.rules'), ALICE_RULES);
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(await captureFirestoreFixture()));
+    (global as any).fetch = async () =>
+      new Response(JSON.stringify({ testResults: [{ state: 'SUCCESS' }, { state: 'SUCCESS' }] }), { status: 200 });
+
+    const code = await verifyIn(
+      dir,
+      ['session.json', '--engine', 'rules-test-api', '--project', 'demo-project'],
+      {
+        resolveScope: async ({ projectId }) => ({
+          scope: { projectId: projectId ?? 'demo-project', resolveToken: async () => 'mock-token' },
+          source: 'login',
+          grantedScopes: 'all',
+        }),
+      },
+    );
+
+    expect(code).toBe(0);
+  });
+
+  it('runs both sandbox and Rules Test API engines', async () => {
+    const dir = tmp();
+    writeFirebaseJson(dir, { firestore: { rules: 'firestore.rules' } });
+    writeFileSync(join(dir, 'firestore.rules'), ALICE_RULES);
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(await captureFirestoreFixture()));
+    (global as any).fetch = async () =>
+      new Response(JSON.stringify({ testResults: [{ state: 'SUCCESS' }, { state: 'SUCCESS' }] }), { status: 200 });
+
+    const code = await verifyIn(
+      dir,
+      ['session.json', '--engine', 'both', '--project', 'demo-project'],
+      {
+        resolveScope: async ({ projectId }) => ({
+          scope: { projectId: projectId ?? 'demo-project', resolveToken: async () => 'mock-token' },
+          source: 'login',
+          grantedScopes: 'all',
+        }),
+      },
+    );
+
+    expect(code).toBe(0);
+  });
+
+  it('rejects RTDB with the Rules Test API engine', async () => {
+    const dir = tmp();
+    writeFirebaseJson(dir, { database: { rules: 'database.rules.json' } });
+    writeFileSync(join(dir, 'database.rules.json'), JSON.stringify(RTDB_MEMBER_RULES));
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(await captureRtdbFixture()));
+
+    const code = await verifyIn(
+      dir,
+      ['session.json', '--service', 'rtdb', '--engine', 'rules-test-api', '--project', 'demo-project'],
+      {
+        resolveScope: async ({ projectId }) => ({
+          scope: { projectId: projectId ?? 'demo-project', resolveToken: async () => 'mock-token' },
+          source: 'login',
+          grantedScopes: 'all',
+        }),
+      },
+    );
+
+    expect(code).toBe(2);
   });
 });

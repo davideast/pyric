@@ -1,5 +1,13 @@
 import type { ProjectScope } from '../../project-scope.js';
-import type { TestCase, TestResult, TestFirestoreRulesResult, ApiTestCase } from './spec.js';
+import type {
+  ApiTestCase,
+  ExpressionReportLevel,
+  RulesTestApiResultDetails,
+  RulesTestIssue,
+  TestCase,
+  TestFirestoreRulesResult,
+  TestResult,
+} from './spec.js';
 import { buildApiTestCase } from './spec.js';
 
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
@@ -22,16 +30,31 @@ function oppositeOf(expectation: 'ALLOW' | 'DENY'): 'ALLOW' | 'DENY' {
   return expectation === 'ALLOW' ? 'DENY' : 'ALLOW';
 }
 
+export interface TestFirestoreRulesOptions {
+  expressionReportLevel?: ExpressionReportLevel;
+}
+
+interface ApiTestResult {
+  state: 'SUCCESS' | 'FAILURE';
+  debugMessages?: string[];
+  errorPosition?: unknown;
+  functionCalls?: unknown[];
+  visitedExpressions?: unknown[];
+  expressionReports?: unknown[];
+}
+
 export class TestFirestoreRulesHandler {
   async execute(
     scope: ProjectScope,
     source: string,
     testCases: TestCase[],
+    opts: TestFirestoreRulesOptions = {},
   ): Promise<TestFirestoreRulesResult> {
     try {
       const token = await scope.resolveToken();
 
-      const apiTestCases: ApiTestCase[] = testCases.map(buildApiTestCase);
+      const apiTestCases: ApiTestCase[] = testCases.map((tc) =>
+        buildApiTestCase(tc, { expressionReportLevel: opts.expressionReportLevel }));
 
       const res = await fetch(`${RULES_API}/projects/${scope.projectId}:test`, {
         method: 'POST',
@@ -69,8 +92,8 @@ export class TestFirestoreRulesHandler {
       }
 
       const data = await res.json() as {
-        issues?: Array<{ sourcePosition?: unknown; description: string; severity: string }>;
-        testResults?: Array<{ state: 'SUCCESS' | 'FAILURE'; debugMessages?: string[] }>;
+        issues?: RulesTestIssue[];
+        testResults?: ApiTestResult[];
       };
 
       // If the API returns issues (rule syntax errors), report them
@@ -92,6 +115,7 @@ export class TestFirestoreRulesHandler {
         // and surface the raw text on `notes` so callers that need detail
         // can still inspect it. `trace` stays empty for this code path.
         const decision: 'ALLOW' | 'DENY' = state === 'PASSED' ? tc.expectation : oppositeOf(tc.expectation);
+        const details = apiDetails(apiResult);
         return {
           description: tc.description,
           expectation: tc.expectation,
@@ -99,6 +123,7 @@ export class TestFirestoreRulesHandler {
           decision,
           trace: [],
           notes: apiResult?.debugMessages ?? [],
+          ...(details ? { api: details } : {}),
         };
       });
 
@@ -108,7 +133,16 @@ export class TestFirestoreRulesHandler {
       // requires the field — see TestResult.state in spec.ts (Item 0.A).
       const unsupported = 0;
 
-      return { success: true, data: { passed, failed, unsupported, results } };
+      return {
+        success: true,
+        data: {
+          passed,
+          failed,
+          unsupported,
+          results,
+          ...(data.issues ? { issues: data.issues } : {}),
+        },
+      };
     } catch (e) {
       return {
         success: false,
@@ -116,4 +150,14 @@ export class TestFirestoreRulesHandler {
       };
     }
   }
+}
+
+function apiDetails(result: ApiTestResult | undefined): RulesTestApiResultDetails | undefined {
+  if (!result) return undefined;
+  const details: RulesTestApiResultDetails = {};
+  if (result.errorPosition !== undefined) details.errorPosition = result.errorPosition;
+  if (result.functionCalls !== undefined) details.functionCalls = result.functionCalls;
+  if (result.visitedExpressions !== undefined) details.visitedExpressions = result.visitedExpressions;
+  if (result.expressionReports !== undefined) details.expressionReports = result.expressionReports;
+  return Object.keys(details).length > 0 ? details : undefined;
 }

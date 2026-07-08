@@ -119,16 +119,18 @@ export function createFirestoreRulesTools(
         properties: {
           source: { type: 'string' },
           testCases: { type: 'array' },
+          expressionReportLevel: { type: 'string', enum: ['NONE', 'VISITED', 'FULL'] },
         },
         required: ['source', 'testCases'],
       },
       async execute(args) {
-        const { source, testCases } = args as {
+        const { source, testCases, expressionReportLevel } = args as {
           source: string;
           testCases: TestCase[];
+          expressionReportLevel?: 'NONE' | 'VISITED' | 'FULL';
         };
         const handler = new TestFirestoreRulesHandler();
-        const result = await handler.execute(scope, source, testCases);
+        const result = await handler.execute(scope, source, testCases, { expressionReportLevel });
         return {
           ok: result.success,
           summary: result.success

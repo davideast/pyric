@@ -87,6 +87,21 @@ export const ListQuerySchema = z.object({
 
 export type ListQuery = z.infer<typeof ListQuerySchema>;
 
+export type ExpressionReportLevel = 'NONE' | 'VISITED' | 'FULL';
+
+export interface RulesTestIssue {
+  sourcePosition?: unknown;
+  description: string;
+  severity: string;
+}
+
+export interface RulesTestApiResultDetails {
+  errorPosition?: unknown;
+  functionCalls?: unknown[];
+  visitedExpressions?: unknown[];
+  expressionReports?: unknown[];
+}
+
 export const TestCaseSchema = z.object({
   description: z.string().describe('Human-readable description of what this test verifies'),
   expectation: z.enum(['ALLOW', 'DENY']).describe('Expected outcome'),
@@ -249,10 +264,14 @@ export interface TestResult {
    *  production Test API client. Empty `attempts` is possible when
    *  the ruleset has no match blocks at all (degenerate, but valid). */
   pathResolution?: PathResolutionTrace;
+  /** Diagnostics returned by Firebase's hosted Rules Test API. Local
+   *  simulation leaves this absent because its structured diagnostics live
+   *  in `trace` and `pathResolution`. */
+  api?: RulesTestApiResultDetails;
 }
 
 export type TestFirestoreRulesResult =
-  | { success: true; data: { passed: number; failed: number; unsupported: number; results: TestResult[] } }
+  | { success: true; data: { passed: number; failed: number; unsupported: number; results: TestResult[]; issues?: RulesTestIssue[] } }
   | { success: false; error: { code: string; message: string; recoverable: boolean } };
 
 /**
@@ -291,11 +310,13 @@ export function renderLegacyDebugMessages(result: TestResult): string[] {
 
 export interface ApiTestCase {
   expectation: 'ALLOW' | 'DENY';
+  expressionReportLevel?: ExpressionReportLevel;
   request: {
     auth: { uid: string; token: Record<string, unknown> } | undefined;
     method: string;
     path: string;
     resource?: { data: Record<string, unknown> };
+    query?: ListQuery;
     /** ISO-8601 — forwarded from `TestCase.requestTime` (Item 0.F). */
     time?: string;
   };
@@ -320,7 +341,11 @@ export function normalizeDocPath(path: string): string {
 
 // ---- Simplified → API format conversion ----
 
-export function buildApiTestCase(tc: TestCase): ApiTestCase {
+export interface BuildApiTestCaseOptions {
+  expressionReportLevel?: ExpressionReportLevel;
+}
+
+export function buildApiTestCase(tc: TestCase, opts: BuildApiTestCaseOptions = {}): ApiTestCase {
   const request: ApiTestCase['request'] = {
     auth: tc.auth === null || tc.auth === undefined
       ? undefined
@@ -343,10 +368,18 @@ export function buildApiTestCase(tc: TestCase): ApiTestCase {
     request.time = tc.requestTime;
   }
 
+  if (tc.query) {
+    request.query = tc.query;
+  }
+
   const result: ApiTestCase = {
     expectation: tc.expectation,
     request,
   };
+
+  if (opts.expressionReportLevel) {
+    result.expressionReportLevel = opts.expressionReportLevel;
+  }
 
   if (tc.resource) {
     result.resource = { data: tc.resource };
