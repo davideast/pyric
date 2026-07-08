@@ -9,9 +9,15 @@ same fixture format and replay behavior as `pyric verify`.
 import { verifyFixture } from 'pyric-tools/verify';
 
 const result = await verifyFixture(fixture, {
+  engines: ['sandbox', 'rulesTestApi'],
+  services: ['firestore'],
   rules: {
     firestore: firestoreRulesSource,
     rtdb: rtdbRulesDocumentOrJson,
+  },
+  rulesTestApi: {
+    scope,
+    expressionReportLevel: 'VISITED',
   },
 });
 ```
@@ -29,6 +35,28 @@ type VerifyRulesInput = {
 
 `RtdbRulesDocument` values are compiled with `toJSON()` before replay.
 
+```ts
+type VerifyEngine = 'sandbox' | 'rulesTestApi';
+
+type VerifyFixtureOptions = {
+  engines?: VerifyEngine[];
+  services?: Array<'firestore' | 'rtdb'>;
+  rules: VerifyRulesInput;
+  rulesTestApi?: {
+    scope: ProjectScope;
+    expressionReportLevel?: 'NONE' | 'VISITED' | 'FULL';
+  };
+  caseDerivation?: {
+    includeAllowed?: boolean;
+    includeDenied?: boolean;
+    mockReads?: 'strict' | 'omit';
+  };
+};
+```
+
+`engines` defaults to `['sandbox']`. `rulesTestApi` is Firestore-only in this
+release. Selecting it for RTDB returns an input error.
+
 ## Result shape
 
 ```ts
@@ -45,11 +73,28 @@ type VerifyServiceResult = {
   ok: boolean;
   checkedEvents: number;
   divergences: VerifyDivergence[];
+  engines?: Partial<Record<VerifyEngine, VerifyEngineResult>>;
 };
 ```
 
-Failing divergence kinds are `now-denied`, `state-drift`, and `unsupported`.
-`expected-drift` is informational.
+Failing divergence kinds are `now-denied`, `now-allowed`, `state-drift`,
+`unsupported`, and `engine-drift`. `expected-drift` is informational.
+
+## `deriveRulesTestCases(fixture, options)`
+
+```ts
+import { deriveRulesTestCases } from 'pyric-tools/verify';
+
+const cases = deriveRulesTestCases(fixture, {
+  service: 'firestore',
+  mockReads: 'strict',
+});
+```
+
+This compiles captured Firestore request events into Firebase Rules Test API
+`TestCase[]` values. Listener re-evaluations and admin/setup requests are
+excluded. Unsupported derivation entries fail verification when the
+`rulesTestApi` engine is selected.
 
 ## Fixture helpers
 

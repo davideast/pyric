@@ -90,6 +90,31 @@ describe('buildApiTestCase', () => {
     const api = buildApiTestCase(tc);
     expect(api.resource).toEqual({ data: { title: 'Original', author: 'user1' } });
   });
+
+  test('forwards request.query for list cases', () => {
+    const tc: TestCase = {
+      description: 'bounded list',
+      expectation: 'ALLOW',
+      method: 'list',
+      path: 'posts',
+      auth: { uid: 'user1' },
+      query: { limit: 10, orderBy: 'createdAt' },
+    };
+    const api = buildApiTestCase(tc);
+    expect(api.request.query).toEqual({ limit: 10, orderBy: 'createdAt' });
+  });
+
+  test('forwards expression report level when requested', () => {
+    const tc: TestCase = {
+      description: 'trace',
+      expectation: 'ALLOW',
+      method: 'get',
+      path: 'users/alice',
+      auth: { uid: 'user1' },
+    };
+    const api = buildApiTestCase(tc, { expressionReportLevel: 'VISITED' });
+    expect(api.expressionReportLevel).toBe('VISITED');
+  });
 });
 
 describe('buildFunctionMock', () => {

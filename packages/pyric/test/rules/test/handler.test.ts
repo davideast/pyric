@@ -121,6 +121,48 @@ describe('TestFirestoreRulesHandler', () => {
     expect(capturedBody.testSuite.testCases).toHaveLength(1);
   });
 
+  test('forwards query and expressionReportLevel to the API request', async () => {
+    let capturedBody: any = {};
+    (global as any).fetch = async (_url: string, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string);
+      return new Response(JSON.stringify({ testResults: [{ state: 'SUCCESS' }] }), { status: 200 });
+    };
+    await handler.execute(
+      MOCK_APP,
+      SAMPLE_SOURCE,
+      [makeTc({ method: 'list', path: 'users', query: { limit: 5 } })],
+      { expressionReportLevel: 'VISITED' },
+    );
+    const apiCase = capturedBody.testSuite.testCases[0];
+    expect(apiCase.expressionReportLevel).toBe('VISITED');
+    expect(apiCase.request.query).toEqual({ limit: 5 });
+  });
+
+  test('preserves API diagnostics on successful results', async () => {
+    mockTestApi({
+      issues: [{ description: 'lint-ish warning', severity: 'WARNING' }],
+      testResults: [
+        {
+          state: 'SUCCESS',
+          debugMessages: ['ok'],
+          errorPosition: { line: 4, column: 7 },
+          functionCalls: [{ function: 'get' }],
+          visitedExpressions: [{ sourcePosition: { line: 5 } }],
+          expressionReports: [{ values: [] }],
+        },
+      ],
+    });
+    const result = await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc()]);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.issues).toEqual([{ description: 'lint-ish warning', severity: 'WARNING' }]);
+      expect(result.data.results[0].api?.errorPosition).toEqual({ line: 4, column: 7 });
+      expect(result.data.results[0].api?.functionCalls).toEqual([{ function: 'get' }]);
+      expect(result.data.results[0].api?.visitedExpressions).toEqual([{ sourcePosition: { line: 5 } }]);
+      expect(result.data.results[0].api?.expressionReports).toEqual([{ values: [] }]);
+    }
+  });
+
   test('403 → PERMISSION_DENIED', async () => {
     mockTestApi({}, 403);
     const result = await handler.execute(MOCK_APP, SAMPLE_SOURCE, [makeTc()]);

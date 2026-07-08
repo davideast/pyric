@@ -29,6 +29,7 @@ import {
 } from 'pyric/firestore';
 import { createFirestoreDiscoverTools } from '../discover/index.js';
 import { createAuthAdminTools } from '../auth/index.js';
+import { createVerifyTools } from '../verify/index.js';
 import { createRtdbDataTools } from 'pyric/database';
 import { createRtdbRulesTools, type RtdbHost } from 'pyric/rules/rtdb';
 
@@ -139,6 +140,9 @@ export async function composeMcpRegistry(
     // Auth configuration (Identity Toolkit) — full + browser-parity.
     ...(profile !== 'control-plane-only'
       ? [createAuthAdminTools({ scope })]
+      : []),
+    ...(profile !== 'control-plane-only'
+      ? [createVerifyTools({ scope })]
       : []),
     // Admin SDK + RTDB tools — only when `adminDeps` is supplied and
     // we're not in a profile that explicitly excludes Node-only paths.

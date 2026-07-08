@@ -77,7 +77,8 @@ USAGE
   pyric serve [flags]
   pyric init [dir] [--template=web|node]
   pyric snapshot [--out=FILE]
-  pyric verify [fixture|dir] [--service firestore|rtdb] [--rules service=path]
+  pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
+  pyric verify cases [fixture] [--service firestore] [--out FILE]
   pyric deploy <rules|indexes|database|hosting|functions>
   pyric hosting:channel:deploy <channelId> [--expires <ttl>]
   pyric rules:lint <path>
@@ -120,8 +121,13 @@ COMMANDS
                              for the Firestore/RTDB services present in the fixture.
                              No arg replays the latest \`pyric serve\` capture
                              (.pyric/last-session.json). --service filters services.
+                             --engine sandbox (default), rules-test-api, or both.
+                             Hosted Rules Test API verification is Firestore-only
+                             and uses --project plus the same credentials as deploy.
                              --rules service=path overrides firebase.json resolution
                              (repeat for mixed captures). --json. Exit 1 on divergence.
+  verify cases [fixture]     Derive Firestore Rules Test API cases from a captured
+                             fixture and print JSON, or write with --out FILE.
   deploy [target]            Deploy rules / indexes / database / hosting / functions.
                              hosting: deploys the firebase.json hosting block
                              (rewrites/redirects/headers/cleanUrls/trailingSlash/

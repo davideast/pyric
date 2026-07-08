@@ -65,6 +65,56 @@ To check only one service in a mixed capture, use `--service`:
 pyric verify --service rtdb --rules rtdb=database.rules.json
 ```
 
+## Choose a verification engine
+
+The default engine is `sandbox`: Firestore uses local replay and RTDB uses the
+local RTDB replay primitive. This is the fast loop for development and CI:
+
+```sh
+pyric verify journeys/checkout.json --engine sandbox
+```
+
+For Firestore, you can also derive Rules Test API cases from the same fixture
+and send them to Firebase's hosted Rules Test API:
+
+```sh
+pyric verify journeys/checkout.json \
+  --service firestore \
+  --engine rules-test-api \
+  --project demo-app \
+  --rules firestore=firestore.rules
+```
+
+Use `both` when you want the local sandbox replay and hosted Firestore result in
+one run:
+
+```sh
+pyric verify journeys/checkout.json \
+  --service firestore \
+  --engine both \
+  --project demo-app \
+  --rules firestore=firestore.rules
+```
+
+RTDB verification is sandbox-only. RTDB constraints still feed verification as
+RTDB rules JSON or an in-process `RtdbRulesDocument`; they are not a separate
+verification service.
+
+## Inspect derived Firestore cases
+
+When you want to see exactly what will be sent to the Rules Test API, derive the
+cases without running verification:
+
+```sh
+pyric verify cases journeys/checkout.json \
+  --service firestore \
+  --out journeys/checkout.cases.json
+```
+
+The output contains `testCases`, warnings, and unsupported events. Admin/setup
+traffic and listener re-evaluations are excluded so the cases describe user
+behavior protected by rules.
+
 ## Verify a specific fixture
 
 To replay a saved fixture instead of the latest capture, pass its path:
@@ -128,6 +178,7 @@ import { rules } from './database.rules.js';
 const fixture = JSON.parse(await Bun.file('.pyric/last-session.json').text());
 
 const result = await verifyFixture(fixture, {
+  engines: ['sandbox'],
   rules: { rtdb: rules },
 });
 
@@ -136,5 +187,21 @@ if (!result.ok) process.exit(1);
 
 `rules` can be an RTDB rules JSON object or an `RtdbRulesDocument` from
 `defineRtdbRules()`.
+
+Firestore can use the hosted engine from code:
+
+```ts
+import { verifyFixture } from 'pyric-tools/verify';
+
+const result = await verifyFixture(fixture, {
+  engines: ['rulesTestApi'],
+  services: ['firestore'],
+  rules: { firestore: firestoreRulesSource },
+  rulesTestApi: {
+    scope,
+    expressionReportLevel: 'VISITED',
+  },
+});
+```
 
 For the full flag list, see the [`pyric verify` reference](../reference/cli.md#pyric-verify).

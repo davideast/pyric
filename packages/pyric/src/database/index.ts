@@ -105,3 +105,9 @@ export type {
 // composeMcpRegistry. Structural typing, no app-package dependency.
 export { initializeDatabaseApp } from './initialize-from-app.js';
 export type { AgentAppLike } from './initialize-from-app.js';
+export { replay } from './replay.js';
+export type {
+  RtdbReplayDivergence,
+  RtdbReplayOptions,
+  RtdbReplayResult,
+} from './replay.js';

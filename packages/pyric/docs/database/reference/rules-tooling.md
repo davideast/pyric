@@ -118,6 +118,7 @@ import { rules } from './database.rules.js';
 const fixture = JSON.parse(await Bun.file('.pyric/last-session.json').text());
 
 const result = await verifyFixture(fixture, {
+  engines: ['sandbox'],
   rules: { rtdb: rules },
 });
 ```
@@ -134,6 +135,8 @@ pyric verify --service rtdb --rules rtdb=database.rules.json
 
 Verification lives in `pyric-tools/verify` because constraints are an authoring
 surface and captured-session replay is local tooling around an app session.
+The Firebase Rules Test API engine is Firestore-only; RTDB constraints verify by
+compiling to RTDB rules JSON and replaying captured RTDB commits locally.
 
 ## Rule JSON and IR
 
