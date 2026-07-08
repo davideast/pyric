@@ -42,6 +42,11 @@ import {
   Bytes,
   GeoPoint,
 } from 'pyric/firestore';
+import {
+  getStorageSandbox,
+  ref as storageRef,
+  uploadBytes,
+} from 'pyric/storage';
 import { Timestamp, Bytes as RulesBytes, LatLng } from 'pyric/rules';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -1254,6 +1259,25 @@ describe('getVersion (staleness guard)', () => {
     const res = await sendOp(ctx, port, { t: 'op', id: 'v1', method: 'getVersion' });
     expect(res.ok).toBe(true);
     expect((res as ResMessage & { ok: true }).value).toEqual({ version: 'dev' });
+  });
+});
+
+describe('storage worker ops', () => {
+  it('returns object blobs for Studio previews', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    const storage = getStorageSandbox(ctx.sandbox);
+    await uploadBytes(storageRef(storage, 'docs/readme.txt'), new Blob(['hello worker'], { type: 'text/plain' }));
+
+    const res = await sendOp(ctx, port, {
+      t: 'op', id: 'blob-1', method: 'storage.getBlob', path: 'docs/readme.txt',
+    });
+
+    expect(res.ok).toBe(true);
+    const blob = (res as ResMessage & { ok: true }).value as Blob;
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe('text/plain');
+    expect(await blob.text()).toBe('hello worker');
   });
 });
 

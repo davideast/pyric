@@ -1832,8 +1832,8 @@ function makeUnsupported(api: string): Error & { code: string } {
 
 // ─── Storage (Pyric Studio data browse) ───────────────────────────────────
 // A worker-backed `FirebaseStorage` mirror: `ref` is client-side (path math),
-// `listAll`/`getMetadata` RPC to the host (which enforces rules). Read-only for
-// now (browse + metadata); preview/mutations are a follow-up.
+// `listAll`/`getMetadata`/`getBlob` RPC to the host (which enforces rules).
+// Mutations are a follow-up.
 
 /** Worker-backed Storage handle (carries the shared `MessagePort`). */
 export interface ClientFirebaseStorage {
@@ -1916,4 +1916,11 @@ export async function getMetadata(reference: ClientStorageReference): Promise<Fu
   return (await rpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.getMetadata', path: reference.fullPath,
   })) as FullMetadata;
+}
+
+/** Read an object's bytes as a Blob (Pyric Studio inspector preview). */
+export async function getBlob(reference: ClientStorageReference): Promise<Blob> {
+  return (await rpc(reference.port, {
+    t: 'op', id: nextId(), method: 'storage.getBlob', path: reference.fullPath,
+  })) as Blob;
 }

@@ -14,6 +14,7 @@ import {
 } from 'pyric/storage';
 import {
   getStorage as workerGetStorage,
+  getBlob as workerGetBlob,
   getMetadata as workerGetMetadata,
   listAll as workerListAll,
   ref as workerRef,
@@ -30,6 +31,7 @@ export const listAll = (useWorker ? workerListAll : ip.listAll) as typeof ip.lis
 export const getMetadata = (
   useWorker ? workerGetMetadata : ip.getMetadata
 ) as typeof ip.getMetadata;
+export const getBlob = (useWorker ? workerGetBlob : ip.getBlob) as typeof ip.getBlob;
 
 export const StorageError = ip.StorageError;
 
@@ -60,6 +62,5 @@ function workerOrInPage<T extends (...args: any[]) => unknown>(name: string, fn:
 export const uploadBytes = workerOrInPage('uploadBytes', ip.uploadBytes);
 export const uploadString = workerOrInPage('uploadString', ip.uploadString);
 export const getBytes = workerOrInPage('getBytes', ip.getBytes);
-export const getBlob = workerOrInPage('getBlob', ip.getBlob);
 export const deleteObject = workerOrInPage('deleteObject', ip.deleteObject);
 export const updateMetadata = workerOrInPage('updateMetadata', ip.updateMetadata);
