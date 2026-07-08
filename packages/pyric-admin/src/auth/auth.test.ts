@@ -23,10 +23,12 @@ import { getAuth, SANDBOX_TOKEN_PREFIX } from './index.js';
 
 describe('getAuth — Phase 3 dispatch', () => {
   it('rejects values that are not PyricAdminApp with a clear TypeError', () => {
+    // `undefined` / no-arg is NOT a rejection case anymore — it now resolves
+    // the default app (firebase-admin mirror), throwing `app/no-app` when none
+    // is initialized. That path is covered by the oracle-conformance suite.
+    // Here we only assert genuinely-invalid, non-undefined values.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => getAuth(null as any)).toThrow(TypeError);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => getAuth(undefined as any)).toThrow(TypeError);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => getAuth({} as any)).toThrow(/ADMIN_APP_TARGET brand/);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

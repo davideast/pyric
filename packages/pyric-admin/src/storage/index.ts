@@ -44,6 +44,7 @@ import type { Sandbox } from 'pyric/sandbox';
 
 import {
   ADMIN_APP_TARGET,
+  resolveApp,
   type PyricAdminApp,
   type ProdAdminApp,
   type SandboxAdminApp,
@@ -173,10 +174,10 @@ export interface GetSignedUrlOptions {
 
 /**
  * Input accepted by {@link getStorage}. The branded `PyricAdminApp` is
- * the canonical shape; calling without an argument is rejected because
- * `pyric-admin/storage` has no notion of a default app (unlike
- * `firebase-admin/storage`, where `getStorage()` resolves the default
- * App from a global registry).
+ * the canonical shape; calling without an argument resolves the default
+ * app from the `pyric-admin/app` registry (mirroring
+ * `firebase-admin/storage`, where `getStorage()` resolves the default App),
+ * and throws the captured `app/no-app` error when nothing is initialized.
  */
 export type StorageApp = PyricAdminApp;
 
@@ -189,7 +190,10 @@ export type StorageApp = PyricAdminApp;
  * - **Sandbox app** → returns a sandbox-backed `Storage` whose state
  *   lives on the `Sandbox`. `sandbox.reset()` wipes it.
  */
-export function getStorage(app: StorageApp): Storage {
+export function getStorage(app?: StorageApp): Storage {
+  // No-arg call resolves the default app; nothing initialized → captured
+  // `app/no-app` FirebaseAppError (see resolveApp).
+  app = resolveApp(app);
   if (app[ADMIN_APP_TARGET] === 'sandbox') {
     return getSandboxStorage(app);
   }

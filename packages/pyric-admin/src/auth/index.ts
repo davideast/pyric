@@ -96,6 +96,7 @@ import type {
 } from 'pyric/auth';
 import {
   ADMIN_APP_TARGET,
+  resolveApp,
   type PyricAdminApp,
   type ProdAdminApp,
   type SandboxAdminApp,
@@ -869,7 +870,10 @@ function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp {
  * console.log(decoded.uid, decoded.role); // 'alice' 'admin'
  * ```
  */
-export function getAuth(app: PyricAdminApp): Auth {
+export function getAuth(app?: PyricAdminApp): Auth {
+  // No-arg call resolves the default app; nothing initialized → captured
+  // `app/no-app` FirebaseAppError (see resolveApp).
+  app = resolveApp(app);
   if (app === null || typeof app !== 'object' || !(ADMIN_APP_TARGET in app)) {
     throw new TypeError(
       'pyric-admin/auth: getAuth expected a PyricAdminApp (from pyric-admin/app#initializeApp). ' +

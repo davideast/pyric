@@ -107,6 +107,7 @@ import {
 
 import {
   ADMIN_APP_TARGET,
+  resolveApp,
   type PyricAdminApp,
 } from '../app/index.js';
 
@@ -149,9 +150,12 @@ export type {
  *     the per-`Sandbox` state described in the module-level docs.
  */
 export function getDatabase(
-  app: PyricAdminApp,
+  app?: PyricAdminApp,
   url?: string,
 ): AdminDatabase {
+  // No-arg call resolves the default app; nothing initialized → captured
+  // `app/no-app` FirebaseAppError (see resolveApp).
+  app = resolveApp(app);
   if (app[ADMIN_APP_TARGET] === 'prod') {
     return url === undefined
       ? adminGetDatabase(app.adminApp)
