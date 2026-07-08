@@ -72,11 +72,12 @@ describe('pyric serve end-to-end (HTTP)', () => {
     expect(mapAt).toBeGreaterThan(-1);
     expect(mapAt).toBeLessThan(appAt);
     expect(html).toContain('"firebase/firestore":"/__pyric/sdk/firestore.js"');
+    expect(html).toContain('"firebase/database":"/__pyric/sdk/database.js"');
     expect(html).toContain('"firebase/app":"/__pyric/sdk/app.js"');
     expect(html).toContain('/__pyric/sdk/init.js');
 
     // 2. the mapped SDK files are served, browser-standalone
-    for (const mod of ['app', 'auth', 'firestore', 'init']) {
+    for (const mod of ['app', 'auth', 'firestore', 'database', 'init']) {
       const res = await fetch(`${base}/__pyric/sdk/${mod}.js`);
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('javascript');
