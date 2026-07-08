@@ -6,6 +6,7 @@ export type WorkspaceTabId = 'preview' | 'firebase' | 'file';
 export type FirebaseWorkbenchSubTab =
   | 'ideas'
   | 'data'
+  | 'rtdb'
   | 'auth'
   | 'sandbox'
   | 'traffic'
@@ -33,6 +34,7 @@ export function firebaseSubTabsForProfile(
   const focused: readonly Tab[] = [
     { id: 'sandbox', label: 'Sandbox' },
     { id: 'data', label: 'Data' },
+    { id: 'rtdb', label: 'RTDB' },
     { id: 'auth', label: 'Auth' },
     { id: 'traffic', label: 'Traffic' },
     { id: 'seed', label: 'Seed' },

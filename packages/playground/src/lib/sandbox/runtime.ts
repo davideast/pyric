@@ -80,6 +80,10 @@ export interface PlaygroundRuntime {
   adminListDocuments(path: string): Promise<AdminDocumentRecord[]>;
   adminSetDocument(path: string, data: unknown): Promise<void>;
   adminDeleteDocument(path: string): Promise<boolean>;
+  readDatabaseState(): Promise<unknown>;
+  adminSetDatabaseValue(path: string, value: unknown): Promise<void>;
+  adminUpdateDatabaseValue(path: string, values: Record<string, unknown>): Promise<void>;
+  adminDeleteDatabaseValue(path: string): Promise<void>;
   listAuthUsers(): Promise<AuthUserRecord[]>;
   adminCreateUser(request: CreateUserRequest): Promise<AuthUserRecord>;
   adminUpdateUser(uid: string, request: UpdateUserRequest): Promise<AuthUserRecord>;
@@ -124,6 +128,30 @@ class InProcessPlaygroundRuntime implements PlaygroundRuntime {
   adminDeleteDocument(path: string): Promise<boolean> {
     const result = getRunner().admin.deleteDocument(path);
     return Promise.resolve(typeof result === 'object' ? Boolean(result.deleted) : Boolean(result));
+  }
+
+  readDatabaseState(): Promise<unknown> {
+    return import('pyric/database').then(({ getAdminDatabase, sandbox }) =>
+      sandbox.snapshotState(getAdminDatabase(getRunner().getSandbox() as never)),
+    );
+  }
+
+  adminSetDatabaseValue(path: string, value: unknown): Promise<void> {
+    return import('pyric/database').then(({ getAdminDatabase, ref, set }) =>
+      set(ref(getAdminDatabase(getRunner().getSandbox() as never), path), value),
+    );
+  }
+
+  adminUpdateDatabaseValue(path: string, values: Record<string, unknown>): Promise<void> {
+    return import('pyric/database').then(({ getAdminDatabase, ref, update }) =>
+      update(ref(getAdminDatabase(getRunner().getSandbox() as never), path), values),
+    );
+  }
+
+  adminDeleteDatabaseValue(path: string): Promise<void> {
+    return import('pyric/database').then(({ getAdminDatabase, ref, remove }) =>
+      remove(ref(getAdminDatabase(getRunner().getSandbox() as never), path)),
+    );
   }
 
   listAuthUsers(): Promise<AuthUserRecord[]> {
@@ -223,6 +251,22 @@ class SharedWorkerPlaygroundRuntime implements PlaygroundRuntime {
     return WorkerRuntime.adminDeleteDocument(getWorkerDb(), path);
   }
 
+  readDatabaseState(): Promise<unknown> {
+    return WorkerRuntime.adminReadRtdbState(getWorkerDb());
+  }
+
+  adminSetDatabaseValue(path: string, value: unknown): Promise<void> {
+    return WorkerRuntime.adminSetRtdbValue(getWorkerDb(), path, value);
+  }
+
+  adminUpdateDatabaseValue(path: string, values: Record<string, unknown>): Promise<void> {
+    return WorkerRuntime.adminUpdateRtdbValue(getWorkerDb(), path, values);
+  }
+
+  adminDeleteDatabaseValue(path: string): Promise<void> {
+    return WorkerRuntime.adminDeleteRtdbValue(getWorkerDb(), path);
+  }
+
   listAuthUsers(): Promise<AuthUserRecord[]> {
     return WorkerRuntime.listUsers(getWorkerAuth());
   }
@@ -275,6 +319,25 @@ export async function readFirestoreState(
   opts: { path?: string; maxDepth?: number } = {},
 ): Promise<Record<string, unknown>> {
   return getPlaygroundRuntime().readFirestoreState(opts);
+}
+
+export async function readDatabaseState(): Promise<unknown> {
+  return getPlaygroundRuntime().readDatabaseState();
+}
+
+export async function adminSetDatabaseValue(path: string, value: unknown): Promise<void> {
+  return getPlaygroundRuntime().adminSetDatabaseValue(path, value);
+}
+
+export async function adminUpdateDatabaseValue(
+  path: string,
+  values: Record<string, unknown>,
+): Promise<void> {
+  return getPlaygroundRuntime().adminUpdateDatabaseValue(path, values);
+}
+
+export async function adminDeleteDatabaseValue(path: string): Promise<void> {
+  return getPlaygroundRuntime().adminDeleteDatabaseValue(path);
 }
 
 export const sharedWorkerRuntime = WorkerRuntime;

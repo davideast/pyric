@@ -22,6 +22,7 @@ describe('Playground workbench layout helpers', () => {
     expect(firebaseSubTabsForProfile('app-builder').map((tab) => tab.id)).toEqual([
       'sandbox',
       'data',
+      'rtdb',
       'auth',
       'traffic',
       'seed',
@@ -35,6 +36,7 @@ describe('Playground workbench layout helpers', () => {
     expect(firebaseSubTabsForProfile('firebase').map((tab) => tab.id)).toEqual([
       'sandbox',
       'data',
+      'rtdb',
       'auth',
       'traffic',
       'seed',
