@@ -78,7 +78,7 @@ export interface RemoteSandboxChannel {
  */
 export interface RemoteSandbox extends Sandbox {
   readonly [REMOTE_SANDBOX]: true;
-  /** Base URL of the `pyric serve` this handle is attached to (used in
+  /** Base URL of the `pyric dev` this handle is attached to (used in
    *  error guidance: "open <serveUrl> in a browser and retry"). */
   readonly serveUrl: string;
   /** The raw worker op/sub relay channel. */

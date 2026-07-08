@@ -32,7 +32,7 @@ export function SessionSurface() {
   const reset = useStudioReset();
   const [resetting, setResetting] = useState(false);
   // The unified stream IS the activity source (dev-seed in review, the live
-  // SharedWorker feed under `pyric serve --ui`); the events lib's types mirror
+  // SharedWorker feed under `pyric dev --ui`); the events lib's types mirror
   // the sandbox's `request`/`write`/`service_mutation` shapes structurally.
   const events = useStudioEvents() as unknown as readonly AnyActivityEvent[];
   const digest = useActivityDigest(events);

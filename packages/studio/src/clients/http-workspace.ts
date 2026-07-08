@@ -1,6 +1,6 @@
 /**
  * `httpWorkspace(baseUrl)`: a {@link WorkspaceStore} that satisfies the port
- * browser-side by talking to the pyric server's `/__pyric/workspace` routes
+ * browser-side by talking to the pyric devr's `/__pyric/workspace` routes
  * (the disk-backed store in pyric-tools). `watch` consumes the SSE stream at
  * `/__pyric/workspace/watch`.
  *

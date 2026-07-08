@@ -3,10 +3,10 @@
  * provider. Ported from the playground's `lib/llm/byok.ts`, trimmed to the two
  * slot kinds Studio needs.
  *
- * Why client-side: served Studio (`pyric serve --ui`) is static-ish with no key
+ * Why client-side: served Studio (`pyric dev --ui`) is static-ish with no key
  * store of its own, so the honest answer is "your browser, your machine, your
  * key." Studio is an admin-scoped console; the settings page states this plainly
- * and recommends a scoped / dev key. The keyless alternative (a `pyric serve`
+ * and recommends a scoped / dev key. The keyless alternative (a `pyric dev`
  * relay that holds the key server-side) is a follow-up behind the same seam.
  *
  * One slot per provider, namespaced under `pyric.playground.byok.<id>`. Most

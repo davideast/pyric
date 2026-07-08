@@ -2,7 +2,7 @@
  * Environment provider (T4).
  *
  * Resolves the Studio environment once, at the top of the tree, by calling
- * `createStudioEnvironment('local')` (the `local` mode `pyric serve --ui` uses).
+ * `createStudioEnvironment('local')` (the `local` mode `pyric dev --ui` uses).
  *
  * Crucially this TOLERATES the factory throwing: T3 implements the `local`
  * branch in parallel and the Phase-0 stub still throws "not implemented yet".
@@ -49,7 +49,7 @@ function resolveEnvironment(mode: StudioMode): EnvironmentState {
 }
 
 export interface EnvironmentProviderProps {
-  /** Defaults to `local`: the mode `pyric serve --ui` runs. */
+  /** Defaults to `local`: the mode `pyric dev --ui` runs. */
   mode?: StudioMode;
   children: ReactNode;
 }

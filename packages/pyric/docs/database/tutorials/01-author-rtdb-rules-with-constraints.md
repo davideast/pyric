@@ -131,7 +131,7 @@ generated the JSON expected by Firebase Realtime Database.
 
 ## Verify a captured app journey
 
-After running `pyric serve` and exercising the app, the latest session is saved
+After running `pyric dev` and exercising the app, the latest session is saved
 to `.pyric/last-session.json`. You can verify that capture against the in-memory
 rules document before generating JSON:
 
