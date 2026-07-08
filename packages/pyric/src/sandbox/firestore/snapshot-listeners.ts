@@ -58,10 +58,14 @@ export type SnapshotTarget =
 /**
  * Mirrors `SnapshotListenOptions` from the Web SDK. `source: 'cache'` has
  * no analog in the sandbox (no offline cache) — accepted but treated as
- * `'default'`. `includeMetadataChanges` is a documented no-op in the
- * sandbox: `metadata.hasPendingWrites` and `metadata.fromCache` are
- * stubbed as constant `false`, so metadata-only transitions never occur.
- * See findings section 6.
+ * `'default'`.
+ *
+ * `includeMetadataChanges` is now observable (item 3 / COMPAT firestore#85):
+ * a local write echoes to every listener with `hasPendingWrites: true`, and
+ * `includeMetadataChanges` listeners additionally receive the server-ack
+ * fire (`hasPendingWrites: false`) that default listeners never see. See
+ * `LocalEnvironment.notifyDocListener` / `notifyQueryListener`. `fromCache`
+ * remains constant `false` — the sandbox has no offline cache to serve from.
  */
 export interface SnapshotListenerOptions {
   includeMetadataChanges?: boolean;
@@ -167,13 +171,14 @@ export interface ListenerRecord {
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Mirrors `firebase/firestore`'s `SnapshotMetadata`. In the sandbox both
- * fields are stubbed as constant `false` — there's no offline cache and
- * no pending-writes window. Documented divergence: `includeMetadataChanges`
- * therefore has no observable effect (findings section 6).
+ * Mirrors `firebase/firestore`'s `SnapshotMetadata`. `fromCache` is always
+ * `false` (the sandbox has no offline cache). `hasPendingWrites` transitions
+ * (item 3): a local write's optimistic echo carries `true`, and the server
+ * ack carries `false` — so `includeMetadataChanges` has an observable effect
+ * matching prod (COMPAT firestore#85).
  */
 export interface SnapshotMetadata {
-  readonly hasPendingWrites: false;
+  readonly hasPendingWrites: boolean;
   readonly fromCache: false;
 }
 
@@ -255,12 +260,24 @@ export interface QuerySnapshot {
 // ─── Snapshot constants ──────────────────────────────────────────────
 
 /**
- * Singleton metadata object — both fields are sandbox-constant so
- * sharing one frozen instance saves allocations and lets agent code
- * compare metadata identity across snapshots without surprises.
+ * Settled metadata — `hasPendingWrites: false`. Used for the initial fire,
+ * the server-ack fire (item 3), and every re-eval that reflects a durable
+ * server read (rules redeploy, live-listener auth change). Shared frozen
+ * instance to save allocations on the common settled path.
  */
 export const SANDBOX_METADATA: SnapshotMetadata = Object.freeze({
   hasPendingWrites: false as const,
+  fromCache: false as const,
+});
+
+/**
+ * Pending metadata — `hasPendingWrites: true`. Stamped on the local write
+ * echo (item 3): the optimistic fire a write produces before the (sandbox-
+ * synchronous) server ack. Mirrors prod, where a `setDoc` echoes locally
+ * with `hasPendingWrites: true`. COMPAT firestore#85.
+ */
+export const SANDBOX_METADATA_PENDING: SnapshotMetadata = Object.freeze({
+  hasPendingWrites: true as const,
   fromCache: false as const,
 });
 
@@ -295,6 +312,7 @@ function lastSegment(path: string): string {
 export function buildDocumentSnapshot(
   path: string,
   data: DocumentData | null,
+  metadata: SnapshotMetadata = SANDBOX_METADATA,
 ): DocumentSnapshot {
   const ref: SnapshotDocRef = { id: lastSegment(path), path };
   const exists = data !== null;
@@ -305,7 +323,7 @@ export function buildDocumentSnapshot(
   return {
     id: ref.id,
     ref,
-    metadata: SANDBOX_METADATA,
+    metadata,
     exists: () => exists,
     data: () => translated,
     get: (fieldPath: string) => getByPath(translated, fieldPath),
@@ -315,6 +333,7 @@ export function buildDocumentSnapshot(
 function buildQueryDocumentSnapshot(
   path: string,
   data: DocumentData,
+  metadata: SnapshotMetadata = SANDBOX_METADATA,
 ): QueryDocumentSnapshot {
   const ref: SnapshotDocRef = { id: lastSegment(path), path };
   // FS-B10 — same read-path translation as the single-doc + getDocs paths.
@@ -322,7 +341,7 @@ function buildQueryDocumentSnapshot(
   return {
     id: ref.id,
     ref,
-    metadata: SANDBOX_METADATA,
+    metadata,
     exists: () => true,
     data: () => translated,
     get: (fieldPath: string) => getByPath(translated, fieldPath),
@@ -352,14 +371,15 @@ export function buildQuerySnapshot(
   docList: { path: string; data: DocumentData }[],
   options: { excludesMetadataChanges: boolean },
   prevDocs?: { path: string; data: DocumentData }[],
+  metadata: SnapshotMetadata = SANDBOX_METADATA,
 ): QuerySnapshot {
-  const docs = docList.map((d) => buildQueryDocumentSnapshot(d.path, d.data));
+  const docs = docList.map((d) => buildQueryDocumentSnapshot(d.path, d.data, metadata));
 
   // Pre-compute the no-metadata-change view (Slice 2 semantics):
   // initial fire → every current doc is `added`. Slice 3 will replace
   // this with proper diffing against `prevDocs`.
   const baseChanges: DocumentChange[] = prevDocs
-    ? computeChanges(prevDocs, docList, docs)
+    ? computeChanges(prevDocs, docList, docs, metadata)
     : docs.map((doc, newIndex) => ({ type: 'added' as const, doc, oldIndex: -1, newIndex }));
 
   let cachedNoMetaChanges: DocumentChange[] | null = null;
@@ -367,7 +387,7 @@ export function buildQuerySnapshot(
 
   return {
     query,
-    metadata: SANDBOX_METADATA,
+    metadata,
     size: docs.length,
     empty: docs.length === 0,
     docs,
@@ -416,6 +436,7 @@ function computeChanges(
   prev: { path: string; data: DocumentData }[],
   curr: { path: string; data: DocumentData }[],
   currSnaps: QueryDocumentSnapshot[],
+  metadata: SnapshotMetadata = SANDBOX_METADATA,
 ): DocumentChange[] {
   const prevIndex = new Map<string, number>();
   prev.forEach((d, i) => prevIndex.set(d.path, i));
@@ -429,7 +450,7 @@ function computeChanges(
     if (!currIndex.has(p.path)) {
       out.push({
         type: 'removed',
-        doc: buildQueryDocumentSnapshot(p.path, p.data),
+        doc: buildQueryDocumentSnapshot(p.path, p.data, metadata),
         oldIndex: i,
         newIndex: -1,
       });

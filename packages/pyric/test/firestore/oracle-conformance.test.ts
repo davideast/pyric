@@ -648,15 +648,14 @@ describe('oracle conformance (firestore)', () => {
 
   // ── snapshot listeners ───────────────────────────────────────────────
 
-  it('firestore-row-80-onsnapshot-fires-initial (KNOWN DIVERGENCE: fire timing)', async () => {
+  it('firestore-row-80-onsnapshot-fires-initial (CONFORMS: async initial fire)', async () => {
     // Prod: the initial doc snapshot is delivered ASYNC — not during the
-    // registering call, and only after a macrotask boundary
-    // (firstFireAt "after-timeout", firstFireSyncDuringRegister false). The
-    // sandbox delivers the initial snapshot SYNCHRONOUSLY during register
-    // (the FS-B2 listener suite relies on this). Reproducing prod's deferral
-    // is a timing-model change with blast radius — pinned, not absorbed.
+    // registering call (firstFireSyncDuringRegister false). The sandbox now
+    // routes the initial fire through the delivery scheduler
+    // (src/sandbox/firestore/local-environment.ts), matching prod's
+    // "asynchronous, never during register" contract via a microtask.
     const obs = load('firestore-row-80-onsnapshot-fires-initial.json');
-    expect(obs.firstFireSyncDuringRegister).toBe(false); // prod (the target)
+    expect(obs.firstFireSyncDuringRegister).toBe(false); // prod (the contract)
     expect(obs.firstFireAt).toBe('after-timeout');
 
     const db = freshDb();
@@ -666,11 +665,9 @@ describe('oracle conformance (firestore)', () => {
       const s = snap as DocumentSnapshot;
       fires.push({ exists: s.exists(), v: s.data()?.v });
     });
-    // Sandbox today: initial fire is synchronous during register.
-    expect(fires.length).toBe(1);
+    // Conforms: NO fire synchronously during register.
+    expect(fires.length).toBe(0);
     await settle();
-    // The delivered fire count + contents match prod (only the TIMING of the
-    // first fire diverges).
     expect(fires.length).toBe(obs.fireCount as number);
     const firstEvent = (obs.events as Array<{ existsResult: boolean; v: number }>)[0];
     expect(fires[0]).toEqual({ exists: firstEvent.existsResult, v: firstEvent.v });
@@ -810,18 +807,17 @@ describe('oracle conformance (firestore)', () => {
     unsub2();
   });
 
-  it('firestore-include-metadata-changes (KNOWN DIVERGENCE: metadata fires)', async () => {
+  it('firestore-include-metadata-changes (CONFORMS: pending-write echo + ack)', async () => {
     // Prod: includeMetadataChanges:true yields an EXTRA fire per write — the
     // pending-write local echo (hasPendingWrites:true) followed by the
-    // acknowledged snapshot (hasPendingWrites:false) — so a single write
-    // produces 3 fires vs the default listener's 2. The sandbox is a local
-    // in-memory backend with no pending-write phase: it fires the same 2
-    // events regardless of includeMetadataChanges, and NEVER surfaces
-    // hasPendingWrites:true (its metadata booleans are always false). Pin
-    // BOTH sides: prod's fire counts + pending-write echo, and the sandbox's.
+    // metadata-only acknowledged snapshot (hasPendingWrites:false) — so a
+    // single write produces 3 fires vs the default listener's 2. The
+    // sandbox's delivery scheduler now models the echo + ack: the default
+    // listener gets the echo (its last snapshot stays pending, like prod's),
+    // and includeMetadataChanges listeners get the settled ack fire.
     const obs = load('firestore-include-metadata-changes.json');
     const prodMeta = obs.firesMeta as Array<{ hasPendingWrites: boolean }>;
-    expect(obs.afterWriteDefault).toBe(2); // prod default (matches sandbox)
+    expect(obs.afterWriteDefault).toBe(2); // prod default
     expect(obs.afterWriteMeta).toBe(3); // prod meta: the extra ack fire
     expect(prodMeta.some((f) => f.hasPendingWrites)).toBe(true); // prod echoes a pending write
 
@@ -835,22 +831,21 @@ describe('oracle conformance (firestore)', () => {
       (s) => firesMeta.push(s as QuerySnapshot),
     );
     await settle();
-    expect(firesDefault.length).toBe(obs.initialDefault as number); // 1 (matches)
-    expect(firesMeta.length).toBe(obs.initialMeta as number); // 1 (matches)
+    expect(firesDefault.length).toBe(obs.initialDefault as number); // 1
+    expect(firesMeta.length).toBe(obs.initialMeta as number); // 1
 
     await setDoc(doc(db, 'imc/a'), { v: 1 });
     await settle();
-    // Default listener: matches prod exactly.
+    // Default listener: 2 fires, matching prod.
     expect(firesDefault.length).toBe(obs.afterWriteDefault as number); // 2
-    // Meta listener: sandbox fires only 2, NOT prod's 3 — no pending-write
-    // echo phase in the local backend.
-    expect(firesMeta.length).toBe(2);
-    // And hasPendingWrites is NEVER true on the sandbox's snapshots (prod
-    // sets it true on the local echo).
-    const anyPending = firesMeta.some(
+    // Meta listener: 3 fires — echo then ack — matching prod.
+    expect(firesMeta.length).toBe(obs.afterWriteMeta as number); // 3
+    // The echo carries hasPendingWrites:true and the ack settles it,
+    // matching prod's recorded sequence.
+    const metaFlags = firesMeta.map(
       (s) => (s as unknown as { metadata: { hasPendingWrites: boolean } }).metadata.hasPendingWrites,
     );
-    expect(anyPending).toBe(false);
+    expect(metaFlags).toEqual(prodMeta.map((f) => f.hasPendingWrites));
     unsubD();
     unsubM();
   });

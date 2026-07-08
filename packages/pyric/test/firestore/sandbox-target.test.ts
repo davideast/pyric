@@ -9,6 +9,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getInternalEnv } from 'pyric/sandbox/internal';
 import {
   // Construction
   getFirestore,
@@ -317,25 +318,32 @@ service cloud.firestore {
       'widgets/W-1': { name: 'first', priority: 1 },
       'widgets/W-2': { name: 'second', priority: 2 },
     });
-    return db;
+    return { db, env: getInternalEnv(sandbox) };
   }
 
-  it('onSnapshot(docRef, cb) fires the initial snapshot synchronously', () => {
-    const db = listenerSetup();
+  it('onSnapshot(docRef, cb) fires the initial snapshot asynchronously (never during register)', () => {
+    const { db, env } = listenerSetup();
     const calls: DocumentSnapshot[] = [];
     onSnapshot(doc(db, 'widgets/W-1'), (snap) => {
       calls.push(snap as DocumentSnapshot);
     });
+    // Item 5 / firestore#80 — the initial snapshot is delivered off the
+    // registering stack (prod schedules even cached initial events on its
+    // async queue), so nothing has fired synchronously during register.
+    expect(calls).toHaveLength(0);
+    // Draining the delivery scheduler settles the deferred initial fire.
+    env.flushListeners();
     expect(calls).toHaveLength(1);
     expect((calls[0]!.data() as { name: string }).name).toBe('first');
   });
 
   it('onSnapshot(query, cb) fires on collection writes', async () => {
-    const db = listenerSetup();
+    const { db, env } = listenerSetup();
     const calls: QuerySnapshot[] = [];
     onSnapshot(collection(db, 'widgets'), (snap) => {
       calls.push(snap as QuerySnapshot);
     });
+    env.flushListeners();
     expect(calls).toHaveLength(1);
     expect(calls[0]!.size).toBe(2);
     await setDoc(doc(db, 'widgets/W-3'), { name: 'third', priority: 3 });
@@ -343,11 +351,12 @@ service cloud.firestore {
   });
 
   it('returned unsubscribe stops further fires', async () => {
-    const db = listenerSetup();
+    const { db, env } = listenerSetup();
     const calls: DocumentSnapshot[] = [];
     const unsub = onSnapshot(doc(db, 'widgets/W-1'), (snap) => {
       calls.push(snap as DocumentSnapshot);
     });
+    env.flushListeners();
     expect(calls).toHaveLength(1);
     unsub();
     await updateDoc(doc(db, 'widgets/W-1'), { priority: 99 });

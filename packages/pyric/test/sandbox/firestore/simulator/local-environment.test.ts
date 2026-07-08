@@ -608,6 +608,7 @@ service cloud.firestore {
         { kind: 'doc', path: 'games/g1' },
         () => { /* no-op for Slice 1 */ },
       );
+      env.flushListeners();
       expect(env.getSnapshotListenerCount()).toBe(1);
       unsub();
       expect(env.getSnapshotListenerCount()).toBe(0);
@@ -620,6 +621,7 @@ service cloud.firestore {
         { kind: 'query', collection: 'games' },
         () => { /* no-op */ },
       );
+      env.flushListeners();
       expect(env.getSnapshotListenerCount()).toBe(1);
       unsub();
     });
@@ -628,8 +630,11 @@ service cloud.firestore {
       const env = new LocalEnvironment();
       env.seed({ rules: SIMPLE_RULES });
       const unsubA = env.addSnapshotListener({ kind: 'doc', path: 'games/g1' }, () => {});
+      env.flushListeners();
       const unsubB = env.addSnapshotListener({ kind: 'doc', path: 'games/g2' }, () => {});
+      env.flushListeners();
       const unsubC = env.addSnapshotListener({ kind: 'query', collection: 'games' }, () => {});
+      env.flushListeners();
       expect(env.getSnapshotListenerCount()).toBe(3);
       unsubB();
       expect(env.getSnapshotListenerCount()).toBe(2);
@@ -646,6 +651,7 @@ service cloud.firestore {
       const env = new LocalEnvironment();
       env.seed({ rules: SIMPLE_RULES });
       const unsub = env.addSnapshotListener({ kind: 'doc', path: 'games/g1' }, () => {});
+      env.flushListeners();
       unsub();
       expect(env.getSnapshotListenerCount()).toBe(0);
       expect(() => unsub()).not.toThrow();
@@ -661,7 +667,9 @@ service cloud.firestore {
       const env = new LocalEnvironment();
       env.seed({ rules: SIMPLE_RULES });
       const unsubA = env.addSnapshotListener({ kind: 'doc', path: 'games/g1' }, () => {});
+      env.flushListeners();
       const unsubB = env.addSnapshotListener({ kind: 'doc', path: 'games/g1' }, () => {});
+      env.flushListeners();
       expect(env.getSnapshotListenerCount()).toBe(2);
       unsubA();
       expect(env.getSnapshotListenerCount()).toBe(1);
@@ -682,6 +690,7 @@ service cloud.firestore {
         { includeMetadataChanges: true, source: 'default' },
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(called).toBe(1);
       unsub();
     });
@@ -704,6 +713,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       const snap = fired[0] as {
         id: string;
@@ -733,6 +743,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired).toEqual([{ exists: false, data: undefined }]);
       unsub();
     });
@@ -750,6 +761,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(captured?.snap.get('state.board.a1')).toBe('X');
       expect(captured?.snap.get('state.missing.nope')).toBeUndefined();
       unsub();
@@ -770,6 +782,7 @@ service cloud.firestore {
         { uid: 'alice' },
         (err) => errors.push(err),
       );
+      env.flushListeners();
       expect(data.length).toBe(0);
       expect(errors.length).toBe(1);
       const err = errors[0] as { code: string };
@@ -793,6 +806,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       const snap = fired[0];
       expect(snap.size).toBe(2);
@@ -818,6 +832,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       expect(fired[0].size).toBe(0);
       expect(fired[0].empty).toBe(true);
@@ -843,6 +858,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(() => snap.docChanges({ includeMetadataChanges: true })).toThrow();
       // No-arg and explicit false don't throw.
       expect(() => snap.docChanges()).not.toThrow();
@@ -863,6 +879,7 @@ service cloud.firestore {
         { includeMetadataChanges: true },
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(() => snap.docChanges({ includeMetadataChanges: true })).not.toThrow();
       expect(() => snap.docChanges()).not.toThrow();
       unsub();
@@ -884,12 +901,14 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       const unsub2 = env.addSnapshotListener(
         { kind: 'query', collection: 'games' },
         () => {},
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(env.getEvents().length).toBe(before);
       unsub1();
       unsub2();
@@ -910,6 +929,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(calls).toBe(1);
       expect(env.getSnapshotListenerCount()).toBe(1);
       expect(() => unsub()).not.toThrow();
@@ -934,6 +954,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       const r = env.execute({
         method: 'update',
@@ -941,6 +962,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { host: 'alice', status: 'playing', guest: 'bob', turn: 'O' },
       });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       expect(fired.length).toBe(2);
       expect(fired[1].turn).toBe('O');
@@ -960,6 +982,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       const r = env.execute({
         method: 'create',
@@ -967,6 +990,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { host: 'alice', status: 'waiting' },
       });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       expect(fired.length).toBe(1); // unchanged
       unsub();
@@ -990,8 +1014,10 @@ service cloud.firestore {
         { kind: 'doc', path: 'games/g1' },
         (s) => fired.push({ exists: s.exists() }),
       );
+      env.flushListeners();
       expect(fired).toEqual([{ exists: true }]);
       const r = env.execute({ method: 'delete', path: 'games/g1', auth: null });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       expect(fired).toEqual([{ exists: true }, { exists: false }]);
       unsub();
@@ -1018,6 +1044,7 @@ service cloud.firestore {
         { kind: 'doc', path: 'games/g1' },
         (s) => fired.push(s),
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       // Identical post-image — should suppress.
       const r = env.execute({
@@ -1026,6 +1053,7 @@ service cloud.firestore {
         auth: null,
         data: { turn: 'X', score: 1 },
       });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       expect(fired.length).toBe(1);
       unsub();
@@ -1044,6 +1072,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       expect(fired[0].size).toBe(1);
       const r = env.execute({
@@ -1052,6 +1081,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { host: 'alice', status: 'waiting' },
       });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       expect(fired.length).toBe(2);
       expect(fired[1].size).toBe(2);
@@ -1081,8 +1111,10 @@ service cloud.firestore {
         { kind: 'query', collection: 'games' },
         (s) => fired.push(s),
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       const r = env.execute({ method: 'delete', path: 'games/g1', auth: null });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       expect(fired.length).toBe(2);
       expect(fired[1].size).toBe(1);
@@ -1109,6 +1141,7 @@ service cloud.firestore {
         { kind: 'query', collection: 'games' },
         (s) => fired.push(s),
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       const r = env.execute({
         method: 'update',
@@ -1116,6 +1149,7 @@ service cloud.firestore {
         auth: null,
         data: { turn: 'O' },
       });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       expect(fired.length).toBe(2);
       const changes = fired[1].docChanges();
@@ -1142,6 +1176,7 @@ service cloud.firestore {
         { kind: 'query', collection: 'games' },
         (s) => fired.push(s),
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       const r = env.execute({
         method: 'create',
@@ -1149,6 +1184,7 @@ service cloud.firestore {
         auth: null,
         data: { msg: 'hi' },
       });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       expect(fired.length).toBe(1);
       unsub();
@@ -1169,6 +1205,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       // status: 'waiting' update violates SIMPLE_RULES (requires 'playing').
       const r = env.execute({
@@ -1177,6 +1214,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { host: 'alice', status: 'waiting', guest: 'bob' },
       });
+      env.flushListeners();
       expect(r.allowed).toBe(false);
       expect(fired.length).toBe(1);
       unsub();
@@ -1204,8 +1242,11 @@ service cloud.firestore {
       const firedG2: any[] = [];
       const firedQuery: any[] = [];
       const u1 = env.addSnapshotListener({ kind: 'doc', path: 'games/g1' }, (s) => firedG1.push(s));
+      env.flushListeners();
       const u2 = env.addSnapshotListener({ kind: 'doc', path: 'games/g2' }, (s) => firedG2.push(s));
+      env.flushListeners();
       const uQ = env.addSnapshotListener({ kind: 'query', collection: 'games' }, (s) => firedQuery.push(s));
+      env.flushListeners();
       expect(firedG1.length).toBe(1);
       expect(firedG2.length).toBe(1);
       expect(firedQuery.length).toBe(1);
@@ -1217,6 +1258,7 @@ service cloud.firestore {
         ],
         null,
       );
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       // Each doc listener fires once for its single update.
       expect(firedG1.length).toBe(2);
@@ -1243,6 +1285,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       // First op passes, second op fails (status 'waiting' update is denied).
       const r = env.batch(
@@ -1280,8 +1323,11 @@ service cloud.firestore {
       const firedG2: any[] = [];
       const firedQuery: any[] = [];
       const u1 = env.addSnapshotListener({ kind: 'doc', path: 'games/g1' }, (s) => firedG1.push(s));
+      env.flushListeners();
       const u2 = env.addSnapshotListener({ kind: 'doc', path: 'games/g2' }, (s) => firedG2.push(s));
+      env.flushListeners();
       const uQ = env.addSnapshotListener({ kind: 'query', collection: 'games' }, (s) => firedQuery.push(s));
+      env.flushListeners();
       expect(firedG1.length).toBe(1);
       expect(firedG2.length).toBe(1);
       expect(firedQuery.length).toBe(1);
@@ -1290,6 +1336,7 @@ service cloud.firestore {
         tx.update('games/g1', { turn: 'O' });
         tx.update('games/g2', { turn: 'X' });
       }, { auth: { uid: 'a' } });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       // Each doc listener fires once for its single update (1 initial + 1 tx).
       expect(firedG1.length).toBe(2);
@@ -1321,6 +1368,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       // bob is denied — entire tx rolls back.
       const r = env.transaction((tx) => {
@@ -1347,6 +1395,7 @@ service cloud.firestore {
         { kind: 'doc', path: 'games/g1' },
         (s) => fired.push(s),
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       // Callback queues a write then throws — atomic abort, no commit.
       expect(() => env.transaction((tx) => {
@@ -1380,21 +1429,25 @@ service cloud.firestore {
         { kind: 'doc', path: 'games/g1' },
         () => { aCalls++; if (aCalls === 2) unsubA(); },
       );
+      env.flushListeners();
       const unsubB = env.addSnapshotListener(
         { kind: 'doc', path: 'games/g1' },
         () => { bCalls++; },
       );
+      env.flushListeners();
       expect(aCalls).toBe(1);
       expect(bCalls).toBe(1);
 
       // Write #1: A fires (then unsubs itself), B fires.
       env.execute({ method: 'update', path: 'games/g1', auth: null, data: { turn: 'O' } });
+      env.flushListeners();
       expect(aCalls).toBe(2);
       expect(bCalls).toBe(2);
       expect(env.getSnapshotListenerCount()).toBe(1);
 
       // Write #2: A is gone, only B fires.
       env.execute({ method: 'update', path: 'games/g1', auth: null, data: { turn: 'P' } });
+      env.flushListeners();
       expect(aCalls).toBe(2);
       expect(bCalls).toBe(3);
 
@@ -1424,6 +1477,7 @@ service cloud.firestore {
         { uid: 'alice' },
         (e) => errors.push(e),
       );
+      env.flushListeners();
       expect(errors.length).toBe(1);
       // A successful write to the same path must not re-fire data
       // (listener is in errored state).
@@ -1433,6 +1487,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { secret: 'still shh' },
       });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
       expect(data.length).toBe(0);
       expect(errors.length).toBe(1); // error not re-delivered either
@@ -1486,6 +1541,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       const snap = fired[0];
       expect(snap.size).toBe(2);
@@ -1523,6 +1579,7 @@ service cloud.firestore {
         { uid: 'alice' },
         (e) => errors.push(e),
       );
+      env.flushListeners();
       expect(fired.length).toBe(0);
       expect(errors.length).toBe(1);
       expect(errors[0].code).toBe('permission-denied');
@@ -1552,6 +1609,7 @@ service cloud.firestore {
         { uid: 'alice' },
         (e) => errors.push(e),
       );
+      env.flushListeners();
       // Initial fire was denied.
       expect(data.length).toBe(0);
       expect(errors.length).toBe(1);
@@ -1591,6 +1649,7 @@ service cloud.firestore {
         { uid: 'alice' },
         (e) => errors.push(e),
       );
+      env.flushListeners();
       expect(data.length).toBe(1);
       expect(errors.length).toBe(0);
 
@@ -1642,6 +1701,7 @@ service cloud.firestore {
         { uid: 'alice' },
         (e) => errors.push(e),
       );
+      env.flushListeners();
       // Unprovable bare listen → whole-query denial (rules are not filters).
       expect(fired.length).toBe(0);
       expect(errors.length).toBe(1);
@@ -1690,6 +1750,7 @@ service cloud.firestore {
         { uid: 'alice' },
         (e) => errors.push(e),
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
       expect(fired[0].size).toBe(2);
 
@@ -1728,6 +1789,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fired.length).toBe(1);
 
       // Same rule text → swap is a no-op for the listener; suppression
@@ -1763,6 +1825,7 @@ service cloud.firestore {
         { uid: 'alice' },
         (e) => errors.push(e),
       );
+      env.flushListeners();
       expect(errors.length).toBe(1);
 
       // Note: this test previously asserted "lint errors block install
@@ -1816,6 +1879,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
 
       expect(events.length).toBe(1);
       expect(events[0]!.err.code).toBe('permission-denied');
@@ -1846,6 +1910,7 @@ service cloud.firestore {
         { uid: 'alice' },
         (err) => listenerErrors.push(err),
       );
+      env.flushListeners();
 
       // Both channels received the error.
       expect(envEvents.length).toBe(1);
@@ -1885,6 +1950,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       // Initial fire was allowed — no error yet.
       expect(envEvents.length).toBe(0);
 
@@ -1923,6 +1989,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(a.length).toBe(1);
       expect(b.length).toBe(1);
       unsubListener();
@@ -1952,6 +2019,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(events.length).toBe(1);
       unsubEnv();
 
@@ -1962,6 +2030,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(events.length).toBe(1);
     });
 
@@ -1987,6 +2056,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(good.length).toBe(1);
     });
 
@@ -2011,6 +2081,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(events.length).toBe(1);
       expect(events[0]!.target).toEqual({ kind: 'query', collection: 'items' });
     });
@@ -2048,6 +2119,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       // Initial fire.
       expect(fired).toEqual(['X']);
       // Second fire — the callback unsubscribes itself.
@@ -2057,6 +2129,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { host: 'alice', status: 'playing', guest: 'bob', turn: 'O' },
       });
+      env.flushListeners();
       expect(fired).toEqual(['X', 'O']);
       expect(env.getSnapshotListenerCount()).toBe(0);
       // Third write — no further notification because the listener is gone.
@@ -2066,6 +2139,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { host: 'alice', status: 'playing', guest: 'bob', turn: 'X' },
       });
+      env.flushListeners();
       expect(fired).toEqual(['X', 'O']);
     });
 
@@ -2092,12 +2166,14 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       unsubB = env.addSnapshotListener(
         { kind: 'doc', path: 'games/g1' },
         (snap) => bFired.push(snap.data()?.turn),
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(aFired).toEqual(['X']);
       expect(bFired).toEqual(['X']);
       // Write — A's callback unsubscribes B before B's callback would fire.
@@ -2107,6 +2183,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { host: 'alice', status: 'playing', guest: 'bob', turn: 'O' },
       });
+      env.flushListeners();
       expect(aFired).toEqual(['X', 'O']);
       // B got its initial fire but NOT the post-write fire — A removed it
       // from the registry before the dispatch loop reached its record.
@@ -2130,12 +2207,14 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       const unsubB = env.addSnapshotListener(
         { kind: 'doc', path: 'games/g1' },
         (snap) => bFired.push(snap.data()?.turn ?? 'absent'),
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(aFired).toEqual(['X']);
       expect(bFired).toEqual(['X']);
       env.execute({
@@ -2144,6 +2223,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { host: 'alice', status: 'playing', guest: 'bob', turn: 'O' },
       });
+      env.flushListeners();
       expect(aFired).toEqual(['X', 'O']);
       expect(bFired).toEqual(['X', 'O']);
       unsubB();
@@ -2154,6 +2234,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { host: 'alice', status: 'playing', guest: 'bob', turn: 'X' },
       });
+      env.flushListeners();
       expect(aFired).toEqual(['X', 'O', 'X']);
       expect(bFired).toEqual(['X', 'O']);
       unsubA();
@@ -2177,6 +2258,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(fires).toBe(1);
       unsub();
       expect(env.getSnapshotListenerCount()).toBe(0);
@@ -2188,6 +2270,7 @@ service cloud.firestore {
           auth: { uid: 'alice' },
           data: { host: 'alice', status: 'playing', guest: 'bob', turn },
         });
+        env.flushListeners();
       }
       expect(fires).toBe(1);
     });
@@ -2210,12 +2293,14 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       env.addSnapshotListener(
         { kind: 'query', collection: 'games' },
         () => { queryFires++; },
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(env.getSnapshotListenerCount()).toBe(2);
       expect(docFires).toBe(1);
       expect(queryFires).toBe(1);
@@ -2228,6 +2313,7 @@ service cloud.firestore {
         auth: { uid: 'alice' },
         data: { host: 'alice', status: 'playing', guest: 'bob', turn: 'O' },
       });
+      env.flushListeners();
       expect(docFires).toBe(1);
       expect(queryFires).toBe(1);
     });
@@ -2254,6 +2340,7 @@ service cloud.firestore {
       // Baseline: a denied read fans out to onDenial, a denied listener
       // initial-fire fans out to onSnapshotError.
       const r = env.execute({ method: 'get', path: 'private/p1', auth: { uid: 'alice' } });
+      env.flushListeners();
       expect(r.allowed).toBe(false);
       expect(denials).toBe(1);
       env.addSnapshotListener(
@@ -2262,10 +2349,12 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(snapErrors).toBe(1);
       // Dispose drops both subscriber sets.
       env.dispose();
       const r2 = env.execute({ method: 'get', path: 'private/p1', auth: { uid: 'alice' } });
+      env.flushListeners();
       expect(r2.allowed).toBe(false);
       expect(denials).toBe(1); // unchanged
       env.addSnapshotListener(
@@ -2274,6 +2363,7 @@ service cloud.firestore {
         undefined,
         { uid: 'alice' },
       );
+      env.flushListeners();
       expect(snapErrors).toBe(1); // unchanged
     });
 
@@ -2289,6 +2379,7 @@ service cloud.firestore {
         documents: { 'games/g1': { host: 'alice', status: 'waiting' } },
       });
       env.addSnapshotListener({ kind: 'doc', path: 'games/g1' }, () => {}, undefined, { uid: 'alice' });
+      env.flushListeners();
       env.dispose();
       expect(env.getSnapshotListenerCount()).toBe(0);
       expect(() => env.dispose()).not.toThrow();
@@ -2296,6 +2387,7 @@ service cloud.firestore {
       expect(env.getDocument('games/g1')).toEqual({ host: 'alice', status: 'waiting' });
       // Rules survive — a post-dispose read still evaluates correctly.
       const r = env.execute({ method: 'get', path: 'games/g1', auth: { uid: 'alice' } });
+      env.flushListeners();
       expect(r.allowed).toBe(true);
     });
   });

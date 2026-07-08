@@ -14,6 +14,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getInternalEnv } from 'pyric/sandbox/internal';
 import {
   getFirestore,
   collection,
@@ -47,17 +48,18 @@ function setup() {
     'widgets/W-2': { name: 'b', status: 'closed', priority: 1 },
     'widgets/W-3': { name: 'c', status: 'open', priority: 2 },
   });
-  return db;
+  return { db, env: getInternalEnv(sandbox) };
 }
 
 describe('FS-B2 — filtered onSnapshot excludes non-matching docs', () => {
   it('where() filter is applied on the initial snapshot', () => {
-    const db = setup();
+    const { db, env } = setup();
     const calls: QuerySnapshot[] = [];
     onSnapshot(
       query(collection(db, 'widgets'), where('status', '==', 'open')),
       (snap) => { calls.push(snap as QuerySnapshot); },
     );
+    env.flushListeners();
     expect(calls).toHaveLength(1);
     // Only the two `open` widgets — NOT the closed W-2 (pre-FS-B2 this
     // delivered all 3).
@@ -67,12 +69,13 @@ describe('FS-B2 — filtered onSnapshot excludes non-matching docs', () => {
   });
 
   it('a write that does not match the filter does not appear', async () => {
-    const db = setup();
+    const { db, env } = setup();
     const calls: QuerySnapshot[] = [];
     onSnapshot(
       query(collection(db, 'widgets'), where('status', '==', 'open')),
       (snap) => { calls.push(snap as QuerySnapshot); },
     );
+    env.flushListeners();
     expect(calls[0]!.size).toBe(2);
     // Add a non-matching (closed) doc — listener must NOT fire a change
     // that includes it (pre-FS-B2 the whole collection was redelivered).
@@ -83,12 +86,13 @@ describe('FS-B2 — filtered onSnapshot excludes non-matching docs', () => {
   });
 
   it('a write that matches the filter is delivered', async () => {
-    const db = setup();
+    const { db, env } = setup();
     const calls: QuerySnapshot[] = [];
     onSnapshot(
       query(collection(db, 'widgets'), where('status', '==', 'open')),
       (snap) => { calls.push(snap as QuerySnapshot); },
     );
+    env.flushListeners();
     await setDoc(doc(db, 'widgets/W-5'), { name: 'e', status: 'open', priority: 7 });
     const last = calls[calls.length - 1]!;
     expect(last.docs.some((d) => d.id === 'W-5')).toBe(true);
@@ -97,12 +101,13 @@ describe('FS-B2 — filtered onSnapshot excludes non-matching docs', () => {
 
 describe('FS-B2 — orderBy + limit applied on the listener', () => {
   it('orderBy + limit shape the initial snapshot', () => {
-    const db = setup();
+    const { db, env } = setup();
     const calls: QuerySnapshot[] = [];
     onSnapshot(
       query(collection(db, 'widgets'), orderBy('priority'), limit(2)),
       (snap) => { calls.push(snap as QuerySnapshot); },
     );
+    env.flushListeners();
     expect(calls[0]!.size).toBe(2);
     // Ordered by priority ascending, limited to 2 → W-2 (1), W-3 (2).
     expect(calls[0]!.docs.map((d) => d.id)).toEqual(['W-2', 'W-3']);
