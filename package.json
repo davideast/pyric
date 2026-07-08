@@ -20,6 +20,7 @@
     "test:packaging": "bash scripts/packaging-test.sh",
     "test:install-matrix": "bash scripts/install-matrix.sh",
     "lint:manifest": "bash scripts/manifest-lint.sh",
+    "compat:census": "bun run scripts/compat/surface-census.ts",
     "compat:generate": "bun run scripts/compat/generate-docs.ts --write",
     "compat:report": "bun run scripts/compat/report.ts",
     "compat:validate": "bun run scripts/compat/validate-registry.ts",
