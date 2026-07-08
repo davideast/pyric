@@ -124,7 +124,12 @@ export type RemoteSandboxFactory = (
  * than into process-local state.
  */
 export function isRemoteSandbox(sandbox: Sandbox): sandbox is RemoteSandbox {
+  // Null-safe by contract: guard call sites probe values that may not be a
+  // Sandbox at all (e.g. legacy callers passing a raw Sandbox where a
+  // SandboxContext is expected leave `.sandbox` undefined). A brand check
+  // must classify, never throw.
   return (
+    sandbox != null &&
     (sandbox as Partial<Record<typeof REMOTE_SANDBOX, unknown>>)[
       REMOTE_SANDBOX
     ] === true
