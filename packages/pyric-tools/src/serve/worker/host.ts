@@ -85,6 +85,10 @@ import {
   type SetOptions,
 } from 'pyric/firestore';
 import type { Sandbox, PersistenceBackend, AuthLens } from 'pyric/sandbox';
+// The canonical value codec (same module the protocol's read path uses) —
+// write payloads rehydrate host-side so marker-shaped scalars from the JSON
+// relay legs are STORED as real wrapper instances (see prepareWriteData).
+import { rehydrateDocValue } from 'pyric/firestore-values';
 import { serializeToBuckets, bundleRecords, parseBundle, deserializeFromBuckets } from 'pyric/sandbox';
 import { sandbox as sandboxOps } from 'pyric/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
@@ -304,6 +308,14 @@ function resolveSentinels(value: unknown): unknown {
     return value.map(resolveSentinels);
   }
   if (value !== null && typeof value === 'object') {
+    // Leave CLASS instances intact (Timestamp/Bytes/LatLng rehydrated by
+    // prepareWriteData below, or FieldValue objects): walking their entries
+    // into a plain object would strip the prototype the sandbox keys on.
+    // Sentinel markers only ever live in plain JSON containers.
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) {
+      return value;
+    }
     const obj = value as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj)) {
@@ -312,6 +324,28 @@ function resolveSentinels(value: unknown): unknown {
     return out;
   }
   return value;
+}
+
+/**
+ * Prepare an incoming WRITE payload for the sandbox: rehydrate marker-shaped
+ * scalars into REAL wrapper instances, then rebuild FieldValue sentinels.
+ *
+ * WHY REHYDRATE WRITES (spike gap 4): over the JSON relay legs a Node-side
+ * `Timestamp`/`Bytes`/`GeoPoint` arrives as its `toJSON()` marker
+ * (`{ type: 'firestore/timestamp/1.0', … }` or `{ __type: 'timestamp', … }`).
+ * Without rehydration the worker STORES the marker as a plain map — reads
+ * mask the bug (the read path rehydrates), but in-worker rules comparisons
+ * and `orderBy` over that field see a map, not a timestamp. `rehydrateDocValue`
+ * is the same canonical codec the read path / persistence uses, so the wire,
+ * store, and IDB formats stay one format.
+ *
+ * Order matters: rehydration first (it passes `__sentinel` markers through
+ * as plain objects, rehydrating any marker-shaped values nested inside
+ * arrayUnion/arrayRemove), then sentinel resolution (which now skips the
+ * freshly rehydrated class instances — see resolveSentinels).
+ */
+function prepareWriteData(value: unknown): unknown {
+  return resolveSentinels(rehydrateDocValue(value));
 }
 
 function resolveRtdbSentinels(value: unknown): unknown {
@@ -711,7 +745,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
     case 'setDoc': {
       try {
         const ref = pyricDoc(db, msg.path);
-        const data = resolveSentinels(msg.data) as Record<string, unknown>;
+        const data = prepareWriteData(msg.data) as Record<string, unknown>;
         await setDoc(ref, data, msg.options as SetOptions | undefined);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -721,7 +755,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
     case 'updateDoc': {
       try {
         const ref = pyricDoc(db, msg.path);
-        const data = resolveSentinels(msg.data) as Record<string, unknown>;
+        const data = prepareWriteData(msg.data) as Record<string, unknown>;
         await updateDoc(ref, data);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -740,7 +774,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
     case 'addDoc': {
       try {
         const coll = pyricCollection(db, msg.collectionPath);
-        const data = resolveSentinels(msg.data) as Record<string, unknown>;
+        const data = prepareWriteData(msg.data) as Record<string, unknown>;
         const ref = await addDoc(coll, data);
         ok(port, msg.id, { id: ref.id, path: ref.path });
       } catch (e) { fail(port, msg.id, e); }
@@ -888,10 +922,10 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
           for (const w of msg.writes) {
             const ref = pyricDoc(db, w.path);
             if (w.method === 'set') {
-              const data = resolveSentinels(w.data) as Record<string, unknown>;
+              const data = prepareWriteData(w.data) as Record<string, unknown>;
               modularTx.set(ref, data, w.options as SetOptions | undefined);
             } else if (w.method === 'update') {
-              const data = resolveSentinels(w.data) as Record<string, unknown>;
+              const data = prepareWriteData(w.data) as Record<string, unknown>;
               modularTx.update(ref, data);
             } else if (w.method === 'delete') {
               modularTx.delete(ref);
@@ -1300,10 +1334,10 @@ function applyWriteToBatch(
   const b = batch as BatchHandle;
   const ref = pyricDoc(db, w.path);
   if (w.method === 'set') {
-    const data = resolveSentinels(w.data) as Record<string, unknown>;
+    const data = prepareWriteData(w.data) as Record<string, unknown>;
     b.set(ref, data, w.options as SetOptions | undefined);
   } else if (w.method === 'update') {
-    const data = resolveSentinels(w.data) as Record<string, unknown>;
+    const data = prepareWriteData(w.data) as Record<string, unknown>;
     b.update(ref, data);
   } else if (w.method === 'delete') {
     b.delete(ref);
