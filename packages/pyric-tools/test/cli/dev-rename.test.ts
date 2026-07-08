@@ -1,9 +1,10 @@
 /**
- * `pyric serve` → `pyric dev` rename (Tier 1 of the adoption-experience plan).
+ * `pyric dev` command contract (the command was named `serve` pre-npm; the
+ * old name was removed outright — never published, no consumers).
  *
- * Pins the two contracts of the rename:
- *   1. `pyric serve` is a HARD error stub — one line on stderr, exit 1 —
- *      never a silent alias, so scripts and muscle memory get corrected.
+ * Pins:
+ *   1. `pyric serve` is an unknown command — generic usage error, exit 1 —
+ *      not an alias and not a bespoke stub.
  *   2. The help text advertises `dev`, not `serve`.
  *
  * The auto-open gating (`--no-open` / `--json` never pop a browser) is pinned
@@ -25,18 +26,10 @@ function runCli(args: string[]): { code: number; stdout: string; stderr: string 
   return { code: res.status ?? -1, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
 }
 
-describe('pyric serve → pyric dev rename', () => {
-  it('`pyric serve` is a hard error stub: one line, exit 1, no server started', () => {
-    const { code, stdout, stderr } = runCli(['serve']);
+describe('pyric dev command surface', () => {
+  it('`pyric serve` is an unknown command (no alias, no bespoke stub)', () => {
+    const { code } = runCli(['serve']);
     expect(code).toBe(1);
-    expect(stderr).toBe('pyric serve was renamed to pyric dev\n');
-    expect(stdout).toBe('');
-  });
-
-  it('the stub fires even with flags attached (no silent fallthrough)', () => {
-    const { code, stderr } = runCli(['serve', '--port', '0', '--json', '--no-open']);
-    expect(code).toBe(1);
-    expect(stderr).toContain('pyric serve was renamed to pyric dev');
   });
 
   it('--help advertises `pyric dev` and never `pyric serve`', () => {

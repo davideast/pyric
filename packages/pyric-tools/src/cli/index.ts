@@ -440,11 +440,6 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       return await runBridge(parsed);
     case 'dev':
       return await runServe(parsed);
-    case 'serve':
-      // Hard rename stub (not a silent alias): fail loudly so scripts and
-      // muscle memory get corrected instead of silently drifting.
-      process.stderr.write('pyric serve was renamed to pyric dev\n');
-      return 1;
     case 'snapshot':
       return await runSnapshot(parsed);
     case 'verify':
