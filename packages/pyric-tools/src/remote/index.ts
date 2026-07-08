@@ -635,6 +635,139 @@ export async function connectRemoteSandbox(
   });
 }
 
+// ─── Lazy connect (`remoteSandbox`) ────────────────────────────────────────
+
+/**
+ * {@link remoteSandbox}'s return type: the branded handle plus `ready` for
+ * eager checkers. `ready` kicks off the connection when first accessed and
+ * settles with the same fail-fast errors {@link connectRemoteSandbox} throws
+ * (no serve discovered / no browser tab connected).
+ */
+export interface LazyRemoteSandbox extends RemoteSandbox {
+  readonly ready: Promise<void>;
+}
+
+/**
+ * Synchronous construction, lazy connection — the ambient-init seam.
+ *
+ * `pyric-tools/register` installs this behind the
+ * `Symbol.for('pyric.remote.sandboxFactory')` global so `pyric-admin`'s bare
+ * `initializeApp()` can mint a full branded handle without awaiting anything.
+ * The wire connection (discovery → WS attach) happens on the FIRST op (or
+ * `ready` access), so the existing fail-fast — "no browser tab is connected —
+ * open <url>" — surfaces on first use instead of at construction. A failed
+ * connect is NOT latched: the next op retries, matching the error's own
+ * "…and retry" guidance. `connectRemoteSandbox` (eager) is unchanged.
+ */
+export function remoteSandbox(options: ConnectRemoteSandboxOptions = {}): LazyRemoteSandbox {
+  return createLazyRemoteSandbox(() => connectRemoteSandbox(options), options);
+}
+
+/**
+ * The lazy wrapper with the connect function injected — the test seam
+ * (tests inject a fake connect; production injects `connectRemoteSandbox`).
+ */
+export function createLazyRemoteSandbox(
+  connect: () => Promise<RemoteSandbox>,
+  options: { url?: string } = {},
+): LazyRemoteSandbox {
+  let inner: Promise<RemoteSandbox> | null = null;
+  let closed = false;
+
+  function ensure(): Promise<RemoteSandbox> {
+    if (closed) {
+      return Promise.reject(
+        remoteError('unavailable', 'remote sandbox connection closed by the client'),
+      );
+    }
+    if (!inner) {
+      inner = connect().then(
+        (h) => {
+          if (closed) {
+            h.close();
+            throw remoteError('unavailable', 'remote sandbox connection closed by the client');
+          }
+          // Discovery resolved the real URL — reflect it on the outer handle.
+          (handle as { serveUrl: string }).serveUrl = h.serveUrl;
+          return h;
+        },
+        (err) => {
+          // Fail-fast surfaces on this op, but don't latch: the remediation
+          // is "open <url> and retry", so the next op re-attempts the connect.
+          inner = null;
+          throw err;
+        },
+      );
+    }
+    return inner;
+  }
+
+  const channel: RemoteSandboxChannel = {
+    op: (payload) => ensure().then((h) => h.channel.op(payload)),
+    subscribe(sub, onSnap, onError) {
+      let cancelled = false;
+      let innerUnsub: (() => void) | null = null;
+      ensure().then(
+        (h) => {
+          if (cancelled) return;
+          innerUnsub = h.channel.subscribe(sub, onSnap, onError);
+        },
+        (err) => {
+          if (cancelled) return;
+          const e =
+            err instanceof Error && 'code' in err
+              ? (err as Error & { code: string })
+              : remoteError('unavailable', String(err));
+          if (onError) onError(e);
+          else console.error('pyric remote sandbox: subscription failed to connect:', e);
+        },
+      );
+      return () => {
+        cancelled = true;
+        if (innerUnsub) {
+          innerUnsub();
+          innerUnsub = null;
+        }
+      };
+    },
+  };
+
+  const handle = createRemoteSandboxHandle({
+    channel,
+    // Before discovery the URL is unknown; op-level errors always carry the
+    // real URL (they come from the inner connect), and `serveUrl` is patched
+    // to the discovered value as soon as the first connect succeeds.
+    serveUrl: options.url?.replace(/\/$/, '') ?? '<pyric dev url (pending discovery)>',
+    close() {
+      if (closed) return;
+      closed = true;
+      const settled = inner;
+      inner = null;
+      if (settled) {
+        settled.then(
+          (h) => h.close(),
+          () => {},
+        );
+      }
+    },
+  }) as RemoteSandbox & { ready: Promise<void> };
+
+  // `ready` — the eager checker: accessing it starts the connection. Marked
+  // handled (same pattern as the core's `ready`) so a mere existence check
+  // (`handle.ready instanceof Promise`) never surfaces an unhandled rejection.
+  Object.defineProperty(handle, 'ready', {
+    get: (): Promise<void> => {
+      const p = ensure().then(() => undefined);
+      p.catch(() => {});
+      return p;
+    },
+    enumerable: true,
+    configurable: true,
+  });
+
+  return handle as LazyRemoteSandbox;
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(remoteError('deadline-exceeded', message)), ms);
