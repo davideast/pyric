@@ -1,6 +1,9 @@
 {
   "name": "storage-upload-bytes-roundtrip",
   "matrixRow": "storage #36",
+  "rowIds": [
+    "storage#36"
+  ],
   "description": "uploadBytes a small ArrayBuffer, getDownloadURL + fetch, verify byte-for-byte equality with what was uploaded.",
   "observedAt": "2026-05-18T01:30:03.906Z",
   "fbSdkVersion": "12.13.0",

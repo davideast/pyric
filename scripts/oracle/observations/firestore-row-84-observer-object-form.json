@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-84-observer-object-form",
   "matrixRow": "firestore #84",
+  "rowIds": [
+    "firestore#84"
+  ],
   "description": "Observer object form `{next, error, complete}` works alongside the function form. Probes: register one listener as a function and another as `{next}` on the same doc, do a write, verify both fire with the same snapshot data.",
   "observedAt": "2026-05-18T00:12:00.083Z",
   "fbSdkVersion": "12.13.0",

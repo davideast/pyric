@@ -1,6 +1,10 @@
 {
   "name": "rtdb-modular-get-snapshot-shape",
   "matrixRow": "rtdb-modular #106",
+  "rowIds": [
+    "rtdb-modular#106",
+    "rtdb-modular#M71"
+  ],
   "description": "Lock the DataSnapshot shape returned by get(): val/exists/key/ref/size/hasChildren/hasChild/forEach all present. Modular SDK uses `size` getter (NOT `numChildren()` method — that was the legacy namespaced API).",
   "observedAt": "2026-05-18T03:36:33.320Z",
   "fbSdkVersion": "12.13.0",

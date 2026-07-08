@@ -1,6 +1,15 @@
 {
   "name": "rtdb-rules-denied-error-code",
   "matrixRow": "rtdb #15/#20",
+  "rowIds": [
+    "rtdb#15",
+    "rtdb#20",
+    "rtdb#14",
+    "rtdb-modular#M23",
+    "rtdb-modular#M24",
+    "rtdb-modular#110",
+    "rtdb-modular#115"
+  ],
   "description": "Attempt a write to a path that RTDB rules deny (outside /pyric_oracle/*). Locks the FirebaseError code + message text the upstream firebase/database SDK emits for permission denial.",
   "observedAt": "2026-05-18T03:36:32.301Z",
   "fbSdkVersion": "12.13.0",

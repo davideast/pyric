@@ -114,7 +114,7 @@ matrix has to cover:
 |---|---|---|---|
 | 39 | `format='raw'` (default): UTF-8 encodes the string; `contentType` defaults to `text/plain;charset=utf-8` | ✓ | `unit:reference.test.ts` ("raw format encodes UTF-8 and defaults contentType to text/plain") |
 | 40 | `format='base64'`: decodes payload bytes from standard base64 | ✓ | `unit:reference.test.ts` ("base64 format decodes payload bytes") |
-| 41 | `format='base64url'` (or any unknown format): rejected with `storage/invalid-format` naming the bad format | ✓ | the v1 scope ships only `raw`/`base64`/`data_url` (matches `StringFormat`). ST-B3: an unknown format string used to mis-parse as `data_url` (misleading message); now `decodeString` throws a `StorageError` with `.code === 'storage/invalid-format'` naming the actual format. Probe: `unit:error-codes.test.ts` ("invalid-format names the bad format on an unknown uploadString format"). Implementing base64url decoding is still one line in `decodeString`. |
+| 41 | Sandbox: `format='base64url'` (or any unknown format) rejected with `storage/invalid-format` naming the bad format. Prod: `base64url` is ACCEPTED (upload succeeds); a genuinely-unrecognized format throws `storage/unknown` | ⚠ | divergence, both halves oracle-locked by `scripts/oracle/observations/storage-uploadstring-unknown-format.json`: prod accepts `base64url` (`base64urlOk: true`) and throws `storage/unknown` for an unrecognized format — not `storage/invalid-format`. The v1 sandbox ships only `raw`/`base64`/`data_url` (matches `StringFormat`) and throws `storage/invalid-format` for anything else (ST-B3 replaced the old mis-parse-as-data_url behavior). Both sides pinned in `oracle-conformance.test.ts`; sandbox code path documented in `upload.ts`'s `decodeString`. Implementing base64url decoding is still one line in `decodeString`. |
 | 42 | `format='data_url'`: parses `data:<mime>;base64,<payload>`, infers `contentType` from prefix | ✓ | `unit:reference.test.ts` ("data_url format infers contentType from the prefix") |
 | 43 | `format='data_url'` with non-base64 payload: percent-decodes the body | ✓ | (covered by `decodeString` else-branch; no explicit test for the URL-encoded form yet) |
 | 44 | Caller's `metadata.contentType` beats data_url inference | ✓ | `unit:reference.test.ts` ("caller metadata.contentType beats data_url inference") |
@@ -167,7 +167,7 @@ matrix has to cover:
 | # | Behavior | Status | Probe |
 |---|---|---|---|
 | 63 | Removes both the blob AND the metadata atomically (post-delete `getBlob` throws `object-not-found`) | ✓ | `unit:reference.test.ts` ("removes both blob and metadata") |
-| 64 | Sandbox: no-op on missing path (does NOT throw) | ⚠ | divergence: sandbox is no-op via `persistence.ts`'s `delete`. Prod's `deleteObject` on a missing path throws `storage/object-not-found`. Oracle-locked: `scripts/oracle/observations/storage-delete-missing-throws.json` (`code: 'storage/object-not-found'`, `name: 'FirebaseError'` against blockingfun, fb-js-sdk 12.13.0). Documented in `download.ts`. |
+| 64 | Sandbox: no-op on missing path (does NOT throw) | ⚠ | divergence: sandbox is no-op via `persistence.ts`'s `delete`. Prod's `deleteObject` on a missing path throws `storage/object-not-found`. Oracle-locked: `scripts/oracle/observations/storage-delete-missing-throws.json` (`code: 'storage/object-not-found'`, `name: 'FirebaseError'` against blockingfun, fb-js-sdk 12.13.0). Both sides pinned in `oracle-conformance.test.ts`; documented in `download.ts`. |
 | 65 | Throws `storage/invalid-root-operation` on the root reference | ✓ | `unit:reference.test.ts` ("throws invalid-root-operation on root") |
 | 66 | Prod: a successful `deleteObject` followed by `getDownloadURL` on the same ref throws `storage/object-not-found` | ✓ (prod-only) | oracle: `scripts/oracle/observations/storage-delete-then-get-throws.json` (against blockingfun, fb-js-sdk 12.13.0: upload + delete succeed, then `getDownloadURL` throws `code: 'storage/object-not-found'`, message `"Firebase Storage: Object '…' does not exist."`, `isFirebaseError: true`) |
 | 67 | Sandbox: writes-then-delete leaves no metadata (post-delete `getMetadata` throws `object-not-found`) | ✓ | follows from #63 + `getMetadata` |
@@ -210,7 +210,7 @@ matrix has to cover:
 | 88 | `updateMetadata` throws `storage/invalid-root-operation` on the root | ✓ | `unit:metadata.test.ts` ("throws invalid-root-operation on the root reference") |
 | 89 | Prod: `getMetadata` after `uploadBytes` returns `contentType` and `size` matching what was uploaded | ✓ (prod-only) | oracle: `scripts/oracle/observations/storage-upload-then-getmetadata.json` (against blockingfun, fb-js-sdk 12.13.0: upload 128-byte payload with `contentType: 'application/octet-stream'`, getMetadata returns `metadataSize: 128`, `metadataContentType: 'application/octet-stream'`, `metadataBucket: 'blockingfun.firebasestorage.app'`, `metadataMetageneration: '1'`, `fullPathMatches: true`) |
 | 90 | Prod: `updateMetadata({customMetadata: {...}})` round-trips through a follow-up `getMetadata` | ✓ (prod-only) | oracle: `scripts/oracle/observations/storage-update-metadata-roundtrip.json` (against blockingfun, fb-js-sdk 12.13.0: post-update `getMetadata` returns the exact `customMetadata` object, `metageneration` bumps `'1'` → `'2'`, `customSurvived: true`, `metagenerationBumped: true`) |
-| 91 | `FullMetadata.md5Hash` populated on uploads | ⚠ | divergence: sandbox does NOT compute `md5Hash`. Oracle-locked: `scripts/oracle/observations/storage-upload-then-getmetadata.json` confirms prod sets `md5Hash` (`hasMd5Hash: true` after a vanilla `uploadBytes`). Aligning the sandbox is a one-spot fix in `upload.ts`'s `buildStoredMetadata`. |
+| 91 | `FullMetadata.md5Hash` populated on uploads | ⚠ | divergence: sandbox does NOT compute `md5Hash`. Oracle-locked: `scripts/oracle/observations/storage-upload-then-getmetadata.json` confirms prod sets `md5Hash` (`hasMd5Hash: true` after a vanilla `uploadBytes`). Both sides pinned in `oracle-conformance.test.ts`. Aligning the sandbox is a one-spot fix in `upload.ts`'s `buildStoredMetadata`. |
 | 92 | `FullMetadata.ref` lazy population (prod populates lazily) | — | not modeled in `pyric/storage` — `metadata.ts` explicitly omits `ref` from `FullMetadata` |
 
 ## `connectStorageEmulator(storage, host, port)` — emulator hook
@@ -301,6 +301,11 @@ against the `blockingfun` project on fb-js-sdk 12.13.0:
 - **`md5Hash` not populated by sandbox** (row #91) — prod always sets
   it. Fix candidate: compute hex md5 in `upload.ts`'s
   `buildStoredMetadata` (Node `crypto` or Web Crypto in browser).
+- **`uploadString` format handling** (row #41) — prod accepts
+  `base64url` and throws `storage/unknown` for a genuinely-unknown
+  format; the sandbox throws `storage/invalid-format` for both. Fix
+  candidates: decode `base64url` in `decodeString` (one line) and
+  align the unknown-format error code.
 - **Sandbox `quota-exceeded` error code value** (row #55) — ST-B1
   gave the sandbox a `StorageError` class, so the cap now throws with
   `.code === 'storage/quota-exceeded'` (was a plain `Error`). The

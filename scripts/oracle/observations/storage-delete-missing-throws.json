@@ -1,6 +1,9 @@
 {
   "name": "storage-delete-missing-throws",
   "matrixRow": "storage #64",
+  "rowIds": [
+    "storage#64"
+  ],
   "description": "deleteObject on a path that was never uploaded — observe the error code (expected: storage/object-not-found). Sandbox is no-op; this oracle locks prod's shape.",
   "observedAt": "2026-05-18T01:30:07.931Z",
   "fbSdkVersion": "12.13.0",

@@ -1,6 +1,9 @@
 {
   "name": "auth-row-25-signout-currentuser-null-sync",
   "matrixRow": "auth #25",
+  "rowIds": [
+    "auth#25"
+  ],
   "description": "signOut sets currentUser to null synchronously after the returned promise resolves — read auth.currentUser BEFORE any await/microtask runs after `await signOut(auth)`.",
   "observedAt": "2026-05-17T23:58:45.415Z",
   "fbSdkVersion": "12.13.0",

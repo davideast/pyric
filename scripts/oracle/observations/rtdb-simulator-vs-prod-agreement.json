@@ -1,6 +1,9 @@
 {
   "name": "rtdb-simulator-vs-prod-agreement",
   "matrixRow": "rtdb #71",
+  "rowIds": [
+    "rtdb#71"
+  ],
   "description": "Simulator-vs-prod allow/deny agreement audit — deploy N rules to live RTDB, run M ops per rule against prod and through SimulateHandler, report per-op agreement / disagreement. Lists every divergence so the matrix can call them out.",
   "observedAt": "2026-05-18T10:16:14.901Z",
   "fbSdkVersion": "12.13.0",

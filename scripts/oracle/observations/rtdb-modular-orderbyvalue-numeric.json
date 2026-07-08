@@ -1,6 +1,11 @@
 {
   "name": "rtdb-modular-orderbyvalue-numeric",
   "matrixRow": "rtdb-modular #144/#150",
+  "rowIds": [
+    "rtdb-modular#144",
+    "rtdb-modular#150",
+    "rtdb-modular#M51"
+  ],
   "description": "query(ref, orderByValue(), limitToFirst(3)) over primitive numeric children — observe first 3 by ascending value.",
   "observedAt": "2026-05-18T04:28:07.813Z",
   "fbSdkVersion": "12.13.0",

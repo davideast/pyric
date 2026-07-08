@@ -1,6 +1,10 @@
 {
   "name": "rtdb-modular-runtransaction-current-value-arg",
   "matrixRow": "rtdb-modular #160",
+  "rowIds": [
+    "rtdb-modular#160",
+    "rtdb-modular#M37b"
+  ],
   "description": "runTransaction update fn — what shape does `current` arrive as when the path does not exist? Locks the null-vs-undefined question for empty paths AND records the existing-value shape for a seeded path so the sandbox round-trips the right type.",
   "observedAt": "2026-05-18T04:27:38.954Z",
   "fbSdkVersion": "12.13.0",

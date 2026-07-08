@@ -90,7 +90,8 @@ In `run.ts`, append to the `probes` array:
 ```ts
 {
   name: 'firestore-some-behavior',   // file name + log label
-  matrixRow: 'firestore #N',         // the row this locks
+  matrixRow: 'firestore #N',         // display prose for logs/docs
+  rowIds: ['firestore#N'],           // structured registry links (validated both ways)
   description: 'one-line plain English',
   async observe() {
     await signInAnonymously(auth);

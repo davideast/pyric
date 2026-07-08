@@ -1,10 +1,10 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { allCompatibilityRows, observationExceptions, surfaceRegistries, type CompatibilityRow, type Surface } from './registry/index.ts';
+import { allCompatibilityRows, observationExceptions, surfaceDescriptors, surfaceRegistries, type CompatibilityRow, type Surface } from './registry/index.ts';
 import { generatedRowLineNumbers } from './generate-docs.ts';
 
-export type { Automation, CompatibilityRow, OracleConformanceCheck, Surface } from './registry/index.ts';
+export type { Automation, CompatibilityRow, CompatStatus, OracleConformanceCheck, Surface, SurfaceDescriptor } from './registry/index.ts';
 
 export interface Observation {
   file: string;
@@ -27,7 +27,6 @@ export interface RegistryEntry extends CompatibilityRow {
 }
 
 export interface CompatibilityLedger {
-  rows: RegistryEntry[];
   entries: RegistryEntry[];
   observations: Observation[];
   observationExceptions: Record<string, string>;
@@ -42,19 +41,6 @@ export function repoRel(path: string): string {
   return relative(REPO_ROOT, path).replace(/\\/g, '/');
 }
 
-function makeId(surface: string, rowRef: string): string {
-  return `${surface}#${rowRef}`;
-}
-
-export function parseObservationRowIds(matrixRow: string): string[] {
-  const m = /^([a-z-]+)\s+#(.+)$/i.exec(matrixRow.trim());
-  if (!m) return [];
-  const surface = m[1]!.toLowerCase();
-  const rest = m[2]!.replace(/\(.+?\)/g, ' ');
-  const refs = [...rest.matchAll(/#?((?:M)?\d+[a-z]?)/gi)].map((x) => x[1]!);
-  return refs.map((ref) => makeId(surface, ref));
-}
-
 export function loadObservations(): Observation[] {
   return readdirSync(OBS_DIR)
     .filter((file) => file.endsWith('.json'))
@@ -67,7 +53,7 @@ export function loadObservations(): Observation[] {
         file,
         name,
         matrixRow,
-        rowIds: parseObservationRowIds(matrixRow),
+        rowIds: Array.isArray(raw.rowIds) ? raw.rowIds.map(String) : [],
         observedAt: typeof raw.observedAt === 'string' ? raw.observedAt : undefined,
         fbSdkVersion: typeof raw.fbSdkVersion === 'string' ? raw.fbSdkVersion : undefined,
         behavior: (raw.behavior && typeof raw.behavior === 'object' ? raw.behavior : {}) as Record<string, unknown>,
@@ -97,7 +83,7 @@ export function buildCompatibilityLedger(): CompatibilityLedger {
       line: location.line,
       hasOracle: row.oracleObservations.length > 0,
       hasTestEvidence: row.conformanceTests.length > 0,
-      isConforming: row.status.includes('✓'),
+      isConforming: row.status === 'conforms',
     } satisfies RegistryEntry;
   });
 
@@ -109,16 +95,26 @@ export function buildCompatibilityLedger(): CompatibilityLedger {
     return !referencedObservations.has(obs.name);
   });
 
-  return { rows: entries, entries, observations, observationExceptions, orphanObservations };
+  return { entries, observations, observationExceptions, orphanObservations };
+}
+
+/**
+ * The audit-worklist query: rows that claim conformance with meaningful risk
+ * but no oracle/test evidence or explicit exception. Shared by report.ts,
+ * scripts/oracle/audit.ts, and summarizeLedger so the definition can't drift.
+ */
+export function highRiskUnverifiedRows(ledger: CompatibilityLedger): RegistryEntry[] {
+  return ledger.entries
+    .filter((e) => e.isConforming && e.riskScore >= 2 && e.automation === 'unverified')
+    .sort((a, b) => b.riskScore - a.riskScore || a.id.localeCompare(b.id));
 }
 
 export function summarizeLedger(ledger: CompatibilityLedger) {
   const entries = ledger.entries;
   const bySurface = Object.fromEntries(
-    (['auth', 'firestore', 'rtdb', 'rtdb-modular', 'storage'] as Surface[]).map((surface) => [surface, entries.filter((e) => e.surface === surface).length]),
+    surfaceDescriptors.map((d) => [d.surface, entries.filter((e) => e.surface === d.surface).length]),
   ) as Record<Surface, number>;
   const explicitExceptions = entries.filter((e) => ['sandbox-only', 'playground-only', 'type-backed', 'unsupported'].includes(e.automation));
-  const highRiskUnverified = entries.filter((e) => e.isConforming && e.riskScore >= 2 && e.automation === 'unverified');
   const conformanceChecks = entries.reduce((sum, row) => sum + (row.conformanceChecks?.length ?? 0), 0);
   return {
     totalRows: entries.length,
@@ -129,7 +125,7 @@ export function summarizeLedger(ledger: CompatibilityLedger) {
     explicitExceptionRows: explicitExceptions.length,
     unsupportedRows: entries.filter((e) => e.automation === 'unsupported').length,
     unverifiedRows: entries.filter((e) => e.automation === 'unverified').length,
-    highRiskUnverifiedRows: highRiskUnverified.length,
+    highRiskUnverifiedRows: highRiskUnverifiedRows(ledger).length,
     observations: ledger.observations.length,
     orphanObservations: ledger.orphanObservations.length,
     conformanceChecks,

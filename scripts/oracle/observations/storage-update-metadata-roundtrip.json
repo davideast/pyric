@@ -1,6 +1,9 @@
 {
   "name": "storage-update-metadata-roundtrip",
   "matrixRow": "storage #90",
+  "rowIds": [
+    "storage#90"
+  ],
   "description": "uploadBytes, then updateMetadata({customMetadata: {k: \"v\"}}), then getMetadata — verify the customMetadata survived and metageneration bumped.",
   "observedAt": "2026-05-18T01:30:10.531Z",
   "fbSdkVersion": "12.13.0",

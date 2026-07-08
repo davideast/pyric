@@ -1,6 +1,9 @@
 {
   "name": "rtdb-modular-onvalue-initial-no-data",
   "matrixRow": "rtdb-modular #129",
+  "rowIds": [
+    "rtdb-modular#129"
+  ],
   "description": "onValue on a NONEXISTENT path — does it fire at all? Locks the RTDB-vs-Firestore divergence: Firestore fires with exists=false; RTDB fires with val=null (or might not fire at all).",
   "observedAt": "2026-05-18T03:36:44.914Z",
   "fbSdkVersion": "12.13.0",

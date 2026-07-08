@@ -1,6 +1,9 @@
 {
   "name": "rtdb-onvalue-unsub-equivalence",
   "matrixRow": "rtdb #141",
+  "rowIds": [
+    "rtdb-modular#141"
+  ],
   "description": "onValue unsubscribe equivalence — register an `onValue(ref, cb)` and capture its return value. Then call BOTH `unsub()` AND `off(ref, 'value', cb)` against fresh registrations; verify each form stops the listener on its own.",
   "observedAt": "2026-05-18T10:20:23.760Z",
   "fbSdkVersion": "12.13.0",

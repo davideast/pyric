@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-101-arrayunion-dedupes",
   "matrixRow": "firestore #101",
+  "rowIds": [
+    "firestore#101"
+  ],
   "description": "arrayUnion(...values) de-dupes against existing members. Probes setDoc({tags:[\"a\",\"b\"]}) then updateDoc({tags: arrayUnion(\"b\",\"c\")}) then getDoc — verifies tags is [\"a\",\"b\",\"c\"] not [\"a\",\"b\",\"b\",\"c\"]. Also probes inline dedup of duplicate args (arrayUnion(\"d\",\"d\")) in a follow-up update.",
   "observedAt": "2026-05-17T23:58:16.414Z",
   "fbSdkVersion": "12.13.0",

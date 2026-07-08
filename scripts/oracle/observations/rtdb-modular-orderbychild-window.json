@@ -1,6 +1,12 @@
 {
   "name": "rtdb-modular-orderbychild-window",
   "matrixRow": "rtdb-modular #142/#146/#147",
+  "rowIds": [
+    "rtdb-modular#142",
+    "rtdb-modular#146",
+    "rtdb-modular#147",
+    "rtdb-modular#M49"
+  ],
   "description": "query(ref, orderByChild(\"pos\"), startAt(2), endAt(4)) — seed 5 children with pos 1..5; observe windowed matched keys + ordered positions.",
   "observedAt": "2026-05-18T04:28:05.847Z",
   "fbSdkVersion": "12.13.0",

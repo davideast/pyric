@@ -1,6 +1,9 @@
 {
   "name": "auth-row-30-onauthstatechanged-fires-on-every-transition",
   "matrixRow": "auth #30",
+  "rowIds": [
+    "auth#30"
+  ],
   "description": "onAuthStateChanged fires on every subsequent identity change. Subscribe, then run signIn → signOut → signIn → signOut; verify the listener receives a fire for each of the 4 transitions.",
   "observedAt": "2026-05-18T00:12:26.552Z",
   "fbSdkVersion": "12.13.0",

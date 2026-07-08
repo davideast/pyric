@@ -1,6 +1,9 @@
 {
   "name": "auth-user-not-found-error-code",
   "matrixRow": "auth #14",
+  "rowIds": [
+    "auth#14"
+  ],
   "description": "signInWithEmailAndPassword with an email that was never registered — locks the FirebaseError code prod actually emits (older \"auth/user-not-found\" vs newer \"auth/invalid-credential\").",
   "observedAt": "2026-05-17T23:37:06.069Z",
   "fbSdkVersion": "12.13.0",

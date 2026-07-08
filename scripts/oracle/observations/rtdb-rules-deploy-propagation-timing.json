@@ -1,6 +1,9 @@
 {
   "name": "rtdb-rules-deploy-propagation-timing",
   "matrixRow": "rtdb #46",
+  "rowIds": [
+    "rtdb#46"
+  ],
   "description": "Rules-deploy propagation timing — write a permissive rule for a fresh path, then poll a write-under-that-rule to measure how long until the new rules take effect. Locks the empirical upper bound the harness needs to wait between rule deploys and dependent writes.",
   "observedAt": "2026-05-18T10:20:15.419Z",
   "fbSdkVersion": "12.13.0",

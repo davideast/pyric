@@ -1,6 +1,9 @@
 {
   "name": "auth-onidtokenchanged-force-refresh",
   "matrixRow": "auth #39",
+  "rowIds": [
+    "auth#39"
+  ],
   "description": "onIdTokenChanged on getIdToken(true) — observes whether prod fires the listener on a forced refresh.",
   "observedAt": "2026-05-18T01:02:19.334Z",
   "fbSdkVersion": "12.13.0",

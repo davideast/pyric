@@ -1,6 +1,9 @@
 {
   "name": "rtdb-modular-onvalue-initial-with-data",
   "matrixRow": "rtdb-modular #128",
+  "rowIds": [
+    "rtdb-modular#128"
+  ],
   "description": "onValue on a path with existing data — observe the initial fire snapshot value.",
   "observedAt": "2026-05-18T03:36:43.556Z",
   "fbSdkVersion": "12.13.0",

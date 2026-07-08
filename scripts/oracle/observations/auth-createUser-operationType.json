@@ -1,6 +1,10 @@
 {
   "name": "auth-createUser-operationType",
   "matrixRow": "auth #21",
+  "rowIds": [
+    "auth#21",
+    "auth#13"
+  ],
   "description": "createUserWithEmailAndPassword returns UserCredential with operationType: \"signIn\" (NOT \"register\") per matrix claim — empirically lock the value prod actually emits.",
   "observedAt": "2026-05-17T23:37:06.928Z",
   "fbSdkVersion": "12.13.0",

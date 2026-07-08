@@ -1,6 +1,14 @@
 {
   "name": "rtdb-remove-vs-set-null",
   "matrixRow": "rtdb #18/#31",
+  "rowIds": [
+    "rtdb#18",
+    "rtdb#31",
+    "rtdb-modular#M11",
+    "rtdb-modular#M12",
+    "rtdb-modular#121",
+    "rtdb-modular#123"
+  ],
   "description": "Confirm remove(ref) and set(ref, null) produce the same end state: a subsequent get() returns null in both cases. Locks the documented RTDB invariant that null-write and remove are equivalent.",
   "observedAt": "2026-05-18T03:36:29.648Z",
   "fbSdkVersion": "12.13.0",

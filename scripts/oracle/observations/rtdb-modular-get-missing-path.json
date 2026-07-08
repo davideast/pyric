@@ -1,6 +1,10 @@
 {
   "name": "rtdb-modular-get-missing-path",
   "matrixRow": "rtdb-modular #107/#108",
+  "rowIds": [
+    "rtdb-modular#107",
+    "rtdb-modular#108"
+  ],
   "description": "get() on a nonexistent path — RTDB returns a snapshot with val()===null and exists()===false (NOT a thrown error, diverging from intuition that maps `getDoc` errors onto RTDB).",
   "observedAt": "2026-05-18T03:36:34.109Z",
   "fbSdkVersion": "12.13.0",

@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-96-batch-commit-atomic",
   "matrixRow": "firestore #96",
+  "rowIds": [
+    "firestore#96"
+  ],
   "description": "batch.commit() applies all queued writes atomically. Success path: queue 3 writes to 3 different docs (one set on a fresh doc, one update on a previously-set doc, one delete) and verify all 3 changes are present after a single commit. Failure path: a batch where one write targets a path OUTSIDE pyric_oracle/* — verify the whole batch rejects (no partial application: the previously-set doc still has its original value, the would-be-new doc never lands).",
   "observedAt": "2026-05-18T00:20:07.575Z",
   "fbSdkVersion": "12.13.0",

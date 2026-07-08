@@ -1,6 +1,11 @@
 {
   "name": "rtdb-modular-runtransaction-options-applylocally",
   "matrixRow": "rtdb-modular #158/#160 (options.applyLocally)",
+  "rowIds": [
+    "rtdb-modular#158",
+    "rtdb-modular#160",
+    "rtdb-modular#M37d"
+  ],
   "description": "runTransaction with options.applyLocally — RTDB optionally suppresses optimistic local writes. With applyLocally:false the in-flight value should NOT be visible to onValue listeners until the commit lands. Probe both branches against an onValue listener registered on the ref before the transaction starts.",
   "observedAt": "2026-05-18T04:27:42.747Z",
   "fbSdkVersion": "12.13.0",

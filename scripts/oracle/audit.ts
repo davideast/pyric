@@ -12,14 +12,12 @@
  *   bun run scripts/oracle/audit.ts
  *   bun run scripts/oracle/audit.ts --json
  */
-import { buildCompatibilityLedger, summarizeLedger } from '../compat/ledger.ts';
+import { buildCompatibilityLedger, highRiskUnverifiedRows, summarizeLedger } from '../compat/ledger.ts';
 
 const ledger = buildCompatibilityLedger();
 const summary = summarizeLedger(ledger);
 
-const candidates = ledger.entries
-  .filter((row) => row.isConforming && row.riskScore >= 2 && row.automation === 'unverified')
-  .sort((a, b) => b.riskScore - a.riskScore || a.id.localeCompare(b.id));
+const candidates = highRiskUnverifiedRows(ledger);
 
 const skippedSandbox = ledger.entries.filter((row) => row.automation === 'sandbox-only');
 const skippedStructural = ledger.entries.filter((row) => row.automation === 'type-backed');

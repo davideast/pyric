@@ -1,6 +1,10 @@
 {
   "name": "rtdb-modular-query-orderbychild-limit",
   "matrixRow": "rtdb-modular #142/#150",
+  "rowIds": [
+    "rtdb-modular#142",
+    "rtdb-modular#150"
+  ],
   "description": "query(ref, orderByChild(\"pos\"), limitToFirst(2)) — verify the result window respects both ordering and limit.",
   "observedAt": "2026-05-18T03:36:49.451Z",
   "fbSdkVersion": "12.13.0",

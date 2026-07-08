@@ -1,6 +1,9 @@
 {
   "name": "rtdb-rules-json-roundtrip",
   "matrixRow": "rtdb #39",
+  "rowIds": [
+    "rtdb#39"
+  ],
   "description": "Rules-JSON round-trip — PUT a rules JSON containing path-variable segments (`$userId`), `.indexOn` arrays, and `.read`/`.write`/`.validate` keys, GET it back, verify the structure is preserved. Locks the REST `/.settings/rules.json` accept/return contract.",
   "observedAt": "2026-05-18T10:20:14.184Z",
   "fbSdkVersion": "12.13.0",

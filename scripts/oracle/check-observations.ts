@@ -19,7 +19,7 @@ import {
   type OracleConformanceCheck,
 } from '../compat/ledger.ts';
 
-const REQUIRED = ['name', 'matrixRow', 'description', 'observedAt', 'fbSdkVersion', 'behavior'] as const;
+const REQUIRED = ['name', 'matrixRow', 'rowIds', 'description', 'observedAt', 'fbSdkVersion', 'behavior'] as const;
 
 const ledger = buildCompatibilityLedger();
 const checks = ledger.entries.flatMap((row) => (row.conformanceChecks ?? []).map((check) => ({ ...check, rowId: row.id })));

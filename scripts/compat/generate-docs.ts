@@ -2,18 +2,32 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { surfaceRegistries, type CompatibilityRow, type CompatibilitySurfaceRegistry } from './registry/index.ts';
+import { surfaceRegistries, type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from './registry/index.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..');
 export const GENERATED_HEADER = '<!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->';
 
+/** Display glyphs for the typed status enum — rendering only, never parsed. */
+export const STATUS_GLYPHS: Record<CompatStatus, string> = {
+  'conforms': '✓',
+  'diverged-documented': '⚠',
+  'bug': '✗',
+  'unsupported': '—',
+  'unverified': '?',
+};
+
 function escapeCell(value: string): string {
   return value.replace(/\|/g, '\\|');
 }
 
+function renderStatus(row: CompatibilityRow): string {
+  const glyph = STATUS_GLYPHS[row.status];
+  return row.statusNote ? `${glyph} ${row.statusNote}` : glyph;
+}
+
 function renderRow(row: CompatibilityRow): string {
-  return `| ${escapeCell(row.rowRef)} | ${escapeCell(row.behavior)} | ${escapeCell(row.status)} | ${escapeCell(row.evidence)} |`;
+  return `| ${escapeCell(row.rowRef)} | ${escapeCell(row.behavior)} | ${escapeCell(renderStatus(row))} | ${escapeCell(row.evidence)} |`;
 }
 
 export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): string {

@@ -2,14 +2,24 @@ import { authRegistry } from './auth.ts';
 import { firestoreRegistry } from './firestore.ts';
 import { rtdbRegistry } from './rtdb.ts';
 import { storageRegistry } from './storage.ts';
-import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
+import type { CompatibilityRow, CompatibilitySurfaceRegistry, SurfaceDescriptor } from './types.ts';
 
-export const surfaceRegistries = [
-  authRegistry,
-  firestoreRegistry,
-  rtdbRegistry,
-  storageRegistry,
-] satisfies CompatibilitySurfaceRegistry[];
+/**
+ * The one list of compatibility surfaces. Every script derives its surface
+ * knowledge from here — adding a surface is a registry file plus one entry.
+ * `rtdb` and `rtdb-modular` share the rtdb registry (and its COMPAT.md doc)
+ * but keep distinct observation filename prefixes.
+ */
+export const surfaceDescriptors: SurfaceDescriptor[] = [
+  { surface: 'auth', registry: authRegistry, observationPrefix: 'auth-' },
+  { surface: 'firestore', registry: firestoreRegistry, observationPrefix: 'firestore-' },
+  { surface: 'rtdb', registry: rtdbRegistry, observationPrefix: 'rtdb-' },
+  { surface: 'rtdb-modular', registry: rtdbRegistry, observationPrefix: 'rtdb-modular-' },
+  { surface: 'storage', registry: storageRegistry, observationPrefix: 'storage-' },
+];
+
+/** One registry per generated COMPAT.md doc (shared registries deduped). */
+export const surfaceRegistries: CompatibilitySurfaceRegistry[] = [...new Set(surfaceDescriptors.map((d) => d.registry))];
 
 export const observationExceptions: Record<string, string> = {
   "rtdb-onvalue-fires-on-set": "Upstream listener-shape observation for the agent-tool deny-list; it intentionally references the deny-listed listener family rather than a single implemented matrix row.",
@@ -27,8 +37,9 @@ export const allCompatibilityRows = surfaceRegistries.flatMap(rowsForSurface);
 export const compatibilityRegistry = {
   version: 2,
   surfaces: surfaceRegistries,
+  surfaceDescriptors,
   observationExceptions,
   rows: allCompatibilityRows,
 };
 
-export type { Automation, CompatibilityRow, CompatibilitySurfaceRegistry, OracleConformanceCheck, Surface } from './types.ts';
+export type { Automation, CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus, OracleConformanceCheck, Surface, SurfaceDescriptor } from './types.ts';

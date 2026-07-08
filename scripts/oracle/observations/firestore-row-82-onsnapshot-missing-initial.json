@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-82-onsnapshot-missing-initial",
   "matrixRow": "firestore #82",
+  "rowIds": [
+    "firestore#82"
+  ],
   "description": "Initial fire for a missing doc has exists() === false and data() === undefined. Probes onSnapshot on a doc that does not exist and inspects the first snapshot.",
   "observedAt": "2026-05-17T23:58:11.985Z",
   "fbSdkVersion": "12.13.0",

@@ -1,6 +1,9 @@
 {
   "name": "rtdb-modular-runtransaction-returns-committed-snapshot",
   "matrixRow": "rtdb-modular #162",
+  "rowIds": [
+    "rtdb-modular#162"
+  ],
   "description": "runTransaction success — the resolved value is `{ committed: boolean, snapshot: DataSnapshot }`. Lock the resolved snapshot.val() against the actual committed value (not the seed value, not the update-fn return value). Pin the shape (`committed` is a boolean primitive, `snapshot` is an object that responds to .val()/.exists()/.key).",
   "observedAt": "2026-05-18T04:27:40.042Z",
   "fbSdkVersion": "12.13.0",

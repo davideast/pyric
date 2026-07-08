@@ -1,6 +1,9 @@
 {
   "name": "firestore-delete-denied-error-code",
   "matrixRow": "firestore #40",
+  "rowIds": [
+    "firestore#40"
+  ],
   "description": "Rules-denied delete — observes the error class/code/message deleteDoc returns when the target is outside pyric_oracle/*. The doc need not exist; prod evaluates the rule before touching storage, so a deleteDoc on a denied path throws permission-denied regardless of whether the doc is present.",
   "observedAt": "2026-05-17T23:36:54.914Z",
   "fbSdkVersion": "12.13.0",
