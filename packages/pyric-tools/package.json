@@ -54,6 +54,13 @@
     "./serve/worker": {
       "types": "./dist/serve/worker/index.d.ts",
       "import": "./dist/serve/worker/index.js"
+    },
+    "./remote": {
+      "types": "./dist/remote/index.d.ts",
+      "node": {
+        "types": "./dist/remote/index.d.ts",
+        "import": "./dist/remote/index.js"
+      }
     }
   },
   "bin": {
