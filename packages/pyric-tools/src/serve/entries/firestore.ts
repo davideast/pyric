@@ -86,15 +86,15 @@ export const getFirestore = (
 // fails the page at IMPORT time (the firebase/app failure class). None of
 // these are emulated — the sandbox (in-page OR worker) IS the source of
 // truth, so the client cache layer these configure has no role. Durable data
-// is the worker's IDB (default) + `pyric serve --persist`. Path-independent.
+// is the worker's IDB (default) + `pyric dev --persist`. Path-independent.
 
 let cacheNoticeShown = false;
 function acceptedNoOp(name: string): void {
   if (cacheNoticeShown) return;
   cacheNoticeShown = true;
   console.info(
-    `[pyric serve] ${name}(): client cache/persistence settings are accepted but unused — ` +
-      'the pyric sandbox is the source of truth. Durable state is the worker store / `pyric serve --persist`.',
+    `[pyric dev] ${name}(): client cache/persistence settings are accepted but unused — ` +
+      'the pyric sandbox is the source of truth. Durable state is the worker store / `pyric dev --persist`.',
   );
 }
 

@@ -126,7 +126,7 @@ async function buildCtx(): Promise<HostCtx> {
   // Fetch serve's init payload FIRST — it decides the DURABLE strategy before
   // we attach: `--persist` mirrors the controller blob to the committable
   // server file (and primes from it on a fresh worker); a `seedState` fixture
-  // primes IDB once. Null when standalone (no `pyric serve` behind us).
+  // primes IDB once. Null when standalone (no `pyric dev` behind us).
   const payload = await fetchInitPayload();
 
   // The persistence-controller backend. `--persist`/`seedState` wrap IDB (see
@@ -188,7 +188,7 @@ async function buildCtx(): Promise<HostCtx> {
 /**
  * Fetch + parse `/__pyric/init.json`. The URL is relative to the worker
  * script's origin (same origin as the page). Returns null on any failure: a
- * worker opened outside `pyric serve` has no init endpoint and simply keeps
+ * worker opened outside `pyric dev` has no init endpoint and simply keeps
  * the permissive starter rules + a plain-IDB durable store.
  */
 async function fetchInitPayload(): Promise<InitPayload | null> {

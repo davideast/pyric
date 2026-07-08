@@ -559,7 +559,7 @@ describe('M3 — bridge fold (handler-based)', () => {
   });
 });
 
-// `ui`: the `pyric serve --ui` equivalent. Studio app at /__pyric/ui/ + the
+// `ui`: the `pyric dev --ui` equivalent. Studio app at /__pyric/ui/ + the
 // disk-backed workspace/project routes Studio's local mode talks to. Resolves the
 // studio-ui assets vendored in this package's dist (the same bytes the standalone
 // embeds). Requires the studio build (CI builds first; resolveStudioUiDir finds
@@ -575,7 +575,7 @@ describe('M3 — bridge fold (handler-based)', () => {
 const studioBuilt = resolveStudioUiDir() !== null;
 const playgroundBuilt = resolvePlaygroundUiDir() !== null;
 
-describe('ui: Pyric Studio mount (parity with serve --ui)', () => {
+describe('ui: Pyric Studio mount (parity with dev --ui)', () => {
   const tmps: string[] = [];
   const mkTmp = (prefix: string): string => {
     const d = mkdtempSync(path.join(tmpdir(), prefix));

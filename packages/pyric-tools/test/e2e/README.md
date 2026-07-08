@@ -1,7 +1,7 @@
 # Served-mode auth e2e (Tailscale repro)
 
 A Playwright demo that drives a real Chromium (SharedWorker-capable) against
-`pyric serve` to exercise the served-mode Google popup sign-in. It found the
+`pyric dev` to exercise the served-mode Google popup sign-in. It found the
 secure-context worker bug (#724): `onAuthStateChanged` never fired over a
 Tailscale / non-localhost http origin because the worker threw on
 `crypto.randomUUID()` (a secure-context-only API) during init.
@@ -14,7 +14,7 @@ The CI guard for the fix is the unit test `test/serve/worker/random-uuid.test.ts
 ## Layout
 - `fixture/` — a minimal firebase/* app (`signInWithPopup` + `onAuthStateChanged`).
 - `auth-popup.pw.ts` — the test.
-- `playwright.config.ts` — `testMatch: **/*.pw.ts`; auto-starts `pyric serve` for localhost.
+- `playwright.config.ts` — `testMatch: **/*.pw.ts`; auto-starts `pyric dev` for localhost.
 
 ## Run (localhost — passes)
 ```sh
@@ -26,7 +26,7 @@ bunx playwright test --config packages/pyric-tools/test/e2e/playwright.config.ts
 ## Run (Tailscale repro — fails on a build without the fix)
 Start a serve reachable on your tailnet, then point the test at it:
 ```sh
-node packages/pyric-tools/dist/cli/index.js serve --port 5190 --host 0.0.0.0 \
+node packages/pyric-tools/dist/cli/index.js dev --port 5190 --host 0.0.0.0 \
   --no-open --allowed-host <your-tailnet-host> &
 E2E_BASE=http://<your-tailnet-host>:5190 \
   bunx playwright test --config packages/pyric-tools/test/e2e/playwright.config.ts

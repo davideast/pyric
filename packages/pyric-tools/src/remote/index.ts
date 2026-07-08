@@ -5,7 +5,7 @@
  * Server-side Node code (ultimately `pyric-admin`'s remote dispatch arm)
  * reaches the ONE sandbox the app + Studio + agent share:
  *
- *   Node process ──ws──> `pyric serve --bridge` ──ws──> browser tab
+ *   Node process ──ws──> `pyric dev --bridge` ──ws──> browser tab
  *                 (attach/consumer leg)        (peer leg)
  *                                        ──MessagePort──> SharedWorker
  *
@@ -235,7 +235,7 @@ export function createRemoteSandboxCore(
           reject(
             remoteError(
               'deadline-exceeded',
-              `remote sandbox op timed out after ${opTimeoutMs}ms (op: ${payload.method}) — is the serve still running?`,
+              `remote sandbox op timed out after ${opTimeoutMs}ms (op: ${payload.method}) — is pyric dev still running?`,
             ),
           );
         }
@@ -530,7 +530,7 @@ export function createRemoteSandboxHandle(opts: {
     enablePersistence: () =>
       throwMember(
         'enablePersistence',
-        'the browser worker owns persistence; it is already enabled by `pyric serve`',
+        'the browser worker owns persistence; it is already enabled by `pyric dev`',
       ),
     flush: () =>
       throwMember('flush()', 'the browser worker owns persistence and flushes itself'),
@@ -551,7 +551,7 @@ export function createRemoteSandboxHandle(opts: {
 // ─── connect ───────────────────────────────────────────────────────────────
 
 /**
- * Discover the running `pyric serve --bridge`, attach to its bridge WS as a
+ * Discover the running `pyric dev --bridge`, attach to its bridge WS as a
  * worker-relay CONSUMER (never a peer — attaching cannot kick the browser
  * tab out of last-connection-wins), and return the typed remote handle.
  *
@@ -571,7 +571,7 @@ export async function connectRemoteSandbox(
     if (!found) {
       throw remoteError(
         'not-found',
-        'no running `pyric serve --bridge` found (looked for .pyric/serve.json in ' +
+        'no running `pyric dev --bridge` found (looked for .pyric/serve.json in ' +
           `${cwd} and the default ports) — start your dev server with the bridge enabled and retry.`,
       );
     }

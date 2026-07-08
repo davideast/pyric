@@ -1,31 +1,31 @@
-# Persistence and multi-tab with `pyric serve`
+# Persistence and multi-tab with `pyric dev`
 
-When you run `pyric serve`, your app's `firebase/*` imports are served from an
+When you run `pyric dev`, your app's `firebase/*` imports are served from an
 **in-browser pyric sandbox** instead of real Firebase. This guide covers how
 that sandbox keeps (or doesn't keep) data, the flags that control it, and what
 to do if the SharedWorker that backs it acts up.
 
 ## How the sandbox is hosted (and why it matters)
 
-`pyric serve` runs the sandbox one of two ways, chosen automatically:
+`pyric dev` runs the sandbox one of two ways, chosen automatically:
 
 - **SharedWorker (the default — Chrome/Edge, Firefox, Safari 16.4+).** One
   sandbox lives in a SharedWorker shared by **every tab** of the origin. All
   tabs read and write the same backend, so writes sync **live across tabs**,
   and the worker keeps its data in **IndexedDB** — so your data **survives a
-  refresh, a tab close, and a `pyric serve` restart by default**.
+  refresh, a tab close, and a `pyric dev` restart by default**.
 - **In-page fallback (older browsers without SharedWorker).** Each tab runs its
   own sandbox in the page. Data is **ephemeral** (lost on refresh) unless you
   pass `--persist`; cross-tab realtime uses BroadcastChannel.
 
 You can see which path you're on in the console:
-`[pyric serve] firebase/* on this page is served by the pyric sandbox in a SharedWorker …`.
+`[pyric dev] firebase/* on this page is served by the pyric sandbox in a SharedWorker …`.
 
 ## Keep data across reloads — the default
 
 On the SharedWorker path you don't need any flag. The worker persists to the
 browser's IndexedDB automatically: refresh the page, close the tab and reopen,
-or restart `pyric serve`, and your Firestore docs, auth users, and signed-in
+or restart `pyric dev`, and your Firestore docs, auth users, and signed-in
 session come back.
 
 > This is a deliberate change from older `pyric serve`, which was ephemeral by
@@ -35,7 +35,7 @@ session come back.
 ## Persist to a committable file — `--persist`
 
 ```bash
-pyric serve --persist
+pyric dev --persist
 ```
 
 `--persist` adds a durable, **git-trackable** state file at
@@ -68,7 +68,7 @@ Two stores can hold data — clear the one(s) you need:
 | Store | Where it lives | Clear it with |
 |---|---|---|
 | **IndexedDB** (the SharedWorker's default durable store) | the browser, per origin | DevTools → **Application → Storage → Clear site data**, then reload — or just use a private window |
-| **`.pyric/state/state.json`** (the `--persist` file) | your project directory | `pyric serve --persist --fresh` (discards it and re-seeds) |
+| **`.pyric/state/state.json`** (the `--persist` file) | your project directory | `pyric dev --persist --fresh` (discards it and re-seeds) |
 
 `--fresh` clears only the on-disk file — it does **not** touch the browser's
 IndexedDB. For a fully clean slate on the SharedWorker path, **clear site data**
@@ -77,7 +77,7 @@ IndexedDB. For a fully clean slate on the SharedWorker path, **clear site data**
 ## Seed data on boot — `--seed`
 
 ```bash
-pyric serve --seed seed.json
+pyric dev --seed seed.json
 ```
 
 Loads a fixture document set admin-style before your app runs. Accepts either a
@@ -127,9 +127,9 @@ the in-page fallback.
 | `--seed <file>` | load fixture docs on boot (a `"collection/doc" → fields` map, or a `pyric snapshot` file) |
 | `--no-capture` | disable the default-on session capture (`.pyric/last-session.json`, replayed by `pyric verify`) |
 
-The complete `pyric serve` flag set (`--port`, `--host`, `--bridge`,
+The complete `pyric dev` flag set (`--port`, `--host`, `--bridge`,
 `--no-watch`, `--no-open`, `--no-cache`, `--allowed-host`, `--json`, …) lives in
-the [CLI reference](../reference/cli.md#pyric-serve).
+the [CLI reference](../reference/cli.md#pyric-dev).
 
 ## See also
 

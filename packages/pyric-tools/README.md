@@ -15,10 +15,10 @@ The Pyric CLI + programmatic helpers for `firebase-tools`-shaped work
 
 | Command | What it does |
 |---|---|
-| `pyric init [dir]` | Scaffold a pyric project — never prompts, idempotent, safe to rerun. `--template web` (default): a servable app with **canonical `firebase/*` imports** (owner-based rules, `seed.json`, `dev`/`dev:agent` scripts, real `firebase` dep) — `pyric serve` runs it on the sandbox; any standard bundler runs the same code on real Firebase. The swap is environmental, never a code edit. `--template node`: script-style scaffold whose backend is picked by `PYRIC_TARGET=sandbox\|firebase`. Also `--name`, `--force` (overwrite scaffold-owned files), `--json` (machine result on stdout: `{template, dir, created, merged, skipped, conflicts, nextSteps}`) |
+| `pyric init [dir]` | Scaffold a pyric project — never prompts, idempotent, safe to rerun. `--template web` (default): a servable app with **canonical `firebase/*` imports** (owner-based rules, `seed.json`, `dev`/`dev:agent` scripts, real `firebase` dep) — `pyric dev` runs it on the sandbox; any standard bundler runs the same code on real Firebase. The swap is environmental, never a code edit. `--template node`: script-style scaffold whose backend is picked by `PYRIC_TARGET=sandbox\|firebase`. Also `--name`, `--force` (overwrite scaffold-owned files), `--json` (machine result on stdout: `{template, dir, created, merged, skipped, conflicts, nextSteps}`) |
 | `pyric bridge` | Stand up an HTTP+WebSocket bridge an MCP client (Claude Code, Cursor) connects to |
-| `pyric serve` | Local dev server with the pyric sandbox standing in for Firebase: serves `hosting.public`, resolves unmodified `firebase/*` imports to a pyric sandbox via a served import map, deploys + hot-reloads `firestore.rules` (SSE), opens an emulator-style sign-in helper for `signInWithPopup`/`signInWithRedirect`. The sandbox runs in a **SharedWorker by default** — one backend shared by every tab of the origin (live cross-tab sync), kept in the browser's IndexedDB so **data survives a refresh/restart by default**; a per-tab in-page sandbox is the fallback when SharedWorker is unavailable. Flags + exit codes: [CLI reference](docs/reference/cli.md#pyric-serve); persistence, ephemeral runs, clearing data, and SharedWorker tips: [persistence & multi-tab](docs/how-to/serve-persistence-and-multi-tab.md) |
-| `pyric snapshot` | Promote lived sandbox state (live `serve --persist`, else `.pyric/state/state.json`) to a committable fixture; `pyric serve --seed <fixture>` re-serves it (docs + users). `--out`, `--port`, `--force`, `--json` |
+| `pyric dev` | Local dev server with the pyric sandbox standing in for Firebase: serves `hosting.public`, resolves unmodified `firebase/*` imports to a pyric sandbox via a served import map, deploys + hot-reloads `firestore.rules` (SSE), opens an emulator-style sign-in helper for `signInWithPopup`/`signInWithRedirect`. The sandbox runs in a **SharedWorker by default** — one backend shared by every tab of the origin (live cross-tab sync), kept in the browser's IndexedDB so **data survives a refresh/restart by default**; a per-tab in-page sandbox is the fallback when SharedWorker is unavailable. Flags + exit codes: [CLI reference](docs/reference/cli.md#pyric-dev); persistence, ephemeral runs, clearing data, and SharedWorker tips: [persistence & multi-tab](docs/how-to/serve-persistence-and-multi-tab.md) |
+| `pyric snapshot` | Promote lived sandbox state (live `dev --persist`, else `.pyric/state/state.json`) to a committable fixture; `pyric dev --seed <fixture>` re-serves it (docs + users). `--out`, `--port`, `--force`, `--json` |
 | `pyric deploy <target>` | Deploy `rules` / `indexes` / `database` / `hosting` / `functions` to a real Firebase project |
 | `pyric rules:lint <path>` | Lint a Firestore rules file |
 | `pyric rules:validate <path>` | Validate Firestore rules structure |
@@ -55,19 +55,19 @@ the docs are indexed in **[docs/](docs/README.md)**.
   any delete-all) that empties a non-empty state first preserves the prior
   file at `.pyric/state/state.json.bak`.
 
-### Agent onboarding (init → serve → MCP)
+### Agent onboarding (init → dev → MCP)
 
 Three parseable steps, no flags to discover:
 
 ```bash
 pyric init myapp --json        # → {..., "nextSteps": [...]}
 cd myapp && bun install
-bun run dev:agent              # pyric serve --bridge --seed seed.json
+bun run dev:agent              # pyric dev --bridge --seed seed.json
 ```
 
 Readiness probe: `GET <url>/__pyric/init.json` → 200 once serving (body
 carries the live rules hash). MCP endpoint: `<url>/__pyric/mcp`. With
-`pyric serve --json`, stdout's single line carries `{url, port, mcpUrl,
+`pyric dev --json`, stdout's single line carries `{url, port, mcpUrl,
 rulesHash}`.
 
 ## Programmatic subpaths
@@ -76,7 +76,7 @@ rulesHash}`.
 |---|---|
 | `pyric-tools/deploy` | `fromServiceAccount`, `getDeploy`, `createFirestoreDeployTools`, `createRtdbDeployTools`, `createHostingDeployTools`, `createFunctionsDeployTools` |
 | `pyric-tools/bridge` | `createBridge`, `startServer` (Node) / `connectBridge` (browser via conditional export). Vite integration is `pyricSandbox({ bridge })` in `pyric-tools/vite`. |
-| `pyric-tools/vite` | `pyricSandbox(opts)`, the dev-only firebase→sandbox swap plugin. Opts: `rules`, `persist`/`fresh`, `seed`, `capture`, `bridge` (MCP), `ui` (Pyric Studio at `/__pyric/ui/`, parity with `serve --ui`). |
+| `pyric-tools/vite` | `pyricSandbox(opts)`, the dev-only firebase→sandbox swap plugin. Opts: `rules`, `persist`/`fresh`, `seed`, `capture`, `bridge` (MCP), `ui` (Pyric Studio at `/__pyric/ui/`, parity with `dev --ui`). |
 | `pyric-tools/discover` | `crawl`, `findCollectionGroup`, `createRestCrawlerFirestore`, `createFirestoreDiscoverTools` |
 | `pyric-tools/auth` | `getAuthTools` (Identity Toolkit-driven provider + domain configuration) |
 

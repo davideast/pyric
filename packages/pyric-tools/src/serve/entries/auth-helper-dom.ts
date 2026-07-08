@@ -1,5 +1,5 @@
 /**
- * The `<dialog>` shell over {@link ServeAuthHelper} — pyric serve's analog
+ * The `<dialog>` shell over {@link ServeAuthHelper} — pyric dev's analog
  * of the Auth emulator's sign-in widget. Pure-DOM (no framework): renders an
  * account picker + an add-account form (email, display name, custom-claims
  * JSON — emulator parity, `customAttributes`), opens when a popup/redirect
@@ -67,7 +67,7 @@ export function mountAuthHelperDialog(helper: ServeAuthHelper): void {
     h2.textContent = `Sign in with ${provider}`;
     const p = document.createElement('p');
     p.textContent =
-      'pyric serve sign-in helper — pick a test account or add one. Custom claims let rules using request.auth.token.* run against this identity.';
+      'pyric dev sign-in helper — pick a test account or add one. Custom claims let rules using request.auth.token.* run against this identity.';
     dialog.append(h2, p);
 
     if (snap.identities.length > 0) {

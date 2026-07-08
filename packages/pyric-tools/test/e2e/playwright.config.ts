@@ -5,7 +5,7 @@ import { defineConfig } from '@playwright/test';
 // matches `*.test.ts` / `*.spec.ts`) never picks them up; Playwright finds them
 // via `testMatch` below. Requires the pyric-tools dist (`bun run build:pyric-tools`).
 //
-// localhost: the webServer starts `pyric serve` on the fixture automatically.
+// localhost: the webServer starts `pyric dev` on the fixture automatically.
 // Tailscale repro: run your own serve and set E2E_BASE=http://<tailnet-host>:<port>.
 export default defineConfig({
   testDir: '.',
@@ -21,7 +21,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE
     ? undefined
     : {
-        command: 'node ../../../dist/cli/index.js serve --port 5180 --no-open',
+        command: 'node ../../../dist/cli/index.js dev --port 5180 --no-open',
         cwd: 'fixture',
         url: 'http://127.0.0.1:5180',
         reuseExistingServer: true,

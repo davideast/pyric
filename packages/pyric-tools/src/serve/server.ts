@@ -1,5 +1,5 @@
 /**
- * `pyric serve` static server — the hosting half of the command.
+ * `pyric dev` static server — the hosting half of the command.
  *
  * Bare `node:http` (house style — the bridge does the same; no superstatic
  * dependency). Serves `hosting.public` from `firebase.json` with the minimal
@@ -197,7 +197,7 @@ async function handleRequest(
   if (!isAllowedHost(req.headers.host, opts.host ?? 'localhost', opts.allowedHosts)) {
     logger.note(`  ✖ 403 blocked Host '${req.headers.host}' (DNS-rebinding guard)`);
     res.writeHead(403, { 'content-type': 'text/plain' }).end(
-      `pyric serve: refused request for Host '${req.headers.host ?? ''}'. ` +
+      `pyric dev: refused request for Host '${req.headers.host ?? ''}'. ` +
         'Only localhost is allowed; use --allowed-host to add one.',
     );
     return;

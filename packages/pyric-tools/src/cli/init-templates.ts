@@ -7,7 +7,7 @@
  * toolchain, no graduation cliff — the sandbox↔Firebase swap is environmental
  * (dev vs build), never a code edit (the design rationale section 9).
  *
- * `static` is the serve-era scaffold (no bundler): a static app `pyric serve`
+ * `static` is the serve-era scaffold (no bundler): a static app `pyric dev`
  * runs against the in-page sandbox via a runtime import map. For pre-built /
  * retrofit apps, or anyone who wants zero build step.
  *
@@ -66,7 +66,7 @@ const WEB_INDEX_HTML = (name: string): string => `<!doctype html>
 </html>
 `;
 
-const WEB_APP_JS = `// Canonical firebase/* imports. Under \`pyric serve\` they are served by the
+const WEB_APP_JS = `// Canonical firebase/* imports. Under \`pyric dev\` they are served by the
 // in-page pyric sandbox (the config below is ignored); under any standard
 // bundler/pipeline the same imports resolve to the real \`firebase\` package.
 // Graduation changes where you run this code, never the code itself.
@@ -88,7 +88,7 @@ import {
 
 const app = initializeApp({
   // Graduation: your real web-app config from the Firebase console
-  // (see .env.example). Unused while developing under \`pyric serve\`.
+  // (see .env.example). Unused while developing under \`pyric dev\`.
   apiKey: 'demo',
   authDomain: 'demo.firebaseapp.com',
   projectId: 'demo',
@@ -142,7 +142,7 @@ onSnapshot(collection(db, 'posts'), (snap) => {
 const WEB_RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Owner-based from line 1 — \`pyric serve\` hot-reloads this file and
+    // Owner-based from line 1 — \`pyric dev\` hot-reloads this file and
     // ships a sign-in helper, so safe rules are cheap to iterate. These
     // deploy as-is.
     match /posts/{postId} {
@@ -180,7 +180,7 @@ const WEB_SEED_JSON = `{
 `;
 
 const WEB_ENV_EXAMPLE = `# Graduation config — your real Firebase web app (console → project settings).
-# Unused under \`pyric serve\`; wire it into public/app.js (or a bundler env)
+# Unused under \`pyric dev\`; wire it into public/app.js (or a bundler env)
 # when you deploy against the real backend.
 FIREBASE_API_KEY=
 FIREBASE_AUTH_DOMAIN=
@@ -198,16 +198,16 @@ sandbox — no Firebase project, credentials, or emulators.
 - **Develop:** \`bun install && bun run dev\` — serves \`public/\` with the
   sandbox standing in for Firebase: seeded data, rules enforced + hot-reloaded,
   popup sign-in via the helper dialog.
-- **Agent:** \`bun run dev:agent\` — same, plus the MCP bridge on the serve
+- **Agent:** \`bun run dev:agent\` — same, plus the MCP bridge on the dev-server
   origin (\`/__pyric/mcp\`).
-- **Persist (optional):** \`pyric serve --persist --seed seed.json\` — data and
+- **Persist (optional):** \`pyric dev --persist --seed seed.json\` — data and
   test users survive reloads and restarts in \`.pyric/state/state.json\`
   (plain JSON; gitignored). Promote lived state to a committable fixture
-  with \`pyric snapshot\`, then re-serve it: \`pyric serve --seed pyric-state.json\`.
+  with \`pyric snapshot\`, then re-serve it: \`pyric dev --seed pyric-state.json\`.
 - **Graduate:** fill \`.env\` from the Firebase console and point the config in
   \`public/app.js\` at it, then \`npx pyric deploy rules\` /
   \`npx pyric deploy hosting\`. Bare \`firebase/*\` imports need a bundler
-  (e.g. \`vite build\`) or an import map in production — \`pyric serve\`
+  (e.g. \`vite build\`) or an import map in production — \`pyric dev\`
   provides the map in dev.
 
 The app code uses canonical \`firebase/*\` imports everywhere. Switching
@@ -507,7 +507,7 @@ const VITE_TSCONFIG = `{
 `;
 
 // Owner-based rules for the Vite web template. Same shape as the static
-// template's WEB_RULES, but the comment reflects the plugin (not pyric serve) —
+// template's WEB_RULES, but the comment reflects the plugin (not pyric dev) —
 // keep this in lockstep with examples/vite-sandbox-app/firestore.rules.
 const VITE_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -576,9 +576,9 @@ in-process sandbox — no Firebase project, credentials, or emulators.
 > what you wrote.
 
 The plugin is dev-only: SharedWorker multi-tab sync, \`--persist\`, capture, and
-the MCP bridge (all available today under \`pyric serve\`) arrive in the plugin in
+the MCP bridge (all available today under \`pyric dev\`) arrive in the plugin in
 later releases. For a pre-built / no-build app, use \`pyric init --template static\`
-+ \`pyric serve\`.
++ \`pyric dev\`.
 `;
 
 // ─── the registry ─────────────────────────────────────────────────────
@@ -640,13 +640,13 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
     ],
     nextSteps: ['bun install', 'bun start', 'pyric bridge  # agents: the pyric Claude Code plugin auto-connects'],
   },
-  // static — the serve-era, no-bundler scaffold: a static app `pyric serve`
+  // static — the serve-era, no-bundler scaffold: a static app `pyric dev`
   // runs against the in-page sandbox via a runtime import map. For pre-built /
   // retrofit apps, or anyone who wants zero build step.
   static: {
     scripts: {
-      dev: 'pyric serve --seed seed.json',
-      'dev:agent': 'pyric serve --bridge --seed seed.json',
+      dev: 'pyric dev --seed seed.json',
+      'dev:agent': 'pyric dev --bridge --seed seed.json',
       'deploy:rules': 'pyric deploy rules',
       'deploy:hosting': 'pyric deploy hosting',
     },

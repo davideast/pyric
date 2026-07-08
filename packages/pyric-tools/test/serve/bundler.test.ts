@@ -1,4 +1,4 @@
-/** `pyric serve` SDK bundler (plan step 1.1) — the stub-list generator, cache
+/** `pyric dev` SDK bundler (plan step 1.1) — the stub-list generator, cache
  *  key, and a real esbuild smoke against the workspace pyric dist. */
 import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';

@@ -1,5 +1,5 @@
 /**
- * `/__pyric/sdk/init.js` — the script tag `pyric serve` injects into every
+ * `/__pyric/sdk/init.js` — the script tag `pyric dev` injects into every
  * served HTML page. Pulls the shared runtime chunk (sandbox + init payload +
  * rules deploy) and mounts the sign-in helper, so the page backend AND the
  * popup/redirect experience exist even before — or without — the app

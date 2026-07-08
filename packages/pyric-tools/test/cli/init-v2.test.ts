@@ -169,13 +169,13 @@ describe('pyric init v2 — web template ↔ example dogfood stay in sync', () =
       expect([f, scaffolded]).toEqual([f, example]);
     }
     // the web template has no seed.json — seeding is a plugin (M2) feature, not
-    // a scaffolded file. (The `static` template keeps seed.json for pyric serve.)
+    // a scaffolded file. (The `static` template keeps seed.json for pyric dev.)
     expect(existsSync(join(dir, 'seed.json'))).toBe(false);
   });
 });
 
 describe('pyric init v2 — static template (serve-era, no bundler)', () => {
-  it('scaffolds the static public/ app served by pyric serve', async () => {
+  it('scaffolds the static public/ app served by pyric dev', async () => {
     const dir = tmp();
     const c = capture();
     expect(await runInit(args([], { template: 'static', json: true }), c.deps(dir))).toBe(0);
@@ -196,7 +196,7 @@ describe('pyric init v2 — static template (serve-era, no bundler)', () => {
     expect(fb.hosting.public).toBe('public'); // not a build output
 
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-    expect(pkg.scripts.dev).toContain('pyric serve');
+    expect(pkg.scripts.dev).toContain('pyric dev');
     expect(pkg.scripts['dev:agent']).toContain('--bridge');
 
     // seed shape matches the --seed contract (path → fields)

@@ -1,5 +1,5 @@
 /**
- * Discovery of a RUNNING `pyric serve --bridge` — shared by the stdio MCP
+ * Discovery of a RUNNING `pyric dev --bridge` — shared by the stdio MCP
  * proxy (`cli/mcp-proxy.ts`) and the Node remote-sandbox client
  * (`remote/index.ts`). Extracted here so both speak the SAME pointer +
  * identity-pinning rules instead of drifting copies.

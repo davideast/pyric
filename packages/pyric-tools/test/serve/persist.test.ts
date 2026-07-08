@@ -39,7 +39,7 @@ async function serve(cwd: string, persist = true): Promise<ServeRuntime> {
 // What the page's persistence controller would write (its own blob shape).
 const BLOB = { version: 1, savedAt: 42, firestore: { 'posts/lived': { title: 'lived' } } };
 
-describe('pyric serve --persist', () => {
+describe('pyric dev --persist', () => {
   it('first run: seed applies, channel round-trips, file lands atomically', async () => {
     const cwd = project();
     const r = await serve(cwd);

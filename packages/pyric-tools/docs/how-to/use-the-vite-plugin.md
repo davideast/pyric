@@ -1,32 +1,32 @@
 # Use the Vite plugin (`pyric-tools/vite`)
 
 The `pyricSandbox()` Vite plugin gives a **source-driven** app the same
-`firebase/*` → pyric-sandbox swap that `pyric serve` gives a **static** app —
+`firebase/*` → pyric-sandbox swap that `pyric dev` gives a **static** app —
 without leaving your normal `vite dev` loop (HMR, source maps, your own
 router/UI stack). Your app's `firebase/*` imports stay exactly as written; the
 plugin swaps them at Vite's module-resolution layer, in dev only.
 
-## Plugin or `pyric serve`? (they're complementary)
+## Plugin or `pyric dev`? (they're complementary)
 
 Both do the identical thing — run your unmodified `firebase/*` against an
 in-browser pyric sandbox with your `firestore.rules` enforced — but at different
 points in your toolchain. Pick by how your app is built:
 
-| | `pyricSandbox()` Vite plugin | `pyric serve` |
+| | `pyricSandbox()` Vite plugin | `pyric dev` |
 |---|---|---|
 | **Use it for** | source-driven apps you run with `vite dev` | static / pre-built / retrofit apps (`dist/`, `public/`, any folder with `firebase.json`) |
 | **Where the swap happens** | at module resolution, before bundling | at load time, via a runtime import map over already-built files |
-| **Dev loop** | your existing `vite dev` (HMR, source maps) | `pyric serve` owns the dev server |
+| **Dev loop** | your existing `vite dev` (HMR, source maps) | `pyric dev` owns the dev server |
 
 They are **not** competing. If you already build with Vite, the plugin keeps you
 in one toolchain (`vite dev` for the sandbox, `vite build` for prod). If you have
-a pre-built or no-build app, reach for [`pyric serve`](./serve-persistence-and-multi-tab.md).
+a pre-built or no-build app, reach for [`pyric dev`](./serve-persistence-and-multi-tab.md).
 
 > **What the plugin covers.** It swaps `firebase/*`, deploys/hot-reloads your
 > rules, runs the sandbox in a **SharedWorker** (one backend shared across tabs,
 > durable in IndexedDB), supports opt-in on-disk **persistence**, **seeding**, and
 > session **capture**, and can mount the **MCP bridge** (`bridge: true`) so an
-> external agent drives the same sandbox — the same surface `pyric serve` gives a
+> external agent drives the same sandbox — the same surface `pyric dev` gives a
 > static app, in one Vite plugin.
 
 ## Prerequisites
@@ -150,7 +150,7 @@ pyricSandbox({ seed: 'seed.json' });
 ```
 
 The persistence model — the `.pyric/state` file, `persist` vs `fresh`, and how
-seed precedence works — is identical to `pyric serve` and documented in depth in
+seed precedence works — is identical to `pyric dev` and documented in depth in
 [Persistence and multi-tab](./serve-persistence-and-multi-tab.md).
 
 ## Drive the sandbox from an agent (`bridge`)
@@ -188,7 +188,7 @@ then seed, query, undo/redo, and audit the sandbox the page is running on.
 > is no separate agent sandbox. The agent still reaches the worker through an open
 > page, so keep a tab open while it works.
 
-The bridge is the same machinery as [`pyric serve --bridge`](./serve-persistence-and-multi-tab.md);
+The bridge is the same machinery as [`pyric dev --bridge`](./serve-persistence-and-multi-tab.md);
 the [Wire Claude Code](../tutorials/wire-claude-code.md) tutorial walks the
 agent-side setup end to end.
 
@@ -234,12 +234,12 @@ What the plugin does and doesn't cover:
 
 - **Only `firebase/app`, `firebase/auth`, and `firebase/firestore` are swapped.**
   Other subpaths (`firebase/storage`, `firebase/database`) resolve to the real
-  package — the same surface `pyric serve` covers today.
+  package — the same surface `pyric dev` covers today.
 
 - **The agent reaches the sandbox through an open page.** `pyricSandbox({ bridge: true })`
   routes the agent's tool-calls through the SharedWorker — the same backend your
   app and Studio use — but the worker lives in the browser, so a tab must stay
-  open for the agent to act. (`pyric serve --bridge` has the same shape.)
+  open for the agent to act. (`pyric dev --bridge` has the same shape.)
 
 ## Troubleshooting
 
@@ -255,7 +255,7 @@ package in this release.
 
 ## See also
 
-- [Persistence and multi-tab with `pyric serve`](./serve-persistence-and-multi-tab.md)
+- [Persistence and multi-tab with `pyric dev`](./serve-persistence-and-multi-tab.md)
   — the static-app analog; the worker/persist/seed model is identical to the plugin's.
 - [Getting started](../tutorials/getting-started.md) — the end-to-end scaffold →
   serve → agent loop.

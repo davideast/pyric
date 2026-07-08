@@ -1,5 +1,5 @@
 /**
- * Auth session persistence for `pyric serve` — the one genuine
+ * Auth session persistence for `pyric dev` — the one genuine
  * client-fidelity item in the persistence model (flow doc section 3c): real
  * Firebase keeps you signed in across reloads by DEFAULT
  * (`browserLocalPersistence`), so the served sandbox does too.

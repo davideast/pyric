@@ -1,4 +1,4 @@
-// Minimal firebase/* app for the served-mode auth repro. Under `pyric serve`
+// Minimal firebase/* app for the served-mode auth repro. Under `pyric dev`
 // these imports are swapped to the pyric sandbox (worker-backed auth).
 import { initializeApp } from 'firebase/app';
 import {
