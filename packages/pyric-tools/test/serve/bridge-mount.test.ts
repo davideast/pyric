@@ -34,7 +34,7 @@ async function serve(bridge: boolean): Promise<ServeRuntime> {
   return runtime;
 }
 
-describe('pyric serve --bridge', () => {
+describe('pyric dev --bridge', () => {
   it('mounts health + advertises the ws URL in the init payload', async () => {
     const r = await serve(true);
     const health = await fetch(r.handle.url + '/__pyric/health');
@@ -42,7 +42,7 @@ describe('pyric serve --bridge', () => {
     const body = (await health.json()) as { mode: string; sandboxConnected?: boolean };
     expect(body.mode).toBe('sandbox');
 
-    // runtime.mcpUrl carries the BOUND port (the serve --json contract)
+    // runtime.mcpUrl carries the BOUND port (the dev --json contract)
     expect(r.mcpUrl).toBe(r.handle.url + '/__pyric/mcp');
 
     const payload = (await (await fetch(r.handle.url + '/__pyric/init.json')).json()) as { bridgeUrl: string };

@@ -1,5 +1,5 @@
 /**
- * Sign-in helper core for `pyric serve` — the framework-free controller
+ * Sign-in helper core for `pyric dev` — the framework-free controller
  * behind the account-picker dialog (the emulator's sign-in widget analog,
  * and the second consumer of `pyric/auth`'s `AuthFlowResolver` seam after
  * the playground; same settle/seed semantics, zero DOM).

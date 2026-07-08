@@ -6,13 +6,13 @@ anything.**
 
 Pyric mirrors Firebase's package shape while swapping the backend for an
 in-process sandbox during local development. Your app can keep canonical
-`firebase/*` imports under `pyric serve`, or import `pyric/*` directly when you
+`firebase/*` imports under `pyric dev`, or import `pyric/*` directly when you
 want explicit sandbox-vs-production control.
 
 ```bash
 npx pyric init --template web
 npm install
-npx pyric serve
+npx pyric dev
 ```
 
 Live demo: [pyric-playground.web.app](https://pyric-playground.web.app)
@@ -31,20 +31,20 @@ The main pieces:
   and rules evaluation for browser and Node.
 - **`pyric/rules`** — parser, linter, simulator, module resolver, and stdlib
   tooling for Firestore rules.
-- **`pyric-tools`** — the `pyric` CLI, `pyric serve`, MCP bridge, deploy helpers,
+- **`pyric-tools`** — the `pyric` CLI, `pyric dev`, MCP bridge, deploy helpers,
   schema discovery, and Vite plugin.
 - **`pyric-admin`** — `firebase-admin`-shaped adapters with sandbox and
   production backends.
 - **`@pyric/ui`** — headless React components for Firebase/Pyric admin surfaces.
 - **`@pyric/studio`** — the local data-management and debugging console served
-  by `pyric serve --ui`.
+  by `pyric dev --ui`.
 
 ## Workflow
 
-1. **Start** with `pyric init`, or run `pyric serve` in an existing Firebase app.
+1. **Start** with `pyric init`, or run `pyric dev` in an existing Firebase app.
 2. **Iterate** against the sandbox: rules hot-reload, data is inspectable, auth
    can be seeded, and state can be reset or snapshotted.
-3. **Ask an agent for help** through `pyric serve --bridge` or the included
+3. **Ask an agent for help** through `pyric dev --bridge` or the included
    [Claude Code plugin](pyric-plugin/README.md).
 4. **Ship deliberately** by building normally against real Firebase and using
    `pyric deploy <rules|indexes|database|hosting|functions>` when you want Pyric's
@@ -58,7 +58,7 @@ The main pieces:
 | `pyric-admin` | Admin-shaped adapters over sandbox or production Firebase | [docs](packages/pyric-admin/docs/firestore/) |
 | `pyric-tools` | CLI, bridge, deploy, discovery, credentials, Vite plugin | [docs](packages/pyric-tools/docs/) |
 | `@pyric/ui` | Headless React admin components and hooks | [docs](packages/ui/docs/) |
-| `@pyric/studio` | Local sandbox console for `pyric serve --ui` | [README](packages/studio/README.md) |
+| `@pyric/studio` | Local sandbox console for `pyric dev --ui` | [README](packages/studio/README.md) |
 
 Agent tool inventory: [docs/agent-tools.md](docs/agent-tools.md).
 

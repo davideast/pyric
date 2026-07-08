@@ -70,7 +70,7 @@ export function useFirestoreApi(): FirestoreApi {
 /**
  * Provide a Firestore API bundle to the subtree. Pyric Studio wraps its data
  * surface with this, supplying the in-process bundle for dev-seed review and the
- * SharedWorker client bundle under `pyric serve --ui`.
+ * SharedWorker client bundle under `pyric dev --ui`.
  */
 export function FirestoreApiProvider({
   value,

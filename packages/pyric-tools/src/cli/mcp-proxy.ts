@@ -1,6 +1,6 @@
 /**
  * `pyric mcp-proxy` — a stdio MCP server that relays to a RUNNING
- * `pyric serve --bridge`'s HTTP MCP endpoint.
+ * `pyric dev --bridge`'s HTTP MCP endpoint.
  *
  * Why this exists: a Claude Code plugin can only declare a STATIC MCP URL in
  * `.mcp.json`, but serve's endpoint is `http://localhost:<PORT>/__pyric/mcp`
@@ -83,14 +83,14 @@ export async function runMcpProxy(
 
   const found = await (deps.discover ?? discoverServe)(cwd, log);
   if (!found) {
-    // Hybrid mode (design rationale): no serve to attach to, so host the
+    // Hybrid mode (design rationale): no dev server to attach to, so host the
     // sandbox IN this process. Zero setup, no browser tab required. A running
-    // `pyric serve --bridge` upgrades to the shared-live experience on reconnect.
+    // `pyric dev --bridge` upgrades to the shared-live experience on reconnect.
     log(
-      'no running `pyric serve --bridge` found (looked for .pyric/serve.json and ports ' +
+      'no running `pyric dev --bridge` found (looked for .pyric/serve.json and ports ' +
         `${SCAN_PORTS.join(', ')}); starting a headless in-process sandbox (zero-setup).\n` +
         '  Data persists to .pyric/state/headless.json. For a shared-live Studio\n' +
-        '  session, start `pyric serve --bridge` BEFORE connecting the agent (a serve\n' +
+        '  session, start `pyric dev --bridge` BEFORE connecting the agent (a dev server\n' +
         '  started mid-session does not yet adopt this headless data).',
     );
     const headless =

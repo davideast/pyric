@@ -105,6 +105,6 @@ import {
 } from 'pyric-tools/verify';
 ```
 
-`buildVerifyFixture()` is used by `pyric serve` capture. Most users read the
+`buildVerifyFixture()` is used by `pyric dev` capture. Most users read the
 captured JSON from `.pyric/last-session.json`; custom harnesses can use the
 builder to emit the same schema.

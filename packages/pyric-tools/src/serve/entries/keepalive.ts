@@ -27,7 +27,7 @@ export function keepaliveSafe(
   if (!warnedLargeState) {
     warnedLargeState = true;
     warn(
-      `[pyric serve] persisted state is ${Math.round(bytes / 1024)}KB — too large for an ` +
+      `[pyric dev] persisted state is ${Math.round(bytes / 1024)}KB — too large for an ` +
         'unload-time flush; the final unsaved change may be lost if you CLOSE the tab before ' +
         'the next auto-flush. Reloads and normal saves are unaffected.',
     );

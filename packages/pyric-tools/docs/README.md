@@ -6,7 +6,7 @@ look up, understand.
 
 ## Tutorials — learning by doing
 
-- [Getting started](tutorials/getting-started.md) — scaffold → serve → plugin →
+- [Getting started](tutorials/getting-started.md) — scaffold → dev → plugin →
   agent, end to end.
 - [Wire Claude Code (manual MCP)](tutorials/wire-claude-code.md) — bridges,
   custom ports, other MCP clients.
@@ -16,7 +16,7 @@ look up, understand.
 
 Local development:
 
-- [Persistence and multi-tab with `pyric serve`](how-to/serve-persistence-and-multi-tab.md)
+- [Persistence and multi-tab with `pyric dev`](how-to/serve-persistence-and-multi-tab.md)
 - [Verify your rules against a captured session](how-to/verify-against-a-captured-session.md)
 - [Promote sandbox state to a committable fixture](how-to/promote-sandbox-state-to-a-fixture.md)
 - [Build a standalone `pyric` binary](how-to/build-a-standalone-binary.md) — a
@@ -42,6 +42,6 @@ Real Firebase projects:
 ## Explanation — understanding why
 
 - [A local backend, not Firestore offline persistence](../../pyric/docs/sandbox/explanation/local-backend-vs-firestore-offline.md)
-  — why serve's multi-tab + persistence avoid the distributed-systems complexity.
+  — why pyric dev's multi-tab + persistence avoid the distributed-systems complexity.
 - [Why no Firebase CLI](deploy/explanation/why-no-firebase-cli.md) and the other
   [deploy explanations](deploy/README.md).

@@ -1,11 +1,11 @@
 /**
  * `pyric-tools/vite` — the firebase→pyric-sandbox swap as a Vite plugin.
  *
- * The serve analog for SOURCE-driven apps: instead of `vite build && pyric serve
+ * The serve analog for SOURCE-driven apps: instead of `vite build && pyric dev
  * dist`, a team keeps `vite dev` (HMR, source maps) with the in-process sandbox
  * standing in for Firebase. The app's `firebase/*` imports are UNCHANGED — the
  * plugin swaps them at the module-resolution layer (`resolveId`), the same way
- * `pyric serve` swaps via a runtime import map. (Design: `plans/pyric-vite-plugin.md`.)
+ * `pyric dev` swaps via a runtime import map. (Design: `plans/pyric-vite-plugin.md`.)
  *
  * Dev-only (`apply: 'serve'`): a production `vite build` ships the real `firebase`
  * package — the swap is a development affordance and never reaches prod output.
@@ -24,7 +24,7 @@
  *
  * Scope = M1 (swap + rules) + M2 (SharedWorker multi-tab + persist/capture/seed)
  * + M3 (the MCP bridge fold — `{ bridge }`). M3 reuses `createBridgeMount` (the
- * proven serve-flavored bridge behind `pyric serve --bridge`), composing it into
+ * proven serve-flavored bridge behind `pyric dev --bridge`), composing it into
  * the same `/__pyric` middleware; bridge mode forces the in-page sandbox path so
  * the agent and the app share one backend.
  *
@@ -125,7 +125,7 @@ export interface PyricSandboxOptions {
    *  empty in-page sandbox while the app's data lived in the worker. */
   bridge?: boolean | { project?: string; disableAuditLog?: boolean };
   /** Serve the **Pyric Studio** app at `/__pyric/ui/` on Vite's dev origin (the
-   *  `pyric serve --ui` equivalent). Mounts the disk-backed workspace/project
+   *  `pyric dev --ui` equivalent). Mounts the disk-backed workspace/project
    *  routes Studio's `local` mode talks to AND serves the built Studio assets
    *  (vendored in this package at `dist/serve/studio-ui`). **On by default**;
    *  pass `ui: false` to disable.
@@ -133,7 +133,7 @@ export interface PyricSandboxOptions {
    *  Not compatible with `bridge`: bridge forces the app in-page, but Studio's
    *  live plane reads the SharedWorker, so Studio would observe nothing. Under
    *  `bridge` ui therefore defaults OFF (an explicit `ui: true` still works but
-   *  warns). Use `ui` without `bridge`, or `pyric serve --ui`. */
+   *  warns). Use `ui` without `bridge`, or `pyric dev --ui`. */
   ui?: boolean;
 }
 
@@ -227,7 +227,7 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
 
   // M3 bridge fold: normalize `bridge` once (true ⇒ `{}`, falsy ⇒ null). When
   // on, the MCP mount is composed into the /__pyric middleware (createBridgeMount,
-  // shared with `pyric serve --bridge`) AND the page is forced onto the in-page
+  // shared with `pyric dev --bridge`) AND the page is forced onto the in-page
   // sandbox path — the bridge peer is the in-page sandbox, never the SharedWorker,
   // so multi-tab is disabled under bridge to keep agent + app on one backend.
   const bridgeOpts = options.bridge === true ? {} : options.bridge || null;
@@ -435,7 +435,7 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       });
       // Pyric Studio: mount the disk-backed workspace/project routes that
       // Studio's `local` mode talks to + serve the built Studio app at
-      // /__pyric/ui/. Mirrors `pyric serve --ui`; the studio-ui assets are
+      // /__pyric/ui/. Mirrors `pyric dev --ui`; the studio-ui assets are
       // vendored in this package's dist (resolveStudioUiDir).
       //
       // ON BY DEFAULT, including under `bridge`: the bridge now routes agent

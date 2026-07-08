@@ -38,7 +38,7 @@ export function initializeApp(
   if (!configNoticeShown && Object.keys(options).length > 0) {
     configNoticeShown = true;
     console.info(
-      '[pyric serve] initializeApp(): your Firebase config is unused on this page — firebase/* is served by the pyric sandbox.',
+      '[pyric dev] initializeApp(): your Firebase config is unused on this page — firebase/* is served by the pyric sandbox.',
     );
   }
   const app = Object.assign(pyricInitializeApp({ sandbox }), {

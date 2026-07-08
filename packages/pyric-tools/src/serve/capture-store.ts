@@ -1,13 +1,13 @@
 /**
- * Capture store for `pyric serve --capture` — the write-side of the
+ * Capture store for `pyric dev --capture` — the write-side of the
  * `pyric verify` loop.
  *
- * `pyric serve` captures the in-page sandbox session (history + snapshot +
+ * `pyric dev` captures the in-page sandbox session (history + snapshot +
  * rules) and pushes it here whenever the sandbox changes. `pyric verify`
  * (no positional arg) reads `SERVE_CAPTURE_PATH` and replays it against
  * your current rules to surface real divergences. The loop is:
  *
- *   pyric serve  →  use your app  →  pyric verify
+ *   pyric dev  →  use your app  →  pyric verify
  *
  * The body is stored VERBATIM (the page sends its own JSON.stringify'd
  * fixture — we never re-serialize it so no wrapper-type drift is

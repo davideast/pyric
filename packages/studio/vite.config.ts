@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 /**
  * Studio app build. Outputs static assets to `dist/app`, served by
- * `pyric serve --ui`. The library entry points (`./ports`, `./env`) are emitted
+ * `pyric dev --ui`. The library entry points (`./ports`, `./env`) are emitted
  * separately by `tsc` to `dist/`, kept out of this bundle.
  *
  * `base` is configurable so the packaged build (embedded in pyric-tools and

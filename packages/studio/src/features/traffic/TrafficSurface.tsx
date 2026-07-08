@@ -9,7 +9,7 @@
  *      listener storm collapsing to one group row, denials made clear.
  *
  * Data is the `kind: 'request'` slice of the unified event stream (the dev-seed
- * drives real allow/deny ops; `serve --ui` will stream live). `TrafficEvent` is
+ * drives real allow/deny ops; `dev --ui` will stream live). `TrafficEvent` is
  * structurally identical to the sandbox `RequestEvent`, so there's no adapter.
  */
 

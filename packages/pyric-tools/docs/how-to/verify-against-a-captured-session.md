@@ -7,13 +7,13 @@ swap to prod" safe: *will the rules I'm about to ship break what I built?*
 
 ## Capture a session, then verify
 
-Capture is on by default in `pyric serve`, so the loop is just three steps.
+Capture is on by default in `pyric dev`, so the loop is just three steps.
 
 1. Start the sandbox. The session is written to `.pyric/last-session.json` as
    you go:
 
    ```sh
-   pyric serve
+   pyric dev
    ```
 
    (Pass `--no-capture` to disable the recording.)

@@ -14,7 +14,7 @@
  * on the `pyric-tools/vite` plugin: `vite dev` runs canonical `firebase/*`
  * imports against the in-process sandbox, `vite build` ships the real `firebase`
  * package — one toolchain, the swap is environmental (dev vs build), never a
- * code edit. `static` is the serve-era no-bundler scaffold (`pyric serve`).
+ * code edit. `static` is the serve-era no-bundler scaffold (`pyric dev`).
  *
  * Agent-first contract (the design rationale section CLI UX):
  *   - NEVER prompts — every choice is a flag with a default.

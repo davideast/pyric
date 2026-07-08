@@ -1,4 +1,4 @@
-/** `pyric serve` static server (plan step 1.3) — real HTTP over ephemeral
+/** `pyric dev` static server (plan step 1.3) — real HTTP over ephemeral
  *  ports: static files, traversal, SPA rewrite, seams, port scan-forward. */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';

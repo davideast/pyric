@@ -4,7 +4,7 @@ Every agent-callable tool in this repo, **sourced**. Tools are plain
 `ToolHandler` objects produced by per-package factories — you compose them
 into whatever runtime you use. They reach an agent two ways:
 
-1. **`pyric serve --bridge`** (or `pyric bridge`) — exposes the registry over
+1. **`pyric dev --bridge`** (or `pyric bridge`) — exposes the registry over
    MCP; the [Claude Code plugin](../pyric-plugin/README.md) auto-wires it.
 2. **Programmatic** — import a factory and register the handlers with any agent
    framework (the playground does this with `@inbrowser/agent`), or compose the

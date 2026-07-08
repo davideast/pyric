@@ -4,7 +4,7 @@
  * Resolves the in-page seeded sandbox once and exposes the data handles
  * (`Firestore` / `Auth` / `FirebaseStorage`) plus the unified event stream to
  * the surfaces via React context. This is what makes Studio reviewable without a
- * live `pyric serve`; the surfaces consume {@link useDevSeed} the same way they
+ * live `pyric dev`; the surfaces consume {@link useDevSeed} the same way they
  * will consume the real environment in production.
  *
  * GATING: the provider only seeds when `import.meta.env.DEV` is true. In a

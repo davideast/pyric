@@ -2,7 +2,7 @@
 
 Drive a local Firebase sandbox from Claude Code with zero MCP wiring.
 
-`pyric serve --bridge` exposes an MCP endpoint, but at a runtime port
+`pyric dev --bridge` exposes an MCP endpoint, but at a runtime port
 (`http://localhost:<PORT>/__pyric/mcp`) that a static `.mcp.json` can't name.
 This plugin bridges that with a **stdio MCP proxy**: it declares a stdio
 server that runs `pyric mcp-proxy`, which discovers the live serve (from the
@@ -15,7 +15,7 @@ protocol. No `claude mcp add`, no fixed port.
   via the stdio proxy. Gives the agent the sandbox tools (data plane, rules
   lint/simulate, `pyric_sandbox_inspect`).
 - **`/pyric:pyric-start` skill** — scaffolds (if needed), starts
-  `pyric serve --bridge --persist`, and opens the app so the in-page sandbox
+  `pyric dev --bridge --persist`, and opens the app so the in-page sandbox
   connects.
 - **`pyric` agent** — sandbox operating knowledge for common Pyric workflows.
 
@@ -32,11 +32,11 @@ template adds `pyric-tools` as a devDep, so `npx pyric …` resolves it).
 
 ## How it connects (no manual steps)
 
-1. `/pyric:pyric-start` runs `pyric serve --bridge` → serve writes
+1. `/pyric:pyric-start` runs `pyric dev --bridge` → the dev server writes
    `.pyric/serve.json` with the bound port.
 2. The plugin's stdio proxy (`pyric mcp-proxy`) reads that pointer and relays
    stdio ↔ `http://<addr>:<port>/__pyric/mcp`.
-3. Claude Code auto-reconnects if serve restarts.
+3. Claude Code auto-reconnects if `pyric dev` restarts.
 
 Requirement the plugin can't remove: the served **page must be open** (the
 sandbox lives in it). The start skill opens it; if data tools do nothing,

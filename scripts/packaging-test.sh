@@ -54,7 +54,7 @@ PYRIC_ADMIN_SUBPATHS=( $(exported_subpaths packages/pyric-admin) )
 PYRIC_TOOLS_SUBPATHS=( $(exported_subpaths packages/pyric-tools) )
 PYRIC_UI_SUBPATHS=( $(exported_subpaths packages/ui) )
 
-# Tracks the backgrounded `pyric serve` (Phase 5.5) so a failure mid-smoke
+# Tracks the backgrounded `pyric dev` (Phase 5.5) so a failure mid-smoke
 # doesn't leave it listening; killed in the error trap and after the probe.
 SERVE_PID=""
 cleanup_on_error() {
@@ -183,11 +183,11 @@ assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/grammar/FirestoreRules\.ohm$
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/database/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/modules/stdlib/.*\.rules$' "pyric ships the rules stdlib modules (.rules)"
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/cli/index\.js$' "pyric-tools ships the pyric CLI bin"
-# The Vite plugin's `ui` option + `pyric serve --ui` resolve the Studio app from
+# The Vite plugin's `ui` option + `pyric dev --ui` resolve the Studio app from
 # dist/serve/studio-ui (build-embedded). The plugin's firebase swap resolves the
 # entries from dist/serve/entries. Both are `files:["dist"]`-whitelisted assets that
 # import fine but 404 / break the swap for installed users if the build drops them.
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/studio-ui/index\.html$' "pyric-tools ships the Studio app shell (vite plugin ui + serve --ui)"
+assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/studio-ui/index\.html$' "pyric-tools ships the Studio app shell (vite plugin ui + dev --ui)"
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/playground-ui/index\.html$' "pyric-tools ships the embedded Playground app shell (Studio Playground tab)"
 # index.html hard-references hashed assets/*.{js,css}; without them the served app
 # renders a blank root that 404s its own bundle. The index.html fallback only fires
@@ -385,17 +385,17 @@ check_bin_help "pyric"
 
 # ─── Phase 5.5: serve smoke (init + serve from the packed bin) ─────────
 # The subpath + bin checks above prove imports resolve, but they never boot
-# the in-page sandbox runtime. A post-install `pyric serve`/bundler break
+# the in-page sandbox runtime. A post-install `pyric dev`/bundler break
 # (e.g. a dist path the tarball doesn't ship, or an esbuild plugin that can't
 # resolve pyric's SDK from node_modules) would pass everything above yet fail
 # the moment a user runs serve. This phase scaffolds a fresh app with the
-# packed `pyric init`, starts `pyric serve` headless on an ephemeral port, and
+# packed `pyric init`, starts `pyric dev` headless on an ephemeral port, and
 # probes the readiness endpoint — the one thing that exercises the real serve
 # path from the published tarball.
 #
 # Uses `--template static`: the default `web` template scaffolds a Vite app
 # (served by `vite dev`, `hosting.public` → `dist` which doesn't exist until a
-# build), so it isn't what `pyric serve` consumes. The `static` template is the
+# build), so it isn't what `pyric dev` consumes. The `static` template is the
 # serve-era no-bundler scaffold (a ready `public/` dir) — exactly the path this
 # smoke exercises. (The Vite-plugin path is covered by pyric-tools' own tests.)
 echo ""
@@ -409,7 +409,7 @@ echo "  ✓ pyric init scaffolded a static app from the tarball"
 # Start serve in the background. `--json` puts the machine-readable line on
 # stdout AND suppresses the browser auto-open (no TTY/CI also suppress it);
 # `--port 0` binds an ephemeral port so the gate never collides with a real one.
-( cd "$SMOKE" && "$PYRIC_BIN" serve --port 0 --json ) > "$SMOKE/serve.out" 2> "$SMOKE/serve.err" &
+( cd "$SMOKE" && "$PYRIC_BIN" dev --port 0 --json ) > "$SMOKE/serve.out" 2> "$SMOKE/serve.err" &
 SERVE_PID=$!
 
 # Poll for the JSON contract line (printed once the server is listening).
@@ -424,7 +424,7 @@ for _ in $(seq 1 80); do
   sleep 0.5
 done
 if [ -z "$SERVE_URL" ]; then
-  echo "  ✗ pyric serve never reported a ready URL"
+  echo "  ✗ pyric dev never reported a ready URL"
   echo "    stderr:"; sed 's/^/      /' "$SMOKE/serve.err"
   exit 1
 fi
@@ -435,7 +435,7 @@ if ! curl -fsS "$SERVE_URL/__pyric/init.json" 2>/dev/null | jq -e 'has("rulesHas
   echo "  ✗ GET $SERVE_URL/__pyric/init.json did not return a valid init payload"
   exit 1
 fi
-echo "  ✓ pyric serve booted ($SERVE_URL) and /__pyric/init.json resolved"
+echo "  ✓ pyric dev booted ($SERVE_URL) and /__pyric/init.json resolved"
 
 kill "$SERVE_PID" 2>/dev/null
 wait "$SERVE_PID" 2>/dev/null || true

@@ -1,10 +1,10 @@
 /**
  * `httpProjectStore(baseUrl)`: a {@link ProjectStore} that satisfies the port
- * browser-side over the pyric server's `/__pyric/projects` routes. `open(id)`
+ * browser-side over the pyric devr's `/__pyric/projects` routes. `open(id)`
  * returns a {@link ProjectHandle} whose `workspace` is an {@link httpWorkspace}
  * over the same origin (the server's single-project `/__pyric/workspace`).
  *
- * NOTE: `pyric serve --ui` serves ONE project tree at `/__pyric/workspace`, so
+ * NOTE: `pyric dev --ui` serves ONE project tree at `/__pyric/workspace`, so
  * every `open(id).workspace` points at the same server-side tree. In multi-
  * project/hosted modes the route would be id-scoped; the port shape already
  * anticipates that (see the design rationale).

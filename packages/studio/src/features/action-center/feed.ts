@@ -15,7 +15,7 @@
  *
  * So the feed below is injectable, and `shell/studio-data.ts` resolves it:
  * dev-seed `feedFromSandboxLike` in review, `env.live.feed` under
- * `pyric serve --ui`, and {@link emptyEventFeed} only when neither is present
+ * `pyric dev --ui`, and {@link emptyEventFeed} only when neither is present
  * (SSR / no SharedWorker / tests). The view renders its empty state then.
  *
  * The interface is deliberately the same `(cb) => unsubscribe` + `history()`

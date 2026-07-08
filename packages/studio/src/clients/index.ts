@@ -1,6 +1,6 @@
 /**
  * Studio `local`-mode HTTP clients: browser-side impls of the storage ports
- * over the pyric server's `/__pyric/*` routes (Track T3). Wired by
+ * over the pyric devr's `/__pyric/*` routes (Track T3). Wired by
  * `createStudioEnvironment('local')` (see `../env.ts`).
  */
 export { httpWorkspace } from './http-workspace.js';

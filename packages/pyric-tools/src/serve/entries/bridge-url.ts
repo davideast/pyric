@@ -1,7 +1,7 @@
 /**
  * Re-anchor a bridge WebSocket URL to the page's own origin.
  *
- * `pyric serve` / the vite plugin bake their OWN host into the bridge URL it
+ * `pyric dev` / the vite plugin bake their OWN host into the bridge URL it
  * sends the page (e.g. `ws://localhost:5173/__pyric/sandbox`). But the page may
  * have been loaded over a different host (Tailscale, a LAN IP) or scheme
  * (`https` via `tailscale serve`, which then requires `wss`). Connecting to the

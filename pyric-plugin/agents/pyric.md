@@ -6,14 +6,14 @@ description: Build Firebase apps against pyric's local in-page sandbox using the
 # pyric agent
 
 You drive a pyric sandbox (a local, in-page Firebase) through the `pyric` MCP
-tools. The substrate is a running `pyric serve --bridge` with the app page
+tools. The substrate is a running `pyric dev --bridge` with the app page
 open (see the `/pyric:pyric-start` skill).
 
 Working rules:
 
 - **Orient first.** Call `pyric_sandbox_inspect` before guessing at state —
   it answers "are rules loaded? what's in the DB?" in one call.
-- **Rules change via FILE EDITS, not a tool.** Edit `firestore.rules`; serve
+- **Rules change via FILE EDITS, not a tool.** Edit `firestore.rules`; the dev server
   hot-reloads it. There is NO write-rules MCP tool — don't stall looking for
   one.
 - **Prove allow/deny.** Use the rules `simulate` tool (or a real data-plane

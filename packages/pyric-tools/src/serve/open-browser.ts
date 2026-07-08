@@ -1,11 +1,11 @@
 /**
- * Best-effort browser auto-open for `pyric serve`.
+ * Best-effort browser auto-open for `pyric dev`.
  *
  * The pyric sandbox is browser-resident: firestore/auth/persistence all run
  * IN the served page, so a dev who never opens it sees data ops silently
  * no-op. Opening the page on start (and the loud banner warning that pairs
  * with it) removes that surprise. Opening is ALWAYS best-effort — a failed
- * open must never fail `serve`; the URL is in the banner regardless.
+ * open must never fail `dev`; the URL is in the banner regardless.
  *
  * Auto-open is suppressed in the non-interactive paths where popping a
  * browser is wrong or useless: `--json` (the agent/CI stdout contract),
@@ -27,7 +27,7 @@ export interface AutoOpenContext {
 }
 
 /**
- * Pure decision: should `pyric serve` auto-open the browser? Factored out so
+ * Pure decision: should `pyric dev` auto-open the browser? Factored out so
  * the gating logic is unit-testable without spawning anything. Open only when
  * interactive AND not explicitly suppressed AND not in CI.
  */

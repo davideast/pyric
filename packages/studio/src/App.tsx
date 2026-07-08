@@ -61,7 +61,7 @@ function RoutePlaceholder({ id }: { id: string }) {
 
 /**
  * The active surface for a route. Each composes `@pyric/ui` and reads live data
- * from the dev-seed (or `serve --ui` env) via the studio-data bridge. The shell
+ * from the dev-seed (or `dev --ui` env) via the studio-data bridge. The shell
  * owns routing; surfaces never touch it.
  */
 function Surface({

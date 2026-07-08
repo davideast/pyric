@@ -1,6 +1,6 @@
 # A local backend, not Firestore offline persistence
 
-A natural worry when you see `pyric serve` keep data across refreshes and sync across tabs is: *"are you reimplementing Firestore's offline + multi-tab persistence?"* That feature is famously one of the hardest parts of the Firestore SDK, and reimplementing it would be a massive undertaking.
+A natural worry when you see `pyric dev` keep data across refreshes and sync across tabs is: *"are you reimplementing Firestore's offline + multi-tab persistence?"* That feature is famously one of the hardest parts of the Firestore SDK, and reimplementing it would be a massive undertaking.
 
 The answer is **no — by construction.** pyric's sandbox is a **single local backend**, not a cache in front of a remote server. That one structural difference removes essentially all of the complexity that makes Firestore's offline mode hard. This page explains why, so the distinction is clear before anyone reaches for the wrong mental model.
 

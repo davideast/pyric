@@ -59,7 +59,7 @@ build_pkg "pyric-admin"
 build_pkg "pyric-tools"
 build_pkg "ui"
 
-# ── Phase 3: Studio app (embedded into pyric-tools for `pyric serve --ui`) ──
+# ── Phase 3: Studio app (embedded into pyric-tools for `pyric dev --ui`) ──
 # Built with base /__pyric/ui/ so its assets resolve under the CLI mount, then
 # copied into pyric-tools' dist (which ships via the package `files: ["dist"]`).
 # Runs after Phase 2: studio depends on `pyric` + `@pyric/ui`, and the copy

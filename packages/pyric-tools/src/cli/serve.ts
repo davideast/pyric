@@ -1,5 +1,5 @@
 /**
- * `pyric serve` — local dev server with the pyric sandbox standing in for
+ * `pyric dev` — local dev server with the pyric sandbox standing in for
  * Firebase. Feels like `firebase serve` (banner, labeled lines, port 5000,
  * SIGINT shutdown) with the sandbox-flavored extras firebase can't do: the
  * served page runs an in-browser backend, your `firestore.rules` deploy into
@@ -36,7 +36,7 @@ interface HostingConfig {
   rewrites?: Array<{ source?: string; destination?: string }>;
 }
 
-/** Extract the single hosting config `pyric serve` v1 supports. Arrays
+/** Extract the single hosting config `pyric dev` v1 supports. Arrays
  *  (multi-site) take the first entry with a warning — multi-site is out of
  *  scope (plan section 6). */
 export function extractHosting(config: FirebaseJson | null): HostingConfig | null {
@@ -139,7 +139,7 @@ export async function startServe(opts: {
 
   const hosting = extractHosting(config);
   if (Array.isArray(config?.hosting) && (config.hosting as unknown[]).length > 1) {
-    logger.note('  ⚠ multiple hosting sites configured — pyric serve v1 serves the first entry only');
+    logger.note('  ⚠ multiple hosting sites configured — pyric dev v1 serves the first entry only');
   }
   const publicDir = resolve(opts.cwd, hosting?.public ?? '.');
   if (!existsSync(publicDir)) {
@@ -149,9 +149,9 @@ export async function startServe(opts: {
     const looksLikeBuildOutput = /(^|[\\/])(dist|build|out)$/.test(publicDir);
     const hint = looksLikeBuildOutput
       ? `\n  No build yet? Run \`bun run dev\` for the live sandbox dev server, ` +
-        `or \`bun run build\` then \`pyric serve\` to preview the production build.`
+        `or \`bun run build\` then \`pyric dev\` to preview the production build.`
       : '';
-    throw new Error(`pyric serve: hosting.public directory does not exist: ${publicDir}${hint}`);
+    throw new Error(`pyric dev: hosting.public directory does not exist: ${publicDir}${hint}`);
   }
 
   // Rules: fail fast on broken rules; serve rule-less only when genuinely absent.
@@ -200,10 +200,10 @@ export async function startServe(opts: {
     try {
       parsed = JSON.parse(readFileSync(seedPath, 'utf8'));
     } catch (e) {
-      throw new Error(`pyric serve: failed to read --seed ${seedPath}: ${e instanceof Error ? e.message : String(e)}`);
+      throw new Error(`pyric dev: failed to read --seed ${seedPath}: ${e instanceof Error ? e.message : String(e)}`);
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error(`pyric serve: --seed must be a JSON object of "collection/doc" → fields, got ${Array.isArray(parsed) ? 'array' : typeof parsed}`);
+      throw new Error(`pyric dev: --seed must be a JSON object of "collection/doc" → fields, got ${Array.isArray(parsed) ? 'array' : typeof parsed}`);
     }
     const obj = parsed as Record<string, unknown>;
     if (obj.version === STATE_FILE_VERSION && ('firestore' in obj || 'auth' in obj)) {
@@ -479,7 +479,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   const only = parsed.flags.get('only');
   if (typeof only === 'string' && only !== 'hosting') {
     process.stderr.write(
-      `pyric: --only '${only}' is not supported — pyric serve v1 serves hosting (with the in-page sandbox standing in for firestore/auth).\n`,
+      `pyric: --only '${only}' is not supported — pyric dev v1 serves hosting (with the in-page sandbox standing in for firestore/auth).\n`,
     );
     return 1;
   }
@@ -522,7 +522,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // (the banner went to stderr). Readiness probe: GET /__pyric/init.json.
   if (json) process.stdout.write(serveJsonLine(runtime) + '\n');
 
-  // Footgun guard (hybrid-MCP plan Phase 3): plain `serve` mounts no MCP bridge,
+  // Footgun guard (hybrid-MCP plan Phase 3): plain `dev` mounts no MCP bridge,
   // so a `pyric mcp-proxy` in an editor cannot attach. Nudge toward --bridge.
   if (!bridgeOn && !json) {
     process.stderr.write(
