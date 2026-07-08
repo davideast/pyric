@@ -16,6 +16,7 @@ import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { createBridge, type Bridge } from './bridge.js';
 import { isBridgeMessage, type BridgeMessage } from '../protocol.js';
+import { pyricToolsVersion } from '../../pkg-version.js';
 
 export function attachPeer(
   bridge: ReturnType<typeof createBridge>,
@@ -133,12 +134,15 @@ export function createConsumerSession(
     handleMessage(msg: BridgeMessage): void {
       switch (msg.type) {
         case 'attach': {
-          // Idempotent re-attach: just re-ack.
+          // Idempotent re-attach: just re-ack. `serveVersion` is the
+          // version-skew stamp (bridge/protocol.ts) — this process's own
+          // pyric-tools version, compared client-side at attach.
           send({
             type: 'attach-ack',
             protocol: 1,
             bridgeVersion: bridge.version,
             peerConnected: bridge.isSandboxConnected(),
+            serveVersion: pyricToolsVersion(),
           });
           return;
         }

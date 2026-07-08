@@ -164,6 +164,15 @@ export interface AttachAckFromBridge {
   bridgeVersion: string;
   /** Whether a browser tab is currently registered as the sandbox peer. */
   peerConnected: boolean;
+  /**
+   * The `pyric-tools` package version the serve/bridge process runs
+   * (version-skew stamp). ADDITIVE + OPTIONAL: old servers omit it and
+   * the client stays silent. When present and different from the
+   * client's own version, the client warns once at attach and enriches
+   * op-timeout errors — a skewed old worker can accept a newer op frame
+   * and die mid-handling, which otherwise surfaces as a bare timeout.
+   */
+  serveVersion?: string;
 }
 
 /** Toward the worker: dispatch this one-shot op. (consumer→bridge and

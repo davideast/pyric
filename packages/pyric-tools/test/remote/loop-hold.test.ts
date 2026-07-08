@@ -76,11 +76,21 @@ function connectTab(bridge: Bridge, ctx: HostCtx, opts: { dropOps?: boolean } = 
 }
 
 /** Node core over a recording transport: every ref()/unref() lands in
- *  `holds` — the fake-ws assertion seam for the exit-hang fix. */
-function connectNode(bridge: Bridge, opts: { opTimeoutMs?: number } = {}) {
+ *  `holds` — the fake-ws assertion seam for the exit-hang fix.
+ *  `mutateToClient` intercepts bridge→client frames (the version-skew
+ *  tests rewrite/strip the attach-ack's `serveVersion` stamp). */
+function connectNode(
+  bridge: Bridge,
+  opts: {
+    opTimeoutMs?: number;
+    mutateToClient?: (msg: BridgeMessage) => BridgeMessage;
+  } = {},
+) {
   const holds: Array<'ref' | 'unref'> = [];
   let core: RemoteSandboxCore;
-  const session = createConsumerSession(bridge, (msg) => core.handleMessage(msg));
+  const session = createConsumerSession(bridge, (msg) =>
+    core.handleMessage(opts.mutateToClient ? opts.mutateToClient(msg) : msg),
+  );
   core = createRemoteSandboxCore(
     {
       send: (msg) => session.handleMessage(msg),
@@ -95,6 +105,22 @@ function connectNode(bridge: Bridge, opts: { opTimeoutMs?: number } = {}) {
 
 function tick(ms = 10): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Capture stderr writes for the duration of `fn` (skew-warning seam). */
+async function captureStderr(fn: () => Promise<void>): Promise<string[]> {
+  const logged: string[] = [];
+  const prev = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: unknown) => {
+    logged.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    await fn();
+  } finally {
+    process.stderr.write = prev;
+  }
+  return logged;
 }
 
 // ─── Event-loop hold ────────────────────────────────────────────────────────
@@ -207,6 +233,70 @@ describe('remote core — a listener error is terminal (auto-unsubscribe)', () =
     let workerSubCount = 0;
     for (const portSubs of ctx.subs.values()) workerSubCount += portSubs.size;
     expect(workerSubCount).toBe(0);
+  });
+});
+
+// ─── Version-skew stamp (attach-ack serveVersion) ───────────────────────────
+
+describe('remote core — version-skew stamp on attach', () => {
+  it('matched versions stay silent (the default in-process stack)', async () => {
+    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    connectTab(bridge, makeWorkerCtx());
+    const logged = await captureStderr(async () => {
+      const node = connectNode(bridge); // real serveVersion == own version
+      await node.core.ready;
+      await node.channel.op({ method: 'getVersion' });
+    });
+    expect(logged.filter((l) => l.includes('restart pyric dev'))).toEqual([]);
+  });
+
+  it('an ABSENT stamp (old server) stays silent', async () => {
+    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    connectTab(bridge, makeWorkerCtx());
+    const logged = await captureStderr(async () => {
+      const node = connectNode(bridge, {
+        mutateToClient: (msg) => {
+          if (msg.type === 'attach-ack') {
+            const { serveVersion: _omit, ...rest } = msg as { serveVersion?: string } & typeof msg;
+            return rest as BridgeMessage;
+          }
+          return msg;
+        },
+      });
+      await node.core.ready;
+    });
+    expect(logged.filter((l) => l.includes('restart pyric dev'))).toEqual([]);
+  });
+
+  it('a mismatched stamp warns ONCE and enriches timeout errors', async () => {
+    const bridge = createBridge({ mode: 'sandbox', version: 'test', callTimeoutMs: 5000 });
+    connectTab(bridge, makeWorkerCtx(), { dropOps: true }); // hung/skewed tab
+    const logged = await captureStderr(async () => {
+      const node = connectNode(bridge, {
+        opTimeoutMs: 30,
+        mutateToClient: (msg) =>
+          msg.type === 'attach-ack' ? { ...msg, serveVersion: '9.9.9-skew' } : msg,
+      });
+      await node.core.ready;
+
+      // Re-attach re-acks: still exactly ONE warning.
+      node.session.handleMessage({ type: 'attach', protocol: 1 });
+      await tick();
+
+      // A timed-out op names the skew as the likely culprit.
+      try {
+        await node.channel.op({ method: 'getVersion' });
+        throw new Error('expected timeout');
+      } catch (err) {
+        const message = (err as Error).message;
+        expect(message).toContain('timed out');
+        expect(message).toContain('9.9.9-skew');
+        expect(message).toContain('restart pyric dev and reload the browser tab');
+      }
+    });
+    const warnings = logged.filter((l) => l.includes('restart pyric dev'));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('pyric dev is running version 9.9.9-skew');
   });
 });
 

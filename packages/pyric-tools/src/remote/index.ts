@@ -45,6 +45,7 @@ import type {
   WorkerSubPayload,
 } from '../bridge/protocol.js';
 import { isBridgeMessage, NO_SANDBOX_ERROR_MESSAGE } from '../bridge/protocol.js';
+import { pyricToolsVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
 import { discoverServe } from '../serve/discovery.js';
 
@@ -273,6 +274,16 @@ export function createRemoteSandboxCore(
   // `ready` may legitimately go unobserved after dispose — never unhandled.
   ready.catch(() => {});
 
+  /**
+   * Version-skew guidance (integration-smoke fix). Set once when the
+   * `attach-ack`'s `serveVersion` stamp is present AND differs from this
+   * client's own pyric-tools version: an old worker can accept a newer op
+   * frame and die mid-handling, which surfaces as a bare timeout — so the
+   * mismatch warns ONCE on stderr at attach, and op-timeout errors append
+   * the same guidance. Old servers omit the stamp → stays null → silent.
+   */
+  let versionSkewGuidance: string | null = null;
+
   function send(msg: BridgeMessage): void {
     transport.send(msg);
   }
@@ -307,7 +318,10 @@ export function createRemoteSandboxCore(
           reject(
             remoteError(
               'deadline-exceeded',
-              `remote sandbox op timed out after ${opTimeoutMs}ms (op: ${payload.method}) — is pyric dev still running?`,
+              `remote sandbox op timed out after ${opTimeoutMs}ms (op: ${payload.method}) — is pyric dev still running?` +
+                // A version-skewed old worker accepts frames it cannot
+                // handle and never responds — a timeout is its signature.
+                (versionSkewGuidance ? ` ${versionSkewGuidance}` : ''),
             ),
           );
         }
@@ -355,6 +369,18 @@ export function createRemoteSandboxCore(
     if (!isBridgeMessage(msg)) return;
     switch (msg.type) {
       case 'attach-ack': {
+        // Version-skew stamp: warn ONCE when the serve process runs a
+        // different pyric-tools version (absent stamp = old server = silent).
+        if (
+          versionSkewGuidance === null &&
+          typeof msg.serveVersion === 'string' &&
+          msg.serveVersion !== pyricToolsVersion()
+        ) {
+          versionSkewGuidance =
+            `pyric dev is running version ${msg.serveVersion}, this client is ` +
+            `${pyricToolsVersion()} — restart pyric dev and reload the browser tab.`;
+          process.stderr.write(`pyric: ${versionSkewGuidance}\n`);
+        }
         if (msg.peerConnected) readyResolve();
         else readyReject(noTabError(serveUrl));
         return;
