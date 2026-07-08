@@ -47,7 +47,7 @@ import {
 import { ensureSessionVFS, setVFSReadOnly } from '~/lib/vfs';
 import { recoverInterruptedJobs } from '~/lib/llm/inference/reattach';
 import { useChatStore, type ChatMessage } from '~/lib/store/chat';
-import type { CompactionMarker } from '~/lib/agent/context-management';
+import type { CompactionMarker } from '@inbrowser/agent/usage';
 import { useSkillsStore } from '~/lib/store/skills';
 import { useGithubSessionStore } from '~/lib/store/github-session';
 import { useTraceStore } from '~/lib/store/trace';

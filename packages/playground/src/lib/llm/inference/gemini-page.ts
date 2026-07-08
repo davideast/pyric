@@ -42,6 +42,27 @@ interface GeminiBody {
   generationConfig?: Record<string, unknown>;
 }
 
+const GEMINI_25_THINKING_BUDGET = {
+  low: 1024,
+  medium: 4096,
+  high: 8192,
+} as const;
+
+export function buildGeminiThinkingConfig(
+  model: string,
+  effort: NormalizedRequest['reasoningEffort'],
+): Record<string, unknown> | undefined {
+  if (!effort || effort === 'off') return undefined;
+  const thinkingConfig: Record<string, unknown> = { includeThoughts: true };
+  const normalized = model.toLowerCase();
+  if (normalized.includes('gemini-3.5-') || normalized.includes('gemini-3-flash')) {
+    thinkingConfig.thinkingLevel = effort;
+  } else if (normalized.includes('gemini-2.5-')) {
+    thinkingConfig.thinkingBudget = GEMINI_25_THINKING_BUDGET[effort];
+  }
+  return thinkingConfig;
+}
+
 function toGeminiBody(req: NormalizedRequest): GeminiBody {
   const contents: GeminiContent[] = [];
   let systemText = '';
@@ -108,19 +129,13 @@ function toGeminiBody(req: NormalizedRequest): GeminiBody {
   }
 
   const gen: Record<string, unknown> = {
-    // Gemini 3.x uses `thinkingLevel` (minimal|low|medium|high), NOT the
-    // 2.5-era numeric `thinkingBudget` — sending both is a 400. The
-    // default is `medium`, which on this large agent system prompt spends
-    // ~a minute thinking before emitting a trivial tool call (and makes
-    // "thinking-only, no output" retries more likely, multiplying it).
-    // `low` is Google's "faster, cheaper, strong quality" tier: it keeps
-    // real reasoning for rules work at a fraction of the latency.
-    thinkingConfig: { includeThoughts: true, thinkingLevel: 'low' },
     // Generous output budget — a truncated tool-call argument is exactly
     // what Gemini then rejects as MALFORMED_FUNCTION_CALL. 65536 is the
     // Gemini 3 family max, so this never reduces a model's default.
     maxOutputTokens: 65536,
   };
+  const thinkingConfig = buildGeminiThinkingConfig(req.model, req.reasoningEffort);
+  if (thinkingConfig) gen.thinkingConfig = thinkingConfig;
   if (typeof req.temperature === 'number') gen.temperature = req.temperature;
   if (typeof req.topP === 'number') gen.topP = req.topP;
   if (typeof req.topK === 'number') gen.topK = req.topK;
@@ -178,7 +193,7 @@ function describeError(e: unknown): string {
   return `${e.message} (${causeStr})`;
 }
 
-async function* geminiEventsFromResponse(
+export async function* geminiEventsFromResponse(
   response: Response,
   signal?: AbortSignal,
 ): AsyncGenerator<InferenceEvent> {
@@ -192,7 +207,9 @@ async function* geminiEventsFromResponse(
   let completionTokens = 0;
   let cachedTokens = 0;
   let thinkingTokens = 0;
-  let sawOutput = false;
+  let sawThinking = false;
+  let sawVisibleText = false;
+  let sawFunctionCall = false;
   let lastFinishReason: string | undefined;
   const pending = new Map<number, PendingGeminiCall>();
 
@@ -210,14 +227,15 @@ async function* geminiEventsFromResponse(
       for (const p of parts) {
         if (typeof p.text === 'string' && p.text.length > 0) {
           if (p.thought === true || (p.thoughtSignature && !p.functionCall)) {
+            sawThinking = true;
             yield { kind: 'thinking', chunk: p.text };
           } else {
-            sawOutput = true;
+            sawVisibleText = true;
             yield { kind: 'text', chunk: p.text };
           }
         }
         if (p.functionCall) {
-          sawOutput = true;
+          sawFunctionCall = true;
           const slot = fnOrdinal++;
           let call = pending.get(slot);
           if (!call) {
@@ -257,13 +275,13 @@ async function* geminiEventsFromResponse(
     return;
   }
 
-  if (!sawOutput) {
-    yield {
-      kind: 'error',
-      message: `Gemini produced no output — finishReason=${
-        lastFinishReason ?? 'none'
-      } (response ended after thinking only)`,
-    };
+  if (!sawVisibleText && !sawFunctionCall) {
+    yield geminiNoOutputError({
+      finishReason: lastFinishReason,
+      sawThinking,
+      sawVisibleText,
+      sawFunctionCall,
+    });
     return;
   }
 
@@ -296,8 +314,63 @@ const RETRYABLE_ERROR_MARKERS = [
   'finishReason=none',
 ];
 
-function isRetryableError(message: string): boolean {
-  return RETRYABLE_ERROR_MARKERS.some((m) => message.includes(m));
+type ErrorInferenceEvent = Extract<InferenceEvent, { kind: 'error' }>;
+
+function geminiNoOutputError(opts: {
+  finishReason?: string;
+  sawThinking: boolean;
+  sawVisibleText: boolean;
+  sawFunctionCall: boolean;
+}): ErrorInferenceEvent {
+  const finishReason = opts.finishReason ?? 'none';
+  const message = `Gemini produced no output — finishReason=${finishReason} (${
+    opts.sawThinking ? 'response ended after thinking only' : 'response ended with no visible output'
+  })`;
+  let code = 'gemini.no_output';
+  let retryable = false;
+  if (opts.finishReason === undefined) {
+    code = 'gemini.truncated_no_output';
+    retryable = true;
+  } else if (opts.finishReason === 'MALFORMED_FUNCTION_CALL') {
+    code = 'gemini.malformed_function_call';
+    retryable = true;
+  } else if (opts.finishReason === 'STOP' && opts.sawThinking) {
+    code = 'gemini.thinking_only_stop';
+    retryable = true;
+  }
+  return {
+    kind: 'error',
+    message,
+    code,
+    retryable,
+    details: {
+      finishReason,
+      sawThinking: opts.sawThinking,
+      sawVisibleText: opts.sawVisibleText,
+      sawFunctionCall: opts.sawFunctionCall,
+    },
+  };
+}
+
+function isRetryableError(event: ErrorInferenceEvent): boolean {
+  if (event.retryable === true) return true;
+  if (event.retryable === false) return false;
+  return RETRYABLE_ERROR_MARKERS.some((m) => event.message.includes(m));
+}
+
+function withAttemptMetadata(
+  event: ErrorInferenceEvent,
+  attempt: number,
+  maxAttempts: number,
+): ErrorInferenceEvent {
+  return {
+    ...event,
+    details: {
+      ...(event.details ?? {}),
+      attempt,
+      maxAttempts,
+    },
+  };
 }
 
 /**
@@ -325,15 +398,11 @@ export const geminiProvider = async function* (
 
     let retry = false;
     for await (const evt of geminiEventsFromResponse(response, signal)) {
-      if (
-        evt.kind === 'error' &&
-        isRetryableError(evt.message) &&
-        attempt < MAX_GEMINI_ATTEMPTS
-      ) {
+      if (evt.kind === 'error' && isRetryableError(evt) && attempt < MAX_GEMINI_ATTEMPTS) {
         retry = true;
         break;
       }
-      yield evt;
+      yield evt.kind === 'error' ? withAttemptMetadata(evt, attempt, MAX_GEMINI_ATTEMPTS) : evt;
     }
 
     if (!retry) return;

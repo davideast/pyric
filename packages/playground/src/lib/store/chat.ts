@@ -5,7 +5,7 @@
  * localStorage + Firebase Storage save/load).
  */
 import { create } from 'zustand';
-import type { CompactionMarker } from '~/lib/agent/context-management';
+import type { CompactionMarker } from '@inbrowser/agent/usage';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 import { APP_ENTRY_PATH, DATABASE_RULES_PATH, RULES_PATH } from '~/lib/store/files';
 

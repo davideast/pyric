@@ -27,9 +27,10 @@ export function ModelPicker() {
   const providerId = useLlmStore((s) => s.providerId);
   const modelId = useLlmStore((s) => s.modelId);
   const openrouterEffort = useLlmStore((s) => s.openrouterEffort);
+  const geminiEffort = useLlmStore((s) => s.geminiEffort);
   const setProvider = useLlmStore((s) => s.setProvider);
   const setModel = useLlmStore((s) => s.setModel);
-  const setOpenrouterEffort = useLlmStore((s) => s.setOpenrouterEffort);
+  const setReasoningEffortForProvider = useLlmStore((s) => s.setReasoningEffortForProvider);
 
   const ollamaModels = useOllamaModelsStore((s) => s.models);
   const ollamaStatus = useOllamaModelsStore((s) => s.status);
@@ -61,6 +62,8 @@ export function ModelPicker() {
   const activeProvider = PROVIDERS[providerId];
   const modelsForPicker =
     providerId === 'ollama' ? ollamaModels : activeProvider.models;
+  const showEffort = providerId === 'gemini' || providerId === 'openrouter';
+  const selectedEffort = providerId === 'gemini' ? geminiEffort : openrouterEffort;
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
@@ -111,25 +114,22 @@ export function ModelPicker() {
       {providerId === 'ollama' && ollamaStatus === 'loading' ? (
         <span className="text-[11px] font-mono text-soft-white/50">tags: …</span>
       ) : null}
-      {/* Reasoning effort — OpenRouter only. Gemini's thinking budget
-       *  is encoded at the model level (3.1 Pro vs 3 Flash vs Flash
-       *  Lite). OpenRouter wraps many model families with different
-       *  thinking knobs; `effort` is the unified abstraction it
-       *  forwards downstream — `effort=high` maps to GPT-5
-       *  reasoning_effort, Anthropic thinking budget, DeepSeek/GLM/
-       *  Kimi/MiniMax thinking-token caps. `off` drops the field
-       *  entirely so non-reasoning runs don't pay the shape tax.
-       */}
-      {providerId === 'openrouter' ? (
+      {showEffort ? (
         <select
-          value={openrouterEffort}
-          onChange={(e) => setOpenrouterEffort(e.target.value as ReasoningEffort)}
+          value={selectedEffort}
+          onChange={(e) =>
+            setReasoningEffortForProvider(providerId, e.target.value as ReasoningEffort)
+          }
           className={[
             'h-7 px-2 rounded-md bg-[#2a2a35] text-soft-white text-[12px] font-mono',
             'border border-[#3a3a45] hover:border-[#4a4a55] transition-colors',
             'focus:outline-none focus:border-soft-white/40',
           ].join(' ')}
-          title="Reasoning effort (thinking budget per model call). Default medium. ReAct-loop turns make many small calls, so low/medium keeps them fast and cheap. 'no thinking' sends reasoning:{enabled:false} (explicit disable)."
+          title={
+            providerId === 'gemini'
+              ? "Gemini thinking effort. 'no thinking' omits thinkingConfig; low/medium/high request Gemini thinking."
+              : "Reasoning effort (thinking budget per model call). Default medium. ReAct-loop turns make many small calls, so low/medium keeps them fast and cheap. 'no thinking' sends reasoning:{enabled:false} (explicit disable)."
+          }
         >
           {EFFORT_OPTIONS.map((e) => (
             <option key={e.value} value={e.value}>

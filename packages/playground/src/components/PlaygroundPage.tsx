@@ -149,7 +149,9 @@ export function PlaygroundPage() {
             : provider.defaultModelId;
           useLlmStore.getState().setProvider(event.data.providerId, modelId);
           if (event.data.effort) {
-            useLlmStore.getState().setOpenrouterEffort(event.data.effort);
+            useLlmStore
+              .getState()
+              .setReasoningEffortForProvider(event.data.providerId, event.data.effort);
           }
           break;
         }

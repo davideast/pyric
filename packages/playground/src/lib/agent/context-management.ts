@@ -1,8 +1,13 @@
 /**
- * VENDORED from inbrowser-agent PR #82 (feat/context-management) —
- * DELETE this file and import from '@inbrowser/agent' once a version
- * containing it is published (0.4.1+). Kept byte-close to the
- * canonical module on purpose; fix bugs THERE first.
+ * VENDORED from @inbrowser/agent's context-management module —
+ * DELETE this file and import from '@inbrowser/agent/usage' once that
+ * public entrypoint re-exports the runtime functions.
+ *
+ * @inbrowser/agent@0.4.1 ships the compiled module under
+ * `dist/usage/context-management.js`, but does not expose that subpath
+ * through package.json `exports`, and `@inbrowser/agent/usage` does not
+ * re-export the runtime functions. Keep this local copy until the
+ * public usage entrypoint exports these symbols.
  */
 /**
  * Context management — append-only history with two independent levers,
@@ -23,16 +28,14 @@
  *   Lever 2 compaction — a rare EVENT: when history crosses a threshold,
  *   the HOST runs a summarization request (model-written memory) and
  *   persists a `CompactionMarker`; the model-bound history becomes
- *   marker-summary + everything after the boundary. `mechanicalSummary`
+ *   marker-summary + everything after its boundary. `mechanicalSummary`
  *   is the fallback when the summarization call fails — a turn is never
  *   blocked on compaction.
  *
  * This module is pure functions over `ModelContextMessageLike` — the
  * host owns the summarization request, marker persistence, and UI.
  */
-import {
-  estimateHistoryChars,
-} from '@inbrowser/agent/usage';
+import { estimateHistoryChars } from '@inbrowser/agent/usage';
 import type {
   ModelContextMessageLike,
   ModelContextToolCallLike,

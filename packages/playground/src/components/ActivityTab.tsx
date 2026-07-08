@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore, type ChatMessage, type ToolCall } from '~/lib/store/chat';
-import type { CompactionMarker } from '~/lib/agent/context-management';
+import type { CompactionMarker } from '@inbrowser/agent/usage';
 import { useEnhancerStore, type Enhancement } from '~/lib/store/enhancer';
 import { useNavStore } from '~/lib/store/nav';
 import { useSettingsStore } from '~/lib/store/settings';

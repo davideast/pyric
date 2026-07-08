@@ -28,8 +28,8 @@
     "pyric": "workspace:*",
     "pyric-tools": "workspace:*",
     "@pyric/ui": "workspace:*",
-    "@inbrowser/agent": "0.4.0",
-    "@inbrowser/relay": "0.4.0",
+    "@inbrowser/agent": "0.4.1",
+    "@inbrowser/relay": "0.4.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

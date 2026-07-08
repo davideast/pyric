@@ -14,18 +14,16 @@ import { create } from 'zustand';
 import type { ByokProviderId } from '~/lib/llm/byok';
 
 const STORAGE_KEY = 'pyric.playground.llm.selection';
-const EFFORT_STORAGE_KEY = 'pyric.playground.openrouter.effort';
+const OPENROUTER_EFFORT_STORAGE_KEY = 'pyric.playground.openrouter.effort';
+const GEMINI_EFFORT_STORAGE_KEY = 'pyric.playground.gemini.effort';
 
 export type ProviderId = ByokProviderId; // 'gemini' | 'openrouter' | 'ollama'
 
-/** OpenRouter reasoning effort. `off` sends
- *  `reasoning: { enabled: false }` — explicitly disables reasoning
- *  on Anthropic / DeepSeek / GLM / Kimi / MiniMax thinking models;
- *  just omitting the field falls back to each model's default
- *  thinking budget. `low`/`medium`/`high` set OpenAI o-series
- *  effort; for the non-OpenAI thinking models OpenRouter maps
- *  effort to a thinking-token budget. `medium` is a sensible
- *  default for thinking-capable models. */
+/** Provider-level thinking effort. For Gemini, `off` omits
+ *  `thinkingConfig`; `low`/`medium`/`high` map to Gemini 3.x
+ *  `thinkingLevel` or Gemini 2.5 `thinkingBudget`. For OpenRouter,
+ *  `off` sends `reasoning: { enabled: false }`; the other values map
+ *  through OpenRouter's unified reasoning abstraction. */
 export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
 
 interface Selection {
@@ -56,21 +54,21 @@ function writeSelection(s: Selection): void {
 
 const VALID_EFFORTS: ReadonlyArray<ReasoningEffort> = ['off', 'low', 'medium', 'high'];
 
-function readEffort(): ReasoningEffort {
+function readEffort(storageKey: string, fallback: ReasoningEffort): ReasoningEffort {
   try {
-    const raw = window.localStorage.getItem(EFFORT_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
     if (raw && VALID_EFFORTS.includes(raw as ReasoningEffort)) {
       return raw as ReasoningEffort;
     }
   } catch (e) {
     console.warn('[llm] localStorage read failed for effort:', e);
   }
-  return 'medium';
+  return fallback;
 }
 
-function writeEffort(e: ReasoningEffort): void {
+function writeEffort(storageKey: string, e: ReasoningEffort): void {
   try {
-    window.localStorage.setItem(EFFORT_STORAGE_KEY, e);
+    window.localStorage.setItem(storageKey, e);
   } catch (err) {
     console.warn('[llm] localStorage write failed for effort:', err);
   }
@@ -79,11 +77,15 @@ function writeEffort(e: ReasoningEffort): void {
 interface LlmState {
   providerId: ProviderId;
   modelId: string;
-  /** OpenRouter-only — Gemini handles thinking-budget elsewhere. */
+  /** OpenRouter reasoning / thinking budget control. */
   openrouterEffort: ReasoningEffort;
+  /** Gemini thinking-level control. Defaults to low, matching the old hidden setting. */
+  geminiEffort: ReasoningEffort;
   setProvider(id: ProviderId, modelId: string): void;
   setModel(id: string): void;
   setOpenrouterEffort(e: ReasoningEffort): void;
+  setGeminiEffort(e: ReasoningEffort): void;
+  setReasoningEffortForProvider(providerId: ProviderId, e: ReasoningEffort): void;
 }
 
 const initial: Selection = readSelection() ?? {
@@ -94,7 +96,8 @@ const initial: Selection = readSelection() ?? {
 export const useLlmStore = create<LlmState>()((set) => ({
   providerId: initial.providerId,
   modelId: initial.modelId,
-  openrouterEffort: readEffort(),
+  openrouterEffort: readEffort(OPENROUTER_EFFORT_STORAGE_KEY, 'medium'),
+  geminiEffort: readEffort(GEMINI_EFFORT_STORAGE_KEY, 'low'),
   setProvider: (providerId, modelId) => {
     writeSelection({ providerId, modelId });
     set({ providerId, modelId });
@@ -106,7 +109,22 @@ export const useLlmStore = create<LlmState>()((set) => ({
     });
   },
   setOpenrouterEffort: (openrouterEffort) => {
-    writeEffort(openrouterEffort);
+    writeEffort(OPENROUTER_EFFORT_STORAGE_KEY, openrouterEffort);
     set({ openrouterEffort });
+  },
+  setGeminiEffort: (geminiEffort) => {
+    writeEffort(GEMINI_EFFORT_STORAGE_KEY, geminiEffort);
+    set({ geminiEffort });
+  },
+  setReasoningEffortForProvider: (providerId, effort) => {
+    if (providerId === 'gemini') {
+      writeEffort(GEMINI_EFFORT_STORAGE_KEY, effort);
+      set({ geminiEffort: effort });
+      return;
+    }
+    if (providerId === 'openrouter') {
+      writeEffort(OPENROUTER_EFFORT_STORAGE_KEY, effort);
+      set({ openrouterEffort: effort });
+    }
   },
 }));

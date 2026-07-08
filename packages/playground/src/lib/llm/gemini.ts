@@ -46,6 +46,23 @@ function activeModel(): string {
   return s.providerId === 'gemini' && s.modelId ? s.modelId : DEFAULT_GEMINI_MODEL;
 }
 
+function providerError(evt: {
+  message: string;
+  code?: string;
+  retryable?: boolean;
+  details?: Record<string, unknown>;
+}): Error {
+  const error = new Error(evt.message) as Error & {
+    code?: string;
+    retryable?: boolean;
+    details?: Record<string, unknown>;
+  };
+  if (evt.code) error.code = evt.code;
+  if (typeof evt.retryable === 'boolean') error.retryable = evt.retryable;
+  if (evt.details) error.details = evt.details;
+  return error;
+}
+
 export const geminiProvider: CallbackProvider = {
   label: 'gemini',
   supportsTools: true,
@@ -56,6 +73,7 @@ export const geminiProvider: CallbackProvider = {
       throw new Error('Gemini API key not set. Open the key modal in the top bar.');
     }
     const model = activeModel();
+    const effort = useLlmStore.getState().geminiEffort;
     const inference = createInference();
 
     const req: NormalizedRequest = {
@@ -65,6 +83,7 @@ export const geminiProvider: CallbackProvider = {
       tools: toToolSpecs(tools),
       toolUseEnabled: tools.length > 0,
       apiKey,
+      reasoningEffort: effort,
       ...(callbacks.signal ? { signal: callbacks.signal } : {}),
     };
 
@@ -100,7 +119,7 @@ export const geminiProvider: CallbackProvider = {
           // Genuine upstream error (4xx, 5xx, network). Abort is
           // handled by the signal check at loop top + the post-loop
           // check below; adapters suppress error emission on abort.
-          throw new Error(evt.message);
+          throw providerError(evt);
       }
     }
 

@@ -49,7 +49,13 @@ export type InferenceEvent =
   | { kind: 'thinking'; chunk: string }
   | { kind: 'tool_call'; callId: string; name: string; args: unknown; signature?: string }
   | { kind: 'usage'; promptTokens: number; outputTokens: number; cachedTokens?: number; reasoningTokens?: number; costUsd?: number }
-  | { kind: 'error'; message: string };
+  | {
+      kind: 'error';
+      message: string;
+      code?: string;
+      retryable?: boolean;
+      details?: Record<string, unknown>;
+    };
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 
