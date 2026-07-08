@@ -64,7 +64,11 @@ import type {
   ToolResult,
   ToolSpec,
 } from '@inbrowser/agent';
-import { BACKEND_UI_GUIDANCE, WORKSPACE_FILE_REFERENCES } from '~/lib/agent/system-prompt';
+import {
+  BACKEND_UI_GUIDANCE,
+  FIRESTORE_SEEDING_POLICY,
+  WORKSPACE_FILE_REFERENCES,
+} from '~/lib/agent/system-prompt';
 import {
   parseWorkspaceTestFile,
   runWorkspaceTests,
@@ -503,11 +507,13 @@ export function defaultFloor(model: WorkspaceTestFile | null): WorkspaceTestFile
  *  artifacts in one pass; only reach for a tool to unblock, then keep
  *  composing. A small per-draft tool-call budget caps the escape hatch so
  *  de-caging can't degrade into thrash. */
-const DRAFT_GUIDANCE = `You are a Firebase agent drafting a complete small app in ONE pass. Compose the artifacts directly from the request and the context below.
+const DRAFT_GUIDANCE = `You are a Firebase agent. Compose the artifacts directly from the request and context below.
 
-COMPOSE THE FULL DRAFT FIRST. Write the artifacts directly from the request and the context below — that is the whole job. Most tasks need NO tools at all. Tools are a LAST-RESORT escape hatch for ONE specific missing fact (an existing schema you must discover, a single rule to simulate, a file to search/read, or demo data to seed so the app has something to render), reached for only AFTER you have composed everything you can — never as a way to explore or to start. Do not narrate a tool plan; do not call a tool per step; do not list/read files just to look around. When demo data is needed, call \`seed_firestore_data_as_admin\` — NEVER bake seeding into App.tsx.
+COMPOSE THE FULL DRAFT FIRST. Most tasks need NO tools. Tools are a LAST-RESORT escape hatch for ONE specific missing fact (an existing schema you must discover, a single rule to simulate, a file to search/read, or demo data to seed so the app has something to render), reached for only AFTER you have composed everything you can — never as a way to explore or to start. Do not narrate a tool plan; do not call a tool per step; do not list/read files just to look around. When demo data is needed, call \`seed_firestore_data_as_admin\` — NEVER bake seeding into App.tsx.
 
 ${BACKEND_UI_GUIDANCE}
+
+${FIRESTORE_SEEDING_POLICY}
 
 Emit the workspace artifacts as fenced blocks (any order):
 1. The app spec (access matrix) in a \`\`\`json app-spec fence — the heart of the draft. The host COMPILES your Firestore security rules deterministically FROM this matrix, so you do NOT write rules: get the access matrix right and correct rules follow for free.

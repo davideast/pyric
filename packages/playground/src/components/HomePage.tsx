@@ -44,6 +44,9 @@ import {
   type SessionPayload,
 } from '~/lib/sessions';
 import { stashPendingPrompt } from '~/lib/sessions/pending-prompt';
+import {
+  detectContextSignalMatches,
+} from '~/lib/agent/context';
 import { listSkills } from '~/lib/skills/registry';
 import { useSlashCommands } from './SlashCommandMenu';
 import { useHomeSessions } from '~/hooks/useHomeSessions';
@@ -84,13 +87,14 @@ import {
 } from './GitHubImportSetup';
 import { Modal } from './Modal';
 import { ModelPicker } from './ModelPicker';
+import { PromptHighlightTextarea } from './PromptHighlightTextarea';
 import { SettingsModal } from './SettingsModal';
 import { TopBar } from './TopBar';
 
 ensureBufferPolyfill();
 
 const PROMPT_PLACEHOLDER =
-  'Describe what you want to build — a todo app, a chat room, a leaderboard… (type / for skills)';
+  'Ask about Firestore rules, data models, Auth, RTDB, or building an app… (type / for shortcuts)';
 
 type EnhanceState =
   | { kind: 'idle' }
@@ -315,6 +319,7 @@ export function HomePage() {
         providerId,
         modelId,
         apiKey,
+        activeSkillIds: selectedSkills,
         signal: ac.signal,
       })) {
         if (ac.signal.aborted) return;
@@ -343,7 +348,7 @@ export function HomePage() {
     } finally {
       if (enhanceAbortRef.current === ac) enhanceAbortRef.current = null;
     }
-  }, [prompt, providerId, modelId]);
+  }, [prompt, providerId, modelId, selectedSkills]);
 
   const cancelEnhancement = useCallback(() => {
     enhanceAbortRef.current?.abort();
@@ -721,6 +726,8 @@ function PromptComposer({
     ta.style.height = `${Math.max(ta.scrollHeight, 160)}px`;
   }, [prompt]);
 
+  const matches = useMemo(() => detectContextSignalMatches(prompt), [prompt]);
+
   // `/` command menu — pick skills for the session about to be created.
   const slash = useSlashCommands({
     value: prompt,
@@ -747,10 +754,11 @@ function PromptComposer({
     >
       <div className="relative">
         {slash.menu}
-        <textarea
-          ref={taRef}
+        <PromptHighlightTextarea
+          textareaRef={taRef}
           value={prompt}
-          onChange={(e) => onPromptChange(e.target.value)}
+          onValueChange={onPromptChange}
+          matches={matches}
           onKeyDown={(e) => {
             if (slash.onKeyDown(e)) return;
             onKeyDown(e);
@@ -758,14 +766,10 @@ function PromptComposer({
           placeholder={PROMPT_PLACEHOLDER}
           rows={4}
           disabled={starting}
-          spellCheck
-          className={[
-            'w-full bg-transparent border-0 outline-none custom-scrollbar',
-            'text-soft-white placeholder:text-slate-gray/60',
-            'text-[15px] leading-relaxed font-display',
-            'resize-none disabled:opacity-60 min-h-[120px]',
-          ].join(' ')}
-          aria-label="New session prompt"
+          spellCheck={false}
+          ariaLabel="New session prompt"
+          textClassName="text-[15px] leading-relaxed font-display min-h-[120px]"
+          textareaClassName="custom-scrollbar resize-none disabled:opacity-60"
         />
       </div>
 

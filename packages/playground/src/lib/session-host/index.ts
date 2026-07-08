@@ -99,7 +99,7 @@ import { buildSystemPrompt } from '~/lib/agent/system-prompt';
 import { makeDiagnosticsContext } from '~/lib/agent/diagnostics';
 import { resolveModelHistory } from './model-history';
 import { pruneToolHistoryWithStats, withPrunedHistory } from '~/lib/agent/prune-history';
-import { resolveActiveSkills, resolveWorkbenchIntent } from '~/lib/skills/registry';
+import { resolveAgentContext } from '~/lib/agent/context';
 import { useSkillsStore } from '~/lib/store/skills';
 import { logPage } from '~/lib/llm/inference/diagnostics';
 import { setServerJobProgressListener } from '~/lib/llm/inference';
@@ -225,10 +225,12 @@ export async function runOneTurn(
   // Phase 2: a real tool registry. Today contains `writeRules`. The
   // list grows as we add capabilities — agent sees them at function-
   // declaration time and can call any of them.
-  const workbenchIntent = resolveWorkbenchIntent(
-    resolveActiveSkills(useSkillsStore.getState().activeSkillIds),
-  );
-  const forceDiagnostics = workbenchIntent.promptProfile === 'firebase-tooling';
+  const agentContext = resolveAgentContext({
+    prompt,
+    activeSkillIds: useSkillsStore.getState().activeSkillIds,
+  });
+  const workbenchIntent = agentContext.workbenchIntent;
+  const forceDiagnostics = workbenchIntent.promptProfile === 'firebase';
   const registry = buildToolRegistry({ forceDiagnostics });
   const dispatch = createDispatch(registry);
   const toolProfile = selectToolProfileForPrompt({
@@ -411,10 +413,12 @@ export async function runOneTurn(
         ? buildClaudeLanePrompt({
             diagnosticsEnabled:
               useSettingsStore.getState().pyricDiagnosticsEnabled || forceDiagnostics,
+            prompt,
           })
         : buildSystemPrompt({
             diagnosticsEnabled:
               useSettingsStore.getState().pyricDiagnosticsEnabled || forceDiagnostics,
+            prompt,
           }),
     metrics,
     history: uiToCoreHistory(history),

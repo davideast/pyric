@@ -9,12 +9,12 @@ const TOOLING_SKILL: SkillDefinition = {
   id: 'fixture-tooling',
   label: 'Fixture tooling',
   icon: 'policy',
-  description: 'test-only Firebase tooling skill',
+  description: 'test-only Firebase expert skill',
   brief: 'FIXTURE TOOLING BRIEF',
   manTopic: 'fixture-tooling',
   manSummary: 'fixture tooling one-line summary',
   manBody: 'fixture tooling body',
-  promptProfile: 'firebase-tooling',
+  promptProfile: 'firebase',
   primarySurface: 'firebase',
   defaultFirebaseSubtab: 'sandbox',
 };
@@ -39,17 +39,10 @@ afterEach(() => {
 });
 
 describe('system prompt profiles', () => {
-  test('default app-builder prompt keeps the app workflow', () => {
+  test('default Firebase expert prompt replaces app-building guidance', () => {
     const prompt = buildSystemPrompt({ diagnosticsEnabled: false });
-    expect(prompt).toContain('BUILD App.tsx last');
-    expect(prompt).toContain('UI STYLE');
-    expect(prompt).toContain('NO IN-APP BACKEND/SEED/ADMIN CODE');
-  });
-
-  test('Firebase tooling prompt replaces app-building guidance', () => {
-    useSkillsStore.getState().toggleSkill('fixture-tooling');
-    const prompt = buildSystemPrompt({ diagnosticsEnabled: false });
-    expect(prompt).toContain('FIREBASE TOOLING MODE');
+    expect(prompt).toContain('FIREBASE EXPERT MODE');
+    expect(prompt).toContain('Pyric is the local Firebase runtime');
     expect(prompt).toContain('Do NOT create or edit `/workspace/src/App.tsx`');
     expect(prompt).toContain('rules, workspace tests, seed data, Auth users');
     expect(prompt).not.toContain('BUILD App.tsx last');
@@ -57,18 +50,57 @@ describe('system prompt profiles', () => {
     expect(prompt).not.toContain('NO IN-APP BACKEND/SEED/ADMIN CODE');
   });
 
-  test('fresh Firebase tooling sessions do not tell the agent to build', () => {
+  test('Firebase expert prompt teaches live seed data and Firestore ID policy', () => {
+    const prompt = buildSystemPrompt({
+      diagnosticsEnabled: false,
+      prompt: 'Model Firestore data for teams with role based access',
+    });
+    expect(prompt).toContain('FIRESTORE SEED ID POLICY');
+    expect(prompt).toContain('call `seed_firestore_data_as_admin`');
+    expect(prompt).toContain('test-file `seed` blocks');
+    expect(prompt).toContain('Use `autoId: true` for addDoc-style user-created docs');
+    expect(prompt).toContain('Use explicit IDs for semantic or stable docs');
+    expect(prompt).toContain('membership docs keyed by UID');
+    expect(prompt).toContain('read `data.generated`');
+    expect(prompt).toContain('RULES-FIRST FIRESTORE DATA MODELING WORKSHOP');
+    expect(prompt).toContain('using the Firestore seed ID policy');
+  });
+
+  test('app-building prompt keeps the app workflow', () => {
+    const prompt = buildSystemPrompt({
+      diagnosticsEnabled: false,
+      prompt: 'Build a notes app with Firestore rules',
+    });
+    expect(prompt).toContain('BUILD App.tsx last');
+    expect(prompt).toContain('UI STYLE');
+    expect(prompt).toContain('NO IN-APP BACKEND/SEED/ADMIN CODE');
+    expect(prompt).toContain('FIRESTORE SEED ID POLICY');
+    expect(prompt).toContain('SEED with `seed_firestore_data_as_admin` using the Firestore seed ID policy');
+    expect(prompt).not.toContain('SEED with `seed_firestore_data_as_admin` (`autoId: true`)');
+  });
+
+  test('Firebase expert prompt can still include active specialist briefs', () => {
     useSkillsStore.getState().toggleSkill('fixture-tooling');
     const prompt = buildSystemPrompt({ diagnosticsEnabled: false });
-    expect(prompt).toContain('NEW FIREBASE TOOLING SESSION');
+    expect(prompt).toContain('FIREBASE EXPERT MODE');
+    expect(prompt).toContain('FIXTURE TOOLING BRIEF');
+    expect(prompt).toContain('Do NOT create or edit `/workspace/src/App.tsx`');
+    expect(prompt).toContain('rules, workspace tests, seed data, Auth users');
+    expect(prompt).not.toContain('BUILD App.tsx last');
+    expect(prompt).not.toContain('UI STYLE');
+    expect(prompt).not.toContain('NO IN-APP BACKEND/SEED/ADMIN CODE');
+  });
+
+  test('fresh Firebase expert sessions do not tell the agent to build', () => {
+    const prompt = buildSystemPrompt({ diagnosticsEnabled: false });
+    expect(prompt).toContain('NEW FIREBASE SESSION');
     expect(prompt).toContain('Do not treat that as a reason to build an app');
     expect(prompt).not.toContain('Go straight from your plan to building');
   });
 
-  test('Claude lane gets matching Firebase tooling intent without browser-only tool names', () => {
-    useSkillsStore.getState().toggleSkill('fixture-tooling');
+  test('Claude lane gets matching Firebase expert intent without browser-only tool names', () => {
     const prompt = buildClaudeLanePrompt({ diagnosticsEnabled: false });
-    expect(prompt).toContain('FIREBASE TOOLING MODE');
+    expect(prompt).toContain('FIREBASE EXPERT MODE');
     expect(prompt).toContain('mcp__playground__simulate_firestore_write');
     expect(prompt).toContain('Browser-only evidence');
     expect(prompt).not.toContain('seed_auth_users');

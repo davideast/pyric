@@ -21,7 +21,12 @@ export interface EnhanceParams {
   providerId: string;
   modelId: string;
   apiKey: string;
+  activeSkillIds?: readonly string[];
   signal?: AbortSignal;
+}
+
+export function resolveEnhancerActiveSkills(activeSkillIds?: readonly string[]) {
+  return resolveActiveSkills(activeSkillIds ?? useSkillsStore.getState().activeSkillIds);
 }
 
 export async function* enhancePrompt({
@@ -29,21 +34,22 @@ export async function* enhancePrompt({
   providerId,
   modelId,
   apiKey,
+  activeSkillIds,
   signal,
 }: EnhanceParams): AsyncGenerator<string> {
   const client = createInference();
+  const activeSkills = resolveEnhancerActiveSkills(activeSkillIds);
   const req: NormalizedRequest = {
     provider: providerId,
     model: modelId,
     apiKey,
     messages: [
-      // Skill-aware: an active skill with an enhancerShape (e.g. Game
-      // rules) reshapes the prompt for its domain.
+      // Firebase Expert is always on; explicit active skill ids add
+      // specialist overlays. The store fallback keeps older callers
+      // working while new-session compose passes local selected skills.
       {
         role: 'system',
-        text: buildEnhancerPrompt(
-          resolveActiveSkills(useSkillsStore.getState().activeSkillIds),
-        ),
+        text: buildEnhancerPrompt(activeSkills, rawInput),
       },
       { role: 'user', text: rawInput },
     ],
@@ -70,7 +76,7 @@ export async function* enhancePrompt({
   }
 }
 
-/** Word count for the card's 30-50w sweet-spot indicator. Matches the
+/** Word count for the card's 30-70w sweet-spot indicator. Matches the
  *  shape rule in `system-prompt.ts`. */
 export function countWords(text: string): number {
   const trimmed = text.trim();

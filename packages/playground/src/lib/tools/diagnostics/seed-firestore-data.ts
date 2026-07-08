@@ -85,7 +85,7 @@ export function buildSeedFirestoreDataHandler(): ToolHandler {
   return {
     name: 'seed_firestore_data_as_admin',
     description:
-      'Bulk-apply admin-bypass writes/deletes to the in-browser sandbox. Use this to set up fixture state BEFORE testing rule enforcement — e.g. seed a doc as if it were already written so a `read` rule can be probed against existing data. NOT for testing whether your rules ALLOW a write; for that, call `simulate_firestore_write` so the write evaluates against the ruleset. Method limited to `set` (default) and `delete`. For auto-generated document ids (like `addDoc`), set `autoId: true` and pass a COLLECTION path — the generated full paths are returned in `data.generated`. Max 100 operations per call — anything larger gets the whole call rejected. Per-entry failures are collected into `errors[]` and do NOT abort the batch (no atomicity guarantee). Seeded paths wake any active `onSnapshot` listener so the App preview reflects the change live.',
+      'Bulk-apply admin-bypass writes/deletes to the in-browser sandbox. Use this to set up LIVE sandbox fixture/demo state BEFORE testing rule enforcement — e.g. seed a doc as if it were already written so a `read` rule can be probed against existing data. NOT for testing whether your rules ALLOW a write; for that, call `simulate_firestore_write` so the write evaluates against the ruleset. Method limited to `set` (default) and `delete`. For addDoc-style user-created docs, set `autoId: true` and pass a COLLECTION path; use explicit document IDs for semantic/stable docs such as `users/{uid}`, membership docs keyed by UID, config/singleton docs, lookup docs, and rule-test paths that must be referenced directly. Mixed batches are expected. Generated full paths are returned in `data.generated`; use them for follow-up references. Max 100 operations per call — anything larger gets the whole call rejected. Per-entry failures are collected into `errors[]` and do NOT abort the batch (no atomicity guarantee). Seeded paths wake any active `onSnapshot` listener so the App preview reflects the change live.',
     parameters: {
       type: 'object',
       properties: {
@@ -104,7 +104,7 @@ export function buildSeedFirestoreDataHandler(): ToolHandler {
               autoId: {
                 type: 'boolean',
                 description:
-                  'When true, `path` is a COLLECTION path and a document id is auto-generated (like `addDoc`). Only valid for `set`; ignored for `delete`. The written full path is returned in `data.generated`.',
+                  'When true, `path` is a COLLECTION path and a document id is auto-generated (like `addDoc`). Use for user-created docs such as posts, comments, tasks, messages, orders, invites, game sessions, notifications, and nested child docs created by user action. Do NOT use for semantic/stable IDs such as `users/{uid}`, membership docs keyed by UID, config/singleton docs, lookup docs, or paths that tests/rules must reference directly. Only valid for `set`; ignored for `delete`. The written full path is returned in `data.generated`.',
               },
               data: {
                 type: 'object',

@@ -14,7 +14,10 @@ import { buildSystemPrompt } from './system-prompt';
 import { ENHANCER_SYSTEM_PROMPT } from './prompt-enhancer/system-prompt';
 
 describe('agent system prompt — auth UI guidance', () => {
-  const prompt = buildSystemPrompt({ diagnosticsEnabled: false });
+  const prompt = buildSystemPrompt({
+    diagnosticsEnabled: false,
+    prompt: 'Build an app with Google sign-in',
+  });
 
   test('forbids developer identity-switchers in app UI', () => {
     expect(prompt).toContain('NEVER render a developer identity-switcher');

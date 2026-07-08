@@ -2,7 +2,7 @@ import type { SkillDefinition } from './registry';
 import { DATABASE_RULES_PATH, RULES_PATH } from '~/lib/store/files';
 
 const FIREBASE_TOOLING_DEFAULTS = {
-  promptProfile: 'firebase-tooling',
+  promptProfile: 'firebase',
   toolProfilePreference: 'diagnostic',
   strategyPreference: 'react',
 } as const;

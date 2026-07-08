@@ -12,9 +12,11 @@
  * Purely presentational — caller owns the submit handler and the
  * toggle state.
  */
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import { ContextWindowMeter } from './ContextWindowMeter';
+import { PromptHighlightTextarea } from './PromptHighlightTextarea';
 import { useSlashCommands } from './SlashCommandMenu';
+import { detectContextSignalMatches } from '~/lib/agent/context';
 import { listSkills } from '~/lib/skills/registry';
 import { useSkillsStore } from '~/lib/store/skills';
 import type { ContextWindowSnapshot } from '~/lib/agent/context-window';
@@ -48,7 +50,7 @@ export function ComposeBar({
   onStop,
   sending = false,
   disabled = false,
-  placeholder = 'Ask the agent to write rules, change code, or run something…',
+  placeholder = 'Ask about Firestore rules, data models, Auth, RTDB, or building an app…',
   enhanceMode = false,
   onToggleEnhance,
   contextWindow,
@@ -68,6 +70,8 @@ export function ComposeBar({
     }
   }, [externalText]);
   const canSubmit = !disabled && !sending && value.trim().length > 0;
+  const matches = useMemo(() => detectContextSignalMatches(value), [value]);
+
   const submit = () => {
     const text = value.trim();
     if (!text) return;
@@ -146,22 +150,26 @@ export function ComposeBar({
 
       <div className="relative">
         {slash.menu}
-        <textarea
-          ref={taRef}
-          className="w-full bg-content-bg border border-[#2a2a35] rounded-md px-3 py-2.5 text-[13px] text-soft-white placeholder:text-slate-gray/60 focus:outline-none focus:border-slate-gray transition-colors font-display resize-none min-h-[64px] max-h-[200px]"
-          placeholder={placeholder}
+        <PromptHighlightTextarea
+          textareaRef={taRef}
           value={value}
-          onChange={(e) => setValue(e.target.value)}
+          onValueChange={setValue}
+          matches={matches}
+          placeholder={placeholder}
           onKeyDown={onKey}
           rows={3}
           spellCheck={false}
           disabled={disabled || sending}
+          ariaLabel="Agent prompt"
+          className="rounded-md border border-[#2a2a35] bg-content-bg transition-colors focus-within:border-slate-gray"
+          textClassName="px-3 py-2.5 text-[13px] leading-relaxed font-display min-h-[64px] max-h-[200px]"
+          textareaClassName="custom-scrollbar resize-none"
         />
       </div>
       <div className="flex items-center justify-between gap-3">
         <span className="text-[11px] text-slate-gray">
           ⌘ / Ctrl + Enter to send
-          <span className="hidden sm:inline"> · type / for skills</span>
+          <span className="hidden sm:inline"> · type / for shortcuts</span>
         </span>
         <div className="flex items-center gap-2 shrink-0">
           {contextWindow ? (

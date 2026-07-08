@@ -77,11 +77,11 @@ export function routePrompt(
     strategyPreference?: SkillStrategyPreference;
   } = {},
 ): RouteDecision {
-  if (opts.promptProfile === 'firebase-tooling') {
+  if (opts.promptProfile === 'firebase') {
     return {
       strategy: 'react',
       source: 'heuristic',
-      reason: 'firebase-tooling skill active',
+      reason: 'firebase expert context',
     };
   }
   if (opts.strategyPreference && opts.strategyPreference !== 'auto') {
@@ -205,7 +205,7 @@ export interface RoutedStrategyConfig {
   makeDraftValidate: () => AgentStrategy;
   /** Explicit user override from settings; 'auto'/undefined → heuristic. */
   override?: RoutedStrategyName | 'auto';
-  /** Active prompt profile. Firebase tooling stays on ReAct under auto. */
+  /** Active prompt profile. Firebase expert context stays on ReAct under auto. */
   promptProfile?: AgentPromptProfile;
   /** Active skill routing preference. This is routed provenance, not a user override. */
   strategyPreference?: SkillStrategyPreference;

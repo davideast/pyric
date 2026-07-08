@@ -5,8 +5,8 @@
  *   Firebase — backend workbench for sandbox data/auth/rules/traffic/seed
  *   File    — whatever file is active in the Files panel, via FileEditor
  *
- * Preview leads for app-building sessions. Firebase leads when a
- * Firebase-tooling slash skill is active. The Files panel on the
+ * Firebase leads for the default expert sessions. Preview leads when
+ * the prompt is explicitly app-building. The Files panel on the
  * right drives which file the File tab is showing.
  *
  * On mobile, Preview ALSO exists as its own bottom-tab (`App`) so
@@ -48,7 +48,7 @@ interface WorkspacePanelProps {
 export function WorkspacePanel({
   onFixRequest,
   onOpenDenials,
-  promptProfile = 'app-builder',
+  promptProfile = 'firebase',
   activeTab,
   onTabChange,
   firebaseProps,

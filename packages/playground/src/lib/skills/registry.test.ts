@@ -50,12 +50,12 @@ const TOOLING_SKILL: SkillDefinition = {
   id: 'fixture-tooling',
   label: 'Fixture tooling',
   icon: 'policy',
-  description: 'test-only Firebase tooling skill',
+  description: 'test-only Firebase expert skill',
   brief: 'FIXTURE TOOLING BRIEF',
   manTopic: 'fixture-tooling',
   manSummary: 'fixture tooling one-line summary',
   manBody: 'fixture tooling body',
-  promptProfile: 'firebase-tooling',
+  promptProfile: 'firebase',
   primarySurface: 'firebase',
   defaultFirebaseSubtab: 'sandbox',
   toolProfilePreference: 'diagnostic',
@@ -66,12 +66,12 @@ const FILE_TOOLING_SKILL: SkillDefinition = {
   id: 'fixture-file-tooling',
   label: 'Fixture file tooling',
   icon: 'rule',
-  description: 'test-only file-focused Firebase tooling skill',
+  description: 'test-only file-focused Firebase expert skill',
   brief: 'FIXTURE FILE TOOLING BRIEF',
   manTopic: 'fixture-file-tooling',
   manSummary: 'fixture file tooling one-line summary',
   manBody: 'fixture file tooling body',
-  promptProfile: 'firebase-tooling',
+  promptProfile: 'firebase',
   primarySurface: 'file',
   defaultFirebaseSubtab: 'traffic',
   defaultFilePath: '/workspace/firestore.rules',
@@ -141,13 +141,13 @@ describe('skill framework invariants', () => {
     expect(namesOn).toContain('fixture_skill_tool');
   });
 
-  test('active tooling skill switches prompt profile to Firebase tooling', () => {
-    expect(resolvePromptProfile(resolveActiveSkills([]))).toBe('app-builder');
+  test('Firebase is the default prompt profile and tooling skills keep it', () => {
+    expect(resolvePromptProfile(resolveActiveSkills([]))).toBe('firebase');
     useSkillsStore.getState().toggleSkill('fixture-tooling');
     const active = resolveActiveSkills(useSkillsStore.getState().activeSkillIds);
-    expect(resolvePromptProfile(active)).toBe('firebase-tooling');
+    expect(resolvePromptProfile(active)).toBe('firebase');
     expect(resolveWorkbenchIntent(active)).toMatchObject({
-      promptProfile: 'firebase-tooling',
+      promptProfile: 'firebase',
       primarySurface: 'firebase',
       defaultFirebaseSubtab: 'sandbox',
       toolProfilePreference: 'diagnostic',
@@ -176,7 +176,7 @@ describe('skill framework invariants', () => {
     expect(authSkill?.manBody).toContain('seed_auth_users');
     expect(authSkill?.manBody).not.toContain('Firebase Emulator');
     expect(resolveWorkbenchIntent([authSkill!])).toMatchObject({
-      promptProfile: 'firebase-tooling',
+      promptProfile: 'firebase',
       primarySurface: 'firebase',
       defaultFirebaseSubtab: 'auth',
       toolProfilePreference: 'diagnostic',
@@ -189,7 +189,7 @@ describe('skill framework invariants', () => {
     expect(querySkill?.manBody).toContain('zero shapes');
     expect(querySkill?.manBody).not.toContain('Firebase Emulator');
     expect(resolveWorkbenchIntent([querySkill!])).toMatchObject({
-      promptProfile: 'firebase-tooling',
+      promptProfile: 'firebase',
       primarySurface: 'firebase',
       defaultFirebaseSubtab: 'data',
       toolProfilePreference: 'diagnostic',
