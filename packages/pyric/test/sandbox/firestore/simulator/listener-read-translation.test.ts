@@ -34,6 +34,7 @@ describe('FS-B10 — doc listener .data() uses the compat Timestamp shape', () =
       method: 'create', path: 'logs/l1', auth: { uid: 'u' },
       data: { at: { __type: 'serverTimestamp' } },
     });
+    env.flushListeners();
     let snap: { data(): Record<string, unknown> | undefined } | undefined;
     env.addSnapshotListener(
       { kind: 'doc', path: 'logs/l1' },
@@ -41,6 +42,7 @@ describe('FS-B10 — doc listener .data() uses the compat Timestamp shape', () =
       {},
       { uid: 'u' },
     );
+    env.flushListeners();
     const at = snap!.data()!.at as { seconds: number; nanoseconds: number };
     expect(at).toBeInstanceOf(CompatTimestamp);
     expect(typeof at.nanoseconds).toBe('number'); // pre-fix: undefined
@@ -55,6 +57,7 @@ describe('FS-B10 — doc listener .data() uses the compat Timestamp shape', () =
       method: 'create', path: 'logs/l1', auth: { uid: 'u' },
       data: { at: { __type: 'serverTimestamp' } },
     });
+    env.flushListeners();
     // getDoc-equivalent: silent read + compat snapshot via the doc-ref path.
     const direct = env.getDocument('logs/l1')!.at; // raw internal
     let snap: { data(): Record<string, unknown> | undefined } | undefined;
@@ -64,6 +67,7 @@ describe('FS-B10 — doc listener .data() uses the compat Timestamp shape', () =
       {},
       { uid: 'u' },
     );
+    env.flushListeners();
     const listenerAt = snap!.data()!.at as CompatTimestamp;
     // The listener value carries the same instant as the stored value, in
     // the compat class.
@@ -81,6 +85,7 @@ describe('FS-B10 — query listener docs translate too', () => {
       method: 'create', path: 'events/e1', auth: { uid: 'u' },
       data: { at: { __type: 'serverTimestamp' } },
     });
+    env.flushListeners();
     let snap: { docs: Array<{ data(): Record<string, unknown> }> } | undefined;
     env.addSnapshotListener(
       { kind: 'query', collection: 'events' },
@@ -88,6 +93,7 @@ describe('FS-B10 — query listener docs translate too', () => {
       {},
       { uid: 'u' },
     );
+    env.flushListeners();
     const at = snap!.docs[0].data().at as { nanoseconds: number };
     expect(at).toBeInstanceOf(CompatTimestamp);
     expect(typeof at.nanoseconds).toBe('number');

@@ -58,6 +58,8 @@ import type {
 import {
   buildDocumentSnapshot,
   buildQuerySnapshot,
+  SANDBOX_METADATA,
+  SANDBOX_METADATA_PENDING,
 } from './snapshot-listeners.js';
 
 // Register every shipped converter exactly once on module load. Idempotent
@@ -479,6 +481,26 @@ export class LocalEnvironment {
   private snapshotListeners: Map<string, ListenerRecord> = new Map();
   private nextListenerId = 0;
 
+  /**
+   * Deferred listener deliveries — the shared delivery scheduler (items
+   * 3 + 5). Production never invokes an `onSnapshot` callback synchronously
+   * on the registering/writing stack: the initial snapshot arrives after
+   * the listen round-trip (COMPAT firestore#80 — "asynchronous, never
+   * during register"), and a local write's echo + server ack arrive on the
+   * async event queue (firestore#85). The sandbox mirrors that by enqueuing
+   * every user-facing delivery here and draining it off-stack, on a
+   * `queueMicrotask` boundary — which satisfies the "asynchronous" contract
+   * without a macrotask's extra latency (the prototype in the deep-divergence
+   * review measured identical behavior for micro- vs macro-task deferral).
+   *
+   * Per-listener FIFO order is preserved: deliveries enqueued *during* a
+   * drain — a callback that itself writes, or the item-3 metadata ack a
+   * write echo schedules — are appended and drained in the same pass, so a
+   * write settles fully before control returns to the microtask loop.
+   */
+  private deliveryQueue: Array<() => void> = [];
+  private deliveryScheduled = false;
+
   constructor() {
     this.state = new LocalState();
     this.eventLog = new EventLog();
@@ -825,15 +847,20 @@ export class LocalEnvironment {
       auth,
     });
 
-    // Slice 2 — fire the initial snapshot. Synchronous on purpose:
-    // production also delivers the cached snapshot synchronously when
-    // the EventManager already has data for the target (findings section 2),
-    // and the sandbox always has data because there's no remote stream
-    // to wait on. Errors are routed through the listener's
-    // `errorCallback`, never thrown out of `addSnapshotListener` —
-    // throwing here would mean a single rule-denied listen attempt
-    // could break unrelated UI initialization in agent code.
-    this.fireInitialSnapshot(record);
+    // Items 3 + 5 — the initial snapshot is delivered off-stack through the
+    // delivery scheduler, never synchronously during register. Production's
+    // event queue schedules even a *cached* initial event asynchronously
+    // (COMPAT firestore#80: "asynchronous, never during register"), so the
+    // register-then-read-synchronously agent pattern that returns `undefined`
+    // on prod also returns `undefined` here — the sandbox no longer trains
+    // users into a pattern prod breaks. The unsubscribe-before-drain guard
+    // mirrors prod: a listener detached before its first fire never sees one.
+    // Errors still route through the listener's `errorCallback` (inside
+    // `fireInitialSnapshot`), never thrown out of `addSnapshotListener`.
+    this.scheduleDelivery(() => {
+      if (!this.snapshotListeners.has(id)) return;
+      this.fireInitialSnapshot(record);
+    });
 
     return () => {
       const stillRegistered = this.snapshotListeners.has(id);
@@ -928,6 +955,65 @@ export class LocalEnvironment {
     });
   }
 
+  // ═══ Delivery scheduler (items 3 + 5) ═══
+
+  /**
+   * Enqueue a listener delivery and ensure an off-stack drain is pending.
+   * See {@link deliveryQueue}.
+   */
+  private scheduleDelivery(deliver: () => void): void {
+    this.deliveryQueue.push(deliver);
+    if (this.deliveryScheduled) return;
+    this.deliveryScheduled = true;
+    queueMicrotask(() => this.drainDeliveries());
+  }
+
+  /**
+   * Enqueue a write-driven delivery, restoring the triggering op while it
+   * runs so listener-origin RequestEvents / delivery events still attribute
+   * to the write (`triggeredBy`) even though the callback now fires off the
+   * writing stack. See {@link currentTrigger}.
+   */
+  private scheduleTriggeredDelivery(
+    trigger: { method: string; path: string } | undefined,
+    deliver: () => void,
+  ): void {
+    this.scheduleDelivery(() => {
+      const prevTrigger = this.currentTrigger;
+      this.currentTrigger = trigger;
+      try {
+        deliver();
+      } finally {
+        this.currentTrigger = prevTrigger;
+      }
+    });
+  }
+
+  /**
+   * Drain queued deliveries in FIFO order. A delivery may enqueue more (a
+   * callback that writes; the item-3 metadata ack a write echo schedules) —
+   * those are appended and drained in the same pass.
+   */
+  private drainDeliveries(): void {
+    this.deliveryScheduled = false;
+    while (this.deliveryQueue.length > 0) {
+      const deliver = this.deliveryQueue.shift()!;
+      deliver();
+    }
+  }
+
+  /**
+   * Synchronously deliver all pending snapshot fires. Test-only seam:
+   * production consumers observe deliveries via the microtask drain, but a
+   * synchronous test body calls this to settle the queue deterministically
+   * before asserting fire counts / snapshot contents. Idempotent — a no-op
+   * on an empty queue, and safe when a microtask drain is also pending (that
+   * drain then finds the queue already empty).
+   */
+  flushListeners(): void {
+    this.drainDeliveries();
+  }
+
   // ═══ Slice 3 — change-driven notification ═══
 
   /**
@@ -942,21 +1028,31 @@ export class LocalEnvironment {
    * Iteration walks a snapshotted list of records — a callback is
    * allowed to add or remove listeners (StrictMode + HMR routinely do)
    * and we must not iterate a mutating Map.
+   *
+   * Items 3 + 5 — each per-listener fire is enqueued on the delivery
+   * scheduler rather than run inline, so the write echo lands off the
+   * writing stack (like prod's async event queue) and stays ordered behind
+   * any still-pending initial fire for the same listener. The errored /
+   * unsubscribe checks are re-run at delivery time because a listener may
+   * detach or error between this write and the drain.
    */
   private notifyListenersForPaths(touchedPaths: ReadonlySet<string>): void {
     if (touchedPaths.size === 0) return;
     if (this.snapshotListeners.size === 0) return;
+    // Capture the triggering op now; the deliveries run off-stack, by which
+    // time `currentTrigger` has been restored to the microtask loop's state.
+    const trigger = this.currentTrigger;
     const records = Array.from(this.snapshotListeners.values());
     for (const record of records) {
-      if (record.errored) continue;
-      // The record may have been unsubscribed since we snapshotted the
-      // map — skip those so we don't fire orphans.
-      if (!this.snapshotListeners.has(record.id)) continue;
-      if (record.target.kind === 'doc') {
-        this.notifyDocListener(record, touchedPaths);
-      } else {
-        this.notifyQueryListener(record, touchedPaths);
-      }
+      this.scheduleTriggeredDelivery(trigger, () => {
+        if (!this.snapshotListeners.has(record.id)) return;
+        if (record.errored) return;
+        if (record.target.kind === 'doc') {
+          this.notifyDocListener(record, touchedPaths);
+        } else {
+          this.notifyQueryListener(record, touchedPaths);
+        }
+      });
     }
   }
 
@@ -988,7 +1084,13 @@ export class LocalEnvironment {
       return;
     }
 
-    const snap = buildDocumentSnapshot(record.target.path, result.data);
+    // Item 3 — the local write echo carries hasPendingWrites:true (prod's
+    // optimistic local fire, delivered before the server round-trip). The
+    // settled server ack (hasPendingWrites:false) is scheduled below, but
+    // only includeMetadataChanges listeners observe it — a default listener's
+    // last-seen snapshot stays `pending:true` (COMPAT firestore#85).
+    const path = record.target.path;
+    const snap = buildDocumentSnapshot(path, result.data, SANDBOX_METADATA_PENDING);
     record.currentSnapshot = snap;
     record.currentDocData = result.data;
     // Compute change shape for the delivery event. Doc listeners deliver
@@ -1007,14 +1109,55 @@ export class LocalEnvironment {
     // the same ordering as the user code: callback first, observer second.
     this.emitSnapshotDelivery({
       listenerId: record.id,
-      target: { kind: 'doc', path: record.target.path },
+      target: { kind: 'doc', path },
       auth: record.auth,
       addedCount,
       modifiedCount,
       removedCount,
       size: isExists ? 1 : 0,
-      sample: { docs: [{ path: record.target.path, data: result.data }] },
+      sample: { docs: [{ path, data: result.data }] },
       ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+    });
+    this.scheduleDocMetadataAck(record, path, result.data);
+  }
+
+  /**
+   * Item 3 — schedule the server-ack fire that follows a write echo. Only
+   * fires for includeMetadataChanges listeners (default listeners never see
+   * the metadata-only ack; their snapshot stays `pending:true`). Re-delivers
+   * the just-echoed data with `hasPendingWrites:false`, as a metadata-only
+   * change (no added/modified/removed). Rides the delivery scheduler so it
+   * lands off the echo's stack, matching prod's async ack rather than a
+   * synchronous same-tick fire. `data` is captured from the echo so a later
+   * write can't retroactively change what this ack reports. COMPAT firestore#85.
+   */
+  private scheduleDocMetadataAck(
+    record: ListenerRecord,
+    path: string,
+    data: DocumentData | null,
+  ): void {
+    if (!record.options.includeMetadataChanges) return;
+    this.scheduleTriggeredDelivery(this.currentTrigger, () => {
+      if (!this.snapshotListeners.has(record.id)) return;
+      if (record.errored) return;
+      const ack = buildDocumentSnapshot(path, data, SANDBOX_METADATA);
+      record.currentSnapshot = ack;
+      try {
+        record.callback(ack);
+      } catch {
+        /* swallow — see fireInitialSnapshot doc */
+      }
+      this.emitSnapshotDelivery({
+        listenerId: record.id,
+        target: { kind: 'doc', path },
+        auth: record.auth,
+        addedCount: 0,
+        modifiedCount: 0,
+        removedCount: 0,
+        size: data !== null ? 1 : 0,
+        sample: { docs: [{ path, data }] },
+        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+      });
     });
   }
 
@@ -1034,12 +1177,16 @@ export class LocalEnvironment {
       return;
     }
 
+    const collection = record.target.collection;
     const prevDocs = record.currentDocs ?? [];
+    // Item 3 — the write echo carries hasPendingWrites:true; the settled ack
+    // (scheduled below for includeMetadataChanges listeners) carries false.
     const snap = buildQuerySnapshot(
-      { path: record.target.collection },
+      { path: collection },
       result.docs,
       { excludesMetadataChanges: !record.options.includeMetadataChanges },
       prevDocs,
+      SANDBOX_METADATA_PENDING,
     );
     // Suppression: empty change set ⇒ nothing observable changed for
     // this listener (e.g., a write that landed under a different
@@ -1049,7 +1196,7 @@ export class LocalEnvironment {
     if (changes.length === 0) {
       this.emitSnapshotSuppressed({
         listenerId: record.id,
-        target: { kind: 'query', collection: record.target.collection },
+        target: { kind: 'query', collection },
         auth: record.auth,
         ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
       });
@@ -1071,7 +1218,7 @@ export class LocalEnvironment {
     }
     this.emitSnapshotDelivery({
       listenerId: record.id,
-      target: { kind: 'query', collection: record.target.collection },
+      target: { kind: 'query', collection },
       auth: record.auth,
       addedCount,
       modifiedCount,
@@ -1079,6 +1226,49 @@ export class LocalEnvironment {
       size: result.docs.length,
       sample: { docs: result.docs.map((d) => ({ path: d.path, data: d.data })) },
       ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+    });
+    this.scheduleQueryMetadataAck(record, collection, result.docs);
+  }
+
+  /**
+   * Item 3 — query counterpart of {@link scheduleDocMetadataAck}. Re-delivers
+   * the echoed doc set with `hasPendingWrites:false` as a metadata-only change
+   * (no added/modified/removed — `prevDocs` equals the current docs), for
+   * includeMetadataChanges listeners only. COMPAT firestore#85.
+   */
+  private scheduleQueryMetadataAck(
+    record: ListenerRecord,
+    collection: string,
+    docs: { path: string; data: DocumentData }[],
+  ): void {
+    if (!record.options.includeMetadataChanges) return;
+    this.scheduleTriggeredDelivery(this.currentTrigger, () => {
+      if (!this.snapshotListeners.has(record.id)) return;
+      if (record.errored) return;
+      const ack = buildQuerySnapshot(
+        { path: collection },
+        docs,
+        { excludesMetadataChanges: false },
+        docs,
+        SANDBOX_METADATA,
+      );
+      record.currentSnapshot = ack;
+      try {
+        record.callback(ack);
+      } catch {
+        /* swallow — see fireInitialSnapshot doc */
+      }
+      this.emitSnapshotDelivery({
+        listenerId: record.id,
+        target: { kind: 'query', collection },
+        auth: record.auth,
+        addedCount: 0,
+        modifiedCount: 0,
+        removedCount: 0,
+        size: docs.length,
+        sample: { docs: docs.map((d) => ({ path: d.path, data: d.data })) },
+        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+      });
     });
   }
 
@@ -1383,6 +1573,10 @@ export class LocalEnvironment {
     this.deliveryListeners.clear();
     this.suppressedListeners.clear();
     this.lifecycleListeners.clear();
+    // Drop any queued-but-undelivered fires so a disposed env can't invoke
+    // an outgoing consumer's callback on a later microtask drain.
+    this.deliveryQueue.length = 0;
+    this.deliveryScheduled = false;
   }
 
   /** Seed the environment with rules and initial data. */

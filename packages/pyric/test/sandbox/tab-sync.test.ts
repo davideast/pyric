@@ -139,6 +139,9 @@ function watchDoc(sandbox: Sandbox, path: string, auth = null as import('../../s
     {},
     auth,
   );
+  // Items 3 + 5 — initial + write-driven fires are microtask-deferred; drain
+  // them synchronously so this helper's callers keep their sync assertions.
+  env.flushListeners();
   return { snapshots, unsub };
 }
 
@@ -174,6 +177,7 @@ describe('sandbox.enableTabSync', () => {
     });
 
     // B's listener should have fired with the new doc data.
+    getInternalEnv(sbB).flushListeners();
     expect(bSnaps.length).toBe(2);
     // The snapshot is a DocumentSnapshot-like object; check that the doc exists.
     const snap2 = bSnaps[1] as { exists: () => boolean; data: () => unknown };
@@ -285,6 +289,7 @@ describe('sandbox.enableTabSync', () => {
     envA.execute({ method: 'delete', path: 'items/1', auth: null });
 
     // B's listener should have fired again; doc no longer exists.
+    envB.flushListeners();
     expect(bSnaps.length).toBe(2);
     const snap2 = bSnaps[1] as { exists: () => boolean };
     expect(snap2.exists()).toBe(false);
@@ -423,6 +428,7 @@ describe('sandbox.enableTabSync', () => {
     );
 
     // Initial fires: restricted → error (not delivered as snapshot); users/1 → OK.
+    envB.flushListeners();
     expect(errors.length).toBe(1); // restriction errored the listener
     expect(snapsFromRestricted.length).toBe(0); // no snapshot delivered (errored)
     expect(snapsFromUsers.length).toBe(1); // initial fire for users/1 (empty doc)
@@ -431,6 +437,7 @@ describe('sandbox.enableTabSync', () => {
     // (RESTRICTED_RULES allows write: if true for restricted/*).
     envA.execute({ method: 'set', path: 'restricted/doc', auth: null, data: { secret: 'x' } });
     envA.execute({ method: 'set', path: 'users/1', auth: null, data: { pub: 'y' } });
+    envB.flushListeners();
 
     // The admin apply in B for `restricted/doc` calls notifyListenersForPaths,
     // which re-evaluates the listener under its registered auth (null). The

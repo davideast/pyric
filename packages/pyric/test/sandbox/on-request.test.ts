@@ -52,6 +52,7 @@ describe('Sandbox.onRequest', () => {
     onRequest(sandbox, (e) => events.push(e));
 
     env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'hi' } });
+    env.flushListeners();
 
     expect(events.length).toBe(1);
     expect(events[0].method).toBe('set');
@@ -67,11 +68,13 @@ describe('Sandbox.onRequest', () => {
     const { sandbox, env } = makeSandbox();
     // Seed a doc under alice.
     env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'hi' } });
+    env.flushListeners();
 
     const events: RequestEvent[] = [];
     onRequest(sandbox, (e) => events.push(e));
     // Bob is not authorised — rule requires auth.uid == 'alice'.
     env.execute({ method: 'get', path: 'notes/n1', auth: { uid: 'bob' } });
+    env.flushListeners();
 
     expect(events.length).toBe(1);
     expect(events[0].result).toBe('deny');
@@ -83,6 +86,7 @@ describe('Sandbox.onRequest', () => {
     const events: RequestEvent[] = [];
     onRequest(sandbox, (e) => events.push(e));
     env.execute({ method: 'get', path: 'notes/n1', auth: { uid: 'alice' } });
+    env.flushListeners();
 
     expect(events[0].matchedRule).toBeDefined();
     expect(events[0].matchedRule?.ruleIndex).toBe(0);
@@ -104,6 +108,7 @@ describe('Sandbox.onRequest', () => {
     const allowEvents: RequestEvent[] = [];
     const unsubAllow = onRequest(sandbox, (e) => allowEvents.push(e));
     env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'a' } });
+    env.flushListeners();
     unsubAllow();
     const allowReason = allowEvents[0].reasons.find((r) => /^Rule #\d+ \([^)]+\) → ALLOW$/.test(r));
     expect(allowReason).toBeDefined();
@@ -112,6 +117,7 @@ describe('Sandbox.onRequest', () => {
     const denyEvents: RequestEvent[] = [];
     onRequest(sandbox, (e) => denyEvents.push(e));
     env.execute({ method: 'get', path: 'notes/n1', auth: { uid: 'bob' } });
+    env.flushListeners();
     const denyReason = denyEvents[0].reasons.find((r) => /^Rule #\d+ \([^)]+\) → deny$/.test(r));
     expect(denyReason).toBeDefined();
   });
@@ -197,10 +203,12 @@ describe('Sandbox.onRequest', () => {
       {},
       auth,
     );
+    env.flushListeners();
 
     const events: RequestEvent[] = [];
     onRequest(sandbox, (e) => events.push(e));
     env.execute({ method: 'set', path: 'notes/n1', auth, data: { body: 'hi' } });
+    env.flushListeners();
 
     const listenerEvents = events.filter((e) => e.origin === 'listener');
     expect(listenerEvents.length).toBeGreaterThanOrEqual(1);
@@ -213,6 +221,7 @@ describe('Sandbox.onRequest', () => {
     // Pre-seed several docs so the inner list-filter has work to do.
     for (let i = 0; i < 5; i++) {
       env.execute({ method: 'set', path: `notes/n${i}`, auth, data: { body: `${i}` } });
+      env.flushListeners();
     }
     env.addSnapshotListener(
       { kind: 'query', collection: 'notes' },
@@ -220,10 +229,12 @@ describe('Sandbox.onRequest', () => {
       {},
       auth,
     );
+    env.flushListeners();
 
     const events: RequestEvent[] = [];
     onRequest(sandbox, (e) => events.push(e));
     env.execute({ method: 'set', path: 'notes/new', auth, data: { body: 'fresh' } });
+    env.flushListeners();
 
     // Expect: 1 user write + 1 query listener re-eval (NOT 1 + N).
     const listenerEvents = events.filter((e) => e.origin === 'listener');
@@ -237,9 +248,11 @@ describe('Sandbox.onRequest', () => {
     const events: RequestEvent[] = [];
     const unsub = onRequest(sandbox, (e) => events.push(e));
     env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'a' } });
+    env.flushListeners();
     expect(events.length).toBe(1);
     unsub();
     env.execute({ method: 'set', path: 'notes/n2', auth: { uid: 'alice' }, data: { body: 'b' } });
+    env.flushListeners();
     expect(events.length).toBe(1);
   });
 
@@ -250,6 +263,7 @@ describe('Sandbox.onRequest', () => {
     onRequest(sandbox, (e) => seenBySecond.push(e));
 
     env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'a' } });
+    env.flushListeners();
 
     expect(seenBySecond.length).toBe(1);
   });
@@ -282,6 +296,7 @@ describe('Sandbox.onRequest', () => {
       onRequest(sandbox, (e) => seenBySecond.push(e));
 
       env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'a' } });
+      env.flushListeners();
 
       // Give the microtask queue a turn so any unhandled rejection
       // would fire before we assert.
@@ -303,6 +318,7 @@ describe('Sandbox.onRequest', () => {
     // buildRequestEvent allocation.)
     expect(() => {
       env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'a' } });
+      env.flushListeners();
     }).not.toThrow();
   });
 
@@ -329,17 +345,20 @@ describe('Sandbox.onRequest', () => {
       {},
       auth,
     );
+    env.flushListeners();
     env.addSnapshotListener(
       { kind: 'doc', path: 'notes/a' },
       () => {},
       {},
       auth,
     );
+    env.flushListeners();
 
     const events: RequestEvent[] = [];
     onRequest(sandbox, (e) => events.push(e));
 
     env.execute({ method: 'set', path: 'notes/a', auth, data: { v: 'outer' } });
+    env.flushListeners();
 
     // The two listener-origin events on `notes/a` (one per listener)
     // should both attribute to the OUTER set, not lose the trigger
@@ -362,10 +381,12 @@ describe('Sandbox.onRequest', () => {
       {},
       auth,
     );
+    env.flushListeners();
 
     const events: RequestEvent[] = [];
     onRequest(sandbox, (e) => events.push(e));
     env.execute({ method: 'set', path: 'notes/n1', auth, data: { body: 'hi' } });
+    env.flushListeners();
 
     // The user event must come first; listener event(s) must follow.
     expect(events[0].origin).toBe('user');
@@ -383,6 +404,7 @@ describe('Sandbox.onRequest', () => {
     onRequest(sandbox, (e) => events.push(e));
 
     env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'before' } });
+    env.flushListeners();
     expect(events.length).toBe(1);
     expect(events[0].path).toBe('notes/n1');
 
@@ -405,6 +427,7 @@ describe('Sandbox.onRequest', () => {
 
     // Bob fails the alice-only rule.
     env.execute({ method: 'set', path: 'notes/x', auth: { uid: 'bob' }, data: { body: 'x' } });
+    env.flushListeners();
     expect(denials.length).toBe(1);
 
     sandbox.reset();
@@ -420,6 +443,7 @@ describe('Sandbox.onRequest', () => {
     const unsub = onRequest(sandbox, (e) => events.push(e));
 
     env.execute({ method: 'set', path: 'notes/a', auth: { uid: 'alice' }, data: { v: 1 } });
+    env.flushListeners();
     expect(events.length).toBe(1);
 
     sandbox.reset();
@@ -443,8 +467,11 @@ describe('Sandbox.onRequest', () => {
     });
 
     env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'hello' } });
+    env.flushListeners();
     env.execute({ method: 'update', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'updated' } });
+    env.flushListeners();
     env.execute({ method: 'delete', path: 'notes/n1', auth: { uid: 'alice' } });
+    env.flushListeners();
 
     expect(writes).toHaveLength(3);
     expect(writes[0]).toEqual({ method: 'set', path: 'notes/n1', priorState: null, nextState: { body: 'hello' } });
@@ -459,12 +486,15 @@ describe('Sandbox.onRequest', () => {
 
     // Read — should never produce a write event.
     env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'x' } });
+    env.flushListeners();
     env.execute({ method: 'get', path: 'notes/n1', auth: { uid: 'alice' } });
+    env.flushListeners();
     expect(writes).toHaveLength(1);  // only the set
 
     // Denied write (bob fails the alice rule) — also no write event.
     try {
       env.execute({ method: 'set', path: 'notes/n2', auth: { uid: 'bob' }, data: { body: 'nope' } });
+      env.flushListeners();
     } catch { /* swallow */ }
     expect(writes).toHaveLength(1);
   });
@@ -497,7 +527,9 @@ describe('Sandbox.onRequest', () => {
     const { sandbox, env } = makeSandbox();
 
     env.execute({ method: 'set', path: 'notes/h1', auth: { uid: 'alice' }, data: { v: 1 } });
+    env.flushListeners();
     env.execute({ method: 'set', path: 'notes/h2', auth: { uid: 'alice' }, data: { v: 2 } });
+    env.flushListeners();
 
     const before = sandbox.history();
     const writes = before.filter((e) => e.kind === 'write');
@@ -534,6 +566,7 @@ describe('Sandbox.onRequest', () => {
 
     const { path: mintedPath } = env.createWithAutoId('notes', { v: 1 }, { uid: 'alice' });
     env.execute({ method: 'create', path: 'notes/explicit', auth: { uid: 'alice' }, data: { v: 2 } });
+    env.flushListeners();
 
     expect(writes).toHaveLength(2);
     const minted = writes.find((w) => w.path === mintedPath);
@@ -554,6 +587,7 @@ describe('Sandbox.onRequest', () => {
 
     const before = Date.now();
     env.execute({ method: 'set', path: 'notes/x', auth: { uid: 'alice' }, data: { v: 1 } });
+    env.flushListeners();
     env.batch([{ method: 'create', path: 'notes/y', data: { v: 2 } }], { uid: 'alice' });
     env.transaction((tx) => { tx.set('notes/z', { v: 3 }); }, { auth: { uid: 'alice' } });
     const after = Date.now();
@@ -586,6 +620,7 @@ describe('Sandbox.onRequest', () => {
       auth: { uid: 'alice' },
       data: { counter: 0, tags: ['a'], removable: ['x'], gone: 'still here' },
     });
+    env.flushListeners();
     // All five sentinels at top level.
     env.execute({
       method: 'update',
@@ -599,6 +634,7 @@ describe('Sandbox.onRequest', () => {
         gone: { __type: 'deleteField' },
       },
     });
+    env.flushListeners();
 
     expect(events).toHaveLength(2);
     expect(events[0]!.sentinels).toBeUndefined();  // plain seed has none
@@ -617,12 +653,14 @@ describe('Sandbox.onRequest', () => {
       auth: { uid: 'alice' },
       data: { profile: { lastSeen: { __type: 'serverTimestamp' } } },
     });
+    env.flushListeners();
     env.execute({
       method: 'set',
       path: 'notes/inarray',
       auth: { uid: 'alice' },
       data: { history: [{ __type: 'serverTimestamp' }, 'fixed'] },
     });
+    env.flushListeners();
 
     expect(writes[0]!.sentinels).toEqual([{ field: 'profile.lastSeen', kind: 'serverTimestamp' }]);
     expect(writes[1]!.sentinels).toEqual([{ field: 'history[0]', kind: 'serverTimestamp' }]);
@@ -680,6 +718,7 @@ describe('Sandbox.onRequest', () => {
       { uid: 'bob' },
       () => {},  // bob's listener has its own error handler
     );
+    env.flushListeners();
 
     expect(events.length).toBeGreaterThanOrEqual(2);
     const attach = events.find((e) => e.kind === 'listener_attach');
@@ -705,6 +744,7 @@ describe('Sandbox.onRequest', () => {
       {},
       { uid: 'alice' },
     );
+    env.flushListeners();
     expect(lifecycle).toHaveLength(1);
     expect(lifecycle[0].kind).toBe('listener_attach');
 
@@ -718,6 +758,7 @@ describe('Sandbox.onRequest', () => {
     const { sandbox, env } = makeSandbox();
     // Seed first so initial fire delivers data.
     env.execute({ method: 'set', path: 'notes/seed', auth: { uid: 'alice' }, data: { v: 0 } });
+    env.flushListeners();
 
     const deliveries: Array<{ size: number; addedCount: number; modifiedCount: number }> = [];
     sandbox.onEvent((e) => {
@@ -732,12 +773,14 @@ describe('Sandbox.onRequest', () => {
       {},
       { uid: 'alice' },
     );
+    env.flushListeners();
     // Initial fire — one delivery with the existing doc.
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0]).toEqual({ size: 1, addedCount: 1, modifiedCount: 0 });
 
     // Write triggers a re-eval with modified change.
     env.execute({ method: 'update', path: 'notes/seed', auth: { uid: 'alice' }, data: { v: 1 } });
+    env.flushListeners();
     expect(deliveries).toHaveLength(2);
     expect(deliveries[1]).toEqual({ size: 1, addedCount: 0, modifiedCount: 1 });
 
@@ -747,6 +790,7 @@ describe('Sandbox.onRequest', () => {
   it('emits snapshot_suppressed for no-op re-evals instead of snapshot_delivery', () => {
     const { sandbox, env } = makeSandbox();
     env.execute({ method: 'set', path: 'notes/s1', auth: { uid: 'alice' }, data: { v: 1 } });
+    env.flushListeners();
 
     const deliveries: unknown[] = [];
     const suppressed: unknown[] = [];
@@ -761,11 +805,13 @@ describe('Sandbox.onRequest', () => {
       {},
       { uid: 'alice' },
     );
+    env.flushListeners();
     expect(deliveries).toHaveLength(1);  // initial fire
     expect(suppressed).toHaveLength(0);
 
     // Write the same data — listener wakes up but should suppress.
     env.execute({ method: 'set', path: 'notes/s1', auth: { uid: 'alice' }, data: { v: 1 } });
+    env.flushListeners();
     expect(deliveries).toHaveLength(1);  // no new delivery
     expect(suppressed).toHaveLength(1);
 
@@ -782,6 +828,7 @@ describe('Sandbox.onRequest', () => {
     });
 
     env.execute({ method: 'set', path: 'notes/n1', auth: { uid: 'alice' }, data: { body: 'a' } });
+    env.flushListeners();
     expect(boundaries).toHaveLength(0);  // no boundary yet
 
     sandbox.reset();

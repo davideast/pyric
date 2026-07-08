@@ -26,6 +26,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getInternalEnv } from 'pyric/sandbox/internal';
 import {
   getFirestore,
   collection,
@@ -98,7 +99,7 @@ function setup(rules: string, uid: string | null = 'alice') {
     'notes/n1': { owner: 'alice', label: 'mine' },
     'notes/n2': { owner: 'bob', label: 'theirs' },
   });
-  return db;
+  return { db, env: getInternalEnv(sandbox) };
 }
 
 async function denied(p: Promise<unknown>): Promise<string | undefined> {
@@ -112,7 +113,7 @@ async function denied(p: Promise<unknown>): Promise<string | undefined> {
 
 describe('RULES-B11 — getDocs under a doc-data-dependent list rule', () => {
   it('PROVABLE: where() discharges the rule → query succeeds (failed pre-fix)', async () => {
-    const db = setup(PUBLIC_RULES);
+    const { db } = setup(PUBLIC_RULES);
     const snap = await getDocs(
       query(collection(db, 'posts'), where('visibility', '==', 'public')),
     );
@@ -121,7 +122,7 @@ describe('RULES-B11 — getDocs under a doc-data-dependent list rule', () => {
   });
 
   it('UNPROVABLE: no discharging where() → WHOLE query permission-denied, not a filtered subset', async () => {
-    const db = setup(PUBLIC_RULES);
+    const { db } = setup(PUBLIC_RULES);
     // Prod: the unconstrained query COULD return private docs → rejected
     // entirely. A rules-as-filters implementation would instead return the
     // two public docs silently.
@@ -129,14 +130,14 @@ describe('RULES-B11 — getDocs under a doc-data-dependent list rule', () => {
   });
 
   it('UNPROVABLE: where() on the right field but the WRONG value → denied', async () => {
-    const db = setup(PUBLIC_RULES);
+    const { db } = setup(PUBLIC_RULES);
     expect(
       await denied(getDocs(query(collection(db, 'posts'), where('visibility', '==', 'private')))),
     ).toBe('permission-denied');
   });
 
   it('UNPROVABLE: non-equality where() does not discharge an == requirement', async () => {
-    const db = setup(PUBLIC_RULES);
+    const { db } = setup(PUBLIC_RULES);
     expect(
       await denied(getDocs(query(collection(db, 'posts'), where('visibility', '!=', 'private')))),
     ).toBe('permission-denied');
@@ -145,7 +146,7 @@ describe('RULES-B11 — getDocs under a doc-data-dependent list rule', () => {
 
 describe('RULES-B11 — auth-pinned owner rule (rules-query docs example)', () => {
   it('PROVABLE: where(owner == <my uid>) → query succeeds (failed pre-fix)', async () => {
-    const db = setup(OWNER_RULES);
+    const { db } = setup(OWNER_RULES);
     const snap = await getDocs(
       query(collection(db, 'notes'), where('owner', '==', 'alice')),
     );
@@ -154,12 +155,12 @@ describe('RULES-B11 — auth-pinned owner rule (rules-query docs example)', () =
   });
 
   it('UNPROVABLE: unconstrained query → whole-query denied', async () => {
-    const db = setup(OWNER_RULES);
+    const { db } = setup(OWNER_RULES);
     expect(await denied(getDocs(collection(db, 'notes')))).toBe('permission-denied');
   });
 
   it("UNPROVABLE: where() pins someone ELSE's uid → denied (rule requires the caller's)", async () => {
-    const db = setup(OWNER_RULES);
+    const { db } = setup(OWNER_RULES);
     // alice queries bob's notes — the rule requires owner == alice for
     // every returnable doc, but the query guarantees owner == bob.
     expect(
@@ -168,7 +169,7 @@ describe('RULES-B11 — auth-pinned owner rule (rules-query docs example)', () =
   });
 
   it('residual evaluation: provable shape but unauthenticated → denied by the auth conjunct', async () => {
-    const db = setup(OWNER_RULES, null);
+    const { db } = setup(OWNER_RULES, null);
     expect(
       await denied(getDocs(query(collection(db, 'notes'), where('owner', '==', 'alice')))),
     ).toBe('permission-denied');
@@ -177,7 +178,7 @@ describe('RULES-B11 — auth-pinned owner rule (rules-query docs example)', () =
 
 describe('RULES-B11 — get rules do NOT filter query results', () => {
   it('list-open + get-gated: getDocs returns EVERY doc (pre-fix silently filtered to the readable subset)', async () => {
-    const db = setup(LIST_OPEN_GET_GATED_RULES);
+    const { db } = setup(LIST_OPEN_GET_GATED_RULES);
     // Prod: the query is governed by `allow list: if request.auth != null`
     // — which passes — so BOTH notes come back, including bob's, even
     // though alice could not `get` it individually.
@@ -190,9 +191,10 @@ describe('RULES-B11 — get rules do NOT filter query results', () => {
   });
 
   it('list-open + get-gated: onSnapshot delivers EVERY doc too', () => {
-    const db = setup(LIST_OPEN_GET_GATED_RULES);
+    const { db, env } = setup(LIST_OPEN_GET_GATED_RULES);
     const calls: QuerySnapshot[] = [];
     onSnapshot(collection(db, 'notes'), (snap) => { calls.push(snap as QuerySnapshot); });
+    env.flushListeners();
     expect(calls).toHaveLength(1);
     expect(calls[0]!.size).toBe(2);
   });
@@ -200,7 +202,7 @@ describe('RULES-B11 — get rules do NOT filter query results', () => {
 
 describe('RULES-B11 — onSnapshot under a doc-data-dependent list rule', () => {
   it('PROVABLE: filtered listener attaches and delivers the constrained set (failed pre-fix)', () => {
-    const db = setup(PUBLIC_RULES);
+    const { db, env } = setup(PUBLIC_RULES);
     const calls: QuerySnapshot[] = [];
     const errors: unknown[] = [];
     onSnapshot(
@@ -208,6 +210,7 @@ describe('RULES-B11 — onSnapshot under a doc-data-dependent list rule', () => 
       (snap) => { calls.push(snap as QuerySnapshot); },
       (err) => { errors.push(err); },
     );
+    env.flushListeners();
     expect(errors).toHaveLength(0);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.size).toBe(2);
@@ -215,7 +218,7 @@ describe('RULES-B11 — onSnapshot under a doc-data-dependent list rule', () => 
   });
 
   it('UNPROVABLE: bare collection listen → stream error, NOT a silently truncated snapshot', () => {
-    const db = setup(PUBLIC_RULES);
+    const { db, env } = setup(PUBLIC_RULES);
     const calls: QuerySnapshot[] = [];
     const errors: { code?: string }[] = [];
     onSnapshot(
@@ -223,18 +226,20 @@ describe('RULES-B11 — onSnapshot under a doc-data-dependent list rule', () => 
       (snap) => { calls.push(snap as QuerySnapshot); },
       (err) => { errors.push(err as { code?: string }); },
     );
+    env.flushListeners();
     expect(calls).toHaveLength(0);
     expect(errors).toHaveLength(1);
     expect(errors[0]!.code).toBe('permission-denied');
   });
 
   it('PROVABLE listener keeps delivering on writes', async () => {
-    const db = setup(PUBLIC_RULES);
+    const { db, env } = setup(PUBLIC_RULES);
     const calls: QuerySnapshot[] = [];
     onSnapshot(
       query(collection(db, 'posts'), where('visibility', '==', 'public')),
       (snap) => { calls.push(snap as QuerySnapshot); },
     );
+    env.flushListeners();
     expect(calls).toHaveLength(1);
     const { setDoc, doc } = await import('../../src/firestore/index.js');
     await setDoc(doc(db, 'posts/p4'), { visibility: 'public', n: 4 });
@@ -246,18 +251,18 @@ describe('RULES-B11 — onSnapshot under a doc-data-dependent list rule', () => 
 
 describe('RULES-B11 — request.query is populated from the structured constraints', () => {
   it('limit(10) satisfies `request.query.limit <= 50` (failed pre-fix: query was never threaded)', async () => {
-    const db = setup(QUERY_LIMIT_RULES);
+    const { db } = setup(QUERY_LIMIT_RULES);
     const snap = await getDocs(query(collection(db, 'posts'), limit(10)));
     expect(snap.size).toBe(3);
   });
 
   it('limit(100) violates the rule → denied', async () => {
-    const db = setup(QUERY_LIMIT_RULES);
+    const { db } = setup(QUERY_LIMIT_RULES);
     expect(await denied(getDocs(query(collection(db, 'posts'), limit(100))))).toBe('permission-denied');
   });
 
   it('no limit at all → request.query.limit is null → denied', async () => {
-    const db = setup(QUERY_LIMIT_RULES);
+    const { db } = setup(QUERY_LIMIT_RULES);
     expect(await denied(getDocs(collection(db, 'posts')))).toBe('permission-denied');
   });
 });

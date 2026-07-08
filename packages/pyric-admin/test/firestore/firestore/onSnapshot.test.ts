@@ -54,11 +54,15 @@ function seeded(uid: string | null, rules = SIMPLE_RULES) {
 }
 
 describe('onSnapshot — DocumentReference, callback form', () => {
-  it('fires the initial snapshot synchronously', () => {
-    const { db } = seeded('alice');
+  it('fires the initial snapshot asynchronously (never during register)', () => {
+    const { sandbox, db } = seeded('alice');
 
     const calls: DocumentSnapshot[] = [];
     onSnapshot(db.doc('games/g1'), (snap) => { calls.push(snap); });
+    // Item 5 / firestore#80 — the initial fire is delivered off the
+    // registering stack, so nothing has arrived synchronously here.
+    expect(calls).toHaveLength(0);
+    getInternalEnv(sandbox).flushListeners();
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.exists()).toBe(true);
@@ -68,10 +72,11 @@ describe('onSnapshot — DocumentReference, callback form', () => {
   });
 
   it('fires again after a write to the watched doc', async () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
 
     const calls: DocumentSnapshot[] = [];
     onSnapshot(db.doc('games/g1'), (snap) => { calls.push(snap); });
+    getInternalEnv(sandbox).flushListeners();
     expect(calls).toHaveLength(1);
 
     await db.doc('games/g1').update({ score: 1 });
@@ -81,20 +86,22 @@ describe('onSnapshot — DocumentReference, callback form', () => {
   });
 
   it('does not re-fire when the same data is written (no-op suppression)', async () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
 
     const calls: DocumentSnapshot[] = [];
     onSnapshot(db.doc('games/g1'), (snap) => { calls.push(snap); });
+    getInternalEnv(sandbox).flushListeners();
     await db.doc('games/g1').set({ state: 'open', score: 0 });
 
     expect(calls).toHaveLength(1);
   });
 
   it('unsubscribe prevents further fires', async () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
 
     const calls: DocumentSnapshot[] = [];
     const unsub = onSnapshot(db.doc('games/g1'), (snap) => { calls.push(snap); });
+    getInternalEnv(sandbox).flushListeners();
     expect(calls).toHaveLength(1);
 
     unsub();
@@ -106,19 +113,20 @@ describe('onSnapshot — DocumentReference, callback form', () => {
 
 describe('onSnapshot — DocumentReference, observer form', () => {
   it('routes the next handler', () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
 
     const calls: DocumentSnapshot[] = [];
     onSnapshot(db.doc('games/g1'), {
       next: (snap) => { calls.push(snap); },
     });
+    getInternalEnv(sandbox).flushListeners();
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.data()?.score).toBe(0);
   });
 
   it('routes the error handler on rule denial', () => {
-    const { db } = seeded(null, SIMPLE_RULES);
+    const { sandbox, db } = seeded(null, SIMPLE_RULES);
 
     const errs: unknown[] = [];
     const nexts: DocumentSnapshot[] = [];
@@ -126,6 +134,7 @@ describe('onSnapshot — DocumentReference, observer form', () => {
       next: (snap) => { nexts.push(snap); },
       error: (err) => { errs.push(err); },
     });
+    getInternalEnv(sandbox).flushListeners();
 
     expect(nexts).toHaveLength(0);
     expect(errs).toHaveLength(1);
@@ -134,7 +143,7 @@ describe('onSnapshot — DocumentReference, observer form', () => {
 
 describe('onSnapshot — DocumentReference, options + callbacks', () => {
   it('accepts SnapshotListenOptions before the callback', () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
 
     const calls: DocumentSnapshot[] = [];
     onSnapshot(
@@ -142,16 +151,18 @@ describe('onSnapshot — DocumentReference, options + callbacks', () => {
       { includeMetadataChanges: true },
       (snap) => { calls.push(snap); },
     );
+    getInternalEnv(sandbox).flushListeners();
 
     expect(calls).toHaveLength(1);
-    // Sandbox metadata is constant — `includeMetadataChanges` is documented
-    // as a no-op (snapshot-listeners.ts section 6).
+    // The initial fire is a settled server read — hasPendingWrites is false.
+    // (`includeMetadataChanges` becomes observable on writes: the echo carries
+    // true and, for meta listeners, a settled ack follows — firestore#85.)
     expect(calls[0]!.metadata.hasPendingWrites).toBe(false);
     expect(calls[0]!.metadata.fromCache).toBe(false);
   });
 
   it('accepts options + observer', () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
 
     const calls: DocumentSnapshot[] = [];
     onSnapshot(
@@ -159,6 +170,7 @@ describe('onSnapshot — DocumentReference, options + callbacks', () => {
       { includeMetadataChanges: false },
       { next: (snap) => { calls.push(snap); } },
     );
+    getInternalEnv(sandbox).flushListeners();
 
     expect(calls).toHaveLength(1);
   });
@@ -166,10 +178,11 @@ describe('onSnapshot — DocumentReference, options + callbacks', () => {
 
 describe('onSnapshot — CollectionReference', () => {
   it('fires the initial snapshot with all docs', () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
 
     const calls: QuerySnapshot[] = [];
     onSnapshot(db.collection('games'), (snap) => { calls.push(snap); });
+    getInternalEnv(sandbox).flushListeners();
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.size).toBe(2);
@@ -178,10 +191,11 @@ describe('onSnapshot — CollectionReference', () => {
   });
 
   it('fires again with docChanges after a write', async () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
 
     const calls: QuerySnapshot[] = [];
     onSnapshot(db.collection('games'), (snap) => { calls.push(snap); });
+    getInternalEnv(sandbox).flushListeners();
     expect(calls).toHaveLength(1);
 
     await db.doc('games/g3').set({ state: 'open', score: 0 });
@@ -195,10 +209,11 @@ describe('onSnapshot — CollectionReference', () => {
   });
 
   it('does not fire when the change is in a different collection', async () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
 
     const calls: QuerySnapshot[] = [];
     onSnapshot(db.collection('games'), (snap) => { calls.push(snap); });
+    getInternalEnv(sandbox).flushListeners();
     expect(calls).toHaveLength(1);
 
     // `unrelated` collection is unwatched.
@@ -222,6 +237,7 @@ describe('onSnapshot — context auth is captured at register time', () => {
       next: () => { /* noop */ },
       error: (err) => { errs.push(err); },
     });
+    getInternalEnv(root).flushListeners();
 
     // Bob is not 'alice' — STRICT_RULES denies.
     expect(errs).toHaveLength(1);
@@ -230,7 +246,7 @@ describe('onSnapshot — context auth is captured at register time', () => {
 
 describe('onSnapshot — argument validation', () => {
   it('throws when no next handler is provided (empty observer)', () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
     expect(() => onSnapshot(db.doc('games/g1'), {} as never)).toThrow(/next/);
   });
 
@@ -245,36 +261,40 @@ describe('onSnapshot — argument validation', () => {
 
 describe('onSnapshot — chainable .onSnapshot(...) method on refs', () => {
   it('db.doc(path).onSnapshot(cb) fires the initial snapshot', () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
     const calls: DocumentSnapshot[] = [];
     db.doc('games/g1').onSnapshot((snap) => { calls.push(snap); });
+    getInternalEnv(sandbox).flushListeners();
     expect(calls).toHaveLength(1);
     expect(calls[0]!.data()).toEqual({ state: 'open', score: 0 });
   });
 
   it('db.collection(path).onSnapshot(cb) fires the initial snapshot', () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
     const calls: QuerySnapshot[] = [];
     db.collection('games').onSnapshot((snap) => { calls.push(snap); });
+    getInternalEnv(sandbox).flushListeners();
     expect(calls).toHaveLength(1);
     expect(calls[0]!.size).toBe(2);
   });
 
   it('db.collection(path).where(...).onSnapshot(cb) — the chained form that motivated the shim', () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
     const calls: QuerySnapshot[] = [];
     // Same listener routing as the free-function form; chained
     // where/orderBy/limit dispatch as whole-collection listeners.
     db.collection('games').where('state', '==', 'open').onSnapshot((snap) => {
       calls.push(snap);
     });
+    getInternalEnv(sandbox).flushListeners();
     expect(calls).toHaveLength(1);
   });
 
   it('chained .onSnapshot(cb) returns a working unsubscribe', async () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
     const calls: DocumentSnapshot[] = [];
     const unsub = db.doc('games/g1').onSnapshot((snap) => { calls.push(snap); });
+    getInternalEnv(sandbox).flushListeners();
     expect(calls).toHaveLength(1);
     unsub();
     await db.doc('games/g1').update({ score: 1 });
@@ -282,9 +302,10 @@ describe('onSnapshot — chainable .onSnapshot(...) method on refs', () => {
   });
 
   it('chained .onSnapshot(observer) form works with the full observer shape', () => {
-    const { db } = seeded('alice');
+    const { sandbox, db } = seeded('alice');
     const next: DocumentSnapshot[] = [];
     db.doc('games/g1').onSnapshot({ next: (snap) => { next.push(snap); } });
+    getInternalEnv(sandbox).flushListeners();
     expect(next).toHaveLength(1);
   });
 });
