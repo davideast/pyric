@@ -1,9 +1,11 @@
 /**
  * Bridge transport helpers shared by the bridge mounts.
  *
- * `attachPeer` adapts a `ws` WebSocket into a registered sandbox peer (the
- * browser-side `connectBridge` is the other end); `collectBody` buffers a
- * Node request body into parsed JSON for the stateless MCP transport.
+ * `attachPeer` adapts a `ws` WebSocket into either a registered sandbox PEER
+ * (the browser-side `connectBridge` is the other end — first message
+ * `hello`) or a worker-relay CONSUMER (the Node-side `connectRemoteSandbox`
+ * — first message `attach`); `collectBody` buffers a Node request body into
+ * parsed JSON for the stateless MCP transport.
  *
  * Both are consumed by `serve/bridge-mount.ts` (the `pyric serve --bridge` and
  * `pyricSandbox({ bridge })` mount) and `serve/namespace.ts` (capture route).
@@ -12,7 +14,7 @@
  */
 import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
-import { createBridge } from './bridge.js';
+import { createBridge, type Bridge } from './bridge.js';
 import { isBridgeMessage, type BridgeMessage } from '../protocol.js';
 
 export function attachPeer(
@@ -20,7 +22,12 @@ export function attachPeer(
   ws: WebSocket,
 ): void {
   let disconnect: (() => void) | null = null;
+  /** Peer generation captured at registration — tags every inbound frame so
+   *  a replaced tab's socket can't resolve the NEW peer's calls or deliver
+   *  stale subscription snaps (see Bridge.peerGeneration). */
+  let peerGen = 0;
   let helloed = false;
+  let consumer: ConsumerSession | null = null;
 
   ws.on('message', (raw) => {
     let msg: unknown;
@@ -30,6 +37,22 @@ export function attachPeer(
       return;
     }
     if (!isBridgeMessage(msg)) return;
+    if (msg.type === 'attach') {
+      // Worker-relay consumer (Node client). NOT a peer: attaching never
+      // kicks the browser tab out of last-connection-wins.
+      if (helloed || consumer) return;
+      consumer = createConsumerSession(bridge, (out: BridgeMessage) => {
+        try {
+          ws.send(JSON.stringify(out));
+        } catch {}
+      });
+      consumer.handleMessage(msg); // acks with attach-ack
+      return;
+    }
+    if (consumer) {
+      consumer.handleMessage(msg);
+      return;
+    }
     if (msg.type === 'hello') {
       if (helloed) return;
       helloed = true;
@@ -39,9 +62,24 @@ export function attachPeer(
             ws.send(JSON.stringify(out));
           } catch {}
         },
-        msg.tools,
+        // Harden against a malformed hello: these fields come off the wire
+        // and feed `new Set(...)` in the bridge core — a non-array value
+        // (e.g. `capabilities: 42`) would throw inside this message
+        // listener, escape uncaught, and crash the serve process.
+        Array.isArray(msg.tools) ? msg.tools : [],
         msg.sandboxId,
+        Array.isArray(msg.capabilities) ? msg.capabilities : [],
+        // On replacement, close THIS socket: the browser side's onclose
+        // handler tears down its relayed worker subscriptions, so a
+        // replaced tab's SharedWorker listeners don't keep streaming
+        // snaps the bridge drops as stale-generation until the tab closes.
+        () => {
+          try {
+            ws.close();
+          } catch {}
+        },
       );
+      peerGen = bridge.peerGeneration();
       ws.send(
         JSON.stringify({
           type: 'hello-ack',
@@ -52,14 +90,99 @@ export function attachPeer(
       return;
     }
     if (!helloed) return;
-    bridge.handleSandboxMessage(msg);
+    bridge.handleSandboxMessage(msg, peerGen);
   });
 
   ws.on('close', () => {
     if (disconnect) disconnect();
     disconnect = null;
+    if (consumer) consumer.dispose();
+    consumer = null;
   });
   ws.on('error', () => {});
+}
+
+// ── Worker-relay consumer session (transport-agnostic) ───────────────────
+
+/**
+ * One attached worker-relay consumer (the Node `connectRemoteSandbox`
+ * client). Transport-agnostic — `attachPeer` adapts it onto a `ws` socket;
+ * tests drive `handleMessage` directly.
+ */
+export interface ConsumerSession {
+  /** Handle one parsed message from the consumer. */
+  handleMessage(msg: BridgeMessage): void;
+  /** Tear down every subscription this consumer registered. */
+  dispose(): void;
+}
+
+/**
+ * Create a consumer session over `send`. Correlation ids/subIds on this leg
+ * are CONSUMER-minted and echoed verbatim; the bridge core mints its own ids
+ * for the peer leg (`dispatchWorkerOp` / `subscribeWorker`), so the two legs'
+ * id spaces never mix.
+ */
+export function createConsumerSession(
+  bridge: Bridge,
+  send: (msg: BridgeMessage) => void,
+): ConsumerSession {
+  /** consumer subId → bridge-side unsubscribe. */
+  const subs = new Map<string, () => void>();
+
+  return {
+    handleMessage(msg: BridgeMessage): void {
+      switch (msg.type) {
+        case 'attach': {
+          // Idempotent re-attach: just re-ack.
+          send({
+            type: 'attach-ack',
+            protocol: 1,
+            bridgeVersion: bridge.version,
+            peerConnected: bridge.isSandboxConnected(),
+          });
+          return;
+        }
+        case 'worker-op': {
+          bridge.dispatchWorkerOp(msg.op).then(
+            (value) => send({ type: 'worker-res', id: msg.id, ok: true, value }),
+            (err: Error & { code?: string }) =>
+              send({
+                type: 'worker-res',
+                id: msg.id,
+                ok: false,
+                error: { code: err.code ?? 'unknown', message: err.message },
+              }),
+          );
+          return;
+        }
+        case 'worker-sub': {
+          if (subs.has(msg.subId)) return; // idempotent
+          const unsubscribe = bridge.subscribeWorker(msg.sub, (value) =>
+            send({ type: 'worker-snap', subId: msg.subId, value }),
+          );
+          subs.set(msg.subId, unsubscribe);
+          return;
+        }
+        case 'worker-unsub': {
+          const unsubscribe = subs.get(msg.subId);
+          if (!unsubscribe) return;
+          subs.delete(msg.subId);
+          unsubscribe();
+          return;
+        }
+        case 'ping': {
+          send({ type: 'pong', id: msg.id });
+          return;
+        }
+        default:
+          return; // peer-only or unknown frames — ignore
+      }
+    },
+    dispose(): void {
+      for (const unsubscribe of subs.values()) unsubscribe();
+      subs.clear();
+    },
+  };
 }
 
 export async function collectBody(req: IncomingMessage): Promise<unknown> {

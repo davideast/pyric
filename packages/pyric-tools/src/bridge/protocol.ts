@@ -15,6 +15,11 @@
  * environment.
  */
 
+// TYPE-ONLY imports (erased at build) — the wire payloads for the generic
+// worker relay are the SharedWorker protocol's own op/sub messages, minus
+// the port-level `t`/`id`/`subId` fields the relay re-mints per hop.
+import type { OpMessage, SubMessage } from '../serve/worker/protocol.js';
+
 /** Bridge mode set at process start. */
 export type BridgeMode = 'sandbox' | 'prod';
 
@@ -67,6 +72,13 @@ export interface HelloFromClient {
   tools: string[];
   /** Stable identifier for this sandbox session (for audit log). */
   sandboxId: string;
+  /**
+   * Optional peer capabilities (additive). The bridge only sends `worker-*`
+   * frames to a peer that declared {@link WORKER_RELAY_CAPABILITY} — an old
+   * peer that omits it simply never receives them, and worker ops against it
+   * fail fast with a clear error instead of timing out.
+   */
+  capabilities?: string[];
 }
 
 /** Bridge → browser: acknowledge connection. */
@@ -107,6 +119,96 @@ export interface ToolCallResponse {
   };
 }
 
+// ── Generic worker relay (remote sandbox, slice 1) ───────────────────
+//
+// Beyond `tool-call`, the bridge can relay ANY SharedWorker-protocol op or
+// (snap-delivering) subscription between a Node consumer and the browser
+// peer. The SAME frame shapes travel both legs:
+//
+//   Node consumer ──ws──> bridge ──ws──> browser tab ──port──> worker
+//
+// Correlation ids/subIds are re-minted per hop (consumer-minted on the
+// consumer leg, bridge-minted UUIDs on the peer leg, page-local ids on the
+// worker port) so each hop's pending/registry maps stay collision-free.
+
+/** Peer capability flag: "I can relay worker-op / worker-sub frames". */
+export const WORKER_RELAY_CAPABILITY = 'worker-relay';
+
+/** `Omit` distributed over a union (plain `Omit` collapses union members). */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
+/** A worker one-shot op, minus the port-level `t`/`id` the relay re-mints. */
+export type WorkerOpPayload = DistributiveOmit<OpMessage, 't' | 'id'>;
+
+/**
+ * A worker subscription, minus the port-level `t`/`subId`. Slice 1 relays
+ * snap-delivering subs (RTDB value, auth state, Firestore); the unified
+ * event stream (`target: 'events'`) is NOT relayable yet — it needs bounded
+ * backpressure first (slice 2).
+ */
+export type WorkerSubPayload = DistributiveOmit<SubMessage, 't' | 'subId'>;
+
+/** Node consumer → bridge: attach as a worker-relay consumer (NOT a peer —
+ *  a consumer never replaces the browser tab in last-connection-wins). */
+export interface AttachFromConsumer {
+  type: 'attach';
+  protocol: 1;
+}
+
+/** Bridge → Node consumer: attach acknowledged. */
+export interface AttachAckFromBridge {
+  type: 'attach-ack';
+  protocol: 1;
+  bridgeVersion: string;
+  /** Whether a browser tab is currently registered as the sandbox peer. */
+  peerConnected: boolean;
+}
+
+/** Toward the worker: dispatch this one-shot op. (consumer→bridge and
+ *  bridge→browser use the same shape; `id` is per-leg.) */
+export interface WorkerOpFrame {
+  type: 'worker-op';
+  /** Correlation id — echoed back in the matching `worker-res`. */
+  id: string;
+  op: WorkerOpPayload;
+}
+
+/** Away from the worker: the relayed op result. */
+export interface WorkerResFrame {
+  type: 'worker-res';
+  id: string;
+  /** When `ok === false`, `error` is populated and `value` omitted. */
+  ok: boolean;
+  value?: unknown;
+  error?: { code: string; message: string };
+}
+
+/** Toward the worker: register a subscription. Re-issued by the bridge to a
+ *  NEW peer on reconnect/replacement (value subs re-deliver a fresh initial
+ *  snapshot, so replay is cursor-free and last-value-wins-safe). */
+export interface WorkerSubFrame {
+  type: 'worker-sub';
+  subId: string;
+  sub: WorkerSubPayload;
+}
+
+/** Toward the worker: tear a subscription down. */
+export interface WorkerUnsubFrame {
+  type: 'worker-unsub';
+  subId: string;
+}
+
+/** Away from the worker: one streamed snapshot for a subscription. A failed
+ *  ESTABLISHMENT also arrives here as `value: { __error: { code, message } }`
+ *  (the worker host's snap-error convention) — relays forward it verbatim. */
+export interface WorkerSnapFrame {
+  type: 'worker-snap';
+  subId: string;
+  value: unknown;
+}
+
 /** Either direction: ping for keepalive / liveness detection. */
 export interface Ping {
   type: 'ping';
@@ -123,8 +225,15 @@ export interface Pong {
 export type BridgeMessage =
   | HelloFromClient
   | HelloFromBridge
+  | AttachFromConsumer
+  | AttachAckFromBridge
   | ToolCallRequest
   | ToolCallResponse
+  | WorkerOpFrame
+  | WorkerResFrame
+  | WorkerSubFrame
+  | WorkerUnsubFrame
+  | WorkerSnapFrame
   | Ping
   | Pong;
 
@@ -135,8 +244,15 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
   return (
     t === 'hello' ||
     t === 'hello-ack' ||
+    t === 'attach' ||
+    t === 'attach-ack' ||
     t === 'tool-call' ||
     t === 'tool-result' ||
+    t === 'worker-op' ||
+    t === 'worker-res' ||
+    t === 'worker-sub' ||
+    t === 'worker-unsub' ||
+    t === 'worker-snap' ||
     t === 'ping' ||
     t === 'pong'
   );
@@ -145,3 +261,7 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
 /** Error returned by MCP when no browser tab is currently connected. */
 export const NO_SANDBOX_ERROR_MESSAGE =
   'sandbox not connected. Open your dev server in a browser and refresh the page so the bridge client can register.';
+
+/** Error for worker ops against a peer that predates the worker relay. */
+export const NO_WORKER_RELAY_ERROR_MESSAGE =
+  'the connected browser tab does not support the worker relay — reload the tab (and update pyric if reloading does not help).';

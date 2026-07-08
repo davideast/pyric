@@ -21,11 +21,16 @@ import type {
   HelloFromClient,
   ToolCallRequest,
   ToolCallResponse,
+  WorkerOpFrame,
+  WorkerSubFrame,
+  WorkerOpPayload,
+  WorkerSubPayload,
 } from '../protocol.js';
 import {
   isBridgeMessage,
   DEFAULT_BRIDGE_PORT,
   DEFAULT_SANDBOX_PATH,
+  WORKER_RELAY_CAPABILITY,
 } from '../protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from './dispatch.js';
 
@@ -63,6 +68,26 @@ export interface ConnectBridgeOptions {
   noReconnect?: boolean;
   /** Called whenever the client transitions connection state. */
   onStateChange?: (state: ConnectedBridgeState) => void;
+  /**
+   * Generic worker relay (remote sandbox, slice 1). When supplied, the
+   * client advertises the `worker-relay` capability in its hello and routes
+   * `worker-op` / `worker-sub` / `worker-unsub` frames through it — on the
+   * worker path this forwards them into the SharedWorker port
+   * (`relayWorkerOp` / `relayWorkerSub` in `serve/worker/client.ts`).
+   */
+  workerRelay?: WorkerRelay;
+}
+
+/** Host-supplied handlers that forward relay frames into the SharedWorker. */
+export interface WorkerRelay {
+  /** Dispatch one worker op; resolves with the worker's `res.value`. */
+  op(op: WorkerOpPayload): Promise<unknown>;
+  /**
+   * Register a worker subscription; `onValue` receives every snap value
+   * (including the `{ __error }` establishment-failure convention).
+   * Returns the unsubscribe function.
+   */
+  subscribe(sub: WorkerSubPayload, onValue: (value: unknown) => void): () => void;
 }
 
 export type ConnectedBridgeState =
@@ -107,11 +132,26 @@ export function connectBridge(
   const noReconnect = opts.noReconnect ?? false;
   const onStateChange = opts.onStateChange ?? (() => {});
 
+  const workerRelay = opts.workerRelay ?? null;
+
   let ws: WebSocket | null = null;
   let closed = false;
   let attempt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let currentState: ConnectedBridgeState = { kind: 'connecting' };
+  /** Live relay subscriptions (bridge subId → worker unsubscribe). Torn down
+   *  on every socket close: the bridge re-issues its registry to the NEXT
+   *  registered peer, so keeping these would double-deliver. */
+  const relaySubs = new Map<string, () => void>();
+
+  function teardownRelaySubs() {
+    for (const unsubscribe of relaySubs.values()) {
+      try {
+        unsubscribe();
+      } catch {}
+    }
+    relaySubs.clear();
+  }
 
   function setState(next: ConnectedBridgeState) {
     currentState = next;
@@ -151,6 +191,7 @@ export function connectBridge(
         protocol: 1,
         tools: toolNames,
         sandboxId,
+        ...(workerRelay ? { capabilities: [WORKER_RELAY_CAPABILITY] } : {}),
       };
       send(hello);
     };
@@ -172,6 +213,24 @@ export function connectBridge(
         void handleToolCall(parsed);
         return;
       }
+      if (parsed.type === 'worker-op') {
+        void handleWorkerOp(parsed);
+        return;
+      }
+      if (parsed.type === 'worker-sub') {
+        handleWorkerSub(parsed);
+        return;
+      }
+      if (parsed.type === 'worker-unsub') {
+        const unsubscribe = relaySubs.get(parsed.subId);
+        if (unsubscribe) {
+          relaySubs.delete(parsed.subId);
+          try {
+            unsubscribe();
+          } catch {}
+        }
+        return;
+      }
       if (parsed.type === 'ping') {
         send({ type: 'pong', id: parsed.id });
         return;
@@ -183,6 +242,10 @@ export function connectBridge(
     socket.onclose = (event: CloseEvent) => {
       const reason = event.reason || `closed (code ${event.code})`;
       ws = null;
+      // Relay subs are per-connection: the bridge owns the durable registry
+      // and re-issues it after the next hello, so live worker listeners from
+      // THIS connection must go now (or the next connection double-delivers).
+      teardownRelaySubs();
       scheduleReconnect(reason);
     };
 
@@ -216,6 +279,48 @@ export function connectBridge(
     send(response);
   }
 
+  async function handleWorkerOp(req: WorkerOpFrame) {
+    if (!workerRelay) return; // capability not advertised — drop (wire drift)
+    try {
+      const value = await workerRelay.op(req.op);
+      send({ type: 'worker-res', id: req.id, ok: true, value });
+    } catch (err) {
+      send({
+        type: 'worker-res',
+        id: req.id,
+        ok: false,
+        error: {
+          code: (err as { code?: string }).code ?? 'unknown',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      });
+    }
+  }
+
+  function handleWorkerSub(req: WorkerSubFrame) {
+    if (!workerRelay) return; // capability not advertised — drop (wire drift)
+    if (relaySubs.has(req.subId)) return; // idempotent
+    try {
+      const unsubscribe = workerRelay.subscribe(req.sub, (value) => {
+        send({ type: 'worker-snap', subId: req.subId, value });
+      });
+      relaySubs.set(req.subId, unsubscribe);
+    } catch (err) {
+      // Synchronous establishment failure — relay it via the worker host's
+      // snap-error convention so the far side's subscribe can reject.
+      send({
+        type: 'worker-snap',
+        subId: req.subId,
+        value: {
+          __error: {
+            code: (err as { code?: string }).code ?? 'unknown',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        },
+      });
+    }
+  }
+
   function scheduleReconnect(reason: string) {
     if (closed) return;
     if (noReconnect) {
@@ -237,6 +342,7 @@ export function connectBridge(
   return {
     disconnect() {
       closed = true;
+      teardownRelaySubs();
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;

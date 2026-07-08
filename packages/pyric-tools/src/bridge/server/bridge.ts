@@ -22,8 +22,16 @@ import type {
   BridgeMode,
   HealthReport,
   ToolCallResponse,
+  WorkerOpPayload,
+  WorkerSubPayload,
+  WorkerResFrame,
+  WorkerSnapFrame,
 } from '../protocol.js';
-import { NO_SANDBOX_ERROR_MESSAGE } from '../protocol.js';
+import {
+  NO_SANDBOX_ERROR_MESSAGE,
+  NO_WORKER_RELAY_ERROR_MESSAGE,
+  WORKER_RELAY_CAPABILITY,
+} from '../protocol.js';
 import type { ConfirmHandler, ConfirmDecision } from './confirm.js';
 
 /** Subset of `@inbrowser/agent`'s `ToolResult` shape the bridge emits. */
@@ -117,11 +125,35 @@ export interface Bridge {
    * caller MUST invoke when the WS closes. Last-wins: a new
    * registration disconnects the previous peer (its pending calls
    * fail with a clear error).
+   *
+   * `capabilities` come from the peer's `hello` — the bridge only sends
+   * `worker-*` frames to a peer that declared `'worker-relay'`.
+   *
+   * `onReplaced` fires when a NEWER registration displaces this peer. The
+   * transport MUST use it to close the old socket: the browser side's
+   * close handler tears down its relayed worker subscriptions — without
+   * this, a replaced tab's SharedWorker listeners would live until the tab
+   * closed, streaming snaps the bridge drops as stale-generation forever.
    */
-  registerSandboxPeer(send: SendToPeer, tools: string[], sandboxId: string): () => void;
+  registerSandboxPeer(
+    send: SendToPeer,
+    tools: string[],
+    sandboxId: string,
+    capabilities?: string[],
+    onReplaced?: () => void,
+  ): () => void;
 
   /** True if a sandbox peer is currently registered. */
   isSandboxConnected(): boolean;
+
+  /**
+   * Generation counter of the CURRENT peer registration (0 = no peer has
+   * ever registered). The transport captures this right after registering
+   * and tags every inbound message with it, so a frame arriving on a
+   * REPLACED peer's socket (tab refresh mid-flight) can never resolve a new
+   * peer's pending call or deliver a stale subscription snapshot.
+   */
+  peerGeneration(): number;
 
   /** Tool names the bridge currently exposes to MCP. */
   toolNames(): string[];
@@ -129,8 +161,31 @@ export interface Bridge {
   /** Dispatch a tool call. Forwards to peer in sandbox mode. */
   dispatch(name: string, args: Record<string, unknown>): Promise<BridgeToolResult>;
 
-  /** Handle a message from the sandbox peer (tool-result, pong, …). */
-  handleSandboxMessage(msg: BridgeMessage): void;
+  /**
+   * Relay a generic worker op to the peer's SharedWorker. Resolves with the
+   * worker's `res.value`; rejects with an Error carrying `.code` on worker
+   * failure, timeout, no peer, or a peer without the worker relay.
+   */
+  dispatchWorkerOp(op: WorkerOpPayload): Promise<unknown>;
+
+  /**
+   * Register a worker subscription. Ownership lives HERE: the registry
+   * survives peer churn, and every registered sub is re-issued to a new
+   * peer on registration (RTDB value / auth-state subs re-deliver a fresh
+   * initial snapshot, so replay is cursor-free). `onSnap` receives every
+   * relayed snap value verbatim — including the worker host's
+   * `{ __error: { code, message } }` establishment-failure convention.
+   * Returns the unsubscribe function.
+   */
+  subscribeWorker(sub: WorkerSubPayload, onSnap: (value: unknown) => void): () => void;
+
+  /**
+   * Handle a message from the sandbox peer (tool-result, pong, …).
+   * `generation` is the peer generation the transport captured at
+   * registration; when provided, `worker-res`/`worker-snap` frames from a
+   * stale generation are dropped.
+   */
+  handleSandboxMessage(msg: BridgeMessage, generation?: number): void;
 
   /** /health endpoint payload. */
   health(): HealthReport;
@@ -147,6 +202,27 @@ interface ActivePeer {
   send: SendToPeer;
   tools: Set<string>;
   sandboxId: string;
+  capabilities: Set<string>;
+  onReplaced?: () => void;
+}
+
+interface PendingWorkerOp {
+  resolve: (value: unknown) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+  method: string;
+}
+
+interface WorkerSubEntry {
+  sub: WorkerSubPayload;
+  onSnap: (value: unknown) => void;
+}
+
+/** Build the typed Error worker-op rejections carry. */
+function workerOpError(code: string, message: string): Error & { code: string } {
+  const err = new Error(message) as Error & { code: string };
+  err.code = code;
+  return err;
 }
 
 export function createBridge(opts: BridgeOptions): Bridge {
@@ -164,6 +240,15 @@ export function createBridge(opts: BridgeOptions): Bridge {
 
   let peer: ActivePeer | null = null;
   const pending = new Map<string, PendingCall>();
+  // ── worker relay state ──
+  // Generation counter: bumped on every peer registration. Inbound frames
+  // tagged with an older generation are stale (a replaced tab's socket) and
+  // must not resolve ops / deliver snaps registered under the new peer.
+  let generation = 0;
+  const workerPending = new Map<string, PendingWorkerOp>();
+  // Subscription ownership lives on the bridge: entries survive peer churn
+  // and are re-issued to every newly registered relay-capable peer.
+  const workerSubs = new Map<string, WorkerSubEntry>();
 
   function failAllPending(reason: string) {
     for (const call of pending.values()) {
@@ -174,23 +259,60 @@ export function createBridge(opts: BridgeOptions): Bridge {
       });
     }
     pending.clear();
+    for (const op of workerPending.values()) {
+      clearTimeout(op.timer);
+      op.reject(workerOpError('unavailable', reason));
+    }
+    workerPending.clear();
+  }
+
+  function peerHasRelay(): boolean {
+    return peer !== null && peer.capabilities.has(WORKER_RELAY_CAPABILITY);
   }
 
   function registerSandboxPeer(
     send: SendToPeer,
     tools: string[],
     sandboxId: string,
+    capabilities: string[] = [],
+    onReplaced?: () => void,
   ): () => void {
     if (peer) {
       // Last-wins: kick the old peer and reject its pending calls.
       failAllPending('sandbox peer replaced by a newer connection');
+      // Tear the old peer down (the transport closes its socket). The
+      // browser's close handler tears down its relayed worker
+      // subscriptions — otherwise the replaced tab's SharedWorker
+      // listeners would keep posting snaps this bridge drops as
+      // stale-generation until the tab closed.
+      try {
+        peer.onReplaced?.();
+      } catch {
+        // A failing transport hook must not block the new registration.
+      }
     }
+    generation += 1;
     const myPeer: ActivePeer = {
       send,
       tools: new Set(tools),
       sandboxId,
+      capabilities: new Set(capabilities),
+      onReplaced,
     };
     peer = myPeer;
+    // Re-issue every registered worker subscription to the new peer. RTDB
+    // value / auth-state semantics make this safe and cursor-free: each
+    // (re)subscribe delivers a fresh initial snapshot and consumers are
+    // last-value-wins, so the Node side just sees one extra snapshot.
+    if (myPeer.capabilities.has(WORKER_RELAY_CAPABILITY)) {
+      for (const [subId, entry] of workerSubs) {
+        try {
+          myPeer.send({ type: 'worker-sub', subId, sub: entry.sub });
+        } catch {
+          // Socket failure surfaces via the transport's close handler.
+        }
+      }
+    }
     return () => {
       if (peer === myPeer) {
         failAllPending(NO_SANDBOX_ERROR_MESSAGE);
@@ -201,6 +323,10 @@ export function createBridge(opts: BridgeOptions): Bridge {
 
   function isSandboxConnected(): boolean {
     return peer !== null;
+  }
+
+  function peerGeneration(): number {
+    return generation;
   }
 
   function toolNames(): string[] {
@@ -301,7 +427,105 @@ export function createBridge(opts: BridgeOptions): Bridge {
     });
   }
 
-  function handleSandboxMessage(msg: BridgeMessage): void {
+  function dispatchWorkerOp(op: WorkerOpPayload): Promise<unknown> {
+    if (!peer) {
+      return Promise.reject(workerOpError('unavailable', NO_SANDBOX_ERROR_MESSAGE));
+    }
+    if (!peerHasRelay()) {
+      return Promise.reject(workerOpError('unimplemented', NO_WORKER_RELAY_ERROR_MESSAGE));
+    }
+    return new Promise<unknown>((resolve, reject) => {
+      const id = randomUUID();
+      const timer = setTimeout(() => {
+        if (workerPending.has(id)) {
+          workerPending.delete(id);
+          reject(
+            workerOpError(
+              'deadline-exceeded',
+              `sandbox worker op timed out after ${callTimeoutMs}ms (op: ${op.method})`,
+            ),
+          );
+        }
+      }, callTimeoutMs);
+      workerPending.set(id, { resolve, reject, timer, method: op.method });
+      try {
+        peer!.send({ type: 'worker-op', id, op });
+      } catch (err) {
+        clearTimeout(timer);
+        workerPending.delete(id);
+        reject(
+          workerOpError(
+            'unavailable',
+            `failed to send worker op to sandbox: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        );
+      }
+    });
+  }
+
+  function subscribeWorker(
+    sub: WorkerSubPayload,
+    onSnap: (value: unknown) => void,
+  ): () => void {
+    const subId = randomUUID();
+    workerSubs.set(subId, { sub, onSnap });
+    if (peerHasRelay()) {
+      try {
+        peer!.send({ type: 'worker-sub', subId, sub });
+      } catch {
+        // Socket failure surfaces via the transport's close handler; the
+        // registry entry replays on the next peer registration.
+      }
+    }
+    // No peer (or a relay-less peer) is NOT an error here: the registry is
+    // replayed on the next registration, mirroring RTDB's offline semantics.
+    return () => {
+      if (!workerSubs.delete(subId)) return;
+      if (peerHasRelay()) {
+        try {
+          peer!.send({ type: 'worker-unsub', subId });
+        } catch {}
+      }
+    };
+  }
+
+  function handleSandboxMessage(msg: BridgeMessage, msgGeneration?: number): void {
+    // Frames from a REPLACED peer's socket must not act on the current
+    // peer's state (subscriptions make stale delivery likely on tab
+    // refresh: the old tab's worker port keeps firing until its WS dies).
+    const stale = msgGeneration !== undefined && msgGeneration !== generation;
+    switch (msg.type) {
+      case 'worker-res': {
+        if (stale) return;
+        const res = msg as WorkerResFrame;
+        const op = workerPending.get(res.id);
+        if (!op) return; // late or unknown — drop silently
+        clearTimeout(op.timer);
+        workerPending.delete(res.id);
+        if (res.ok) {
+          op.resolve(res.value);
+        } else {
+          op.reject(
+            workerOpError(res.error?.code ?? 'unknown', res.error?.message ?? 'unknown sandbox error'),
+          );
+        }
+        return;
+      }
+      case 'worker-snap': {
+        if (stale) return;
+        const snap = msg as WorkerSnapFrame;
+        const entry = workerSubs.get(snap.subId);
+        if (!entry) return; // unsubscribed or unknown — drop silently
+        try {
+          entry.onSnap(snap.value);
+        } catch {
+          // Consumer callback failures must not break the relay loop.
+        }
+        return;
+      }
+      default:
+        break;
+    }
     switch (msg.type) {
       case 'tool-result': {
         const response = msg as ToolCallResponse;
@@ -377,8 +601,11 @@ export function createBridge(opts: BridgeOptions): Bridge {
     recordToolEvent,
     registerSandboxPeer,
     isSandboxConnected,
+    peerGeneration,
     toolNames,
     dispatch,
+    dispatchWorkerOp,
+    subscribeWorker,
     handleSandboxMessage,
     health,
   };

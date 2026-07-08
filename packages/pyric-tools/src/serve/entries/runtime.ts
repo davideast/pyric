@@ -26,6 +26,8 @@ import {
   getFirestore as workerGetFirestore,
   getWorkerVersion,
   callTool as workerCallTool,
+  relayWorkerOp,
+  relayWorkerSub,
   getAuth as workerGetAuth,
   onAuthStateChanged as workerOnAuthStateChanged,
   restorePortSession as workerRestorePortSession,
@@ -512,6 +514,14 @@ async function connectBridgePeer(rawUrl: string): Promise<void> {
     connectBridge(sandbox, {
       url,
       dispatcher: (_sandbox, name, args) => workerCallTool(wdb, name, args),
+      // Generic worker relay (remote sandbox, slice 1): server-side Node code
+      // (`connectRemoteSandbox`) reaches THIS page's SharedWorker through the
+      // bridge — ops and snap-delivering subscriptions pass straight through
+      // to the one sandbox the app + Studio + agent share.
+      workerRelay: {
+        op: (op) => relayWorkerOp(wdb, op),
+        subscribe: (sub, onValue) => relayWorkerSub(wdb, sub, onValue),
+      },
     });
   } else {
     connectBridge(sandbox, { url });
