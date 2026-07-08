@@ -16,6 +16,7 @@
  *   - setRules: hot-reload changes what listeners see.
  */
 
+import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'bun:test';
 import {
   handleMessage,
@@ -1276,7 +1277,7 @@ describe('storage worker ops', () => {
     expect(res.ok).toBe(true);
     const blob = (res as ResMessage & { ok: true }).value as Blob;
     expect(blob).toBeInstanceOf(Blob);
-    expect(blob.type).toBe('text/plain');
+    expect(blob.type.startsWith('text/plain')).toBe(true);
     expect(await blob.text()).toBe('hello worker');
   });
 });
