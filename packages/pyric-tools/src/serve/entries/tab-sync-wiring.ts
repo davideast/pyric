@@ -1,5 +1,5 @@
 /**
- * Cross-tab realtime sync wiring for `pyric serve`.
+ * Cross-tab realtime sync wiring for `pyric dev`.
  *
  * Two independent channels carry two independent kinds of state:
  *
@@ -112,7 +112,7 @@ export interface AuthOps {
  * @param originId    Optional injected origin ID (omit in production).
  *
  * @returns A disable function that removes all listeners and closes the channel.
- *          Safe to ignore in `pyric serve` — the tab is the lifetime.
+ *          Safe to ignore in `pyric dev` — the tab is the lifetime.
  */
 export function wireAuthTabSync(
   auth: Auth,

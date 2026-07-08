@@ -325,7 +325,7 @@ function dataRpc(port: MessagePort, msg: InboundMessage & { t: 'op' }): Promise<
 /**
  * Connect to the SharedWorker and return a client Firestore handle.
  *
- * Pass the URL of the SharedWorker script as `workerUrl`. Under `pyric serve`
+ * Pass the URL of the SharedWorker script as `workerUrl`. Under `pyric dev`
  * this is `/__pyric/sdk/worker.js`; for tests or standalone use, pass the path
  * explicitly.
  *

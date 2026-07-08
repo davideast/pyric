@@ -26,8 +26,8 @@
  *   - the local in-process arm still selected for plain sandboxes
  */
 
-import { describe, it, expect } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { afterEach, describe, it, expect } from 'bun:test';
+import { REMOTE_SANDBOX_FACTORY, initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import type { AuthUserRecord } from 'pyric/auth';
 
@@ -52,13 +52,20 @@ import type {
   OutboundMessage,
 } from '../../../pyric-tools/src/serve/worker/protocol.js';
 
-import { initializeApp } from '../../src/app/index.js';
+import { initializeApp, deleteApp, getApps } from '../../src/app/index.js';
 import { getDatabase } from '../../src/database/index.js';
 import { getAuth } from '../../src/auth/index.js';
 
 // ─── Harness (checkpoint 1's, minus persistence — not needed here) ─────────
 
 const SERVE_URL = 'http://localhost:5000';
+
+// The app registry is module-global (mirror of firebase-admin's
+// defaultAppStore) — deregister every app after each test so repeated
+// unnamed `initializeApp({ sandbox })` calls don't collide.
+afterEach(async () => {
+  await Promise.all(getApps().map((app) => deleteApp(app)));
+});
 
 function makeWorkerCtx(): HostCtx {
   const sandbox = initializeSandbox();
@@ -467,6 +474,61 @@ describe('remote sandbox handle — sync-only Sandbox members', () => {
 });
 
 // ─── No-peer failure mode through the admin API ─────────────────────────────
+
+// ─── Ambient init on the remote arm (adoption experience, layer 3) ──────────
+
+describe('remote dispatch — ambient init (bare initializeApp + no-arg handles)', () => {
+  it('routes no-arg getDatabase()/getAuth() through the worker via the factory global', async () => {
+    // Same headless stack, but the app comes from a BARE initializeApp():
+    // PYRIC_SANDBOX activates, and the factory global (here: a fake
+    // installed the way `pyric-tools/register` would) mints the real
+    // branded remote handle.
+    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const ctx = makeWorkerCtx();
+    connectTab(bridge, ctx);
+    const remote = connectRemote(bridge);
+
+    const g = globalThis as { [REMOTE_SANDBOX_FACTORY]?: unknown };
+    const prevFactory = g[REMOTE_SANDBOX_FACTORY];
+    const prevEnv = process.env.PYRIC_SANDBOX;
+    const prevWrite = process.stderr.write.bind(process.stderr);
+    const logged: string[] = [];
+    process.stderr.write = ((chunk: unknown) => {
+      logged.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      process.env.PYRIC_SANDBOX = 'remote';
+      g[REMOTE_SANDBOX_FACTORY] = () => remote;
+
+      const app = initializeApp(); // ZERO pyric identifiers needed
+      expect(logged).toEqual(['pyric: firebase-admin routed to sandbox\n']);
+
+      // No-arg getDatabase resolves '[DEFAULT]' and takes the REMOTE arm:
+      // the write lands in the worker's tree (independent direct port).
+      const db = getDatabase();
+      await db.ref('ambient/probe').set({ via: 'ambient-remote' });
+      expect(await workerRtdbGet(ctx, 'ambient/probe')).toEqual({
+        via: 'ambient-remote',
+      });
+      expect(getDatabase()).toBe(getDatabase(app)); // same singleton handle
+
+      // No-arg getAuth relays to the worker's ONE user pool.
+      const auth = getAuth();
+      const created = await auth.createUser({ email: 'ambient@example.com' });
+      const workerUsers = (await workerOp(ctx, {
+        method: 'auth.listUsers',
+      })) as AuthUserRecord[];
+      expect(workerUsers.map((u) => u.uid)).toEqual([created.uid]);
+    } finally {
+      process.stderr.write = prevWrite;
+      if (prevEnv === undefined) delete process.env.PYRIC_SANDBOX;
+      else process.env.PYRIC_SANDBOX = prevEnv;
+      if (prevFactory === undefined) delete g[REMOTE_SANDBOX_FACTORY];
+      else g[REMOTE_SANDBOX_FACTORY] = prevFactory;
+    }
+  });
+});
 
 describe('remote dispatch — no browser tab connected', () => {
   it('RTDB and Auth calls fail fast with the "open <serve url>" guidance', async () => {

@@ -172,7 +172,7 @@ export interface WorkerLivePlane {
 }
 
 /**
- * URL of the served SharedWorker script under `pyric serve`. The worker is
+ * URL of the served SharedWorker script under `pyric dev`. The worker is
  * served at the SDK namespace; this is the stable path the served page uses.
  */
 export const DEFAULT_WORKER_URL = '/__pyric/sdk/worker.js';

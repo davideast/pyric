@@ -25,7 +25,7 @@ const DEFAULT_FLUSH_INTERVAL_MS = 250;
  * Storage key for the persisted auth session uid. One key used across
  * both `local` and `session` stores — the controller reads both (mode-
  * agnostic load) and writes only one (based on the current mode). This
- * mirrors how `pyric serve`'s `SessionStore` worked before the session
+ * mirrors how `pyric dev`'s `SessionStore` worked before the session
  * logic moved here.
  *
  * Prefixed `pyric:sandbox:` so it's immediately grepable and doesn't

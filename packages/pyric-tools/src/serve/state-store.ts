@@ -1,5 +1,5 @@
 /**
- * On-disk state store for `pyric serve --persist` — the substrate side of
+ * On-disk state store for `pyric dev --persist` — the substrate side of
  * flow doc section 3c ("persistence = an autosaved seed").
  *
  * The file is an ENVELOPE around two sections:

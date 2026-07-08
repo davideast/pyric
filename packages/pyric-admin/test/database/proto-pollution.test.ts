@@ -10,10 +10,16 @@
  * rejects `__proto__`/`prototype`/`constructor`, and the walks read
  * own-only.
  */
-import { describe, test, expect } from 'bun:test';
+import { afterEach, describe, test, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { initializeApp } from '../../src/app/index.js';
+import { initializeApp, deleteApp, getApps } from '../../src/app/index.js';
 import { getDatabase } from '../../src/database/index.js';
+
+// Deregister the unnamed default app after each test (the registry is
+// module-global, mirroring firebase-admin's defaultAppStore).
+afterEach(async () => {
+  await Promise.all(getApps().map((app) => deleteApp(app)));
+});
 
 function makeDb() {
   const app = initializeApp({ sandbox: initializeSandbox() });

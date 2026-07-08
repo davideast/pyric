@@ -1,6 +1,6 @@
 /**
  * `httpPersistence(baseUrl)`: a {@link PersistenceBackend} (sandbox durable
- * state) over the pyric server's existing `--persist` channel, `/__pyric/state`.
+ * state) over the pyric devr's existing `--persist` channel, `/__pyric/state`.
  *
  * The {@link PersistenceBackend} contract is a generic `key → blob` store, but
  * the server's state route is SECTION-keyed (`firestore` | `auth`) and guarded

@@ -37,21 +37,21 @@ Verify a build:
 bun run --cwd packages/pyric-tools smoke:standalone
 ```
 
-## How `serve` works in the binary
+## How `dev` works in the binary
 
-Every command runs from the binary, including `serve` — the headline one.
+Every command runs from the binary, including `dev` — the headline one.
 
-Normally `pyric serve` bundles its `firebase/*` → sandbox SDK shims with esbuild
+Normally `pyric dev` bundles its `firebase/*` → sandbox SDK shims with esbuild
 **at runtime**, reading the installed `pyric` dist. Neither esbuild's native
 helper nor that on-disk dist exist inside a compiled binary's virtual
 filesystem. But those bundles are **deterministic** — a pure function of
 pyric-tools' wrapper entries and the `pyric` version baked into pyric-tools, not
-your project (serve ships its *own* sandbox; your app just imports `firebase/*`).
+your project (pyric dev ships its *own* sandbox; your app just imports `firebase/*`).
 
 So the compile step runs the bundler **once on the build host** and embeds the
 result — the SDK + worker bundles and the Studio UI — into the binary. At
-runtime `serve` materializes those bytes to a temp dir and serves them
-unchanged. `serve`, `serve --ui`, and `serve --bridge` all work fully offline.
+runtime `dev` materializes those bytes to a temp dir and serves them
+unchanged. `dev`, `dev --ui`, and `dev --bridge` all work fully offline.
 `--no-cache` is a no-op in the binary (there is nothing to rebuild).
 
 ## How `init` scaffolds an installable project (vendoring)
@@ -104,4 +104,4 @@ bun run --cwd packages/pyric-tools smoke:vendor
 - The embedded SDK bundle is pinned to the `pyric` version compiled in. To ship
   a new `pyric`, rebuild the binary.
 - Sourcemaps are not embedded (they 4× the size and only serve devtools); the
-  npm `serve` path still emits them.
+  npm `dev` path still emits them.

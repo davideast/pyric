@@ -1,7 +1,7 @@
 {
   "name": "@pyric/studio",
   "version": "0.0.0",
-  "description": "Pyric Studio — the data-management and debugging console for the pyric sandbox, served by `pyric serve --ui`. Cross-service viewer/editor, action center, traffic, rules-failure debugging, and the agentic build flow over one event stream.",
+  "description": "Pyric Studio — the data-management and debugging console for the pyric sandbox, served by `pyric dev --ui`. Cross-service viewer/editor, action center, traffic, rules-failure debugging, and the agentic build flow over one event stream.",
   "type": "module",
   "exports": {
     "./ports": {

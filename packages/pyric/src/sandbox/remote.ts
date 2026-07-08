@@ -78,12 +78,44 @@ export interface RemoteSandboxChannel {
  */
 export interface RemoteSandbox extends Sandbox {
   readonly [REMOTE_SANDBOX]: true;
-  /** Base URL of the `pyric serve` this handle is attached to (used in
+  /** Base URL of the `pyric dev` this handle is attached to (used in
    *  error guidance: "open <serveUrl> in a browser and retry"). */
   readonly serveUrl: string;
   /** The raw worker op/sub relay channel. */
   readonly channel: RemoteSandboxChannel;
 }
+
+/**
+ * Well-known global key under which `pyric-tools/register` installs the
+ * remote-sandbox factory: `globalThis[REMOTE_SANDBOX_FACTORY]`.
+ *
+ * This is the AMBIENT-INIT seam (adoption experience, layer 3): when
+ * `pyric-admin/app`'s bare `initializeApp()` sees `PYRIC_SANDBOX=remote[:url]`
+ * it reads this global and calls the installed {@link RemoteSandboxFactory}
+ * to obtain the branded handle — without importing `pyric-tools` (which is
+ * a devDependency of the app, not of `pyric-admin`). `Symbol.for` so the
+ * installer and the reader agree even across duplicated copies of `pyric`.
+ */
+export const REMOTE_SANDBOX_FACTORY = Symbol.for('pyric.remote.sandboxFactory');
+
+/** Options accepted by the ambient remote-sandbox factory. */
+export interface RemoteSandboxFactoryOptions {
+  /** Explicit `pyric dev` base URL (from `PYRIC_SANDBOX=remote:<url>`).
+   *  When omitted the factory discovers the running host itself (the
+   *  `.pyric/serve.json` locator protocol). */
+  url?: string;
+}
+
+/**
+ * The factory `pyric-tools/register` installs at
+ * `globalThis[`{@link REMOTE_SANDBOX_FACTORY}`]`. SYNCHRONOUS by contract:
+ * `initializeApp()` is sync in firebase-admin, so the factory must return
+ * the branded handle without awaiting (connection establishment may be
+ * lazy inside the handle's channel).
+ */
+export type RemoteSandboxFactory = (
+  opts?: RemoteSandboxFactoryOptions,
+) => RemoteSandbox;
 
 /**
  * Is this sandbox a remote handle? Backend dispatch guard for consumers

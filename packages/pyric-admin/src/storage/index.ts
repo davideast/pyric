@@ -44,7 +44,7 @@ import type { Sandbox } from 'pyric/sandbox';
 
 import {
   ADMIN_APP_TARGET,
-  resolveApp,
+  getApp,
   type PyricAdminApp,
   type ProdAdminApp,
   type SandboxAdminApp,
@@ -192,13 +192,13 @@ export type StorageApp = PyricAdminApp;
  */
 export function getStorage(app?: StorageApp): Storage {
   // No-arg call resolves the default app; nothing initialized → captured
-  // `app/no-app` FirebaseAppError (see resolveApp).
-  app = resolveApp(app);
-  if (app[ADMIN_APP_TARGET] === 'sandbox') {
-    return getSandboxStorage(app);
+  // `app/no-app` FirebaseAppError (see pyric-admin/app getApp).
+  const resolved: PyricAdminApp = app === undefined ? getApp() : (app as PyricAdminApp);
+  if (resolved[ADMIN_APP_TARGET] === 'sandbox') {
+    return getSandboxStorage(resolved);
   }
-  if (app[ADMIN_APP_TARGET] === 'prod') {
-    return getProdStorageHandle(app);
+  if (resolved[ADMIN_APP_TARGET] === 'prod') {
+    return getProdStorageHandle(resolved);
   }
   // Defensive: the union is closed at the type level. A runtime value
   // that lands here means a caller forged a handle without going

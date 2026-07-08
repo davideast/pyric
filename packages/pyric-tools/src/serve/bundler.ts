@@ -1,5 +1,5 @@
 /**
- * `pyric serve` SDK bundler — builds the browser-standalone ESM bundles the
+ * `pyric dev` SDK bundler — builds the browser-standalone ESM bundles the
  * import map points `firebase/*` at (`/__pyric/sdk/*.js`).
  *
  * esbuild (a real dependency — the `pyric` bin runs under node via npx, so
@@ -27,7 +27,7 @@
  *     pyric breaks that static chain (tracked in #553).
  *
  * Output is cached under `~/.pyric/serve-cache/<pyric-version>-<hash>/` so a
- * warm `pyric serve` start skips the (~seconds) bundle step. `--no-cache`
+ * warm `pyric dev` start skips the (~seconds) bundle step. `--no-cache`
  * bypasses.
  */
 import { createHash } from 'node:crypto';
@@ -58,7 +58,7 @@ export function defaultSdkEntries(): Record<string, string> {
     if (existsSync(js)) return js;
     const ts = join(here, 'entries', `${name}.ts`);
     if (existsSync(ts)) return ts;
-    throw new Error(`pyric serve: missing SDK entry '${name}' next to ${here}`);
+    throw new Error(`pyric dev: missing SDK entry '${name}' next to ${here}`);
   };
   return {
     app: pick('app'),
@@ -90,7 +90,7 @@ export function resolveStudioUiDir(): string | null {
 }
 
 /**
- * Resolve the built playground app dir. `pyric serve --ui` embeds this as the
+ * Resolve the built playground app dir. `pyric dev --ui` embeds this as the
  * first-class Studio Playground tab under `/__pyric/playground/`.
  */
 export function resolvePlaygroundUiDir(): string | null {
@@ -117,7 +117,7 @@ export function pyricPackageRoot(): string {
   }
   const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name?: string };
   if (pkg.name !== 'pyric') {
-    throw new Error(`pyric serve: expected to resolve the pyric package, found '${pkg.name}' at ${dir}`);
+    throw new Error(`pyric dev: expected to resolve the pyric package, found '${pkg.name}' at ${dir}`);
   }
   return dir;
 }
@@ -244,7 +244,7 @@ export const NODE_BUILTIN_RE = /^(node:)?(url|fs|path)$/;
  *  through its own resolveId/load + optimizeDeps esbuild pass, instead of
  *  re-deriving them. */
 export const NODE_BUILTIN_SHIMS: Record<string, string> = {
-  fs: `const no = () => { throw new Error('pyric serve: fs is not available in the browser'); };
+  fs: `const no = () => { throw new Error('pyric dev: fs is not available in the browser'); };
 export const readFileSync = no; export const existsSync = () => false;
 export const readdirSync = no; export const writeFileSync = no;
 export default { readFileSync, existsSync, readdirSync, writeFileSync };`,
@@ -355,13 +355,13 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
     // self-identify as the sandbox shim, not the real Firebase SDK.
     chunkNames: 'pyric-sandbox-[hash]',
     banner: {
-      js: '/* pyric serve: pyric sandbox shim serving firebase/* — NOT the real Firebase SDK */',
+      js: '/* pyric dev: pyric sandbox shim serving firebase/* — NOT the real Firebase SDK */',
     },
     plugins: [pyricResolvePlugin(), nodeShimPlugin(), firebaseStubPlugin(bindings)],
   });
   if (result.errors.length > 0) {
     throw new Error(
-      `pyric serve: SDK bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
+      `pyric dev: SDK bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
     );
   }
   writeFileSync(join(outDir, '.complete'), new Date().toISOString());
@@ -384,7 +384,7 @@ export function workerEntryPath(): string {
   if (existsSync(js)) return js;
   const ts = join(here, 'worker', 'entry.ts');
   if (existsSync(ts)) return ts;
-  throw new Error(`pyric serve: missing SharedWorker entry next to ${here}`);
+  throw new Error(`pyric dev: missing SharedWorker entry next to ${here}`);
 }
 
 export interface WorkerBundleOptions {
@@ -470,13 +470,13 @@ export async function bundleWorker(opts: WorkerBundleOptions): Promise<string> {
     // served bundle. Matches the `<meta name="pyric-worker-v">` value.
     define: { __PYRIC_WORKER_VERSION__: JSON.stringify(hash) },
     banner: {
-      js: '/* pyric serve: SharedWorker sandbox host serving firebase/* — NOT the real Firebase SDK */',
+      js: '/* pyric dev: SharedWorker sandbox host serving firebase/* — NOT the real Firebase SDK */',
     },
     plugins: [pyricResolvePlugin(), nodeShimPlugin(), firebaseStubPlugin(bindings)],
   });
   if (result.errors.length > 0) {
     throw new Error(
-      `pyric serve: SharedWorker bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
+      `pyric dev: SharedWorker bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
     );
   }
   writeFileSync(marker, hash);

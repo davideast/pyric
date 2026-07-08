@@ -108,7 +108,7 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
     } else {
       process.stderr.write(
         `pyric verify: no captured session at ${SERVE_CAPTURE_PATH}.\n` +
-          '  Run `pyric serve`, exercise your app, then `pyric verify`, or pass a fixture path.\n',
+          '  Run `pyric dev`, exercise your app, then `pyric verify`, or pass a fixture path.\n',
       );
     }
     return 2;

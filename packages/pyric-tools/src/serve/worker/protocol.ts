@@ -320,7 +320,7 @@ export interface PolicyOverrides {
  * WORKER-SIDE store (the source of truth Studio reflects + a future in-worker
  * agent runtime would consult); it does NOT reach into a running bridge process.
  * Pushing a live policy to an already-running bridge is a separate transport
- * (an HTTP control route on `pyric serve`, or a bridge restart) and is out of
+ * (an HTTP control route on `pyric dev`, or a bridge restart) and is out of
  * scope for the worker data-plane. This store is the additive, honest seam.
  */
 export interface PolicyRequest {

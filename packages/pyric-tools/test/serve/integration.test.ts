@@ -1,4 +1,4 @@
-/** `pyric serve` end-to-end over HTTP (plan step 1.7) — a real fixture
+/** `pyric dev` end-to-end over HTTP (plan step 1.7) — a real fixture
  *  project served by `startServe`, asserted the way a browser would see it.
  *  (The in-browser 6/6 behavioral check is the scripted manual gate — see
  *  the step doc; no playwright dep in pyric-tools.) */
@@ -58,7 +58,7 @@ afterAll(async () => {
   for (const r of stops) await r.handle.stop();
 });
 
-describe('pyric serve end-to-end (HTTP)', () => {
+describe('pyric dev end-to-end (HTTP)', () => {
   it('serves the fixture app exactly as a browser needs it', async () => {
     const cwd = fixtureProject();
     const cacheRoot = join(cwd, '.cache');

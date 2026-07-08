@@ -1,7 +1,7 @@
 /**
  * Hybrid MCP selector (Phase 2 of design rationale).
  *
- * When no `pyric serve --bridge` is discovered, `runMcpProxy` now hosts a
+ * When no `pyric dev --bridge` is discovered, `runMcpProxy` now hosts a
  * headless in-process sandbox instead of erroring (exit 2). The attach (relay)
  * path is unchanged and blocks on real stdin (so it is deliberately not exercised
  * here — doing so risks a hung test); we test the new fallback branch via the

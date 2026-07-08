@@ -6,7 +6,7 @@
  *   1. THE DEV-SEED (review / `vite dev`). `DevSeedProvider` builds an in-page
  *      seeded sandbox so Studio renders real data with no server. This is what
  *      makes the branch reviewable.
- *   2. THE ENVIRONMENT (`pyric serve --ui`). `EnvironmentProvider` resolves the
+ *   2. THE ENVIRONMENT (`pyric dev --ui`). `EnvironmentProvider` resolves the
  *      durable `local` backend; `useStudioData` hydrates a sandbox from it.
  *
  * Surfaces shouldn't care which one is live. This module resolves both and
@@ -183,7 +183,7 @@ function useWorkerRootCollections(live: WorkerLivePlane | undefined): string[] {
 /**
  * An {@link EventFeed} for the Action Center, dev-seed first. The seeded sandbox
  * satisfies the feed shape directly (`history()` + `onEvent`); otherwise the
- * live SharedWorker feed (`env.live.feed`) when `pyric serve --ui` is reachable,
+ * live SharedWorker feed (`env.live.feed`) when `pyric dev --ui` is reachable,
  * and the empty feed as the final fallback (SSR / no worker / tests).
  */
 export function useStudioEventFeed(): EventFeed {
@@ -283,7 +283,7 @@ export function useStudioDenials(): Denial[] {
 /**
  * A getter for the current sandbox snapshot (Pyric Studio rules re-run): the
  * dev-seed's in-process sandbox in review, or the live worker's snapshot under
- * `pyric serve --ui`. Studio forks the result to test a denied op against edited
+ * `pyric dev --ui`. Studio forks the result to test a denied op against edited
  * rules / re-issue it as the attempting user, all on a throwaway branch (no live
  * mutation). Resolves null when neither source is present (the re-run UI stays
  * off rather than guessing).
@@ -291,7 +291,7 @@ export function useStudioDenials(): Denial[] {
 /**
  * Deploy a ruleset to the live sandbox (Pyric Studio rules-fix "Apply"): the
  * dev-seed's in-process sandbox in review, or the live worker under
- * `pyric serve --ui`. The same `setRules` op the served app uses. Throws when
+ * `pyric dev --ui`. The same `setRules` op the served app uses. Throws when
  * neither source is present.
  */
 export function useStudioSetRules(): (source: string) => Promise<void> {

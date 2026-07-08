@@ -30,14 +30,14 @@ Commands that touch a **real Firebase project** (`deploy`, `auth:*`,
 `firestore:discover`, `bridge --mode prod`) require credentials via
 `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`, plus a project id via
 `--project` / `PYRIC_PROJECT` / `.firebaserc`. The local sandbox commands
-(`serve`, `init`, `snapshot`, `verify`, `rules:*`, `database:rules:*`) need none.
+(`dev`, `init`, `snapshot`, `verify`, `rules:*`, `database:rules:*`) need none.
 
 ---
 
 ## Local development
 
-<a id="pyric-serve"></a>
-### `pyric serve [flags]`
+<a id="pyric-dev"></a>
+### `pyric dev [flags]`
 
 Serve the app locally with the pyric sandbox standing in for Firebase. Unmodified
 `firebase/*` imports resolve, via a served import map, to a sandbox running in a
@@ -52,11 +52,11 @@ is unavailable). `firestore.rules` is deployed and hot-reloaded over SSE.
 | `--persist` | off | Persist sandbox state (docs + auth users) to a committable `.pyric/state/state.json`. Once a state file exists it wins; `--seed` then applies only on the first run. (On the SharedWorker path data is already durable in IndexedDB; this adds the on-disk, shareable copy.) |
 | `--fresh` | off | With `--persist`: discard the existing state file and re-seed from scratch. Does not clear the browser's IndexedDB. |
 | `--seed <file>` | — | Load a `"collection/doc" → fields` JSON map admin-style before app code runs. Also accepts a `pyric snapshot` state file (detected by its `version` key) — seeds docs + auth users. |
-| `--no-capture` | capture on | Disable the session capture. By default serve writes `.pyric/last-session.json` for `pyric verify` to replay. Captures use `pyric.verify.fixture.v1`, with one event timeline and per-service Firestore/RTDB rules + state blocks. |
+| `--no-capture` | capture on | Disable the session capture. By default pyric dev writes `.pyric/last-session.json` for `pyric verify` to replay. Captures use `pyric.verify.fixture.v1`, with one event timeline and per-service Firestore/RTDB rules + state blocks. |
 | `--no-watch` | watch on | Disable `firestore.rules` hot-reload. |
 | `--no-open` | auto-open on | Don't auto-open the browser. (Auto-open is already suppressed under `--json`, no TTY, and CI.) |
 | `--no-cache` | cache on | Rebuild the served SDK + worker bundles instead of using `~/.pyric/serve-cache`. |
-| `--bridge` | off | Also mount the MCP bridge on the serve origin (`/__pyric/mcp`). `--project` labels health/audit. |
+| `--bridge` | off | Also mount the MCP bridge on the dev-server origin (`/__pyric/mcp`). `--project` labels health/audit. |
 | `--allowed-host <h,…>` | — | Extra `Host` headers to accept past the DNS-rebinding guard (`localhost`/`127.0.0.1` always allowed). |
 | `--only hosting` | — | Accepted for firebase-serve parity (hosting is all v1 serves). |
 | `--json` | off | One machine line on stdout (`{url, port, mcpUrl, rulesHash, persist, restoredDocs, restoredUsers}`); banner → stderr. Readiness probe: `GET <url>/__pyric/init.json` → 200. |
@@ -78,14 +78,14 @@ Scaffold a pyric project. Never prompts; rerunning is safe (idempotent).
 <a id="pyric-snapshot"></a>
 ### `pyric snapshot [flags]`
 
-Promote lived sandbox state (a live `serve --persist`, else
-`.pyric/state/state.json`) to a committable fixture that `pyric serve --seed <file>`
+Promote lived sandbox state (a live `dev --persist`, else
+`.pyric/state/state.json`) to a committable fixture that `pyric dev --seed <file>`
 re-serves (docs + auth users).
 
 | Flag | Default | Description |
 |---|---|---|
 | `--out <file>` | — | Output path for the fixture. |
-| `--port <n>` | — | Port of the live `pyric serve` to read from. |
+| `--port <n>` | — | Port of the live `pyric dev` to read from. |
 | `--force` | off | Overwrite an existing output file. |
 | `--include-passwords` | redacted | Keep auth-user passwords in the fixture (default: redacted). Trusted/local fixtures only. |
 | `--json` | off | Machine output on stdout. |
@@ -98,7 +98,7 @@ See [promote sandbox state to a fixture](../how-to/promote-sandbox-state-to-a-fi
 Replay a captured sandbox session against candidate rules. Captures can contain
 Firestore and Realtime Database services; `verify` checks the verifiable
 services present in the fixture unless `--service` filters them. With no
-positional argument it replays the latest `pyric serve` capture at
+positional argument it replays the latest `pyric dev` capture at
 `.pyric/last-session.json`.
 
 | Flag | Default | Description |
@@ -145,7 +145,7 @@ pyric verify cases journeys/checkout.json --service firestore --out journeys/che
 
 ### `pyric mcp-proxy`
 
-Stdio MCP server that relays to a running `pyric serve --bridge`, discovering the
+Stdio MCP server that relays to a running `pyric dev --bridge`, discovering the
 port via `.pyric/serve.json` (then a port scan). Used by the Claude Code plugin;
 not run by hand. See [wire Claude Code](../tutorials/wire-claude-code.md).
 

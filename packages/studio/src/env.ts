@@ -6,7 +6,7 @@
  * state. `createStudioEnvironment(mode)` is the one wiring seam: each `mode`
  * branch supplies concrete impls + the right transport.
  *
- *   - `local`   : `pyric serve --ui`: disk via the pyric server (HTTP clients
+ *   - `local`   : `pyric dev --ui`: disk via the pyric devr (HTTP clients
  *                 over `/__pyric/workspace`, `/__pyric/projects`). SHIPS FIRST.
  *   - `browser` : today's playground re-expressed over the ports (IDB virtual FS,
  *                 session-as-project). FUTURE.
@@ -59,17 +59,17 @@ export interface StudioEnvironment {
 
 /** Per-mode wiring options. Firms up as the mode branches land. */
 export interface StudioEnvironmentOptions {
-  /** `local`: base URL of the pyric server (defaults to current origin, `''`). */
+  /** `local`: base URL of the pyric devr (defaults to current origin, `''`). */
   baseUrl?: string;
   /**
    * `local`: how sandbox durable state is stored.
    *   - `'http'` (default): the server's `--persist` `/__pyric/state` channel.
-   *   - `'memory'`: in-process, non-durable (tests / `serve` without `--persist`).
+   *   - `'memory'`: in-process, non-durable (tests / `dev` without `--persist`).
    */
   persistence?: 'http' | 'memory';
   /**
    * `local`: URL of the served SharedWorker script. Defaults to
-   * `/__pyric/sdk/worker.js` (the path `pyric serve` serves the worker at).
+   * `/__pyric/sdk/worker.js` (the path `pyric dev` serves the worker at).
    */
   workerUrl?: string;
   /**
@@ -83,7 +83,7 @@ export interface StudioEnvironmentOptions {
 /**
  * Wire a {@link StudioEnvironment} for the given mode.
  *
- * T3 implements the `local` branch (HTTP clients over the pyric server's
+ * T3 implements the `local` branch (HTTP clients over the pyric devr's
  * `/__pyric/workspace` + `/__pyric/projects` disk-backed routes); the
  * `browser`/`hosted` branches land later (A3).
  */
@@ -92,7 +92,7 @@ export function createStudioEnvironment(
   options: StudioEnvironmentOptions = {},
 ): StudioEnvironment {
   if (mode === 'local') {
-    // Default to same-origin: `pyric serve --ui` serves Studio AND the routes
+    // Default to same-origin: `pyric dev --ui` serves Studio AND the routes
     // from one server, so an empty base resolves `/__pyric/*` against it.
     const baseUrl = options.baseUrl ?? '';
     const persistence: PersistenceBackend =

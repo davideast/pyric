@@ -57,7 +57,7 @@ check('rules:validate', validate.code === 0);
 // ── Embedded serve (the headline path) ────────────────────────────────
 writeFileSync(join(work, 'index.html'), '<!doctype html><html><body>smoke</body></html>');
 const PORT = 5310;
-const child = spawn(BIN, ['serve', '--port', String(PORT), '--no-open', '--no-watch', '--ui', '--json'], {
+const child = spawn(BIN, ['dev', '--port', String(PORT), '--no-open', '--no-watch', '--ui', '--json'], {
   cwd: work,
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -97,7 +97,7 @@ if (ready) {
   // The shim must be the pyric sandbox, not a stray real-firebase passthrough.
   const appBody = await fetch(base + '/__pyric/sdk/app.js').then((r) => r.text());
   check('app.js is the sandbox shim', appBody.includes('pyric sandbox shim'));
-  check('serve --ui serves Studio', (await get('/__pyric/ui/index.html')) === 200);
+  check('dev --ui serves Studio', (await get('/__pyric/ui/index.html')) === 200);
 }
 
 child.kill('SIGTERM');

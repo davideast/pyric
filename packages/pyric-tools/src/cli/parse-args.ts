@@ -12,6 +12,9 @@ export interface ParsedArgs {
   subcommand: string | null;
   flags: Map<string, FlagValue>;
   positional: string[];
+  /** Everything after a bare `--`, verbatim (e.g. `pyric dev -- npm start`).
+   *  Optional so hand-built ParsedArgs literals stay valid. */
+  passthrough?: string[];
 }
 
 export type FlagValue = string | boolean | Array<string | boolean>;
@@ -19,6 +22,7 @@ export type FlagValue = string | boolean | Array<string | boolean>;
 export function parseArgs(argv: string[]): ParsedArgs {
   const flags = new Map<string, FlagValue>();
   const positional: string[] = [];
+  const passthrough: string[] = [];
   let subcommand: string | null = null;
   let i = 0;
   while (i < argv.length) {
@@ -26,6 +30,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (arg === undefined) {
       i += 1;
       continue;
+    }
+    if (arg === '--') {
+      // Everything after a bare `--` belongs to the child command, verbatim
+      // — never parsed as flags (`pyric dev -- npm start --port 3000`).
+      passthrough.push(...argv.slice(i + 1).filter((a): a is string => a !== undefined));
+      break;
     }
     if (arg.startsWith('--')) {
       const eq = arg.indexOf('=');
@@ -49,7 +59,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
     i += 1;
   }
-  return { subcommand, flags, positional };
+  return { subcommand, flags, positional, passthrough };
 }
 
 function setFlag(flags: Map<string, FlagValue>, key: string, value: string | boolean): void {

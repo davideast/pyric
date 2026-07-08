@@ -1,7 +1,7 @@
 # @pyric/studio
 
 The data-management and debugging console for the pyric sandbox — the "Firebase
-console for Pyric". Served by `pyric serve --ui`.
+console for Pyric". Served by `pyric dev --ui`.
 
 Studio is **cross-service** (Firestore / Auth / Storage / RTDB over one event
 stream) and **agentic-dev-focused**: an Action Center digest of what changed,
@@ -24,7 +24,7 @@ same project.
 
 `createStudioEnvironment(mode)` is the single wiring seam:
 
-- **`local`** — `pyric serve --ui`: disk via the pyric server. Ships first.
+- **`local`** — `pyric dev --ui`: disk via the pyric devr. Ships first.
 - **`browser`** — browser-persisted state over the same ports. Future.
 - **`hosted`** — a remote API behind the same ports. Future.
 

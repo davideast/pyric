@@ -7,7 +7,7 @@
  *
  *   1. The denied requests are the `kind: 'request'` / `result: 'deny'` slice
  *      of the unified event stream (`useStudioEvents()`: the dev-seed in review,
- *      the live SharedWorker feed under `pyric serve --ui`). Each carries the
+ *      the live SharedWorker feed under `pyric dev --ui`). Each carries the
  *      captured op (method/path/auth) + payload (`request.resourceData`) +
  *      the existing doc the rule saw (`resourceBefore`).
  *   2. The rule source comes from `useStudioRulesSource()`: read straight off

@@ -36,7 +36,7 @@ export const getBlob = (useWorker ? workerGetBlob : ip.getBlob) as typeof ip.get
 export const StorageError = ip.StorageError;
 
 function acceptedNoOp(name: string): void {
-  console.info(`[pyric serve] firebase/storage ${name}() is ignored; this page already uses the pyric sandbox.`);
+  console.info(`[pyric dev] firebase/storage ${name}() is ignored; this page already uses the pyric sandbox.`);
 }
 
 export function connectStorageEmulator(

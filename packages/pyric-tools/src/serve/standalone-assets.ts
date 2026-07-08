@@ -1,7 +1,7 @@
 /**
  * Standalone-binary asset bridge.
  *
- * In a `bun build --compile` binary, `pyric serve` cannot run its esbuild SDK
+ * In a `bun build --compile` binary, `pyric dev` cannot run its esbuild SDK
  * bundler: esbuild's native helper and the on-disk `pyric` dist it scans both
  * live outside the embedded `/$bunfs` filesystem. The bundle is deterministic,
  * though — a pure function of pyric-tools' wrapper entries and the `pyric`
@@ -143,7 +143,7 @@ export async function materializeServeAssets(): Promise<{ outDir: string; cached
 
 let studioDirOnce: string | null = null;
 
-/** Materialize the embedded Studio UI tree to a temp dir for `serve --ui`. */
+/** Materialize the embedded Studio UI tree to a temp dir for `dev --ui`. */
 export async function materializeStudioUi(): Promise<string> {
   if (studioDirOnce) return studioDirOnce;
   const e = embedded();
@@ -155,7 +155,7 @@ export async function materializeStudioUi(): Promise<string> {
 
 let playgroundDirOnce: string | null = null;
 
-/** Materialize the embedded Playground UI tree to a temp dir for `serve --ui`. */
+/** Materialize the embedded Playground UI tree to a temp dir for `dev --ui`. */
 export async function materializePlaygroundUi(): Promise<string | null> {
   if (playgroundDirOnce) return playgroundDirOnce;
   const e = embedded();

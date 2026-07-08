@@ -10,7 +10,7 @@
  *             selected user, saved through `useAuthUsers().updateUser`.
  *
  * The `Auth` handle comes from the dev-seed context ({@link useDevSeed}) so the
- * surface renders for review without a live `pyric serve`. All visual styling
+ * surface renders for review without a live `pyric dev`. All visual styling
  * lives in the scoped, token-only `auth.css` (imported here) and targets the
  * `data-pyric-*` contract the library emits, so the surface re-themes with the
  * shell's light/dark tokens and never restyles `@pyric/ui` itself.
@@ -88,7 +88,7 @@ export interface AuthSurfaceProps {
 export function AuthSurface({ auth: authProp }: AuthSurfaceProps = {}) {
   const seed = useDevSeed();
   // Source the Auth handle + ops from the unified data bridge: the dev-seed Auth
-  // in review, or the live worker Auth under `pyric serve --ui`. `authApi` is
+  // in review, or the live worker Auth under `pyric dev --ui`. `authApi` is
   // present only in served mode (the worker auth bundle); dev-seed leaves it
   // undefined so the default in-process `pyric/auth` API is used.
   const data = useStudioDataSource();

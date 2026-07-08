@@ -1,9 +1,9 @@
-# Getting started — scaffold, serve, and let an agent drive
+# Getting started — scaffold, run pyric dev, and let an agent drive
 
 By the end of this tutorial you will have:
 
 - A scaffolded Firebase-shaped web app (canonical `firebase/*` imports).
-- `pyric serve` running it against an **in-browser sandbox** — your
+- `pyric dev` running it against an **in-browser sandbox** — your
   `firestore.rules` deployed into the page, no emulator suite, no Java,
   no Firebase project.
 - Claude Code connected through the **pyric plugin**, with the agent
@@ -35,12 +35,12 @@ npm install
 ## Step 2 — Serve it on the sandbox
 
 ```bash
-npx pyric serve
+npx pyric dev
 ```
 
 Open <http://localhost:5000>. You'll see the scaffold app with two seeded
 posts ("Welcome to pyric"). Everything you're looking at is running
-against an **in-page Firestore sandbox**: `pyric serve` serves an import
+against an **in-page Firestore sandbox**: `pyric dev` serves an import
 map that resolves the app's unmodified `firebase/*` imports to pyric's
 adapters, and deploys `firestore.rules` into the sandbox at page load.
 
@@ -48,7 +48,7 @@ Prove it to yourself:
 
 1. Sign in anonymously and create a post in the UI — it appears.
 2. Edit `firestore.rules` and change the posts rule to `allow read: if
-   false;`, save — serve hot-reloads the rules and the post list now
+   false;`, save — pyric dev hot-reloads the rules and the post list now
    shows a permission error. Put it back.
 
 That loop — edit rules, watch real enforcement instantly — is the core
@@ -56,13 +56,13 @@ of what pyric adds. No deploy, no emulator boot.
 
 ## Step 3 — Your data, across reloads and tabs
 
-On a modern browser `pyric serve` runs the sandbox in a **SharedWorker**: every
+On a modern browser `pyric dev` runs the sandbox in a **SharedWorker**: every
 tab shares one backend (writes sync live across tabs), and the data is kept in
 the browser — so it **survives a refresh by default**. Add `--persist` for a
 committable, git-trackable copy on disk:
 
 ```bash
-npx pyric serve --persist   # also writes .pyric/state/state.json
+npx pyric dev --persist   # also writes .pyric/state/state.json
 ```
 
 `--fresh` discards the on-disk state; `--seed <file>` loads a fixture set on
@@ -86,9 +86,9 @@ Then, in Claude Code inside your app's directory, run:
 /pyric:pyric-start
 ```
 
-The skill starts `pyric serve --bridge --persist` and opens the app.
-`--bridge` exposes an MCP endpoint inside the serve; the plugin's stdio
-proxy (`pyric mcp-proxy`) finds the running serve automatically via the
+The skill starts `pyric dev --bridge --persist` and opens the app.
+`--bridge` exposes an MCP endpoint inside the dev server; the plugin's stdio
+proxy (`pyric mcp-proxy`) finds the running dev server automatically via the
 `.pyric/serve.json` pointer — **no `claude mcp add`, no port wiring**.
 
 ## Step 5 — Let the agent drive
@@ -118,7 +118,7 @@ of it — and the same app code deploys unchanged against real Firebase
 - **Every command + flag:** the [CLI reference](../reference/cli.md), and the
   full [docs index](../README.md) (guides for verify, snapshot, discover, auth
   config, persistence/multi-tab).
-- **Existing Firebase app instead of a scaffold?** `pyric serve` works in
+- **Existing Firebase app instead of a scaffold?** `pyric dev` works in
   any directory with a `firebase.json` — start at Step 2 in your app.
 - **Manual MCP wiring (no plugin), or connecting a sandbox embedded in
   your own dev server:** [wire-claude-code.md](./wire-claude-code.md).

@@ -33,6 +33,7 @@ function sandboxApp(sandbox: Sandbox): PyricAdminApp {
   return {
     [ADMIN_APP_TARGET]: 'sandbox',
     sandbox,
+    name: 'database-test',
   };
 }
 

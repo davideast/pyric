@@ -2,7 +2,7 @@
 /**
  * Build standalone `pyric` executables with `bun build --compile`.
  *
- * `pyric serve` normally bundles its SDK shims with esbuild at runtime, reading
+ * `pyric dev` normally bundles its SDK shims with esbuild at runtime, reading
  * the on-disk `pyric` dist. Neither esbuild's native helper nor that dist exist
  * inside a compiled binary's `/$bunfs`. The bundles are deterministic, though
  * (a pure function of pyric-tools' wrapper entries + the bundled `pyric`

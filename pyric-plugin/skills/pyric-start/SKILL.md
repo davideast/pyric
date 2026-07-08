@@ -10,15 +10,15 @@ is the classic failure mode.
 
 1. **Detect the launcher.**
    - **Vite app** (there is a `vite.config.*` that imports `pyricSandbox` from `pyric-tools/vite`):
-     the app's own `vite dev` IS the bridge. Start the app, NOT a separate `pyric serve`. Confirm
+     the app's own `vite dev` IS the bridge. Start the app, NOT a separate `pyric dev`. Confirm
      the config passes `pyricSandbox({ bridge: true })` (the MCP endpoint only mounts under `bridge`).
-   - **Otherwise** (a `firebase.json` with no vite plugin, or no project yet): use `pyric serve --bridge`.
+   - **Otherwise** (a `firebase.json` with no vite plugin, or no project yet): use `pyric dev --bridge`.
      If there is no `firebase.json`, run `pyric init` first.
 
 2. **Start the dev server (backgrounded).** Background it so it keeps running. Avoid restarting it
    for config edits; a restart drops the MCP connection and you have to reconnect.
    - Vite app: run the app's dev script, e.g. `bun run dev` (or `npm run dev`).
-   - Serve: `pyric serve --bridge --persist --json` (the single JSON line on stdout carries
+   - Serve: `pyric dev --bridge --persist --json` (the single JSON line on stdout carries
      `{ url, port, mcpUrl, persist, restoredDocs, restoredUsers }`; keep the `url`).
 
 3. **MCP is already wired. There is NO `claude mcp add` step.** Both launchers write

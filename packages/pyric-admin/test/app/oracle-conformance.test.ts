@@ -28,7 +28,6 @@ import {
   getApp,
   getApps,
   deleteApp,
-  __resetAppRegistryForTests,
   type PyricAdminApp,
 } from '../../src/app/index.js';
 import { getDatabase } from '../../src/database/index.js';
@@ -75,10 +74,10 @@ async function expectRejectedCode(p: Promise<unknown>, code: string): Promise<Er
 }
 
 beforeEach(async () => {
-  await __resetAppRegistryForTests();
+  await Promise.all(getApps().map((app) => deleteApp(app)));
 });
 afterEach(async () => {
-  await __resetAppRegistryForTests();
+  await Promise.all(getApps().map((app) => deleteApp(app)));
 });
 
 describe('oracle conformance (admin app registry)', () => {
@@ -219,12 +218,18 @@ describe('oracle conformance (admin app registry)', () => {
       reThrew = true;
     }
     expect(reThrew).toBe(obs.reinitAfterDeleteThrew as boolean); // false
-    // deleteApp(nonApp) → app/invalid-argument.
-    const nonAppErr = await expectRejectedCode(
-      deleteApp({} as unknown as PyricAdminApp),
-      obs.deleteNonAppCode as string, // 'app/invalid-argument'
-    );
-    expect(nonAppErr.constructor.name).toBe(obs.deleteNonAppErrorName as string);
+    // deleteApp(nonApp) → app/invalid-argument. The capture is agnostic to
+    // sync-throw vs rejection (the probe awaited inside try/catch, which
+    // catches both) — so is this assertion.
+    let nonAppErr: unknown;
+    try {
+      await deleteApp({} as unknown as PyricAdminApp);
+    } catch (e) {
+      nonAppErr = e;
+    }
+    expect(nonAppErr).toBeDefined();
+    expect((nonAppErr as { code?: string }).code).toBe(obs.deleteNonAppCode as string); // 'app/invalid-argument'
+    expect((nonAppErr as object).constructor.name).toBe(obs.deleteNonAppErrorName as string);
     expect(obs.deleteNonAppThrew).toBe(true);
   });
 

@@ -3,7 +3,7 @@
  *
  * Studio depends ONLY on these interfaces; `createStudioEnvironment(mode)` (see
  * `./env.ts`) wires concrete impls + transport per mode. Ship `local` (disk via
- * the pyric server); `browser` (= today's playground over IDB) and `hosted`
+ * the pyric devr); `browser` (= today's playground over IDB) and `hosted`
  * (remote) are future factory branches. The interfaces are shaped from the
  * UNION of disk + playground so playground can be re-expressed as the `browser`
  * impl. See the design rationale.
@@ -43,7 +43,7 @@ export interface WorkspaceStore {
 
 // ─── ProjectStore, sessions/projects ──────────────────────────────────────
 //
-// One entry in `pyric serve` single-project mode; N in a multi-project/hosted
+// One entry in `pyric dev` single-project mode; N in a multi-project/hosted
 // mode. `ProjectMeta` is shaped to absorb playground's `SessionMeta` (title,
 // timestamps, and (additively, later) `promotedTo` / `githubRepo` / exports).
 

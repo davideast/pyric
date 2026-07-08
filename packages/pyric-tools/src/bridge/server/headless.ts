@@ -3,7 +3,7 @@
  * serve) and exposes the SAME tool surface the bridge advertises, over stdio.
  *
  * This is the zero-setup half of the hybrid MCP server
- * (design rationale): when no `pyric serve --bridge` is running to
+ * (design rationale): when no `pyric dev --bridge` is running to
  * attach to, the MCP server hosts its own sandbox. The tool surface is identical
  * to the served bridge by construction (`buildSandboxDispatcher` is the shared
  * source pinned by `tool-parity.test.ts`), including the per-identity `as` arg.
@@ -13,7 +13,7 @@
  * `.pyric/state/headless.json`, NOT serve's `state.json` (which currently uses a
  * different on-disk envelope, and carries a controller-blob version that has
  * drifted from pyric's snapshot SCHEMA_VERSION). Unifying the two formats so a
- * headless session and a `pyric serve` session can share one file is a tracked
+ * headless session and a `pyric dev` session can share one file is a tracked
  * design item, not done here.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';

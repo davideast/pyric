@@ -24,8 +24,8 @@ import {
 import type { SandboxContext } from 'pyric/sandbox';
 import {
   ADMIN_APP_TARGET,
+  getApp,
   isSandboxAdminApp,
-  resolveApp,
   type PyricAdminApp,
 } from '../app/index.js';
 
@@ -56,7 +56,7 @@ export function getFirestore(
   target?: SandboxContext | PyricAdminApp,
 ): SandboxFirestore {
   if (target === undefined) {
-    return baseGetFirestore(adminAppToContext(resolveApp()));
+    return baseGetFirestore(adminAppToContext(getApp()));
   }
   if (typeof target === 'object' && target !== null && ADMIN_APP_TARGET in target) {
     return baseGetFirestore(adminAppToContext(target as PyricAdminApp));

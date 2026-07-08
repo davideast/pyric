@@ -1,6 +1,6 @@
 /**
  * Dev-seed (Phase 0, F-SHELL): an in-page seeded sandbox so Studio renders for
- * review WITHOUT a live `pyric serve`.
+ * review WITHOUT a live `pyric dev`.
  *
  * It builds one `Sandbox` via `initializeSandbox()` and populates it through the
  * modular SDKs exactly as a real app would:

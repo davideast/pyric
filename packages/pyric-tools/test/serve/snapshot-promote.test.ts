@@ -84,7 +84,7 @@ describe('pyric snapshot', () => {
     expect(kept.auth!.users[0]!.password).toBe('pw');
   });
 
-  it('prefers LIVE state from a running serve --persist', async () => {
+  it('prefers LIVE state from a running dev --persist', async () => {
     const cwd = project();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), persist: true, logger: silentServeLogger() });
     stops.push(r);

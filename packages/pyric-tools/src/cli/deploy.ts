@@ -150,7 +150,7 @@ export async function runDeploy(parsed: ParsedArgs, deps: DeployDeps = {}): Prom
     scope = resolved.scope;
     grantedScopes = resolved.grantedScopes ?? 'all';
     // Machine-output mode keeps stdout pure JSON — the banner moves to
-    // stderr (same convention as `pyric serve --json`).
+    // stderr (same convention as `pyric dev --json`).
     (machineOutput ? err : out).write(
       `pyric deploy: using project '${scope.projectId}' (credentials: ${resolved.source})\n`,
     );

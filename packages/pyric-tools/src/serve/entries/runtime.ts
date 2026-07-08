@@ -1,5 +1,5 @@
 /**
- * `pyric serve` in-page runtime — the shared chunk every served SDK bundle
+ * `pyric dev` in-page runtime — the shared chunk every served SDK bundle
  * closes over. One sandbox per page; init payload (rules, future bridge URL)
  * fetched from `/__pyric/init.json` at module init.
  *
@@ -50,7 +50,7 @@ import { buildVerifyFixture } from '../../verify/fixture.js';
  * `globalThis.__PYRIC_FORCE_INPAGE__` is an explicit opt-out: a host that does
  * NOT serve the worker bundle (`/__pyric/sdk/worker.js`) sets it before this
  * module evaluates so the page takes the in-page path instead of trying to load
- * a worker that 404s. `pyric serve` always serves the worker and never sets it;
+ * a worker that 404s. `pyric dev` always serves the worker and never sets it;
  * the `pyric-tools/vite` plugin sets it until it serves the worker (M2).
  */
 export const useWorker =
@@ -71,7 +71,7 @@ export const WORKER_URL = '/__pyric/sdk/worker.js';
  * started it until ALL tabs of the origin close. So if pyric itself is rebuilt
  * while tabs are open, they keep the OLD worker. We DETECT that (see the
  * staleness check below) and warn, rather than trading away multi-tab sharing.
- * (End users of `pyric serve` edit their OWN app, not pyric's worker bundle, so
+ * (End users of `pyric dev` edit their OWN app, not pyric's worker bundle, so
  * this only affects pyric development.)
  */
 const WORKER_NAME = 'pyric-shared-worker';
@@ -107,7 +107,7 @@ if (useWorker && typeof document !== 'undefined') {
     .then((runningV) => {
       if (servedV && runningV && runningV !== 'dev' && servedV !== runningV) {
         console.warn(
-          `[pyric serve] the SharedWorker is running OLDER code (build ${runningV}) than what is now ` +
+          `[pyric dev] the SharedWorker is running OLDER code (build ${runningV}) than what is now ` +
             `served (build ${servedV}). A SharedWorker can't hot-update — CLOSE ALL TABS of this origin ` +
             'and reopen to load the new worker. (All tabs share one worker, so a partial reload leaves ' +
             'the old code running for everyone.)',
@@ -282,7 +282,7 @@ if (!useWorker) try {
       readOnly = true;
       diagnostics.persistReadOnly = true;
       console.warn(
-        '[pyric serve] another tab is the persist writer — THIS tab is read-only ' +
+        '[pyric dev] another tab is the persist writer — THIS tab is read-only ' +
           '(your changes here will NOT be saved). Close the other tab and reload to take over.',
       );
     };
@@ -358,7 +358,7 @@ if (!useWorker) try {
             if (res.status === 423) lostWriterLock();
             else if (res.ok) diagnostics.lastFlushAt = Date.now();
           },
-          (e) => console.warn('[pyric serve] auth state flush failed:', e),
+          (e) => console.warn('[pyric dev] auth state flush failed:', e),
         );
       }, 500);
     });
@@ -423,7 +423,7 @@ if (!useWorker) try {
 } catch (e) {
   diagnostics.initError = e instanceof Error ? e.message : String(e);
   console.error(
-    '[pyric serve] init failed — the sandbox is running WITHOUT your project rules:',
+    '[pyric dev] init failed — the sandbox is running WITHOUT your project rules:',
     diagnostics.initError,
   );
 }
@@ -443,7 +443,7 @@ if (useWorker && workerDb) {
   const stored = sessionStore.load();
   if (stored) {
     const user = await workerRestorePortSession(auth, stored.uid);
-    if (user) console.info(`[pyric serve] auth session restored (${user.uid})`);
+    if (user) console.info(`[pyric dev] auth session restored (${user.uid})`);
     else sessionStore.clear(); // user gone or disabled — signed out, like a stale token
   }
   workerOnAuthStateChanged(auth, (user) => {
@@ -456,7 +456,7 @@ if (useWorker && workerDb) {
   if (stored) {
     try {
       authOps.restoreSession(auth, stored.uid);
-      console.info(`[pyric serve] auth session restored (${stored.uid})`);
+      console.info(`[pyric dev] auth session restored (${stored.uid})`);
     } catch {
       sessionStore.clear(); // user gone or disabled — signed out, like a stale token
     }
@@ -471,7 +471,7 @@ if (useWorker && workerDb) {
 // Source says `firebase/*`; what runs is the pyric sandbox — say so loudly
 // once, and explain any stack frame that points into /__pyric/sdk/. ────────
 console.info(
-  `[pyric serve] firebase/* on this page is served by the pyric sandbox` +
+  `[pyric dev] firebase/* on this page is served by the pyric sandbox` +
     (useWorker
       ? ' in a SharedWorker (one backend for all tabs; rules/seed/persist owned by the worker)'
       : diagnostics.rulesHash
@@ -485,7 +485,7 @@ function explainSandboxFrame(stackOrUrl: string | undefined): void {
   if (provenanceHintShown || !stackOrUrl || !stackOrUrl.includes('/__pyric/sdk/')) return;
   provenanceHintShown = true;
   console.info(
-    '[pyric serve] the error above originates in the pyric sandbox shim serving firebase/*, ' +
+    '[pyric dev] the error above originates in the pyric sandbox shim serving firebase/*, ' +
       'not the real Firebase SDK — behavior can differ where COMPAT coverage is incomplete.',
   );
 }
@@ -498,7 +498,7 @@ if (typeof window !== 'undefined') {
   );
 }
 
-// ── bridge peer (only when `pyric serve --bridge` put a URL in the payload;
+// ── bridge peer (only when `pyric dev --bridge` put a URL in the payload;
 //    dynamic import so bridge-less pages never load the client chunk) ─────
 async function connectBridgePeer(rawUrl: string): Promise<void> {
   // Re-anchor the bridge WS to THIS page's origin so it reaches the server the
@@ -527,7 +527,7 @@ async function connectBridgePeer(rawUrl: string): Promise<void> {
     connectBridge(sandbox, { url });
   }
   diagnostics.bridgeConnected = true;
-  console.info('[pyric serve] sandbox registered with the MCP bridge at', url);
+  console.info('[pyric dev] sandbox registered with the MCP bridge at', url);
 }
 if (bridgeUrlFromPayload) {
   // In-page path: bridgeUrlFromPayload came from the (already-blocking) init
@@ -535,7 +535,7 @@ if (bridgeUrlFromPayload) {
   try {
     await connectBridgePeer(bridgeUrlFromPayload);
   } catch (e) {
-    console.error('[pyric serve] bridge connect failed:', e instanceof Error ? e.message : String(e));
+    console.error('[pyric dev] bridge connect failed:', e instanceof Error ? e.message : String(e));
   }
 } else if (useWorker) {
   // Worker path: the worker owns serve-init, so the page skipped the init.json
@@ -549,7 +549,7 @@ if (bridgeUrlFromPayload) {
       const url = res.ok ? ((await res.json()) as InitPayload).bridgeUrl : null;
       if (url) await connectBridgePeer(url);
     } catch (e) {
-      console.error('[pyric serve] bridge connect failed:', e instanceof Error ? e.message : String(e));
+      console.error('[pyric dev] bridge connect failed:', e instanceof Error ? e.message : String(e));
     }
   })();
 }
@@ -600,7 +600,7 @@ if (!useWorker && typeof BroadcastChannel !== 'undefined') {
   });
 }
 
-// ── rules hot-reload (SSE) — `pyric serve` watches firestore.rules and
+// ── rules hot-reload (SSE) — `pyric dev` watches firestore.rules and
 //    broadcasts; we re-deploy in place, no page refresh. EventSource is
 //    browser-only; guarded so the bundle stays inert under other runtimes. ──
 // IN-PAGE PATH ONLY: open a per-tab SSE to re-deploy rules to the in-page
@@ -620,9 +620,9 @@ if (!useWorker && typeof EventSource !== 'undefined') {
       if (lint.parseError) throw new Error(JSON.stringify(lint.parseError));
       diagnostics.rulesDeployed = true;
       diagnostics.rulesHash = rulesHash;
-      console.info(`[pyric serve] firestore.rules hot-reloaded (hash ${rulesHash})`);
+      console.info(`[pyric dev] firestore.rules hot-reloaded (hash ${rulesHash})`);
     } catch (err) {
-      console.error('[pyric serve] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
+      console.error('[pyric dev] rules hot-reload failed:', err instanceof Error ? err.message : String(err));
     }
   });
 }

@@ -1,4 +1,4 @@
-/** `shouldAutoOpen` — the gate that decides whether `pyric serve` pops a
+/** `shouldAutoOpen` — the gate that decides whether `pyric dev` pops a
  *  browser. The actual spawn is best-effort and untested here (it shells out);
  *  the DECISION is the logic worth pinning, so a future change can't silently
  *  start opening browsers in CI or under the --json agent contract. */

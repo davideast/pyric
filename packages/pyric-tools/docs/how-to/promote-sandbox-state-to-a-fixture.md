@@ -3,22 +3,22 @@
 You have been working in the sandbox interactively — signing in test users,
 creating documents — and you want to commit that state so teammates, tests, and
 CI all start from the same place. `pyric snapshot` promotes the lived sandbox
-state into a single fixture file that `pyric verify` and `pyric serve --seed`
+state into a single fixture file that `pyric verify` and `pyric dev --seed`
 can consume.
 
-The flow is: build state in `serve` → run `pyric snapshot` → commit the file →
-re-seed with `pyric serve --seed <file>`.
+The flow is: build state in `dev` → run `pyric snapshot` → commit the file →
+re-seed with `pyric dev --seed <file>`.
 
 For the full flag list, see the [`pyric snapshot`
 reference](../reference/cli.md#pyric-snapshot).
 
 ## Build up the state
 
-Run a persisted serve and use the app — sign in, write documents, whatever you
+Run a persisted dev server and use the app — sign in, write documents, whatever you
 want the fixture to capture:
 
 ```sh
-pyric serve --persist
+pyric dev --persist
 ```
 
 `--persist` writes runtime state to `.pyric/state/state.json` as you go, so
@@ -26,13 +26,13 @@ your data survives between sessions while you build it up.
 
 ## Promote it to a fixture
 
-With that serve still running, snapshot it:
+With that dev server still running, snapshot it:
 
 ```sh
 pyric snapshot
 ```
 
-This reads the live serve and writes a re-servable fixture to
+This reads the live dev server and writes a re-servable fixture to
 `pyric-state.json` (both docs and auth users). Choose a different path with
 `--out`:
 
@@ -43,14 +43,14 @@ pyric snapshot --out fixtures/onboarding.json
 `pyric snapshot` refuses to clobber an existing file. Pass `--force` to
 overwrite it.
 
-If the live serve is on a non-default port, point at it with `--port`:
+If the live dev server is on a non-default port, point at it with `--port`:
 
 ```sh
 pyric snapshot --port 5002
 ```
 
-If no serve is running, `pyric snapshot` falls back to the on-disk
-`.pyric/state/state.json`, so you can still promote state from a serve you have
+If no dev server is running, `pyric snapshot` falls back to the on-disk
+`.pyric/state/state.json`, so you can still promote state from a dev server you have
 since stopped.
 
 ## Commit the fixture
@@ -82,7 +82,7 @@ way.
 Anyone with the committed file can start from exactly the same state:
 
 ```sh
-pyric serve --seed fixtures/onboarding.json
+pyric dev --seed fixtures/onboarding.json
 ```
 
 See [serve persistence and multi-tab](./serve-persistence-and-multi-tab.md) for

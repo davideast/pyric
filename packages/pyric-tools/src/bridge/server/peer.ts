@@ -7,7 +7,7 @@
  * — first message `attach`); `collectBody` buffers a Node request body into
  * parsed JSON for the stateless MCP transport.
  *
- * Both are consumed by `serve/bridge-mount.ts` (the `pyric serve --bridge` and
+ * Both are consumed by `serve/bridge-mount.ts` (the `pyric dev --bridge` and
  * `pyricSandbox({ bridge })` mount) and `serve/namespace.ts` (capture route).
  * They live here — not inline in a plugin file — so retiring the standalone
  * bridge Vite plugin doesn't drag its consumers with it.

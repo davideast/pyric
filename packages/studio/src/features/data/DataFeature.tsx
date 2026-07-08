@@ -38,7 +38,7 @@ function PendingState({ view }: { view: DataView }) {
       </span>
       <p className="max-w-md text-sm leading-relaxed text-slate-gray">
         The {label} viewer mounts here. It goes live once the local sandbox backend is reachable
-        (the served `pyric serve --ui` workspace).
+        (the served `pyric dev --ui` workspace).
       </p>
     </div>
   );
@@ -47,7 +47,7 @@ function PendingState({ view }: { view: DataView }) {
 export function DataFeature({ view }: { view: DataView }) {
   const { lens, target } = useDataNav();
 
-  // Live handles, dev-seed first (review), env-hydrated otherwise (`serve --ui`).
+  // Live handles, dev-seed first (review), env-hydrated otherwise (`dev --ui`).
   const data = useStudioDataSource();
 
   // Shared live user list (one subscription for the whole feature). The auth

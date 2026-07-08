@@ -107,7 +107,7 @@ import {
 
 import {
   ADMIN_APP_TARGET,
-  resolveApp,
+  getApp,
   type PyricAdminApp,
 } from '../app/index.js';
 
@@ -129,9 +129,15 @@ export type {
 /**
  * Returns the {@link AdminDatabase} service for the supplied app.
  *
- * Signature mirrors `firebase-admin/database`'s `getDatabase(app)` and
+ * Signature mirrors `firebase-admin/database`'s `getDatabase(app?)` and
  * `getDatabaseWithUrl(url, app)` collapsed into a single function:
  *
+ *   - `getDatabase()` — default database for the DEFAULT app (resolved
+ *     through `pyric-admin/app`'s registry, exactly like firebase-admin's
+ *     no-arg `getDatabase()`; throws `app/no-app` when no default app has
+ *     been initialized). Works on all three arms — local sandbox, remote
+ *     sandbox, and prod — since it dispatches on whatever brand the
+ *     registered default app carries.
  *   - `getDatabase(app)` — default database for the app.
  *   - `getDatabase(app, url)` — database at the explicit URL (delegates
  *     to firebase-admin's `getDatabaseWithUrl` on the prod path; the
@@ -153,9 +159,11 @@ export function getDatabase(
   app?: PyricAdminApp,
   url?: string,
 ): AdminDatabase {
-  // No-arg call resolves the default app; nothing initialized → captured
-  // `app/no-app` FirebaseAppError (see resolveApp).
-  app = resolveApp(app);
+  if (app === undefined) {
+    // No-arg mirror of firebase-admin's `getDatabase()` — resolve the
+    // '[DEFAULT]' app from the registry (throws app/no-app on a miss).
+    app = getApp();
+  }
   if (app[ADMIN_APP_TARGET] === 'prod') {
     return url === undefined
       ? adminGetDatabase(app.adminApp)

@@ -35,6 +35,7 @@ function sandboxAdminApp(): SandboxAdminApp {
   return {
     [ADMIN_APP_TARGET]: 'sandbox',
     sandbox,
+    name: 'storage-test',
   };
 }
 
@@ -45,6 +46,7 @@ function prodAdminApp(): ProdAdminApp {
     [ADMIN_APP_TARGET]: 'prod',
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     adminApp: { name: '[DEFAULT]', options: { projectId: 'test-project' } } as any,
+    name: 'storage-test-prod',
   };
 }
 

@@ -1,5 +1,5 @@
 /**
- * Worker-side serve init (Phase 3c.B) — apply `pyric serve`'s init payload
+ * Worker-side serve init (Phase 3c.B) — apply `pyric dev`'s init payload
  * INSIDE the SharedWorker.
  *
  * WHY THIS EXISTS
@@ -7,7 +7,7 @@
  * On the in-page path, `entries/runtime.ts` is the whole backend: it fetches
  * `/__pyric/init.json` and deploys rules, seeds users + docs, and (when
  * `--capture` is on, which is the default) pushes the session fixture to
- * `/__pyric/capture` so `pyric verify` can replay. When `pyric serve` routes
+ * `/__pyric/capture` so `pyric verify` can replay. When `pyric dev` routes
  * `firebase/*` to the SharedWorker instead (the default-on flip, 3c.E), the
  * sandbox lives in the worker — so the worker must subsume that same init, or
  * those features silently no-op on every modern browser.
@@ -53,7 +53,7 @@ export interface EventSourceLike {
 }
 
 /**
- * Re-deploy rules to the worker's sandbox when `pyric serve` hot-reloads
+ * Re-deploy rules to the worker's sandbox when `pyric dev` hot-reloads
  * `firestore.rules`. On the worker path the SharedWorker owns ONE
  * `/__pyric/events` connection for the whole origin — so tabs open ZERO SSE
  * connections (avoiding Chrome's ~6-per-origin HTTP/1.1 cap, which multi-tab
@@ -344,7 +344,7 @@ export function createWorkerDurableBackend(
 /**
  * Mirror the auth user DB to the committable server file's `auth` section
  * (`--persist` only), matching the in-page path so a worker-written
- * `.pyric/state` is format-identical (and `pyric serve`'s init payload, which
+ * `.pyric/state` is format-identical (and `pyric dev`'s init payload, which
  * reads `section=auth` for `authUsers`, stays populated). Auth ALSO rides the
  * firestore controller blob via `services`; this separate mirror is the
  * belt-and-suspenders the in-page path keeps.

@@ -1,5 +1,5 @@
 /**
- * `pyric serve` rules wiring — load the project's `firestore.rules`, make it
+ * `pyric dev` rules wiring — load the project's `firestore.rules`, make it
  * executable for the in-page sandbox, and fail FAST at startup on broken
  * rules (a clear CLI error beats a silently rule-less page).
  *
@@ -47,7 +47,7 @@ export function prepareRulesSource(raw: string, sourcePath: string): string {
     const resolved = resolveModulesBrowser(raw);
     if (!resolved.success) {
       throw new Error(
-        `pyric serve: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
+        `pyric dev: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
       );
     }
     source = resolved.data.resolved;
@@ -56,13 +56,13 @@ export function prepareRulesSource(raw: string, sourcePath: string): string {
   if (lint.parseError) {
     const { line, column } = lint.parseError;
     throw new Error(
-      `pyric serve: ${sourcePath} failed to parse (line ${line}, col ${column}) — fix the rules before serving.`,
+      `pyric dev: ${sourcePath} failed to parse (line ${line}, col ${column}) — fix the rules before serving.`,
     );
   }
   const errors = lint.warnings.filter((w) => w.severity === 'error');
   if (errors.length > 0) {
     throw new Error(
-      `pyric serve: ${sourcePath} has ${errors.length} rules error(s):\n` +
+      `pyric dev: ${sourcePath} has ${errors.length} rules error(s):\n` +
         errors.map((e) => `  - ${e.message}`).join('\n'),
     );
   }
@@ -89,7 +89,7 @@ export async function loadProjectRules(
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       if (configured) {
-        throw new Error(`pyric serve: firebase.json points firestore.rules at ${path}, but it does not exist.`);
+        throw new Error(`pyric dev: firebase.json points firestore.rules at ${path}, but it does not exist.`);
       }
       return { rules: null, rulesHash: null, sourcePath: null };
     }
@@ -119,7 +119,7 @@ export async function loadProjectDatabaseRules(
     raw = await readFile(path, 'utf8');
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(`pyric serve: firebase.json points database.rules at ${path}, but it does not exist.`);
+      throw new Error(`pyric dev: firebase.json points database.rules at ${path}, but it does not exist.`);
     }
     throw e;
   }
@@ -128,11 +128,11 @@ export async function loadProjectDatabaseRules(
   try {
     parsed = JSON.parse(raw);
   } catch (e) {
-    throw new Error(`pyric serve: ${path} failed to parse as RTDB rules JSON: ${e instanceof Error ? e.message : String(e)}`);
+    throw new Error(`pyric dev: ${path} failed to parse as RTDB rules JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
   const rules = parseRtdbRulesJson(
     parsed,
-    () => new Error(`pyric serve: ${path} must contain a top-level "rules" object.`),
+    () => new Error(`pyric dev: ${path} must contain a top-level "rules" object.`),
   );
 
   return {
