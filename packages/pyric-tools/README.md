@@ -3,6 +3,14 @@
 The Pyric CLI + programmatic helpers for `firebase-tools`-shaped work
 (deploy, bridge, discover, identity-toolkit configuration).
 
+> **Alpha.** This package is an early alpha. The `firebase-tools`-mirrored
+> surfaces (deploy, discover, auth configuration) are best-effort mirror
+> contracts; non-mirrored exports (e.g. `pyric-tools/serve/worker`,
+> `pyric-tools/verify`, `pyric-tools/credentials`) are experimental
+> public-alpha surfaces that may change without notice. The MCP tool surface
+> (tool names and shapes) will consolidate during early alpha — do not treat
+> tool names as stable.
+
 ## CLI subcommands
 
 | Command | What it does |

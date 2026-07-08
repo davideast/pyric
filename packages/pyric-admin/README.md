@@ -6,6 +6,11 @@ real Firebase Admin SDK backends.
 Use `pyric-admin` when you want server/admin ergonomics while keeping the same
 backend-selection model as the client package.
 
+> **Alpha.** This package is an early alpha. The admin-shaped subpaths are
+> best-effort mirror contracts of `firebase-admin` — not guaranteed parity.
+> Any exported surface beyond the mirrored shapes is experimental public-alpha
+> and may change without notice.
+
 ## Subpaths
 
 | Subpath | Surface |
