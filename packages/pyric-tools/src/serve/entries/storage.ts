@@ -15,9 +15,12 @@ import {
 import {
   getStorage as workerGetStorage,
   getBlob as workerGetBlob,
+  getBytes as workerGetBytes,
   getMetadata as workerGetMetadata,
   listAll as workerListAll,
   ref as workerRef,
+  uploadBytes as workerUploadBytes,
+  deleteObject as workerDeleteObject,
 } from '../worker/client.js';
 import { sandbox, useWorker, workerDb } from './runtime.js';
 
@@ -59,8 +62,13 @@ function workerOrInPage<T extends (...args: any[]) => unknown>(name: string, fn:
   return (useWorker ? (() => unsupportedWorkerApi(name)) : fn) as T;
 }
 
-export const uploadBytes = workerOrInPage('uploadBytes', ip.uploadBytes);
+// Byte ops now have a worker protocol (base64 `storage.putBytes` /
+// `storage.getBytes` / `storage.deleteObject`), so worker mode routes them to
+// the shared object store instead of throwing. Page-configured rules apply
+// (no lens attached); payloads are capped at 8 MiB per op.
+export const uploadBytes = (useWorker ? workerUploadBytes : ip.uploadBytes) as typeof ip.uploadBytes;
+export const getBytes = (useWorker ? workerGetBytes : ip.getBytes) as typeof ip.getBytes;
+export const deleteObject = (useWorker ? workerDeleteObject : ip.deleteObject) as typeof ip.deleteObject;
+
 export const uploadString = workerOrInPage('uploadString', ip.uploadString);
-export const getBytes = workerOrInPage('getBytes', ip.getBytes);
-export const deleteObject = workerOrInPage('deleteObject', ip.deleteObject);
 export const updateMetadata = workerOrInPage('updateMetadata', ip.updateMetadata);
