@@ -387,6 +387,12 @@ function serializeDocSnap(snap: {
  *     reading/writing the same store and emitting events. This is Studio's
  *     "edit anything as admin" surface (F2). Cached on `ctx.adminDb`.
  *
+ *   - `{ mode: 'anon' }` (explicitly unauthenticated): a frozen
+ *     `getFirestore(sandbox.withAuth(null))` handle — rules apply with
+ *     `request.auth == null`. The remote arm's `withAuth(null)`; distinct from
+ *     an ABSENT lens, which resolves to the port's session. Cached on
+ *     `ctx.anonDb`.
+ *
  * WRITE-IMPERSONATION GATING (open micro-decision #1, honoured): the resolver
  * itself is symmetric — an `{ mode: 'as', uid }` lens applies to BOTH reads and
  * writes (a write-as-user is denied/allowed exactly as that user's rules say).
@@ -404,6 +410,15 @@ function lensDb(ctx: HostCtx, actAs?: AuthLens): Firestore {
   // { mode: 'admin' } → a modular rules-bypass handle (cached per ctx).
   if (actAs.mode === 'admin') {
     return (ctx.adminDb ??= pyricGetAdminFirestore(ctx.sandbox));
+  }
+
+  // { mode: 'anon' } → a genuinely UNAUTHENTICATED handle
+  // (`withAuth(null)` — `request.auth == null` in rules). NOT the same as an
+  // absent lens, which resolves to the PORT'S SESSION: a relayed op that
+  // means "no auth" must pin this lens or it silently runs as whoever the
+  // browser tab is signed in as.
+  if (actAs.mode === 'anon') {
+    return (ctx.anonDb ??= pyricGetFirestore(ctx.sandbox.withAuth(null)));
   }
 
   // { mode: 'as', uid } → a frozen-identity handle; rules evaluate as `uid`.
@@ -496,6 +511,10 @@ function lensRtdb(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike): Da
   if (actAs.mode === 'admin') {
     return (ctx.adminRtdb ??= pyricGetAdminDatabase(ctx.sandbox));
   }
+  // Genuinely unauthenticated — see the `anon` note on lensDb.
+  if (actAs.mode === 'anon') {
+    return (ctx.anonRtdb ??= pyricGetDatabase(ctx.sandbox.withAuth(null)));
+  }
 
   const handles = (ctx.lensRtdbs ??= new Map());
   const key = lensCacheKey(actAs);
@@ -543,6 +562,12 @@ function lensStorage(ctx: HostCtx, actAs?: AuthLens): FirebaseStorage {
   }
   if (actAs.mode === 'admin') {
     return (ctx.adminStorage ??= getAdminStorageSandbox(ctx.sandbox));
+  }
+  // Genuinely unauthenticated — see the `anon` note on lensDb. Distinct from
+  // the shared page handle only when the host configured storage rules, but
+  // pinning it keeps remote `withAuth(null)` semantics uniform across services.
+  if (actAs.mode === 'anon') {
+    return (ctx.anonStorage ??= getStorageSandbox(ctx.sandbox.withAuth(null)));
   }
   const handles = (ctx.lensStorages ??= new Map());
   const key = lensCacheKey(actAs);

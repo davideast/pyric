@@ -51,6 +51,15 @@ export interface HostCtx {
   /** Per-uid/token Storage handles for the impersonation lens (rules evaluate
    *  as that user). Mirrors {@link HostCtx.lensRtdbs}. */
   lensStorages?: Map<string, FirebaseStorage>;
+  /** Cached genuinely-UNAUTHENTICATED Firestore handle for the
+   *  `{ mode: 'anon' }` lens — `getFirestore(sandbox.withAuth(null))`, so
+   *  rules evaluate with `request.auth == null`. The remote arm's
+   *  `withAuth(null)`; distinct from an absent lens (the port's session). */
+  anonDb?: Firestore;
+  /** Cached unauthenticated RTDB handle for the `{ mode: 'anon' }` lens. */
+  anonRtdb?: Database;
+  /** Cached unauthenticated Storage handle for the `{ mode: 'anon' }` lens. */
+  anonStorage?: FirebaseStorage;
   /** Per-uid RTDB handles carrying a port session's real identity. */
   sessionRtdbs?: Map<string, Database>;
   /** Per-uid/token RTDB handles for the Studio impersonation lens. */

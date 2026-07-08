@@ -452,9 +452,12 @@ export type OpMessage = (
 ) & {
   /**
    * Per-op auth lens (Pyric Studio): `admin` bypasses rules, `{ as: uid }`
-   * evaluates rules as that user (impersonation), absent ⇒ the app's session.
-   * The host resolves the data handle from this — see `lensDb` in `host.ts`.
-   * Additive: existing senders omit it. Plain tagged union → structured-clones.
+   * evaluates rules as that user (impersonation), `anon` runs genuinely
+   * UNAUTHENTICATED (`withAuth(null)` — the remote arm's "no auth", which an
+   * absent lens does NOT mean: absent ⇒ the app's session, i.e. whoever the
+   * browser tab is signed in as). The host resolves the data handle from
+   * this — see `lensDb` in `host.ts`. Additive: existing senders omit it.
+   * Plain tagged union → structured-clones.
    */
   actAs?: AuthLens;
 };
@@ -473,7 +476,8 @@ export interface FirestoreSubMessage {
    * the per-op `actAs` on {@link OpMessage}: `{ mode: 'as', uid }` registers the
    * listener through the impersonation data handle so the snapshot's initial
    * fire AND every re-eval evaluate security rules AS that uid; `{ mode: 'admin' }`
-   * watches through the rule-bypass handle; absent / `{ mode: 'app-session' }`
+   * watches through the rule-bypass handle; `{ mode: 'anon' }` watches genuinely
+   * unauthenticated (`withAuth(null)`); absent / `{ mode: 'app-session' }`
    * watches as the app's own session (the unchanged default).
    *
    * The host resolves the listener's data handle from this via the SAME
