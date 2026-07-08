@@ -114,6 +114,7 @@ export {
   ref,
   listAll,
   getMetadata,
+  getBlob,
   type ClientFirebaseStorage,
   type ClientStorageReference,
   // Event stream (Pyric Studio keystone — onEvent/history over the port)
