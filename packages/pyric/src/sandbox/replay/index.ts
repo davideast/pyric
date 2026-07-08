@@ -126,6 +126,7 @@ export function replay(
   // own `data` (post-resolution) when the request event isn't
   // available.
   for (const wEv of writes) {
+    const bypassRules = isAdminWrite(wEv);
     const data = preResolutionDataFor(wEv, events) ?? wEv.data;
     const requestTime = pinRequestTime
       ? new Timestamp(wEv.requestTime.seconds, wEv.requestTime.nanoseconds)
@@ -134,7 +135,12 @@ export function replay(
     if (wEv.autoId) {
       // Auto-id create: split path, mint a fresh id, record the alias.
       const collection = wEv.path.slice(0, wEv.path.lastIndexOf('/'));
-      const { path: mintedPath } = env.createWithAutoId(collection, (data ?? {}) as DocData, wEv.auth);
+      const { path: mintedPath } = env.createWithAutoId(
+        collection,
+        (data ?? {}) as DocData,
+        wEv.auth,
+        bypassRules,
+      );
       pathAliases.set(wEv.path, mintedPath);
       continue;
     }
@@ -146,6 +152,7 @@ export function replay(
         auth: wEv.auth,
         ...(data !== undefined ? { data: data as DocData } : {}),
         ...(requestTime ? { requestTime } : {}),
+        ...(bypassRules ? { bypassRules: true } : {}),
       });
     } catch {
       // Replay denials surface as state divergence below; keep going
@@ -159,6 +166,10 @@ export function replay(
     : [];
 
   return { sandbox, divergences, pathAliases };
+}
+
+function isAdminWrite(event: WriteSandboxEvent): boolean {
+  return event.detail?.admin === true;
 }
 
 /**

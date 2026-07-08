@@ -148,9 +148,13 @@ function verifyFirestore(
   return {
     service: 'firestore',
     ok: mapped.every(isInformational),
-    checkedEvents: fixture.events.filter((event) => event.kind === 'write').length,
+    checkedEvents: fixture.events.filter(isProtectedFirestoreWrite).length,
     divergences: mapped,
   };
+}
+
+function isProtectedFirestoreWrite(event: SandboxEvent): boolean {
+  return event.kind === 'write' && event.detail?.admin !== true;
 }
 
 async function verifyRtdb(

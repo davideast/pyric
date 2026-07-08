@@ -9,7 +9,14 @@
  * not a subpath.
  */
 import { describe, it, expect } from 'bun:test';
-import { initializeSandbox, replay, type Divergence, type Sandbox } from '../../src/sandbox/index.js';
+import {
+  initializeSandbox,
+  replay,
+  type Divergence,
+  type RequestEvent,
+  type Sandbox,
+  type WriteSandboxEvent,
+} from '../../src/sandbox/index.js';
 import { getInternalEnv } from '../../src/sandbox/internal/sandbox-impl.js';
 
 const RULES = `rules_version = '2';
@@ -134,6 +141,41 @@ service cloud.firestore {
     // replayed sandbox → the diff surfaces as real-divergence.
     const real = result.divergences.filter((d) => d.kind === 'real-divergence');
     expect(real.length).toBeGreaterThan(0);
+  });
+
+  it('replays admin setup writes as context without requiring candidate rules to allow them', () => {
+    const { sandbox, env } = setup();
+    env.execute({
+      method: 'set',
+      path: 'things/setup',
+      auth: null,
+      data: { seeded: true },
+      bypassRules: true,
+    });
+    env.execute({
+      method: 'set',
+      path: 'things/user',
+      auth: { uid: 'alice' },
+      data: { value: 1 },
+    });
+
+    const events = sandbox.history();
+    const setupRequest = events.find(
+      (event): event is RequestEvent => event.kind === 'request' && event.path === 'things/setup',
+    );
+    const setupWrite = events.find(
+      (event): event is WriteSandboxEvent => event.kind === 'write' && event.path === 'things/setup',
+    );
+
+    expect(setupRequest?.detail?.admin).toBe(true);
+    expect(setupWrite?.detail?.admin).toBe(true);
+
+    const originalState = sandbox.snapshot().firestore;
+    const result = replay(events, RULES, {}, originalState);
+
+    expect(result.divergences).toHaveLength(0);
+    expect(result.sandbox.snapshot().firestore['things/setup']).toEqual({ seeded: true });
+    expect(result.sandbox.snapshot().firestore['things/user']).toEqual({ value: 1 });
   });
 
   it('captures sentinels across batch sub-ops and re-issues on replay', () => {

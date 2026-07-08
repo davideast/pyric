@@ -10,6 +10,7 @@ import {
 } from 'pyric/database';
 import { defineRtdbRules, allow, deny } from 'pyric/rules/rtdb';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getAdminFirestore, getFirestore } from 'pyric/sandbox/admin-firestore';
 import {
   buildVerifyFixture,
   parseVerifyFixture,
@@ -19,6 +20,17 @@ import {
 
 const ALLOW_ALL_RTDB = { rules: { '.read': true, '.write': true } };
 const DENY_ALL_RTDB = { rules: { '.read': false, '.write': false } };
+const FIRESTORE_SETUP_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /setup/{id} {
+      allow read, write: if false;
+    }
+    match /notes/{id} {
+      allow read, write: if request.auth.uid == 'alice';
+    }
+  }
+}`;
 
 async function captureRtdbJourney(): Promise<PyricVerifyFixture> {
   const sandbox = initializeSandbox();
@@ -71,6 +83,33 @@ describe('verifyFixture', () => {
 
     expect(result.ok).toBe(true);
     expect(result.services.rtdb?.checkedEvents).toBe(4);
+  });
+
+  it('uses Firestore admin setup writes as replay context, not protected behavior', async () => {
+    const sandbox = initializeSandbox();
+    const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    const adminDb = getAdminFirestore(sandbox);
+    db.setRules(FIRESTORE_SETUP_RULES);
+
+    await adminDb.doc('setup/seed').set({ enabled: true });
+    await db.doc('notes/n1').set({ title: 'hello' });
+
+    const fixture = buildVerifyFixture({
+      sandbox,
+      firestoreRules: FIRESTORE_SETUP_RULES,
+    });
+    const setupWrite = fixture.events.find(
+      (event) => event.kind === 'write' && event.path === 'setup/seed',
+    );
+
+    expect(setupWrite?.detail?.admin).toBe(true);
+
+    const result = await verifyFixture(fixture, {
+      rules: { firestore: FIRESTORE_SETUP_RULES },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.services.firestore?.checkedEvents).toBe(1);
   });
 
   it('reports now-denied when RTDB candidate rules reject captured writes', async () => {
