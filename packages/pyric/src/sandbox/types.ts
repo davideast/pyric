@@ -509,6 +509,10 @@ export interface RequestEvent {
   /** For listener re-evals: the originating user op that triggered this
    *  re-evaluation. Absent on the initial-snapshot fire. */
   triggeredBy?: { method: string; path: string };
+  /** Free-form operation metadata. `admin: true` marks a rules-bypassing
+   *  setup/admin operation so fixture tooling can exclude it from protected
+   *  behavior while still preserving it as replay context. */
+  detail?: { admin?: boolean } & Record<string, unknown>;
 }
 
 /**
@@ -568,6 +572,10 @@ export interface WriteSandboxEvent {
    *  on replay. Shape mirrors the Firestore Web SDK Timestamp
    *  (`{ seconds, nanoseconds }`). */
   requestTime: { seconds: number; nanoseconds: number };
+  /** Free-form write metadata. `admin: true` marks a rules-bypassing
+   *  setup/admin commit so replay can apply it as context without asking
+   *  candidate rules to permit it. */
+  detail?: { admin?: boolean } & Record<string, unknown>;
 }
 
 /**

@@ -210,6 +210,7 @@ interface EmitRequestInput {
   origin: 'user' | 'listener' | 'transaction' | 'batch';
   groupId?: string;
   triggeredBy?: { method: string; path: string };
+  detail?: { admin?: boolean } & Record<string, unknown>;
 }
 
 let _requestEventSeq = 0;
@@ -281,6 +282,7 @@ function buildRequestEvent(input: EmitRequestInput): import('../types.js').Reque
     else if (input.origin === 'transaction') out.groupKind = 'transaction';
   }
   if (input.triggeredBy !== undefined) out.triggeredBy = input.triggeredBy;
+  if (input.detail !== undefined) out.detail = input.detail;
   return out;
 }
 
@@ -656,6 +658,7 @@ export class LocalEnvironment {
      *  replay engine uses this to re-issue the same Date.now() value
      *  when re-resolving serverTimestamp() sentinels. */
     requestTime: Timestamp;
+    detail?: { admin?: boolean } & Record<string, unknown>;
   }): void {
     if (this.writeListeners.size === 0) return;
     const event: import('../types.js').WriteSandboxEvent = {
@@ -675,6 +678,7 @@ export class LocalEnvironment {
       ...(input.sentinels && input.sentinels.length > 0 ? { sentinels: input.sentinels } : {}),
       ...(input.autoId !== undefined ? { autoId: input.autoId } : {}),
       requestTime: { seconds: input.requestTime.seconds, nanoseconds: input.requestTime.nanos },
+      ...(input.detail !== undefined ? { detail: input.detail } : {}),
     };
     for (const cb of this.writeListeners) {
       try {
@@ -1847,6 +1851,7 @@ export class LocalEnvironment {
    *  listeners behave exactly as a rule-allowed op would. */
   execute(operation: Operation): OperationResult {
     const { method, path, auth, data, autoId, requestTime: pinnedRequestTime, merge, bypassRules } = operation;
+    const detail = bypassRules ? { admin: true } : undefined;
 
     // Reads — evaluate rules (denied reads return no data)
     if (method === 'get' || method === 'list') {
@@ -1871,6 +1876,7 @@ export class LocalEnvironment {
           at: evalAt, evalMs, method, path, auth, result: 'deny',
           debugMessages: [`Simulation error: ${simResult.error.message}`],
           origin: 'user',
+          ...(detail ? { detail } : {}),
         });
         return { allowed: false, debugMessages: [simResult.error.message], event };
       }
@@ -1882,6 +1888,7 @@ export class LocalEnvironment {
         this.emitRequest({
           at: evalAt, evalMs, method, path, auth, result: 'unsupported',
           debugMessages: renderLegacyDebugMessages(result), origin: 'user',
+          ...(detail ? { detail } : {}),
         });
         throw new SimulatorUnsupportedError(
           unsupportedMessage(method, path, renderLegacyDebugMessages(result)),
@@ -1938,6 +1945,7 @@ export class LocalEnvironment {
         ...(method === 'get'
           ? { resourceBefore: { data: this.state.get(path), exists: this.state.get(path) !== null } }
           : {}),
+        ...(detail ? { detail } : {}),
       });
       return out;
     }
@@ -1999,6 +2007,7 @@ export class LocalEnvironment {
         ...(resolvedData ? { resourceData: resolvedData } : data ? { resourceData: data } : {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
         origin: 'user',
+        ...(detail ? { detail } : {}),
       });
       // Item 6: a sentinel-resolution throw maps to `invalid-argument`.
       // The admin SDK throws the same code when a FieldValue is malformed
@@ -2030,6 +2039,7 @@ export class LocalEnvironment {
         ...(data ? { resourceData: data } : {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
         origin: 'user',
+        ...(detail ? { detail } : {}),
       });
       // Item 6: a simulator-internal failure isn't a rules denial — map
       // it to invalid-argument so callers can distinguish "the rule
@@ -2050,6 +2060,7 @@ export class LocalEnvironment {
         ...(data ? { resourceData: data } : {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
         origin: 'user',
+        ...(detail ? { detail } : {}),
       });
       throw new SimulatorUnsupportedError(
         unsupportedMessage(method, path, renderLegacyDebugMessages(result)),
@@ -2132,6 +2143,7 @@ export class LocalEnvironment {
         ? { resourceAfter: { data: finalDoc, exists: finalDoc !== null } }
         : { resourceAfter: { data: null, exists: false } }),
       origin: 'user',
+      ...(detail ? { detail } : {}),
     });
 
     // Issue #307 — emit a committed-write event for the post-apply state.
@@ -2158,6 +2170,7 @@ export class LocalEnvironment {
         ...(sentinels && sentinels.length > 0 ? { sentinels } : {}),
         ...(mintedAutoId ? { autoId: mintedAutoId } : {}),
         requestTime: serverTime,
+        ...(detail ? { detail } : {}),
       });
     }
 
@@ -2221,6 +2234,7 @@ export class LocalEnvironment {
     auth: Operation['auth'],
     bypassRules?: boolean,
   ): BatchResult {
+    const detail = bypassRules ? { admin: true } : undefined;
     // Capture priors for just the operations' paths (undo is O(affected)).
     const snapshot = this.capturePriors(operations.map((o) => o.path));
     const results: BatchResult['results'] = [];
@@ -2276,6 +2290,7 @@ export class LocalEnvironment {
           ...(op.data ? { resourceData: op.data } : {}),
           resourceBefore: { data: snapshot[op.path] ?? null, exists: (snapshot[op.path] ?? null) !== null },
           origin: 'batch', groupId,
+          ...(detail ? { detail } : {}),
         });
         // Item 6: same code as the single-op resolver throw —
         // invalid-argument is the admin-SDK signal for malformed
@@ -2327,6 +2342,7 @@ export class LocalEnvironment {
           ...(preData ? { resourceData: preData } : {}),
           resourceBefore: { data: snapshot[op.path] ?? null, exists: (snapshot[op.path] ?? null) !== null },
           origin: 'batch', groupId,
+          ...(detail ? { detail } : {}),
         });
         allAllowed = false;
         continue;
@@ -2341,6 +2357,7 @@ export class LocalEnvironment {
           ...(preData ? { resourceData: preData } : {}),
           resourceBefore: { data: snapshot[op.path] ?? null, exists: (snapshot[op.path] ?? null) !== null },
           origin: 'batch', groupId,
+          ...(detail ? { detail } : {}),
         });
         throw new SimulatorUnsupportedError(
           unsupportedMessage(op.method, op.path, renderLegacyDebugMessages(r)),
@@ -2386,6 +2403,7 @@ export class LocalEnvironment {
         ...(preData ? { resourceData: preData } : {}),
         resourceBefore: { data: snapshot[op.path] ?? null, exists: (snapshot[op.path] ?? null) !== null },
         origin: 'batch', groupId,
+        ...(detail ? { detail } : {}),
       });
       results.push(entry);
     }
@@ -2485,6 +2503,7 @@ export class LocalEnvironment {
           ...(e.groupId ? { groupId: e.groupId, groupKind: 'batch' as const } : {}),
           ...(sentinels && sentinels.length > 0 ? { sentinels } : {}),
           requestTime: serverTime,
+          ...(detail ? { detail } : {}),
         });
       }
     }
@@ -2617,6 +2636,7 @@ export class LocalEnvironment {
     returnValue: R,
   ): TransactionResult<R> {
     const { reads, writes } = ctx.consume();
+    const detail = options.bypassRules ? { admin: true } : undefined;
     // Issue #307 — shared groupId so consumers can fold tx sub-ops
     // together the same way they fold batch sub-ops.
     const txId = `tx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -2725,6 +2745,7 @@ export class LocalEnvironment {
           ...(op.data && opRuleMethod !== 'delete' ? { resourceData: op.data } : {}),
           resourceBefore: { data: priorDoc, exists: priorDoc !== null },
           origin: 'transaction', groupId: txId,
+          ...(detail ? { detail } : {}),
         });
         return {
           allowed: false,
@@ -2796,6 +2817,7 @@ export class LocalEnvironment {
           ...(preData && ruleMethod !== 'delete' ? { resourceData: preData } : {}),
           resourceBefore: { data: priorDoc, exists: priorDoc !== null },
           origin: 'transaction', groupId: txId,
+          ...(detail ? { detail } : {}),
         });
         allAllowed = false;
         continue;
@@ -2811,6 +2833,7 @@ export class LocalEnvironment {
           ...(preData && ruleMethod !== 'delete' ? { resourceData: preData } : {}),
           resourceBefore: { data: priorDoc, exists: priorDoc !== null },
           origin: 'transaction', groupId: txId,
+          ...(detail ? { detail } : {}),
         });
         throw new SimulatorUnsupportedError(
           unsupportedMessage(ruleMethod, op.path, renderLegacyDebugMessages(r)),
@@ -2837,6 +2860,7 @@ export class LocalEnvironment {
         ...(preData && ruleMethod !== 'delete' ? { resourceData: preData } : {}),
         resourceBefore: { data: priorDoc, exists: priorDoc !== null },
         origin: 'transaction', groupId: txId,
+        ...(detail ? { detail } : {}),
       });
       if (!isAllowed) {
         // Per-op `request`/`resource` captured against pre-tx snapshot
@@ -2947,6 +2971,7 @@ export class LocalEnvironment {
           ...(e.groupId ? { groupId: e.groupId, groupKind: 'transaction' as const } : {}),
           ...(sentinels && sentinels.length > 0 ? { sentinels } : {}),
           requestTime: serverTime,
+          ...(detail ? { detail } : {}),
         });
       }
     }
