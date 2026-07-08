@@ -36,6 +36,16 @@ export interface HealthLite {
 
 export interface Discovered {
   mcpUrl: string;
+  /**
+   * The CANONICAL display URL — what a human/browser should OPEN. Comes from
+   * the serve-written pointer when present (`http://localhost:<port>` for the
+   * default host, the explicit `--host` otherwise); falls back to
+   * `http://localhost:<port>`. NEVER a literal loopback address: to a browser
+   * `localhost` and `127.0.0.1` are DIFFERENT ORIGINS (different
+   * SharedWorkers, so different sandboxes), and serve's banner/auto-open use
+   * `localhost` — guidance built from this field must land on the SAME origin.
+   * Node-side connectivity uses `base`/`mcpUrl` instead.
+   */
   url: string;
   /** `http://<family>:<port>` the server actually answered on. */
   base: string;
@@ -99,6 +109,27 @@ function portOf(u: string | undefined): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/**
+ * Canonical display URL for a serve on `port`. Prefers the pointer's own
+ * `url` (serve writes `http://<requested host>:<port>` — `localhost` for the
+ * default, the explicit `--host` otherwise) so guidance shares the origin the
+ * banner/auto-open used; falls back to `http://localhost:<port>` (browsers
+ * resolve `localhost` dual-stack, so it reaches either loopback family).
+ */
+export function canonicalServeUrl(port: number, pointerUrl?: string): string {
+  if (pointerUrl) {
+    try {
+      const u = new URL(pointerUrl);
+      if (u.protocol === 'http:' || u.protocol === 'https:') {
+        return `${u.protocol}//${u.host}`;
+      }
+    } catch {
+      /* malformed pointer url — fall through to the localhost default */
+    }
+  }
+  return `http://localhost:${port}`;
+}
+
 /** Find the running serve: pointer first (in `cwd`), then a port scan. The
  *  pointer gives the PORT and (when present) the identity; the family is
  *  resolved by probing, so the returned base always uses the address the
@@ -126,7 +157,7 @@ export async function discoverServe(
         if (hit) {
           return {
             mcpUrl: `${hit.base}/__pyric/mcp`,
-            url: hit.base,
+            url: canonicalServeUrl(port, p.url),
             base: hit.base,
             instanceId: hit.instanceId,
             source: `pointer ${POINTER}`,
@@ -142,7 +173,8 @@ export async function discoverServe(
               `that isn't answering on port ${port} — another sandbox may be squatting the ` +
               `port on the other loopback family, or the server stopped. Not falling back to ` +
               `a blind port scan (it could hit the wrong sandbox). Restart your dev server, ` +
-              `and open http://127.0.0.1:${port} (NOT localhost) so a single family is used.`,
+              `and open the exact URL it prints (http://localhost:<port> by default) — every ` +
+              `page must share that ONE origin, or the browser splits into separate sandboxes.`,
           );
           return null;
         }
@@ -156,7 +188,7 @@ export async function discoverServe(
     if (hit) {
       return {
         mcpUrl: `${hit.base}/__pyric/mcp`,
-        url: hit.base,
+        url: canonicalServeUrl(port),
         base: hit.base,
         instanceId: hit.instanceId,
         source: `port scan (:${port})`,

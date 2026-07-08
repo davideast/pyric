@@ -44,6 +44,11 @@ describe('discoverServe', () => {
     expect(found).not.toBeNull();
     expect(found!.source).toContain('pointer');
     expect(found!.mcpUrl).toMatch(new RegExp(`^http://(127\\.0\\.0\\.1|\\[::1\\]):${r.handle.port}/__pyric/mcp$`));
+    // `base` is connectivity (the literal family that answered); `url` is the
+    // CANONICAL display URL — the pointer's `localhost` origin, never a literal
+    // loopback address (guidance built from it must match the banner's origin).
+    expect(found!.base).toMatch(new RegExp(`^http://(127\\.0\\.0\\.1|\\[::1\\]):${r.handle.port}$`));
+    expect(found!.url).toBe(`http://localhost:${r.handle.port}`);
     // the pointer carries the server's identity, and discovery pins it
     expect(found!.instanceId).toBeTruthy();
   }, 30_000);
