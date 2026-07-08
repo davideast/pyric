@@ -4,7 +4,8 @@
  * four sub-tabs:
  *
  *   - Sandbox     — per-session shared/isolated runtime mode.
- *   - Data        — collection/document browser + editor (admin mode)
+ *   - Data        — Firestore collection/document browser + editor (admin mode)
+ *   - RTDB        — Realtime Database tree browser + editor (admin mode)
  *   - Auth        — sandbox identity store (emulator-style user admin)
  *   - Traffic     — request log + denial inspector.
  *   - Seed        — host-owned quick data-seed surface (SF-S2): the
@@ -26,6 +27,7 @@ import { DeployTab } from './DeployTab';
 import { IdeasTab } from './IdeasTab';
 import { FirestoreTab } from './FirestoreTab';
 import { FirestoreTabBoundary } from './FirestoreTabBoundary';
+import { RtdbTab } from './RtdbTab';
 import { SuggestionsTab } from './SuggestionsTab';
 import { TrafficTab } from './TrafficTab';
 import type { ContextWindowSnapshot } from '~/lib/agent/context-window';
@@ -96,6 +98,7 @@ export function FirebaseTab({
             <FirestoreTab />
           </FirestoreTabBoundary>
         ) : null}
+        {activeSubTab === 'rtdb' ? <RtdbTab /> : null}
         {activeSubTab === 'auth' ? <AuthTab /> : null}
         {activeSubTab === 'seed' ? <DataSeedTab /> : null}
         {activeSubTab === 'traffic' ? (

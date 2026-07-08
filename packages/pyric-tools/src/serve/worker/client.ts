@@ -1209,6 +1209,53 @@ export async function rtdbGet(r: RtdbRefHandle): Promise<RtdbDataSnapshot> {
   );
 }
 
+export async function adminReadRtdbState(db: ClientDb | ClientRtdb): Promise<unknown> {
+  return rpc(db.port, { t: 'op', id: nextId(), method: 'rtdb.adminSnapshot' });
+}
+
+export async function adminSetRtdbValue(
+  db: ClientDb | ClientRtdb,
+  path: string,
+  value: unknown,
+): Promise<void> {
+  await rpc(db.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'rtdb.set',
+    path,
+    value,
+    actAs: { mode: 'admin' },
+  });
+}
+
+export async function adminUpdateRtdbValue(
+  db: ClientDb | ClientRtdb,
+  path: string,
+  values: Record<string, unknown>,
+): Promise<void> {
+  await rpc(db.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'rtdb.update',
+    path,
+    values,
+    actAs: { mode: 'admin' },
+  });
+}
+
+export async function adminDeleteRtdbValue(
+  db: ClientDb | ClientRtdb,
+  path: string,
+): Promise<void> {
+  await rpc(db.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'rtdb.remove',
+    path,
+    actAs: { mode: 'admin' },
+  });
+}
+
 export async function rtdbSet(r: RtdbRefHandle, value: unknown): Promise<void> {
   await dataRpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.set', path: r.path, value });
 }

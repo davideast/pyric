@@ -59,6 +59,10 @@ import {
   adminUpdateUser as workerAdminUpdateUser,
   adminDeleteUser as workerAdminDeleteUser,
   adminClearUsers as workerAdminClearUsers,
+  adminReadRtdbState as workerAdminReadRtdbState,
+  adminSetRtdbValue as workerAdminSetRtdbValue,
+  adminUpdateRtdbValue as workerAdminUpdateRtdbValue,
+  adminDeleteRtdbValue as workerAdminDeleteRtdbValue,
   collection as workerCollection,
   doc as workerDoc,
   getDoc as workerGetDoc,
@@ -114,6 +118,14 @@ export interface WorkerLivePlane {
   listRootCollections(): Promise<string[]>;
   /** F2 data browse: enumerate subcollection ids under a document path. */
   listSubcollections(docPath: string): Promise<string[]>;
+  /** RTDB browse: read the full worker-backed RTDB tree with the admin lens. */
+  readRtdbState(): Promise<unknown>;
+  /** RTDB browse: replace a node with the admin lens. */
+  setRtdbValue(path: string, value: unknown): Promise<void>;
+  /** RTDB browse: shallow-update a node with the admin lens. */
+  updateRtdbValue(path: string, values: Record<string, unknown>): Promise<void>;
+  /** RTDB browse: delete a node with the admin lens. */
+  deleteRtdbValue(path: string): Promise<void>;
   /**
    * F2 data browse: the worker client's modular Firestore fns as an injectable
    * {@link FirestoreApi} bundle. Studio feeds this to `@pyric/ui`'s
@@ -279,6 +291,10 @@ export function connectWorkerLive(
     getPolicy: () => workerGetPolicy(db),
     listRootCollections: () => workerListRootCollections(db),
     listSubcollections: (docPath) => workerListSubcollections(db, docPath),
+    readRtdbState: () => workerAdminReadRtdbState(db),
+    setRtdbValue: (path, value) => workerAdminSetRtdbValue(db, path, value),
+    updateRtdbValue: (path, values) => workerAdminUpdateRtdbValue(db, path, values),
+    deleteRtdbValue: (path) => workerAdminDeleteRtdbValue(db, path),
     // The worker client's modular fns, cast to the in-process FirestoreApi
     // signatures (`@pyric/ui` is typed against `pyric/firestore`; the worker
     // handles + snapshots are runtime-compatible at the grid's surface).

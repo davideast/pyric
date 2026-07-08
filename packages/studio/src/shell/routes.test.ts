@@ -20,7 +20,7 @@ describe('Studio V1 route registry', () => {
       'Firestore',
       'Auth',
       'Storage',
-      'Realtime DB',
+      'RTDB',
       'Traffic',
       'Playground',
       'Settings',
@@ -34,10 +34,8 @@ describe('Studio V1 route registry', () => {
     expect(ROUTE_IDS).not.toContain('agent' as RouteId);
   });
 
-  it('marks Realtime DB as the only coming-soon route', () => {
-    expect(ROUTES.filter((route) => route.status === 'coming-soon').map((route) => route.id)).toEqual([
-      'rtdb',
-    ]);
+  it('does not mark top-level routes as coming soon', () => {
+    expect(ROUTES.filter((route) => route.status === 'coming-soon').map((route) => route.id)).toEqual([]);
   });
 
   it('falls back unknown routes to Home', () => {

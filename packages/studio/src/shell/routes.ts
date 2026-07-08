@@ -43,9 +43,8 @@ export const ROUTES: readonly StudioRoute[] = [
   },
   {
     id: 'rtdb',
-    label: 'Realtime DB',
-    description: 'Realtime Database Studio support is not in the V1 scope.',
-    status: 'coming-soon',
+    label: 'RTDB',
+    description: 'Browse and edit RTDB data in the shared sandbox.',
   },
   {
     id: 'traffic',
