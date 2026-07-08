@@ -27,13 +27,6 @@ export interface DenialBlurb {
    *  the user can copy this directly into a rules debugger / paste
    *  into a prompt. Built from the sandbox `DenialEvent`. */
   request: unknown;
-  /** Static classification at capture time. `expected` means the
-   *  app appears designed to handle this denial (rule fired as
-   *  intended). `unexpected` means no error-handling code anticipates
-   *  it. `ambiguous` is in-between. */
-  classification: 'expected' | 'ambiguous' | 'unexpected';
-  /** Single-line human reason for the classification badge. */
-  classificationReason: string;
   /** Set true after the user clicks into the denial. Drives the
    *  "unread" counter on the Denials tab badge and the slim preview
    *  banner — both surface unacknowledged denials only. The denial
@@ -86,8 +79,8 @@ const MAX_TRAFFIC = 5000;
  * One row in the Traffic panel — a `RequestEvent` from
  * `sandbox.onRequest` with playground-specific overlay fields. The
  * `eventId` of the source request is preserved so denial rows can
- * cross-reference the parallel `liveDenials` feed (classification,
- * acknowledgement, analyzedAt state) without duplicating storage.
+ * cross-reference the parallel `liveDenials` feed (acknowledgement,
+ * analyzedAt state) without duplicating storage.
  */
 export type TrafficEntry = (RequestEvent | SandboxOperationEvent) & {
   /** True if a `resourceData` / `data` payload was truncated during
@@ -163,7 +156,7 @@ interface RuntimeState {
   /**
    * Live denial feed — projection over the traffic ring buffer for
    * `result === 'deny'` events with playground-specific overlay
-   * state (classification, acknowledged, analyzedAt, analysis).
+   * state (acknowledged, analyzedAt, analysis).
    * Capped separately at `MAX_LIVE_DENIALS` because we care about
    * recency-not-volume here.
    */

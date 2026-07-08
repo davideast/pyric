@@ -34,7 +34,6 @@ export type AgentPromptProfile = 'firebase' | 'app-builder';
 export type WorkbenchSurface = 'preview' | 'firebase' | 'file';
 export type FirebaseWorkbenchSubtab = 'sandbox' | 'data' | 'auth' | 'traffic' | 'seed';
 export type SkillToolProfilePreference = 'authoring' | 'diagnostic';
-export type SkillStrategyPreference = 'auto' | 'react' | 'draft-validate';
 
 export interface SkillDefinition {
   /** Stable id — persisted in session payloads; never rename. */
@@ -70,8 +69,6 @@ export interface SkillDefinition {
   defaultFilePath?: string;
   /** Tool profile to prefer under this skill. */
   toolProfilePreference?: SkillToolProfilePreference;
-  /** Strategy to prefer under this skill. */
-  strategyPreference?: SkillStrategyPreference;
   /**
    * (P4) Shape block for the prompt enhancer. General Firebase skills
    * map into automatic context lenses; specialist skills add overlay
@@ -126,7 +123,6 @@ export interface WorkbenchIntent {
   defaultFirebaseSubtab?: FirebaseWorkbenchSubtab;
   defaultFilePath?: string;
   toolProfilePreference?: SkillToolProfilePreference;
-  strategyPreference?: SkillStrategyPreference;
 }
 
 function latestIntentSkill(skills: readonly SkillDefinition[]): SkillDefinition | undefined {
@@ -137,8 +133,7 @@ function latestIntentSkill(skills: readonly SkillDefinition[]): SkillDefinition 
       skill.primarySurface ||
       skill.defaultFirebaseSubtab ||
       skill.defaultFilePath ||
-      skill.toolProfilePreference ||
-      skill.strategyPreference
+      skill.toolProfilePreference
     ) {
       return skill;
     }
@@ -157,8 +152,8 @@ export function resolvePromptProfile(
     : 'firebase';
 }
 
-/** Resolve active skills to the workbench defaults used by the UI,
- *  tool profile, and strategy router. The most recently activated
+/** Resolve active skills to the workbench defaults used by the UI
+ *  and tool profile. The most recently activated
  *  intent-bearing skill wins for concrete surface defaults. */
 export function resolveWorkbenchIntent(
   activeSkills: readonly SkillDefinition[],
@@ -176,11 +171,6 @@ export function resolveWorkbenchIntent(
       ? { toolProfilePreference: latest.toolProfilePreference }
       : promptProfile === 'firebase'
         ? { toolProfilePreference: 'diagnostic' as const }
-        : {}),
-    ...(latest?.strategyPreference
-      ? { strategyPreference: latest.strategyPreference }
-      : promptProfile === 'firebase'
-        ? { strategyPreference: 'react' as const }
         : {}),
   };
 }

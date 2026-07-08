@@ -17,7 +17,7 @@
  * `sandbox.*` namespace is absent on purpose — runner code (a separate
  * artifact, not `appSource`) is where firestore sandbox primitives
  * belong. The `@pyric/auth` `sandbox` namespace IS exposed under
- * `firebase/auth` for conformance fixtures that need `seedUsers` /
+ * `firebase/auth` for preview tests that need `seedUsers` /
  * `setUser` / `mockSignInResult` — preview-only; see the safety note
  * on the `firebase/auth` slot below.
  */
@@ -102,7 +102,7 @@ export interface PreviewScope {
    * surface and `getAuth(app)` works against the user's project.
    *
    * The `sandbox` slot is a preview-only escape hatch — it gives
-   * conformance fixtures access to `seedUsers` / `setUser` /
+   * preview tests access to `seedUsers` / `setUser` /
    * `mockSignInResult` so probes can pre-stage test users with
    * customClaims before driving rules-engine assertions. Safety
    * relies on a two-layer model:

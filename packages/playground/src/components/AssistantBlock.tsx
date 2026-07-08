@@ -23,7 +23,7 @@ import { useEffect, useState } from 'react';
 import { CopyButton } from './CopyButton';
 import { Fold } from './Fold';
 import { Markdown } from './Markdown';
-import type { ChatMessage, DelegatedActivity, ToolCall } from '~/lib/store/chat';
+import type { ChatMessage, ToolCall } from '~/lib/store/chat';
 import {
   buildAssistantTimeline,
   hasInterleavedTimeline,
@@ -32,8 +32,6 @@ import {
   type TimelineItem,
 } from '~/lib/store/chat-timeline';
 import { deriveTurnStatus, isReplyHiddenWhileStreaming } from '~/lib/store/derive-turn-status';
-import { StrategyStepper } from './teach/StrategyStepper';
-import { SpecCard } from './teach/SpecCard';
 import { toolDisplay } from '~/lib/tools/display';
 import { rowStatForCall } from '~/lib/tools/behavior';
 import { formatDuration } from '~/lib/utils/format';
@@ -159,8 +157,6 @@ function buildEntireMessageCopy(m: ChatMessage): string {
         args: safeParseJson(c.argsJson),
         result: safeParseJson(c.resultJson),
       })),
-      delegatedActivity: m.delegatedActivity,
-      rawTranscript: m.rawTranscript,
       text: m.text,
       metrics: m.metrics,
     },
@@ -206,33 +202,6 @@ function ThinkingBlock({
         <Markdown source={trimmed} streaming={streaming} />
       </div>
     </Fold>
-  );
-}
-
-function DelegatedActivityRow({ activity }: { activity: DelegatedActivity }) {
-  const display = toolDisplay(activity.name);
-  const running = activity.resultSummary === undefined;
-  const stat = activity.resultSummary ?? activity.summary;
-  return (
-    <div
-      className={[
-        'w-full flex items-center gap-2.5 text-left px-1.5 py-1 rounded',
-        running ? 'opacity-80' : '',
-      ].join(' ')}
-    >
-      <span className="text-[10px] uppercase tracking-wider text-slate-gray shrink-0 w-8">
-        tool
-      </span>
-      <span className="material-symbols-outlined text-[14px] text-slate-gray shrink-0">
-        {display.icon}
-      </span>
-      <span className="text-[11px] font-mono uppercase tracking-wider shrink-0 text-soft-white">
-        {display.humanLabel}
-      </span>
-      <span className="text-[11px] font-mono text-slate-gray truncate flex-1 min-w-0">
-        · {stat}
-      </span>
-    </div>
   );
 }
 
@@ -299,12 +268,6 @@ function renderTimelineItem(
           onSelect={() => opts.onSelectTool?.(opts.messageId, item.call.id)}
         />
       );
-    case 'delegated':
-      return (
-        <div key={key}>
-          <DelegatedActivityRow activity={item.activity} />
-        </div>
-      );
     case 'text':
       if (opts.isFinalReply) {
         return (
@@ -330,7 +293,6 @@ function renderTimelineItem(
 export function AssistantBlock({ message, time, onSelectTool }: Props) {
   const hasThinking = !!message.thinking && message.thinking.length > 0;
   const toolCalls = message.toolCalls ?? [];
-  const delegatedActivity = message.delegatedActivity ?? [];
   const text = message.text;
   const isStreaming = !!message.streaming;
   const replyHidden = isReplyHiddenWhileStreaming(message);
@@ -374,20 +336,19 @@ export function AssistantBlock({ message, time, onSelectTool }: Props) {
         <ThinkingBlock text={message.thinking ?? ''} streaming={isStreaming} />
       ) : null}
 
-      {/* Plan/phase stepper — how the strategy ran this turn (draft →
-          validate → repair, critiques, escalations). Renders nothing
-          for plain ReAct turns; sits ABOVE the timeline so the user
-          reads the plan before the play-by-play. */}
-      <StrategyStepper
-        phaseEvents={message.phaseEvents}
-        critiques={message.reflexionCritiques}
-        streaming={isStreaming}
-      />
-
-      {/* Spec card — the draft's access matrix + assumptions
-          (validation_result's spec payload). Renders nothing for
-          ReAct turns and spec-fallback drafts. */}
-      <SpecCard phaseEvents={message.phaseEvents} />
+      {message.reflexionCritiques?.map((critique, i) => (
+        <div
+          key={`critique-${i}`}
+          className="rounded border border-[#2a2a35] bg-[#1e1e24] px-3 py-2 text-[11px] text-slate-gray"
+        >
+          <span className="font-mono uppercase tracking-wider text-soft-white">
+            critique {critique.verdict}
+          </span>
+          {critique.feedback || critique.text ? (
+            <span className="ml-2">{critique.feedback ?? critique.text}</span>
+          ) : null}
+        </div>
+      ))}
 
       {turnStatus?.showStrip ? (
         <p className="px-1.5 py-1 text-[11px] font-mono text-slate-gray">
@@ -419,11 +380,6 @@ export function AssistantBlock({ message, time, onSelectTool }: Props) {
         </ul>
       ) : null}
 
-      {/* Strategy milestones (draft-validate phases, reflexion
-          critiques) render in the StrategyStepper above the timeline
-          — the old bottom strips moved up there as chips + detail
-          lines so the plan reads BEFORE the play-by-play. */}
-
       {!useInterleaved && !thinkingOnly && text && !replyHidden ? (
         <div className="pt-3 border-t border-[#2a2a35]">
           <div className="flex items-center justify-between mb-1.5">
@@ -442,7 +398,7 @@ export function AssistantBlock({ message, time, onSelectTool }: Props) {
        *  from the per-section copies above (which use `content_copy`).
        *  Uses the shared `CopyButton` so the check-mark confirmation
        *  matches every other copy on the page. */}
-      {(metricsLine || hasThinking || toolCalls.length > 0 || delegatedActivity.length > 0 || text) ? (
+      {(metricsLine || hasThinking || toolCalls.length > 0 || text) ? (
         <div className="mt-1 flex items-center justify-between gap-3">
           <p className="text-[10px] font-mono text-slate-gray/70 truncate">
             {metricsLine ?? ''}

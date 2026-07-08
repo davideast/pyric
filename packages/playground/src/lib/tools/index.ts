@@ -40,16 +40,7 @@ function getActiveSkillTools(): ToolHandler[] {
   return out;
 }
 
-export type ToolProfile = 'draft' | 'authoring' | 'diagnostic';
-
-const DRAFT_TOOL_NAMES = new Set([
-  'list_files',
-  'search_file',
-  'read_file',
-  'sandbox_discover_paths',
-  'simulate_firestore_write',
-  'seed_firestore_data_as_admin',
-]);
+export type ToolProfile = 'authoring' | 'diagnostic';
 
 const AUTHORING_TOOL_NAMES = new Set([
   'list_files',
@@ -91,8 +82,7 @@ export function filterToolsForProfile(
   profile: ToolProfile,
 ): ToolHandler[] {
   if (profile === 'diagnostic') return tools.slice();
-  const wanted = profile === 'draft' ? DRAFT_TOOL_NAMES : AUTHORING_TOOL_NAMES;
-  return tools.filter((t) => wanted.has(t.name));
+  return tools.filter((t) => AUTHORING_TOOL_NAMES.has(t.name));
 }
 
 export interface ToolRegistrationOptions {

@@ -8,7 +8,6 @@
 import type { CallbackProvider } from '@inbrowser/agent';
 import type { ByokSlot } from '~/lib/llm/byok';
 import { BYOK_SLOTS, type ByokProviderId } from '~/lib/llm/byok';
-import { IS_LOCAL_HOST_BUILD } from '~/lib/env/local-host';
 import {
   geminiProvider,
   GEMINI_MODELS,
@@ -25,11 +24,6 @@ import {
   OLLAMA_MODELS,
   DEFAULT_OLLAMA_MODEL,
 } from '~/lib/llm/ollama';
-import {
-  claudeProvider,
-  CLAUDE_MODELS,
-  DEFAULT_CLAUDE_MODEL,
-} from '~/lib/llm/claude';
 import {
   llamaServerProvider,
   LLAMA_SERVER_MODELS,
@@ -80,25 +74,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     models: LLAMA_SERVER_MODELS,
     defaultModelId: DEFAULT_LLAMA_SERVER_MODEL,
   },
-  claude: {
-    id: 'claude',
-    label: 'Claude (local CLI)',
-    provider: claudeProvider,
-    byok: BYOK_SLOTS.claude,
-    models: CLAUDE_MODELS,
-    defaultModelId: DEFAULT_CLAUDE_MODEL,
-  },
 };
 
-/**
- * Picker order. The Claude lane needs the server process to be the
- * OWNER's machine — it spawns `claude -p` there — so it's available
- * under `astro dev` AND a local prod preview built with
- * PUBLIC_ENABLE_LOCAL_AUTH (the Tailscale phone setup), never in a
- * deployed build (see lib/env/local-host.ts). A persisted 'claude'
- * selection elsewhere still resolves via `PROVIDERS` and fails with
- * the route's clear 404 message.
- */
-export const PROVIDER_LIST: readonly ProviderDef[] = Object.values(PROVIDERS).filter(
-  (def) => def.id !== 'claude' || IS_LOCAL_HOST_BUILD,
-);
+/** Picker order for the supported Playground providers. */
+export const PROVIDER_LIST: readonly ProviderDef[] = Object.values(PROVIDERS);

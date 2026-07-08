@@ -2,7 +2,7 @@
  * Public entry point for the inference layer.
  *
  * Dispatches per-call to one of two transports — `server` (resumable
- * relay; the DEFAULT for cloud providers AND the Claude lane, because
+ * relay; the DEFAULT for cloud providers because
  * a page-direct fetch structurally cannot survive a backgrounded
  * mobile tab) or `fallback` (page-direct; local providers, and the
  * automatic degradation when the server route is unavailable). Both share the
@@ -37,7 +37,6 @@ import type { ProviderChatMessage, ProviderToolDecl } from '@inbrowser/agent';
 import { geminiProvider } from './gemini-page';
 import { openrouterPageProvider, type PageInferenceEvent } from './openrouter-page';
 import { ollamaProvider } from './ollama-page';
-import { claudeLaneProvider } from './claude-lane';
 import { createResumableClient, installBrowserLifecycle } from '@inbrowser/relay';
 import { useSettingsStore } from '~/lib/store/settings';
 import { useLlmStore } from '~/lib/store/llm';
@@ -56,7 +55,7 @@ export type InferenceMode = 'fallback' | 'server';
  * (`ProviderChatMessage`, tool-call correlation field `callId`) into the
  * unified-contract `ModelMessage` (`id` / `toolCallId`) that
  * `NormalizedRequest.messages` now requires. The `CallbackProvider`
- * wrappers (`~/lib/llm/{gemini,ollama,claude,llama-server,openrouter}.ts`)
+ * wrappers (`~/lib/llm/{gemini,ollama,llama-server,openrouter}.ts`)
  * call this when building their request.
  */
 export function toModelMessages(messages: ProviderChatMessage[]): ModelMessage[] {
@@ -146,8 +145,8 @@ function resolveApiBase(): Promise<string> {
 
 let publicClient: InferenceClient | null = null;
 let fallbackInner: InferenceClient | null = null;
-/** One server client per base URL — '' (same-origin: Astro routes,
- *  incl. the Claude lane) and the published Cloud Run URL coexist. */
+/** One server client per base URL — '' (same-origin: Astro routes)
+ *  and the published Cloud Run URL coexist. */
 const serverClients = new Map<string, InferenceClient>();
 
 export function createInference(): InferenceClient {
@@ -164,24 +163,11 @@ export function createInference(): InferenceClient {
  *  registers gemini/openrouter/ollama, but ollama (and llamaServer)
  *  talk to the user's OWN machine — the deployed Cloud Function can't
  *  reach them — so only the cloud-API providers route to `server`.
- *  `claude` routes to the SAME-ORIGIN relay only (never the Cloud
- *  Function — the Agent SDK runs on the owner's machine); see
- *  `serverBaseFor`. The lane exists only on owner-machine builds, so a
- *  deployed page never selects it. */
+ *  server transport. */
 export const SERVER_CAPABLE_PROVIDERS: ReadonlySet<string> = new Set([
   'gemini',
   'openrouter',
-  'claude',
 ]);
-
-/** Job-engine base URL for a provider. Cloud providers use the deploy's
- *  Cloud Run endpoint when one is published; the Claude lane is pinned
- *  same-origin — its provider is registered only in the local Astro
- *  server's relay (`relay-local.ts`), and the deployed function must
- *  never receive it. */
-async function serverBaseFor(provider: string): Promise<string> {
-  return provider === 'claude' ? '' : resolveApiBase();
-}
 
 /** Cooldown set ONLY when the server route provably doesn't exist
  *  (job start rejected 404/405 — a static host or relay-less server).
@@ -242,7 +228,7 @@ async function* dispatch(req: NormalizedRequest): AsyncGenerator<InferenceEvent>
   });
 
   if (mode === 'server') {
-    const base = await serverBaseFor(req.provider);
+    const base = await resolveApiBase();
     let server = serverClients.get(base);
     if (!server) {
       server = createServerClient(base);
@@ -326,13 +312,6 @@ function createFallbackClient(): InferenceClient {
           for await (const evt of ollamaProvider(req)) yield evt;
           return;
         }
-        case 'claude': {
-          // Dev-only lane: OpenAI-compat SSE against the local Astro
-          // route, which spawns `claude -p` server-side. See
-          // ./claude-lane.ts and src/lib/server/claude-lane.ts.
-          for await (const evt of claudeLaneProvider(req)) yield evt;
-          return;
-        }
         default: {
           yield {
             kind: 'error',
@@ -356,8 +335,7 @@ export interface ServerJobProgress {
   jobId: string;
   /** Events received so far — the durable log's resume offset. */
   seq: number;
-  /** Provider that ran the job — reattach needs it (a recovered
-   *  `claude` job must also pull the server workspace). */
+  /** Provider that ran the job. */
   provider: string;
 }
 

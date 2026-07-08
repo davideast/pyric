@@ -20,8 +20,6 @@ export interface InspectDenialDenial {
   method?: string;
   auth?: string;
   message?: string;
-  classification?: 'expected' | 'ambiguous' | 'unexpected';
-  classificationReason?: string;
 }
 
 export interface InspectDenialData {
@@ -47,8 +45,6 @@ export function parseInspectDenialResult(resultJson: string | undefined): Inspec
 export interface WhyRow {
   label: string;
   value: string;
-  /** Visual emphasis for the classification row. */
-  tone?: 'expected' | 'ambiguous' | 'unexpected';
 }
 
 export function buildWhyRows(denial: InspectDenialDenial): WhyRow[] {
@@ -57,15 +53,6 @@ export function buildWhyRows(denial: InspectDenialDenial): WhyRow[] {
   if (op) rows.push({ label: 'request', value: op });
   rows.push({ label: 'auth', value: denial.auth || '(unknown)' });
   if (denial.message) rows.push({ label: 'simulator said', value: denial.message });
-  if (denial.classification) {
-    rows.push({
-      label: 'classification',
-      value: denial.classificationReason
-        ? `${denial.classification} — ${denial.classificationReason}`
-        : denial.classification,
-      tone: denial.classification,
-    });
-  }
   return rows;
 }
 
@@ -86,11 +73,6 @@ export function buildFixPrompt(data: InspectDenialData): string {
   lines.push(`- request: ${op}`);
   lines.push(`- auth: ${d.auth ?? '(unknown)'}`);
   if (d.message) lines.push(`- simulator message: ${d.message}`);
-  if (d.classification) {
-    lines.push(
-      `- classification: ${d.classification}${d.classificationReason ? ` (${d.classificationReason})` : ''}`,
-    );
-  }
   lines.push('');
   lines.push(
     'Read /workspace/firestore.rules to see the CURRENT editor rules (sandbox denials evaluate against the editor body, not production). Then decide which case this is:',
@@ -127,7 +109,5 @@ export function toDenialBlurb(
     auth: d.auth ?? '(unknown)',
     message: d.message ?? '',
     request: { request: { method: d.method, path: d.path } },
-    classification: d.classification ?? 'ambiguous',
-    classificationReason: d.classificationReason ?? 'reconstructed from tool result',
   };
 }

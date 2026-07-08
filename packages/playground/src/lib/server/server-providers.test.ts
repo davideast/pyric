@@ -22,15 +22,10 @@ describe('server provider policy', () => {
   test('fixed-endpoint cloud providers are allowed', () => {
     expect(isUserBaseUrlProvider('gemini')).toBe(false);
     expect(isUserBaseUrlProvider('openrouter')).toBe(false);
-    expect(isUserBaseUrlProvider('claude')).toBe(false);
   });
 
   test('the SERVER relay provider set (gemini + openrouter) passes the guard', () => {
     expect(() => assertNoUserBaseUrlProvider(['gemini', 'openrouter'])).not.toThrow();
-    // With the local Claude lane extension too.
-    expect(() =>
-      assertNoUserBaseUrlProvider(['gemini', 'openrouter', 'claude']),
-    ).not.toThrow();
   });
 
   test('registering ollama server-side throws', () => {

@@ -59,8 +59,6 @@ const tracesByTurn: Record<string, TurnTrace> = {
       modelLabel: 'Gemini 3.5 Flash',
       diagnosticsEnabled: true,
       resumableServerMode: false,
-      strategy: 'react',
-      strategySource: 'user-selected',
     },
     requests: [
       {

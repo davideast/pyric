@@ -51,12 +51,6 @@ function StepHeading({ n, label }: { n: number; label: string }) {
   );
 }
 
-const CLASSIFICATION_TONE: Record<string, string> = {
-  expected: 'text-emerald-400',
-  ambiguous: 'text-amber-400',
-  unexpected: 'text-rose-400',
-};
-
 function FailureNote({ data }: { data: InspectDenialData }) {
   if (data.reason === 'no_denials') {
     return (
@@ -163,10 +157,7 @@ export function DenialWalkthrough({
                 {r.label}
               </dt>
               <dd
-                className={[
-                  'text-[12px] font-mono break-words leading-relaxed',
-                  r.tone ? CLASSIFICATION_TONE[r.tone] ?? 'text-soft-white/90' : 'text-soft-white/90',
-                ].join(' ')}
+                className="text-[12px] font-mono break-words leading-relaxed text-soft-white/90"
               >
                 {r.value}
               </dd>

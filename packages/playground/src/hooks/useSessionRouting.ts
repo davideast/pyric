@@ -493,8 +493,5 @@ function coerceMessage(raw: unknown): ChatMessage | null {
       : {}),
     ...(m.thinkingChunks ? { thinkingChunks: m.thinkingChunks } : {}),
     ...(m.reflexionCritiques ? { reflexionCritiques: m.reflexionCritiques } : {}),
-    ...(m.phaseEvents ? { phaseEvents: m.phaseEvents } : {}),
-    ...(m.delegatedActivity ? { delegatedActivity: m.delegatedActivity } : {}),
-    ...(m.rawTranscript ? { rawTranscript: m.rawTranscript } : {}),
   };
 }

@@ -2,27 +2,22 @@
  * In-repo page-direct OpenRouter provider — supersedes
  * `@inbrowser/relay/providers/openrouter` on the fallback transport.
  *
- * Why a fork exists (sonnet-food session, 2026-06-10):
+ * Why a fork exists:
  *
  *   1. **Bounded reasoning.** The relay provider sends
- *      `reasoning: { effort }` but NO `max_tokens`. OpenRouter maps
- *      Anthropic effort to `budget_tokens ≈ ratio × max_tokens`, and
- *      with max_tokens absent it falls back to the model-default cap —
- *      so `medium` on Claude Sonnet still authorized a ~60k-token
- *      thinking free-run (14 minutes before the first tool call). This
+ *      `reasoning: { effort }` but NO `max_tokens`. Some OpenRouter
+ *      providers map effort to `budget_tokens ≈ ratio × max_tokens`, and
+ *      with max_tokens absent they can fall back to the model-default cap.
+ *      This
  *      provider always sends an explicit `max_tokens`, making the
  *      effort ratios mean what the picker says.
- *   2. **Anthropic thinking round-trip.** OpenRouter returns signed
- *      thinking blocks in `reasoning_details`
- *      (`{ type: 'reasoning.text', text, signature,
- *      format: 'anthropic-claude-v1' }` — probe-verified against
- *      claude-haiku-4.5). The relay provider drops them, so every ReAct
+ *   2. **Reasoning-detail round-trip.** OpenRouter can return signed
+ *      thinking blocks in `reasoning_details`. The relay provider drops
+ *      them, so every ReAct
  *      iteration starts from amnesia and re-derives the design. This
  *      provider merges the streamed deltas, remembers them per tool
  *      callId, and re-attaches them verbatim on the assistant message
- *      when those calls are echoed back — the Anthropic sibling of the
- *      Gemini `thought_signature` path in
- *      `~/lib/experiment/local-openai-llm.ts`.
+ *      when those calls are echoed back.
  *   3. **Reasoning-token telemetry.** Parses
  *      `usage.completion_tokens_details.reasoning_tokens` (and cached
  *      prompt tokens) so the playground can report what the thinking
@@ -39,7 +34,7 @@ import { readSseDataLines } from '@inbrowser/relay';
 
 /**
  * The playground's page-direct inference event — the flat wire shape the
- * in-repo providers (this module, `./claude-lane`, `./gemini`, `./ollama`)
+ * in-repo providers (this module, `./gemini`, `./ollama`)
  * all emit and the `CallbackProvider` wrappers (`~/lib/llm/*.ts`) consume.
  *
  * This was relay's own `InferenceEvent` through 0.3.x. Published
@@ -145,9 +140,7 @@ export type PageInferenceEvent =
       costUsd?: number;
     };
 
-/** A cacheable content part (OpenRouter/Anthropic prompt-caching
- *  breakpoint) — same shape as the experiment client's
- *  (`~/lib/experiment/local-openai-llm.ts`). */
+/** A cacheable content part (OpenRouter prompt-caching breakpoint). */
 export type ContentPart = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } };
 
 interface OaiMessage {
@@ -196,8 +189,8 @@ export function toOaiMessages(messages: ModelMessage[]): OaiMessage[] {
         // OpenAI dislikes assistant messages with both empty content
         // and tool_calls present — null content is the documented form.
         if (!msg.content) msg.content = null;
-        // Anthropic: re-attach the signed thinking blocks captured when
-        // this turn was generated. OpenRouter requires the sequence
+        // Re-attach the signed thinking blocks captured when this turn
+        // was generated. OpenRouter requires the sequence
         // verbatim and unmodified; all of a turn's callIds map to the
         // same array, so the first hit wins.
         for (const c of m.toolCalls) {
@@ -247,8 +240,7 @@ export function buildBody(req: PageNormalizedRequest): Record<string, unknown> {
   // `undefined` (sort 'default' + no caps) omits the field entirely.
   const providerPrefs = buildProviderPrefs(req.providerRouting);
   const messages = toOaiMessages(req.messages);
-  // Prompt caching (#511, ported from the experiment client where it's
-  // measured at 34–83% cache rates): put a `cache_control` breakpoint on
+  // Prompt caching (#511): put a `cache_control` breakpoint on
   // the static system prefix so the ~9k-token system prompt re-sent every
   // ReAct iteration bills as cached. Sent unconditionally — this provider
   // is OpenRouter-only, the same gating posture as `usage: { include }`.

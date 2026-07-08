@@ -111,21 +111,6 @@ export function ModelPicker() {
       {providerId === 'ollama' && ollamaStatus === 'loading' ? (
         <span className="text-[11px] font-mono text-soft-white/50">tags: …</span>
       ) : null}
-      {/* Claude (local CLI) lane — dev-server `claude -p`, subscription
-       *  auth, no key. Turns are DELEGATED: `claude -p` is its own agent
-       *  and runs the tool loop server-side against the MCP bridge at
-       *  /api/claude-mcp (files, tests, rules stdlib/lint/simulate,
-       *  jailed bash); the workspace is synced around the turn. The
-       *  playground strategies (ReAct / Draft → Validate) don't drive
-       *  this lane. */}
-      {providerId === 'claude' ? (
-        <span
-          className="text-[11px] font-mono text-soft-white/50 truncate max-w-[220px]"
-          title="Runs `claude -p` on the local dev server with the CLI's subscription login. Turns are delegated: Claude Code runs its own tool loop against the dev server's MCP bridge (files, workspace tests, rules stdlib/lint/simulate, jailed bash) — the playground strategy picker doesn't apply on this lane."
-        >
-          local CLI · delegated agent
-        </span>
-      ) : null}
       {/* Reasoning effort — OpenRouter only. Gemini's thinking budget
        *  is encoded at the model level (3.1 Pro vs 3 Flash vs Flash
        *  Lite). OpenRouter wraps many model families with different
@@ -134,10 +119,8 @@ export function ModelPicker() {
        *  reasoning_effort, Anthropic thinking budget, DeepSeek/GLM/
        *  Kimi/MiniMax thinking-token caps. `off` drops the field
        *  entirely so non-reasoning runs don't pay the shape tax.
-       *  The Claude (local CLI) lane shares the knob: low/medium/high
-       *  map onto `claude --effort`; `off` is omitted (the CLI has no
-       *  off level — the model's default applies). */}
-      {providerId === 'openrouter' || providerId === 'claude' ? (
+       */}
+      {providerId === 'openrouter' ? (
         <select
           value={openrouterEffort}
           onChange={(e) => setOpenrouterEffort(e.target.value as ReasoningEffort)}
@@ -146,7 +129,7 @@ export function ModelPicker() {
             'border border-[#3a3a45] hover:border-[#4a4a55] transition-colors',
             'focus:outline-none focus:border-soft-white/40',
           ].join(' ')}
-          title="Reasoning effort (thinking budget per model call). Default medium. ReAct-loop turns make many small calls — low/medium keeps them fast and cheap; one-shot draft strategies can afford high. 'no thinking' sends reasoning:{enabled:false} (explicit disable)."
+          title="Reasoning effort (thinking budget per model call). Default medium. ReAct-loop turns make many small calls, so low/medium keeps them fast and cheap. 'no thinking' sends reasoning:{enabled:false} (explicit disable)."
         >
           {EFFORT_OPTIONS.map((e) => (
             <option key={e.value} value={e.value}>

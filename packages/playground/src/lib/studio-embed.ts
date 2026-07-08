@@ -18,8 +18,7 @@ export type PlaygroundProviderId =
   | 'gemini'
   | 'openrouter'
   | 'ollama'
-  | 'llamaServer'
-  | 'claude';
+  | 'llamaServer';
 
 export type PlaygroundReasoningEffort = 'off' | 'low' | 'medium' | 'high';
 export type PlaygroundSandboxMode = 'shared' | 'isolated';
@@ -65,8 +64,7 @@ export function isPlaygroundCommandMessage(value: unknown): value is PlaygroundC
     (providerId === 'gemini' ||
       providerId === 'openrouter' ||
       providerId === 'ollama' ||
-      providerId === 'llamaServer' ||
-      providerId === 'claude') &&
+      providerId === 'llamaServer') &&
     typeof message.modelId === 'string' &&
     message.modelId.length > 0 &&
     (effort === undefined ||

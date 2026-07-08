@@ -41,7 +41,7 @@ describe('Studio embed contract', () => {
       isPlaygroundCommandMessage({
         type: PLAYGROUND_SET_MODEL_MESSAGE,
         providerId: 'anthropic',
-        modelId: 'claude-opus-4-8',
+        modelId: 'anthropic-model',
       }),
     ).toBe(false);
     expect(isPlaygroundCommandMessage({ type: PLAYGROUND_SET_MODEL_MESSAGE, providerId: 'gemini' })).toBe(

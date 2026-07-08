@@ -105,8 +105,6 @@ export interface RemoteExportRequestRow {
   providerId?: string;
   providerLabel?: string;
   modelLabel?: string;
-  strategy?: string;
-  strategySource?: string;
   tokensIn: number;
   tokensOut: number;
   cachedInputTokens: number;
@@ -648,8 +646,6 @@ export function buildRemoteExportRequestRows(
         ...(trace.hostCtx.providerId ? { providerId: trace.hostCtx.providerId } : {}),
         ...(trace.hostCtx.providerLabel ? { providerLabel: trace.hostCtx.providerLabel } : {}),
         ...(trace.hostCtx.modelLabel ? { modelLabel: trace.hostCtx.modelLabel } : {}),
-        ...(trace.hostCtx.strategy ? { strategy: trace.hostCtx.strategy } : {}),
-        ...(trace.hostCtx.strategySource ? { strategySource: trace.hostCtx.strategySource } : {}),
         tokensIn,
         tokensOut,
         cachedInputTokens: nonNegative(usage?.cachedTokens) ?? 0,

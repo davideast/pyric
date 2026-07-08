@@ -4,7 +4,7 @@
  *
  *   - All events push into `runtime.traffic` (5000-event ring
  *     buffer) for the Traffic panel.
- *   - Denial events also push a classified `DenialBlurb` into
+ *   - Denial events also push a neutral `DenialBlurb` into
  *     `runtime.liveDenials` for the alarm UI + Analyze panel. The
  *     blurb's `id` equals the `RequestEvent.id` so the Traffic row
  *     can cross-reference its overlay state.
@@ -16,8 +16,7 @@
  *
  * Subscriber callbacks are synchronous; heavy work would inflate
  * the *next* op's `evalMs`. We push to the zustand store directly
- * (cheap) and defer classification (regex over app source) to
- * `queueMicrotask` for the denial path — keeps the hot path tight.
+ * and avoid inferred denial classification in the hot path.
  */
 import { useEffect, useSyncExternalStore } from 'react';
 import {
@@ -26,8 +25,6 @@ import {
   subscribePlaygroundSandboxMode,
 } from '~/lib/sandbox/runtime';
 import { useRuntimeStore, type DenialBlurb, type TrafficEntry } from '~/lib/store/runtime';
-import { useWorkspaceStore } from '~/lib/store/workspace';
-import { classifyAppDenials } from '~/lib/preview/denial-classifier';
 import type { RequestEvent, SandboxOperationEvent } from 'pyric/sandbox';
 
 type CapturedTrafficEvent = RequestEvent | SandboxOperationEvent;
@@ -153,27 +150,18 @@ export function useDenialCapture(): void {
 
       if (ev.result !== 'deny') return;
 
-      // Defer the regex-based classification (the slower step) so
-      // the subscriber returns quickly. Subscriber callbacks are
-      // synchronous; heavy work here inflates the next op's evalMs.
-      queueMicrotask(() => {
-        const appSource = useWorkspaceStore.getState().appSource;
-        const { classification, reason } = classifyAppDenials(appSource);
-        const blurb: DenialBlurb = {
-          id: ev.id,
-          at: ev.at,
-          op: describeOp(ev),
-          auth: describeAuth(ev),
-          message:
-            ev.reasons && ev.reasons.length > 0
-              ? `denied by rules · ${JSON.stringify(ev.reasons)}`
-              : 'denied by rules',
-          request: buildRequestShape(ev),
-          classification,
-          classificationReason: reason,
-        };
-        pushDenial(blurb);
-      });
+      const blurb: DenialBlurb = {
+        id: ev.id,
+        at: ev.at,
+        op: describeOp(ev),
+        auth: describeAuth(ev),
+        message:
+          ev.reasons && ev.reasons.length > 0
+            ? `denied by rules · ${JSON.stringify(ev.reasons)}`
+            : 'denied by rules',
+        request: buildRequestShape(ev),
+      };
+      pushDenial(blurb);
     };
 
     return getPlaygroundRuntime().subscribeEvents((events) => {

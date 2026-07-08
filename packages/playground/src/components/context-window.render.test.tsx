@@ -37,8 +37,6 @@ function makeRequest(
     providerId: 'gemini',
     providerLabel: 'Gemini',
     modelLabel: 'Flash',
-    strategy: 'react',
-    strategySource: 'user-selected',
     inputTokens: 2_100_000,
     outputTokens: 904_949,
     cachedInputTokens: 400_000,

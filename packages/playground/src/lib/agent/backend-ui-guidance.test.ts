@@ -1,21 +1,17 @@
 /**
  * Regression pins for the no-in-app-backend guidance (SF-S1, the #575
- * identity-switcher lesson generalized — plans/app-spec.md section 3.6). The
- * first live draft-validate run (Gemini 3.5 Flash, session 0ddf0362) baked
- * a client-side `setDoc(menuItems)` seed button into App.tsx because the
- * cage left it no host surface to ask for setup. The fix is twofold:
- * de-cage the draft (give it the seed tool — see draft-then-validate.ts)
- * AND forbid in-app backend/seed/admin code in protected prompt guidance.
+ * identity-switcher lesson generalized). The first live app-building run that
+ * exposed this bug baked a client-side `setDoc(menuItems)` seed button into
+ * App.tsx because the prompt did not clearly name the host seed surface.
+ * The fix is to give the ReAct loop the seed tool and forbid in-app
+ * backend/seed/admin code in protected prompt guidance.
  *
  * `BACKEND_UI_GUIDANCE` is the ONE source of truth: the react loop inherits
- * it via `buildSystemPrompt`, and draft-then-validate inherits it via
- * `composeDraftSystemPrompt` (which folds the same constant into its draft
- * prompt). These tests pin the load-bearing strings in BOTH composed
- * prompts so neither layer can silently drop the rule.
+ * it via `buildSystemPrompt`. These tests pin the load-bearing strings so the
+ * remaining agent loop cannot silently drop the rule.
  */
 import { describe, expect, test } from 'bun:test';
 import { BACKEND_UI_GUIDANCE, FIRESTORE_SEEDING_POLICY, buildSystemPrompt } from './system-prompt';
-import { composeDraftSystemPrompt } from './strategies/draft-then-validate';
 
 // The load-bearing strings — asserted verbatim against every prompt the
 // guidance feeds. Keep in sync with BACKEND_UI_GUIDANCE in system-prompt.ts.
@@ -52,28 +48,22 @@ describe('react loop inherits the guidance (buildSystemPrompt)', () => {
   });
 });
 
-describe('draft-validate inherits the SAME guidance (composeDraftSystemPrompt)', () => {
-  // The draft prompt is self-contained — an empty host prompt still carries
-  // the guidance (it is folded into DRAFT_GUIDANCE, not the host excerpt).
-  const draftPrompt = composeDraftSystemPrompt('');
-
-  test('forbids in-app seeding / admin code', () => {
-    for (const pin of PINS) expect(draftPrompt).toContain(pin);
+describe('react loop carries the Firestore seed ID policy', () => {
+  const prompt = buildSystemPrompt({
+    diagnosticsEnabled: false,
+    prompt: 'Build a menu ordering app with Firestore rules',
   });
 
-  test('the whole guidance block is present verbatim (one source of truth)', () => {
-    expect(draftPrompt).toContain(BACKEND_UI_GUIDANCE);
-  });
-
-  test('points the de-caged draft at the host seed tool, not in-app UI', () => {
-    expect(draftPrompt).toContain('seed_firestore_data_as_admin');
-    expect(draftPrompt).toContain('NEVER bake seeding into App.tsx');
+  test('points the agent at the host seed tool, not in-app UI', () => {
+    expect(prompt).toContain('seed_firestore_data_as_admin');
+    expect(prompt).toContain('Apps NEVER write fixture/seed/admin data');
+    expect(prompt).toContain('A seed button in App.tsx is a security smell');
   });
 
   test('carries the Firestore seed ID policy', () => {
-    expect(draftPrompt).toContain(FIRESTORE_SEEDING_POLICY);
-    expect(draftPrompt).toContain('Use `autoId: true` for addDoc-style user-created docs');
-    expect(draftPrompt).toContain('Use explicit IDs for semantic or stable docs');
-    expect(draftPrompt).toContain('test-file `seed` blocks');
+    expect(prompt).toContain(FIRESTORE_SEEDING_POLICY);
+    expect(prompt).toContain('Use `autoId: true` for addDoc-style user-created docs');
+    expect(prompt).toContain('Use explicit IDs for semantic or stable docs');
+    expect(prompt).toContain('test-file `seed` blocks');
   });
 });

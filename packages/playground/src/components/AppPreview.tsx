@@ -380,7 +380,7 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
         browserSessionPersistence,
         inMemoryPersistence,
         // Preview-only sandbox driver — `seedUsers`, `setUser`,
-        // `mockSignInResult`. Lets conformance fixtures pre-stage
+        // `mockSignInResult`. Lets preview tests pre-stage
         // test users with customClaims. Deploy bundles never see
         // this (firebase/auth is external + resolves to esm.sh,
         // which has no `sandbox` export); see preview-scope.ts for

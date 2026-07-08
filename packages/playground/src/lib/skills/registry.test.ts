@@ -13,7 +13,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ToolHandler } from '@inbrowser/agent';
 import { buildSystemPrompt } from '~/lib/agent/system-prompt';
-import { buildClaudeLanePrompt } from '~/lib/agent/claude-lane-prompt';
 import { AGENT_SHELL_BUILTINS } from '~/lib/agent-shell/builtins';
 import { listToolHandlersForProfile } from '~/lib/tools';
 import { useSkillsStore } from '~/lib/store/skills';
@@ -59,7 +58,6 @@ const TOOLING_SKILL: SkillDefinition = {
   primarySurface: 'firebase',
   defaultFirebaseSubtab: 'sandbox',
   toolProfilePreference: 'diagnostic',
-  strategyPreference: 'react',
 };
 
 const FILE_TOOLING_SKILL: SkillDefinition = {
@@ -97,13 +95,11 @@ describe('skill framework invariants', () => {
     expect(withFramework).toBe(preSkills);
   });
 
-  test('active skill brief lands as a fenced SKILL section in both lanes', () => {
+  test('active skill brief lands as a fenced SKILL section', () => {
     useSkillsStore.getState().toggleSkill('fixture-skill');
     const prompt = buildSystemPrompt({ diagnosticsEnabled: false });
     expect(prompt).toContain('── SKILL: FIXTURE SKILL ──');
     expect(prompt).toContain('FIXTURE BRIEF LINE');
-    const lane = buildClaudeLanePrompt({ diagnosticsEnabled: false });
-    expect(lane).toContain('FIXTURE BRIEF LINE');
     // The full body never rides in the prompt — pull-based only.
     expect(prompt).not.toContain('FIXTURE MAN BODY');
   });
@@ -151,7 +147,6 @@ describe('skill framework invariants', () => {
       primarySurface: 'firebase',
       defaultFirebaseSubtab: 'sandbox',
       toolProfilePreference: 'diagnostic',
-      strategyPreference: 'react',
     });
   });
 
@@ -180,7 +175,6 @@ describe('skill framework invariants', () => {
       primarySurface: 'firebase',
       defaultFirebaseSubtab: 'auth',
       toolProfilePreference: 'diagnostic',
-      strategyPreference: 'react',
     });
 
     const querySkill = skillById('playground-firestore-query-indexes');
@@ -193,7 +187,6 @@ describe('skill framework invariants', () => {
       primarySurface: 'firebase',
       defaultFirebaseSubtab: 'data',
       toolProfilePreference: 'diagnostic',
-      strategyPreference: 'react',
     });
   });
 });

@@ -40,12 +40,10 @@ interface BuildSystemPromptOpts {
 // pure redundancy re-sent every turn (#512).
 //
 // Exported sections (`INTRO_IDENTITY`, `SCOPE`, `AUTH_SHAPE`,
-// `TOOL_TRUTHFULNESS`, `UI_STYLE`, `fenced`) are shared with the Claude
-// lane's delegated prompt (`./claude-lane-prompt.ts`), which keeps the
-// protected guidance verbatim but swaps the tool-surface blocks
-// (TOOLS routing / DOCS ON DEMAND / RULES STDLIB) for the MCP bridge's
-// real `mcp__playground__*` surface. ONE source of truth — the pinned
-// content (#575/W2.2, auth-UI guidance) must not fork.
+// `TOOL_TRUTHFULNESS`, `UI_STYLE`, `fenced`) are kept as named blocks so
+// tests can pin the load-bearing guidance without duplicating the full
+// prompt. ONE source of truth — the pinned content (#575/W2.2,
+// auth-UI guidance) must not fork.
 export const INTRO_IDENTITY = [
   'You are a Firebase agent in a playground.',
   'The user is editing a workspace of files stored in an OPFS-backed VFS under `/workspace/`. The two well-known paths are `/workspace/src/App.tsx` (TSX entry module the preview mounts — writing it recompiles the preview) and `/workspace/firestore.rules` (writing it auto-deploys to the sandbox; pinned, can\'t be deleted). File bodies are not in this prompt; inspect them with `list_files`, `search_file`, and ranged `read_file` before editing existing files.',
@@ -193,12 +191,11 @@ export const UI_STYLE = [
   '  Elegant, polished, MOBILE-FIRST — the preview renders at phone width by default; make it look good there first. PURE CSS only (no Tailwind, no Bootstrap): `display: grid` (+ subgrid) for structure, `gap` on the parent for spacing between siblings — NOT padding/margin between rows/cards (padding stays for content insets INSIDE a component), `auto-fit`/`minmax(...)` for responsive grids. A single `<style>` block in the TSX is fine.',
 ].join('\n');
 
-// NO IN-APP BACKEND (the #575 identity-switcher lesson generalized — see
-// plans/app-spec.md section 3.6). Pinned by `backend-ui-guidance.test.ts`; ONE
-// source of truth shared by the react loop (via `buildSystemPrompt`) and
-// the draft-then-validate strategy (which imports this constant into its
-// composed draft prompt). The strings below are load-bearing — the pin
-// asserts them verbatim; do not reword without updating the test.
+// NO IN-APP BACKEND (the #575 identity-switcher lesson generalized).
+// Pinned by `backend-ui-guidance.test.ts`; ONE source of truth shared by
+// the ReAct loop via `buildSystemPrompt`. The strings below are
+// load-bearing — the pin asserts them verbatim; do not reword without
+// updating the test.
 export const BACKEND_UI_GUIDANCE = [
   'NO IN-APP BACKEND/SEED/ADMIN CODE:',
   '  The app UI renders the END-USER\'s product ONLY. Apps NEVER write fixture/seed/admin data — no client-side seeding, no `setDoc`/`addDoc` to populate demo data, no admin bootstrap, no "seed sample data" button. Seeding, identity setup, and fixture data are HOST surfaces (the Auth tab for identities; the seed tool for data), OUTSIDE the app the end user runs.',

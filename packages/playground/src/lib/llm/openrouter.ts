@@ -7,7 +7,7 @@
  *
  * One key, many upstream models — the active model id comes from
  * the LLM store at request time so the picker can switch between
- * Claude, GPT, open-source models, etc. without re-instantiating.
+ * GPT and open-source models without re-instantiating.
  */
 import type {
   ProviderTurnResult,
@@ -29,17 +29,12 @@ function newTurnId(): string {
 /**
  * Curated picker entries. `id` is the slug OpenRouter accepts on
  * the wire. Grouped by upstream provider in a sensible reading
- * order: Anthropic, OpenAI, Moonshot, Z-AI, MiniMax, Google,
+ * order: OpenAI, Moonshot, Z-AI, MiniMax, Google,
  * DeepSeek. Gemini lives under the native provider — listing it
  * here too would be a redundant routing alternative with different
  * pricing/usage.
  */
 export const OPENROUTER_MODELS: readonly ModelDef[] = [
-  // Anthropic
-  { id: 'anthropic/claude-opus-4.7', label: 'Claude Opus 4.7', contextWindowTokens: 200_000 },
-  { id: 'anthropic/claude-sonnet-5', label: 'Claude Sonnet 5', contextWindowTokens: 1_000_000 },
-  { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6', contextWindowTokens: 200_000 },
-  { id: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5', contextWindowTokens: 200_000 },
   // OpenAI
   { id: 'openai/gpt-5.5', label: 'GPT-5.5', contextWindowTokens: 258_000 },
   // Moonshot

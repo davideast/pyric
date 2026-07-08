@@ -15,7 +15,6 @@ describe('resolveAgentContext', () => {
       primarySurface: 'firebase',
       defaultFirebaseSubtab: 'sandbox',
       toolProfilePreference: 'diagnostic',
-      strategyPreference: 'react',
     });
   });
 

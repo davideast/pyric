@@ -60,7 +60,7 @@ interface PersistedSettings {
    *  calls in circles without being stopped. Clamped to [4, 64] when
    *  read. ABSENT = no explicit choice — the effective cap is then
    *  lane-aware (see `resolveMaxTurns`): 16 on hosted reasoning lanes
-   *  (openrouter/claude — a 1.18M-token Kimi K2.6 trace burned 32
+   *  (OpenRouter — a 1.18M-token Kimi K2.6 trace burned 32
    *  iterations without settling), 32 on local/stub lanes. */
   maxTurns?: number;
   /** Opt-in: run parallel-safe tool calls in a turn concurrently
@@ -82,18 +82,6 @@ interface PersistedSettings {
    *  is surfaced but never triggers a retry. Clamped to [0, 3] when
    *  read. Default 1 (the library default). */
   reflexionMaxRetries?: number;
-  /** Agent loop strategy. `auto` (default, C2) routes per prompt: build/
-   *  modify-shaped prompts that touch data/security run `draft-validate`
-   *  (with bounded escalation back to ReAct when repairs exhaust);
-   *  questions, debugging, and pure-UI work run `react`. Explicit `react` /
-   *  `draft-validate` are user overrides — they ALWAYS win over the router.
-   *  `reflexion`/`parallelDispatch` only apply when the react loop runs.
-   *  See src/lib/agent/strategy-router.ts. */
-  strategyMode?: StrategyMode;
-  /** draft-validate only: max repair loops after a failed validation.
-   *  0 = validate once and surface the verdict, never retry. Clamped to
-   *  [0, 4] when read. Default 2. */
-  draftMaxRepairs?: number;
   /** OpenRouter provider-routing sort. `throughput` (default) routes to
    *  the fastest provider — OpenRouter's own default optimizes price and
    *  lands on congested cheap providers (measured 2026-06-11: 19–63
@@ -110,8 +98,6 @@ interface PersistedSettings {
   openrouterMaxCompletionPrice?: number;
 }
 
-export type StrategyMode = 'auto' | 'react' | 'draft-validate';
-
 /** OpenRouter provider-routing sort modes. The first three map 1:1 to
  *  the wire `provider.sort` values; `default` means "send no sort" —
  *  OpenRouter's own (price-biased, load-balanced) routing. */
@@ -123,8 +109,8 @@ export type OpenrouterSort = 'throughput' | 'price' | 'latency' | 'default';
 export const MAX_TURNS_MIN = 4;
 export const MAX_TURNS_MAX = 64;
 export const MAX_TURNS_DEFAULT = 32;
-/** Default react-loop cap on HOSTED reasoning lanes (openrouter +
- *  claude). Every iteration re-sends the whole history at real-money
+/** Default react-loop cap on hosted reasoning lanes. Every iteration
+ *  re-sends the whole history at real-money
  *  token prices — the order-food Kimi K2.6 evidence trace spent all 32
  *  default iterations (Σ 1.18M input tokens) without settling, and the
  *  back half was circling. Local/stub lanes keep `MAX_TURNS_DEFAULT`:
@@ -133,8 +119,8 @@ export const MAX_TURNS_DEFAULT_HOSTED = 16;
 
 /** Lanes whose react-loop iterations bill per token (hosted reasoning
  *  models). Gemini stays on the local default for now — this fix targets
- *  the openrouter + claude lanes per the LIVE-economics step. */
-const HOSTED_REASONING_LANES = new Set(['openrouter', 'claude']);
+ *  OpenRouter per the live-economics evidence. */
+const HOSTED_REASONING_LANES = new Set(['openrouter']);
 
 /** Lane-aware default for the react-loop turn cap. */
 export function defaultMaxTurnsForLane(providerId: string): number {
@@ -152,12 +138,6 @@ export function resolveMaxTurns(explicit: number | undefined, providerId: string
 export const REFLEXION_RETRIES_MIN = 0;
 export const REFLEXION_RETRIES_MAX = 3;
 export const REFLEXION_RETRIES_DEFAULT = 1;
-
-/** Bounds for draft-validate repair loops. 0 = no repair (verdict still
- *  surfaced); 4 caps the worst-case extra-draft latency. */
-export const DRAFT_REPAIRS_MIN = 0;
-export const DRAFT_REPAIRS_MAX = 4;
-export const DRAFT_REPAIRS_DEFAULT = 2;
 
 /** Default routing sort — preserves the measured-2026-06-11 fix that
  *  moved OpenRouter calls off congested price-default providers. */
@@ -204,8 +184,6 @@ interface SettingsState {
   parallelDispatch: boolean;
   reflexionEnabled: boolean;
   reflexionMaxRetries: number;
-  strategyMode: StrategyMode;
-  draftMaxRepairs: number;
   openrouterSort: OpenrouterSort;
   openrouterMaxPromptPrice: number | undefined;
   openrouterMaxCompletionPrice: number | undefined;
@@ -218,8 +196,6 @@ interface SettingsState {
   setParallelDispatch(v: boolean): void;
   setReflexionEnabled(v: boolean): void;
   setReflexionMaxRetries(v: number): void;
-  setStrategyMode(v: StrategyMode): void;
-  setDraftMaxRepairs(v: number): void;
   setOpenrouterSort(v: OpenrouterSort): void;
   setOpenrouterMaxPromptPrice(v: number | undefined): void;
   setOpenrouterMaxCompletionPrice(v: number | undefined): void;
@@ -242,8 +218,6 @@ function persistAll(s: SettingsState): void {
     parallelDispatch: s.parallelDispatch,
     reflexionEnabled: s.reflexionEnabled,
     reflexionMaxRetries: s.reflexionMaxRetries,
-    strategyMode: s.strategyMode,
-    draftMaxRepairs: s.draftMaxRepairs,
     openrouterSort: s.openrouterSort,
     // `undefined` caps drop out of the JSON — absent key = no ceiling.
     openrouterMaxPromptPrice: s.openrouterMaxPromptPrice,
@@ -271,13 +245,6 @@ function clampReflexionRetries(v: number | undefined): number {
   return Math.floor(v);
 }
 
-function clampDraftRepairs(v: number | undefined): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return DRAFT_REPAIRS_DEFAULT;
-  if (v < DRAFT_REPAIRS_MIN) return DRAFT_REPAIRS_MIN;
-  if (v > DRAFT_REPAIRS_MAX) return DRAFT_REPAIRS_MAX;
-  return Math.floor(v);
-}
-
 /** Validate the persisted sort at read time — an unrecognized value
  *  (stale schema, hand-edited storage) falls back to the default
  *  rather than putting an invalid enum on the wire. */
@@ -296,16 +263,6 @@ function clampOpenrouterPrice(v: number | undefined): number | undefined {
   return Math.min(v, OPENROUTER_PRICE_MAX);
 }
 
-function readStrategyMode(v: StrategyMode | undefined): StrategyMode {
-  // 'react' stays the default until the workstation test-runner (W1) makes
-  // app builds safe to route: today's draft-validate drafts RULES ONLY, and
-  // the router's data/security vocabulary matches nearly every Firebase app
-  // prompt — auto-routing would send "build me an app" turns into a strategy
-  // that cannot produce an App.tsx. 'auto' remains available as an opt-in.
-  // See plans/agent-capability-epic/workstation-architecture.md.
-  return v === 'draft-validate' || v === 'auto' ? v : 'react';
-}
-
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
   autoFoldOlder: initial.autoFoldOlder ?? false,
   collapseSignal: 0,
@@ -320,8 +277,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   parallelDispatch: initial.parallelDispatch ?? false,
   reflexionEnabled: initial.reflexionEnabled ?? false,
   reflexionMaxRetries: clampReflexionRetries(initial.reflexionMaxRetries),
-  strategyMode: readStrategyMode(initial.strategyMode),
-  draftMaxRepairs: clampDraftRepairs(initial.draftMaxRepairs),
   openrouterSort: readOpenrouterSort(initial.openrouterSort),
   openrouterMaxPromptPrice: clampOpenrouterPrice(initial.openrouterMaxPromptPrice),
   openrouterMaxCompletionPrice: clampOpenrouterPrice(initial.openrouterMaxCompletionPrice),
@@ -364,14 +319,6 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   },
   setReflexionMaxRetries: (v) => {
     set({ reflexionMaxRetries: clampReflexionRetries(v) });
-    persistAll(get());
-  },
-  setStrategyMode: (strategyMode) => {
-    set({ strategyMode });
-    persistAll(get());
-  },
-  setDraftMaxRepairs: (v) => {
-    set({ draftMaxRepairs: clampDraftRepairs(v) });
     persistAll(get());
   },
   setOpenrouterSort: (v) => {

@@ -1,7 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 
-import { COFFEE_SHOP_SPEC } from '~/lib/agent/spec/coffee-shop.fixture';
-
 import {
   buildSeedContextBundle,
   extractCollectionNamesFromApp,
@@ -34,20 +32,17 @@ const o = collection(db, 'orders');
 });
 
 describe('buildSeedContextBundle', () => {
-  test('includes spec when app.spec.json parses', async () => {
+  test('includes user hint and workspace-derived collections', async () => {
+    const { useWorkspaceStore } = await import('~/lib/store/workspace');
+    useWorkspaceStore.getState().setRules('match /menuItems/{id}');
+    useWorkspaceStore.getState().setAppSource('collection(db, "orders")');
+
     const bundle = await buildSeedContextBundle({
       hint: 'demo menu',
-      readFile: async (path) => {
-        if (path === '/workspace/app.spec.json') {
-          return JSON.stringify(COFFEE_SHOP_SPEC);
-        }
-        return null;
-      },
+      readFile: async () => null,
     });
-    expect(bundle.summary.hasSpec).toBe(true);
-    expect(bundle.spec?.meta.title).toBe('Coffee shop ordering');
-    expect(bundle.authoritativeIdentities?.length).toBe(3);
     expect(bundle.payload).toContain('menuItems');
+    expect(bundle.payload).toContain('orders');
     expect(bundle.payload).toContain('demo menu');
   });
 

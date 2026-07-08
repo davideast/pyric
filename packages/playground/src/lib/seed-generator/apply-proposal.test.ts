@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 
-import { COFFEE_SHOP_SPEC } from '~/lib/agent/spec/coffee-shop.fixture';
 import type { AsyncAdminSeedSurface } from '~/lib/sandbox/seed-apply';
 
 import { applySeedProposal } from './apply-proposal';
@@ -38,24 +37,23 @@ const PROPOSAL: SeedProposalV1 = {
 describe('applySeedProposal', () => {
   test('applies firestore collections via admin surface', async () => {
     const admin = makeFakeAdmin();
-    const result = await applySeedProposal(admin, PROPOSAL, { spec: null });
+    const result = await applySeedProposal(admin, PROPOSAL);
     expect(result.firestore.applied).toBe(2);
     expect(result.firestore.collections).toBe(2);
     expect(admin.store.has('menuItems/m1')).toBe(true);
     expect([...admin.store.keys()].some((k) => k.startsWith('orders/'))).toBe(true);
   });
 
-  test('uses spec identities over proposal auth', async () => {
+  test('applies proposal auth users', async () => {
     const admin = makeFakeAdmin();
     const result = await applySeedProposal(
       admin,
       {
         version: 1,
         firestore: PROPOSAL.firestore,
-        auth: [{ uid: 'wrong-user' }],
+        auth: [{ uid: 'alice' }, { uid: 'bob' }],
       },
-      { spec: COFFEE_SHOP_SPEC },
     );
-    expect(result.auth.created).toEqual(['alice', 'bob', 'cara']);
+    expect(result.auth.created).toEqual(['alice', 'bob']);
   });
 });

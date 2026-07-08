@@ -94,14 +94,11 @@ export function DataSeedTab() {
   const [json, setJson] = useState('');
   const [hint, setHint] = useState('');
   const [contextChips, setContextChips] = useState({
-    hasSpec: false,
     hasRules: false,
     hasApp: false,
     hasTests: false,
+    hasExistingData: false,
   });
-  const [specSnapshot, setSpecSnapshot] = useState<
-    Awaited<ReturnType<typeof buildSeedContextBundle>>['spec']
-  >(null);
 
   const generateAbortRef = useRef<AbortController | null>(null);
   const lastHintRef = useRef('');
@@ -118,7 +115,6 @@ export function DataSeedTab() {
   useEffect(() => {
     void buildSeedContextBundle().then((bundle) => {
       setContextChips(bundle.summary);
-      setSpecSnapshot(bundle.spec);
     });
   }, [tick]);
 
@@ -181,7 +177,6 @@ export function DataSeedTab() {
       void (async () => {
         const bundle = await buildSeedContextBundle({ hint: lastHintRef.current });
         setContextChips(bundle.summary);
-        setSpecSnapshot(bundle.spec);
 
         const store = useSeedGeneratorStore.getState();
         const id = existingId ?? store.start(lastHintRef.current, bundle.summary);
@@ -236,7 +231,7 @@ export function DataSeedTab() {
       store.setState(id, 'applying');
       void (async () => {
         try {
-          const result = await applySeedProposal(getPlaygroundRuntime(), proposal, { spec: specSnapshot });
+          const result = await applySeedProposal(getPlaygroundRuntime(), proposal);
           setTick((n) => n + 1);
           store.setState(id, 'applied');
 
@@ -274,7 +269,7 @@ export function DataSeedTab() {
         }
       })();
     },
-    [specSnapshot, toast],
+    [toast],
   );
 
   const handleEditProposal = useCallback((id: string, proposal: SeedProposalV1) => {
@@ -358,10 +353,10 @@ export function DataSeedTab() {
       <section className="grid gap-3 rounded-lg border border-[#2a2a35] bg-sidebar-bg p-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[11px] uppercase tracking-wide text-slate-gray">Context</span>
-          <ContextChip label="Spec" active={contextChips.hasSpec} />
           <ContextChip label="Rules" active={contextChips.hasRules} />
           <ContextChip label="App" active={contextChips.hasApp} />
           <ContextChip label="Tests" active={contextChips.hasTests} />
+          <ContextChip label="Data" active={contextChips.hasExistingData} />
         </div>
 
         <div className="flex flex-col gap-1">

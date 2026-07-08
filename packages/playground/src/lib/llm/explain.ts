@@ -369,14 +369,13 @@ export function buildExplainDenialPrompt(
   const sections: string[] = [];
 
   sections.push(
-    `You are explaining a single Firestore rules denial to a developer. Walk them through three things, in plain language: (1) WHICH clause of the rules rejected the request and why, (2) whether the app's code appears to anticipate this denial or was caught off-guard, (3) the most likely fix — patch the rules, patch the app, or accept that the rule is doing its job. Quote specific paths, field names, and clause text. Keep it tight: at most four short paragraphs.`,
+    `You are explaining a single Firestore rules denial to a developer. Walk them through three things, in plain language: (1) WHICH clause of the rules rejected the request and why, (2) what the available app/rules/request evidence proves without inferring user intent beyond that evidence, (3) the most likely fix — patch the rules, patch the app, or accept that the rule is doing its job. Quote specific paths, field names, and clause text. Keep it tight: at most four short paragraphs.`,
   );
 
   sections.push('');
   sections.push('── DENIAL ──');
   sections.push(`op: ${denial.op}`);
   sections.push(`auth: ${denial.auth}`);
-  sections.push(`classification: ${denial.classification} (${denial.classificationReason})`);
   sections.push(`message: ${denial.message}`);
   sections.push('request:');
   sections.push(JSON.stringify(denial.request, null, 2));
@@ -482,7 +481,7 @@ export function buildExplainDenialsBatchPrompt(
   const sections: string[] = [];
 
   sections.push(
-    `You are explaining a batch of ${denials.length} Firestore rules denial${denials.length === 1 ? '' : 's'} to a developer. Look across the whole set. If multiple denials share a root cause (same auth bug, same field mismatch, same missing rule clause), say so explicitly and treat them as one issue. For each distinct issue, walk through (1) WHICH clause of the rules rejected the request and why, (2) whether the app's code appears to anticipate this denial or was caught off-guard, (3) the most likely fix — patch the rules, patch the app, or accept that the rule is doing its job. Quote specific paths, field names, and clause text. Keep it tight: a short paragraph per issue, plus a summary line at the top.`,
+    `You are explaining a batch of ${denials.length} Firestore rules denial${denials.length === 1 ? '' : 's'} to a developer. Look across the whole set. If multiple denials share a root cause (same auth bug, same field mismatch, same missing rule clause), say so explicitly and treat them as one issue. For each distinct issue, walk through (1) WHICH clause of the rules rejected the request and why, (2) what the available app/rules/request evidence proves without inferring user intent beyond that evidence, (3) the most likely fix — patch the rules, patch the app, or accept that the rule is doing its job. Quote specific paths, field names, and clause text. Keep it tight: a short paragraph per issue, plus a summary line at the top.`,
   );
 
   sections.push('');
@@ -491,7 +490,6 @@ export function buildExplainDenialsBatchPrompt(
     sections.push('');
     sections.push(`[${i + 1}] op: ${d.op}`);
     sections.push(`    auth: ${d.auth}`);
-    sections.push(`    classification: ${d.classification} (${d.classificationReason})`);
     sections.push(`    message: ${d.message}`);
     sections.push(`    request: ${JSON.stringify(d.request)}`);
   });

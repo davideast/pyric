@@ -17,8 +17,6 @@ const FULL: InspectDenialData = {
     method: 'create',
     auth: '{"uid":"alice"}',
     message: 'Missing or insufficient permissions',
-    classification: 'unexpected',
-    classificationReason: 'no error handling found around the write',
   },
 };
 
@@ -34,17 +32,14 @@ describe('parseInspectDenialResult', () => {
 });
 
 describe('buildWhyRows', () => {
-  test('reading order: request, auth, message, classification', () => {
+  test('reading order: request, auth, message', () => {
     const rows = buildWhyRows(FULL.denial!);
     expect(rows.map((r) => r.label)).toEqual([
       'request',
       'auth',
       'simulator said',
-      'classification',
     ]);
     expect(rows[0]!.value).toBe('create pyric_sessions/test');
-    expect(rows[3]!.tone).toBe('unexpected');
-    expect(rows[3]!.value).toContain('no error handling');
   });
 
   test('sparse denial degrades without empty rows', () => {
@@ -75,8 +70,6 @@ describe('toDenialBlurb', () => {
     auth: '{"uid":"alice"}',
     message: 'Missing or insufficient permissions',
     request: { request: { method: 'create', path: 'pyric_sessions/test', resource: { data: { a: 1 } } } },
-    classification: 'unexpected',
-    classificationReason: 'x',
   };
 
   test('prefers the live runtime-store blurb (full request envelope)', () => {
@@ -89,6 +82,5 @@ describe('toDenialBlurb', () => {
     const b = toDenialBlurb(FULL, []);
     expect(b.id).toStartWith('synth-');
     expect(b.op).toBe('create pyric_sessions/test');
-    expect(b.classification).toBe('unexpected');
   });
 });

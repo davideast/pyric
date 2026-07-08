@@ -753,18 +753,7 @@ function RequestRow({
             {formatExactTokens(request.reasoningTokens)}
             {request.costUsd !== undefined ? <> · {formatCostUsd(request.costUsd)}</> : null}
           </div>
-          {request.modelLabel || request.strategy ? (
-            <div>
-              {request.modelLabel ?? ''}
-              {request.strategy ? (
-                <>
-                  {request.modelLabel ? ' · ' : ''}
-                  {request.strategy}
-                  {request.strategySource ? ` (${request.strategySource})` : ''}
-                </>
-              ) : null}
-            </div>
-          ) : null}
+          {request.modelLabel ? <div>{request.modelLabel}</div> : null}
           {request.emittedToolCalls.length > 0 ? (
             <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
               <span className="text-soft-white">emitted</span>

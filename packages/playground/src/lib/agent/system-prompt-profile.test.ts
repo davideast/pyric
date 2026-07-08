@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { buildClaudeLanePrompt } from './claude-lane-prompt';
 import { buildSystemPrompt } from './system-prompt';
 import { __setSkillsForTest, type SkillDefinition } from '~/lib/skills/registry';
 import { useSkillsStore } from '~/lib/store/skills';
@@ -98,13 +97,4 @@ describe('system prompt profiles', () => {
     expect(prompt).not.toContain('Go straight from your plan to building');
   });
 
-  test('Claude lane gets matching Firebase expert intent without browser-only tool names', () => {
-    const prompt = buildClaudeLanePrompt({ diagnosticsEnabled: false });
-    expect(prompt).toContain('FIREBASE EXPERT MODE');
-    expect(prompt).toContain('mcp__playground__simulate_firestore_write');
-    expect(prompt).toContain('Browser-only evidence');
-    expect(prompt).not.toContain('seed_auth_users');
-    expect(prompt).not.toContain('debug_firestore_rules');
-    expect(prompt).not.toContain('BUILD App.tsx last');
-  });
 });
