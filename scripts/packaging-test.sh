@@ -35,49 +35,24 @@ PACKAGES=(
 )
 
 # Subpath exports per package — used to assert every advertised entry resolves.
-# Keep this in sync with each package.json's "exports" field.
-declare -a PYRIC_SUBPATHS=(
-  "pyric/app"
-  "pyric/auth"
-  "pyric/database"
-  "pyric/firestore"
-  "pyric/rules"
-  "pyric/rules/node"
-  "pyric/rules/extract"
-  "pyric/rules/rtdb"
-  "pyric/rules/rtdb-constraints"
-  "pyric/sandbox"
-  "pyric/sandbox/admin-compat"
-  "pyric/sandbox/admin-firestore"
-  "pyric/sandbox/internal"
-  "pyric/storage"
-)
-declare -a PYRIC_ADMIN_SUBPATHS=(
-  "pyric-admin/app"
-  "pyric-admin/auth"
-  "pyric-admin/database"
-  "pyric-admin/firestore"
-  "pyric-admin/storage"
-)
-declare -a PYRIC_TOOLS_SUBPATHS=(
-  "pyric-tools/auth"
-  "pyric-tools/bridge"
-  "pyric-tools/deploy"
-  "pyric-tools/discover"
-  "pyric-tools/vite"
-)
-declare -a PYRIC_UI_SUBPATHS=(
-  "@pyric/ui/agents"
-  "@pyric/ui/auth"
-  "@pyric/ui/auth/hooks"
-  "@pyric/ui/firestore"
-  "@pyric/ui/firestore/hooks"
-  "@pyric/ui/primitives"
-  "@pyric/ui/storage"
-  "@pyric/ui/storage/hooks"
-  "@pyric/ui/traffic"
-  "@pyric/ui/traffic/hooks"
-)
+# Derived from package.json so the smoke test cannot drift behind newly-added
+# public exports.
+exported_subpaths() {
+  local pkg_dir="$1"
+  node -e '
+    const fs = require("node:fs");
+    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    for (const key of Object.keys(manifest.exports ?? {})) {
+      if (key === ".") continue;
+      process.stdout.write(`${manifest.name}${key.slice(1)}\n`);
+    }
+  ' "$ROOT/$pkg_dir/package.json"
+}
+
+PYRIC_SUBPATHS=( $(exported_subpaths packages/pyric) )
+PYRIC_ADMIN_SUBPATHS=( $(exported_subpaths packages/pyric-admin) )
+PYRIC_TOOLS_SUBPATHS=( $(exported_subpaths packages/pyric-tools) )
+PYRIC_UI_SUBPATHS=( $(exported_subpaths packages/ui) )
 
 # Tracks the backgrounded `pyric serve` (Phase 5.5) so a failure mid-smoke
 # doesn't leave it listening; killed in the error trap and after the probe.
