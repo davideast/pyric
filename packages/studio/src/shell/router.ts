@@ -31,13 +31,19 @@ export function currentPath(): ParsedPath {
   return parsePath(window.location.pathname, window.location.search);
 }
 
+/** The hub is the app base itself (`/`, `/__pyric/ui/` — specs/home.md URL
+ *  states), so the `home` tab serializes to an empty first segment. */
+function canonical<T extends { tab: string }>(input: T): T {
+  return input.tab === 'home' ? { ...input, tab: '' } : input;
+}
+
 /** Serialize a routed target to an href (for `<a href>` — shareable URLs). */
 export function hrefFor(input: {
   tab: string;
   rest?: readonly string[];
   query?: Record<string, string | undefined | null>;
 }): string {
-  return serializePath(input);
+  return serializePath(canonical(input));
 }
 
 function notify(): void {
@@ -47,7 +53,7 @@ function notify(): void {
 /** Navigate: push a routed target onto the history stack. */
 export function pushPath(input: Parameters<typeof hrefFor>[0]): void {
   if (typeof window === 'undefined') return;
-  const url = serializePath(input);
+  const url = hrefFor(input);
   if (locationKey() === url) return;
   window.history.pushState(null, '', url);
   notify();
@@ -56,7 +62,7 @@ export function pushPath(input: Parameters<typeof hrefFor>[0]): void {
 /** Normalise: replace the current entry (no new history entry). */
 export function replacePath(input: Parameters<typeof hrefFor>[0]): void {
   if (typeof window === 'undefined') return;
-  window.history.replaceState(null, '', serializePath(input));
+  window.history.replaceState(null, '', hrefFor(input));
   notify();
 }
 
@@ -112,8 +118,10 @@ export function useRoute(
         return;
       }
     }
+    // An EMPTY tab is already canonical (the base URL IS the hub); only a
+    // non-empty unknown tab rewrites to the fallback.
     const cur = currentPath();
-    if (cur.tab !== resolve(cur.tab)) {
+    if (cur.tab !== '' && !valid.includes(cur.tab)) {
       replacePath({ tab: resolve(cur.tab), query: { lens: cur.query.lens } });
     }
     // Run once on mount; `resolve` is stable for a given valid/fallback pair.
