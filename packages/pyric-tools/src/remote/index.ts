@@ -31,6 +31,13 @@
  */
 import { WebSocket } from 'ws';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
+import {
+  REMOTE_SANDBOX,
+  SandboxContextImpl,
+  type RemoteSandbox as RemoteSandboxBase,
+  type AuthState,
+  type SandboxContext,
+} from 'pyric/sandbox';
 import type {
   BridgeMessage,
   WorkerOpPayload,
@@ -134,10 +141,20 @@ export interface RemoteAuthAdmin {
   clearUsers(): Promise<void>;
 }
 
-export interface RemoteSandbox {
-  /** Base URL of the serve this handle is attached to (for error guidance). */
-  readonly serveUrl: string;
-  /** The raw worker op/sub relay channel. */
+/**
+ * The Node-side remote sandbox handle. Extends `pyric/sandbox`'s branded
+ * {@link RemoteSandboxBase} — structurally a full `Sandbox`, so it can be
+ * passed to `pyric-admin/app`'s `initializeApp({ sandbox })`, whose RTDB and
+ * Auth backends dispatch on the brand and route through {@link channel}.
+ *
+ * Sandbox members that are genuinely sync-only (`admin`, `snapshot()`,
+ * `history()`, `onEvent`, `currentUser`, …) cannot be mirrored over the
+ * wire in slice 1 and throw a remediating `unimplemented` error naming
+ * what to do instead. Implemented members: `withAuth` (pure local pair
+ * construction) and `dispose` (aliases {@link close}).
+ */
+export interface RemoteSandbox extends RemoteSandboxBase {
+  /** The raw worker op/sub relay channel (narrowed to the wire payload types). */
   readonly channel: RemoteSandboxChannel;
   /** RTDB conveniences (admin lens pinned). */
   readonly rtdb: RemoteRtdb;
@@ -405,6 +422,132 @@ export function buildRemoteAuthAdmin(channel: RemoteSandboxChannel): RemoteAuthA
   };
 }
 
+// ─── Handle construction ────────────────────────────────────────────────────
+
+/** A member of `Sandbox` that slice 1 cannot express over the wire throws
+ *  this branded, remediating error instead of silently misbehaving. */
+function notAvailableRemotely(member: string, remedy: string): Error & { code: string } {
+  return remoteError(
+    'unimplemented',
+    `${member} is not available on a remote sandbox — ${remedy}`,
+  );
+}
+
+/**
+ * Build the branded remote sandbox handle over an established channel.
+ *
+ * Split out of {@link connectRemoteSandbox} so the in-process test harness
+ * (fake ports + `createConsumerSession`, no WS) constructs the EXACT handle
+ * production hands to `pyric-admin`.
+ *
+ * The handle satisfies `Sandbox` structurally:
+ *   - `withAuth` / `dispose` are real (pure local construction / teardown).
+ *   - Everything whose contract is sync-only or worker-owned (`admin`,
+ *     `snapshot`, `loadSnapshot`, `history`, `onEvent`, `reset`,
+ *     `currentUser`, `onCurrentUserChanged`, tab sync, persistence) throws
+ *     a remediating `unimplemented` error. Notably `onEvent`: the unified
+ *     event stream (`target: 'events'`) is not relayable until slice 2's
+ *     bounded backpressure lands, and no remote dispatch arm may depend on
+ *     it — a throw (not a silent no-op) keeps a subscriber from believing
+ *     it is observing events that will never arrive.
+ */
+export function createRemoteSandboxHandle(opts: {
+  channel: RemoteSandboxChannel;
+  serveUrl: string;
+  close: () => void;
+}): RemoteSandbox {
+  const { channel, serveUrl, close } = opts;
+  const throwMember = (member: string, remedy: string): never => {
+    throw notAvailableRemotely(member, remedy);
+  };
+  const handle: RemoteSandbox = {
+    [REMOTE_SANDBOX]: true as const,
+    serveUrl,
+    channel,
+    rtdb: buildRemoteRtdb(channel),
+    auth: buildRemoteAuthAdmin(channel),
+    close,
+
+    // ── Implemented Sandbox members ─────────────────────────────────────
+    withAuth(auth: AuthState): SandboxContext {
+      // Pure local pair construction — contexts carry identity, the data
+      // stays behind the channel.
+      return new SandboxContextImpl(handle, auth);
+    },
+    dispose(): void {
+      close();
+    },
+
+    // ── Sync-only / worker-owned members: remediating throws ───────────
+    onEvent: () =>
+      throwMember(
+        'onEvent',
+        'the unified event stream is not relayed over the bridge yet (slice 2); ' +
+          `observe activity in the browser tab at ${serveUrl} or in Pyric Studio instead`,
+      ),
+    history: () =>
+      throwMember(
+        'history()',
+        'the event log lives in the browser worker; inspect it in Pyric Studio ' +
+          'or subscribe from the page that hosts the sandbox',
+      ),
+    get admin(): never {
+      return throwMember(
+        'admin',
+        'the sync Firestore admin plane cannot span the wire; dispatch async worker ops ' +
+          "through the handle's channel instead (e.g. channel.op({ method: 'admin.getDocument', path }))",
+      );
+    },
+    reset: () =>
+      throwMember(
+        'reset()',
+        `reset the sandbox from the browser tab at ${serveUrl} or from Pyric Studio`,
+      ),
+    snapshot: () =>
+      throwMember(
+        'snapshot()',
+        "use the async worker op instead: channel.op({ method: 'getSnapshot' })",
+      ),
+    loadSnapshot: () =>
+      throwMember(
+        'loadSnapshot()',
+        "use the async worker ops instead: channel.op({ method: 'importState', bundle })",
+      ),
+    get currentUser(): never {
+      return throwMember(
+        'currentUser',
+        'the browser tab owns the auth session; ' +
+          "read it asynchronously via channel.op({ method: 'auth.getCurrentUser' })",
+      );
+    },
+    onCurrentUserChanged: () =>
+      throwMember(
+        'onCurrentUserChanged',
+        'the browser tab owns the auth session; subscribe there instead',
+      ),
+    enableTabSync: () =>
+      throwMember('enableTabSync', 'tab sync is a browser concern; enable it in the page'),
+    enablePersistence: () =>
+      throwMember(
+        'enablePersistence',
+        'the browser worker owns persistence; it is already enabled by `pyric serve`',
+      ),
+    flush: () =>
+      throwMember('flush()', 'the browser worker owns persistence and flushes itself'),
+    clearPersistence: () =>
+      throwMember(
+        'clearPersistence()',
+        'clear the persisted state from the browser tab or Pyric Studio',
+      ),
+    registerPersistableService: () =>
+      throwMember(
+        'registerPersistableService',
+        'the browser worker owns persistence; services register there',
+      ),
+  };
+  return handle;
+}
+
 // ─── connect ───────────────────────────────────────────────────────────────
 
 /**
@@ -480,18 +623,16 @@ export async function connectRemoteSandbox(
     throw err;
   }
 
-  return {
+  return createRemoteSandboxHandle({
     serveUrl,
     channel: core.channel,
-    rtdb: buildRemoteRtdb(core.channel),
-    auth: buildRemoteAuthAdmin(core.channel),
     close() {
       core.dispose('remote sandbox connection closed by the client');
       try {
         ws.close();
       } catch {}
     },
-  };
+  });
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
