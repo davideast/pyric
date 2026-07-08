@@ -171,8 +171,8 @@ COMMANDS
   whoami                     Print the signed-in account + the scopes Google granted.
 
 CORE FLAGS (dev)
-  --port             Port to serve on. Default 5000 (scans forward when taken —
-                     macOS AirPlay commonly holds 5000).
+  --port             Port to serve on. Default 3473 — "FIRE" on a phone keypad (scans forward when taken;
+                     macOS AirPlay squats 5000).
   --host             Host to bind. Default localhost.
   --no-cache         Rebuild the served pyric SDK bundles (skip ~/.pyric/serve-cache).
   --only hosting     Accepted for firebase-serve parity (hosting is all v1 serves).

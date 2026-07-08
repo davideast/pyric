@@ -8,7 +8,7 @@
  * (`namespaceHandler`) and the import-map injection uses (`transformHtml`).
  *
  * UX parity targets: the `=== Serving from` banner, the labeled `Local server:`
- * line, port 5000 default with scan-forward on conflict, and SIGINT →
+ * line, port 3473 default ("FIRE" on a phone keypad) with scan-forward on conflict, and SIGINT →
  * `Shutting down...`.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -253,7 +253,7 @@ export interface ListenableLike {
   address(): { port: number } | string | null;
 }
 
-/** Listen, scanning forward from `port` on conflict (AirPlay squats 5000 on
+/** Listen, scanning forward from `port` on conflict (default 3473 avoids macOS AirPlay, which squats 5000 on
  *  macOS). Resolves with the bound port. */
 export function listenWithScan(
   server: ListenableLike,
@@ -325,7 +325,7 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Serv
 
   // Primary family: scan forward for a free port.
   const primary = newServer();
-  const port = await listenWithScan(primary, hosts[0]!, opts.port ?? 5000, opts.portScanLimit ?? 10, logger);
+  const port = await listenWithScan(primary, hosts[0]!, opts.port ?? 3473, opts.portScanLimit ?? 10, logger);
 
   // Remaining loopback families: bind the SAME port, best-effort. A loopback
   // port free on one family is virtually always free on the other; if not, warn

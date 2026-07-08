@@ -47,7 +47,7 @@ is unavailable). `firestore.rules` is deployed and hot-reloaded over SSE.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--port <n>` | `5000` | Port to serve on; scans forward when taken (macOS AirPlay commonly holds 5000). |
+| `--port <n>` | `3473` | Port to serve on ("FIRE" on a phone keypad); scans forward when taken. |
 | `--host <h>` | `localhost` | Host to bind. |
 | `--persist` | off | Persist sandbox state (docs + auth users) to a committable `.pyric/state/state.json`. Once a state file exists it wins; `--seed` then applies only on the first run. (On the SharedWorker path data is already durable in IndexedDB; this adds the on-disk, shareable copy.) |
 | `--fresh` | off | With `--persist`: discard the existing state file and re-seed from scratch. Does not clear the browser's IndexedDB. |

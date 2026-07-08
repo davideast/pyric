@@ -7,7 +7,7 @@
  *
  * Source preference:
  *   1. LIVE state from a running `pyric dev --persist`
- *      (`GET /__pyric/state` — `--port`, else the 5000+ scan window),
+ *      (`GET /__pyric/state` — `--port`, else the 3473+ scan window),
  *   2. else the on-disk `.pyric/state/state.json`,
  *   3. else exit 2 with a clear message.
  *
@@ -21,7 +21,7 @@ import type { ParsedArgs } from './parse-args.js';
 import { createStateStore, type PyricStateFile } from '../serve/state-store.js';
 
 /** Ports probed when --port is absent — serve's default + scan window. */
-const SCAN_PORTS = [5000, 5001, 5002, 5003, 5004];
+const SCAN_PORTS = [3473, 3474, 3475, 3476, 3477];
 
 /** Replacement for redacted passwords in a promoted fixture. Mirrors pyric's
  *  own `NO_PASSWORD_SENTINEL` so `seedUsers` accepts it on re-serve; defined
@@ -85,7 +85,7 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
     const found = await live(port);
     if (!found) continue;
     // Wrong-project guard (pre-mortem #4): the port scan can hit a NEIGHBOR
-    // project's serve (yours down, theirs on 5000). Refuse unless --port was
+    // project's serve (yours down, theirs on 3473). Refuse unless --port was
     // explicit AND warn either way.
     if (found.projectDir && found.projectDir !== cwd) {
       const explicit = typeof portFlag === 'string';
