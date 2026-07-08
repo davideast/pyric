@@ -64,8 +64,12 @@ function workerOrInPage<T extends (...args: any[]) => unknown>(name: string, fn:
 
 // Byte ops now have a worker protocol (base64 `storage.putBytes` /
 // `storage.getBytes` / `storage.deleteObject`), so worker mode routes them to
-// the shared object store instead of throwing. Page-configured rules apply
-// (no lens attached); payloads are capped at 8 MiB per op.
+// the shared object store instead of throwing. No lens is attached: storage
+// rules apply only when the HOST configured them on the sandbox's storage
+// service — the served worker currently configures none (setRules deploys
+// Firestore/RTDB only), so worker-mode storage is effectively open today.
+// The admin lens matters for embedding/test hosts that pre-open the service
+// with rules. Payloads are capped at 8 MiB per op.
 export const uploadBytes = (useWorker ? workerUploadBytes : ip.uploadBytes) as typeof ip.uploadBytes;
 export const getBytes = (useWorker ? workerGetBytes : ip.getBytes) as typeof ip.getBytes;
 export const deleteObject = (useWorker ? workerDeleteObject : ip.deleteObject) as typeof ip.deleteObject;

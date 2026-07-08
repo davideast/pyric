@@ -1998,10 +1998,13 @@ export async function getBlob(reference: ClientStorageReference): Promise<Blob> 
 // ─── Storage mutations + JSON-safe reads (worker-mode byte ops) ───────────
 // Backed by the base64 `storage.putBytes` / `storage.getBytes` /
 // `storage.deleteObject` ops (remote sandbox, slice 2). No `actAs` lens is
-// attached: page callers run under the worker's page storage handle, so
-// page-configured rules apply (same model as `listAll`/`getMetadata` above).
-// Raw payloads are capped at 8 MiB (`MAX_STORAGE_OP_BYTES`) — same cap the
-// host enforces.
+// attached: page callers run under the worker's page storage handle (same
+// model as `listAll`/`getMetadata` above). Storage rules apply only when the
+// HOST configured them on the sandbox's storage service — the served worker
+// currently configures none, so worker-mode storage is effectively open
+// today; the admin lens matters for embedding/test hosts that pre-open the
+// service with rules. Raw payloads are capped at 8 MiB
+// (`MAX_STORAGE_OP_BYTES`) — same cap the host enforces.
 
 /** Mirror of `pyric/storage`'s `SettableMetadata` (plain JSON on the wire). */
 export interface ClientSettableMetadata {

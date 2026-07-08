@@ -206,6 +206,16 @@ export interface RemoteSandbox extends RemoteSandboxBase {
  *  `ws` socket; tests inject an in-process pipe to a `ConsumerSession`. */
 export interface RemoteTransport {
   send(msg: BridgeMessage): void;
+  /**
+   * OPTIONAL event-loop hold hooks (exit-hang fix). The WS adapter unrefs
+   * its socket once connected so an IDLE remote client never pins the Node
+   * event loop (a finished script exits); the core calls `ref()` when work
+   * becomes outstanding (first pending op / live subscription) and
+   * `unref()` when the last one settles, so in-flight delivery keeps the
+   * process alive. Pure in-process transports (tests) may omit both.
+   */
+  ref?(): void;
+  unref?(): void;
 }
 
 export interface RemoteSandboxCore {
@@ -259,6 +269,23 @@ export function createRemoteSandboxCore(
     transport.send(msg);
   }
 
+  /**
+   * Event-loop hold accounting (exit-hang fix): ref the transport while ANY
+   * op or subscription is outstanding, unref when the last one settles.
+   * Transition-edged so the hooks fire once per busy/idle flip.
+   */
+  let holdingLoop = false;
+  function updateLoopHold(): void {
+    const busy = pending.size + subs.size > 0;
+    if (busy && !holdingLoop) {
+      holdingLoop = true;
+      transport.ref?.();
+    } else if (!busy && holdingLoop) {
+      holdingLoop = false;
+      transport.unref?.();
+    }
+  }
+
   function op(payload: WorkerOpPayload): Promise<unknown> {
     if (disposed) {
       return Promise.reject(remoteError('unavailable', disposed));
@@ -268,6 +295,7 @@ export function createRemoteSandboxCore(
       const timer = setTimeout(() => {
         if (pending.has(id)) {
           pending.delete(id);
+          updateLoopHold();
           reject(
             remoteError(
               'deadline-exceeded',
@@ -277,11 +305,13 @@ export function createRemoteSandboxCore(
         }
       }, opTimeoutMs);
       pending.set(id, { resolve, reject, timer });
+      updateLoopHold();
       try {
         send({ type: 'worker-op', id, op: payload });
       } catch (err) {
         clearTimeout(timer);
         pending.delete(id);
+        updateLoopHold();
         reject(
           remoteError(
             'unavailable',
@@ -300,9 +330,11 @@ export function createRemoteSandboxCore(
     if (disposed) throw remoteError('unavailable', disposed);
     const subId = `rsub-${++subCounter}`;
     subs.set(subId, { onSnap, onError });
+    updateLoopHold();
     send({ type: 'worker-sub', subId, sub });
     return () => {
       if (!subs.delete(subId)) return;
+      updateLoopHold();
       if (!disposed) {
         try {
           send({ type: 'worker-unsub', subId });
@@ -324,6 +356,7 @@ export function createRemoteSandboxCore(
         if (!call) return; // late (already timed out) — drop
         clearTimeout(call.timer);
         pending.delete(msg.id);
+        updateLoopHold();
         if (msg.ok) {
           call.resolve(msg.value);
         } else {
@@ -332,6 +365,11 @@ export function createRemoteSandboxCore(
           // Enrich the bridge's generic no-peer error with actionable guidance.
           if (message === NO_SANDBOX_ERROR_MESSAGE) {
             message = noTabError(serveUrl).message;
+          } else if (/^Unknown method:/.test(message)) {
+            // Version skew: a live tab whose SharedWorker predates this op.
+            message +=
+              ' — the running sandbox may predate this feature; restart pyric dev ' +
+              'and reload the browser tab.';
           }
           call.reject(remoteError(code, message));
         }
@@ -374,6 +412,7 @@ export function createRemoteSandboxCore(
     }
     pending.clear();
     subs.clear();
+    updateLoopHold();
     readyReject(err); // no-op if already settled
   }
 
@@ -685,8 +724,20 @@ export async function connectRemoteSandbox(
   const wsUrl = `${wsBase.replace(/^http/, 'ws')}/__pyric/sandbox`;
   const ws = new WebSocket(wsUrl);
 
+  // Event-loop hold (exit-hang fix): `ws` exposes no ref/unref of its own —
+  // reach the underlying net.Socket (present once connected). Unref'ing only
+  // changes loop-exit accounting, never delivery: while ANY pending op or
+  // live subscription holds a ref (the core's updateLoopHold), frames flow
+  // normally; when idle, a finished script exits instead of hanging.
+  const wsSocket = (): { ref(): void; unref(): void } | undefined =>
+    (ws as unknown as { _socket?: { ref(): void; unref(): void } })._socket;
+
   const core = createRemoteSandboxCore(
-    { send: (msg) => ws.send(JSON.stringify(msg)) },
+    {
+      send: (msg) => ws.send(JSON.stringify(msg)),
+      ref: () => wsSocket()?.ref(),
+      unref: () => wsSocket()?.unref(),
+    },
     { serveUrl, opTimeoutMs: options.opTimeoutMs },
   );
 
@@ -709,6 +760,10 @@ export async function connectRemoteSandbox(
     );
     ws.once('open', () => {
       clearTimeout(timer);
+      // Idle default: an open-but-idle connection must not pin the event
+      // loop (both the eager and lazy `remoteSandbox` paths come through
+      // here). The core re-refs while ops/subs are outstanding.
+      wsSocket()?.unref();
       resolve();
     });
     ws.once('error', (err) => {

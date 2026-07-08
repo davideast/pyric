@@ -49,7 +49,7 @@ describe('assertJsonSafeRelayValue — the loud rejection', () => {
   it('throws invalid-argument naming the offender and the base64 ops for a relayed getBlob', () => {
     let caught: (Error & { code?: string }) | null = null;
     try {
-      assertJsonSafeRelayValue('storage.getBlob', new Blob(['png-bytes']));
+      assertJsonSafeRelayValue("op 'storage.getBlob'", new Blob(['png-bytes']));
     } catch (err) {
       caught = err as Error & { code?: string };
     }
@@ -63,12 +63,12 @@ describe('assertJsonSafeRelayValue — the loud rejection', () => {
 
   it('accepts the base64 storage op results untouched', () => {
     expect(() =>
-      assertJsonSafeRelayValue('storage.getBytes', {
+      assertJsonSafeRelayValue("op 'storage.getBytes'", {
         dataB64: 'iVBORw0KGgo=',
         contentType: 'image/png',
         size: 8,
       }),
     ).not.toThrow();
-    expect(() => assertJsonSafeRelayValue('storage.deleteObject', null)).not.toThrow();
+    expect(() => assertJsonSafeRelayValue("op 'storage.deleteObject'", null)).not.toThrow();
   });
 });

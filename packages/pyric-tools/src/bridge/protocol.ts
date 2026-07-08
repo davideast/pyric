@@ -300,19 +300,22 @@ export function findBinaryPayload(value: unknown): string | null {
 }
 
 /**
- * Assert a worker-op result is safe to serialize onto the JSON relay.
- * Throws (code `invalid-argument`) naming the offending type and the
- * base64 storage ops to use instead — so a future caller relaying
- * `storage.getBlob` gets a clear error, not `{}`.
+ * Assert a worker-op result (or subscription snap value) is safe to
+ * serialize onto the JSON relay. Throws (code `invalid-argument`) naming
+ * the offending type and the base64 storage ops to use instead — so a
+ * future caller relaying `storage.getBlob` gets a clear error, not `{}`.
+ *
+ * `context` is a human label for the message: `op '<method>'` for op
+ * results, `subscription '<subId>'` for snap values.
  */
 export function assertJsonSafeRelayValue(
-  method: string,
+  context: string,
   value: unknown,
 ): void {
   const kind = findBinaryPayload(value);
   if (!kind) return;
   const err = new Error(
-    `worker op '${method}' produced a binary payload (${kind}) that cannot cross the ` +
+    `worker ${context} produced a binary payload (${kind}) that cannot cross the ` +
       'JSON bridge relay — it would be silently corrupted by JSON.stringify. Use the ' +
       "base64 storage ops instead ('storage.getBytes' / 'storage.putBytes'), which carry " +
       "bytes as JSON-safe 'dataB64' strings; 'storage.getBlob' is MessagePort-only.",

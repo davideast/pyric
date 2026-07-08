@@ -521,9 +521,14 @@ function ensureStorage(ctx: HostCtx): FirebaseStorage {
  * lens — the storage mirror of {@link lensRtdb}:
  *
  *   - absent / `app-session` → the shared anonymous page handle
- *     ({@link ensureStorage}); page-configured rules apply. (Storage has no
- *     per-port session plumbing today — reads always ran anonymous; writes
- *     keep the same model.)
+ *     ({@link ensureStorage}). Storage rules apply only when the HOST
+ *     configured them on this sandbox's storage service (first call per
+ *     sandbox wins) — the SERVED worker currently configures none
+ *     (`setRules`/`setDatabaseRules` cover Firestore/RTDB only), so
+ *     worker-mode storage is effectively open today and all lenses behave
+ *     alike there. The lens split matters for embedding/test hosts that
+ *     pre-open the service with rules. (Storage also has no per-port
+ *     session plumbing — reads always ran anonymous; writes keep that.)
  *   - `{ mode: 'admin' }` → the rules-BYPASS handle from
  *     `pyric/storage/internal`'s admin plane — same per-sandbox store +
  *     ruleset, rule evaluation skipped (firebase-admin semantics for the
