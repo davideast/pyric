@@ -309,6 +309,7 @@ export function sdkImportMap(): Record<string, string> {
   return {
     'firebase/app': '/__pyric/sdk/app.js',
     'firebase/auth': '/__pyric/sdk/auth.js',
+    'firebase/database': '/__pyric/sdk/database.js',
     'firebase/firestore': '/__pyric/sdk/firestore.js',
   };
 }
