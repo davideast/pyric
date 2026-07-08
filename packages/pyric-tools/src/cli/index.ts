@@ -4,7 +4,7 @@
  *
  * Subcommands:
  *   pyric bridge [--mode sandbox|prod] [--port N] [--project ID] …
- *   pyric serve [--port N] [--host H] [--no-cache] [--bridge] [--ui] [--seed FILE] [--no-watch] [--no-open] [--no-capture] [--json] [--persist] [--fresh]
+ *   pyric dev [--port N] [--host H] [--no-cache] [--bridge] [--ui] [--seed FILE] [--no-watch] [--no-open] [--no-capture] [--json] [--persist] [--fresh]
  *   pyric init [dir] [--template web|node] [--name N] [--force] [--json]
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json] [--include-passwords]
@@ -74,7 +74,7 @@ project) to external MCP clients (Claude Code, Cursor, ...).
 
 USAGE
   pyric bridge [flags]
-  pyric serve [flags]
+  pyric dev [flags]
   pyric init [dir] [--template=web|node]
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
@@ -98,11 +98,11 @@ USAGE
 
 COMMANDS
   bridge                     Start the HTTP+WebSocket bridge external MCP clients point at.
-  serve                      Serve the app locally with the pyric sandbox standing in for
+  dev                        Serve the app locally with the pyric sandbox standing in for
                              Firebase — unmodified firebase/* imports hit an in-page sandbox
                              with your firestore.rules deployed.
   init [dir]                 Scaffold a pyric project. --template=web (default; canonical
-                             firebase/* app served by \`pyric serve\`) or node (script-style).
+                             firebase/* app served by \`pyric dev\`) or node (script-style).
                              --name=NAME --force (overwrite scaffold files) --json (machine
                              output on stdout). Never prompts; rerunning is safe.
   vendor [dir]               Retrofit: vendor pyric + pyric-tools into an existing
@@ -111,15 +111,15 @@ COMMANDS
                              bun install. Standalone binary only.
   mcp                        Stdio MCP server for editors (Cursor / Claude /
                              Antigravity). Hosts a headless in-process sandbox,
-                             or attaches to a running \`pyric serve --bridge\`
+                             or attaches to a running \`pyric dev --bridge\`
                              (found via .pyric/serve.json) for shared-live Studio.
-  snapshot [--out=FILE]      Promote lived sandbox state (live serve --persist, else
+  snapshot [--out=FILE]      Promote lived sandbox state (live dev --persist, else
                              .pyric/state/state.json) to a committable fixture that
-                             \`pyric serve --seed FILE\` re-serves. Passwords are redacted
+                             \`pyric dev --seed FILE\` re-serves. Passwords are redacted
                              by default (--include-passwords keeps them). --port, --force, --json.
   verify [fixture|dir]       Replay a captured sandbox session against candidate rules
                              for the Firestore/RTDB services present in the fixture.
-                             No arg replays the latest \`pyric serve\` capture
+                             No arg replays the latest \`pyric dev\` capture
                              (.pyric/last-session.json). --service filters services.
                              --engine sandbox (default), rules-test-api, or both.
                              Hosted Rules Test API verification is Firestore-only
@@ -167,7 +167,7 @@ COMMANDS
   logout                     Clear the stored credential (~/.pyric/credentials.json).
   whoami                     Print the signed-in account + the scopes Google granted.
 
-CORE FLAGS (serve)
+CORE FLAGS (dev)
   --port             Port to serve on. Default 5000 (scans forward when taken —
                      macOS AirPlay commonly holds 5000).
   --host             Host to bind. Default localhost.
@@ -185,16 +185,16 @@ CORE FLAGS (serve)
                      detected by its version key) — seeds docs + auth users.
                      into the page sandbox before app code runs.
   --no-watch         Disable firestore.rules hot-reload (on by default).
-  --no-open          Don't auto-open the browser. serve opens the served page
+  --no-open          Don't auto-open the browser. dev opens the served page
                      by default (the sandbox is browser-resident); auto-open
                      is already suppressed under --json, no TTY, and CI.
-  --no-capture       Don't write the session capture. serve writes
+  --no-capture       Don't write the session capture. dev writes
                      .pyric/last-session.json by default so \`pyric verify\`
                      can replay your session; --no-capture disables it.
   --allowed-host H   Allow an extra Host header past the DNS-rebinding guard
                      (comma-separated; localhost/127.0.0.1 always allowed).
   --persist          Persist sandbox state (docs + auth users) to
-                     .pyric/state/state.json — survives reloads and serve
+                     .pyric/state/state.json — survives reloads and dev
                      restarts. Once a state file exists it wins; --seed
                      applies only on the first (state-less) run. Ephemeral
                      is the default.
@@ -438,8 +438,13 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       return parsed.subcommand === null ? 0 : 1;
     case 'bridge':
       return await runBridge(parsed);
-    case 'serve':
+    case 'dev':
       return await runServe(parsed);
+    case 'serve':
+      // Hard rename stub (not a silent alias): fail loudly so scripts and
+      // muscle memory get corrected instead of silently drifting.
+      process.stderr.write('pyric serve was renamed to pyric dev\n');
+      return 1;
     case 'snapshot':
       return await runSnapshot(parsed);
     case 'verify':
