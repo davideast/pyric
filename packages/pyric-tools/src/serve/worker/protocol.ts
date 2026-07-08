@@ -147,6 +147,25 @@ export function isSentinelMarker(v: unknown): v is SentinelMarker {
   );
 }
 
+// ─── Aggregate descriptors ─────────────────────────────────────────────────
+
+/**
+ * Aggregate-field descriptor for the `aggregate` op. Structurally identical
+ * to `pyric/firestore`'s `AggregateField` (and to admin-compat's — the
+ * `pyric-admin` remote arm's `Query.aggregate({ count/sum/average })`
+ * surface), so specs cross the wire verbatim: plain JSON, no translation.
+ * The host rebuilds the query and runs `getAggregateFromServer`; the reply
+ * is `{ data: Record<alias, number | null> }` (empty-input `average` is
+ * `null`, matching the SDKs).
+ */
+export type AggregateFieldDescriptor =
+  | { kind: 'count' }
+  | { kind: 'sum'; field: string }
+  | { kind: 'average'; field: string };
+
+/** Spec passed on the `aggregate` op — aliases become the result's keys. */
+export type AggregateSpecDescriptor = Record<string, AggregateFieldDescriptor>;
+
 // ─── Write descriptors for batch + transaction ────────────────────────────
 
 export type WriteDescriptor =
@@ -360,6 +379,11 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'deleteDoc'; path: string }
   | { t: 'op'; id: string; method: 'addDoc'; collectionPath: string; data: unknown }
   | { t: 'op'; id: string; method: 'count'; source: TargetDescriptor }
+  // Multi-field aggregates (count/sum/average — spike gap 2, needed for the
+  // pyric-admin remote arm's `Query.aggregate` parity). `count` above stays
+  // for existing senders; this is the general form. Reply:
+  // `{ data: Record<alias, number | null> }`.
+  | { t: 'op'; id: string; method: 'aggregate'; source: TargetDescriptor; spec: AggregateSpecDescriptor }
   | { t: 'op'; id: string; method: 'batchCommit'; writes: WriteDescriptor[] }
   | { t: 'op'; id: string; method: 'txnCommit'; reads: TxnReadEntry[]; writes: WriteDescriptor[] }
   | { t: 'op'; id: string; method: 'setRules'; source: string }

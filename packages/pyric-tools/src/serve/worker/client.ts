@@ -70,6 +70,8 @@ import type {
   QueryDescriptor,
   QueryConstraintDescriptor,
   FilterConstraintDescriptor,
+  AggregateFieldDescriptor,
+  AggregateSpecDescriptor,
   TargetDescriptor,
   SentinelMarker,
   WriteDescriptor,
@@ -879,6 +881,45 @@ export async function getCountFromServer(
       : (source as QueryHandle).descriptor,
   }) as { count: number };
   return { data: () => ({ count: result.count }) };
+}
+
+// ─── Multi-field aggregates (count / sum / average) ───────────────────────
+
+/** Factory: count() aggregate field. Mirrors `pyric/firestore`'s `count()`. */
+export function count(): AggregateFieldDescriptor {
+  return { kind: 'count' };
+}
+
+/** Factory: sum-of-`field` aggregate. Mirrors `pyric/firestore`'s `sum()`. */
+export function sum(field: string): AggregateFieldDescriptor {
+  return { kind: 'sum', field };
+}
+
+/** Factory: average-of-`field` aggregate. Empty input yields `null`. */
+export function average(field: string): AggregateFieldDescriptor {
+  return { kind: 'average', field };
+}
+
+/**
+ * Run a multi-field aggregate on the worker. Mirrors `pyric/firestore`'s
+ * `getAggregateFromServer(query, spec)`: spec entries are keyed by
+ * caller-chosen aliases; `.data()` returns the numbers under the same keys
+ * (`average` over no rows is `null`).
+ */
+export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
+  source: CollRefHandle | QueryHandle,
+  spec: S,
+): Promise<{ data(): { [K in keyof S]: number | null } }> {
+  const result = await dataRpc(source.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'aggregate',
+    source: source.__kind === 'coll-ref'
+      ? (source as CollRefHandle).descriptor
+      : (source as QueryHandle).descriptor,
+    spec,
+  }) as { data: { [K in keyof S]: number | null } };
+  return { data: () => result.data };
 }
 
 // ─── onSnapshot ──────────────────────────────────────────────────────────

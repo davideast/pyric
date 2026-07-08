@@ -72,6 +72,8 @@ import {
   addDoc,
   onSnapshot,
   getCountFromServer,
+  getAggregateFromServer,
+  type AggregateSpec,
   runTransaction,
   writeBatch,
   serverTimestamp,
@@ -796,6 +798,18 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
         const source = resolveTarget(db, msg.source);
         const snap = await getCountFromServer(source as Query);
         ok(port, msg.id, { count: snap.data().count });
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'aggregate': {
+      // Multi-field aggregates (count/sum/average). The wire spec is
+      // structurally pyric/firestore's AggregateSpec, so it passes straight
+      // through; the reply data is plain numbers / null (empty-input average).
+      try {
+        const source = resolveTarget(db, msg.source);
+        const snap = await getAggregateFromServer(source as Query, msg.spec as AggregateSpec);
+        ok(port, msg.id, { data: snap.data() });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
