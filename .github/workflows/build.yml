@@ -92,7 +92,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.15'
 
       # The gate's consumer install resolves firebase/firebase-admin (large)
       # from the registry every run on a cold runner — measured 47s of the
@@ -142,7 +142,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.15'
 
       - name: Enable pnpm (corepack)
         if: matrix.pm == 'pnpm'
