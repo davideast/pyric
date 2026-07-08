@@ -36,24 +36,4 @@ describe('materializeWorkspaceFromProbe', () => {
       JSON.stringify({ cases: [] }),
     );
   });
-
-  test('copies app.spec.json when present', async () => {
-    const adapter = createMemoryVFSAdapter();
-    const mappings: WorkspaceFileMappings = {
-      contentRoot: '/workspace',
-      rulesPath: RULES_PATH,
-      appEntryPath: APP_ENTRY_PATH,
-      canonical: { rulesPath: RULES_PATH, appEntryPath: APP_ENTRY_PATH },
-      specPath: '/workspace/app.spec.json',
-      testPaths: [],
-    };
-
-    await adapter.promises.writeFile(RULES_PATH, 'rules');
-    await adapter.promises.writeFile(APP_ENTRY_PATH, 'export default function App() {}');
-    await adapter.promises.writeFile(mappings.specPath!, '{"name":"demo"}');
-
-    await materializeWorkspaceFromProbe(mappings, adapter);
-
-    expect(await adapter.promises.readFile('/workspace/app.spec.json', 'utf8')).toBe('{"name":"demo"}');
-  });
 });

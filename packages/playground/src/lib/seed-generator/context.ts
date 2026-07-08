@@ -1,11 +1,6 @@
 /**
  * Build compact workspace context for AI seed generation.
  */
-import type { SeedUser } from 'pyric/auth';
-
-import { deriveIdentities } from '~/lib/agent/spec/derive';
-import { readAppSpecFromVfs, SPEC_PATH } from '~/lib/conformance/conformance-check';
-import type { AppSpecV1 } from '~/lib/agent/spec/schema';
 import { readFirestoreState } from '~/lib/sandbox/runtime';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 import { TESTS_DIR } from '~/lib/tools/core/runWorkspaceTests';
@@ -16,18 +11,16 @@ const MAX_APP_CHARS = 800;
 const MAX_PAYLOAD_CHARS = 4000;
 
 export interface SeedContextSummary {
-  hasSpec: boolean;
   hasRules: boolean;
   hasApp: boolean;
   hasTests: boolean;
+  hasExistingData: boolean;
 }
 
 export interface SeedContextBundle {
   summary: SeedContextSummary;
   /** JSON string fed to the model as user context. */
   payload: string;
-  spec: AppSpecV1 | null;
-  authoritativeIdentities: SeedUser[] | null;
 }
 
 export interface BuildSeedContextOpts {
@@ -38,11 +31,6 @@ export interface BuildSeedContextOpts {
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max)}\n…(truncated)`;
-}
-
-function collectionNameFromPath(path: string): string {
-  const seg = path.split('/')[0]?.trim();
-  return seg ?? path;
 }
 
 /** Extract root collection names from firestore.rules match blocks. */
@@ -115,39 +103,13 @@ export async function buildSeedContextBundle(
 ): Promise<SeedContextBundle> {
   const readFile = opts.readFile ?? defaultReadFile;
   const { rules, appSource } = useWorkspaceStore.getState();
-  const spec = await readAppSpecFromVfs(readFile, SPEC_PATH);
   const testSeeds = await readTestSeeds(readFile);
   const rulesCollections = extractCollectionNamesFromRules(rules);
   const appCollections = extractCollectionNamesFromApp(appSource);
   const existingCollections = rootCollectionIds(await readFirestoreState());
 
-  const authoritativeIdentities = spec ? deriveIdentities(spec) : null;
-
   const contextObj: Record<string, unknown> = {
     userHint: opts.hint?.trim() || undefined,
-    spec: spec
-      ? {
-          title: spec.meta.title,
-          assumptions: spec.meta.assumptions?.slice(0, 4),
-          collections: spec.collections.map((c) => ({
-            name: collectionNameFromPath(c.path),
-            path: c.path,
-            fields: c.fields.map((f) => ({
-              name: f.name,
-              type: f.type,
-              required: f.required,
-              enum: f.enum,
-            })),
-            ownerField: c.ownerField,
-          })),
-          identities: spec.identities.map((i) => ({
-            uid: i.uid,
-            description: i.description,
-            claims: i.claims,
-          })),
-        }
-      : undefined,
-    authoritativeIdentities: authoritativeIdentities ?? undefined,
     rulesCollections,
     rulesExcerpt: rules.trim() ? truncate(rules, MAX_RULES_CHARS) : undefined,
     appCollections,
@@ -163,13 +125,11 @@ export async function buildSeedContextBundle(
 
   return {
     summary: {
-      hasSpec: spec !== null,
       hasRules: rules.trim().length > 0,
       hasApp: appSource.trim().length > 0,
       hasTests: testSeeds.length > 0,
+      hasExistingData: existingCollections.length > 0,
     },
     payload,
-    spec,
-    authoritativeIdentities,
   };
 }

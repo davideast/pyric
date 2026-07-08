@@ -37,23 +37,6 @@
 import { create } from 'zustand';
 import type { LlmRequestTrace, LlmResponseTrace } from '@inbrowser/agent';
 
-/** How the running strategy was selected (SF-S0a provenance):
- *   - `user-selected` — the user pinned it via `strategyMode`
- *     (the router reports `source:'override'`).
- *   - `routed` — the heuristic router chose it under `strategyMode:'auto'`
- *     (router `source:'heuristic'`).
- *   - `escalated` — draft-validate exhausted its repairs and the router's
- *     bounded one-per-prompt escalation re-ran the turn under ReAct.
- */
-export type StrategySource = 'user-selected' | 'routed' | 'escalated';
-
-/** SF-S0a: resolved strategy provenance for one turn — strategy + why. */
-export interface StrategyProvenance {
-  strategy: string;
-  strategySource: StrategySource;
-  reason?: string;
-}
-
 /** Host-side context captured AT EMIT TIME — provider/model labels
  *  and settings toggles the agent loop doesn't know about. */
 export interface HostCtx {
@@ -62,9 +45,6 @@ export interface HostCtx {
   modelLabel: string;
   diagnosticsEnabled: boolean;
   resumableServerMode: boolean;
-  strategy?: string;
-  strategySource?: StrategySource;
-  routerReason?: string;
 }
 
 export interface TurnTrace {
@@ -237,31 +217,14 @@ interface TraceState {
    *  Object identity changes on every trace append; use it as the
    *  re-read signal for `getTurnTrace`/`getAllTurnTraces`. */
   summaries: Record<string, TurnTraceSummary>;
-  /** SF-S0a: provenance that arrived before the turn's first `llm_request`,
-   *  held until `appendRequest` creates the turn entry. */
-  pendingProvenance: Record<string, StrategyProvenance>;
   appendRequest(req: LlmRequestTrace, ctx: HostCtx): void;
   appendResponse(res: LlmResponseTrace): void;
-  /** SF-S0a: record which strategy ran this turn and why. Idempotent —
-   *  later milestones (escalation) overwrite an earlier routing decision.
-   *  Works in either order vs. `appendRequest`. */
-  setProvenance(turnId: string, prov: StrategyProvenance): void;
   /** JSON-safe deduped snapshot for local session persistence. */
   snapshot(): PersistedTraceTelemetry;
   /** Restore a saved snapshot (v2 or legacy v1). Invalid blobs are ignored. */
   hydrate(snapshot: PersistedTraceTelemetry | PersistedTraceTelemetryV1 | null | undefined): void;
   /** Reset the store — called on session clear / save-load. */
   clear(): void;
-}
-
-/** Fold provenance into a HostCtx without clobbering provider/model fields. */
-function withProvenance(ctx: HostCtx, prov: StrategyProvenance): HostCtx {
-  return {
-    ...ctx,
-    strategy: prov.strategy,
-    strategySource: prov.strategySource,
-    ...(prov.reason !== undefined ? { routerReason: prov.reason } : {}),
-  };
 }
 
 function summaryOf(trace: TurnTrace): TurnTraceSummary {
@@ -321,21 +284,12 @@ function coerceHostCtx(raw: unknown): HostCtx | null {
   ) {
     return null;
   }
-  const strategySource =
-    raw.strategySource === 'user-selected' ||
-    raw.strategySource === 'routed' ||
-    raw.strategySource === 'escalated'
-      ? raw.strategySource
-      : undefined;
   return {
     providerId,
     providerLabel,
     modelLabel,
     diagnosticsEnabled,
     resumableServerMode,
-    ...(coerceString(raw.strategy) ? { strategy: coerceString(raw.strategy) } : {}),
-    ...(strategySource ? { strategySource } : {}),
-    ...(coerceString(raw.routerReason) ? { routerReason: coerceString(raw.routerReason) } : {}),
   };
 }
 
@@ -427,7 +381,6 @@ function hydrateV2(snapshot: PersistedTraceTelemetry): void {
 
 export const useTraceStore = create<TraceState>()((set) => ({
   summaries: {},
-  pendingProvenance: {},
   appendRequest: (req, ctx) =>
     set((s) => {
       const interned = internRequest(req);
@@ -435,32 +388,17 @@ export const useTraceStore = create<TraceState>()((set) => ({
       if (existing) {
         existing.requests.push(interned);
       } else {
-        // First request for the turn: seed hostCtx, folding in any provenance
-        // the router already reported (the usual order — routing fires first).
-        const pending = s.pendingProvenance[req.turnId];
         payloadByTurn.set(req.turnId, {
           turnId: req.turnId,
           requests: [interned],
           responses: [],
-          hostCtx: pending ? withProvenance(ctx, pending) : ctx,
+          hostCtx: ctx,
         });
       }
       const trace = payloadByTurn.get(req.turnId)!;
       return {
         summaries: { ...s.summaries, [req.turnId]: summaryOf(trace) },
       };
-    }),
-  setProvenance: (turnId, prov) =>
-    set((s) => {
-      const existing = payloadByTurn.get(turnId);
-      if (existing) {
-        existing.hostCtx = withProvenance(existing.hostCtx, prov);
-        return {
-          summaries: { ...s.summaries, [turnId]: summaryOf(existing) },
-        };
-      }
-      // Provenance arrived before the first request — stash it.
-      return { pendingProvenance: { ...s.pendingProvenance, [turnId]: prov } };
     }),
   appendResponse: (res) =>
     set((s) => {
@@ -516,10 +454,10 @@ export const useTraceStore = create<TraceState>()((set) => ({
       if (snapshot.version === 2) hydrateV2(snapshot as PersistedTraceTelemetry);
       else if (snapshot.version === 1) hydrateV1(snapshot.tracesByTurn);
     }
-    set({ summaries: summariesFromPayloads(), pendingProvenance: {} });
+    set({ summaries: summariesFromPayloads() });
   },
   clear: () => {
     resetPayloadStore();
-    set({ summaries: {}, pendingProvenance: {} });
+    set({ summaries: {} });
   },
 }));

@@ -81,7 +81,6 @@ describe('settings — lane-aware maxTurns default (LIVE economics)', () => {
     expect(MAX_TURNS_DEFAULT_HOSTED).toBe(16);
     expect(MAX_TURNS_DEFAULT).toBe(32);
     expect(defaultMaxTurnsForLane('openrouter')).toBe(MAX_TURNS_DEFAULT_HOSTED);
-    expect(defaultMaxTurnsForLane('claude')).toBe(MAX_TURNS_DEFAULT_HOSTED);
     expect(defaultMaxTurnsForLane('gemini')).toBe(MAX_TURNS_DEFAULT);
     expect(defaultMaxTurnsForLane('ollama')).toBe(MAX_TURNS_DEFAULT);
   });

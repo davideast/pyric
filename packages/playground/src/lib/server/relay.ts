@@ -103,8 +103,8 @@ function flatProviderToFactory(provider: FlatProvider, providerKey: string): Mod
 
 const RTDB_URL = 'https://digame-mas-default-rtdb.firebaseio.com';
 const ROOT_PATH = 'inference_jobs';
-// 7-day default retention. Configurable per-deploy; the conformance
-// suite proves running jobs are never affected.
+// 7-day default retention. Configurable per deploy; cleanup must not
+// affect running jobs.
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
@@ -254,11 +254,9 @@ function emit(level: string, msg: string, fields?: Record<string, unknown>): voi
  * Assemble a relay over the shared RTDB job store + base cloud
  * providers, optionally extended with deployment-specific providers.
  * The Cloud Function uses the bare `relay` below; the Astro endpoints
- * use `~/lib/server/relay-local.ts`, which adds the Claude lane on
- * owner-machine builds. The extension point lives HERE (not a mutated
- * singleton) so this module stays free of any import the function
- * bundle can't carry (`claude-agentic` -> Agent SDK, MCP SDK, and
- * `import.meta.env`-reading modules).
+ * use `~/lib/server/relay-local.ts`. The extension point lives HERE
+ * (not a mutated singleton) so this module stays free of deploy-only
+ * or local-only imports.
  */
 export function createPlaygroundRelay(
   extraProviders: Record<string, ModelClientFactory> = {},

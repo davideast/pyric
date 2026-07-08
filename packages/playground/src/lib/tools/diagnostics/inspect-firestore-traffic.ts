@@ -20,14 +20,7 @@
  * manifest in `~/lib/tools/diagnostics/index.ts`.
  */
 import type { ToolHandler } from '@inbrowser/agent';
-import {
-  runtimeConformance,
-  summarizeConformanceLine,
-  SPEC_PATH,
-  type ConformanceSummary,
-} from '~/lib/conformance/conformance-check';
 import { useRuntimeStore, type TrafficEntry } from '~/lib/store/runtime';
-import { getVFS } from '~/lib/vfs';
 import type { RequestEvent } from 'pyric/sandbox';
 
 /** Hard ceiling on entries returned in one call. Higher requests are
@@ -72,20 +65,6 @@ export interface InspectFirestoreTrafficResult {
   totalCount: number;
   /** Size after filters but BEFORE the limit clamp. */
   filteredCount: number;
-  /**
-   * Ambient traffic-conformance overlay (SF-S4, report-don't-block).
-   * Present only when an AppSpec exists at `/workspace/app.spec.json` AND
-   * the (FILTERED) traffic this call returned is non-empty — i.e. the app
-   * has actually run in the sandbox, so there is recorded behavior to
-   * check. The check diffs each recorded op against the access matrix and
-   * flags any the matrix would DENY for the acting identity (an off-
-   * contract affordance). It NEVER blocks and NEVER fabricates traffic:
-   * it reads what the app already did. Omitted (no field) when there is no
-   * signal — no spec, or no matching traffic. This is the natural seam for
-   * conformance because traffic only exists AFTER the preview exercises
-   * the app; the write itself is too early.
-   */
-  conformance?: ConformanceSummary;
 }
 
 function isFirestoreTrafficEntry(entry: TrafficEntry): entry is FirestoreTrafficEntry {
@@ -97,7 +76,7 @@ export function buildInspectFirestoreTrafficHandler(): ToolHandler {
     name: 'inspect_firestore_traffic',
     parallelSafe: true, // read-only (0.2.0 parallelDispatch)
     description:
-      'Return a structured dump of Firestore ops the in-browser sandbox has evaluated this session — reads, writes, denials, paths, auth, durations. Distinct from `inspect_denial` (which drills into ONE denial): this is the WHOLE traffic log with filters, useful for spotting patterns (repeated denials at the same path, listener cascades, batch ordering). Filter by `decision` (allow/deny/unsupported), `pathPrefix`, and `origin` (user/listener/batch/transaction). `limit` defaults to 100 and is capped at 500 — most-recent entries are returned first. When an app spec exists at /workspace/app.spec.json, the result also carries a `conformance` overlay: any recorded op the access matrix would DENY for the acting identity (an off-contract affordance the UI exposed) — report-only, surfaced after the app has run so you can spot behavioral contract violations the rules check alone misses.',
+      'Return a structured dump of Firestore ops the in-browser sandbox has evaluated this session — reads, writes, denials, paths, auth, durations. Distinct from `inspect_denial` (which drills into ONE denial): this is the WHOLE traffic log with filters, useful for spotting patterns (repeated denials at the same path, listener cascades, batch ordering). Filter by `decision` (allow/deny/unsupported), `pathPrefix`, and `origin` (user/listener/batch/transaction). `limit` defaults to 100 and is capped at 500 — most-recent entries are returned first.',
     parameters: {
       type: 'object',
       properties: {
@@ -154,34 +133,11 @@ export function buildInspectFirestoreTrafficHandler(): ToolHandler {
         filtered.length > limit ? filtered.slice(filtered.length - limit) : filtered;
       const entries = windowed.map(projectEntry);
 
-      // ── Ambient conformance (SF-S4, report-don't-block) ──────────────
-      // Diff the FILTERED traffic (the slice the agent is actually
-      // inspecting) against the access matrix. `TrafficEntry` is
-      // structurally a `RecordedOp`, so no mapper is needed. Best-effort:
-      // a missing/unparseable spec, or empty traffic, yields no overlay.
-      // Never throws — a check failure must not break the traffic dump.
-      let conformance: ConformanceSummary | undefined;
-      try {
-        const summary = await runtimeConformance({
-          readFile: (path) =>
-            getVFS()
-              .promises.readFile(path, 'utf8')
-              .then((v) => (typeof v === 'string' ? v : new TextDecoder().decode(v)))
-              .catch(() => null),
-          traffic: filtered as FirestoreTrafficEntry[],
-          specPath: SPEC_PATH,
-        });
-        if (summary) conformance = summary;
-      } catch {
-        // conformance is a best-effort overlay — swallow and omit it.
-      }
-
       const summary = describe({
         totalCount,
         filteredCount,
         returned: entries.length,
         args: a,
-        conformance,
       });
       return {
         ok: true,
@@ -190,7 +146,6 @@ export function buildInspectFirestoreTrafficHandler(): ToolHandler {
           entries,
           totalCount,
           filteredCount,
-          ...(conformance ? { conformance } : {}),
         } as InspectFirestoreTrafficResult,
       };
     },
@@ -231,7 +186,6 @@ function describe(args: {
   filteredCount: number;
   returned: number;
   args: InspectFirestoreTrafficArgs;
-  conformance?: ConformanceSummary;
 }): string {
   if (args.totalCount === 0) {
     return 'inspect_firestore_traffic · no traffic captured this session yet';
@@ -241,8 +195,5 @@ function describe(args: {
   if (args.args.origin) filters.push(`origin=${args.args.origin}`);
   if (args.args.pathPrefix) filters.push(`pathPrefix="${args.args.pathPrefix}"`);
   const filterSuffix = filters.length > 0 ? ` · ${filters.join(', ')}` : '';
-  const conformanceSuffix = args.conformance
-    ? ` · ${summarizeConformanceLine(args.conformance)}`
-    : '';
-  return `inspect_firestore_traffic · ${args.returned}/${args.filteredCount} of ${args.totalCount} entries${filterSuffix}${conformanceSuffix}`;
+  return `inspect_firestore_traffic · ${args.returned}/${args.filteredCount} of ${args.totalCount} entries${filterSuffix}`;
 }

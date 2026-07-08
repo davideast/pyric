@@ -1,7 +1,6 @@
 /**
  * Session host — drives `@inbrowser/agent`' `AgentSession` from the
- * browser. Resolves the active provider from the LLM store (Gemini
- * or OpenRouter today; more land via `registry.ts`), wraps it in
+ * browser. Resolves the active provider from the LLM store, wraps it in
  * `callbackProviderAsLlmClient`, and translates `SessionEvent` →
  * `chatStore` patches.
  *
@@ -21,17 +20,6 @@ import {
 } from '@inbrowser/agent';
 import { PROVIDERS } from '~/lib/llm/registry';
 import { estimateGeminiCostUsd } from '~/lib/llm/pricing';
-/** Custom `strategy_event` names emitted by the draft-then-validate
- *  strategy and the C2 router (routing decision + bounded escalation).
- *  Captured onto the assistant message as `phaseEvents`. */
-const DRAFT_VALIDATE_EVENTS = new Set([
-  'draft_started',
-  'validation_result',
-  'repair_started',
-  'validation_exhausted',
-  'strategy_routed',
-  'strategy_escalated',
-]);
 
 function activeProviderModelLabels(): { providerLabel: string; modelLabel: string } {
   const s = useLlmStore.getState();
@@ -73,28 +61,15 @@ function resolveTurnCost(agg: AggregatedTurnMetrics): {
 import {
   useChatStore,
   type ChatMessage,
-  type DelegatedActivity,
   type ReflexionCritique,
   type ToolCall,
 } from '~/lib/store/chat';
-import { finalizeClaudeTranscript } from '~/lib/llm/claude-transcript';
 import { useLlmStore } from '~/lib/store/llm';
 import { useSettingsStore, resolveMaxTurns } from '~/lib/store/settings';
 import { useTraceStore, type HostCtx } from '~/lib/store/trace';
 import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 import { buildToolRegistry, filterToolsForProfile } from '~/lib/tools';
-import { createDraftThenValidateStrategy } from '~/lib/agent/strategies/draft-then-validate';
-import {
-  createClaudeDelegateStrategy,
-  isDelegatedProvider,
-} from '~/lib/agent/strategies/claude-delegate';
-import {
-  createRoutedStrategy,
-  provenanceFromRouted,
-  provenanceFromEscalated,
-} from '~/lib/agent/strategy-router';
 import { selectToolProfileForPrompt } from '~/lib/agent/tool-profile';
-import { buildClaudeLanePrompt } from '~/lib/agent/claude-lane-prompt';
 import { buildSystemPrompt } from '~/lib/agent/system-prompt';
 import { makeDiagnosticsContext } from '~/lib/agent/diagnostics';
 import { resolveModelHistory } from './model-history';
@@ -202,7 +177,6 @@ export async function runOneTurn(
   opts: SubmitOptions,
 ): Promise<void> {
   const settings = useSettingsStore.getState();
-  const delegated = isDelegatedProvider(useLlmStore.getState().providerId);
 
   // Drop the streaming assistant placeholder AND the in-flight user
   // message — `@inbrowser/agent` appends the prompt to history itself
@@ -236,7 +210,6 @@ export async function runOneTurn(
   const toolProfile = selectToolProfileForPrompt({
     prompt,
     settings,
-    delegated,
     promptProfile: workbenchIntent.promptProfile,
     preference: workbenchIntent.toolProfilePreference,
   });
@@ -248,19 +221,6 @@ export async function runOneTurn(
   let thinkingBuf = '';
   let firstTurn = true;
   let turnStart = performance.now();
-  // SF-S0a: the session-emitted turnId for this user turn — captured on
-  // `turn_started` so the router/escalation milestones can stamp strategy
-  // provenance onto the turn's trace. The router yields `strategy_routed`
-  // BEFORE the inner strategy's `turn_started`, so provenance is buffered
-  // here and flushed once the turnId is known (and re-flushed whenever a
-  // later milestone — escalation — overrides the routing decision).
-  let turnId = '';
-  let pendingProv: import('~/lib/store/trace').StrategyProvenance | null = null;
-  const flushProvenance = () => {
-    if (turnId && pendingProv) {
-      useTraceStore.getState().setProvenance(turnId, pendingProv);
-    }
-  };
   // Whole-turn usage. The strategy emits one `turn_completed` per ReAct
   // iteration — summing here is what makes the reported tokens/cost
   // cover the WHOLE turn, not just the last iteration (defect: a
@@ -299,57 +259,16 @@ export async function runOneTurn(
     },
   };
 
-  // Resolve strategy knobs from the settings store at session-creation
-  // time so updated values (via the SettingsModal) take effect on the
-  // next submit without a reload. The store clamps values to sane
-  // ranges so a stale localStorage entry can't push the agent into a
-  // runaway loop.
-  //
-  // `strategyMode` (default 'auto', C2) is threaded through the routed
-  // wrapper in every mode so the `strategy_routed` milestone always
-  // fires (source: 'override' when the user pinned a strategy,
-  // 'heuristic' under auto):
-  //   - auto: build/modify prompts with a data/security surface run
-  //     draft-validate (tool-free draft → host validation → bounded
-  //     repair → write-back), escalating ONCE to ReAct with the draft +
-  //     failures when repairs exhaust. Everything else runs ReAct.
-  //   - react: the ReAct loop, with two 0.2.0 opt-ins, both default-off:
-  //       · parallelDispatch — parallel-safe tool calls run concurrently.
-  //       · reflexion — critique-and-retry after a candidate answer.
-  //   - draft-validate: forced draft-then-validate (no escalation —
-  //     an explicit override means "use this strategy", not "fall back").
-  //
-  // DELEGATED LANES (Claude local CLI): the provider is itself an agent
-  // — `claude -p` runs its own tool loop against the dev server's MCP
-  // bridge and returns finished text. Nesting it inside the react/DV
-  // strategies double-drives two agents (the user-found
-  // text-as-tool-call failure, trace t-mq9msa9m-xcgt), so the session
-  // hard-routes to the delegate strategy (one LLM call per user turn,
-  // no playground-side dispatch) and to the lane-composed system prompt
-  // that describes the MCP tool surface by its real names. The
-  // strategyMode setting is intentionally ignored for these lanes — the
-  // Settings UI says so.
-  const makeReact = () =>
-    createReactLoopStrategy({
-      // Lane-aware default (LIVE economics): hosted reasoning lanes
-      // (openrouter/claude) default to 16 react iterations; local/stub
-      // lanes keep 32. An explicit user setting always wins.
-      maxTurns: resolveMaxTurns(settings.maxTurns, useLlmStore.getState().providerId),
-      parallelDispatch: settings.parallelDispatch,
-      ...(settings.reflexionEnabled
-        ? { reflexion: { enabled: true, maxRetries: settings.reflexionMaxRetries } }
-        : {}),
-    });
-  const strategy = delegated
-    ? createClaudeDelegateStrategy()
-    : createRoutedStrategy({
-        makeReact,
-        makeDraftValidate: () =>
-          createDraftThenValidateStrategy({ maxRepairs: settings.draftMaxRepairs }),
-        override: settings.strategyMode,
-        promptProfile: workbenchIntent.promptProfile,
-        strategyPreference: workbenchIntent.strategyPreference,
-      });
+  const strategy = createReactLoopStrategy({
+    // Lane-aware default: hosted OpenRouter models default to fewer
+    // iterations; local/stub lanes keep the larger cap. An explicit
+    // user setting always wins.
+    maxTurns: resolveMaxTurns(settings.maxTurns, useLlmStore.getState().providerId),
+    parallelDispatch: settings.parallelDispatch,
+    ...(settings.reflexionEnabled
+      ? { reflexion: { enabled: true, maxRetries: settings.reflexionMaxRetries } }
+      : {}),
+  });
   const session = createAgentSession({
     tracer,
     strategy,
@@ -367,9 +286,6 @@ export async function runOneTurn(
       // `--prune` (keepLastResults 3). Pure transform at the client seam:
       // strategy internals and @inbrowser/agent's history stay untouched,
       // tool callIds keep their pairing (only `resultJson` is compacted).
-      // Draft-validate's repair hatch now threads OpenAI-strict role:'tool'
-      // messages WITH callIds (the SF fix), so they prune like any other —
-      // the id pairing survives, only bulky results are compacted.
       return withPrunedHistory(callbackProviderAsLlmClient(def.provider, def.id), {
         keepLastResults: 3,
         onPrune: (s) =>
@@ -405,21 +321,12 @@ export async function runOneTurn(
         signal: opts.signal,
       };
     },
-    // Delegated lanes get the lane-composed prompt: same pinned
-    // guidance, but the tool-surface sections describe the MCP bridge's
-    // real `mcp__playground__*` names instead of the browser registry.
     systemPromptBuilder: () =>
-      delegated
-        ? buildClaudeLanePrompt({
-            diagnosticsEnabled:
-              useSettingsStore.getState().pyricDiagnosticsEnabled || forceDiagnostics,
-            prompt,
-          })
-        : buildSystemPrompt({
-            diagnosticsEnabled:
-              useSettingsStore.getState().pyricDiagnosticsEnabled || forceDiagnostics,
-            prompt,
-          }),
+      buildSystemPrompt({
+        diagnosticsEnabled:
+          useSettingsStore.getState().pyricDiagnosticsEnabled || forceDiagnostics,
+        prompt,
+      }),
     metrics,
     history: uiToCoreHistory(history),
     id: `cf-${Date.now().toString(36)}`,
@@ -491,13 +398,6 @@ export async function runOneTurn(
         if (firstTurn) {
           firstTurn = false;
           turnStart = performance.now();
-          // The first turnId is the one the Trace drill-in keys on
-          // (`getTurnTrace(turnId)`) — capture it so the SF-S0a
-          // provenance milestones stamp the same trace entry.
-          turnId = ev.turnId;
-          // Now the turnId is known, apply any provenance the router
-          // already reported (the common case — routing fires first).
-          flushProvenance();
           // Stamp the user prompt and first assistant message with
           // the session-emitted turnId so the Trace drill-in can
           // look up `getTurnTrace(turnId)` from the chat
@@ -592,9 +492,6 @@ export async function runOneTurn(
         // final patch (last iteration) carries the full turn.
         const agg = turnMetrics.add(ev.metrics);
         const cost = resolveTurnCost(agg);
-        if (delegated) {
-          currentBuf = finalizeClaudeTranscript(currentBuf);
-        }
         // Final snapshot — capture any text emitted after the last
         // tool call (the closing reply) as the trailing chunk. The
         // renderer interleaves textChunks with toolCalls by ts; this
@@ -640,21 +537,6 @@ export async function runOneTurn(
         });
         throw new Error(ev.message);
       case 'strategy_event': {
-        // SF-S0a provenance: the router's routing decision and bounded
-        // escalation milestones become trace `hostCtx` provenance. Buffered
-        // and flushed (routing arrives BEFORE the inner strategy's first
-        // turn_started; escalation arrives later and overrides the routing
-        // decision, since the escalated strategy is what finished the turn).
-        if (ev.name === 'strategy_routed') {
-          const prov = provenanceFromRouted((ev.data ?? {}) as Record<string, unknown>);
-          if (prov) {
-            pendingProv = prov;
-            flushProvenance();
-          }
-        } else if (ev.name === 'strategy_escalated') {
-          pendingProv = provenanceFromEscalated((ev.data ?? {}) as Record<string, unknown>);
-          flushProvenance();
-        }
         // Reflexion (0.2.0) surfaces each critique decision here. Attach
         // it to the current assistant message so AssistantBlock can show
         // a critique strip; `retry`/`exhausted` carry the feedback the
@@ -676,36 +558,6 @@ export async function runOneTurn(
           opts.patchMessage(currentId, {
             reflexionCritiques: [...(msg?.reflexionCritiques ?? []), critique],
           });
-        } else if (DRAFT_VALIDATE_EVENTS.has(ev.name)) {
-          // draft-then-validate phase milestones — attach raw so
-          // AssistantBlock can render a phase strip. Stored generically;
-          // the component formats by name.
-          const msg = useChatStore.getState().messages.find((m) => m.id === currentId);
-          opts.patchMessage(currentId, {
-            phaseEvents: [
-              ...(msg?.phaseEvents ?? []),
-              { name: ev.name, ...(ev.data ? { data: ev.data as Record<string, unknown> } : {}) },
-            ],
-          });
-        } else if (ev.name === 'delegated_activity') {
-          const activity = ev.data as DelegatedActivity;
-          const msg = useChatStore.getState().messages.find((m) => m.id === currentId);
-          opts.patchMessage(currentId, {
-            delegatedActivity: [...(msg?.delegatedActivity ?? []), activity],
-          });
-        } else if (ev.name === 'delegated_activity_update') {
-          const { id, resultSummary } = ev.data as { id: string; resultSummary: string };
-          const msg = useChatStore.getState().messages.find((m) => m.id === currentId);
-          opts.patchMessage(currentId, {
-            delegatedActivity: (msg?.delegatedActivity ?? []).map((a) =>
-              a.id === id ? { ...a, resultSummary } : a,
-            ),
-          });
-        } else if (ev.name === 'delegated_transcript') {
-          const raw = (ev.data as { raw?: string } | undefined)?.raw;
-          if (typeof raw === 'string') {
-            opts.patchMessage(currentId, { rawTranscript: raw });
-          }
         }
         break;
       }

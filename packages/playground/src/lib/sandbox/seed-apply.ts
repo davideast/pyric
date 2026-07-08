@@ -14,7 +14,7 @@
  * drives this module headlessly (no DOM), mirroring the seed-tool +
  * runner-persistence test idioms.
  *
- * Boundaries (binding — app-spec section 3.6): this writes ONLY to the current
+ * Boundaries: this writes ONLY to the current
  * session's sandbox via the same admin/persistence path P3 established.
  * It is session runtime state — never a workspace file, never a spec
  * field, never generated app code. The user populates the sandbox the

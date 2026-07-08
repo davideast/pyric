@@ -51,20 +51,7 @@ export interface BaseUrlByokSlot extends ByokSlotBase {
   getStoredKey(): string | null;
 }
 
-export interface NoneByokSlot extends ByokSlotBase {
-  /**
-   * No credential at all. Used by the Claude (local CLI) lane, where
-   * auth is the Claude Code CLI's own subscription login on the dev
-   * server — nothing to collect or store in the browser. `hasKey()` is
-   * always true (the provider is usable as-is); `getKey()` returns a
-   * non-empty sentinel so call sites that gate on a truthy key (e.g.
-   * the prompt enhancer) still run — the value itself is never sent
-   * anywhere (the lane's transport ignores `apiKey`).
-   */
-  kind: 'none';
-}
-
-export type ByokSlot = ApiKeyByokSlot | BaseUrlByokSlot | NoneByokSlot;
+export type ByokSlot = ApiKeyByokSlot | BaseUrlByokSlot;
 
 function safeLocalStorage(): Storage | null {
   try {
@@ -163,18 +150,6 @@ export const ollamaByok: BaseUrlByokSlot = createBaseUrlSlot(
   'http://localhost:11434',
 );
 
-export const claudeByok: NoneByokSlot = {
-  kind: 'none',
-  label: 'Claude Code CLI (no key needed)',
-  helpUrl: 'https://claude.com/claude-code',
-  hasKey: () => true,
-  // Non-empty sentinel — see the NoneByokSlot docblock. Never
-  // transmitted; the claude lane sends `apiKey: ''` to the route.
-  getKey: () => 'local-cli',
-  setKey: () => {},
-  clearKey: () => {},
-};
-
 export const llamaServerByok: BaseUrlByokSlot = createBaseUrlSlot(
   'llamaServer',
   'llama.cpp server base URL',
@@ -187,7 +162,6 @@ export const BYOK_SLOTS = {
   openrouter: openrouterByok,
   ollama: ollamaByok,
   llamaServer: llamaServerByok,
-  claude: claudeByok,
 } as const;
 
 export type ByokProviderId = keyof typeof BYOK_SLOTS;

@@ -1,13 +1,12 @@
 /**
  * Chronological assistant-turn timeline — interleaves thinking,
- * tool calls, delegated activity, and text in emission order.
+ * tool calls, and text in emission order.
  */
-import type { ChatMessage, DelegatedActivity, TextChunk, ThinkingChunk, ToolCall } from '~/lib/store/chat';
+import type { ChatMessage, TextChunk, ThinkingChunk, ToolCall } from '~/lib/store/chat';
 
 export type TimelineItem =
   | { kind: 'thinking'; ts: number; text: string; live?: boolean }
   | { kind: 'tool'; ts: number; call: ToolCall }
-  | { kind: 'delegated'; ts: number; activity: DelegatedActivity }
   | { kind: 'text'; ts: number; text: string };
 
 export interface BuildTimelineOptions {
@@ -45,13 +44,12 @@ function resolveThinkingChunks(message: ChatMessage): ThinkingChunk[] {
   const stored = message.thinkingChunks ?? [];
   if (stored.length > 0) return stored;
   const calls = message.toolCalls ?? [];
-  const delegated = message.delegatedActivity ?? [];
   if (calls.some((c) => c.thinkingUpToHere)) {
     return deriveLegacyThinkingSegments(calls, message.thinking);
   }
   // No tool boundaries yet — while streaming, the live tail owns
   // in-flight reasoning; after completion, one chunk is enough.
-  if (message.thinking?.trim() && calls.length === 0 && delegated.length === 0) {
+  if (message.thinking?.trim() && calls.length === 0) {
     if (message.streaming) return [];
     return [{ text: message.thinking, ts: message.createdAt }];
   }
@@ -62,17 +60,15 @@ function resolveThinkingChunks(message: ChatMessage): ThinkingChunk[] {
  *  of the legacy top-level thinking fold + bucketed tools. */
 export function hasInterleavedTimeline(message: ChatMessage): boolean {
   const calls = message.toolCalls ?? [];
-  const delegated = message.delegatedActivity ?? [];
   const chunks = message.textChunks ?? [];
   const thinking = resolveThinkingChunks(message);
-  if (thinking.length > 0 && (calls.length > 0 || delegated.length > 0)) return true;
+  if (thinking.length > 0 && calls.length > 0) return true;
   if ((message.thinking?.trim()?.length ?? 0) > 0 && calls.length > 0) return true;
-  if (chunks.length > 0 && (calls.length > 0 || thinking.length > 0 || delegated.length > 0)) {
+  if (chunks.length > 0 && (calls.length > 0 || thinking.length > 0)) {
     return true;
   }
-  if (delegated.length > 0) return true;
   if (chunks.length > 0 && calls.length > 0) return true;
-  if (message.streaming && message.thinking && (calls.length > 0 || delegated.length > 0)) {
+  if (message.streaming && message.thinking && calls.length > 0) {
     return true;
   }
   return false;
@@ -84,14 +80,12 @@ export function buildAssistantTimeline(
 ): TimelineItem[] | null {
   const streaming = opts.streaming ?? !!message.streaming;
   const calls = message.toolCalls ?? [];
-  const delegated = message.delegatedActivity ?? [];
   const textChunks = message.textChunks ?? [];
   const thinkingChunks = resolveThinkingChunks(message);
 
   if (
     thinkingChunks.length === 0 &&
     calls.length === 0 &&
-    delegated.length === 0 &&
     textChunks.length === 0
   ) {
     return null;
@@ -105,10 +99,6 @@ export function buildAssistantTimeline(
 
   for (const c of calls) {
     items.push({ kind: 'tool', ts: c.emittedAt ?? 0, call: c });
-  }
-
-  for (const a of delegated) {
-    items.push({ kind: 'delegated', ts: a.ts, activity: a });
   }
 
   for (const c of textChunks) {
@@ -137,7 +127,7 @@ export function lastTextTimelineIndex(timeline: TimelineItem[]): number {
   return idx;
 }
 
-/** Thinking-only turn with no tools/delegated/text timeline activity. */
+/** Thinking-only turn with no tools/text timeline activity. */
 export function isThinkingOnlyTurn(message: ChatMessage): boolean {
   const timeline = buildAssistantTimeline(message, { streaming: message.streaming });
   if (!timeline) return !!message.thinking?.trim();

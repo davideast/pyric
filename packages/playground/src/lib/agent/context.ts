@@ -3,7 +3,6 @@ import {
   resolveWorkbenchIntent,
   type FirebaseWorkbenchSubtab,
   type SkillDefinition,
-  type SkillStrategyPreference,
   type SkillToolProfilePreference,
   type WorkbenchSurface,
 } from '~/lib/skills/registry';
@@ -45,10 +44,8 @@ export interface ResolvedAgentContext {
     defaultFirebaseSubtab?: FirebaseWorkbenchSubtab;
     defaultFilePath?: string;
     toolProfilePreference?: SkillToolProfilePreference;
-    strategyPreference?: SkillStrategyPreference;
   };
   toolProfilePreference?: SkillToolProfilePreference;
-  strategyPreference?: SkillStrategyPreference;
 }
 
 const LENS_META: Record<ContextLensId, ContextLens> = {
@@ -240,8 +237,6 @@ export function resolveAgentContext({
   const toolProfilePreference =
     skillIntent.toolProfilePreference ??
     (promptProfile === 'firebase' || lenses.length > 0 ? 'diagnostic' : undefined);
-  const strategyPreference =
-    skillIntent.strategyPreference ?? (promptProfile === 'firebase' ? 'react' : undefined);
 
   return {
     promptProfile,
@@ -268,9 +263,7 @@ export function resolveAgentContext({
           }
         : {}),
       ...(toolProfilePreference ? { toolProfilePreference } : {}),
-      ...(strategyPreference ? { strategyPreference } : {}),
     },
     ...(toolProfilePreference ? { toolProfilePreference } : {}),
-    ...(strategyPreference ? { strategyPreference } : {}),
   };
 }

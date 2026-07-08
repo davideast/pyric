@@ -49,9 +49,7 @@ import { enhancePrompt } from '~/lib/agent/prompt-enhancer/enhance';
 import {
   buildContextWindowSnapshot,
 } from '~/lib/agent/context-window';
-import { buildClaudeLanePrompt } from '~/lib/agent/claude-lane-prompt';
 import { buildSystemPrompt } from '~/lib/agent/system-prompt';
-import { isDelegatedProvider } from '~/lib/agent/strategies/claude-delegate';
 import { selectToolProfileForPrompt } from '~/lib/agent/tool-profile';
 import { PROVIDER_LIST, PROVIDERS } from '~/lib/llm/registry';
 import { useOllamaModelsStore } from '~/lib/store/ollamaModels';
@@ -360,7 +358,6 @@ export function PlaygroundPage() {
   const setEnhancePromptEnabled = useSettingsStore((s) => s.setEnhancePromptEnabled);
   const appSource = useWorkspaceStore((s) => s.appSource);
   const pyricDiagnosticsEnabled = useSettingsStore((s) => s.pyricDiagnosticsEnabled);
-  const strategyMode = useSettingsStore((s) => s.strategyMode);
   const bumpContextCompact = useSettingsStore((s) => s.bumpContextCompact);
   const enhanceAbortRef = useRef<AbortController | null>(null);
 
@@ -739,16 +736,12 @@ export function PlaygroundPage() {
   const contextInputs = sending ? frozenContextInputsRef.current : liveContextInputs;
 
   const contextWindow = useMemo(() => {
-    const delegated = isDelegatedProvider(providerId);
     const forceDiagnostics = workbenchIntent.promptProfile === 'firebase';
     const diagnosticsEnabled = pyricDiagnosticsEnabled || forceDiagnostics;
-    const systemPrompt = delegated
-      ? buildClaudeLanePrompt({ diagnosticsEnabled })
-      : buildSystemPrompt({ diagnosticsEnabled });
+    const systemPrompt = buildSystemPrompt({ diagnosticsEnabled });
     const toolProfile = selectToolProfileForPrompt({
       prompt: '', // turn-granular estimate — draft prompt excluded (see liveContextInputs)
-      settings: { pyricDiagnosticsEnabled, strategyMode },
-      delegated,
+      settings: { pyricDiagnosticsEnabled },
       promptProfile: workbenchIntent.promptProfile,
       preference: workbenchIntent.toolProfilePreference,
     });
@@ -783,7 +776,6 @@ export function PlaygroundPage() {
     promptPricing,
     providerId,
     pyricDiagnosticsEnabled,
-    strategyMode,
     workbenchIntent.promptProfile,
     workbenchIntent.toolProfilePreference,
   ]);

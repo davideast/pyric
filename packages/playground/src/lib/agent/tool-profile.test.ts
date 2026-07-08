@@ -3,7 +3,6 @@ import { selectToolProfileForPrompt } from './tool-profile';
 
 const SETTINGS = {
   pyricDiagnosticsEnabled: true,
-  strategyMode: 'auto' as const,
 };
 
 describe('selectToolProfileForPrompt', () => {
@@ -12,7 +11,6 @@ describe('selectToolProfileForPrompt', () => {
       selectToolProfileForPrompt({
         prompt: 'hello there',
         settings: SETTINGS,
-        delegated: false,
         promptProfile: 'app-builder',
       }),
     ).toBe('authoring');
@@ -20,7 +18,6 @@ describe('selectToolProfileForPrompt', () => {
       selectToolProfileForPrompt({
         prompt: 'Investigate security rules denials',
         settings: SETTINGS,
-        delegated: false,
         promptProfile: 'app-builder',
       }),
     ).toBe('diagnostic');
@@ -31,20 +28,8 @@ describe('selectToolProfileForPrompt', () => {
       selectToolProfileForPrompt({
         prompt: 'Audit my rules',
         settings: SETTINGS,
-        delegated: false,
         promptProfile: 'firebase',
       }),
     ).toBe('diagnostic');
-  });
-
-  test('delegated lanes keep the authoring bridge profile', () => {
-    expect(
-      selectToolProfileForPrompt({
-        prompt: 'Audit my rules',
-        settings: SETTINGS,
-        delegated: true,
-        promptProfile: 'firebase',
-      }),
-    ).toBe('authoring');
   });
 });

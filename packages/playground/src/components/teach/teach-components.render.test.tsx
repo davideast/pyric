@@ -17,7 +17,6 @@ function renderToString(el: ReactElement): string {
   return reactRenderToString(el).replaceAll('<!-- -->', '');
 }
 import { DiffView } from './DiffView';
-import { StrategyStepper } from './StrategyStepper';
 import { TurnAttribution } from './TurnAttribution';
 import { DenialWalkthrough } from './DenialWalkthrough';
 import { useChatStore, type ChatMessage, type ToolCall } from '~/lib/store/chat';
@@ -64,38 +63,6 @@ describe('DiffView render states', () => {
   });
 });
 
-describe('StrategyStepper render states', () => {
-  test('plain ReAct turn (no milestones) renders nothing', () => {
-    const html = renderToString(<StrategyStepper phaseEvents={[]} critiques={[]} />);
-    expect(html).toBe('');
-  });
-
-  test('draft-validate turn renders ordered chips', () => {
-    const html = renderToString(
-      <StrategyStepper
-        phaseEvents={[
-          { name: 'draft_started', data: { attempt: 0 } },
-          { name: 'validation_result', data: { passed: 2, total: 4 } },
-          { name: 'repair_started', data: { failures: 2 } },
-          { name: 'validation_result', data: { passed: 4, total: 4 } },
-        ]}
-      />,
-    );
-    expect(html).toContain('data-teach="strategy-stepper"');
-    expect(html.indexOf('draft')).toBeLessThan(html.indexOf('validate 2/4'));
-    expect(html.indexOf('validate 2/4')).toBeLessThan(html.indexOf('repair · 2 failing'));
-    expect(html).toContain('validate 4/4');
-  });
-
-  test('warn critique renders its feedback as a detail line', () => {
-    const html = renderToString(
-      <StrategyStepper critiques={[{ verdict: 'retry', feedback: 'cover the anon case' }]} />,
-    );
-    expect(html).toContain('critique → retry');
-    expect(html).toContain('cover the anon case');
-  });
-});
-
 describe('TurnAttribution render states', () => {
   test('no tool calls → renders nothing', () => {
     const html = renderToString(<TurnAttribution message={msg({})} currentCallId="x" />);
@@ -130,8 +97,6 @@ describe('DenialWalkthrough render states', () => {
       method: 'create',
       auth: '{"uid":"alice"}',
       message: 'Missing or insufficient permissions',
-      classification: 'unexpected',
-      classificationReason: 'no error handling found',
     },
   };
 
@@ -169,7 +134,7 @@ describe('DenialWalkthrough render states', () => {
     // Panel 1 — facts.
     expect(html).toContain('Why this request failed');
     expect(html).toContain('create pyric_sessions/test');
-    expect(html).toContain('unexpected');
+    expect(html).toContain('Missing or insufficient permissions');
     // Panel 2 — opt-in LLM + deterministic hand-off.
     expect(html).toContain('Explain the fix');
     expect(html).toContain('Send to agent');

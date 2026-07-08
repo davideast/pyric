@@ -105,7 +105,6 @@ describe('probeWorkspaceFiles', () => {
       APP_ENTRY_PATH,
       '/workspace/package.json',
       '/workspace/tests/demo.test.json',
-      '/workspace/app.spec.json',
     ];
     const result = await probeWorkspaceFiles(files, {
       readFile: readMap({

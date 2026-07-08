@@ -29,8 +29,6 @@ import { useChatStore } from '~/lib/store/chat';
 import {
   defaultMaxTurnsForLane,
   isDiagnosticToolEnabled,
-  DRAFT_REPAIRS_MAX,
-  DRAFT_REPAIRS_MIN,
   MAX_TURNS_DEFAULT_HOSTED,
   MAX_TURNS_MAX,
   MAX_TURNS_MIN,
@@ -80,13 +78,7 @@ export function SettingsModal({ open, onClose }: Props) {
   const setReflexionEnabled = useSettingsStore((s) => s.setReflexionEnabled);
   const reflexionMaxRetries = useSettingsStore((s) => s.reflexionMaxRetries);
   const setReflexionMaxRetries = useSettingsStore((s) => s.setReflexionMaxRetries);
-  const strategyMode = useSettingsStore((s) => s.strategyMode);
-  const setStrategyMode = useSettingsStore((s) => s.setStrategyMode);
-  // Strategy/provider note — the Claude (local CLI) lane runs tools
-  // through the dev server's MCP bridge (claude -p owns the tool loop).
   const activeProviderId = useLlmStore((s) => s.providerId);
-  const draftMaxRepairs = useSettingsStore((s) => s.draftMaxRepairs);
-  const setDraftMaxRepairs = useSettingsStore((s) => s.setDraftMaxRepairs);
   const openrouterSort = useSettingsStore((s) => s.openrouterSort);
   const setOpenrouterSort = useSettingsStore((s) => s.setOpenrouterSort);
   const openrouterMaxPromptPrice = useSettingsStore((s) => s.openrouterMaxPromptPrice);
@@ -235,7 +227,7 @@ export function SettingsModal({ open, onClose }: Props) {
             checked={resumableServerMode}
             onChange={() => setResumableServerMode(!resumableServerMode)}
             title="Resumable server stream"
-            body="Routes inference through the server, which holds the provider connection and buffers it into a durable job store. The client reconnects with an offset after a backgrounding drop and the server replays from exactly there — live streaming that survives tab backgrounding, plus recovery of an interrupted reply after a reload. On by default for cloud providers (Gemini/OpenRouter); local providers and the Claude lane always run page-direct, which is also the automatic fallback when the server route is unavailable."
+            body="Routes inference through the server, which holds the provider connection and buffers it into a durable job store. The client reconnects with an offset after a backgrounding drop and the server replays from exactly there — live streaming that survives tab backgrounding, plus recovery of an interrupted reply after a reload. On by default for cloud providers (Gemini/OpenRouter); local providers run page-direct, which is also the automatic fallback when the server route is unavailable."
           />
         </div>
 
@@ -273,90 +265,6 @@ export function SettingsModal({ open, onClose }: Props) {
           </div>
         </div>
 
-        <div className="space-y-1.5 pt-2">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="text-soft-white text-[13px]">Agent strategy</p>
-              <p className="text-slate-gray text-[11px] mt-0.5">
-                <span className="text-soft-white">Auto</span> (default) routes per prompt:
-                build/modify requests that touch data or security run Draft → Validate, with a
-                one-shot fallback to ReAct when repairs run out; questions, debugging, and pure-UI
-                work run ReAct. <span className="text-soft-white">ReAct</span> and{' '}
-                <span className="text-soft-white">Draft → Validate</span> pin a strategy — pins
-                always win over the router. Takes effect on the next submit.
-              </p>
-            </div>
-            {/* The Claude (local CLI) lane is DELEGATED: `claude -p` runs
-             *  its own agent loop server-side, so the playground's
-             *  react/DV strategies never drive a turn there — the picker
-             *  is disabled rather than silently ignored. */}
-            <div
-              className={
-                'flex rounded border border-[#2a2a35] overflow-hidden shrink-0 text-[12px]' +
-                (activeProviderId === 'claude' ? ' opacity-40 pointer-events-none' : '')
-              }
-              aria-disabled={activeProviderId === 'claude'}
-            >
-              {(['auto', 'react', 'draft-validate'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  disabled={activeProviderId === 'claude'}
-                  onClick={() => setStrategyMode(mode)}
-                  className={
-                    'px-2.5 py-1 ' +
-                    (strategyMode === mode
-                      ? 'bg-[#2a2a35] text-soft-white'
-                      : 'bg-[#0f0f17] text-slate-gray hover:text-soft-white')
-                  }
-                >
-                  {mode === 'auto' ? 'Auto' : mode === 'react' ? 'ReAct' : 'Draft → Validate'}
-                </button>
-              ))}
-            </div>
-          </div>
-          {activeProviderId === 'claude' ? (
-            <div className="rounded-md border border-sky-500/30 bg-sky-500/5 px-3 py-2">
-              <p className="text-[11px] text-sky-200/90 leading-snug">
-                Claude (local CLI) turns are <span className="text-sky-100">delegated</span>:{' '}
-                <code className="font-mono">claude -p</code> is its own agent and runs the whole
-                tool loop server-side against the dev server&apos;s MCP bridge (files, workspace
-                tests, rules simulation/stdlib/lint, jailed bash). The strategy picker above does
-                not apply on this lane — one delegated call per prompt, no playground-side ReAct
-                or Draft → Validate. Tool calls don&apos;t stream into the transcript; file
-                changes sync into the workspace when the turn finishes.
-              </p>
-            </div>
-          ) : null}
-          {strategyMode !== 'react' ? (
-            <div className="flex items-center justify-between gap-3 pl-3 pt-1">
-              <div className="flex-1 min-w-0">
-                <p className="text-soft-white text-[13px]">Max repairs</p>
-                <p className="text-slate-gray text-[11px] mt-0.5">
-                  Re-draft attempts after a failed validation. 0 = validate once and show the
-                  verdict, never retry. Range: {DRAFT_REPAIRS_MIN}–{DRAFT_REPAIRS_MAX}.
-                </p>
-              </div>
-              <input
-                type="number"
-                min={DRAFT_REPAIRS_MIN}
-                max={DRAFT_REPAIRS_MAX}
-                step={1}
-                value={draftMaxRepairs}
-                onChange={(e) => {
-                  const parsed = parseInt(e.target.value, 10);
-                  if (!Number.isFinite(parsed)) return;
-                  setDraftMaxRepairs(parsed);
-                }}
-                className="w-16 px-2 py-1 rounded bg-[#0f0f17] border border-[#2a2a35] text-soft-white text-[13px] font-mono text-right focus:outline-none focus:border-[#3a3a48]"
-                aria-label="Draft-validate max repairs"
-              />
-            </div>
-          ) : null}
-        </div>
-
-        {strategyMode !== 'draft-validate' ? (
-          <>
         <div className="space-y-1.5 pt-2">
           <ToggleRow
             checked={parallelDispatch}
@@ -400,8 +308,6 @@ export function SettingsModal({ open, onClose }: Props) {
             </div>
           ) : null}
         </div>
-          </>
-        ) : null}
 
         <div className="space-y-1.5 pt-2">
           <div className="flex items-center justify-between gap-3">

@@ -15,14 +15,9 @@ function inFlightTools(message: ChatMessage) {
   return (message.toolCalls ?? []).filter((c) => c.resultJson === undefined);
 }
 
-function inFlightDelegated(message: ChatMessage) {
-  return (message.delegatedActivity ?? []).filter((a) => a.resultSummary === undefined);
-}
-
-/** True when the reply Markdown is intentionally hidden during stream
- *  (Claude CLI transcript noise today; extend if other lanes need it). */
 export function isReplyHiddenWhileStreaming(message: ChatMessage): boolean {
-  return !!message.streaming && message.providerLabel === 'Claude (local CLI)';
+  void message;
+  return false;
 }
 
 export function deriveTurnStatus(message: ChatMessage): TurnStatus | null {
@@ -32,15 +27,6 @@ export function deriveTurnStatus(message: ChatMessage): TurnStatus | null {
   const hasText = (message.text?.trim().length ?? 0) > 0;
   const replyHidden = isReplyHiddenWhileStreaming(message);
   const tools = inFlightTools(message);
-  const delegated = inFlightDelegated(message);
-
-  const latestDelegated = delegated.at(-1);
-  if (latestDelegated) {
-    return {
-      label: `${latestDelegated.summary}…`,
-      showStrip: replyHidden || !hasText,
-    };
-  }
 
   const latestTool = tools.at(-1);
   if (latestTool) {
@@ -50,8 +36,7 @@ export function deriveTurnStatus(message: ChatMessage): TurnStatus | null {
     };
   }
 
-  const anyActivity =
-    (message.toolCalls?.length ?? 0) > 0 || (message.delegatedActivity?.length ?? 0) > 0;
+  const anyActivity = (message.toolCalls?.length ?? 0) > 0;
 
   if (thinkingLen > 0 && !hasText && !anyActivity) {
     return { label: 'Reasoning…', showStrip: false };

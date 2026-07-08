@@ -20,7 +20,6 @@
  */
 import type { ModelEvent as RelayModelEvent } from '@inbrowser/relay';
 import { useChatStore } from '~/lib/store/chat';
-import { pullWorkspaceFromBridge } from '../claude-workspace-sync';
 import {
   inferenceAuthHeaders,
   jobStreamUrl,
@@ -58,18 +57,13 @@ async function recoverOne(messageId: string): Promise<void> {
   const jobId = msg?.activeJob?.jobId;
   if (!msg || !jobId) return;
   const baseText = msg.text;
-  const isClaudeJob = msg.activeJob?.provider === 'claude';
-
-  // Claude-lane jobs run on the SAME-ORIGIN relay (the Agent SDK lives
-  // on the owner's machine, never the Cloud Function) — mirror
-  // `serverBaseFor` in ./index.ts.
-  const base = isClaudeJob ? '' : await resolveApiBase();
+  const base = await resolveApiBase();
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), RECOVERY_TIMEOUT_MS);
   let res: Response;
   try {
     // Carry the inference auth token (#766) — the Cloud Function's gate
-    // requires it when configured. No-op for same-origin Claude jobs.
+    // requires it when configured.
     res = await fetch(jobStreamUrl(base, jobId, 0), {
       signal: abort.signal,
       headers: inferenceAuthHeaders(),
@@ -125,22 +119,6 @@ async function recoverOne(messageId: string): Promise<void> {
   if (sawToolCall) notes.push('its remaining tool calls did not run');
   if (!sawDone) notes.push('recovery ended before the stream finished');
 
-  // Claude-lane job: the turn's tool loop ran INSIDE the server-side
-  // agent against the server workspace — the reload killed only the
-  // viewer. Pull the workspace so the recovered turn's file changes
-  // actually land in the files panel/preview. Best-effort: the text
-  // recovery above is still worth keeping if the pull fails.
-  let workspacePulled = false;
-  if (isClaudeJob) {
-    try {
-      await pullWorkspaceFromBridge();
-      workspacePulled = true;
-      notes.push('pulled its workspace changes from the server');
-    } catch {
-      notes.push('its server workspace changes could not be pulled — re-prompt to retry');
-    }
-  }
-
   const note = `\n\n_(${notes.join('; ')})_`;
   // Turn incomplete (unrun tool calls, or the stream never finished) →
   // mark it so the UI offers an interactive "Resume turn".
@@ -151,7 +129,6 @@ async function recoverOne(messageId: string): Promise<void> {
     recoveredChars: suffix.length,
     sawToolCall,
     sawDone,
-    ...(isClaudeJob ? { claudeWorkspacePulled: workspacePulled } : {}),
   });
 
   const current = useChatStore.getState().messages.find((m) => m.id === messageId);

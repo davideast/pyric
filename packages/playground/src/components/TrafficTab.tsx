@@ -90,20 +90,6 @@ function resultTone(result: TrafficEntry['result']): {
   return { text: 'text-[#a4d4a8]', border: 'border-[#a4d4a8]/40', label: 'allow' };
 }
 
-function classificationBadge(c: DenialBlurb['classification']): {
-  label: string;
-  tone: string;
-  border: string;
-} {
-  if (c === 'expected') {
-    return { label: 'expected', tone: 'text-[#e6c79c]', border: 'border-[#e6c79c]/40' };
-  }
-  if (c === 'ambiguous') {
-    return { label: 'ambiguous', tone: 'text-[#e6c79c]/80', border: 'border-[#e6c79c]/30' };
-  }
-  return { label: 'unexpected', tone: 'text-[#f0a0a0]', border: 'border-[#f0a0a0]/40' };
-}
-
 function buildEntryCopy(entry: TrafficEntry): string {
   return JSON.stringify(entry, null, 2);
 }
@@ -130,7 +116,7 @@ export function TrafficTab({ onSendPrompt, sendBusy, onAfterSend }: Props) {
   }, [pending, clearPending]);
 
   // Build a quick lookup from event id → DenialBlurb so each deny
-  // row can show its classification badge without scanning.
+  // row can cross-reference the parallel live-denial state without scanning.
   const denialById = useMemo(() => {
     const m = new Map<string, DenialBlurb>();
     for (const d of liveDenials) m.set(d.id, d);
@@ -371,7 +357,6 @@ function TrafficRow({
 }) {
   const tone = resultTone(entry.result);
   const isListener = entry.origin === 'listener';
-  const cBadge = denial ? classificationBadge(denial.classification) : null;
   return (
     <li>
       <button
@@ -400,16 +385,16 @@ function TrafficRow({
         >
           {tone.label}
         </span>
-        {cBadge ? (
+        {denial ? (
           <span
             className={[
               'shrink-0 px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider',
-              cBadge.tone,
-              cBadge.border,
+              'text-[#e6c79c]',
+              'border-[#e6c79c]/40',
             ].join(' ')}
-            title={denial!.classificationReason}
+            title={denial.message}
           >
-            {cBadge.label}
+            denied request
           </span>
         ) : null}
         <span className="shrink-0 text-slate-gray/70 w-[42px] text-right tabular-nums">
@@ -594,21 +579,20 @@ function DenialOverlay({
   sendBusy?: boolean;
   onAfterSend?: () => void;
 }) {
-  const cBadge = classificationBadge(denial.classification);
   return (
     <div className="mb-4 grid gap-2">
       <div className="px-3 py-2 border border-[#2a2a35] rounded-md bg-[#1a1a22]/60 flex items-start gap-2">
         <span
           className={[
             'shrink-0 px-1.5 py-0.5 rounded border text-[9px] uppercase tracking-wider font-mono',
-            cBadge.tone,
-            cBadge.border,
+            'text-[#e6c79c]',
+            'border-[#e6c79c]/40',
           ].join(' ')}
         >
-          {cBadge.label}
+          denied request
         </span>
         <p className="text-[11px] font-mono text-slate-gray/80 leading-relaxed">
-          {denial.classificationReason}
+          {denial.message}
         </p>
       </div>
       <DenialInspectSection

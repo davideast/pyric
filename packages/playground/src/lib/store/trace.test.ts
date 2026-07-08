@@ -1,12 +1,3 @@
-/**
- * SF-S0a — trace-store provenance folding.
- *
- * Verifies the strategy provenance (strategy + source + reason) lands in
- * the turn's `hostCtx` regardless of whether the router milestone arrives
- * BEFORE the first `llm_request` (the usual order — routing fires first) or
- * AFTER it, and that a later escalation milestone overrides the routing
- * decision (the escalated strategy is what actually finished the turn).
- */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import type { LlmRequestTrace, LlmResponseTrace } from '@inbrowser/agent';
 import {
@@ -15,7 +6,6 @@ import {
   useTraceStore,
   type HostCtx,
   type PersistedTraceTelemetry,
-  type StrategyProvenance,
 } from './trace';
 
 function req(turnId: string, iteration = 0): LlmRequestTrace {
@@ -46,85 +36,37 @@ const CTX: HostCtx = {
   resumableServerMode: false,
 };
 
-const ROUTED: StrategyProvenance = {
-  strategy: 'draft-validate',
-  strategySource: 'routed',
-  reason: 'build-intent + data/security signal',
-};
-
 beforeEach(() => useTraceStore.getState().clear());
 
-describe('trace store provenance (SF-S0a)', () => {
-  test('provenance BEFORE the first request lands in hostCtx (router-first order)', () => {
+describe('trace store request context', () => {
+  test('first request captures host context', () => {
     const s = useTraceStore.getState();
-    s.setProvenance('t1', ROUTED);
     s.appendRequest(req('t1'), CTX);
     const hc = getTurnTrace('t1')!.hostCtx;
-    expect(hc.strategy).toBe('draft-validate');
-    expect(hc.strategySource).toBe('routed');
-    expect(hc.routerReason).toBe('build-intent + data/security signal');
-    // provider/model fields preserved
     expect(hc.providerId).toBe('openrouter');
     expect(hc.modelLabel).toBe('kimi');
+    expect(hc.resumableServerMode).toBe(false);
   });
 
-  test('provenance AFTER the first request patches the existing hostCtx', () => {
+  test('subsequent requests for the turn keep the first host context', () => {
     const s = useTraceStore.getState();
     s.appendRequest(req('t2'), CTX);
-    expect(getTurnTrace('t2')!.hostCtx.strategy).toBeUndefined();
-    s.setProvenance('t2', ROUTED);
-    const hc = getTurnTrace('t2')!.hostCtx;
-    expect(hc.strategy).toBe('draft-validate');
-    expect(hc.strategySource).toBe('routed');
-  });
-
-  test('user-selected provenance carries no router reason', () => {
-    const s = useTraceStore.getState();
-    s.setProvenance('t3', { strategy: 'react', strategySource: 'user-selected' });
-    s.appendRequest(req('t3'), CTX);
-    const hc = getTurnTrace('t3')!.hostCtx;
-    expect(hc.strategySource).toBe('user-selected');
-    expect(hc.routerReason).toBeUndefined();
-  });
-
-  test('a later escalation overrides the earlier routing decision', () => {
-    const s = useTraceStore.getState();
-    s.setProvenance('t4', ROUTED); // draft-validate / routed
-    s.appendRequest(req('t4'), CTX);
-    s.setProvenance('t4', {
-      strategy: 'react',
-      strategySource: 'escalated',
-      reason: 'draft-validate→react: 1 floor-case failure(s) after repairs exhausted',
-    });
-    const hc = getTurnTrace('t4')!.hostCtx;
-    expect(hc.strategy).toBe('react');
-    expect(hc.strategySource).toBe('escalated');
-    expect(hc.routerReason).toContain('floor-case');
-  });
-
-  test('subsequent requests for the turn keep the first hostCtx (incl. provenance)', () => {
-    const s = useTraceStore.getState();
-    s.setProvenance('t5', ROUTED);
-    s.appendRequest(req('t5', 0), CTX);
-    s.appendRequest(req('t5', 1), { ...CTX, modelLabel: 'swapped' });
-    const turn = getTurnTrace('t5')!;
+    s.appendRequest(req('t2', 1), { ...CTX, modelLabel: 'swapped' });
+    const turn = getTurnTrace('t2')!;
     expect(turn.requests.length).toBe(2);
-    // hostCtx captured once at the first request, provenance intact
     expect(turn.hostCtx.modelLabel).toBe('kimi');
-    expect(turn.hostCtx.strategy).toBe('draft-validate');
   });
 
-  test('clear() drops pending provenance too', () => {
+  test('clear() drops captured traces', () => {
     const s = useTraceStore.getState();
-    s.setProvenance('t6', ROUTED);
+    s.appendRequest(req('t3'), CTX);
     s.clear();
-    s.appendRequest(req('t6'), CTX);
-    expect(getTurnTrace('t6')!.hostCtx.strategy).toBeUndefined();
+    expect(getTurnTrace('t3')).toBeUndefined();
+    expect(useTraceStore.getState().summaries).toEqual({});
   });
 
   test('snapshot() and hydrate() round-trip trace detail', () => {
     const s = useTraceStore.getState();
-    s.setProvenance('t7', ROUTED);
     s.appendRequest(req('t7', 0), CTX);
     s.appendRequest(req('t7', 1), CTX);
     s.appendResponse(res('t7', 0));
@@ -143,7 +85,6 @@ describe('trace store provenance (SF-S0a)', () => {
     const restored = getTurnTrace('t7')!;
     expect(restored.requests.length).toBe(2);
     expect(restored.responses.length).toBe(1);
-    expect(restored.hostCtx.strategy).toBe('draft-validate');
     expect(restored.hostCtx.providerLabel).toBe('OpenRouter');
   });
 

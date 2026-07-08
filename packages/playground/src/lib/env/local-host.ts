@@ -6,8 +6,7 @@
  * is built with (see plans + the launchd agent). Introduced for the
  * local-credential auth path, but the semantic is broader than auth:
  * any capability that requires the server process to be the owner's
- * machine (local creds, the Claude `claude -p` lane and its MCP
- * bridge) gates on this instead of bare `import.meta.env.DEV`, so the
+ * machine gates on this instead of bare `import.meta.env.DEV`, so the
  * phone-over-tailnet prod preview keeps owner-machine features.
  *
  * A DEPLOYED build never sets the flag, so all of these stay off

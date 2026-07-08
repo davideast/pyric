@@ -36,24 +36,6 @@ describe('deriveTurnStatus', () => {
     expect(status?.showStrip).toBe(true);
   });
 
-  test('in-flight delegated activity', () => {
-    const status = deriveTurnStatus(
-      msg({
-        streaming: true,
-        providerLabel: 'Claude (local CLI)',
-        delegatedActivity: [
-          {
-            id: 'd1',
-            name: 'read_file',
-            summary: 'read /workspace/firestore.rules',
-            ts: 1,
-          },
-        ],
-      }),
-    );
-    expect(status?.label).toBe('read /workspace/firestore.rules…');
-  });
-
   test('reasoning only — strip hidden, thinking fold carries progress', () => {
     expect(
       deriveTurnStatus(msg({ streaming: true, thinking: 'ponder', providerLabel: 'OpenRouter' })),
@@ -70,15 +52,7 @@ describe('deriveTurnStatus', () => {
 });
 
 describe('isReplyHiddenWhileStreaming', () => {
-  test('Claude delegated lane hides reply while streaming', () => {
-    expect(
-      isReplyHiddenWhileStreaming(
-        msg({ streaming: true, providerLabel: 'Claude (local CLI)' }),
-      ),
-    ).toBe(true);
-  });
-
-  test('Gemini shows reply while streaming', () => {
+  test('all supported providers show reply while streaming', () => {
     expect(
       isReplyHiddenWhileStreaming(msg({ streaming: true, providerLabel: 'Gemini' })),
     ).toBe(false);

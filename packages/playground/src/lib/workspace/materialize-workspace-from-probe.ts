@@ -58,12 +58,6 @@ export async function materializeWorkspaceFromProbe(
   notifyVfsWrite(RULES_PATH, rules);
   notifyVfsWrite(APP_ENTRY_PATH, appSource);
 
-  if (mappings.specPath) {
-    const spec = await readUtf8(adapter, mappings.specPath);
-    const dest = `${WORKSPACE_ROOT}/app.spec.json`;
-    await writeUtf8(adapter, dest, spec);
-  }
-
   for (const testPath of mappings.testPaths) {
     const testContent = await readUtf8(adapter, testPath);
     await writeUtf8(adapter, testsDestPath(testPath, mappings.contentRoot), testContent);

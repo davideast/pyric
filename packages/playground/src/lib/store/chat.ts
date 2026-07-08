@@ -8,9 +8,6 @@ import { create } from 'zustand';
 import type { CompactionMarker } from '~/lib/agent/context-management';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 import { APP_ENTRY_PATH, DATABASE_RULES_PATH, RULES_PATH } from '~/lib/store/files';
-import type { DelegatedActivity } from '~/lib/llm/claude-transcript';
-
-export type { DelegatedActivity };
 
 export type ChatRole = 'user' | 'assistant' | 'system';
 
@@ -150,15 +147,6 @@ export interface ReflexionCritique {
   feedback?: string;
 }
 
-/** One milestone from the draft-then-validate strategy (0.2.0
- *  `strategy_event` channel): `draft_started`, `validation_result`,
- *  `repair_started`, `validation_exhausted`. Stored raw; AssistantBlock
- *  formats each by name. Absent under the default ReAct strategy. */
-export interface StrategyPhaseEvent {
-  name: string;
-  data?: Record<string, unknown>;
-}
-
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -217,15 +205,6 @@ export interface ChatMessage {
    *  one critique decision; a `retry` means the answer below was redone
    *  with the feedback injected. Absent when reflexion is off. */
   reflexionCritiques?: ReflexionCritique[];
-  /** Draft-then-validate phase milestones for this turn, in order.
-   *  Absent under the ReAct strategy. */
-  phaseEvents?: StrategyPhaseEvent[];
-  /** Compact tool rows for Claude (local CLI) delegated turns — parsed
-   *  from the CLI's internal `<function_calls>` transcript markup.
-   *  Non-clickable; full bodies live in `rawTranscript`. */
-  delegatedActivity?: DelegatedActivity[];
-  /** Unfiltered Claude CLI transcript for copy/debug. */
-  rawTranscript?: string;
 }
 
 interface ChatState {

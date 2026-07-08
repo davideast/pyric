@@ -1,8 +1,7 @@
 /**
  * Tests for the in-repo page-direct OpenRouter provider — bounded
- * reasoning budget, Anthropic `reasoning_details` round-trip, and
- * reasoning-token telemetry (sonnet-food session, 2026-06-10). SSE
- * payloads mirror the probe capture against claude-haiku-4.5.
+ * reasoning budget, `reasoning_details` round-trip, and
+ * reasoning-token telemetry.
  * Mocks global fetch; no network.
  */
 import { describe, test, expect, afterEach, beforeEach } from 'bun:test';
@@ -32,7 +31,7 @@ beforeEach(() => {
 function req(partial: Partial<NormalizedRequest> = {}): NormalizedRequest {
   return {
     provider: 'openrouter',
-    model: 'anthropic/claude-sonnet-4.6',
+    model: 'openai/gpt-5.5',
     messages: [{ role: 'user', text: 'hi' }],
     tools: [],
     toolUseEnabled: false,
@@ -156,18 +155,18 @@ describe('openrouter-page — provider routing (sort + price ceilings)', () => {
 describe('openrouter-page — reasoning_details delta merge', () => {
   test('text concatenates per index; signature lands on the merged block', () => {
     const acc = new Map<number, ReasoningDetail>();
-    // Probe-verified delta sequence: N text deltas then a text-less
-    // signature delta, all index 0, format anthropic-claude-v1.
-    mergeReasoningDelta(acc, { type: 'reasoning.text', text: 'The user wants', format: 'anthropic-claude-v1', index: 0 });
-    mergeReasoningDelta(acc, { type: 'reasoning.text', text: ' me to check.', format: 'anthropic-claude-v1', index: 0 });
-    mergeReasoningDelta(acc, { type: 'reasoning.text', signature: 'EpoDCkgI…', format: 'anthropic-claude-v1', index: 0 });
+    // Typical delta sequence: N text deltas then a text-less signature
+    // delta, all index 0, with the provider-specific format preserved.
+    mergeReasoningDelta(acc, { type: 'reasoning.text', text: 'The user wants', format: 'provider-reasoning-v1', index: 0 });
+    mergeReasoningDelta(acc, { type: 'reasoning.text', text: ' me to check.', format: 'provider-reasoning-v1', index: 0 });
+    mergeReasoningDelta(acc, { type: 'reasoning.text', signature: 'EpoDCkgI…', format: 'provider-reasoning-v1', index: 0 });
     const merged = mergedDetails(acc);
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({
       type: 'reasoning.text',
       text: 'The user wants me to check.',
       signature: 'EpoDCkgI…',
-      format: 'anthropic-claude-v1',
+      format: 'provider-reasoning-v1',
     });
   });
 
@@ -184,8 +183,8 @@ describe('openrouter-page — reasoning_details delta merge', () => {
 
 describe('openrouter-page — streaming round-trip', () => {
   const STREAM = sse([
-    { choices: [{ delta: { role: 'assistant', reasoning: 'thinking…', reasoning_details: [{ type: 'reasoning.text', text: 'thinking…', format: 'anthropic-claude-v1', index: 0 }] } }] },
-    { choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', signature: 'sig-1', format: 'anthropic-claude-v1', index: 0 }] } }] },
+    { choices: [{ delta: { role: 'assistant', reasoning: 'thinking…', reasoning_details: [{ type: 'reasoning.text', text: 'thinking…', format: 'provider-reasoning-v1', index: 0 }] } }] },
+    { choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', signature: 'sig-1', format: 'provider-reasoning-v1', index: 0 }] } }] },
     { choices: [{ delta: { tool_calls: [{ index: 0, id: 'toolu_1', function: { name: 'get_price', arguments: '{"itemId"' } }] } }] },
     { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ':"x"}' } }] } }] },
     {
@@ -223,7 +222,7 @@ describe('openrouter-page — streaming round-trip', () => {
     ]);
     const asst = echoed.find((m) => m.role === 'assistant')!;
     expect(asst.reasoning_details).toEqual([
-      { type: 'reasoning.text', text: 'thinking…', signature: 'sig-1', format: 'anthropic-claude-v1' },
+      { type: 'reasoning.text', text: 'thinking…', signature: 'sig-1', format: 'provider-reasoning-v1' },
     ]);
     // Unknown calls stay clean.
     const other = toOaiMessages([

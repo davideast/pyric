@@ -119,7 +119,7 @@ const ALIASES: Record<PreviewModuleId, AliasSpec> = {
       'browserSessionPersistence',
       'inMemoryPersistence',
       // Preview-only escape hatch: the `sandbox` namespace (seedUsers,
-      // setUser, mockSignInResult) lets conformance fixtures pre-stage
+      // setUser, mockSignInResult) lets preview tests pre-stage
       // test users with customClaims. NOT shipped in deploy bundles —
       // see preview-scope.ts for the safety analysis.
       'sandbox',

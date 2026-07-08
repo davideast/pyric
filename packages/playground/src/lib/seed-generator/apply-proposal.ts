@@ -3,8 +3,6 @@
  */
 import type { CreateUserRequest } from 'pyric/auth';
 
-import type { AppSpecV1 } from '~/lib/agent/spec/schema';
-import { deriveIdentities } from '~/lib/agent/spec/derive';
 import {
   applyAuthSeedUsersAsync,
   seedUserToCreateRequest,
@@ -35,7 +33,6 @@ export interface ApplyProposalResult {
 export async function applySeedProposal(
   admin: AsyncAdminSeedSurface,
   proposal: SeedProposalV1,
-  opts: { spec: AppSpecV1 | null },
 ): Promise<ApplyProposalResult> {
   const firestoreErrors: FirestoreApplySummary['errors'] = [];
   let applied = 0;
@@ -72,9 +69,7 @@ export async function applySeedProposal(
   }
 
   let authRequests: CreateUserRequest[] = [];
-  if (opts.spec) {
-    authRequests = deriveIdentities(opts.spec).map(seedUserToCreateRequest);
-  } else if (proposal.auth?.length) {
+  if (proposal.auth?.length) {
     authRequests = proposal.auth.map((u) =>
       seedUserToCreateRequest({
         uid: u.uid,

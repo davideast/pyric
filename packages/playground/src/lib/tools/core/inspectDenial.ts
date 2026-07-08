@@ -37,7 +37,7 @@ export const inspectDenialHandler: ToolHandler = {
   name: 'inspect_denial',
   parallelSafe: true, // read-only (0.2.0 parallelDispatch)
   description:
-    'Investigate one sandbox denial in detail. By default targets the MOST RECENT denial — pass `path` to target a specific document path. Returns the denial details (op, auth, classification, message). Use this to explain why a denial happened — sandbox denials are evaluated against the editor rules body, so read /workspace/firestore.rules to correlate the denial to a rule clause.',
+    'Investigate one sandbox denial in detail. By default targets the MOST RECENT denial — pass `path` to target a specific document path. Returns the denial details (op, auth, path, method, message). Use this to explain why a denial happened — sandbox denials are evaluated against the editor rules body, so read /workspace/firestore.rules to correlate the denial to a rule clause.',
   parameters: {
     type: 'object',
     properties: {
@@ -88,8 +88,6 @@ export const inspectDenialHandler: ToolHandler = {
       method: methodOf(denial!),
       auth: denial!.auth,
       message: denial!.message,
-      classification: denial!.classification,
-      classificationReason: denial!.classificationReason,
     };
 
     return {

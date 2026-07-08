@@ -38,7 +38,6 @@ export interface WorkspaceFileMappings {
     rulesPath: typeof RULES_PATH;
     appEntryPath: typeof APP_ENTRY_PATH;
   };
-  specPath?: string;
   testPaths: string[];
 }
 
@@ -83,7 +82,6 @@ const APP_ENTRY_RELATIVE: readonly { rel: string; kind: WorkspaceLayoutKind }[] 
   { rel: 'public/app.js', kind: 'pyric-init-web' },
 ];
 
-const SPEC_BASENAME = 'app.spec.json';
 const TESTS_DIR = 'tests';
 
 /** Bare specifiers allowed in preview without esm.sh install. */
@@ -168,15 +166,6 @@ export function discoverAppEntry(
   for (const { rel, kind } of APP_ENTRY_RELATIVE) {
     const candidate = joinPath(contentRoot, rel);
     if (allFiles.includes(candidate)) return { path: candidate, kind };
-  }
-  return null;
-}
-
-export function discoverSpecPath(allFiles: string[], contentRoot: string): string | null {
-  const direct = joinPath(contentRoot, SPEC_BASENAME);
-  if (allFiles.includes(direct)) return direct;
-  for (const p of allFiles) {
-    if (basename(p) === SPEC_BASENAME) return p;
   }
   return null;
 }
@@ -361,7 +350,6 @@ export async function probeWorkspaceFiles(
     }
   }
 
-  const specPath = discoverSpecPath(allFiles, contentRoot) ?? undefined;
   const testPaths = discoverTestPaths(allFiles, contentRoot);
 
   const tier = computeTier(blockers, warnings, layout, !!rulesPath, !!appPath);
@@ -376,7 +364,6 @@ export async function probeWorkspaceFiles(
             rulesPath: RULES_PATH,
             appEntryPath: APP_ENTRY_PATH,
           },
-          specPath,
           testPaths,
         }
       : null;
