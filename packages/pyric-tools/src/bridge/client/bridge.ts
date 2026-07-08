@@ -28,6 +28,7 @@ import type {
 } from '../protocol.js';
 import {
   isBridgeMessage,
+  assertJsonSafeRelayValue,
   DEFAULT_BRIDGE_PORT,
   DEFAULT_SANDBOX_PATH,
   WORKER_RELAY_CAPABILITY,
@@ -283,6 +284,10 @@ export function connectBridge(
     if (!workerRelay) return; // capability not advertised — drop (wire drift)
     try {
       const value = await workerRelay.op(req.op);
+      // Anti-corruption guard: a Blob/ArrayBuffer/TypedArray result would be
+      // SILENTLY mangled by the JSON WS legs ({} / index-keyed object) — turn
+      // it into a loud error naming the base64 storage ops instead.
+      assertJsonSafeRelayValue(req.op.method, value);
       send({ type: 'worker-res', id: req.id, ok: true, value });
     } catch (err) {
       send({

@@ -265,3 +265,58 @@ export const NO_SANDBOX_ERROR_MESSAGE =
 /** Error for worker ops against a peer that predates the worker relay. */
 export const NO_WORKER_RELAY_ERROR_MESSAGE =
   'the connected browser tab does not support the worker relay — reload the tab (and update pyric if reloading does not help).';
+
+// ─── Binary-payload guard (worker-op relay boundary) ────────────────────────
+//
+// Both WS legs of the worker relay are `JSON.stringify` — a `Blob` or
+// `ArrayBuffer` in a relayed value silently becomes `{}` and a TypedArray /
+// Buffer becomes an index-keyed object. Nothing errors; the far side just
+// receives garbage (the live failure mode: relaying `storage.getBlob` yields
+// `{}`). This guard turns that silent corruption into a loud, remediable
+// rejection at the relay boundary. It is a cheap explicit TYPE check
+// (Blob/ArrayBuffer/TypedArray/DataView), NOT a full JSON round-trip.
+
+/** Human label for a non-JSON-safe binary value, or null when `value` (and
+ *  every nested array/plain-object member) is free of binary containers. */
+export function findBinaryPayload(value: unknown): string | null {
+  if (value === null || typeof value !== 'object') return null;
+  if (typeof Blob !== 'undefined' && value instanceof Blob) return 'Blob';
+  if (value instanceof ArrayBuffer) return 'ArrayBuffer';
+  if (ArrayBuffer.isView(value)) {
+    return (value as { constructor?: { name?: string } }).constructor?.name ?? 'TypedArray';
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const hit = findBinaryPayload(item);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  for (const item of Object.values(value as Record<string, unknown>)) {
+    const hit = findBinaryPayload(item);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Assert a worker-op result is safe to serialize onto the JSON relay.
+ * Throws (code `invalid-argument`) naming the offending type and the
+ * base64 storage ops to use instead — so a future caller relaying
+ * `storage.getBlob` gets a clear error, not `{}`.
+ */
+export function assertJsonSafeRelayValue(
+  method: string,
+  value: unknown,
+): void {
+  const kind = findBinaryPayload(value);
+  if (!kind) return;
+  const err = new Error(
+    `worker op '${method}' produced a binary payload (${kind}) that cannot cross the ` +
+      'JSON bridge relay — it would be silently corrupted by JSON.stringify. Use the ' +
+      "base64 storage ops instead ('storage.getBytes' / 'storage.putBytes'), which carry " +
+      "bytes as JSON-safe 'dataB64' strings; 'storage.getBlob' is MessagePort-only.",
+  ) as Error & { code: string };
+  err.code = 'invalid-argument';
+  throw err;
+}
