@@ -293,7 +293,7 @@ function summarize(): TraceSnapshotSummary {
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isTraceObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
@@ -306,7 +306,7 @@ function coerceBoolean(value: unknown): boolean | undefined {
 }
 
 function coerceHostCtx(raw: unknown): HostCtx | null {
-  if (!isRecord(raw)) return null;
+  if (!isTraceObject(raw)) return null;
   const providerId = coerceString(raw.providerId);
   const providerLabel = coerceString(raw.providerLabel);
   const modelLabel = coerceString(raw.modelLabel);
@@ -342,9 +342,9 @@ function coerceHostCtx(raw: unknown): HostCtx | null {
 /** Hydrate a legacy v1 snapshot: coerce each full trace, then intern its
  *  requests so the in-memory form is deduped like live-captured traces. */
 function hydrateV1(tracesByTurn: unknown): void {
-  if (!isRecord(tracesByTurn)) return;
+  if (!isTraceObject(tracesByTurn)) return;
   for (const rawTrace of Object.values(tracesByTurn)) {
-    if (!isRecord(rawTrace)) continue;
+    if (!isTraceObject(rawTrace)) continue;
     const turnId = coerceString(rawTrace.turnId);
     const hostCtx = coerceHostCtx(rawTrace.hostCtx);
     if (!turnId || !hostCtx) continue;
@@ -354,7 +354,7 @@ function hydrateV1(tracesByTurn: unknown): void {
     payloadByTurn.set(turnId, {
       turnId,
       requests: rawRequests
-        .filter((r) => isRecord(r) && typeof r.systemPrompt === 'string' && Array.isArray(r.messages))
+        .filter((r) => isTraceObject(r) && typeof r.systemPrompt === 'string' && Array.isArray(r.messages))
         .map((r) => internRequest(r)),
       responses: Array.isArray(rawTrace.responses)
         ? (rawTrace.responses as LlmResponseTrace[])
@@ -368,7 +368,7 @@ function hydrateV1(tracesByTurn: unknown): void {
  *  instances by construction), re-register it in the intern tables, then
  *  rebuild requests from refs. Malformed turns/requests are skipped. */
 function hydrateV2(snapshot: PersistedTraceTelemetry): void {
-  if (!isRecord(snapshot.content) || !isRecord(snapshot.tracesByTurn)) return;
+  if (!isTraceObject(snapshot.content) || !isTraceObject(snapshot.tracesByTurn)) return;
   const valueByRef = new Map<number, unknown>();
   for (const [key, json] of Object.entries(snapshot.content)) {
     const id = Number(key);
@@ -391,13 +391,13 @@ function hydrateV2(snapshot: PersistedTraceTelemetry): void {
     }
   }
   for (const rawTrace of Object.values(snapshot.tracesByTurn)) {
-    if (!isRecord(rawTrace)) continue;
+    if (!isTraceObject(rawTrace)) continue;
     const turnId = coerceString(rawTrace.turnId);
     const hostCtx = coerceHostCtx(rawTrace.hostCtx);
     if (!turnId || !hostCtx) continue;
     const requests: LlmRequestTrace[] = [];
     for (const rawReq of Array.isArray(rawTrace.requests) ? rawTrace.requests : []) {
-      if (!isRecord(rawReq)) continue;
+      if (!isTraceObject(rawReq)) continue;
       const { systemPromptRef, toolsRef, messageRefs, ...rest } = rawReq as PersistedRequestV2;
       const systemPrompt = valueByRef.get(systemPromptRef);
       if (typeof systemPrompt !== 'string' || !Array.isArray(messageRefs)) {
@@ -512,7 +512,7 @@ export const useTraceStore = create<TraceState>()((set) => ({
   },
   hydrate: (snapshot) => {
     resetPayloadStore();
-    if (isRecord(snapshot)) {
+    if (isTraceObject(snapshot)) {
       if (snapshot.version === 2) hydrateV2(snapshot as PersistedTraceTelemetry);
       else if (snapshot.version === 1) hydrateV1(snapshot.tracesByTurn);
     }

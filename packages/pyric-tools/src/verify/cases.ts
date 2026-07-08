@@ -126,7 +126,7 @@ export function deriveRulesTestCases(
 }
 
 function isFirestoreRequestEvent(event: unknown): event is RequestEvent {
-  if (!isRecord(event) || event.kind !== 'request') return false;
+  if (!isCapturedRequestEvent(event) || event.kind !== 'request') return false;
   const service = event.service;
   return service === undefined || service === 'firestore';
 }
@@ -162,7 +162,7 @@ function buildTestCase(
   if (isWriteMethod(method)) {
     if (method !== 'delete') {
       const data = event.resourceAfter?.data ?? event.request?.resourceData;
-      if (isRecord(data)) testCase.data = data;
+      if (isFirestoreWriteData(data)) testCase.data = data;
     }
     testCase.writeMode = writeModeFor(method);
   }
@@ -199,13 +199,13 @@ function extractFunctionMocks(event: RequestEvent): FunctionMock[] | null {
 }
 
 function isFunctionMock(value: unknown): value is FunctionMock {
-  if (!isRecord(value)) return false;
+  if (!isFunctionMockCandidate(value)) return false;
   if (value.function !== 'get' && value.function !== 'exists') return false;
   return typeof value.path === 'string' && 'result' in value;
 }
 
 function isListQuery(value: unknown): value is NonNullable<TestCase['query']> {
-  if (!isRecord(value)) return false;
+  if (!isListQueryCandidate(value)) return false;
   if ('limit' in value && value.limit !== undefined && typeof value.limit !== 'number') return false;
   if ('offset' in value && value.offset !== undefined && typeof value.offset !== 'number') return false;
   if ('orderBy' in value && value.orderBy !== undefined && typeof value.orderBy !== 'string') return false;
@@ -216,6 +216,18 @@ function eventMayNeedFunctionMocks(event: RequestEvent): boolean {
   return event.reasons.some((reason) => /\b(get|exists)\s*\(/.test(reason));
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isCapturedRequestEvent(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isFirestoreWriteData(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isFunctionMockCandidate(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isListQueryCandidate(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

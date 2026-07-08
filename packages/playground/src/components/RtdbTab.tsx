@@ -1,73 +1,21 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useToast } from '@pyric/ui/primitives';
 import {
+  formatRtdbJson,
+  joinRtdbPath,
+  parentRtdbPath,
+  parseRtdbJson,
+  previewRtdbValue,
+  rtdbChildEntries,
+  rtdbPathSegments,
+  rtdbValueAt,
+  rtdbValueKind,
+} from '@pyric/ui/rtdb';
+import {
   adminDeleteDatabaseValue,
   adminSetDatabaseValue,
   readDatabaseState,
 } from '~/lib/sandbox/runtime';
-
-function normalizePath(path: string): string {
-  const segments = path.split('/').filter(Boolean);
-  return segments.length === 0 ? '/' : `/${segments.join('/')}`;
-}
-
-function pathSegments(path: string): string[] {
-  return normalizePath(path).split('/').filter(Boolean);
-}
-
-function joinPath(base: string, child: string): string {
-  return normalizePath([...pathSegments(base), ...child.split('/').filter(Boolean)].join('/'));
-}
-
-function parentPath(path: string): string {
-  const segments = pathSegments(path);
-  if (segments.length <= 1) return '/';
-  return `/${segments.slice(0, -1).join('/')}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function childEntries(value: unknown): Array<[string, unknown]> {
-  if (value === null || typeof value !== 'object') return [];
-  return Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
-}
-
-function valueAt(root: unknown, path: string): unknown {
-  let value = root ?? null;
-  for (const segment of pathSegments(path)) {
-    if (value === null || typeof value !== 'object') return null;
-    value = (value as Record<string, unknown>)[segment] ?? null;
-  }
-  return value;
-}
-
-function formatJson(value: unknown): string {
-  return JSON.stringify(value ?? null, null, 2);
-}
-
-function parseJson(value: string): unknown {
-  const text = value.trim();
-  return text.length === 0 ? null : JSON.parse(text);
-}
-
-function valueKind(value: unknown): string {
-  if (value === null || value === undefined) return 'null';
-  if (Array.isArray(value)) return 'array';
-  return typeof value;
-}
-
-function previewValue(value: unknown): string {
-  if (value === null || value === undefined) return 'null';
-  if (Array.isArray(value)) return `${value.length} items`;
-  if (isRecord(value)) {
-    const count = Object.keys(value).length;
-    return count === 1 ? '1 child' : `${count} children`;
-  }
-  if (typeof value === 'string') return JSON.stringify(value);
-  return String(value);
-}
 
 export function RtdbTab() {
   const { toast } = useToast();
@@ -107,18 +55,18 @@ export function RtdbTab() {
     };
   }, [tick]);
 
-  const selectedValue = useMemo(() => valueAt(snapshot, path), [path, snapshot]);
-  const children = useMemo(() => childEntries(selectedValue), [selectedValue]);
+  const selectedValue = useMemo(() => rtdbValueAt(snapshot, path), [path, snapshot]);
+  const children = useMemo(() => rtdbChildEntries(selectedValue), [selectedValue]);
 
   useEffect(() => {
-    if (!editing) setDraft(formatJson(selectedValue));
+    if (!editing) setDraft(formatRtdbJson(selectedValue));
   }, [editing, selectedValue]);
 
   const refresh = () => setTick((n) => n + 1);
 
   const saveValue = async () => {
     try {
-      await adminSetDatabaseValue(path, parseJson(draft));
+      await adminSetDatabaseValue(path, parseRtdbJson(draft));
       toast({ title: `Saved ${path}`, kind: 'success' });
       setEditing(false);
       refresh();
@@ -136,7 +84,7 @@ export function RtdbTab() {
     try {
       await adminDeleteDatabaseValue(path);
       toast({ title: `Deleted ${path}`, kind: 'success' });
-      setPath(parentPath(path));
+      setPath(parentRtdbPath(path));
       setEditing(false);
       refresh();
     } catch (e) {
@@ -153,8 +101,8 @@ export function RtdbTab() {
     const key = childKey.trim();
     if (!key) return;
     try {
-      const nextPath = joinPath(path, key);
-      await adminSetDatabaseValue(nextPath, parseJson(childDraft));
+      const nextPath = joinRtdbPath(path, key);
+      await adminSetDatabaseValue(nextPath, parseRtdbJson(childDraft));
       toast({ title: `Added ${nextPath}`, kind: 'success' });
       setChildKey('');
       setChildDraft('{}');
@@ -194,7 +142,7 @@ export function RtdbTab() {
               {path !== '/' ? (
                 <button
                   type="button"
-                  onClick={() => setPath(parentPath(path))}
+                  onClick={() => setPath(parentRtdbPath(path))}
                   className="rounded border border-[#2a2a35] px-2.5 py-1 text-[11px] text-slate-gray hover:text-soft-white hover:border-[#3a3a48]"
                 >
                   Back
@@ -209,7 +157,7 @@ export function RtdbTab() {
                     key={key}
                     type="button"
                     onClick={() => {
-                      setPath(joinPath(path, key));
+                      setPath(joinRtdbPath(path, key));
                       setEditing(false);
                     }}
                     className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-[#2a2a35] px-3 py-3 text-left last:border-b-0 hover:bg-[#20202c]"
@@ -219,11 +167,11 @@ export function RtdbTab() {
                         {key}
                       </span>
                       <span className="block truncate text-[11px] text-slate-gray">
-                        {previewValue(value)}
+                        {previewRtdbValue(value)}
                       </span>
                     </span>
                     <span className="rounded-full border border-[#2a2a35] px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-slate-gray">
-                      {valueKind(value)}
+                      {rtdbValueKind(value)}
                     </span>
                   </button>
                 ))}
@@ -268,7 +216,7 @@ export function RtdbTab() {
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <h3 className="truncate font-mono text-[13px] text-soft-white">{path}</h3>
-                <p className="text-[11px] text-slate-gray">{valueKind(selectedValue)}</p>
+                <p className="text-[11px] text-slate-gray">{rtdbValueKind(selectedValue)}</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {editing ? (
@@ -277,7 +225,7 @@ export function RtdbTab() {
                       type="button"
                       onClick={() => {
                         setEditing(false);
-                        setDraft(formatJson(selectedValue));
+                        setDraft(formatRtdbJson(selectedValue));
                       }}
                       className="rounded border border-[#2a2a35] px-2.5 py-1 text-[11px] text-slate-gray hover:text-soft-white"
                     >
@@ -321,7 +269,7 @@ export function RtdbTab() {
               />
             ) : (
               <pre className="min-h-[320px] overflow-auto rounded-md border border-[#2a2a35] bg-[#111116] p-3 font-mono text-[12px] leading-relaxed text-soft-white custom-scrollbar">
-                {formatJson(selectedValue)}
+                {formatRtdbJson(selectedValue)}
               </pre>
             )}
           </section>
@@ -338,7 +286,7 @@ function RtdbBreadcrumb({
   path: string;
   onNavigate: (path: string) => void;
 }) {
-  const segments = pathSegments(path);
+  const segments = rtdbPathSegments(path);
   return (
     <div className="shrink-0 border-b border-[#2a2a35] px-4 py-3 font-mono text-[12px]">
       <button
