@@ -474,6 +474,20 @@ export function bridgeEnabledFromFlags(flags: { get(key: string): unknown }): bo
   return Boolean(flags.get('bridge')) || Boolean(flags.get('ui'));
 }
 
+/**
+ * A dev child also implies the bridge: the runner injects
+ * `PYRIC_SANDBOX=remote:<url>` into the child, whose remote client dials the
+ * `/__pyric/sandbox` WS — without the bridge mount that upgrade 404s and
+ * plain `pyric dev -- <cmd>` (or a detected dev script) breaks its own
+ * child. Pure + exported for unit coverage.
+ */
+export function bridgeEnabledFor(
+  flags: { get(key: string): unknown },
+  childPlan: unknown,
+): boolean {
+  return bridgeEnabledFromFlags(flags) || childPlan != null;
+}
+
 /** CLI entry. Resolves on SIGINT/SIGTERM after a clean stop. */
 export async function runServe(parsed: ParsedArgs): Promise<number> {
   const flagPort = parsed.flags.get('port');
@@ -496,7 +510,19 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   const json = Boolean(parsed.flags.get('json'));
 
   const uiOn = Boolean(parsed.flags.get('ui'));
-  const bridgeOn = bridgeEnabledFromFlags(parsed.flags);
+
+  // Resolve the child plan BEFORE the server starts: a planned child implies
+  // the bridge (see bridgeEnabledFor) — the child's injected PYRIC_SANDBOX
+  // is useless without the /__pyric/sandbox WS mount.
+  const cwd = process.cwd();
+  const plan = resolveDevChild({
+    passthrough: parsed.passthrough ?? [],
+    noRun: Boolean(parsed.flags.get('no-run')),
+    json,
+    devScript: readDevScript(cwd),
+    packageManager: detectPackageManager(cwd),
+  });
+  const bridgeOn = bridgeEnabledFor(parsed.flags, plan);
 
   let runtime: ServeRuntime;
   try {
@@ -558,15 +584,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // command with the sandbox environment injected. Precedence: `-- <cmd>`
   // wins; else the package.json dev script; else host-only. --no-run forces
   // host-only; --json defaults to host-only (explicit `--` still wins).
-  const cwd = process.cwd();
-  const plan = resolveDevChild({
-    passthrough: parsed.passthrough ?? [],
-    noRun: Boolean(parsed.flags.get('no-run')),
-    json,
-    devScript: readDevScript(cwd),
-    packageManager: detectPackageManager(cwd),
-  });
-
+  // (`plan` was resolved above so it could imply the bridge mount.)
   let devChild: DevChildHandle | null = null;
   if (plan) {
     const info = json ? process.stderr : process.stdout;
