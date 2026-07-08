@@ -38,8 +38,24 @@
  * see a Timestamp, not a map). Read payloads arrive as the
  * `SerializedDocData` JSON envelope and are rehydrated with the ONE shared
  * codec (`pyric/firestore-values`' `rehydrateDocValue`) then translated to
- * the compat field shapes (`translateReadData`) — identical to what the
+ * the compat field shapes (`translateReadData`) — the same shapes the
  * local arm's read path yields.
+ *
+ * KNOWN CODEC DIVERGENCE (accepted): user data that happens to be SHAPED
+ * like a codec marker — a plain map such as `{ __type: 'timestamp',
+ * seconds, nanos }` or `{ type: 'firestore/timestamp/1.0', … }` — is
+ * TRANSMUTED into the real typed value on the relayed path (the host's
+ * `prepareWriteData` / constraint rehydration cannot tell an intentional
+ * marker from a lookalike), while an in-page `setDoc` of the same map
+ * stores a plain map. This is the persistence codec's own behavior (an
+ * IndexedDB save/reload transmutes the same shapes), so the relay is
+ * consistent with the sandbox's durability semantics rather than with
+ * the in-page live path — marker-shaped user data is already reserved
+ * vocabulary in this system.
+ *
+ * KNOWN CURSOR LIMITS: the wire has no document-key cursor, so snapshot
+ * cursors require explicit non-`__name__` orderBy fields and lose the
+ * implicit `__name__` tie-break — see {@link cursorValuesFromSnapshot}.
  *
  * TRANSACTIONS: the worker exposes no interactive transaction session; the
  * protocol is optimistic — every `tx.get` is an ordinary `getDoc`/`getDocs`
@@ -90,6 +106,7 @@ import {
   parentCollectionPath,
 } from '../firestore/admin-compat/paths.js';
 import { generateAutoId } from '../firestore/auto-id.js';
+import { READ_AFTER_WRITE_MESSAGE } from '../firestore/transaction-types.js';
 import {
   buildDocumentSnapshot,
   buildQuerySnapshot,
@@ -525,11 +542,27 @@ function buildDescriptor(state: QueryState): WireTarget {
 /**
  * Pull cursor values off a `DocumentSnapshot` at the query's EXPLICIT
  * orderBy fields — the remote mirror of the local
- * `cursorValuesFromSnapshot`. Honesty note: the local arm additionally
- * positions on the implicit `__name__` key (so `startAt(snapshot)` with no
- * orderBy is legal); the wire's value-cursor constraints cannot express a
- * document-key cursor, so the remote arm requires at least one explicit
- * `orderBy` and says so.
+ * `cursorValuesFromSnapshot`.
+ *
+ * HONEST FIDELITY LIMITS (the relay's value-cursor constraints cannot
+ * express a document-key cursor; extending the wire with one is filed
+ * for later — no protocol change here):
+ *
+ *   1. Zero explicit orderBy → THROW. The local arm positions on the
+ *      implicit `__name__` key; the wire cannot.
+ *   2. An explicit `orderBy('__name__')` → THROW. `__name__` is not a
+ *      data field — reading `data()['__name__']` would yield `undefined`
+ *      and the cursor would silently match NOTHING/EVERYTHING.
+ *   3. TIE-BREAK GAP (documented, not thrown — it is only detectable at
+ *      the data level): the local arm's snapshot cursors also carry the
+ *      implicit `__name__` tie-break value, so `orderBy('v')
+ *      .startAfter(snapOfB)` with ties on `v` still positions PAST the
+ *      exact document. The remote cursor carries only the explicit
+ *      field values, so under EQUAL orderBy values the boundary is the
+ *      VALUE, not the document: `startAfter(snap)` skips every doc tied
+ *      with `snap` (deterministically — the whole tie group), where the
+ *      local arm keeps the tied docs that sort after it by key. Break
+ *      ties with an explicit second orderBy field to paginate exactly.
  */
 function cursorValuesFromSnapshot(
   snapshot: DocumentSnapshot,
@@ -540,6 +573,13 @@ function cursorValuesFromSnapshot(
     throw invalidArgument(
       `${method}(snapshot) on a remote sandbox requires at least one explicit orderBy() ` +
         'clause — the relay protocol has no document-key cursor.',
+    );
+  }
+  if (orders.some((o) => o.field === '__name__')) {
+    throw invalidArgument(
+      `${method}(snapshot) on a remote sandbox does not support orderBy('__name__') — ` +
+        'the relay protocol has no document-key cursor, and __name__ is not a data ' +
+        'field a value cursor can carry. Order by a real document field instead.',
     );
   }
   const data = snapshot.data();
@@ -771,10 +811,23 @@ async function runRemoteTransaction<R>(
     const reads: WireTxnRead[] = [];
     const writes: WireWrite[] = [];
 
+    // READS-BEFORE-WRITES: the local arm's engine transaction throws
+    // `failed-precondition` (ReadAfterWriteError) when a read follows any
+    // write — the Admin SDK contract. The remote arm buffers writes
+    // client-side, so without this gate a `tx.get` after `tx.set` would
+    // issue a plain getDoc against PRE-transaction state and commit
+    // silently on stale data. Enforce the same contract, same message.
+    const assertReadsAllowed = (): void => {
+      if (writes.length > 0) {
+        throw new SandboxError('failed-precondition', READ_AFTER_WRITE_MESSAGE);
+      }
+    };
+
     const tx: Transaction = {
       // Overloaded on the surface (doc ref vs query); runtime dispatch on
       // the remote query brand — mirrors the local structural `isQuery`.
       get(refOrQuery: DocumentReference | Query): Promise<never> {
+        assertReadsAllowed();
         const state = queryStateOf(refOrQuery);
         if (state !== undefined) {
           return txGetQuery(state) as Promise<never>;

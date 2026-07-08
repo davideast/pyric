@@ -397,6 +397,16 @@ function resolveSentinel(marker: SentinelMarker): unknown {
  * `pyric/rules`' `Bytes.toBase64()` emits. Backs the transaction read-set
  * canonicalizer's handling of prototype-stripped `Bytes` clones.
  */
+/** Timestamp/Duration stripped-clone key set (they share field names). */
+const TS_CLONE_KEYS = ['typeName', 'seconds', 'nanos'] as const;
+
+/** Does `o` carry EXACTLY these own enumerable keys (no more, no fewer)?
+ *  Backs the transaction canonicalizer's strict clone-shape matching. */
+function hasExactKeys(o: Record<string, unknown>, keys: readonly string[]): boolean {
+  const own = Object.keys(o);
+  return own.length === keys.length && keys.every((k) => k in o);
+}
+
 function indexMapToBase64Url(data: unknown): string {
   const map = (data ?? {}) as Record<string, number>;
   const keys = Object.keys(map);
@@ -957,23 +967,42 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
           const o = v as Record<string, unknown>;
           if (typeof o.typeName !== 'string' || o.__type !== undefined) return v;
           // Re-shape a stripped rules-wrapper clone into the wrapper's own
-          // canonical toJSON marker form (kept in sync with
-          // pyric/rules' simulator/wrappers/*.toJSON()).
+          // canonical toJSON marker form (kept in sync with pyric/rules'
+          // simulator/wrappers/* instance fields + toJSON()) — but ONLY
+          // when the key set EXACTLY matches that wrapper's own-field
+          // shape. A looser match would silently DROP extra keys from
+          // user data that merely resembles a clone, collapsing two
+          // genuinely different docs into one canonical form and letting
+          // a concurrent write commit undetected (false equality). A
+          // near-miss map passes through unchanged — worst case is a
+          // spurious abort + retry, never a lost update.
           switch (o.typeName) {
             case 'timestamp':
-              return { __type: 'timestamp', seconds: o.seconds, nanos: o.nanos };
+              return hasExactKeys(o, TS_CLONE_KEYS)
+                ? { __type: 'timestamp', seconds: o.seconds, nanos: o.nanos }
+                : v;
             case 'duration':
-              return { __type: 'duration', seconds: o.seconds, nanos: o.nanos };
+              return hasExactKeys(o, TS_CLONE_KEYS)
+                ? { __type: 'duration', seconds: o.seconds, nanos: o.nanos }
+                : v;
             case 'latlng':
-              return { __type: 'latlng', lat: o.lat, lng: o.lng };
+              return hasExactKeys(o, ['typeName', 'lat', 'lng'])
+                ? { __type: 'latlng', lat: o.lat, lng: o.lng }
+                : v;
             case 'reference':
-              return { __type: 'reference', path: o.path };
+              return hasExactKeys(o, ['typeName', 'path'])
+                ? { __type: 'reference', path: o.path }
+                : v;
             case 'path':
-              return { __type: 'path', segments: o.segments };
+              return hasExactKeys(o, ['typeName', 'segments', 'bindings'])
+                ? { __type: 'path', segments: o.segments }
+                : v;
             case 'bytes':
               // The Uint8Array field serialized as an index-keyed map;
               // rebuild and emit Bytes.toJSON()'s base64url form.
-              return { __type: 'bytes', base64: indexMapToBase64Url(o.data) };
+              return hasExactKeys(o, ['typeName', 'data'])
+                ? { __type: 'bytes', base64: indexMapToBase64Url(o.data) }
+                : v;
             default:
               return v;
           }

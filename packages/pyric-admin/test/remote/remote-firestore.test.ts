@@ -476,6 +476,44 @@ describe('pyric-admin remote Firestore — queries', () => {
     expect(beforeTs.docs.map((d) => d.id).sort()).toEqual(['e1', 'e2']);
   });
 
+  it("snapshot cursors: orderBy('__name__') and zero-orderBy throw honestly; value-tie boundary is deterministic", async () => {
+    const { remote } = makeStack();
+    const db = getAdminFirestore(remote);
+    // Tie group on v: b and c share v=2.
+    await db.doc('ties/a').set({ v: 1 });
+    await db.doc('ties/b').set({ v: 2 });
+    await db.doc('ties/c').set({ v: 2 });
+    await db.doc('ties/d').set({ v: 3 });
+    const snapB = await db.doc('ties/b').get();
+
+    // The wire has no document-key cursor: both unsupported shapes THROW
+    // at the call site instead of silently returning wrong pages.
+    expect(() =>
+      db.collection('ties').orderBy('__name__').startCursorFromSnapshot(snapB, false),
+    ).toThrow(/__name__/);
+    expect(() => db.collection('ties').startCursorFromSnapshot(snapB, false)).toThrow(
+      /orderBy/,
+    );
+
+    // DOCUMENTED TIE-BREAK DIVERGENCE (remote.ts cursorValuesFromSnapshot):
+    // without the implicit __name__ tie-break the boundary is the VALUE, so
+    // startAfter(snapOfB) deterministically skips the WHOLE v=2 tie group
+    // (the local arm would keep 'c'). Break ties with a second orderBy field.
+    const afterB = await db
+      .collection('ties')
+      .orderBy('v')
+      .startCursorFromSnapshot(snapB, false)
+      .get();
+    expect(afterB.docs.map((d) => d.id)).toEqual(['d']);
+    // …and repeatably so.
+    const again = await db
+      .collection('ties')
+      .orderBy('v')
+      .startCursorFromSnapshot(snapB, false)
+      .get();
+    expect(again.docs.map((d) => d.id)).toEqual(['d']);
+  });
+
   it('collectionGroup queries scan across parents', async () => {
     const { remote } = makeStack();
     const db = getAdminFirestore(remote);
@@ -669,6 +707,37 @@ describe('pyric-admin remote Firestore — batch + transactions', () => {
       tx.set(db.doc('scores/summary-red'), { count: reds.size });
     });
     expect(attempts).toBe(2);
+  });
+
+  it('canonicalization is exact-shape: a marker-lookalike map with an extra key still detects concurrent writes', async () => {
+    const { ctx, remote } = makeStack();
+    const db = getAdminFirestore(remote);
+    // Plain user data that RESEMBLES a prototype-stripped Timestamp clone
+    // but carries an extra key. A loose canonicalizer would drop `extra`
+    // and treat the concurrent write below as a no-op (false equality —
+    // a silently lost conflict). Exact key-set matching must abort.
+    await db.doc('canon/x').set({
+      fake: { typeName: 'timestamp', seconds: 1, nanos: 2, extra: 3 },
+    });
+
+    let attempts = 0;
+    await db.runTransaction(async (tx) => {
+      attempts++;
+      await tx.get(db.doc('canon/x'));
+      if (attempts === 1) {
+        // Concurrent write differing ONLY by removing the extra key.
+        await workerOp(ctx, {
+          method: 'setDoc',
+          path: 'canon/x',
+          data: { fake: { typeName: 'timestamp', seconds: 1, nanos: 2 } },
+          actAs: { mode: 'admin' },
+        });
+      }
+      tx.update(db.doc('canon/x'), { touched: true });
+    });
+    expect(attempts).toBe(2); // the removal MUST abort attempt 1
+    const final = (await db.doc('canon/x').get()).data()!;
+    expect(final.touched).toBe(true);
   });
 });
 
@@ -957,6 +1026,28 @@ function conformanceSuite(name: string, makeDb: () => Promise<SandboxFirestore> 
       });
       expect(out).toBe(101);
       expect((await db.doc('c/b1').get()).data()).toEqual({ v: 101 });
+    });
+
+    it('reads-before-writes: tx.get after a buffered write throws failed-precondition, message-identical', async () => {
+      const db = await makeDb();
+      await db.doc('rw/x').set({ v: 1 });
+      let caught: (Error & { code?: string }) | undefined;
+      try {
+        await db.runTransaction(async (tx) => {
+          tx.set(db.doc('rw/x'), { v: 2 });
+          await tx.get(db.doc('rw/x')); // read AFTER a write — must throw
+        });
+      } catch (e) {
+        caught = e as Error & { code?: string };
+      }
+      expect(caught).toBeDefined();
+      expect(caught!.code).toBe('failed-precondition');
+      // EXACT message parity across arms (the Admin SDK's locked wording).
+      expect(caught!.message).toBe(
+        'Firestore transactions require all reads to be executed before all writes.',
+      );
+      // The write buffered before the violation must NOT have committed.
+      expect((await db.doc('rw/x').get()).data()).toEqual({ v: 1 });
     });
   });
 }
