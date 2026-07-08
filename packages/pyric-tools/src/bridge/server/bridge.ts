@@ -128,12 +128,19 @@ export interface Bridge {
    *
    * `capabilities` come from the peer's `hello` — the bridge only sends
    * `worker-*` frames to a peer that declared `'worker-relay'`.
+   *
+   * `onReplaced` fires when a NEWER registration displaces this peer. The
+   * transport MUST use it to close the old socket: the browser side's
+   * close handler tears down its relayed worker subscriptions — without
+   * this, a replaced tab's SharedWorker listeners would live until the tab
+   * closed, streaming snaps the bridge drops as stale-generation forever.
    */
   registerSandboxPeer(
     send: SendToPeer,
     tools: string[],
     sandboxId: string,
     capabilities?: string[],
+    onReplaced?: () => void,
   ): () => void;
 
   /** True if a sandbox peer is currently registered. */
@@ -196,6 +203,7 @@ interface ActivePeer {
   tools: Set<string>;
   sandboxId: string;
   capabilities: Set<string>;
+  onReplaced?: () => void;
 }
 
 interface PendingWorkerOp {
@@ -267,10 +275,21 @@ export function createBridge(opts: BridgeOptions): Bridge {
     tools: string[],
     sandboxId: string,
     capabilities: string[] = [],
+    onReplaced?: () => void,
   ): () => void {
     if (peer) {
       // Last-wins: kick the old peer and reject its pending calls.
       failAllPending('sandbox peer replaced by a newer connection');
+      // Tear the old peer down (the transport closes its socket). The
+      // browser's close handler tears down its relayed worker
+      // subscriptions — otherwise the replaced tab's SharedWorker
+      // listeners would keep posting snaps this bridge drops as
+      // stale-generation until the tab closed.
+      try {
+        peer.onReplaced?.();
+      } catch {
+        // A failing transport hook must not block the new registration.
+      }
     }
     generation += 1;
     const myPeer: ActivePeer = {
@@ -278,6 +297,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
       tools: new Set(tools),
       sandboxId,
       capabilities: new Set(capabilities),
+      onReplaced,
     };
     peer = myPeer;
     // Re-issue every registered worker subscription to the new peer. RTDB

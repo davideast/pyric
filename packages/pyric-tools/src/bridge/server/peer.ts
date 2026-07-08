@@ -62,9 +62,22 @@ export function attachPeer(
             ws.send(JSON.stringify(out));
           } catch {}
         },
-        msg.tools,
+        // Harden against a malformed hello: these fields come off the wire
+        // and feed `new Set(...)` in the bridge core — a non-array value
+        // (e.g. `capabilities: 42`) would throw inside this message
+        // listener, escape uncaught, and crash the serve process.
+        Array.isArray(msg.tools) ? msg.tools : [],
         msg.sandboxId,
-        msg.capabilities ?? [],
+        Array.isArray(msg.capabilities) ? msg.capabilities : [],
+        // On replacement, close THIS socket: the browser side's onclose
+        // handler tears down its relayed worker subscriptions, so a
+        // replaced tab's SharedWorker listeners don't keep streaming
+        // snaps the bridge drops as stale-generation until the tab closes.
+        () => {
+          try {
+            ws.close();
+          } catch {}
+        },
       );
       peerGen = bridge.peerGeneration();
       ws.send(

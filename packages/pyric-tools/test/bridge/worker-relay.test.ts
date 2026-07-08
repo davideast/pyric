@@ -25,7 +25,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { createBridge, type Bridge } from '../../src/bridge/server/bridge.js';
-import { createConsumerSession } from '../../src/bridge/server/peer.js';
+import { createConsumerSession, attachPeer } from '../../src/bridge/server/peer.js';
 import {
   WORKER_RELAY_CAPABILITY,
   type BridgeMessage,
@@ -84,6 +84,10 @@ interface FakeTab {
   disconnect: () => void;
   /** This tab's worker-side port (a distinct port per tab, one shared ctx). */
   port: PortLike;
+  /** True once the bridge's onReplaced hook fired for this tab. */
+  wasReplaced: () => boolean;
+  /** SubIds currently relayed into the worker on this tab's behalf. */
+  activeSubIds: () => ReadonlySet<string>;
 }
 
 /**
@@ -93,13 +97,21 @@ interface FakeTab {
  * `worker-res` / `worker-snap`, tagged with the generation captured at
  * registration (like `attachPeer` does), so a replaced tab's late frames
  * are verifiably stale.
+ *
+ * On replacement the bridge fires `onReplaced` (the transport closes the
+ * old socket; the browser's close handler runs `teardownRelaySubs`) — the
+ * harness models that teardown by unsubscribing this tab's relayed worker
+ * subs. `keepAliveOnReplace` skips it, simulating the async window where
+ * the close hasn't landed yet and stale frames are still in flight.
  */
 function connectTab(
   bridge: Bridge,
   ctx: HostCtx,
-  opts: { dropOps?: boolean } = {},
+  opts: { dropOps?: boolean; keepAliveOnReplace?: boolean } = {},
 ): FakeTab {
   let gen = 0;
+  let replaced = false;
+  const activeSubIds = new Set<string>();
   const port: PortLike = {
     postMessage(raw: unknown) {
       const m = raw as OutboundMessage;
@@ -126,13 +138,36 @@ function connectTab(
       if (opts.dropOps) return; // simulate a hung tab (timeout tests)
       void handleMessage(ctx, port, { ...msg.op, t: 'op', id: msg.id } as InboundMessage);
     } else if (msg.type === 'worker-sub') {
+      activeSubIds.add(msg.subId);
       void handleMessage(ctx, port, { ...msg.sub, t: 'sub', subId: msg.subId } as InboundMessage);
     } else if (msg.type === 'worker-unsub') {
+      activeSubIds.delete(msg.subId);
       void handleMessage(ctx, port, { t: 'unsub', subId: msg.subId } as InboundMessage);
     }
   };
-  const disconnect = bridge.registerSandboxPeer(send, [], 'fake-tab', [WORKER_RELAY_CAPABILITY]);
-  return { disconnect, port };
+  const onReplaced = (): void => {
+    replaced = true;
+    if (opts.keepAliveOnReplace) return; // simulate in-flight staleness window
+    // The browser's WS close handler (`teardownRelaySubs`) unsubscribes every
+    // relayed worker listener for this connection.
+    for (const subId of [...activeSubIds]) {
+      activeSubIds.delete(subId);
+      void handleMessage(ctx, port, { t: 'unsub', subId } as InboundMessage);
+    }
+  };
+  const disconnect = bridge.registerSandboxPeer(
+    send,
+    [],
+    'fake-tab',
+    [WORKER_RELAY_CAPABILITY],
+    onReplaced,
+  );
+  return {
+    disconnect,
+    port,
+    wasReplaced: () => replaced,
+    activeSubIds: () => activeSubIds,
+  };
 }
 
 /** Wire a Node client core to the bridge through a real ConsumerSession. */
@@ -155,6 +190,36 @@ function connectNode(bridge: Bridge, opts: { opTimeoutMs?: number } = {}) {
 
 function makeRelayBridge(callTimeoutMs?: number): Bridge {
   return createBridge({ mode: 'sandbox', version: 'test', callTimeoutMs });
+}
+
+/** Minimal fake of the `ws` WebSocket surface `attachPeer` consumes. */
+function fakeWs() {
+  const handlers = new Map<string, (...args: unknown[]) => void>();
+  const sent: unknown[] = [];
+  const self = {
+    sent,
+    closed: false,
+    on(event: string, cb: (...args: unknown[]) => void) {
+      handlers.set(event, cb);
+      return self;
+    },
+    send(data: string) {
+      sent.push(JSON.parse(data));
+    },
+    close() {
+      if (self.closed) return;
+      self.closed = true;
+      handlers.get('close')?.();
+    },
+    emitMessage(msg: unknown) {
+      handlers.get('message')?.(JSON.stringify(msg));
+    },
+    emitRaw(raw: string) {
+      handlers.get('message')?.(raw);
+    },
+    asWebSocket: () => self as unknown as Parameters<typeof attachPeer>[1],
+  };
+  return self;
 }
 
 // ─── Op round-trips ───────────────────────────────────────────────────────
@@ -323,7 +388,7 @@ describe('worker relay — no peer / timeout', () => {
     const bridge = makeRelayBridge();
     const node = connectNode(bridge);
     // attach-ack reports peerConnected: false → ready rejects with guidance.
-    expect(node.core.ready).rejects.toThrow(/open http:\/\/localhost:5000/);
+    await expect(node.core.ready).rejects.toThrow(/open http:\/\/localhost:5000/);
 
     // Per-op failures carry the same enriched guidance (fast — no 30s wait).
     const started = Date.now();
@@ -375,7 +440,10 @@ describe('worker relay — peer replacement and reconnect', () => {
   it('replacement mid-subscription: stale-generation snaps dropped, sub re-issued to the new peer', async () => {
     const bridge = makeRelayBridge();
     const ctx = await makeWorkerCtx(); // ONE SharedWorker shared by both tabs
-    connectTab(bridge, ctx);
+    // keepAliveOnReplace: simulate the async window where the replaced tab's
+    // socket close hasn't landed yet, so its worker port KEEPS firing — those
+    // frames are tagged with the OLD generation and MUST be dropped.
+    connectTab(bridge, ctx, { keepAliveOnReplace: true });
     const node = connectNode(bridge);
     await node.core.ready;
 
@@ -387,9 +455,8 @@ describe('worker relay — peer replacement and reconnect', () => {
     expect(snaps).toHaveLength(1); // initial via tab A
 
     // Tab "refresh": a NEW tab registers (last-connection-wins). The bridge
-    // re-issues the sub registry to tab B. Tab A's worker port stays live in
-    // the shared ctx (its WS just died mid-flight in the real world) — its
-    // deliveries are tagged with the OLD generation and MUST be dropped.
+    // re-issues the sub registry to tab B; tab A's still-live deliveries are
+    // stale-generation and must not reach the consumer.
     connectTab(bridge, ctx);
     await tick();
     expect(snaps).toHaveLength(2); // exactly ONE extra initial snap (tab B); tab A delivers nothing
@@ -399,6 +466,38 @@ describe('worker relay — peer replacement and reconnect', () => {
     // Both tabs' worker ports fire; only tab B's (current generation) lands.
     expect(snaps).toHaveLength(3);
     expect(snaps[2]!.value).toEqual({ round: 2 });
+  });
+
+  it('replacement tears the old peer down: onReplaced fires and its relayed worker subs unsubscribe', async () => {
+    const bridge = makeRelayBridge();
+    const ctx = await makeWorkerCtx();
+    const tabA = connectTab(bridge, ctx);
+    const node = connectNode(bridge);
+    await node.core.ready;
+
+    const snaps: RemoteRtdbSnapshot[] = [];
+    node.rtdb.onValue('game/state', (snap) => snaps.push(snap));
+    await tick();
+    expect(snaps).toHaveLength(1);
+    expect(tabA.activeSubIds().size).toBe(1);
+    expect(ctx.subs.get(tabA.port)?.size).toBe(1); // live listener in the worker
+
+    // A new tab replaces tab A: the bridge MUST notify the old peer so the
+    // transport closes its socket and the browser tears its relay subs down
+    // — otherwise tab A's SharedWorker listeners would stream snaps the
+    // bridge drops as stale until the tab closed.
+    const tabB = connectTab(bridge, ctx);
+    await tick();
+    expect(tabA.wasReplaced()).toBe(true);
+    expect(tabB.wasReplaced()).toBe(false);
+    expect(tabA.activeSubIds().size).toBe(0);
+    expect(ctx.subs.get(tabA.port)?.size ?? 0).toBe(0); // worker listener gone
+
+    // Delivery continues via tab B only.
+    await node.rtdb.set('game/state', { round: 2 });
+    await tick();
+    expect(snaps[snaps.length - 1]!.value).toEqual({ round: 2 });
+    expect(ctx.subs.get(tabB.port)?.size).toBe(1);
   });
 
   it('reconnect: in-flight ops fail on peer loss; subs resume on the next peer', async () => {
@@ -423,7 +522,7 @@ describe('worker relay — peer replacement and reconnect', () => {
     }
 
     // Ops while no peer is connected fail fast with the same guidance.
-    expect(node.rtdb.get('doc')).rejects.toThrow(/open http:\/\/localhost:5000/);
+    await expect(node.rtdb.get('doc')).rejects.toThrow(/open http:\/\/localhost:5000/);
 
     // A new tab connects: the bridge re-issues the sub; ops work again.
     connectTab(bridge, ctx);
@@ -434,6 +533,25 @@ describe('worker relay — peer replacement and reconnect', () => {
     await tick();
     expect(snaps[snaps.length - 1]!.value).toEqual({ alive: true });
     expect(await node.rtdb.get('doc')).toEqual({ alive: true });
+  });
+
+  it('attachPeer closes the replaced peer\'s socket (onReplaced → ws.close)', async () => {
+    const bridge = makeRelayBridge();
+    const wsA = fakeWs();
+    const wsB = fakeWs();
+    attachPeer(bridge, wsA.asWebSocket());
+    attachPeer(bridge, wsB.asWebSocket());
+
+    wsA.emitMessage({ type: 'hello', protocol: 1, tools: [], sandboxId: 'a' });
+    expect(bridge.isSandboxConnected()).toBe(true);
+    expect(wsA.closed).toBe(false);
+
+    // Tab B's hello replaces tab A → the bridge's onReplaced hook must close
+    // tab A's socket (whose browser-side close handler tears its subs down).
+    wsB.emitMessage({ type: 'hello', protocol: 1, tools: [], sandboxId: 'b' });
+    expect(wsA.closed).toBe(true);
+    expect(wsB.closed).toBe(false);
+    expect(bridge.isSandboxConnected()).toBe(true); // tab B is the peer
   });
 
   it('consumer disposal tears its subscriptions out of the bridge registry', async () => {
@@ -455,5 +573,45 @@ describe('worker relay — peer replacement and reconnect', () => {
     await node.rtdb.set('x', 1).catch(() => {}); // channel still up in-process
     await tick();
     expect(snaps).toHaveLength(1); // no delivery after disposal
+  });
+});
+
+// ─── attachPeer hardening ─────────────────────────────────────────────────
+
+describe('attachPeer — malformed hello', () => {
+  it('non-array tools/capabilities cannot crash the serve process', async () => {
+    const bridge = makeRelayBridge();
+    const ws = fakeWs();
+    attachPeer(bridge, ws.asWebSocket());
+
+    // `tools`/`capabilities` come off the wire — a non-array used to reach
+    // `new Set(...)` in the bridge core and throw inside the ws message
+    // listener (uncaught → process crash). Must register cleanly instead.
+    ws.emitMessage({
+      type: 'hello',
+      protocol: 1,
+      tools: 42,
+      sandboxId: 'x',
+      capabilities: 42,
+    });
+
+    expect(bridge.isSandboxConnected()).toBe(true);
+    expect(bridge.toolNames()).toEqual([]); // coerced to empty
+    expect((ws.sent[0] as { type: string }).type).toBe('hello-ack');
+
+    // Worker ops fail legibly (no relay capability), not with a crash.
+    await expect(bridge.dispatchWorkerOp({ method: 'getVersion' })).rejects.toThrow(
+      /does not support the worker relay/,
+    );
+  });
+
+  it('unparseable and non-bridge messages are ignored', () => {
+    const bridge = makeRelayBridge();
+    const ws = fakeWs();
+    attachPeer(bridge, ws.asWebSocket());
+    ws.emitRaw('this is not json {{');
+    ws.emitMessage({ type: 'not-a-bridge-frame' });
+    expect(bridge.isSandboxConnected()).toBe(false);
+    expect(ws.sent).toHaveLength(0);
   });
 });
