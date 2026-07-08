@@ -3,6 +3,11 @@
 Headless React components and hooks for Firebase/Pyric admin surfaces. The
 components ship behavior and structural `data-*` hooks, but no visual styling.
 
+> **Alpha.** This package is an early alpha. Components and hooks built over
+> mirrored Firebase surfaces track those best-effort mirror contracts; the
+> rest of the exported API (components, hooks, `data-*` contracts) is an
+> experimental public-alpha surface that may change without notice.
+
 The same components can run against:
 
 - a Pyric sandbox in local development;

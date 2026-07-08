@@ -3,7 +3,7 @@
 # testing, side-by-side comparison, or local-install workflows.
 #
 # Output: `dist/packages/<name>-<version>.tgz` (npm's default tarball
-# naming, scoped names flattened — e.g. `@pyric/ui` → `pyric-ui-0.0.0.tgz`).
+# naming, scoped names flattened — e.g. `@pyric/ui` → `pyric-ui-0.1.0-alpha.7.tgz`).
 #
 # Default behavior: rebuilds before packing so dist/ is fresh. Pass
 # `--skip-build` to pack the current dist/ contents (useful when

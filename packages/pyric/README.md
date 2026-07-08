@@ -3,6 +3,13 @@
 Firebase-shaped client SDK adapters with a swappable in-process sandbox
 backend, plus Pyric's rules tooling and sandbox runtime.
 
+> **Alpha.** This package is an early alpha. The Firebase-mirrored subpaths
+> (`pyric/app`, `pyric/firestore`, `pyric/auth`, `pyric/database`,
+> `pyric/storage`) are best-effort mirror contracts of the modular Web SDK —
+> not guaranteed parity. Non-mirrored exports (e.g. `pyric/sandbox/internal`,
+> the rules tooling subpaths) are experimental public-alpha surfaces that may
+> change without notice.
+
 `pyric` mirrors Firebase's modular Web SDK subpaths:
 
 | Subpath | Surface |
