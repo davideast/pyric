@@ -2,7 +2,7 @@
  * `--bridge` for `pyric dev` — mounts the MCP bridge on the SAME origin
  * the app is served from, so one URL carries the app, the sandbox SDK, AND
  * the agent endpoint (the retrofit story end-to-end: `pyric dev --bridge`,
- * point an MCP client at `http://localhost:5000/__pyric/mcp`, and the agent
+ * point an MCP client at `http://localhost:3473/__pyric/mcp`, and the agent
  * drives the sandbox living in the served page).
  *
  * REUSES the bridge internals (`createBridge`, `buildMcpServer`,

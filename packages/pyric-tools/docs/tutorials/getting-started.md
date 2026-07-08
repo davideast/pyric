@@ -38,7 +38,7 @@ npm install
 npx pyric dev
 ```
 
-Open <http://localhost:5000>. You'll see the scaffold app with two seeded
+Open <http://localhost:3473>. You'll see the scaffold app with two seeded
 posts ("Welcome to pyric"). Everything you're looking at is running
 against an **in-page Firestore sandbox**: `pyric dev` serves an import
 map that resolves the app's unmodified `firebase/*` imports to pyric's

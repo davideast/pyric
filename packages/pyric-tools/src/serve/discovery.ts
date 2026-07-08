@@ -20,11 +20,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Ports probed when the pointer is absent — serve's default scan window PLUS
- *  the vite-plugin default (5174), which the old 5000-5004 window missed (so a
+ *  the vite-plugin default (5174), which the plain 3473+ window would miss (so a
  *  vite-only project was never found by scan). The standalone `pyric bridge`
  *  serves `/health` (not `/__pyric/health`) and writes no pointer, so it is
  *  registered directly via `claude mcp add`, not discovered here. */
-export const SCAN_PORTS = [5000, 5001, 5002, 5003, 5004, 5174];
+export const SCAN_PORTS = [3473, 3474, 3475, 3476, 3477, 5174];
 export const POINTER = join('.pyric', 'serve.json');
 
 export interface HealthLite {

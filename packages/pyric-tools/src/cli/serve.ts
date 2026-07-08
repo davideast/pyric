@@ -1,6 +1,6 @@
 /**
  * `pyric dev` — local dev server with the pyric sandbox standing in for
- * Firebase. Feels like `firebase serve` (banner, labeled lines, port 5000,
+ * Firebase. Feels like `firebase serve` (banner, labeled lines, port 3473,
  * SIGINT shutdown) with the sandbox-flavored extras firebase can't do: the
  * served page runs an in-browser backend, your `firestore.rules` deploy into
  * it at page load, and unmodified `firebase/*` imports resolve to pyric via a
@@ -345,7 +345,7 @@ export async function startServe(opts: {
   });
   const handle = await startStaticServer({
     publicDir,
-    port: opts.port ?? 5000,
+    port: opts.port ?? 3473,
     host: opts.host ?? 'localhost',
     spaRewrite: wantsSpaRewrite(hosting),
     namespaceHandler: mount
@@ -477,7 +477,7 @@ export function bridgeEnabledFromFlags(flags: { get(key: string): unknown }): bo
 /** CLI entry. Resolves on SIGINT/SIGTERM after a clean stop. */
 export async function runServe(parsed: ParsedArgs): Promise<number> {
   const flagPort = parsed.flags.get('port');
-  const port = typeof flagPort === 'string' ? Number(flagPort) : 5000;
+  const port = typeof flagPort === 'string' ? Number(flagPort) : 3473;
   if (!Number.isFinite(port) || port < 0 || port > 65535) {
     process.stderr.write(`pyric: invalid --port '${flagPort}'.\n`);
     return 1;
