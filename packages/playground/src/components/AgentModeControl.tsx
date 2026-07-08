@@ -1,17 +1,11 @@
 /**
- * Agent mode control — compact persistent state for session-scoped
- * skills. Slash commands remain the quick activation path; this
- * control is the place to review, enable, disable, or reset skills
- * without turning the footer into a registry toolbar.
+ * Skills control — compact persistent state for optional
+ * session-scoped expert overlays. Firebase Expert is the always-on
+ * product identity; skills add specialist posture without replacing it.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import {
-  listSkills,
-  resolveActiveSkills,
-  resolvePromptProfile,
-  type AgentPromptProfile,
-  type SkillDefinition,
-} from '~/lib/skills/registry';
+import { isSpecialistSkill } from '~/lib/agent/context';
+import { listSkills, resolveActiveSkills, type SkillDefinition } from '~/lib/skills/registry';
 import { useSkillsStore } from '~/lib/store/skills';
 
 export interface AgentModeSummary {
@@ -19,22 +13,15 @@ export interface AgentModeSummary {
   label: string;
   detail: string;
   activeCount: number;
-  promptProfile: AgentPromptProfile;
-}
-
-function profileLabel(profile: AgentPromptProfile): string {
-  return profile === 'firebase-tooling' ? 'Firebase tooling' : 'App builder';
 }
 
 export function summarizeAgentMode(activeSkills: readonly SkillDefinition[]): AgentModeSummary {
-  const promptProfile = resolvePromptProfile(activeSkills);
   if (activeSkills.length === 0) {
     return {
-      icon: 'auto_awesome',
-      label: 'Default',
-      detail: profileLabel(promptProfile),
+      icon: 'build',
+      label: 'Skills',
+      detail: '',
       activeCount: 0,
-      promptProfile,
     };
   }
   if (activeSkills.length === 1) {
@@ -42,18 +29,20 @@ export function summarizeAgentMode(activeSkills: readonly SkillDefinition[]): Ag
     return {
       icon: skill.icon,
       label: skill.label,
-      detail: profileLabel(promptProfile),
+      detail: '',
       activeCount: 1,
-      promptProfile,
     };
   }
   return {
-    icon: promptProfile === 'firebase-tooling' ? 'manage_search' : 'tune',
-    label: profileLabel(promptProfile),
-    detail: `${activeSkills.length} skills active`,
+    icon: 'build',
+    label: `${activeSkills.length} skills`,
+    detail: '',
     activeCount: activeSkills.length,
-    promptProfile,
   };
+}
+
+export function shouldShowSkillSearch(skills: readonly SkillDefinition[]): boolean {
+  return skills.length > 5;
 }
 
 interface AgentModeControlProps {
@@ -73,14 +62,15 @@ export function AgentModeControl({
   const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const panelId = useId();
-  const skills = listSkills();
+  const skills = useMemo(() => listSkills().filter(isSpecialistSkill), []);
+  const showSearch = shouldShowSkillSearch(skills);
   const activeSkills = useMemo(
-    () => resolveActiveSkills(activeSkillIds),
+    () => resolveActiveSkills(activeSkillIds).filter(isSpecialistSkill),
     [activeSkillIds],
   );
   const summary = useMemo(() => summarizeAgentMode(activeSkills), [activeSkills]);
   const activeSet = useMemo(() => new Set(activeSkillIds), [activeSkillIds]);
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = showSearch ? query.trim().toLowerCase() : '';
   const visibleSkills = useMemo(() => {
     if (!normalizedQuery) return skills;
     return skills.filter((skill) => {
@@ -109,8 +99,6 @@ export function AgentModeControl({
     };
   }, [open]);
 
-  if (skills.length === 0) return null;
-
   const toggle = (id: string) => {
     onToggleSkill(id);
   };
@@ -129,19 +117,13 @@ export function AgentModeControl({
             ? 'border-[#a4d4a8]/60 bg-[#14201a] text-[#a4d4a8]'
             : 'border-[#2a2a35] bg-transparent text-slate-gray hover:text-soft-white hover:border-[#3a3a48]',
         ].join(' ')}
-        title="Review agent mode and enabled skills"
+        title="Review Firebase Expert and skills"
       >
         <span className="material-symbols-outlined text-[14px]" aria-hidden>
           {summary.icon}
         </span>
-        <span className="min-w-0 flex items-baseline gap-1.5">
-          <span className="text-[9px] font-mono uppercase tracking-wider text-slate-gray/80 shrink-0">
-            mode
-          </span>
-          <span className="min-w-0 truncate text-[11px] font-mono">{summary.label}</span>
-          <span className="hidden sm:inline min-w-0 truncate text-[10px] text-slate-gray">
-            {summary.detail}
-          </span>
+        <span className="min-w-0 truncate text-[11px] font-mono">
+          {summary.label}
         </span>
         <span className="material-symbols-outlined text-[14px] text-slate-gray" aria-hidden>
           expand_more
@@ -161,34 +143,38 @@ export function AgentModeControl({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-[10px] font-mono uppercase tracking-wider text-slate-gray">
-                  Agent mode
+                  Skills
                 </div>
                 <div className="mt-1 flex items-center gap-2 text-[13px] font-semibold text-soft-white">
                   <span className="material-symbols-outlined text-[16px] text-[#a4d4a8]" aria-hidden>
-                    {summary.icon}
+                    manage_search
                   </span>
-                  <span className="min-w-0 truncate">{summary.label}</span>
-                  <span className="text-[11px] font-normal text-slate-gray">{summary.detail}</span>
+                  <span className="min-w-0 truncate">Firebase expert</span>
+                  <span className="inline-flex h-5 shrink-0 items-center justify-center rounded-full border border-[#2a2a35] px-2 text-[10px] font-normal leading-none text-slate-gray">
+                    Always on
+                  </span>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
                 className="rounded-full p-1 text-slate-gray hover:text-soft-white hover:bg-[#20202c]"
-                aria-label="Close agent mode"
+                aria-label="Close skills"
               >
                 <span className="material-symbols-outlined text-[16px]" aria-hidden>
                   close
                 </span>
               </button>
             </div>
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="w-full rounded-md border border-[#2a2a35] bg-content-bg px-2.5 py-1.5 text-[12px] text-soft-white placeholder:text-slate-gray/60 focus:outline-none focus:border-slate-gray"
-              placeholder="Search skills"
-              aria-label="Search skills"
-            />
+            {showSearch ? (
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="w-full rounded-md border border-[#2a2a35] bg-content-bg px-2.5 py-1.5 text-[12px] text-soft-white placeholder:text-slate-gray/60 focus:outline-none focus:border-slate-gray"
+                placeholder="Search skills"
+                aria-label="Search skills"
+              />
+            ) : null}
           </div>
 
           <div className="max-h-[min(58vh,320px)] overflow-y-auto custom-scrollbar p-2">
@@ -217,14 +203,14 @@ export function AgentModeControl({
           </div>
 
           <div className="flex items-center justify-between gap-3 border-t border-[#2a2a35] p-2.5">
-            <span className="text-[11px] text-slate-gray">Type / in the composer for quick activation.</span>
+            <span className="text-[11px] text-slate-gray">Type / in the composer for shortcuts.</span>
             <button
               type="button"
               onClick={onClearSkills}
-              disabled={activeSkillIds.length === 0}
+              disabled={activeSkills.length === 0}
               className={[
                 'shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider transition-colors',
-                activeSkillIds.length > 0
+                activeSkills.length > 0
                   ? 'border-[#2a2a35] text-slate-gray hover:text-soft-white hover:border-[#3a3a48]'
                   : 'border-[#2a2a35] text-slate-gray/40 cursor-not-allowed',
               ].join(' ')}
@@ -262,7 +248,7 @@ function SkillGroup({ label, skills, activeSet, onToggle }: SkillGroupProps) {
             onClick={() => onToggle(skill.id)}
             className={[
               'grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors',
-              active ? 'bg-[#20202c]' : 'hover:bg-[#1a1a24]',
+              active ? 'bg-[#20202c]' : 'hover:bg-[#20202c]',
             ].join(' ')}
           >
             <span

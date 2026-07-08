@@ -10,8 +10,8 @@ describe('Playground workbench layout helpers', () => {
     ]);
   });
 
-  test('Firebase tooling left tabs make Firebase primary', () => {
-    expect(workspaceTabsForProfile('firebase-tooling').map((tab) => tab.id)).toEqual([
+  test('Firebase expert left tabs make Firebase primary', () => {
+    expect(workspaceTabsForProfile('firebase').map((tab) => tab.id)).toEqual([
       'firebase',
       'file',
       'preview',
@@ -31,8 +31,8 @@ describe('Playground workbench layout helpers', () => {
     ]);
   });
 
-  test('Firebase tooling Firebase workbench hides tertiary app-builder tabs', () => {
-    expect(firebaseSubTabsForProfile('firebase-tooling').map((tab) => tab.id)).toEqual([
+  test('Firebase expert workbench hides tertiary app-builder tabs', () => {
+    expect(firebaseSubTabsForProfile('firebase').map((tab) => tab.id)).toEqual([
       'sandbox',
       'data',
       'auth',

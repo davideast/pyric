@@ -14,7 +14,7 @@
  * prompts so neither layer can silently drop the rule.
  */
 import { describe, expect, test } from 'bun:test';
-import { BACKEND_UI_GUIDANCE, buildSystemPrompt } from './system-prompt';
+import { BACKEND_UI_GUIDANCE, FIRESTORE_SEEDING_POLICY, buildSystemPrompt } from './system-prompt';
 import { composeDraftSystemPrompt } from './strategies/draft-then-validate';
 
 // The load-bearing strings — asserted verbatim against every prompt the
@@ -38,7 +38,10 @@ describe('backend-UI guidance — single source of truth', () => {
 });
 
 describe('react loop inherits the guidance (buildSystemPrompt)', () => {
-  const prompt = buildSystemPrompt({ diagnosticsEnabled: false });
+  const prompt = buildSystemPrompt({
+    diagnosticsEnabled: false,
+    prompt: 'Build a menu ordering app with Firestore rules',
+  });
 
   test('forbids in-app seeding / admin code', () => {
     for (const pin of PINS) expect(prompt).toContain(pin);
@@ -65,5 +68,12 @@ describe('draft-validate inherits the SAME guidance (composeDraftSystemPrompt)',
   test('points the de-caged draft at the host seed tool, not in-app UI', () => {
     expect(draftPrompt).toContain('seed_firestore_data_as_admin');
     expect(draftPrompt).toContain('NEVER bake seeding into App.tsx');
+  });
+
+  test('carries the Firestore seed ID policy', () => {
+    expect(draftPrompt).toContain(FIRESTORE_SEEDING_POLICY);
+    expect(draftPrompt).toContain('Use `autoId: true` for addDoc-style user-created docs');
+    expect(draftPrompt).toContain('Use explicit IDs for semantic or stable docs');
+    expect(draftPrompt).toContain('test-file `seed` blocks');
   });
 });

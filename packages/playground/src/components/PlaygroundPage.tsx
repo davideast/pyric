@@ -66,7 +66,7 @@ import { useWorkspaceStore } from '~/lib/store/workspace';
 import { useFilesStore } from '~/lib/store/files';
 import { getAllTurnTraces, useTraceStore } from '~/lib/store/trace';
 import { useSkillsStore } from '~/lib/store/skills';
-import { resolveActiveSkills, resolveWorkbenchIntent } from '~/lib/skills/registry';
+import { resolveAgentContext } from '~/lib/agent/context';
 import {
   isPlaygroundCommandMessage,
   isStudioEmbedSearch,
@@ -337,13 +337,9 @@ export function PlaygroundPage() {
   // memo below lists this as a dep so the meter updates on toggle.
   const activeSkillIds = useSkillsStore((s) => s.activeSkillIds);
   const activeSkillKey = activeSkillIds.join('\u0000');
-  const activeSkills = useMemo(
-    () => resolveActiveSkills(activeSkillIds),
-    [activeSkillKey],
-  );
   const workbenchIntent = useMemo(
-    () => resolveWorkbenchIntent(activeSkills),
-    [activeSkills],
+    () => resolveAgentContext({ activeSkillIds }).workbenchIntent,
+    [activeSkillKey],
   );
   const setActiveFilePath = useFilesStore((s) => s.setActiveFilePath);
 
@@ -500,6 +496,7 @@ export function PlaygroundPage() {
             providerId,
             modelId,
             apiKey,
+            activeSkillIds,
             signal: ac.signal,
           })) {
             if (ac.signal.aborted) return;
@@ -521,12 +518,26 @@ export function PlaygroundPage() {
         }
       })();
     },
-    [providerId, modelId],
+    [providerId, modelId, activeSkillIds],
+  );
+
+  const applyPromptWorkbenchIntent = useCallback(
+    (prompt: string) => {
+      const intent = resolveAgentContext({
+        prompt,
+        activeSkillIds: useSkillsStore.getState().activeSkillIds,
+      }).workbenchIntent;
+      setWorkspaceTab(intent.primarySurface);
+      if (intent.defaultFirebaseSubtab) setFirebaseSubTab(intent.defaultFirebaseSubtab);
+      if (intent.defaultFilePath) setActiveFilePath(intent.defaultFilePath);
+    },
+    [setActiveFilePath],
   );
 
   const handleSubmit = useCallback(
     (text: string) => {
       if (!text) return;
+      applyPromptWorkbenchIntent(text);
       useMobileNavStore.getState().setActive('agent');
       setActiveTab('agent');
       setAgentSubTab('chat');
@@ -536,7 +547,7 @@ export function PlaygroundPage() {
       }
       void send(text);
     },
-    [send, enhanceModeActive, runEnhancement],
+    [send, enhanceModeActive, runEnhancement, applyPromptWorkbenchIntent],
   );
 
   // Auto-fire the agent (or enhancer) for the home page's pending
@@ -556,12 +567,13 @@ export function PlaygroundPage() {
     pendingPromptFiredRef.current = true;
     const pending = takePendingPrompt(sessionRouting.sessionId);
     if (!pending) return;
+    applyPromptWorkbenchIntent(pending.prompt);
     if (pending.mode === 'enhance') {
       runEnhancement(pending.prompt);
     } else {
       void send(pending.prompt);
     }
-  }, [sessionRouting.loaded, sessionRouting.sessionId, send, runEnhancement]);
+  }, [sessionRouting.loaded, sessionRouting.sessionId, send, runEnhancement, applyPromptWorkbenchIntent]);
 
   // One-tap "Fix" from the Preview's compile/runtime error views or
   // the App pane's banner — submit the pre-built repair prompt AND
@@ -728,7 +740,7 @@ export function PlaygroundPage() {
 
   const contextWindow = useMemo(() => {
     const delegated = isDelegatedProvider(providerId);
-    const forceDiagnostics = workbenchIntent.promptProfile === 'firebase-tooling';
+    const forceDiagnostics = workbenchIntent.promptProfile === 'firebase';
     const diagnosticsEnabled = pyricDiagnosticsEnabled || forceDiagnostics;
     const systemPrompt = delegated
       ? buildClaudeLanePrompt({ diagnosticsEnabled })

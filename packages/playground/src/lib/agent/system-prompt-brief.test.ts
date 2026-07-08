@@ -16,6 +16,14 @@ import { useSkillsStore } from '~/lib/store/skills';
 describe('W2.2 environment brief', () => {
   const diagOn = buildSystemPrompt({ diagnosticsEnabled: true });
   const diagOff = buildSystemPrompt({ diagnosticsEnabled: false });
+  const appDiagOn = buildSystemPrompt({
+    diagnosticsEnabled: true,
+    prompt: 'Build a notes app with Firestore rules',
+  });
+  const appDiagOff = buildSystemPrompt({
+    diagnosticsEnabled: false,
+    prompt: 'Build a notes app with Firestore rules',
+  });
 
   test('points at the man pages (docs on demand)', () => {
     for (const p of [diagOn, diagOff]) {
@@ -28,7 +36,7 @@ describe('W2.2 environment brief', () => {
   });
 
   test('keeps the anti-footgun invariants in the standing prompt', () => {
-    for (const p of [diagOn, diagOff]) {
+    for (const p of [appDiagOn, appDiagOff]) {
       // write_file semantics — the invariant that prevents damage.
       expect(p).toContain('replaces the whole file');
       expect(p).toContain('edit_file');

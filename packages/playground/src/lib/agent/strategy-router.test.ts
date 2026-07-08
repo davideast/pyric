@@ -72,10 +72,10 @@ describe('routePrompt', () => {
     ).toBe('draft-validate');
   });
 
-  test('Firebase tooling profile routes to react even for build/data/security-shaped prompts', () => {
-    const d = routePrompt(DV_PROMPT, { promptProfile: 'firebase-tooling' });
+  test('Firebase expert profile routes to react even for build/data/security-shaped prompts', () => {
+    const d = routePrompt(DV_PROMPT, { promptProfile: 'firebase' });
     expect(d.strategy).toBe('react');
-    expect(d.reason).toContain('firebase-tooling');
+    expect(d.reason).toContain('firebase expert');
   });
 
   test('active skill strategy preference routes without becoming a user override', () => {
@@ -129,13 +129,13 @@ describe('createRoutedStrategy', () => {
     expect(react.calls.length).toBe(0);
   });
 
-  test('Firebase tooling profile does not enter draft-validate', async () => {
+  test('Firebase expert profile does not enter draft-validate', async () => {
     const react = stubStrategy('react', [{ kind: 'text', chunk: 'r' }]);
     const dv = stubStrategy('dv', [{ kind: 'text', chunk: 'd' }]);
     const routed = createRoutedStrategy({
       makeReact: () => react,
       makeDraftValidate: () => dv,
-      promptProfile: 'firebase-tooling',
+      promptProfile: 'firebase',
     });
     const events = await collect(routed, makeInput(DV_PROMPT));
     const routedEv = events.find((e) => e.kind === 'custom' && e.name === 'strategy_routed');

@@ -12,7 +12,7 @@ export function selectToolProfileForPrompt({
   prompt,
   settings,
   delegated,
-  promptProfile = 'app-builder',
+  promptProfile = 'firebase',
   preference,
 }: {
   prompt: string;
@@ -23,7 +23,7 @@ export function selectToolProfileForPrompt({
 }): ToolProfile {
   if (delegated) return 'authoring';
   if (preference) return preference;
-  if (promptProfile === 'firebase-tooling') return 'diagnostic';
+  if (promptProfile === 'firebase') return 'diagnostic';
   if (!settings.pyricDiagnosticsEnabled) return 'authoring';
   const routedStrategy =
     settings.strategyMode === 'auto'

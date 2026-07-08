@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { SkillDefinition } from '~/lib/skills/registry';
-import { summarizeAgentMode } from './AgentModeControl';
+import { shouldShowSkillSearch, summarizeAgentMode } from './AgentModeControl';
 
 const APP_SKILL: SkillDefinition = {
   id: 'game-rules',
@@ -22,35 +22,59 @@ const TOOLING_SKILL: SkillDefinition = {
   manTopic: 'firestore-rules-audit',
   manSummary: 'summary',
   manBody: 'body',
-  promptProfile: 'firebase-tooling',
+  promptProfile: 'firebase',
 };
 
 describe('summarizeAgentMode', () => {
   test('shows default mode when no skills are active', () => {
     expect(summarizeAgentMode([])).toMatchObject({
-      label: 'Default',
-      detail: 'App builder',
+      icon: 'build',
+      label: 'Skills',
+      detail: '',
       activeCount: 0,
-      promptProfile: 'app-builder',
     });
   });
 
-  test('uses the single active skill as the visible mode', () => {
+  test('shows the single active specialist in the compact selector', () => {
     expect(summarizeAgentMode([APP_SKILL])).toMatchObject({
       icon: 'stadia_controller',
       label: 'Game rules',
-      detail: 'App builder',
+      detail: '',
       activeCount: 1,
-      promptProfile: 'app-builder',
     });
   });
 
-  test('collapses multiple tooling skills to one profile summary', () => {
+  test('collapses multiple specialist skills to one summary', () => {
     expect(summarizeAgentMode([APP_SKILL, TOOLING_SKILL])).toMatchObject({
-      label: 'Firebase tooling',
-      detail: '2 skills active',
+      icon: 'build',
+      label: '2 skills',
+      detail: '',
       activeCount: 2,
-      promptProfile: 'firebase-tooling',
     });
+  });
+});
+
+describe('shouldShowSkillSearch', () => {
+  test('keeps search hidden until the specialist list is long enough', () => {
+    expect(shouldShowSkillSearch([APP_SKILL, TOOLING_SKILL])).toBe(false);
+    expect(
+      shouldShowSkillSearch([
+        APP_SKILL,
+        TOOLING_SKILL,
+        { ...APP_SKILL, id: 'a' },
+        { ...APP_SKILL, id: 'b' },
+        { ...APP_SKILL, id: 'c' },
+      ]),
+    ).toBe(false);
+    expect(
+      shouldShowSkillSearch([
+        APP_SKILL,
+        TOOLING_SKILL,
+        { ...APP_SKILL, id: 'a' },
+        { ...APP_SKILL, id: 'b' },
+        { ...APP_SKILL, id: 'c' },
+        { ...APP_SKILL, id: 'd' },
+      ]),
+    ).toBe(true);
   });
 });

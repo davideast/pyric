@@ -10,8 +10,8 @@
  *   2. publishes its full `manBody` as a pull-based `man <topic>` page
  *      (visible only while the skill is active),
  *   3. registers its extra `tools` (if any) for the turn,
- *   4. (P4) contributes an `enhancerShape` that reshapes the prompt
- *      enhancer for the skill's domain.
+ *   4. (P4) contributes an `enhancerShape` used as lens guidance or
+ *      a specialist overlay in the prompt enhancer.
  *
  * Adding a skill = adding one definition file + a registry entry —
  * never new plumbing. Activation state lives in `store/skills.ts`
@@ -30,7 +30,7 @@ import {
 } from './firebase-tooling';
 import { firestoreGameRulesSkill } from './firestore-game-rules';
 
-export type AgentPromptProfile = 'app-builder' | 'firebase-tooling';
+export type AgentPromptProfile = 'firebase' | 'app-builder';
 export type WorkbenchSurface = 'preview' | 'firebase' | 'file';
 export type FirebaseWorkbenchSubtab = 'sandbox' | 'data' | 'auth' | 'traffic' | 'seed';
 export type SkillToolProfilePreference = 'authoring' | 'diagnostic';
@@ -73,8 +73,9 @@ export interface SkillDefinition {
   /** Strategy to prefer under this skill. */
   strategyPreference?: SkillStrategyPreference;
   /**
-   * (P4) Shape block for the prompt enhancer — replaces the default
-   * five-property app shape when this skill is active.
+   * (P4) Shape block for the prompt enhancer. General Firebase skills
+   * map into automatic context lenses; specialist skills add overlay
+   * requirements on top of always-on Firebase Expert guidance.
    */
   enhancerShape?: string;
 }
@@ -145,15 +146,15 @@ function latestIntentSkill(skills: readonly SkillDefinition[]): SkillDefinition 
   return undefined;
 }
 
-/** Resolve active skills to the session's prompt profile. App-building
- *  remains the default; any active Firebase tooling skill switches the
- *  base prompt out of App.tsx-first mode. */
+/** Resolve active skills to the session's prompt profile. Firebase
+ *  expertise is the product default; app-building is selected by
+ *  context when the user's prompt asks for an app or UI. */
 export function resolvePromptProfile(
   activeSkills: readonly SkillDefinition[],
 ): AgentPromptProfile {
-  return activeSkills.some((skill) => skill.promptProfile === 'firebase-tooling')
-    ? 'firebase-tooling'
-    : 'app-builder';
+  return activeSkills.some((skill) => skill.promptProfile === 'app-builder')
+    ? 'app-builder'
+    : 'firebase';
 }
 
 /** Resolve active skills to the workbench defaults used by the UI,
@@ -165,7 +166,7 @@ export function resolveWorkbenchIntent(
   const promptProfile = resolvePromptProfile(activeSkills);
   const latest = latestIntentSkill(activeSkills);
   const primarySurface =
-    latest?.primarySurface ?? (promptProfile === 'firebase-tooling' ? 'firebase' : 'preview');
+    latest?.primarySurface ?? (promptProfile === 'firebase' ? 'firebase' : 'preview');
   return {
     promptProfile,
     primarySurface,
@@ -173,12 +174,12 @@ export function resolveWorkbenchIntent(
     ...(latest?.defaultFilePath ? { defaultFilePath: latest.defaultFilePath } : {}),
     ...(latest?.toolProfilePreference
       ? { toolProfilePreference: latest.toolProfilePreference }
-      : promptProfile === 'firebase-tooling'
+      : promptProfile === 'firebase'
         ? { toolProfilePreference: 'diagnostic' as const }
         : {}),
     ...(latest?.strategyPreference
       ? { strategyPreference: latest.strategyPreference }
-      : promptProfile === 'firebase-tooling'
+      : promptProfile === 'firebase'
         ? { strategyPreference: 'react' as const }
         : {}),
   };

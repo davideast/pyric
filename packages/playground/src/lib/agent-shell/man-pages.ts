@@ -253,7 +253,14 @@ seed_firestore_data_as_admin — FIXTURE setup only (admin bypass; the
   read/update/delete rules can be probed. Testing whether rules ALLOW
   a write is simulate_firestore_write's job. Methods: set/delete only;
   ≤100 ops per call (TOO_MANY_OPERATIONS above); per-entry failures
-  land in errors[]. Seeded paths wake live onSnapshot listeners.
+  land in errors[]. Seeded paths wake live onSnapshot listeners. Use this
+  for live sandbox/demo/fixture state; workspace test-file seed blocks are
+  hermetic and do not populate the live sandbox. ID policy: autoId:true on
+  collection paths for addDoc-style user-created docs (posts, tasks,
+  messages, orders, game sessions); explicit document IDs for stable docs
+  like users/{uid}, membership keyed by UID, config/singleton docs, lookup
+  docs, or rule-test paths you must reference. Use data.generated paths
+  from auto-ID writes in follow-up references.
 
 generate_fixture_from_session — after the user validates a flow
   end-to-end, capture history + final state as a replay fixture

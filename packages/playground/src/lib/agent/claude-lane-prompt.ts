@@ -47,11 +47,12 @@ import {
 } from './system-prompt';
 import { lintBlock } from './diagnostics/lint-block';
 import { pitfallsBlock } from './diagnostics/pitfalls-block';
-import { resolveActiveSkills, resolvePromptProfile } from '~/lib/skills/registry';
+import { resolveAgentContext } from './context';
 import { useSkillsStore } from '~/lib/store/skills';
 
 interface BuildClaudeLanePromptOpts {
   diagnosticsEnabled: boolean;
+  prompt?: string;
 }
 
 /** The replacement tool-surface section. Names MUST match what the MCP
@@ -76,15 +77,16 @@ const MCP_TOOLS = [
   'WORKFLOW — you own the whole turn; there is no outer agent dispatching for you. A typical build/modify request: read the current files → consult the stdlib (and lint candidates) → write rules + App TSX + tests via `mcp__playground__write_file` → run `mcp__playground__run_workspace_tests` → iterate until green → reply with a concise summary of what changed and why. Your file writes land in the user\'s workspace when the turn ends.',
 ].join('\n');
 
-const MCP_FIREBASE_TOOLING_PROFILE = [
-  'FIREBASE TOOLING MODE — this is not an app build.',
+const MCP_FIREBASE_PROFILE = [
+  'FIREBASE EXPERT MODE — this is the default Playground posture.',
+  '  Pyric is the local Firebase runtime and evidence surface. Do not recommend Firebase Emulators.',
   '  Do NOT create or edit `/workspace/src/App.tsx` unless the user explicitly asks for an app, UI, or preview. Primary outputs are rules, tests, audit reports, schema notes, simulations, and evidence-backed recommendations.',
   '  In this delegated lane, only the listed `mcp__playground__*` tools are callable. Use file tools, rules lint, Firestore simulations, workspace tests, and the rules stdlib for evidence.',
   '  Browser-only evidence such as Auth users, Traffic rows, sandbox discovery, and RTDB runtime inspection is not available through this MCP bridge. If a tooling task needs that evidence, say so explicitly and proceed with the available workspace/rules evidence.',
 ].join('\n');
 
-const MCP_FIREBASE_TOOLING_WORKFLOW = [
-  'WORKFLOW — evidence-first Firebase tooling. Plan briefly, inspect only the relevant files/evidence, analyze risks or data-model tradeoffs, then propose or apply rules/tests/seed artifacts only when requested.',
+const MCP_FIREBASE_WORKFLOW = [
+  'WORKFLOW — evidence-first Firebase expertise. Plan briefly, inspect only the relevant files/evidence, analyze risks or data-model tradeoffs, then propose or apply rules/tests/seed artifacts only when requested.',
   'Do not end by building App.tsx. Verify with lint, simulation, or workspace tests when useful.',
 ].join('\n');
 
@@ -93,16 +95,18 @@ const MCP_FIREBASE_TOOLING_WORKFLOW = [
  * `buildSystemPrompt`'s section order so the protected guidance reads
  * identically; only the tool-surface sections differ.
  */
-export function buildClaudeLanePrompt({ diagnosticsEnabled }: BuildClaudeLanePromptOpts): string {
-  const promptProfile = resolvePromptProfile(
-    resolveActiveSkills(useSkillsStore.getState().activeSkillIds),
-  );
+export function buildClaudeLanePrompt({ diagnosticsEnabled, prompt = '' }: BuildClaudeLanePromptOpts): string {
+  const agentContext = resolveAgentContext({
+    prompt,
+    activeSkillIds: useSkillsStore.getState().activeSkillIds,
+  });
+  const promptProfile = agentContext.promptProfile;
   const profileSections =
-    promptProfile === 'firebase-tooling'
+    promptProfile === 'firebase'
       ? [
-          MCP_FIREBASE_TOOLING_PROFILE,
+          MCP_FIREBASE_PROFILE,
           '',
-          MCP_FIREBASE_TOOLING_WORKFLOW,
+          MCP_FIREBASE_WORKFLOW,
           '',
           AUTH_SHAPE,
           '',

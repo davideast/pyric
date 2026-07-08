@@ -6,7 +6,7 @@
  * historically leaked into enhanced prompts and then into generated
  * app UI (identity switchers, references to host tabs). These tests
  * pin the instruction text itself: no host vocabulary, purity rules
- * present, and a game shape distinct from the CRUD-app shape.
+ * present, and Firebase-native shaping by default.
  */
 import { describe, expect, test } from 'bun:test';
 import { buildEnhancerPrompt, ENHANCER_SYSTEM_PROMPT } from './system-prompt';
@@ -43,27 +43,38 @@ describe('ENHANCER_SYSTEM_PROMPT domain purity', () => {
     expect(ENHANCER_SYSTEM_PROMPT).toContain('with Google sign-in');
   });
 
-  test('has a game shape distinct from the CRUD-app shape', () => {
-    expect(ENHANCER_SYSTEM_PROMPT).toContain('If the idea is a GAME');
-    expect(ENHANCER_SYSTEM_PROMPT).toContain('anti-cheat boundary');
-    expect(ENHANCER_SYSTEM_PROMPT).toContain('attempting an illegal move');
-    // The CRUD shape stays for non-game ideas.
-    expect(ENHANCER_SYSTEM_PROMPT).toContain('two collections');
+  test('defaults to a Firebase-native shape', () => {
+    expect(ENHANCER_SYSTEM_PROMPT).toContain('FIREBASE EXPERT IS ALWAYS ON');
+    expect(ENHANCER_SYSTEM_PROMPT).toContain('A well-shaped Firebase prompt states');
+    expect(ENHANCER_SYSTEM_PROMPT).toContain('rules, seed docs, Auth users');
+    expect(ENHANCER_SYSTEM_PROMPT).toContain('No app UI unless the user explicitly asks');
+    expect(ENHANCER_SYSTEM_PROMPT).not.toContain('two collections');
   });
 
   test('keeps the output discipline', () => {
     expect(ENHANCER_SYSTEM_PROMPT).toContain('Output ONLY the enhanced prompt');
-    expect(ENHANCER_SYSTEM_PROMPT).toContain('30–50 words');
+    expect(ENHANCER_SYSTEM_PROMPT).toContain('30–70 words');
+  });
+
+  test('keeps internal seed tool names out of user-visible enhancement guidance', () => {
+    expect(ENHANCER_SYSTEM_PROMPT).toContain('seed data');
+    expect(ENHANCER_SYSTEM_PROMPT).not.toContain('seed_firestore_data_as_admin');
+    expect(ENHANCER_SYSTEM_PROMPT).not.toContain('autoId');
   });
 });
 
 describe('buildEnhancerPrompt — skill-aware shapes (P4)', () => {
-  test('active game skill takes over the shape section', () => {
-    const p = buildEnhancerPrompt([firestoreGameRulesSkill]);
-    expect(p).toContain('The user activated the "Game rules" skill');
+  test('active game skill adds an overlay without replacing Firebase Expert guidance', () => {
+    const p = buildEnhancerPrompt(
+      [firestoreGameRulesSkill],
+      'Create a Firestore data structure for a Connect Four game that prevents cheating',
+    );
+    expect(p).toContain('FIREBASE EXPERT IS ALWAYS ON');
+    expect(p).toContain('Shape this as a Firestore data modeling request');
+    expect(p).toContain('Active specialist skill: "Game rules"');
+    expect(p).toContain('Firebase Expert stays on');
     expect(p).toContain('anti-cheat boundary');
-    // The default app shape and the conditional game gate are replaced.
-    expect(p).not.toContain('two collections');
+    expect(p).not.toContain('shape EVERY idea');
     expect(p).not.toContain('If the idea is a GAME');
     // Purity + discipline survive in every composition.
     expect(p).toContain('DOMAIN PURITY');
@@ -71,36 +82,48 @@ describe('buildEnhancerPrompt — skill-aware shapes (P4)', () => {
     expect(p).not.toContain('Auth tab');
   });
 
-  test('active Firebase tooling skill takes over the shape section', () => {
+  test('legacy general Firebase audit skill resolves into lenses, not replacement blocks', () => {
     const p = buildEnhancerPrompt([firebaseAuditSkill]);
-    expect(p).toContain('The user activated the "Firebase audit" skill');
-    expect(p).toContain('prioritized audit report');
-    expect(p).toContain('not an app');
+    expect(p).toContain('FIREBASE EXPERT IS ALWAYS ON');
+    expect(p).toContain('Shape this as a rules audit request');
+    expect(p).not.toContain('The user activated');
+    expect(p).not.toContain('Active specialist skill');
     expect(p).not.toContain('two collections');
     expect(p).not.toContain('If the idea is a GAME');
   });
 
-  test('active Firebase Auth model skill shapes auth/rules requests', () => {
+  test('legacy Firebase Auth model skill shapes auth/rules requests through lenses', () => {
     const p = buildEnhancerPrompt([playgroundFirebaseAuthModelSkill]);
-    expect(p).toContain('The user activated the "Firebase auth" skill');
-    expect(p).toContain('custom-claim');
-    expect(p).toContain('auth/rules model');
-    expect(p).toContain('not an app');
+    expect(p).toContain('Shape this as a Firebase Auth modeling request');
+    expect(p).toContain('custom claims');
+    expect(p).not.toContain('The user activated');
     expect(p).not.toContain('two collections');
   });
 
-  test('active Firestore query/index skill shapes query proof requests', () => {
+  test('legacy Firestore query/index skill shapes query proof requests through lenses', () => {
     const p = buildEnhancerPrompt([playgroundFirestoreQueryIndexesSkill]);
-    expect(p).toContain('The user activated the "Firestore queries" skill');
-    expect(p).toContain('firestore.indexes.json');
-    expect(p).toContain('security-rule scope');
-    expect(p).toContain('not an app');
+    expect(p).toContain('Shape this as a Firestore query/index design request');
+    expect(p).toContain('index extraction');
+    expect(p).not.toContain('The user activated');
     expect(p).not.toContain('two collections');
   });
 
-  test('no active skills = the pinned default (single source of the game shape)', () => {
+  test('no active skills = the pinned Firebase-native default', () => {
     expect(buildEnhancerPrompt([])).toBe(ENHANCER_SYSTEM_PROMPT);
-    // The default's game gate reuses the skill's shape VERBATIM — no drift.
-    expect(ENHANCER_SYSTEM_PROMPT).toContain(firestoreGameRulesSkill.enhancerShape!);
+  });
+
+  test('app-build prompts opt into the app shape and game gate', () => {
+    const p = buildEnhancerPrompt([], 'Build a turn-based game app with Firestore rules');
+    expect(p).toContain('If the idea is a GAME');
+    expect(p).toContain(firestoreGameRulesSkill.enhancerShape!);
+    expect(p).toContain('two collections');
+  });
+
+  test('Firestore data modeling prompts use rules-first shape', () => {
+    const p = buildEnhancerPrompt([], 'Model Firestore data for teams with role based access');
+    expect(p).toContain('Shape this as a Firestore data modeling request');
+    expect(p).toContain('Start from the security rules boundary first');
+    expect(p).toContain('one allowed and one denied proof');
+    expect(p).not.toContain('two collections');
   });
 });

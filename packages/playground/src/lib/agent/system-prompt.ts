@@ -21,15 +21,14 @@ import { useWorkspaceStore } from '~/lib/store/workspace';
 import { useSessionStore } from '~/lib/store/session';
 import { useGithubSessionStore } from '~/lib/store/github-session';
 import { useSkillsStore } from '~/lib/store/skills';
-import {
-  resolveActiveSkills,
-  resolvePromptProfile,
-} from '~/lib/skills/registry';
+import { resolveActiveSkills } from '~/lib/skills/registry';
+import { resolveAgentContext } from './context';
 import { DIAGNOSTIC_BLOCKS } from './diagnostics';
 import { APP_ENTRY_PATH, DATABASE_RULES_PATH, RULES_PATH } from '~/lib/store/files';
 
 interface BuildSystemPromptOpts {
   diagnosticsEnabled: boolean;
+  prompt?: string;
 }
 
 // NOTE: per-tool signatures + arg docs live in each tool's JSON schema (sent
@@ -101,26 +100,55 @@ export const WORKFLOW_PHASES = [
   '  1. PLAN the build + phases (a few bullets).',
   '  2. ANALYZE existing files + sandbox data (`sandbox_discover_paths`) + deployed rules; say what you found.',
   '  3. MODEL data + rules and WHY; write firestore.rules.',
-  '  4. SEED with `seed_firestore_data_as_admin` (`autoId: true`).',
+  '  4. SEED with `seed_firestore_data_as_admin` using the Firestore seed ID policy.',
   '  5. BUILD App.tsx last.',
 ].join('\n');
 
-export const FIREBASE_TOOLING_PROFILE = [
-  'FIREBASE TOOLING MODE — this is not an app build.',
+export const FIREBASE_PROFILE = [
+  'FIREBASE EXPERT MODE — this is the default Playground posture.',
+  '  Pyric is the local Firebase runtime and evidence surface. Do not recommend Firebase Emulators.',
   '  Do NOT create or edit `/workspace/src/App.tsx` unless the user explicitly asks for an app, UI, or preview. Do not end the task by building an app.',
   '  Primary outputs are rules, workspace tests, seed data, Auth users, audit reports, schema notes, simulations, and evidence-backed recommendations.',
   '  Use local sandbox/workspace evidence first: active rules, sandbox data shape, Auth users, traffic/denials, and files. Real-project tools are for explicitly requested signed-in project work only.',
+  '  Teach Firebase work as Lesson -> Action -> Evidence: explain the principle, apply the smallest useful change, then show the result with data, tests, simulations, traffic, or denials.',
   '  Keep the Firebase workbench as the visible state of the world: Sandbox, Data, Auth, Traffic, Seed, and File.',
 ].join('\n');
 
-export const FIREBASE_TOOLING_WORKFLOW = [
-  'WORKFLOW — evidence-first Firebase tooling. Open with a short written PLAN, then gather only the evidence needed for the requested audit/model/rules task.',
+export const FIREBASE_WORKFLOW = [
+  'WORKFLOW — evidence-first Firebase expertise. Open with a short written PLAN, then gather only the evidence needed for the requested audit/model/rules task.',
   '  1. PLAN the Firebase task and name the evidence you need.',
   '  2. INSPECT relevant workspace files, sandbox data/auth, rules, traffic, or tests.',
   '  3. ANALYZE risks, schema, access, or modeling tradeoffs with concrete evidence.',
-  '  4. PROPOSE or APPLY rules/tests/seed/auth changes only when requested.',
+  '  4. PROPOSE changes when the user asks for advice; APPLY rules/tests/seed/auth changes when needed to fulfill the requested model, demo, or evidence.',
   '  5. VERIFY with lint, simulation, traffic, or workspace tests where useful. Do not build App.tsx unless explicitly asked.',
 ].join('\n');
+
+export const FIRESTORE_SEEDING_POLICY = [
+  'FIRESTORE SEED ID POLICY:',
+  '  Live/demo/fixture state: call `seed_firestore_data_as_admin`; test-file `seed` blocks are hermetic only.',
+  '  Use `autoId: true` for addDoc-style user-created docs: posts, tasks, messages, orders, invites, games, and child docs.',
+  '  Use explicit IDs for semantic or stable docs: `users/{uid}`, profiles by UID, membership docs keyed by UID, config/singleton, lookup, and referenced rule-test paths.',
+  '  Mixed batches are normal; read `data.generated` after auto-ID writes.',
+].join('\n');
+
+export const FIRESTORE_DATA_MODELING_WORKFLOW = [
+  'RULES-FIRST FIRESTORE DATA MODELING WORKSHOP:',
+  '  Run the session as Lesson -> Decision -> Change -> Evidence. Teach the modeling process; do not merely narrate tool use.',
+  '  1. LESSON: explain that Firestore rules come first because the data model must expose the facts rules need to enforce.',
+  '  2. ACCESS CONTRACT: before editing files, write the actors, operations, paths, allowed cases, denied cases, and rule facts needed from request.auth, path params, resource.data, request.resource.data, or bounded get()/exists() calls.',
+  '  3. RULE-SHAPED MODEL: derive collections, document IDs, fields, membership/role docs, and query shapes from enforceability. Explain each shape decision before applying it.',
+  '  4. RULES: before writing firestore.rules, explain how each path/field supports a rule condition.',
+  '  5. FIXTURE EVIDENCE: after the rules shape is clear, call `seed_firestore_data_as_admin` for live representative docs using the Firestore seed ID policy, and seed Auth users when identity matters.',
+  '  6. VERIFY: prove at least one allowed behavior and one denied behavior with simulations, traffic, or tests. Close by explaining the cause and effect the user can see.',
+].join('\n');
+
+function lensWorkflowSections(lenses: ReturnType<typeof resolveAgentContext>['lenses']): string[] {
+  const ids = new Set(lenses.map((lens) => lens.id));
+  if (ids.has('firestore') && ids.has('data-modeling')) {
+    return [FIRESTORE_DATA_MODELING_WORKFLOW, ''];
+  }
+  return [];
+}
 
 // Injected by buildSystemPrompt ONLY when the workspace is new/empty
 // (rules + appSource both blank). Without it, the agent spends a whole
@@ -131,7 +159,7 @@ export const WORKSPACE_STATE_FRESH = [
 ].join('\n');
 
 export const WORKSPACE_STATE_FRESH_FIREBASE_TOOLING = [
-  'WORKSPACE STATE — NEW FIREBASE TOOLING SESSION: the workspace may be empty. Do not treat that as a reason to build an app. Inspect only the files or sandbox evidence needed for the requested Firebase audit, rules, seed, auth, or data-modeling task.',
+  'WORKSPACE STATE — NEW FIREBASE SESSION: the workspace may be empty. Do not treat that as a reason to build an app. Inspect only the files or sandbox evidence needed for the requested Firebase audit, rules, seed, auth, or data-modeling task.',
 ].join('\n');
 
 const RULES_STDLIB = [
@@ -152,7 +180,7 @@ export const AUTH_SHAPE = [
   '  RIGHT:   `sandbox.withAuth({ uid: "alice", token: { admin: true } })`',
   '  In rules, custom claims read as `request.auth.token.<name>` (NOT `request.auth.<name>`).',
   '  Anonymous identity: `sandbox.withAuth(null)`. Skips auth entirely; `request.auth` is null.',
-  'There are no real Firebase services — only the simulator.',
+  'There are no real Firebase services in local sandbox work — only Pyric\'s sandbox runtime.',
 ].join('\n');
 
 export const TOOL_TRUTHFULNESS = [
@@ -188,7 +216,7 @@ export const FIREBASE_TOOLING_FILE_REFERENCES = [
   'WORKSPACE FILES:',
   `  - ${RULES_PATH} — Firestore rules source; writing it auto-deploys to the sandbox.`,
   `  - ${DATABASE_RULES_PATH} — Realtime Database rules source; writing it auto-deploys when the selected runtime supports RTDB rules.`,
-  `  - ${APP_ENTRY_PATH} — optional preview entry. In Firebase tooling mode, edit this only when the user explicitly asks for an app or preview UI.`,
+  `  - ${APP_ENTRY_PATH} — optional preview entry. In Firebase expert mode, edit this only when the user explicitly asks for an app or preview UI.`,
   '  File bodies are intentionally omitted from this prompt. Use list_files, search_file, and ranged read_file to inspect current contents before editing existing files.',
 ].join('\n');
 
@@ -210,7 +238,7 @@ export function skillBriefSections(): string[] {
   return sections;
 }
 
-export function buildSystemPrompt({ diagnosticsEnabled }: BuildSystemPromptOpts): string {
+export function buildSystemPrompt({ diagnosticsEnabled, prompt = '' }: BuildSystemPromptOpts): string {
   // Read the store so prompt generation still reacts to workspace changes,
   // but do not inline large file bodies into every model request.
   const ws = useWorkspaceStore.getState();
@@ -225,16 +253,22 @@ export function buildSystemPrompt({ diagnosticsEnabled }: BuildSystemPromptOpts)
   const hasRealProject = useSessionStore.getState().currentProjectId !== null;
   const linkedGithubRepo = useGithubSessionStore.getState().linkedRepo;
   const intro = hasRealProject ? `${INTRO_BASE}\n${REAL_PROJECT_TOOLS}` : INTRO_BASE;
-  const activeSkills = resolveActiveSkills(useSkillsStore.getState().activeSkillIds);
-  const promptProfile = resolvePromptProfile(activeSkills);
+  const agentContext = resolveAgentContext({
+    prompt,
+    activeSkillIds: useSkillsStore.getState().activeSkillIds,
+  });
+  const promptProfile = agentContext.promptProfile;
   const profileSections =
-    promptProfile === 'firebase-tooling'
+    promptProfile === 'firebase'
       ? [
           ...(isFresh ? [WORKSPACE_STATE_FRESH_FIREBASE_TOOLING, ''] : []),
-          FIREBASE_TOOLING_PROFILE,
+          FIREBASE_PROFILE,
           '',
-          FIREBASE_TOOLING_WORKFLOW,
+          FIREBASE_WORKFLOW,
           '',
+          FIRESTORE_SEEDING_POLICY,
+          '',
+          ...lensWorkflowSections(agentContext.lenses),
           AUTH_SHAPE,
           '',
           RULES_STDLIB,
@@ -246,6 +280,8 @@ export function buildSystemPrompt({ diagnosticsEnabled }: BuildSystemPromptOpts)
       : [
           ...(isFresh ? [WORKSPACE_STATE_FRESH, ''] : []),
           WORKFLOW_PHASES,
+          '',
+          FIRESTORE_SEEDING_POLICY,
           '',
           SCOPE,
           '',

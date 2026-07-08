@@ -13,6 +13,7 @@ describe('selectToolProfileForPrompt', () => {
         prompt: 'hello there',
         settings: SETTINGS,
         delegated: false,
+        promptProfile: 'app-builder',
       }),
     ).toBe('authoring');
     expect(
@@ -20,17 +21,18 @@ describe('selectToolProfileForPrompt', () => {
         prompt: 'Investigate security rules denials',
         settings: SETTINGS,
         delegated: false,
+        promptProfile: 'app-builder',
       }),
     ).toBe('diagnostic');
   });
 
-  test('Firebase tooling sessions prefer diagnostic tools', () => {
+  test('Firebase expert sessions prefer diagnostic tools', () => {
     expect(
       selectToolProfileForPrompt({
         prompt: 'Audit my rules',
         settings: SETTINGS,
         delegated: false,
-        promptProfile: 'firebase-tooling',
+        promptProfile: 'firebase',
       }),
     ).toBe('diagnostic');
   });
@@ -41,7 +43,7 @@ describe('selectToolProfileForPrompt', () => {
         prompt: 'Audit my rules',
         settings: SETTINGS,
         delegated: true,
-        promptProfile: 'firebase-tooling',
+        promptProfile: 'firebase',
       }),
     ).toBe('authoring');
   });

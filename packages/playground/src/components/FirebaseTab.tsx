@@ -71,7 +71,7 @@ export function FirebaseTab({
   sandboxMode,
   sandboxModeDisabled,
   onSandboxModeChange,
-  promptProfile = 'app-builder',
+  promptProfile = 'firebase',
 }: FirebaseTabProps) {
   const subTabs = firebaseSubTabsForProfile(promptProfile);
   const activeSubTab = subTabs.some((tab) => tab.id === subTab) ? subTab : 'sandbox';

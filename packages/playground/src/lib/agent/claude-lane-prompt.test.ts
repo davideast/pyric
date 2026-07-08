@@ -13,6 +13,14 @@ import { MCP_TOOL_NAMES } from '~/lib/server/claude-mcp';
 
 const laneOn = buildClaudeLanePrompt({ diagnosticsEnabled: true });
 const laneOff = buildClaudeLanePrompt({ diagnosticsEnabled: false });
+const laneAppOn = buildClaudeLanePrompt({
+  diagnosticsEnabled: true,
+  prompt: 'Build a notes app with Firestore rules',
+});
+const laneAppOff = buildClaudeLanePrompt({
+  diagnosticsEnabled: false,
+  prompt: 'Build a notes app with Firestore rules',
+});
 
 describe('claude lane prompt — MCP tool surface', () => {
   test('names every bridge tool by its real mcp__playground__ name (no drift)', () => {
@@ -54,7 +62,7 @@ describe('claude lane prompt — MCP tool surface', () => {
 
 describe('claude lane prompt — protected pins stay verbatim', () => {
   test('auth-UI guidance (the #575 pins)', () => {
-    for (const p of [laneOn, laneOff]) {
+    for (const p of [laneAppOn, laneAppOff]) {
       expect(p).toContain('NEVER render a developer identity-switcher');
       expect(p).toContain('no uid dropdowns');
       expect(p).toContain('SANDBOX/TOOL contexts only');
@@ -63,7 +71,7 @@ describe('claude lane prompt — protected pins stay verbatim', () => {
   });
 
   test('anti-footgun invariants (W2.2 pins)', () => {
-    for (const p of [laneOn, laneOff]) {
+    for (const p of [laneAppOn, laneAppOff]) {
       expect(p).toContain('replaces the whole file');
       expect(p).toContain('@pyric/*');
       expect(p).toContain('signInWithCustomToken');
@@ -83,12 +91,15 @@ describe('claude lane prompt — protected pins stay verbatim', () => {
   });
 
   test('shared sections are literally shared with the canonical prompt (one source)', () => {
-    const canonical = buildSystemPrompt({ diagnosticsEnabled: false });
+    const canonical = buildSystemPrompt({
+      diagnosticsEnabled: false,
+      prompt: 'Build a notes app with Firestore rules',
+    });
     // Spot-check a long pinned paragraph: byte-identical in both prompts.
     const authUiLine = canonical
       .split('\n')
       .find((l) => l.includes('NEVER render a developer identity-switcher'));
     expect(authUiLine).toBeDefined();
-    expect(laneOff).toContain(authUiLine!);
+    expect(laneAppOff).toContain(authUiLine!);
   });
 });
