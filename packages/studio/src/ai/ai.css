@@ -191,6 +191,9 @@
 .ai-set__status[data-state='set'] {
   color: var(--accent);
 }
+.ai-set__status[data-state='unavailable'] {
+  color: var(--diff-remove);
+}
 .ai-set__field {
   display: flex;
   gap: 8px;
@@ -210,6 +213,10 @@
 }
 .ai-set__input:focus {
   border-color: var(--line-2);
+}
+.ai-set__input:disabled {
+  opacity: 0.62;
+  cursor: default;
 }
 .ai-set__btn {
   appearance: none;

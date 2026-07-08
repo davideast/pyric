@@ -197,17 +197,19 @@ export interface PromptStaging {
   run: (prompt: string) => Promise<void>;
   /** True when the active provider has no API key (the run can't start). */
   missingKey: boolean;
+  /** Present when the selected provider cannot run in this build. */
+  disabledReason: string | null;
 }
 
 export function usePromptStaging(): PromptStaging {
-  const { client, missingKey } = useLlmClient();
+  const { client, missingKey, disabledReason } = useLlmClient();
   const { stage, apply } = useProposals();
   const { mode } = useGovernanceMode();
 
   const run = useCallback(
     async (prompt: string) => {
       if (!client) {
-        throw new Error('No model key set. Add one in Settings (the gear) to make AI changes.');
+        throw new Error(disabledReason ?? 'No model key set. Add one in Settings (the gear) to make AI changes.');
       }
       const proposal = await stage({
         title: prompt,
@@ -237,8 +239,8 @@ export function usePromptStaging(): PromptStaging {
         if (typeof window !== 'undefined') window.location.hash = 'review';
       }
     },
-    [client, stage, apply, mode],
+    [client, disabledReason, stage, apply, mode],
   );
 
-  return { run, missingKey };
+  return { run, missingKey, disabledReason };
 }
