@@ -21,7 +21,7 @@ import {
   getFirestore as baseGetFirestore,
   type SandboxFirestore,
 } from 'pyric/sandbox/admin-firestore';
-import { isRemoteSandbox, type SandboxContext } from 'pyric/sandbox';
+import type { SandboxContext } from 'pyric/sandbox';
 import {
   ADMIN_APP_TARGET,
   getApp,
@@ -31,18 +31,13 @@ import {
 
 /** Narrow a `PyricAdminApp` to the anonymous {@link SandboxContext} the
  *  admin firestore backend runs against. Sandbox apps expose their
- *  `Sandbox`; prod apps require firebase-admin's real Firestore, which the
- *  in-process backend does not model. */
+ *  `Sandbox` — LOCAL and REMOTE alike: the base `getFirestore` is
+ *  remote-aware (it dispatches a remote-branded sandbox to the
+ *  channel-backed arm), so no guard is needed here. Prod apps require
+ *  firebase-admin's real Firestore, which the in-process backend does
+ *  not model. */
 function adminAppToContext(app: PyricAdminApp): SandboxContext {
   if (isSandboxAdminApp(app)) {
-    if (isRemoteSandbox(app.sandbox)) {
-      throw new Error(
-        'pyric-admin/firestore: Firestore is not yet supported on a remote ' +
-          'sandbox — the bridge currently carries Realtime Database, Auth, and Storage. ' +
-          'Use pyric/firestore in the browser (or the MCP Firestore tools) ' +
-          'until remote Firestore lands.',
-      );
-    }
     return app.sandbox.withAuth(null);
   }
   throw new Error(
