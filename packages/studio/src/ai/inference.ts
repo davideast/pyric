@@ -24,8 +24,8 @@
  *
  * The page-direct provider implementations themselves (the per-provider
  * fetch + SSE) are a follow-up: they were the relay's, and 0.4.0 took them
- * away. Until they land in-repo, `makeLlmClient` resolves a not-yet-wired
- * stub. The injectable `relayProviderAsLlmClient` adapter (and its unit
+ * away. Until they land in-repo, the provider registry marks those providers
+ * unavailable. The injectable `relayProviderAsLlmClient` adapter (and its unit
  * tests, which pass a mock provider) is fully migrated and exercises the
  * mapping end to end.
  */
@@ -39,7 +39,7 @@ import type {
   ToolSpec,
   ReasoningEffort,
 } from '@inbrowser/agent';
-import { PROVIDERS, type ProviderId } from './providers.js';
+import { PROVIDERS, providerUnavailableReason, type ProviderId } from './providers.js';
 import { useLlmSelection } from './llm-store.js';
 import { subscribeKeys, keysVersionSnapshot } from './byok.js';
 
@@ -251,18 +251,20 @@ export function makeLlmClient(cfg: LlmClientConfig): ModelClient {
 }
 
 export interface UseLlmClientResult {
-  /** The live client for the active selection, or null when no key is set. */
+  /** The live client for the active selection, or null when unavailable/no key. */
   client: ModelClient | null;
   providerId: ProviderId;
   modelId: string;
   /** True when the active provider has no key (assists show a "set a key" state). */
   missingKey: boolean;
+  /** Present when the provider is configured but not currently usable. */
+  disabledReason: string | null;
 }
 
 /**
  * The active `ModelClient`, derived from the persisted selection + the active
- * provider's BYOK key. `null` (with `missingKey: true`) when no key is set, so an
- * assist can render a "needs an API key" empty state that links to settings.
+ * provider's availability + BYOK key. `null` with a reason when the provider is
+ * unavailable, or with `missingKey: true` when no key is set.
  */
 export function useLlmClient(): UseLlmClientResult {
   const { providerId, modelId, effort } = useLlmSelection();
@@ -270,15 +272,21 @@ export function useLlmClient(): UseLlmClientResult {
   // selection change.
   const keysVersion = useSyncExternalStore(subscribeKeys, keysVersionSnapshot, keysVersionSnapshot);
   return useMemo<UseLlmClientResult>(() => {
-    const apiKey = PROVIDERS[providerId].byok.getKey();
+    const provider = PROVIDERS[providerId];
+    const disabledReason = providerUnavailableReason(provider);
+    if (disabledReason) {
+      return { client: null, providerId, modelId, missingKey: false, disabledReason };
+    }
+    const apiKey = provider.byok.getKey();
     if (!apiKey) {
-      return { client: null, providerId, modelId, missingKey: true };
+      return { client: null, providerId, modelId, missingKey: true, disabledReason: null };
     }
     return {
       client: makeLlmClient({ providerId, model: modelId, apiKey, effort }),
       providerId,
       modelId,
       missingKey: false,
+      disabledReason: null,
     };
   }, [providerId, modelId, effort, keysVersion]);
 }

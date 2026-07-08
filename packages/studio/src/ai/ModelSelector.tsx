@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { PROVIDER_LIST, PROVIDERS } from './providers.js';
+import { PROVIDER_LIST, PROVIDERS, providerUnavailableReason } from './providers.js';
 import { useLlmSelection } from './llm-store.js';
 import { openSettings } from './settings-store.js';
 import './ai.css';
@@ -15,9 +15,10 @@ export function ModelSelector() {
   const { providerId, modelId, setProvider, setModel } = useLlmSelection();
   const [open, setOpen] = useState(false);
 
-  const activeModel = PROVIDERS[providerId].models.find((m) => m.id === modelId);
+  const activeProvider = PROVIDERS[providerId];
+  const activeModel = activeProvider.models.find((m) => m.id === modelId);
   const activeLabel = activeModel?.label ?? modelId;
-  const activeReady = PROVIDERS[providerId].byok.hasKey();
+  const activeReady = !providerUnavailableReason(activeProvider) && activeProvider.byok.hasKey();
 
   return (
     <div className="ai-model">
@@ -41,12 +42,13 @@ export function ModelSelector() {
           <div className="ai-model__backdrop" onMouseDown={() => setOpen(false)} />
           <div className="ai-model__menu" role="menu">
             {PROVIDER_LIST.map((def) => {
-              const hasKey = def.byok.hasKey();
+              const unavailableReason = providerUnavailableReason(def);
+              const hasKey = !unavailableReason && def.byok.hasKey();
               return (
                 <div key={def.id} className="ai-model__group">
                   <div className="ai-model__grouphead">
                     <span>{def.label}</span>
-                    {!hasKey ? (
+                    {!unavailableReason && !hasKey ? (
                       <button
                         type="button"
                         className="ai-model__setkey"
@@ -59,7 +61,9 @@ export function ModelSelector() {
                       </button>
                     ) : null}
                   </div>
-                  {hasKey ? (
+                  {unavailableReason ? (
+                    <p className="ai-model__locked">{unavailableReason}</p>
+                  ) : hasKey ? (
                     def.models.map((m) => (
                       <button
                         key={m.id}

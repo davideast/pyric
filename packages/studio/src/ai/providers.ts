@@ -1,16 +1,16 @@
 /**
  * Provider registry for Studio AI assists: the single source of truth for which
  * providers exist + their model lists. The model selector renders from here; the
- * API-keys settings page asks for a key per provider; `inference.ts` (next
- * increment) builds an `LlmClient` from the active selection + the provider fn.
+ * API-keys settings page asks for a key per provider; `inference.ts` builds an
+ * `LlmClient` only for providers marked available.
  *
  * Adapted from the playground's `lib/llm/registry.ts`. Differences:
  *  - Anthropic is a first-class BROWSER provider (the playground only had a
  *    dev-only Claude CLI lane); it is Studio's default.
  *  - The dev-only CLI lane is dropped.
- *  - Config only for now: the `provider` inference fn is added when the
- *    per-provider streaming fns land (Phase 0, next increment). Model ids/labels
- *    are refined then against real API calls.
+ *  - Config only for now: providers stay unavailable until their page-direct
+ *    streaming functions land. Model ids/labels are refined then against real
+ *    API calls.
  */
 
 import {
@@ -37,7 +37,15 @@ export interface ProviderDef {
   byok: ByokSlot;
   models: readonly ModelDef[];
   defaultModelId: string;
+  availability: ProviderAvailability;
 }
+
+export type ProviderAvailability =
+  | { status: 'available' }
+  | { status: 'unavailable'; reason: string };
+
+const PAGE_DIRECT_PROVIDER_UNAVAILABLE =
+  'Provider implementation is not available in this build.';
 
 const ANTHROPIC_MODELS: readonly ModelDef[] = [
   { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', contextWindowTokens: 200_000 },
@@ -74,6 +82,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     byok: createApiKeySlot('anthropic', 'Anthropic API key', 'https://console.anthropic.com/settings/keys'),
     models: ANTHROPIC_MODELS,
     defaultModelId: 'claude-opus-4-8',
+    availability: { status: 'unavailable', reason: PAGE_DIRECT_PROVIDER_UNAVAILABLE },
   },
   openrouter: {
     id: 'openrouter',
@@ -82,6 +91,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     byok: createApiKeySlot('openrouter', 'OpenRouter API key', 'https://openrouter.ai/keys'),
     models: OPENROUTER_MODELS,
     defaultModelId: 'anthropic/claude-opus-4.8',
+    availability: { status: 'unavailable', reason: PAGE_DIRECT_PROVIDER_UNAVAILABLE },
   },
   gemini: {
     id: 'gemini',
@@ -90,6 +100,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     byok: createApiKeySlot('gemini', 'Gemini API key', 'https://aistudio.google.com/apikey'),
     models: GEMINI_MODELS,
     defaultModelId: 'gemini-3.5-flash',
+    availability: { status: 'unavailable', reason: PAGE_DIRECT_PROVIDER_UNAVAILABLE },
   },
   ollama: {
     id: 'ollama',
@@ -98,6 +109,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     byok: createBaseUrlSlot('ollama', 'Ollama base URL', 'https://ollama.com', 'http://localhost:11434'),
     models: OLLAMA_MODELS,
     defaultModelId: 'llama3.1:8b',
+    availability: { status: 'unavailable', reason: PAGE_DIRECT_PROVIDER_UNAVAILABLE },
   },
 };
 
@@ -119,4 +131,8 @@ export function providerById(id: ProviderId): ProviderDef {
 
 export function modelsFor(id: ProviderId): readonly ModelDef[] {
   return PROVIDERS[id].models;
+}
+
+export function providerUnavailableReason(def: ProviderDef): string | null {
+  return def.availability.status === 'unavailable' ? def.availability.reason : null;
 }

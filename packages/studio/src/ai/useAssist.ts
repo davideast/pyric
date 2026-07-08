@@ -167,11 +167,13 @@ export interface UseAssistResult {
   cancel: () => void;
   /** True when the active provider has no API key (run reports an error state). */
   missingKey: boolean;
+  /** Present when the selected provider cannot run in this build. */
+  disabledReason: string | null;
 }
 
 /** React hook: one assist, wired to the active `LlmClient`. */
 export function useAssist(opts: UseAssistOptions): UseAssistResult {
-  const { client, missingKey } = useLlmClient();
+  const { client, missingKey, disabledReason } = useLlmClient();
   const [state, setState] = useState<AssistState>(INITIAL_ASSIST_STATE);
   const runRef = useRef<AssistRun | null>(null);
 
@@ -182,7 +184,7 @@ export function useAssist(opts: UseAssistOptions): UseAssistResult {
         setState({
           ...INITIAL_ASSIST_STATE,
           status: 'error',
-          error: 'No API key set. Add one in Settings to use AI assists.',
+          error: disabledReason ?? 'No API key set. Add one in Settings to use AI assists.',
         });
         return;
       }
@@ -197,12 +199,12 @@ export function useAssist(opts: UseAssistOptions): UseAssistResult {
         setState,
       );
     },
-    [client, opts.tools, opts.toolContext, opts.systemPrompt],
+    [client, disabledReason, opts.tools, opts.toolContext, opts.systemPrompt],
   );
 
   const cancel = useCallback(() => runRef.current?.cancel(), []);
 
   useEffect(() => () => runRef.current?.cancel(), []);
 
-  return { state, run, cancel, missingKey };
+  return { state, run, cancel, missingKey, disabledReason };
 }

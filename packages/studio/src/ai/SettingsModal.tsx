@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { PROVIDER_LIST, PROVIDERS, type ProviderId } from './providers.js';
+import { PROVIDER_LIST, PROVIDERS, providerUnavailableReason, type ProviderId } from './providers.js';
 import { makeLlmClient } from './inference.js';
 import { ModelSelector } from './ModelSelector.js';
 import './ai.css';
@@ -48,6 +48,7 @@ function ProviderRow({ providerId }: { providerId: ProviderId }) {
   const def = PROVIDERS[providerId];
   const slot = def.byok;
   const isUrl = slot.kind === 'baseUrl';
+  const unavailableReason = providerUnavailableReason(def);
   const [draft, setDraft] = useState(() => slot.getKey() ?? '');
   const [saved, setSaved] = useState(() => slot.hasKey());
   const [test, setTest] = useState<TestState>({ kind: 'idle' });
@@ -74,8 +75,8 @@ function ProviderRow({ providerId }: { providerId: ProviderId }) {
     <section className="ai-set__row" data-pyric-provider={providerId}>
       <div className="ai-set__rowhead">
         <span className="ai-set__name">{def.label}</span>
-        <span className="ai-set__status" data-state={saved ? 'set' : 'unset'}>
-          {saved ? 'key set' : 'no key'}
+        <span className="ai-set__status" data-state={unavailableReason ? 'unavailable' : saved ? 'set' : 'unset'}>
+          {unavailableReason ? 'unavailable' : saved ? 'key set' : 'no key'}
         </span>
       </div>
       <div className="ai-set__field">
@@ -87,8 +88,14 @@ function ProviderRow({ providerId }: { providerId: ProviderId }) {
           autoComplete="off"
           placeholder={isUrl ? 'http://localhost:11434' : slot.label}
           onChange={(e) => setDraft(e.target.value)}
+          disabled={!!unavailableReason}
         />
-        <button type="button" className="ai-set__btn ai-set__btn--primary" onClick={save} disabled={!draft.trim()}>
+        <button
+          type="button"
+          className="ai-set__btn ai-set__btn--primary"
+          onClick={save}
+          disabled={!!unavailableReason || !draft.trim()}
+        >
           Save
         </button>
         <button type="button" className="ai-set__btn" onClick={clear}>
@@ -98,19 +105,25 @@ function ProviderRow({ providerId }: { providerId: ProviderId }) {
           type="button"
           className="ai-set__btn"
           onClick={() => void runTest()}
-          disabled={!draft.trim() || test.kind === 'testing'}
+          disabled={!!unavailableReason || !draft.trim() || test.kind === 'testing'}
         >
           {test.kind === 'testing' ? 'Testing…' : 'Test'}
         </button>
       </div>
-      {test.kind === 'ok' || test.kind === 'error' ? (
+      {unavailableReason ? (
+        <p className="ai-set__test" data-state="error">
+          {unavailableReason}
+        </p>
+      ) : test.kind === 'ok' || test.kind === 'error' ? (
         <p className="ai-set__test" data-state={test.kind}>
           {test.message}
         </p>
       ) : null}
-      <a className="ai-set__help" href={slot.helpUrl} target="_blank" rel="noreferrer">
-        Get a key for {def.label} →
-      </a>
+      {!unavailableReason ? (
+        <a className="ai-set__help" href={slot.helpUrl} target="_blank" rel="noreferrer">
+          Get a key for {def.label} →
+        </a>
+      ) : null}
     </section>
   );
 }

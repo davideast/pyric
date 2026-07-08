@@ -24,6 +24,7 @@ import {
   DEFAULT_MODEL_ID,
   providerById,
   modelsFor,
+  providerUnavailableReason,
 } from './providers.js';
 import { setProvider, setModel, setEffort, getSelection } from './llm-store.js';
 
@@ -41,6 +42,12 @@ describe('providers registry', () => {
   it('exposes each provider default model within its own list', () => {
     for (const def of PROVIDER_LIST) {
       expect(def.models.some((m) => m.id === def.defaultModelId)).toBe(true);
+    }
+  });
+
+  it('marks page-direct providers unavailable until implementations exist', () => {
+    for (const def of PROVIDER_LIST) {
+      expect(providerUnavailableReason(def)).toContain('not available');
     }
   });
 
