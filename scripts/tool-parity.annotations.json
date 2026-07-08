@@ -1,0 +1,73 @@
+{
+  "_readme": "Exposure decisions for the tool parity audit (scripts/tool-parity.mjs). Every tool visible on any surface (MCP bridge / playground agent / pyric-tools registry) must be recorded here as 'gap' (absence is a defect to fix) or 'deliberate' (absence is design, with the reason). Unannotated tools fail `bun run tool:parity --check`. Seeded from docs/design/TOOL-SYSTEM.md's exposure matrix.",
+  "tools": {
+    "inspect_firestore_traffic": {
+      "decision": "gap",
+      "reason": "missing from MCP — an external agent debugging rules needs the same visibility the playground agent has"
+    },
+    "inspect_denial": {
+      "decision": "gap",
+      "reason": "missing from MCP — the killer feature must be reachable from Claude Code"
+    },
+    "try_rules_edit": {
+      "decision": "gap",
+      "reason": "missing from MCP — rules iteration from an external agent is a core story"
+    },
+    "generate_fixture_from_session": {
+      "decision": "gap",
+      "reason": "missing from MCP — pairs with `pyric verify`, an external-agent workflow"
+    },
+    "simulate_firestore_write": {
+      "decision": "deliberate",
+      "reason": "ok per TOOL-SYSTEM.md — exposed via bridge rules tools (firestore_simulate_rules) and the playground diagnostic; verify arg parity between the two implementations"
+    },
+    "list_files": {
+      "decision": "deliberate",
+      "reason": "workspace file tool, playground-only — external agents have their own filesystem; exposing a second one invites split-brain"
+    },
+    "search_file": {
+      "decision": "deliberate",
+      "reason": "workspace file tool, playground-only — external agents have their own filesystem; exposing a second one invites split-brain"
+    },
+    "read_file": {
+      "decision": "deliberate",
+      "reason": "workspace file tool, playground-only — external agents have their own filesystem; exposing a second one invites split-brain"
+    },
+    "edit_file": {
+      "decision": "deliberate",
+      "reason": "workspace file tool, playground-only — external agents have their own filesystem; exposing a second one invites split-brain"
+    },
+    "write_file": {
+      "decision": "deliberate",
+      "reason": "workspace file tool, playground-only — external agents have their own filesystem; exposing a second one invites split-brain"
+    },
+    "delete_file": {
+      "decision": "deliberate",
+      "reason": "workspace file tool, playground-only — external agents have their own filesystem; exposing a second one invites split-brain"
+    },
+    "bash": {
+      "decision": "deliberate",
+      "reason": "VFS shell, playground-only — same reason as the workspace file tools; external agents have their own shell"
+    },
+    "workspace_checkpoints": {
+      "decision": "deliberate",
+      "reason": "session-workspace concern, playground-only — external agents use real git"
+    },
+    "workspace_git": {
+      "decision": "deliberate",
+      "reason": "session-workspace concern, playground-only — external agents use real git"
+    },
+    "github_create_repo": {
+      "decision": "deliberate",
+      "reason": "session-workspace publish flow, playground-only — external agents use real git/GitHub directly"
+    },
+    "github_push_branch": {
+      "decision": "deliberate",
+      "reason": "session-workspace publish flow, playground-only — external agents use real git/GitHub directly"
+    },
+    "github_create_pull_request": {
+      "decision": "deliberate",
+      "reason": "session-workspace publish flow, playground-only — external agents use real git/GitHub directly"
+    }
+  }
+}
