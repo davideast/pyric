@@ -96,6 +96,7 @@ import type {
 } from 'pyric/auth';
 import {
   ADMIN_APP_TARGET,
+  getApp,
   type PyricAdminApp,
   type ProdAdminApp,
   type SandboxAdminApp,
@@ -835,7 +836,12 @@ function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp {
 }
 
 /**
- * Return an `Auth` handle for the given app.
+ * Return an `Auth` handle for the given app — or for the DEFAULT app when
+ * called with no argument (mirrors firebase-admin's no-arg `getAuth()`:
+ * resolves `'[DEFAULT]'` through `pyric-admin/app`'s registry and throws
+ * `app/no-app` when nothing has been initialized). Works on all three
+ * arms — local sandbox, remote sandbox, prod — since dispatch happens on
+ * whatever brand the resolved app carries.
  *
  * Dispatches on the brand symbol set by `pyric-admin/app`'s
  * `initializeApp`:
@@ -869,7 +875,12 @@ function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp {
  * console.log(decoded.uid, decoded.role); // 'alice' 'admin'
  * ```
  */
-export function getAuth(app: PyricAdminApp): Auth {
+export function getAuth(app?: PyricAdminApp): Auth {
+  if (app === undefined) {
+    // No-arg mirror of firebase-admin's `getAuth()` — resolve the
+    // '[DEFAULT]' app from the registry (throws app/no-app on a miss).
+    app = getApp();
+  }
   if (app === null || typeof app !== 'object' || !(ADMIN_APP_TARGET in app)) {
     throw new TypeError(
       'pyric-admin/auth: getAuth expected a PyricAdminApp (from pyric-admin/app#initializeApp). ' +

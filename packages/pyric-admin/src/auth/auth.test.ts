@@ -14,19 +14,31 @@
  *     `not implemented in pyric-admin/auth sandbox backend` message.
  */
 
-import { describe, it, expect } from 'bun:test';
+import { afterEach, describe, it, expect } from 'bun:test';
 
 import { initializeSandbox } from 'pyric/sandbox';
 
-import { initializeApp, ADMIN_APP_TARGET } from '../app/index.js';
+import { initializeApp, deleteApp, getApps, ADMIN_APP_TARGET } from '../app/index.js';
 import { getAuth, SANDBOX_TOKEN_PREFIX } from './index.js';
+
+// The app registry is module-global (mirror of firebase-admin's
+// defaultAppStore) — deregister every app after each test so unnamed
+// `initializeApp({ sandbox })` calls don't collide across tests.
+afterEach(async () => {
+  await Promise.all(getApps().map((app) => deleteApp(app)));
+});
 
 describe('getAuth — Phase 3 dispatch', () => {
   it('rejects values that are not PyricAdminApp with a clear TypeError', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => getAuth(null as any)).toThrow(TypeError);
+    // `undefined` is the no-arg mirror: it resolves the default app from
+    // the registry and (with none initialized) throws firebase-admin's
+    // app/no-app error, not the entry-guard TypeError.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => getAuth(undefined as any)).toThrow(TypeError);
+    expect(() => getAuth(undefined as any)).toThrow(
+      /The default Firebase app does not exist/,
+    );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => getAuth({} as any)).toThrow(/ADMIN_APP_TARGET brand/);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -61,6 +73,7 @@ describe('getAuth — Phase 3 dispatch', () => {
         options: { projectId: 'test-project' },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any,
+      name: 'auth-test-prod',
     };
     let err: unknown;
     try {

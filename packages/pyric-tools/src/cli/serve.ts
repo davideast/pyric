@@ -30,6 +30,15 @@ import { createCaptureStore } from '../serve/capture-store.js';
 import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
+import {
+  buildChildEnv,
+  detectPackageManager,
+  readDevScript,
+  registerModuleUrl,
+  resolveDevChild,
+  spawnDevChild,
+  type DevChildHandle,
+} from './dev-runner.js';
 
 interface HostingConfig {
   public?: string;
@@ -545,15 +554,59 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     void openBrowser(runtime.uiUrl ?? runtime.handle.url);
   }
 
+  // The child runner ("one command, not two"): run the user's own dev
+  // command with the sandbox environment injected. Precedence: `-- <cmd>`
+  // wins; else the package.json dev script; else host-only. --no-run forces
+  // host-only; --json defaults to host-only (explicit `--` still wins).
+  const cwd = process.cwd();
+  const plan = resolveDevChild({
+    passthrough: parsed.passthrough ?? [],
+    noRun: Boolean(parsed.flags.get('no-run')),
+    json,
+    devScript: readDevScript(cwd),
+    packageManager: detectPackageManager(cwd),
+  });
+
+  let devChild: DevChildHandle | null = null;
+  if (plan) {
+    const info = json ? process.stderr : process.stdout;
+    info.write(
+      `✔ run      \`${plan.label}\` — firebase-admin/firebase imports are routed to the sandbox at ${runtime.handle.url}\n`,
+    );
+    devChild = spawnDevChild(plan, {
+      cwd,
+      json,
+      env: buildChildEnv(process.env, {
+        serveUrl: runtime.handle.url,
+        registerUrl: registerModuleUrl(),
+      }),
+    });
+  }
+
   return await new Promise<number>((resolveExit) => {
-    const shutdown = (): void => {
-      (json ? process.stderr : process.stdout).write('\nShutting down...\n');
+    let settled = false;
+    const finish = (code: number): void => {
+      if (settled) return;
+      settled = true;
       void runtime.handle.stop().then(
-        () => resolveExit(0),
-        () => resolveExit(0),
+        () => resolveExit(code),
+        () => resolveExit(code),
       );
     };
-    process.once('SIGINT', shutdown);
-    process.once('SIGTERM', shutdown);
+    const shutdown = (signal: NodeJS.Signals): void => {
+      (json ? process.stderr : process.stdout).write('\nShutting down...\n');
+      if (devChild && devChild.child.exitCode === null) {
+        // Forward the signal; the child's exit (below) closes the host.
+        // (The terminal delivers Ctrl-C to the whole group too — the
+        // forward makes non-TTY / programmatic signals behave the same.)
+        devChild.signal(signal);
+      } else {
+        finish(0);
+      }
+    };
+    // Child exits → close the host and propagate its code (Ctrl-C → 0).
+    if (devChild) void devChild.exited.then((code) => finish(code));
+    process.once('SIGINT', () => shutdown('SIGINT'));
+    process.once('SIGTERM', () => shutdown('SIGTERM'));
   });
 }
