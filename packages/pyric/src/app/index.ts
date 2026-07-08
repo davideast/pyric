@@ -12,7 +12,7 @@
  *   - `initializeApp(firebaseConfig)` — prod-backed app handle (live).
  *   - Adapter dispatch (the `getFirestore(app)` etc. wrappers) is
  *     **deferred to cutover**: the adapter subpaths still re-export
- *     from `@pyric/firestore` / `@pyric/auth` / etc., which take their
+ *     from `pyric/firestore` / `pyric/auth` / etc., which take their
  *     own per-backend handles. Implementing the wrap requires hiding
  *     the existing `getFirestore` overloads behind the unified
  *     handle, which lands cleanly when source folds into
@@ -28,7 +28,7 @@ import { initializeApp as initializeFirebaseApp, type FirebaseApp, type Firebase
 /**
  * Brand symbol on every PyricApp. Adapter dispatch reads this to
  * route between sandbox and prod backends. Mirrors the
- * `TARGET_SYMBOL` pattern that `@pyric/firestore` uses internally.
+ * `TARGET_SYMBOL` pattern that `pyric/firestore` uses internally.
  */
 export const APP_TARGET = Symbol.for('pyric.app.target');
 

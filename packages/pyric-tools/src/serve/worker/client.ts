@@ -244,7 +244,7 @@ function wirePort(port: MessagePort): void {
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).
         if (sub.error) sub.error(err);
-        else console.error('@pyric/firestore: Uncaught Error in snapshot listener:', err);
+        else console.error('pyric/firestore: Uncaught Error in snapshot listener:', err);
         return;
       }
       sub.next(msg.value);

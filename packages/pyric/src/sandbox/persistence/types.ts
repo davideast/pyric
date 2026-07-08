@@ -1,5 +1,5 @@
 /**
- * Public types for `@pyric/sandbox` persistence. The sandbox itself is
+ * Public types for `pyric/sandbox` persistence. The sandbox itself is
  * an in-memory dev Firestore; persistence lets a host (browser
  * playground, agent harness) snapshot the sandbox's data to a backend
  * and restore it on next init — turning the sandbox into the local

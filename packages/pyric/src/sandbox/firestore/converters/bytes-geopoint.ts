@@ -10,7 +10,7 @@
  * Two problems with that:
  *
  *   1. Rules evaluator detects these types via `instanceof
- *      `@pyric/firestore-rules`.Bytes` / `instanceof LatLng` — a
+ *      `pyric/rules`.Bytes` / `instanceof LatLng` — a
  *      `fb.Bytes` instance fails both checks, so `data.b is bytes`
  *      returns false.
  *   2. The admin-compat read-path walker in `snapshots.ts` walks any
@@ -39,7 +39,7 @@
  *      `instanceof`.
  *
  * Idempotency: each converter rejects its own output (our
- * `@pyric/firestore-rules` wrapper) by `instanceof` check, so a second
+ * `pyric/rules` wrapper) by `instanceof` check, so a second
  * resolver pass is a no-op.
  */
 import { KEEP, type ValueConverter } from '../value-resolver.js';

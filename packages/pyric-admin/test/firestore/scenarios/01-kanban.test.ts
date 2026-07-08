@@ -1,5 +1,5 @@
 /**
- * Scenario 1: Task Management (Kanban) — migrated through @pyric/sandbox.
+ * Scenario 1: Task Management (Kanban) — migrated through pyric/sandbox.
  *
  * Identical assertions to the SDK-side `scenarios/01-kanban.test.ts`,
  * but operations dispatch through `getFirestore(sandbox)` instead of

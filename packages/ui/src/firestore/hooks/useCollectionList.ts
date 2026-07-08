@@ -16,7 +16,7 @@ export interface UseCollectionListOptions {
    * Injected collection-listing function. The library doesn't ship
    * a default — the modular Web SDK doesn't expose `listCollections`
    * on the client. Sandbox-backed apps usually wire
-   * `@pyric/sandbox`'s in-process listing; production apps either
+   * `pyric/sandbox`'s in-process listing; production apps either
    * pass a known list (e.g. from a schema) or call a server proxy.
    */
   listCollections: (

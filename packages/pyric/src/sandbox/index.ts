@@ -1,15 +1,15 @@
 /**
- * `@pyric/sandbox` — sandbox host (foundation). Provides the
+ * `pyric/sandbox` — sandbox host (foundation). Provides the
  * `Sandbox` type, the `SandboxContext` identity handle, the
  * `initializeSandbox` factory, and the `SandboxError` family.
  *
- * Service handles live in sibling packages (`@pyric/admin` for the
+ * Service handles live in sibling packages (`pyric-admin` for the
  * Admin-SDK-shaped chainable Firestore adapter, future
- * `@pyric/firestore` for the modular Web SDK adapter,
- * `@pyric/auth`/`@pyric/database`/`@pyric/storage` later) and consume
+ * `pyric/firestore` for the modular Web SDK adapter,
+ * `pyric/auth`/`pyric/database`/`pyric/storage` later) and consume
  * `SandboxContext` from here.
  *
- * Adapter packages also reach into `@pyric/sandbox/internal` for the
+ * Adapter packages also reach into `pyric/sandbox/internal` for the
  * non-public protocol (`getInternalEnv`, etc.). See
  * the design rationale and
  * the design rationale for the design rationale.

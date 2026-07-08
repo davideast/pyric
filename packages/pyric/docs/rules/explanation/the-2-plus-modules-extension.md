@@ -50,7 +50,7 @@ This is deliberate. We did not want to extend the rules language in any way that
 6. **Rewrite** the version to `'2'` and clear the import list.
 7. **Assemble** the AST back to a rules source string.
 
-The output is a standard `'2'` rules source with the imports gone and the relevant helpers inlined. You feed that to `firebase deploy` (or to `@pyric/deploy`'s release primitive) and Firebase is none the wiser.
+The output is a standard `'2'` rules source with the imports gone and the relevant helpers inlined. You feed that to `firebase deploy` (or to `pyric-tools/deploy`'s release primitive) and Firebase is none the wiser.
 
 ## Why prefix only private functions
 

@@ -5,7 +5,7 @@
  * balances and receiver existence, self-transfer blocked, immutable transfers.
  * Stdlib: auth, lifecycle, validation
  *
- * Migrated through `@pyric/sandbox` — operations dispatch through
+ * Migrated through `pyric/sandbox` — operations dispatch through
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  */
 import { describe, test, expect } from 'bun:test';

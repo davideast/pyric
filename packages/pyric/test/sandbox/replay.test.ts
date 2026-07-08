@@ -1,5 +1,5 @@
 /**
- * Tests for the replay engine exported from `@pyric/sandbox`.
+ * Tests for the replay engine exported from `pyric/sandbox`.
  *
  * Each test captures an event stream via `sandbox.history()`, then
  * hands it to `replay(events, rules)` and asserts the classification

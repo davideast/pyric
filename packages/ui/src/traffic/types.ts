@@ -1,8 +1,8 @@
 /**
  * The traffic domain types. `TrafficEvent` is structurally identical
- * to `@pyric/sandbox`'s `RequestEvent` (locked in
+ * to `pyric/sandbox`'s `RequestEvent` (locked in
  * the design rationale) — but the library defines its
- * own copy so it never imports `@pyric/sandbox`. `sandbox.onRequest`
+ * own copy so it never imports `pyric/sandbox`. `sandbox.onRequest`
  * is assignable as a `TrafficSource` with zero adapter code; a prod
  * log feed can satisfy the same shape.
  */
@@ -77,7 +77,7 @@ export interface TrafficEvent {
 
 /**
  * A subscription function: register a callback, get back an
- * unsubscribe. `@pyric/sandbox`'s `Sandbox.onRequest` matches this
+ * unsubscribe. `pyric/sandbox`'s `Sandbox.onRequest` matches this
  * signature exactly.
  */
 export type TrafficSource = (

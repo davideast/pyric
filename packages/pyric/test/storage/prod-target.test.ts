@@ -1,5 +1,5 @@
 /**
- * `@pyric/storage` prod target — surface + routing tests.
+ * `pyric/storage` prod target — surface + routing tests.
  *
  * These tests don't hit a real Firebase Storage bucket (that's
  * emulator/integration territory). They verify:

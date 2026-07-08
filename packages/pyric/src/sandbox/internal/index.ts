@@ -1,13 +1,13 @@
 /**
- * `@pyric/sandbox/internal` — adapter-only protocol surface.
+ * `pyric/sandbox/internal` — adapter-only protocol surface.
  *
- * Service adapter packages (`@pyric/admin`, future `@pyric/firestore`,
- * `@pyric/auth`, etc.) consume this subpath to reach the underlying
+ * Service adapter packages (`pyric-admin`, future `pyric/firestore`,
+ * `pyric/auth`, etc.) consume this subpath to reach the underlying
  * `LocalEnvironment` and any other primitives that need to flow
  * through the sandbox boundary.
  *
  * **Not part of the public API.** The shape is subject to change
- * without breaking-change semantics across `@pyric/sandbox` versions.
+ * without breaking-change semantics across `pyric/sandbox` versions.
  * External adapter authors shouldn't rely on this — when the protocol
  * stabilizes (post-multi-service architecture) it'll be promoted.
  *
@@ -75,7 +75,7 @@ export * from '../firestore/converters/bytes-geopoint.js';
 export * from '../firestore/snapshot-listeners.js';
 // Wire-encoder: produces Firestore JSON wire-format from sandbox
 // values. Used by the discover crawler's sandbox adapter (in
-// @pyric/firestore/discover) to bridge LocalEnvironment ↔ the wire
+// pyric/firestore/discover) to bridge LocalEnvironment ↔ the wire
 // decoder.
 export * from '../firestore/wire-encoder.js';
 

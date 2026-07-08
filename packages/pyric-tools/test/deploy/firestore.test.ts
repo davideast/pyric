@@ -1,7 +1,6 @@
 /**
- * `pyric-tools/deploy.firestore` unit tests. Moved from
- * `packages/firestore/test/admin.test.ts` (Slice 4) and reshaped
- * to take `ProjectScope` per F3.
+ * `pyric-tools/deploy` Firestore unit tests. Reshaped to take
+ * `ProjectScope` per F3.
  *
  * Network calls are stubbed via `fetch` mocks. Integration against
  * the live REST APIs is a separate test pass that needs OAuth tokens.

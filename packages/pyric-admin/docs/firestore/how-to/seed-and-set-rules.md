@@ -24,7 +24,7 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
 }
 ```
 
-`setRules` returns the `LintResult` from `pyric/firestore-rules`. Check warnings before treating the deploy as successful. If the source has parse errors, the rules are *not* swapped — `setRules` is consistent with `LocalEnvironment.deployRules` on that point.
+`setRules` returns the `LintResult` from `pyric/rules`. Check warnings before treating the deploy as successful. If the source has parse errors, the rules are *not* swapped — `setRules` is consistent with `LocalEnvironment.deployRules` on that point.
 
 ## Seed initial data
 
@@ -92,5 +92,5 @@ adminDb.seed({ documents: before });
 
 ## Where to look next
 
-- For lint warning shapes, see [`pyric/firestore-rules` lint rules](../../../firestore-rules/docs/reference/lint-rules.md).
+- For lint warning shapes, see [`pyric/rules` lint rules](../../../../pyric/docs/rules/reference/lint-rules.md).
 - For why these methods live on the data-plane handle rather than the sandbox itself, see [Why mirror the admin SDK shape](../explanation/why-mirror-admin-shape.md).

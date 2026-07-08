@@ -36,7 +36,7 @@ The same ISO string is forwarded to the Firebase Rules Test API when you run via
 Pass the test suite to the linter and look for `REQUEST_TIME_NOT_PINNED`:
 
 ```ts
-import { lintFirestoreRules } from 'pyric/firestore-rules';
+import { lintFirestoreRules } from 'pyric/rules';
 
 const result = lintFirestoreRules(source, { testCases });
 const unpinned = result.warnings.filter((w) => w.rule === 'REQUEST_TIME_NOT_PINNED');

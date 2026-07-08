@@ -49,10 +49,10 @@ sandboxOps.seedDocuments(db, ...); // throws 'failed-precondition'
 sandboxOps.snapshotState(db);     // throws 'failed-precondition'
 ```
 
-The sandbox namespace operations are sandbox-only by design. On prod, deploy rules through `@pyric/deploy`:
+The sandbox namespace operations are sandbox-only by design. On prod, deploy rules through `pyric-tools/deploy`:
 
 ```ts
-import { fromServiceAccount, firestore } from '@pyric/deploy';
+import { fromServiceAccount, firestore } from 'pyric-tools/deploy';
 
 const scope = await fromServiceAccount('./service-account.json');
 await firestore.rules.deploy(scope, `rules_version = '2'; ...`);
@@ -77,7 +77,7 @@ The CLI reads your local `firestore.rules` and pushes it.
 If you're running the demo as part of a larger script:
 
 ```ts
-import { fromServiceAccount, firestore } from '@pyric/deploy';
+import { fromServiceAccount, firestore } from 'pyric-tools/deploy';
 
 const scope = await fromServiceAccount('./service-account.json');
 await firestore.rules.deploy(scope, `rules_version = '2';
@@ -135,6 +135,6 @@ There's no proxy, no wrapper, no overhead. The package is mostly the dispatch la
 
 ## Where to go next
 
-- For deploying rules to prod, see [`@pyric/deploy`'s firestore namespace](../../../deploy/docs/reference/firestore-namespace.md).
+- For deploying rules to prod, see [`pyric-tools/deploy`'s firestore namespace](../../../../pyric-tools/docs/deploy/reference/firestore-namespace.md).
 - For why the two-backend story works, see [Why two backends behind one surface](../explanation/two-backends-one-surface.md).
 - For a real migration from `firebase/firestore`, see [Migrate from `firebase/firestore`](../how-to/migrate-from-firebase-firestore.md).

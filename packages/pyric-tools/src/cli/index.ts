@@ -150,8 +150,8 @@ COMMANDS
                              database.url, then default instance discovery.
   hosting:channel:deploy     Mirror of \`deploy hosting --channel <channelId>\`
                              (firebase-tools spelling) — identical behavior.
-  rules:lint                 Run firestore-rules linter against a file.
-  rules:validate             Validate firestore-rules structure against a file.
+  rules:lint                 Run Firestore rules linter against a file.
+  rules:validate             Validate Firestore rules structure against a file.
   rules:simulate             Local rules simulator (smoke-test or --stdin scripted).
   database:rules:lint        Run Realtime Database rules JSON expression linter.
   database:rules:validate    Validate Realtime Database rules JSON expressions.

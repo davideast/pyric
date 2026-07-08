@@ -1,5 +1,5 @@
 /**
- * Tool factories for `@pyric/firestore` per F1.
+ * Tool factories for `pyric/firestore` per F1.
  *
  * `createFirestoreDataTools({ resolveDb })` wraps the modular
  * Web-SDK Firestore data plane as `ToolHandler[]`. The resolver

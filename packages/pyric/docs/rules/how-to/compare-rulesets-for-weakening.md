@@ -7,7 +7,7 @@ When you ship a rules change, the most dangerous mistake is silently removing a 
 Pass the previously-deployed source as `options.previousSource`:
 
 ```ts
-import { lintFirestoreRules } from 'pyric/firestore-rules';
+import { lintFirestoreRules } from 'pyric/rules';
 
 const result = lintFirestoreRules(newSource, { previousSource: oldSource });
 
@@ -48,7 +48,7 @@ Then in your check script:
 
 ```ts
 import { readFileSync } from 'node:fs';
-import { lintFirestoreRules } from 'pyric/firestore-rules';
+import { lintFirestoreRules } from 'pyric/rules';
 
 const previousSource = readFileSync('previous.rules', 'utf-8');
 const newSource = readFileSync('firestore.rules', 'utf-8');

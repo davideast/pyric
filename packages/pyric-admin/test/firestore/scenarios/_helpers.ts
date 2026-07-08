@@ -3,7 +3,7 @@
  * "given rules + seed, this op is allowed/denied" without the
  * try/catch/withAuth ceremony at every callsite.
  *
- * Why migrate scenario tests through `@pyric/sandbox` at all (rather
+ * Why migrate scenario tests through `pyric/sandbox` at all (rather
  * than continue using `LocalEnvironment.execute` directly):
  *
  *   - Scenario tests double as the largest corpus of "does this rule

@@ -22,7 +22,7 @@
  * edits without manual remembering.
  *
  * Run:
- *   bun packages/firestore-rules/scripts/inline-stdlib.ts
+ *   bun packages/pyric/scripts/inline-stdlib.ts
  */
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

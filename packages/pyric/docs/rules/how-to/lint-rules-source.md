@@ -5,7 +5,7 @@ This guide shows you how to lint a Firestore rules source and act on the result.
 ## Lint a string
 
 ```ts
-import { lintFirestoreRules } from 'pyric/firestore-rules';
+import { lintFirestoreRules } from 'pyric/rules';
 
 const result = lintFirestoreRules(source);
 ```
@@ -32,7 +32,7 @@ Pre-parse syntax hints (JS-isms like `===`, `?.`, `??`, backtick strings) fire e
 
 ## Block deploys on errors only
 
-`warnings` mixes severities. The deploy path in `@pyric/deploy` refuses to swap a ruleset when any warning has `severity: 'error'`. Mirror that behaviour:
+`warnings` mixes severities. The deploy path in `pyric-tools/deploy` refuses to swap a ruleset when any warning has `severity: 'error'`. Mirror that behaviour:
 
 ```ts
 const errors = result.warnings.filter((w) => w.severity === 'error');

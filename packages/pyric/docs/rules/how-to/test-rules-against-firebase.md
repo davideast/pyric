@@ -6,10 +6,10 @@ The Rules Test API does not deploy the rules — it evaluates them against your 
 
 ## You need a `ProjectScope`
 
-`TestFirestoreRulesHandler.execute` takes a `ProjectScope` from `@pyric/deploy` — a `{ projectId, resolveToken }` pair. Build it from a service-account file:
+`TestFirestoreRulesHandler.execute` takes a `ProjectScope` from `pyric-tools/deploy` — a `{ projectId, resolveToken }` pair. Build it from a service-account file:
 
 ```ts
-import { fromServiceAccount } from '@pyric/deploy';
+import { fromServiceAccount } from 'pyric-tools/deploy';
 
 const scope = await fromServiceAccount('./service-account.json');
 ```
@@ -17,7 +17,7 @@ const scope = await fromServiceAccount('./service-account.json');
 Or build one by hand from any OAuth source — for example, the current Firebase Auth user in a browser host:
 
 ```ts
-import type { ProjectScope } from '@pyric/deploy';
+import type { ProjectScope } from 'pyric-tools/deploy';
 
 const scope: ProjectScope = {
   projectId: 'your-project-id',
@@ -31,7 +31,7 @@ const scope: ProjectScope = {
 import {
   TestFirestoreRulesHandler,
   type TestCase,
-} from 'pyric/firestore-rules';
+} from 'pyric/rules';
 
 const handler = new TestFirestoreRulesHandler();
 const result = await handler.execute(scope, source, testCases);
@@ -69,7 +69,7 @@ Two common patterns:
 import {
   SimulateFirestoreRulesHandler,
   TestFirestoreRulesHandler,
-} from 'pyric/firestore-rules';
+} from 'pyric/rules';
 
 const sim = new SimulateFirestoreRulesHandler();
 const local = sim.simulate(source, testCases);
@@ -101,5 +101,5 @@ Each `execute` call is one HTTP round-trip plus rule evaluation on Google's serv
 ## Where to look next
 
 - For the tradeoffs between local and live evaluation, see [Simulator vs Rules Test API](../explanation/simulator-vs-rules-test-api.md).
-- For the `ProjectScope` contract and `fromServiceAccount`, see the [`@pyric/deploy` package](../../../deploy/README.md).
+- For the `ProjectScope` contract and `fromServiceAccount`, see the [`pyric-tools/deploy` package](../../../../pyric-tools/docs/deploy/README.md).
 - For all error codes the handler can return, see [Errors](../reference/errors.md).

@@ -51,7 +51,7 @@ These were the *real* rules used in production. Tested locally first means the e
 
 ## Why the rule engine is local to this package
 
-`pyric/firestore-rules` is a sibling-package answer to the same problem for Firestore — parse, lint, simulate. We didn't reuse it because the Storage rules grammar is different from the Firestore rules grammar. Different identifiers (`request.resource.contentType` doesn't exist in Firestore), different verbs (`read` / `write` vs `read` / `write` / `get` / `list` / `create` / `update` / `delete`), different evaluation contexts.
+`pyric/rules` is a sibling-package answer to the same problem for Firestore — parse, lint, simulate. We didn't reuse it because the Storage rules grammar is different from the Firestore rules grammar. Different identifiers (`request.resource.contentType` doesn't exist in Firestore), different verbs (`read` / `write` vs `read` / `write` / `get` / `list` / `create` / `update` / `delete`), different evaluation contexts.
 
 A separate parser + evaluator for Storage rules avoided the headache of multiplexing two grammars in one package. It also kept the rule subset small — the Storage rules v1 scope covers what session archives needed, nothing more.
 

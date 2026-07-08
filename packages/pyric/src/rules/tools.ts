@@ -1,5 +1,5 @@
 /**
- * Tool factories for `@pyric/firestore-rules` per F1.
+ * Tool factories for `pyric/rules` per F1.
  *
  *   - `createFirestoreRulesTools()`: pure-local rules tooling
  *     (lint, parse, resolve-modules, simulate) + the Rules Test API
@@ -31,7 +31,7 @@ import {
 } from './simulator-tools-impl.js';
 
 // Re-exported for back-compat with consumers that imported the type
-// from `@pyric/firestore-rules/node` (where this file is exposed).
+// from `pyric/rules/node` (where this file is exposed).
 export type FirestoreSimulatorToolDeps = Pick<
   FirestoreSimulatorToolDepsImpl,
   'resolveSandbox'
@@ -103,12 +103,12 @@ export function createFirestoreRulesTools(
 
   if (deps.scope) {
     const scope = deps.scope;
-    // Note: `firestore_get_rules` is NOT added here. `@pyric/deploy`'s
+    // Note: `firestore_get_rules` is NOT added here. `pyric-tools/deploy`'s
     // `createFirestoreDeployTools` already exposes a tool with that
     // name (returning raw rules source); composeMcpRegistry would
     // reject the duplicate. Browser callers that want the parsed
     // inspect (AST + summary + findings) wire `createFirestoreInspectTool`
-    // directly from `@pyric/firestore-rules` — see playground's
+    // directly from `pyric/rules` — see playground's
     // `firestore-rules-inspect.ts`.
     handlers.push({
       name: 'firestore_test_rules',

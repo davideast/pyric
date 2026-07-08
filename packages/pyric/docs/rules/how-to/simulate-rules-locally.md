@@ -8,7 +8,7 @@ This guide shows you how to evaluate Firestore rules in-process against a list o
 import {
   SimulateFirestoreRulesHandler,
   type TestCase,
-} from 'pyric/firestore-rules';
+} from 'pyric/rules';
 
 const handler = new SimulateFirestoreRulesHandler();
 const result = handler.simulate(source, testCases);

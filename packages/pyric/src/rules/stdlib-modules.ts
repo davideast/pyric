@@ -16,7 +16,7 @@
  *       request-time and existing-doc state. Accessed as paths
  *       (`request.auth.uid`), not callables.
  *   `user-module` — reusable libraries shipped under
- *       `packages/firestore-rules/src/modules/stdlib/` (auth,
+ *       `packages/pyric/src/rules/modules/stdlib/` (auth,
  *       validation, lobby, …). Imported via
  *       `import { isAuthenticated } from 'auth';` after
  *       `rules_version = '2+modules';`. Functions called bare after

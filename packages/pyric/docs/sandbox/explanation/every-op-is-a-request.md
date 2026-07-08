@@ -151,7 +151,7 @@ A few things in this v1 shape that we'd reconsider once consumers exist:
 
 - **Inner per-doc filter visibility.** Opt-in flag for the "why was doc X filtered out" use case.
 - **Transaction reads.** Plumb the transaction read path through the request channel.
-- **Rule source positions.** `matchedRule.line` and `matchedRule.column` — requires upstream AST work in `pyric/firestore-rules`. The biggest single ergonomic win available, and the most invasive.
+- **Rule source positions.** `matchedRule.line` and `matchedRule.column` — requires upstream AST work in `pyric/rules`. The biggest single ergonomic win available, and the most invasive.
 - **`getCalls` runtime tracing.** If a consumer says "I need to see the actual paths the rule visited," this is mechanical to add — patch the simulator's `resolveGet` to thread an array through `SimulationContext`. Currently skipped because no consumer asked.
 
 None of these are blocking. They're notes for when someone needs them.

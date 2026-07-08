@@ -8,7 +8,7 @@
  * The MCP SDK's `server.tool()` / `server.registerTool()` insist on
  * Zod schemas for input validation. Pyric's tool definitions are
  * plain JSON Schema (matching the inline shape in
- * `packages/firestore-rules/src/tools.ts`), so the bridge converts
+ * `packages/pyric/src/rules/tools.ts`), so the bridge converts
  * just-in-time when registering each tool with the MCP server.
  */
 

@@ -8,7 +8,7 @@ import { coerceError } from './coerceError.js';
 import type { SubscriptionState } from './useFirestoreDoc.js';
 
 /**
- * Subscribe to a Firestore query (a `Query` from `@pyric/firestore`'s
+ * Subscribe to a Firestore query (a `Query` from `pyric/firestore`'s
  * modular surface, including any `CollectionReference`, which extends
  * `Query`). Returns `{ data, error, isLoading }`.
  *

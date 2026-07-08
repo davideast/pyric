@@ -24,7 +24,7 @@ export interface UseStorageObjectResult {
   blob: Blob | undefined;
   /**
    * `URL.createObjectURL` handle for the loaded blob, the preview
-   * channel (no `getDownloadURL` in `@pyric/storage`; blob URLs work
+   * channel (no `getDownloadURL` in `pyric/storage`; blob URLs work
    * identically sandbox/prod). Revoked automatically when the blob
    * is replaced, the path changes, or the hook unmounts.
    */

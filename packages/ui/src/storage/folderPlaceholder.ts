@@ -8,7 +8,7 @@ import { ref as refFn, type FirebaseStorage, type StorageReference } from 'pyric
  * refs with the same `(storage, fullPath)` are equal), so a plain
  * object is a legal reference — the only way to express a `<path>/`
  * name past `ref()`'s slash normalization. Sandbox targets accept
- * it; prod targets throw (the `@pyric/storage` follow-up routes prod
+ * it; prod targets throw (the `pyric/storage` follow-up routes prod
  * through the REST `name=<path>/` channel — see the P2 step-00 doc).
  */
 export function folderPlaceholderRef(

@@ -4,7 +4,7 @@ import { VirtualList } from '../../primitives/VirtualList.js';
 
 /**
  * Both backends carry `.ref` on snapshots at runtime, but the
- * `@pyric/firestore` modular interface omits it. Pull it through
+ * `pyric/firestore` modular interface omits it. Pull it through
  * a structural cast — safe because the property is guaranteed by
  * the underlying SDKs.
  */

@@ -19,13 +19,13 @@ export type StorageRulesGateStatus = 'idle' | 'loading' | 'ready' | 'error';
  *   (`getStorageSandbox(ctx, { rules })`), read off the handle's
  *   `StorageService`.
  * - `'none'` — no rules reachable. Every verdict allows
- *   (open-by-default, the same semantics `@pyric/storage`'s
+ *   (open-by-default, the same semantics `pyric/storage`'s
  *   enforcement layer applies when no rules are configured).
  */
 export type StorageRulesSource = 'option' | 'sandbox' | 'none';
 
 /**
- * Per-path verdict. `@pyric/storage`'s rules subset has exactly two
+ * Per-path verdict. `pyric/storage`'s rules subset has exactly two
  * verbs (`read` | `write` — the granular get/list/create/update/
  * delete forms are a parser follow-up), so `delete` and `upload` are
  * DERIVED aliases of `write`: Firebase Storage's `write` permission
@@ -146,7 +146,7 @@ interface RulesState {
  * `identity` explicitly and treat verdicts as advisory (`advisory:
  * true` — the server is authoritative).
  *
- * Evaluation contract (mirrors `@pyric/storage`'s own enforcement):
+ * Evaluation contract (mirrors `pyric/storage`'s own enforcement):
  * `resource` (the existing object) is bound as `null` — the gate
  * pre-evaluates without fetching per-path metadata, matching how the
  * sandbox enforces `listAll`. Rules conditioned on existing-object

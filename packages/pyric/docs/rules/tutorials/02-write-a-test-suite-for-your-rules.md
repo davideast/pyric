@@ -46,7 +46,7 @@ import { readFileSync } from 'node:fs';
 import {
   SimulateFirestoreRulesHandler,
   type TestCase,
-} from 'pyric/firestore-rules';
+} from 'pyric/rules';
 
 const source = readFileSync('./firestore.rules', 'utf-8');
 

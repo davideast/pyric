@@ -130,4 +130,4 @@ The concrete `SandboxContext` class. Exported so service factories can `instance
 
 - `LocalEnvironment` and other adapter primitives live at `pyric/sandbox/internal`. See [The `/internal` adapter protocol](./internal-protocol.md).
 - Data-plane APIs (`getDoc`, `setDoc`, `collection`, transactions, etc.) live in `pyric-admin` and `pyric/firestore`.
-- Rules tooling (parser, linter, simulator) lives in `pyric/firestore-rules`.
+- Rules tooling (parser, linter, simulator) lives in `pyric/rules`.

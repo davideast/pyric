@@ -1,5 +1,5 @@
 // Build the REAL denial fixtures BEFORE installing JSDOM globals.
-// `@pyric/firestore-rules`' OHM parser hits cross-realm checks that fail
+// `pyric/rules`' OHM parser hits cross-realm checks that fail
 // once JSDOM replaces `globalThis` (see bunfig.toml note + render-hook
 // helper). Running the simulator here, pre-JSDOM, sidesteps that — the
 // component itself never touches the parser, so DOM rendering is safe.

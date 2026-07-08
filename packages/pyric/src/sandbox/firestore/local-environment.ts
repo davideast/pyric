@@ -228,7 +228,7 @@ function nextRequestEventId(): string {
  * Parse `Rule #N (ops...) → ALLOW/deny` lines out of the simulator's
  * debug messages. The simulator emits one such line per evaluated rule
  * in the matched match block (see `evaluateRules` in
- * `@pyric/firestore-rules/simulator/handler.ts`). For allowed outcomes
+ * `pyric/rules/handler.ts`). For allowed outcomes
  * the last `→ ALLOW` rule wins; for denials we surface the first rule
  * that even tried to match this op-set.
  */

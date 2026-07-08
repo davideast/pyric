@@ -3,7 +3,7 @@
  *
  * Drives `LocalEnvironment.execute` / `batch` / `addSnapshotListener`
  * directly via `getInternalEnv()` so the test doesn't depend on the
- * data-plane adapter packages — keeps `@pyric/sandbox` self-contained.
+ * data-plane adapter packages — keeps `pyric/sandbox` self-contained.
  * The admin/firestore packages will exercise the same surface
  * end-to-end in their own integration tests.
  */
@@ -90,9 +90,9 @@ describe('Sandbox.onRequest', () => {
   });
 
   it('pins the simulator debug-message format that matchedRule parsing depends on', () => {
-    // Cross-package contract: @pyric/firestore-rules's simulator
+    // Cross-package contract: pyric/rules's simulator
     // emits "Rule #N (op1,op2) → ALLOW/deny/unsupported: ..." and
-    // @pyric/sandbox's parseMatchedRule regex consumes it. If the
+    // pyric/sandbox's parseMatchedRule regex consumes it. If the
     // simulator changes the format silently (different arrow,
     // different capitalisation, parentheses gone) matchedRule becomes
     // undefined for every event — no test would notice unless we pin

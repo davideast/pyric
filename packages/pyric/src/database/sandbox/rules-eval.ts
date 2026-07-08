@@ -130,7 +130,7 @@ export class RulesEvaluator {
     // The simulator's SimulationInputSchema requires `auth` to be
     // either `null` or `{ uid: string, token: Record<string, unknown> }` —
     // `token` is mandatory, not optional. `AuthState` from
-    // `@pyric/sandbox` makes `token` optional. Normalise here so an
+    // `pyric/sandbox` makes `token` optional. Normalise here so an
     // auth identity without custom claims (`{ uid: 'alice' }`) still
     // satisfies the schema and the rule sees `auth.token = {}`.
     const normalisedAuth =

@@ -21,7 +21,7 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
 }
 ```
 
-`setRules` returns the `LintResult` from `pyric/firestore-rules`. Source with parse errors is not swapped — check warnings.
+`setRules` returns the `LintResult` from `pyric/rules`. Source with parse errors is not swapped — check warnings.
 
 ## Seed data
 
@@ -75,9 +75,9 @@ sandbox.seedDocuments(db, {}); // throws
 sandbox.snapshotState(db);     // throws
 ```
 
-On prod, deploy rules through `@pyric/deploy.firestore.rules.deploy`. There's no equivalent for `seedDocuments` (populate via writes) or `snapshotState` (no efficient bulk-read API).
+On prod, import `firestore` from `pyric-tools/deploy` and call `firestore.rules.deploy(...)`. There's no equivalent for `seedDocuments` (populate via writes) or `snapshotState` (no efficient bulk-read API).
 
 ## Where to look next
 
 - For the reference page covering all three operations, see [Sandbox-only operations](../reference/sandbox-ops.md).
-- For prod rule deploys, see [`@pyric/deploy`'s firestore namespace](../../../deploy/docs/reference/firestore-namespace.md).
+- For prod rule deploys, see [`pyric-tools/deploy`'s firestore namespace](../../../../pyric-tools/docs/deploy/reference/firestore-namespace.md).

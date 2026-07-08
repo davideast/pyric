@@ -1,6 +1,6 @@
 # AST
 
-The AST is the typed tree produced by `parseToAST` / `parseToASTOrError`. Every shape is exported from `pyric/firestore-rules`.
+The AST is the typed tree produced by `parseToAST` / `parseToASTOrError`. Every shape is exported from `pyric/rules`.
 
 ## Root: `FirestoreRules`
 

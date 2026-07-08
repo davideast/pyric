@@ -123,7 +123,7 @@ export interface Query {
    * already on the query — same implicit-AND semantics as multiple
    * `where()` calls. To OR multiple predicates, wrap them with
    * `{ kind: 'or', filters: [...] }` before calling. Backs the
-   * modular `or()` / `and()` constraints in `@pyric/firestore`.
+   * modular `or()` / `and()` constraints in `pyric/firestore`.
    */
   applyFilter(filter: Filter): Query;
   orderBy(field: string, direction?: OrderDirection): Query;
@@ -369,7 +369,7 @@ export class FirestoreCompatError extends Error {
   readonly code: FirestoreErrorCode;
   /**
    * The structured `FirestoreSimError` this throw was built from. Kept
-   * as a back-channel so downstream wrappers (`@pyric/sandbox`) can
+   * as a back-channel so downstream wrappers (`pyric/sandbox`) can
    * read the eval-time `request`/`resource` context without re-parsing
    * the message string. Production Admin SDK has no equivalent — this
    * field is sandbox-only and intentionally not surfaced on `Error`'s

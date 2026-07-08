@@ -49,7 +49,7 @@ export interface UseTrafficMonitorResult {
 
 /**
  * Buffers a traffic stream into a capped ring buffer with
- * pause/resume/clear. Decoupled from `@pyric/sandbox` — `source` is
+ * pause/resume/clear. Decoupled from `pyric/sandbox` — `source` is
  * just a `(cb) => unsubscribe` function.
  *
  * Pause is consumer-side: while paused, the subscription stays

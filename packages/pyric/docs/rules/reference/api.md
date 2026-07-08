@@ -1,6 +1,6 @@
 # Public API
 
-This page describes every symbol re-exported from `pyric/firestore-rules`. Symbols are grouped by submodule and listed alphabetically within each group.
+This page describes every symbol re-exported from `pyric/rules`. Symbols are grouped by submodule and listed alphabetically within each group.
 
 ## Parser and AST
 
@@ -142,7 +142,7 @@ Calls Google's Firebase Rules Test API.
 
 - `execute(scope: ProjectScope, source: string, testCases: TestCase[]): Promise<TestFirestoreRulesResult>`
 
-`ProjectScope` comes from `@pyric/deploy`.
+`ProjectScope` comes from `pyric-tools/deploy`.
 
 ### Types
 

@@ -1,5 +1,5 @@
 /**
- * IndexedDB persistence layer for `@pyric/storage`.
+ * IndexedDB persistence layer for `pyric/storage`.
  *
  * One database (`pyric-storage` by default), two object stores —
  * `blobs` for the file content and `metadata` for the descriptive

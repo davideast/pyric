@@ -10,7 +10,7 @@ import { renderHook, act, waitFor } from '../../helpers/render-hook.js';
 
 // Shared sandbox + Firestore handle. `buildQuery` calls `query()`
 // and `where()` against the input — both refuse refs not produced
-// by @pyric/firestore factories.
+// by pyric/firestore factories.
 const sandbox = initializeSandbox();
 const firestore = getFirestore(sandbox.withAuth({ uid: 'tester' }));
 const baseColl = collFn(firestore, 'users');

@@ -1,6 +1,6 @@
 # Standard library modules
 
-Fifteen modules ship with `pyric/firestore-rules`. Each module is a `.rules` file living under `src/rules/modules/stdlib/`; imports resolve automatically without any configuration.
+Fifteen modules ship with `pyric/rules`. Each module is a `.rules` file living under `src/rules/modules/stdlib/`; imports resolve automatically without any configuration.
 
 Use them by setting `rules_version = '2+modules'` and adding import statements:
 

@@ -76,7 +76,7 @@ import {
 // Composite filters: Each query carries an array of `Filter` values.
 // Multiple filters AND together (matching multiple `where()` calls).
 // Composite OR / AND filters are introduced by `Query.applyFilter`
-// (which `@pyric/firestore`'s `or()` / `and()` modular factories
+// (which `pyric/firestore`'s `or()` / `and()` modular factories
 // route through).
 // ─────────────────────────────────────────────────────────────────────────
 

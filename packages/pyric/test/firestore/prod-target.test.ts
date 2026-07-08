@@ -1,5 +1,5 @@
 /**
- * `@pyric/firestore` prod target — smoke + routing tests.
+ * `pyric/firestore` prod target — smoke + routing tests.
  *
  * These tests don't hit a real Firestore (that's emulator/integration
  * territory). They verify:

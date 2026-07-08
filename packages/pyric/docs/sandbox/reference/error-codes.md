@@ -73,7 +73,7 @@ These don't have a production analog. They exist so callers can distinguish "the
 
 ### `'unimplemented'`
 
-The sandbox doesn't yet model a feature your rule uses. Returned from the simulator's `UnsupportedError` channel surfaced through this code. For most agent workflows the right response is to route the offending case to the live Firebase Rules Test API — see [`pyric/firestore-rules`](../../../firestore-rules/docs/explanation/simulator-vs-rules-test-api.md).
+The sandbox doesn't yet model a feature your rule uses. Returned from the simulator's `UnsupportedError` channel surfaced through this code. For most agent workflows the right response is to route the offending case to the live Firebase Rules Test API — see [`pyric/rules`](../../rules/explanation/simulator-vs-rules-test-api.md).
 
 ### `'not-seeded'`
 

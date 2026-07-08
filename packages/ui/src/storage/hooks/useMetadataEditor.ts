@@ -174,7 +174,7 @@ export interface UseMetadataEditorResult {
    * Serialize the draft to an `updateMetadata` patch. Empty
    * `contentType`/`cacheControl` become `undefined` — which LEAVES
    * the previous value (the sandbox doesn't model null-clears; see
-   * `@pyric/storage`'s `updateMetadata` doc). `customMetadata` is
+   * `pyric/storage`'s `updateMetadata` doc). `customMetadata` is
    * always included and replaces wholesale, so row removal works.
    */
   toPatch: () => SettableMetadata;

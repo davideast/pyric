@@ -148,7 +148,7 @@ service cloud.firestore {
   // `results[]` for the UNSUPPORTED case but the handler short-circuits
   // before it materializes. Was tolerated previously via a
   // `continue-on-error: true` CI step; the tests now run under
-  // @pyric/sandbox where the test gate is strict, so
+  // pyric/sandbox where the test gate is strict, so
   // explicit skip preserves the rest of the suite while the underlying
   // bug stays in the queue.
   test.skip('debug message includes "unsupported:" prefix for the failing rule', () => {

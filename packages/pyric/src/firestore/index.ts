@@ -1,5 +1,5 @@
 /**
- * `@pyric/firestore` — modular Web-SDK Firestore adapter for the
+ * `pyric/firestore` — modular Web-SDK Firestore adapter for the
  * Pyric sandbox.
  *
  * Mirrors `firebase/firestore`'s tree-shakable free-function shape:
@@ -7,8 +7,8 @@
  * `onSnapshot`, `runTransaction`, etc. All operations route to one of
  * two backends, picked at init time:
  *
- *   - **Sandbox target** — wraps `@pyric/admin`'s chainable adapter,
- *     which sits on `@pyric/sandbox`'s `LocalEnvironment`. No
+ *   - **Sandbox target** — wraps `pyric-admin`'s chainable adapter,
+ *     which sits on `pyric/sandbox`'s `LocalEnvironment`. No
  *     network. Identity comes from a `SandboxContext`.
  *   - **Prod target** — wraps `firebase/firestore` against a real
  *     Firebase project. Identity comes from `firebase/auth`'s
@@ -81,7 +81,7 @@ import { APP_TARGET, type PyricApp } from 'pyric/app';
  * between sandbox and prod backends so free functions can route
  * without consumer-visible API differences.
  */
-export const TARGET_SYMBOL: unique symbol = Symbol('@pyric/firestore/target');
+export const TARGET_SYMBOL: unique symbol = Symbol('pyric/firestore/target');
 
 type SandboxTarget = { kind: 'sandbox'; db: SandboxFirestore; sandbox: Sandbox };
 /**
@@ -94,7 +94,7 @@ type SandboxTarget = { kind: 'sandbox'; db: SandboxFirestore; sandbox: Sandbox }
  * obtains a chainable handle bound to that ctx.
  *
  * Wired into the modular surface so app code that uses both
- * `@pyric/auth` and `@pyric/firestore` against the same `Sandbox` sees
+ * `pyric/auth` and `pyric/firestore` against the same `Sandbox` sees
  * live auth-state changes: a `signInAnonymously` / `setUser` call on
  * the auth side mutates `sandbox.currentUser`, and the next Firestore
  * op evaluates rules under the new identity.
@@ -146,7 +146,7 @@ function tag<T extends object>(obj: T, target: Target): T {
  * *current* `currentUser` rather than the auth that was active when
  * the ref was first built.
  *
- * Necessary because `@pyric/admin`'s chainable refs capture auth at
+ * Necessary because `pyric-admin`'s chainable refs capture auth at
  * construction time — calling `chainRef.get()` on a held ref runs
  * under the auth from when the ref was built, not from when the op
  * fires. For sandbox-live, every op must construct a fresh chainable
@@ -182,7 +182,7 @@ function chainDocFor(
   const rebuild = sandboxLiveRebuild.get(underlying);
   if (!rebuild) {
     throw new TypeError(
-      '@pyric/firestore: live ref missing rebuild closure — was it produced by a factory in this package?',
+      'pyric/firestore: live ref missing rebuild closure — was it produced by a factory in this package?',
     );
   }
   return rebuild(sandboxDb(target)) as ChainDocRef;
@@ -198,7 +198,7 @@ function chainCollFor(
   const rebuild = sandboxLiveRebuild.get(underlying);
   if (!rebuild) {
     throw new TypeError(
-      '@pyric/firestore: live collection ref missing rebuild closure.',
+      'pyric/firestore: live collection ref missing rebuild closure.',
     );
   }
   return rebuild(sandboxDb(target)) as ChainCollRef;
@@ -214,7 +214,7 @@ function chainQueryFor(
   const rebuild = sandboxLiveRebuild.get(underlying);
   if (!rebuild) {
     throw new TypeError(
-      '@pyric/firestore: live query missing rebuild closure.',
+      'pyric/firestore: live query missing rebuild closure.',
     );
   }
   return rebuild(sandboxDb(target)) as ChainQuery;
@@ -251,7 +251,7 @@ function parentRebuild(parent: object): (db: SandboxFirestore) => object {
   if (fn) return fn;
   // Frozen-ctx target. The chainable parent ref is bound to the same
   // ctx for life; returning it as-is is correct because frozen-ctx
-  // chaining is what `@pyric/admin`'s adapter already supports.
+  // chaining is what `pyric-admin`'s adapter already supports.
   return () => underlying;
 }
 
@@ -262,7 +262,7 @@ function targetOf(refOrDb: object): Target {
   const t = refToTarget.get(refOrDb);
   if (!t) {
     throw new TypeError(
-      '@pyric/firestore: unrecognized reference — was it produced by a factory in this package?',
+      'pyric/firestore: unrecognized reference — was it produced by a factory in this package?',
     );
   }
   return t;
@@ -360,7 +360,7 @@ export interface Firestore {
  *     scenario.
  *   - `Sandbox` → sandbox-backed Firestore that reads
  *     `sandbox.currentUser` per-call. Best for app code that drives
- *     identity through `@pyric/auth` — every Firestore op evaluates
+ *     identity through `pyric/auth` — every Firestore op evaluates
  *     rules under whatever user is currently signed in.
  *   - `FirebaseApp` → prod-backed Firestore (delegates to
  *     `firebase/firestore`'s `getFirestore(app)`).
@@ -373,7 +373,7 @@ export interface Firestore {
  * const sandbox = initializeSandbox();
  * const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
  *
- * // Sandbox, live identity (app code paired with @pyric/auth).
+ * // Sandbox, live identity (app code paired with pyric/auth).
  * import { initializeSandbox } from 'pyric/sandbox';
  * import { getAuth, signInAnonymously } from 'pyric/auth';
  * const sandbox = initializeSandbox();
@@ -535,12 +535,12 @@ function isSandboxContext(target: SandboxContext | Sandbox | FirebaseApp): targe
 
 /**
  * Structural test for the `Sandbox` overload. The class is internal
- * to `@pyric/sandbox` (not exported), so we recognize it by the
+ * to `pyric/sandbox` (not exported), so we recognize it by the
  * presence of `currentUser` + `onCurrentUserChanged` + `withAuth` +
  * `admin` — the four members that distinguish `Sandbox` from
  * `SandboxContext` (which has `withAuth` only) and `FirebaseApp`
  * (which has none). Tightening to a brand symbol would require an
- * `@pyric/sandbox` change; structural recognition is safe here
+ * `pyric/sandbox` change; structural recognition is safe here
  * because every member of this set has been on `Sandbox` since v0
  * and `FirebaseApp` would have to grow all four to collide.
  */
@@ -558,10 +558,10 @@ function isSandbox(target: SandboxContext | Sandbox | FirebaseApp): target is Sa
 /**
  * Build the per-call ctx-resolver for a `sandbox-live` target. Each
  * call reads `sandbox.currentUser` (the source of truth that
- * `@pyric/auth` writes through to), constructs a fresh
+ * `pyric/auth` writes through to), constructs a fresh
  * `SandboxContext`, and returns the chainable Firestore handle bound
  * to it. Constructing per-call is cheap — `SandboxContext` is a tiny
- * object — and `@pyric/admin`'s `getFirestore(ctx)` caches by ctx
+ * object — and `pyric-admin`'s `getFirestore(ctx)` caches by ctx
  * identity via WeakMap, so the chainable is collected once the ctx
  * is.
  *
@@ -697,7 +697,7 @@ function targetMatch(a: object, b: object): Target {
   const bSandbox = isSandboxKind(tb);
   if (aSandbox !== bSandbox) {
     throw new TypeError(
-      '@pyric/firestore: cannot compare references / queries / snapshots across different targets.',
+      'pyric/firestore: cannot compare references / queries / snapshots across different targets.',
     );
   }
   return ta;
@@ -929,8 +929,8 @@ function vectorValuesOf(value: unknown): number[] | null {
 /**
  * Final read-path translation for sandbox-target snapshots.
  *
- * The admin-compat read-path walker (in `@pyric/sandbox`'s admin-compat
- * `snapshots.ts`) leaves `@pyric/firestore-rules` wrappers (`Bytes`,
+ * The admin-compat read-path walker (in `pyric/sandbox`'s admin-compat
+ * `snapshots.ts`) leaves `pyric/rules` wrappers (`Bytes`,
  * `LatLng`) as identity — it can't translate them to
  * `firebase/firestore`'s `Bytes` / `GeoPoint` because the admin-compat
  * layer doesn't depend on `firebase/firestore`.
@@ -1047,7 +1047,7 @@ export async function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promi
     // Normalize `.exists` to method form + tag the snap's ref so
     // consumers get Firebase-modular-SDK shape uniformly.
     tagSnapshotRefs(snap, target);
-    // Wrap .data() to translate `@pyric/firestore-rules` wrappers
+    // Wrap .data() to translate `pyric/rules` wrappers
     // (Bytes / LatLng) into `firebase/firestore` types so reads match
     // prod's instanceof semantics. Closes firestore #109 + #110.
     return wrapSandboxDocSnap<T>(snap as object);
@@ -1372,7 +1372,7 @@ function composite(
 ): QueryConstraint {
   if (filters.length === 0) {
     throw new TypeError(
-      `@pyric/firestore: ${kind}() requires at least one filter argument.`,
+      `pyric/firestore: ${kind}() requires at least one filter argument.`,
     );
   }
   const sandboxSubs: ChainFilter[] = [];
@@ -1380,7 +1380,7 @@ function composite(
   for (const c of filters) {
     if (c._sandboxFilter === undefined || c._fbFilter === undefined) {
       throw new TypeError(
-        `@pyric/firestore: ${kind}() received a non-filter constraint (orderBy / limit are not valid here).`,
+        `pyric/firestore: ${kind}() received a non-filter constraint (orderBy / limit are not valid here).`,
       );
     }
     sandboxSubs.push(c._sandboxFilter);
@@ -1707,7 +1707,7 @@ export function onSnapshot(
     // ever sees it. Without this, `snap.ref` / `snap.docs[i].ref`
     // come back from the chainable adapter untagged, and the next
     // `onSnapshot(ref, …)` / `setDoc(ref, …)` throws
-    // "@pyric/firestore: unrecognized reference."
+    // "pyric/firestore: unrecognized reference."
     const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target);
     // Thread the live-vs-frozen marker down to the chainable adapter so
     // it can set `addSnapshotListener`'s `followsCurrentUser` flag. The
@@ -1759,7 +1759,7 @@ function resolveSandboxListenable(
   const rebuild = sandboxLiveRebuild.get(underlying);
   if (!rebuild) {
     throw new TypeError(
-      '@pyric/firestore: live ref missing rebuild closure for onSnapshot.',
+      'pyric/firestore: live ref missing rebuild closure for onSnapshot.',
     );
   }
   return rebuild(sandboxDb(target)) as unknown as { onSnapshot: (...args: unknown[]) => Unsubscribe };
@@ -1889,7 +1889,7 @@ function finalizeSandboxSnapshot(snap: unknown, target: Target): unknown {
  */
 function defaultSnapshotErrorHandler(error: unknown): void {
   // eslint-disable-next-line no-console
-  console.error('@pyric/firestore: Uncaught Error in snapshot listener:', error);
+  console.error('pyric/firestore: Uncaught Error in snapshot listener:', error);
 }
 
 function wrapNext(
@@ -2098,7 +2098,7 @@ export const sandbox = {
     if (!isSandboxKind(target)) {
       throw new SandboxError(
         'failed-precondition',
-        'sandbox.setRules is sandbox-only; use @pyric/deploy.firestore.rules.deploy for prod targets.',
+        'sandbox.setRules is sandbox-only; use firestore.rules.deploy from pyric-tools/deploy for prod targets.',
       );
     }
     return sandboxDb(target).setRules(rules);
@@ -2238,7 +2238,7 @@ function inspectSandbox(sandbox: Sandbox, recentLimit: number): SandboxInspect {
 
 // ─── Sentinels + scalar types ─────────────────────────────────────────
 //
-// Sentinels in pyric ride on `@pyric/admin`'s sentinel objects, which
+// Sentinels in pyric ride on `pyric-admin`'s sentinel objects, which
 // are structurally identical to `firebase/firestore`'s — the simulator
 // recognizes them by `__type` discriminator, and so does production
 // Firestore (their wire format normalizes through the same path). One
@@ -2268,4 +2268,3 @@ export function deleteField(): FieldValueSentinel {
 // ─── Tool factories (Slice 10) ────────────────────────────────────────
 export { createFirestoreDataTools, createFirestoreInspectTools } from './tools.js';
 export type { FirestoreDataToolDeps, UserAuth, As } from './tools.js';
-

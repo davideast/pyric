@@ -4,7 +4,7 @@ This page lists every lint rule emitted by `lintFirestoreRules`. Each entry give
 
 Severities have two values:
 
-- `error` — blocks deploys in `@pyric/deploy`.
+- `error` — blocks deploys in `pyric-tools/deploy`.
 - `warning` — advisory; does not block.
 
 Some rules adjust severity by threshold band; those entries note the bands explicitly.

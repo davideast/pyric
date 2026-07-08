@@ -24,14 +24,14 @@ For each of these, `pyric/sandbox` is the alternative. In-process, browser-safe,
 A re-implementation of the data + rules portion of Firestore, in TypeScript, sized to fit the agent / playground / unit-test use cases:
 
 - The document store is an in-memory `LocalState` map.
-- The rules engine is `pyric/firestore-rules`' `SimulateFirestoreRulesHandler` — also browser-safe.
+- The rules engine is `pyric/rules`' `SimulateFirestoreRulesHandler` — also browser-safe.
 - The transaction system tracks reads and writes per-tx, detects read-after-write violations, projects post-write state for `getAfter()`.
 - Snapshot listeners are first-class: doc and query listeners both implemented, including the production behaviour where stream errors silently terminate the listener.
 - Field-value sentinels (`increment`, `serverTimestamp`, `arrayUnion`) are honoured by the rules engine and the data plane.
 
 What it isn't:
 
-- It isn't bit-for-bit production. The simulator has gaps (some namespace methods on wrapper types aren't modelled yet). It returns `'unsupported'` on those, distinct from `'denied'` — see the `UnsupportedError` discussion in `pyric/firestore-rules`.
+- It isn't bit-for-bit production. The simulator has gaps (some namespace methods on wrapper types aren't modelled yet). It returns `'unsupported'` on those, distinct from `'denied'` — see the `UnsupportedError` discussion in `pyric/rules`.
 - It isn't a network. There's no transport, no quota, no concurrent-connection model. Tests that need to exercise transport-level error codes (`'unavailable'`, `'aborted'` from contention) belong on the emulator or live Firestore.
 - It isn't multi-service yet. Firestore is the only data plane today. Auth state is modelled (because rules need it) but no Auth API is exposed. Realtime Database, Storage, and Functions emulation are out of scope.
 

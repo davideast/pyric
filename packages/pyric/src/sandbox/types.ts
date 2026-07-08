@@ -1,5 +1,5 @@
 /**
- * Public type surface for `@pyric/sandbox`.
+ * Public type surface for `pyric/sandbox`.
  *
  * Kept service-agnostic on purpose: `/app` is the host the rest of the
  * library plugs into. Service modules (`/firestore`, future `/storage`,
@@ -1002,7 +1002,7 @@ export interface Sandbox {
    * the last `reset()`. Returns a defensive copy.
    *
    * Use this for replay: hand the array to `replay(events, rules)`
-   * from `@pyric/sandbox` and the engine re-issues every
+   * from `pyric/sandbox` and the engine re-issues every
    * captured write against a fresh sandbox.
    *
    * Unlike {@link onEvent} (live stream from the moment of subscribe),
@@ -1073,7 +1073,7 @@ export interface Sandbox {
   /**
    * Current authenticated user across the sandbox.
    *
-   * Mutated by `@pyric/auth`'s `signInAnonymously` /
+   * Mutated by `pyric/auth`'s `signInAnonymously` /
    * `signInWithEmailAndPassword` / `signOut` / `sandbox.setUser`. Read
    * per-call by service factories (e.g. a future
    * `getFirestore(sandbox)` overload) so they see auth state changes
@@ -1083,7 +1083,7 @@ export interface Sandbox {
    * **Independent of `withAuth({uid})`** — `withAuth` still produces a
    * frozen {@link SandboxContext} that carries its own identity for
    * the runner's test code (the existing pattern: explicit identity
-   * per service call). `currentUser` exists for the `@pyric/auth`
+   * per service call). `currentUser` exists for the `pyric/auth`
    * mirror, where consumer app code drives identity through a
    * stateful `Auth` handle rather than naming it per call.
    */
@@ -1212,7 +1212,7 @@ export interface Sandbox {
  *
  * Constructed via `Sandbox.withAuth(auth)` or chained via
  * `SandboxContext.withAuth(auth)`. The concrete class is exported
- * from `@pyric/sandbox` for `instanceof` routing in service
+ * from `pyric/sandbox` for `instanceof` routing in service
  * factories; consumers don't construct it directly.
  */
 export interface SandboxContext {

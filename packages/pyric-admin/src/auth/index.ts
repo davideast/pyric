@@ -549,7 +549,7 @@ function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp {
  * The firebase-admin import is dynamic (`require` at call time) so the
  * module's top-level evaluation stays cheap and so sandbox-only
  * consumers do not pay the firebase-admin initialization cost. Mirrors
- * how `@pyric/firestore` defers its firebase init: backends are
+ * how `pyric/firestore` defers its firebase init: backends are
  * pay-for-what-you-use.
  *
  * @example

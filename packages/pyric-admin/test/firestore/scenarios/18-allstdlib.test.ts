@@ -5,7 +5,7 @@
  * turns, state, membership, lifecycle, transitions, geometry.
  * Stdlib: auth, validation, lobby, turns, state, membership, lifecycle, transitions, geometry
  *
- * Migrated through `@pyric/sandbox` — operations dispatch through
+ * Migrated through `pyric/sandbox` — operations dispatch through
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  *
  * NOTE: Lobby tests are stateful — they share `lobbyRoot` so that 'create',

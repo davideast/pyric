@@ -1,7 +1,7 @@
 /**
- * `@pyric/auth/admin` — Identity Toolkit-driven auth tooling.
+ * `pyric/auth/admin` — Identity Toolkit-driven auth tooling.
  *
- * Sibling subpath to `@pyric/auth` (the modular Web-SDK adapter).
+ * Sibling subpath to `pyric/auth` (the modular Web-SDK adapter).
  * Control-plane surface lives here so the swap-in namespace doesn't
  * pull in Identity Toolkit REST clients for browser bundles that just
  * want `getAuth` / `signInAnonymously` / etc.

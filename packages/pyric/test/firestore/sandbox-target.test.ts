@@ -1,8 +1,8 @@
 /**
- * `@pyric/firestore` sandbox target — smoke + parity tests.
+ * `pyric/firestore` sandbox target — smoke + parity tests.
  *
  * Verifies the modular Web-SDK surface routes correctly through to
- * `@pyric/admin`'s chainable adapter on top of `@pyric/sandbox`.
+ * `pyric-admin`'s chainable adapter on top of `pyric/sandbox`.
  * Same operations should produce the same observable outcomes
  * regardless of which adapter (modular vs. chainable) the consumer
  * picks — this is the load-bearing claim for the dual-target design.

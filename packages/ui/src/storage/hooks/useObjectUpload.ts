@@ -17,7 +17,7 @@ export type UploadTaskStatus = 'running' | 'success' | 'error';
  * byte counters and the `onProgress` callback are in the type NOW so
  * a future `uploadBytesResumable`-backed implementation emits real
  * intermediate snapshots without a breaking change. Today
- * (`@pyric/storage` has no resumable uploads — COMPAT) a task
+ * (`pyric/storage` has no resumable uploads — COMPAT) a task
  * completes in one tick: `onProgress` fires once at 0 bytes and once
  * at `totalBytes`.
  */
@@ -97,7 +97,7 @@ export interface UseObjectUploadResult {
    * Sandbox-only today: the JS-SDK-shaped `ref()` normalizes the
    * trailing slash away, so the placeholder is written through a
    * structural value-object reference the sandbox accepts; prod
-   * targets reject it (the `@pyric/storage` follow-up is a
+   * targets reject it (the `pyric/storage` follow-up is a
    * first-class placeholder API routing prod through the REST
    * `name=<path>/` upload). Throws the underlying error after
    * rolling back the optimistic prefix insert.

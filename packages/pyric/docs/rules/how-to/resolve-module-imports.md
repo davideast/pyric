@@ -30,7 +30,7 @@ service cloud.firestore {
 ## Resolve to standard rules
 
 ```ts
-import { resolveModules } from 'pyric/firestore-rules';
+import { resolveModules } from 'pyric/rules/node';
 
 const result = resolveModules(source);
 if (!result.success) {
