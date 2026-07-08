@@ -7,6 +7,7 @@ import {
   type RtdbRulesDocument,
 } from 'pyric/rules/rtdb';
 import { AdminApiError, type ProjectScope } from '../scope.js';
+import { isRtdbRulesDocument } from '../../rtdb/rules-json.js';
 
 const RTDB_ADMIN_API = 'https://firebasedatabase.googleapis.com/v1beta';
 
@@ -61,14 +62,6 @@ function extractDatabaseUrl(instance: unknown): string | null {
   if (typeof name !== 'string') return null;
   const instanceId = name.split('/').filter(Boolean).at(-1);
   return instanceId ? `https://${instanceId}.firebaseio.com` : null;
-}
-
-function isRtdbRulesDocument(value: unknown): value is RtdbRulesDocument {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { toJSON?: unknown }).toJSON === 'function'
-  );
 }
 
 function rulesJsonFromInput(input: RtdbDeployRulesInput): unknown {

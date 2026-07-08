@@ -1,3 +1,5 @@
+import type { RtdbRulesDocument } from 'pyric/rules/rtdb';
+
 export interface RtdbRulesJson {
   rules: Record<string, unknown>;
 }
@@ -12,6 +14,14 @@ export function parseRtdbRulesJson(
 ): RtdbRulesJson {
   if (!isRtdbRulesJson(value)) throw onInvalid();
   return value;
+}
+
+export function isRtdbRulesDocument(value: unknown): value is RtdbRulesDocument {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { toJSON?: unknown }).toJSON === 'function'
+  );
 }
 
 function isRtdbRulesObject(value: unknown): value is Record<string, unknown> {
