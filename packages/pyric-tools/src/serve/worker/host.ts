@@ -270,7 +270,12 @@ function resolveTarget(
 function resolveConstraint(c: QueryConstraintDescriptor): ReturnType<typeof pyricWhere> {
   switch (c.kind) {
     case 'where':
-      return pyricWhere(c.field, c.op as Parameters<typeof pyricWhere>[1], c.value);
+      // Rehydrate the comparison value (same rationale as prepareWriteData,
+      // spike gap 4, applied to READ inputs): over the JSON relay legs a
+      // Node-side Timestamp/Bytes/GeoPoint arrives as its marker shape;
+      // without rehydration the comparison would see a plain map and the
+      // filter would silently mismatch typed stored values.
+      return pyricWhere(c.field, c.op as Parameters<typeof pyricWhere>[1], rehydrateDocValue(c.value));
     // Composite filters rebuild through the modular `and`/`or` factories,
     // which validate operands: an empty composite or a nested non-filter
     // throws the same TypeError the in-page SDK raises (surfaces as an
@@ -285,14 +290,16 @@ function resolveConstraint(c: QueryConstraintDescriptor): ReturnType<typeof pyri
       return pyricLimit(c.n);
     case 'limitToLast':
       return pyricLimitToLast(c.n);
+    // Cursor values rehydrate for the same reason as `where` values —
+    // `startAfter(<timestamp>)` must position against real Timestamps.
     case 'startAt':
-      return pyricStartAt(...c.values);
+      return pyricStartAt(...c.values.map(rehydrateDocValue));
     case 'startAfter':
-      return pyricStartAfter(...c.values);
+      return pyricStartAfter(...c.values.map(rehydrateDocValue));
     case 'endAt':
-      return pyricEndAt(...c.values);
+      return pyricEndAt(...c.values.map(rehydrateDocValue));
     case 'endBefore':
-      return pyricEndBefore(...c.values);
+      return pyricEndBefore(...c.values.map(rehydrateDocValue));
   }
 }
 
@@ -383,6 +390,22 @@ function resolveSentinel(marker: SentinelMarker): unknown {
 }
 
 // ─── Snapshot serialization ───────────────────────────────────────────────
+
+/**
+ * Rebuild a JSON-flattened `Uint8Array` (an index-keyed `{ "0": n, … }`
+ * map) and encode it as base64url without padding — the exact form
+ * `pyric/rules`' `Bytes.toBase64()` emits. Backs the transaction read-set
+ * canonicalizer's handling of prototype-stripped `Bytes` clones.
+ */
+function indexMapToBase64Url(data: unknown): string {
+  const map = (data ?? {}) as Record<string, number>;
+  const keys = Object.keys(map);
+  const bytes = new Uint8Array(keys.length);
+  for (let i = 0; i < keys.length; i++) bytes[i] = map[String(i)] ?? 0;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 
 /**
  * Serialize a document snapshot to cross-port form.
@@ -881,14 +904,25 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
        * `{ ok: false, error: { code: 'aborted' } }` on the wire. The client's
        * retry loop then re-runs `updateFn` with fresh reads.
        *
-       * SERIALIZED-FORM EQUALITY
-       * ------------------------
-       * Comparing JSON strings is valid here because `serializeDocData` uses
-       * `JSON.stringify(data)` on both sides with the same value codec (the
-       * persistence serializer's toJSON markers). Within a single V8 process
-       * (the worker), `JSON.stringify` is deterministic for objects with the
-       * same insertion-order keys, so string equality ↔ deep equality for
-       * the sandbox's doc data.
+       * SERIALIZED-FORM EQUALITY — VIA THE CANONICAL CODEC
+       * ---------------------------------------------------
+       * Both JSON strings are CANONICALIZED before comparison:
+       * `JSON.stringify(rehydrateDocValue(JSON.parse(json)))`. Raw string
+       * equality is NOT safe here even within one process, because the two
+       * read paths yield DIFFERENT wrapper classes for the same stored
+       * value: `getDoc` (what the client's read-set echoes) returns
+       * `firebase/firestore` classes whose `Timestamp.toJSON()` emits
+       * `{ seconds, nanoseconds, type }`, while the transaction's
+       * validation re-read comes through the admin-compat wrapper whose
+       * `Timestamp.toJSON()` emits `{ type, seconds, nanoseconds }` — same
+       * value, different key order, different string. Rehydrating both
+       * sides through the ONE shared codec (`pyric/firestore-values`)
+       * collapses every marker family into the same wrapper classes with
+       * deterministic `toJSON()` key order, so string equality ↔ value
+       * equality again — an unmodified doc can never phantom-abort (which
+       * would livelock the client's retry loop), while a real concurrent
+       * write still mismatches. Plain-map key order is preserved by both
+       * paths from the same stored object, so it stays comparable.
        *
        * NOTE ON tx.set/update/delete SIGNATURE
        * ---------------------------------------
@@ -900,6 +934,50 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
 
       /** Sentinel thrown inside the transaction callback to signal an abort. */
       const TXN_ABORT = Symbol('txn-abort');
+
+      /**
+       * Canonicalize a serialized doc-data JSON string (see
+       * SERIALIZED-FORM EQUALITY above). Two normalization passes:
+       *
+       *   1. `rehydrateDocValue` collapses the marker families (`__type`
+       *      persistence markers and `firebase/firestore` `toJSON()`
+       *      markers) into the one set of wrapper classes, whose
+       *      `toJSON()` re-emits a single deterministic form.
+       *   2. The stringify replacer additionally normalizes PROTOTYPE-
+       *      STRIPPED wrapper clones — the sandbox transaction's
+       *      capture-by-value `structuredClone` turns a stored rules
+       *      wrapper into a plain `{ typeName, … }` object that neither
+       *      marker family matches, so without this pass an unmodified
+       *      typed doc would never compare equal to the client's getDoc
+       *      echo (a guaranteed phantom abort → retry livelock).
+       */
+      const canonicalDocJson = (json: string): string =>
+        JSON.stringify(rehydrateDocValue(JSON.parse(json)), (_key, v) => {
+          if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
+          const o = v as Record<string, unknown>;
+          if (typeof o.typeName !== 'string' || o.__type !== undefined) return v;
+          // Re-shape a stripped rules-wrapper clone into the wrapper's own
+          // canonical toJSON marker form (kept in sync with
+          // pyric/rules' simulator/wrappers/*.toJSON()).
+          switch (o.typeName) {
+            case 'timestamp':
+              return { __type: 'timestamp', seconds: o.seconds, nanos: o.nanos };
+            case 'duration':
+              return { __type: 'duration', seconds: o.seconds, nanos: o.nanos };
+            case 'latlng':
+              return { __type: 'latlng', lat: o.lat, lng: o.lng };
+            case 'reference':
+              return { __type: 'reference', path: o.path };
+            case 'path':
+              return { __type: 'path', segments: o.segments };
+            case 'bytes':
+              // The Uint8Array field serialized as an index-keyed map;
+              // rebuild and emit Bytes.toJSON()'s base64url form.
+              return { __type: 'bytes', base64: indexMapToBase64Url(o.data) };
+            default:
+              return v;
+          }
+        });
 
       try {
         await runTransaction(db, async (tx) => {
@@ -936,7 +1014,11 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
               // Existence changed (created or deleted by another tab).
               throw TXN_ABORT;
             }
-            if (!clientHadNull && !workerHasNull && r.data!.json !== currentSerialized!.json) {
+            if (
+              !clientHadNull &&
+              !workerHasNull &&
+              canonicalDocJson(r.data!.json) !== canonicalDocJson(currentSerialized!.json)
+            ) {
               // Data changed by another tab.
               throw TXN_ABORT;
             }
