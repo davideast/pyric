@@ -49,6 +49,13 @@ export type {
 export { SandboxError } from './types.js';
 export { SandboxContextImpl } from './sandbox-context.js';
 
+// Remote sandbox (slice 1) — the brand + minimal channel contract that
+// lets `pyric-admin` recognize a Node-side handle onto the browser-hosted
+// worker sandbox (constructed by `pyric-tools`' `connectRemoteSandbox`)
+// and route its RTDB/Auth ops over the wire instead of into local state.
+export { REMOTE_SANDBOX, isRemoteSandbox } from './remote.js';
+export type { RemoteSandbox, RemoteSandboxChannel } from './remote.js';
+
 // Replay engine — capture a session via `sandbox.history()` and re-
 // issue every write against a fresh sandbox. See
 // `docs/how-to/replay-events.md`.
