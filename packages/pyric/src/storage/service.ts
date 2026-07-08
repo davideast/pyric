@@ -59,6 +59,17 @@ export interface SandboxTarget {
   readonly context: SandboxContext;
   readonly bucket: string;
   readonly servicePromise: Promise<StorageService>;
+  /**
+   * Rules-bypass admin plane. `true` only on handles minted by the
+   * INTERNAL {@link getAdminStorageSandbox} factory (exported via
+   * `pyric/storage/internal`, never the public surface): operations
+   * on an admin handle skip rule evaluation entirely — the storage
+   * mirror of `getAdminFirestore` / `getAdminDatabase`. The public
+   * modular surface stays rules-honest; this exists so hosts (the
+   * SharedWorker's `actAs: { mode: 'admin' }` lens) can serve
+   * firebase-admin semantics against the same shared store.
+   */
+  readonly admin?: boolean;
 }
 
 /**
@@ -206,6 +217,56 @@ export function getStorageSandbox(
   const handle: FirebaseStorage = Object.freeze({ [TARGET_SYMBOL]: sandboxTarget });
   SANDBOX_HANDLES.set(ctx, handle);
   if (fromBareSandbox) BARE_SANDBOX_HANDLES.set(sandbox, handle);
+  return handle;
+}
+
+/** One rules-bypass admin handle per `Sandbox` (internal admin plane). */
+const ADMIN_SANDBOX_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
+
+/**
+ * INTERNAL (exported via `pyric/storage/internal` only) — construct
+ * (or return cached) the rules-BYPASS admin `FirebaseStorage` handle
+ * for a sandbox. Shares the SAME `StorageService` (one IDB store, one
+ * ruleset) as every rules-honest handle on that sandbox; only rule
+ * evaluation is skipped (see {@link SandboxTarget.admin}). Bucket /
+ * dbName / rules options follow the same first-call-per-`Sandbox`
+ * semantics as {@link getStorageSandbox}.
+ *
+ * This is the storage mirror of `getAdminFirestore` /
+ * `getAdminDatabase` — the handle the SharedWorker host resolves for
+ * `actAs: { mode: 'admin' }` storage ops (firebase-admin semantics
+ * over the bridge). Deliberately NOT on the public `pyric/storage`
+ * surface so the modular API stays rules-honest.
+ */
+export function getAdminStorageSandbox(
+  sandbox: Sandbox,
+  options: StorageOptions = {},
+): FirebaseStorage {
+  const cached = ADMIN_SANDBOX_HANDLES.get(sandbox);
+  if (cached) return cached;
+
+  let servicePromise = SERVICES.get(sandbox);
+  if (!servicePromise) {
+    const rules = options.rules ? parseStorageRules(options.rules) : null;
+    servicePromise = openStorageBackend(options.dbName).then(
+      (backend) => new StorageService(backend, rules),
+    );
+    SERVICES.set(sandbox, servicePromise);
+  }
+
+  const sandboxTarget: SandboxTarget = {
+    kind: 'sandbox',
+    sandbox,
+    // Anonymous context: the admin plane has no acting user. Rules are
+    // bypassed, so the context identity only feeds event provenance
+    // (`auth: null` — same as an anonymous caller).
+    context: sandbox.withAuth(null),
+    bucket: options.bucket ?? DEFAULT_BUCKET,
+    servicePromise,
+    admin: true,
+  };
+  const handle: FirebaseStorage = Object.freeze({ [TARGET_SYMBOL]: sandboxTarget });
+  ADMIN_SANDBOX_HANDLES.set(sandbox, handle);
   return handle;
 }
 

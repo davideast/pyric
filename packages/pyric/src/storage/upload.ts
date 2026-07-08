@@ -78,7 +78,7 @@ export async function uploadBytes(
       }),
     },
     resource: resourceFromStored(existing),
-  });
+  }, target);
   await service.backend.put(ref.fullPath, blob, stored);
   // Land the put on the unified Studio stream. Best-effort: a throw from
   // the emit path must not fail the upload the caller just completed.

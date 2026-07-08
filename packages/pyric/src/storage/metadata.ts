@@ -140,7 +140,7 @@ export async function getMetadata(ref: StorageReference): Promise<FullMetadata> 
       path: ref.fullPath,
     },
     resource: resourceFromStored(stored),
-  });
+  }, target);
   if (!stored) {
     throw objectNotFound(ref.fullPath);
   }
@@ -189,7 +189,7 @@ export async function updateMetadata(
         : undefined,
     },
     resource: resourceFromStored(existing),
-  });
+  }, target);
   if (!existing) {
     throw objectNotFound(ref.fullPath);
   }

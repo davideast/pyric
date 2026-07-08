@@ -87,7 +87,7 @@ export async function deleteObject(ref: StorageReference): Promise<void> {
       path: ref.fullPath,
     },
     resource: resourceFromStored(existing),
-  });
+  }, target);
   await service.backend.delete(ref.fullPath);
   try {
     emitSandboxEvent(
@@ -134,7 +134,7 @@ async function fetchBlob(
       path: ref.fullPath,
     },
     resource: resourceFromStored(existing),
-  });
+  }, target);
   const blob = await service.backend.getBlob(ref.fullPath);
   if (!blob) {
     throw objectNotFound(ref.fullPath);

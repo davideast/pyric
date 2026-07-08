@@ -67,7 +67,7 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
       path: refIn.fullPath,
     },
     resource: null,
-  });
+  }, target);
   const scanPrefix = refIn.fullPath === '' ? '' : `${refIn.fullPath}/`;
   const records = await service.backend.listByPrefix(scanPrefix);
 
