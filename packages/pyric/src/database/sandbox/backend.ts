@@ -101,8 +101,15 @@ export interface ValueListener {
  *   - `child_moved`: ordered-query only; under a plain ref it never
  *     fires (matches the upstream contract — see the matrix M31 +
  *     observation `rtdb-modular-onchildmoved-with-orderby.json`).
- *     Tier 2 currently models the plain-ref no-fire case; ordered-query
- *     wiring lands in Tier 3 with the rest of `query`.
+ *
+ * When a listener carries a {@link ChildListener.spec} (i.e. it was
+ * registered on a `query(ref, ...)`), the add / change / remove events
+ * are computed against the ordered, WINDOWED result (`fanOutQueryChild`):
+ * a child entering the window fires `child_added`, one leaving fires
+ * `child_removed`, an in-window value change fires `child_changed`.
+ * `child_moved` on a query registers but does not fire on reorder — the
+ * reorder / `previousChildName` semantics are held pending two new oracle
+ * captures (matrix row `rtdb-modular#137`).
  */
 export interface ChildListener {
   id: string;
@@ -110,6 +117,28 @@ export interface ChildListener {
   event: 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
   path: string;
   cb: (snap: { key: string; val: JsonValue }) => void;
+  /**
+   * If set, the listener is on a `query(ref, ...constraints)` rather than
+   * a plain ref. Child events are then computed against the ordered,
+   * windowed query result instead of the raw child key-set:
+   *
+   *   - a child ENTERING the window emits `child_added`;
+   *   - a child LEAVING the window emits `child_removed`;
+   *   - an in-window value change emits `child_changed`.
+   *
+   * `child_moved` (reorder within the window) is deliberately NOT emitted
+   * — the reorder / `previousChildName` semantics are held pending two new
+   * oracle captures (matrix row `rtdb-modular#137`). Registering
+   * `onChildMoved` on a query must not throw; it simply never fires on
+   * reorder.
+   */
+  spec?: QuerySpec;
+  /**
+   * Cached last-fired ordered window for a query child listener. The diff
+   * on the next write is computed against this. `undefined` for plain-ref
+   * listeners (they diff the raw child key-set instead).
+   */
+  lastWindow?: QueryRow[];
 }
 
 /**
@@ -1202,6 +1231,7 @@ export class RtdbBackend {
     event: ChildListener['event'],
     path: string,
     cb: (snap: { key: string; val: JsonValue }) => void,
+    spec?: QuerySpec,
   ): () => void {
     const listenerId = this.nextListenerId();
     const at = Date.now();
@@ -1233,14 +1263,43 @@ export class RtdbBackend {
       origin: 'listener',
       detail: { event },
     });
-    const listener: ChildListener = { id: listenerId, auth, event, path, cb };
+    const listener: ChildListener = { id: listenerId, auth, event, path, cb, spec };
     this.childListeners.add(listener);
     this.emitListener('attach', listener, auth, {
       event,
       result: 'allow',
+      detail: spec ? { query: spec } : undefined,
     });
-    // Initial replay — only `child_added` replays existing children.
-    if (event === 'child_added') {
+    // Initial state. A query child listener records its ordered window so
+    // the next write's diff knows what "the previous result" was; a
+    // `child_added` query listener also replays the window (in window
+    // order). A plain-ref listener replays raw direct children.
+    if (spec) {
+      const initialWindow = executeQuery(this.tree.read(path), spec);
+      listener.lastWindow = initialWindow;
+      if (event === 'child_added') {
+        for (const { key, value } of initialWindow) {
+          this.emitListener('delivery', listener, auth, {
+            event,
+            size: 1,
+            sample: { key, val: value },
+            detail: { initial: true, query: true },
+          });
+          try {
+            cb({ key, val: value });
+          } catch (e) {
+            this.emitListener('errored', listener, auth, {
+              event,
+              result: 'error',
+              error: { message: e instanceof Error ? e.message : String(e) },
+              detail: { initial: true, query: true },
+            });
+            // Swallow — see fanOut.
+          }
+        }
+      }
+    } else if (event === 'child_added') {
+      // Initial replay — only `child_added` replays existing children.
       for (const { key, val } of this.directChildren(path)) {
         this.emitListener('delivery', listener, auth, {
           event,
@@ -1361,10 +1420,16 @@ export class RtdbBackend {
    */
   private fanOutChildren(priorByParent: Map<string, Map<string, JsonValue>>): void {
     if (this.childListeners.size === 0) return;
-    // Group listeners by their canonical parent path so we only do
-    // one diff per parent regardless of how many listeners are attached.
+    // Group PLAIN-ref listeners by their canonical parent path so we only
+    // do one diff per parent regardless of how many listeners are attached.
+    // Query listeners diff their ordered window per-listener (below) — the
+    // raw key-set diff would ignore the window/ordering.
     const byParent = new Map<string, ChildListener[]>();
     for (const listener of this.childListeners) {
+      if (listener.spec) {
+        this.fanOutQueryChild(listener);
+        continue;
+      }
       const canonical = joinPath(pathSegments(listener.path));
       const arr = byParent.get(canonical) ?? [];
       arr.push(listener);
@@ -1417,6 +1482,71 @@ export class RtdbBackend {
             // Swallow — see fanOut.
           }
         }
+      }
+    }
+  }
+
+  /**
+   * Fan out a single QUERY child listener after a write, diffing the
+   * ordered window against the listener's last-fired window:
+   *
+   *   - a key that ENTERED the window emits `child_added` (window order);
+   *   - a key that LEFT the window emits `child_removed` (carrying its
+   *     prior value);
+   *   - a key that stayed in-window but changed value emits `child_changed`.
+   *
+   * `child_moved` (reorder within the window) is deliberately NOT emitted
+   * — the reorder / `previousChildName` semantics are held pending fresh
+   * oracle captures (matrix row `rtdb-modular#137`). The window is always
+   * advanced so a later real add/change/remove diffs correctly.
+   */
+  private fanOutQueryChild(listener: ChildListener): void {
+    const prior = listener.lastWindow ?? [];
+    const next = executeQuery(this.tree.read(listener.path), listener.spec!);
+    listener.lastWindow = next;
+    const priorByKey = new Map<string, JsonValue>(prior.map((r) => [r.key, r.value]));
+    const nextByKey = new Map<string, JsonValue>(next.map((r) => [r.key, r.value]));
+    let events: Array<{ key: string; val: JsonValue }> = [];
+    switch (listener.event) {
+      case 'child_added':
+        for (const { key, value } of next) {
+          if (!priorByKey.has(key)) events.push({ key, val: value });
+        }
+        break;
+      case 'child_changed':
+        for (const { key, value } of next) {
+          if (priorByKey.has(key) && !jsonValuesEqual(priorByKey.get(key)!, value)) {
+            events.push({ key, val: value });
+          }
+        }
+        break;
+      case 'child_removed':
+        for (const { key, value } of prior) {
+          if (!nextByKey.has(key)) events.push({ key, val: value });
+        }
+        break;
+      case 'child_moved':
+        // Held — reorder semantics pending two new oracle captures.
+        events = [];
+        break;
+    }
+    for (const ev of events) {
+      this.emitListener('delivery', listener, listener.auth, {
+        event: listener.event,
+        size: 1,
+        sample: ev,
+        detail: { query: true },
+      });
+      try {
+        listener.cb(ev);
+      } catch (e) {
+        this.emitListener('errored', listener, listener.auth, {
+          event: listener.event,
+          result: 'error',
+          error: { message: e instanceof Error ? e.message : String(e) },
+          detail: { query: true },
+        });
+        // Swallow — see fanOut.
       }
     }
   }

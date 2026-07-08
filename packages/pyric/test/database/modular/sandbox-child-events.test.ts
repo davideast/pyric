@@ -21,6 +21,9 @@ import {
   onChildMoved,
   onValue,
   off,
+  query,
+  orderByChild,
+  limitToLast,
   sandbox as rtdbSandbox,
 } from '../../../src/database/index.js';
 
@@ -172,8 +175,7 @@ describe('onChildRemoved (oracle: rtdb-modular-onchildremoved-fires-on-delete)',
 
 describe('onChildMoved (oracle: rtdb-modular-onchildmoved-with-orderby)', () => {
   // Observation: under ordered query, firedOnMove=1. Under a plain ref
-  // (no ordering), the upstream contract says it never fires. Tier 2
-  // models the plain-ref no-fire case; Tier 3 wires ordered queries in.
+  // (no ordering), the upstream contract says it never fires.
   it('does NOT fire on a plain ref (no ordering) — never fires per RTDB docs', async () => {
     const { db } = setup();
     await update(ref(db, 'parent'), { k1: { priority: 1 }, k2: { priority: 2 } });
@@ -185,11 +187,156 @@ describe('onChildMoved (oracle: rtdb-modular-onchildmoved-with-orderby)', () => 
     unsub();
   });
 
-  it('does NOT fire on subscribe (no initial replay even under ordered queries — deferred to Tier 3)', () => {
+  it('does NOT fire on subscribe (no initial replay even under ordered queries)', () => {
     const { db } = setup();
     let fires = 0;
     const unsub = onChildMoved(ref(db, 'parent'), () => { fires++; });
     expect(fires).toBe(0);
+    unsub();
+  });
+
+  // PINNED DIVERGENCE (matrix row rtdb-modular#137). Registering
+  // `onChildMoved` on an ORDERED QUERY must no longer throw the misleading
+  // "unrecognized reference" TypeError (item 2 of the deep-divergence
+  // review). But the reorder-fire itself is HELD pending two new oracle
+  // captures (windowed displacement + previousChildName): prod fires 1
+  // here, the sandbox holds at 0. Both sides are asserted so the day the
+  // captures land this pin is the single place that flips.
+  it('accepts a Query without throwing (TypeError cliff removed)', async () => {
+    const { db } = setup();
+    await update(ref(db, 'parent'), {
+      k1: { priority: 1 },
+      k2: { priority: 2 },
+      k3: { priority: 3 },
+    });
+    // Before the fix this line threw:
+    //   TypeError: @pyric/rtdb: unrecognized reference — …
+    expect(() => {
+      const unsub = onChildMoved(
+        query(ref(db, 'parent'), orderByChild('priority')),
+        () => {},
+      );
+      unsub();
+    }).not.toThrow();
+  });
+
+  it('DIVERGENCE: reorder under an ordered query fires 0 on sandbox (prod fires 1) — held for captures', async () => {
+    const { db } = setup();
+    await update(ref(db, 'parent'), {
+      k1: { priority: 1 },
+      k2: { priority: 2 },
+      k3: { priority: 3 },
+    });
+    let fires = 0;
+    const unsub = onChildMoved(
+      query(ref(db, 'parent'), orderByChild('priority')),
+      () => { fires++; },
+    );
+    // Bump k1 to the top of the sort — prod emits child_moved here.
+    await set(ref(db, 'parent/k1/priority'), 10);
+    // Prod value (observation rtdb-modular-onchildmoved-with-orderby.json):
+    //   firedOnMove: 1
+    // Sandbox value (held — reorder semantics pending oracle captures):
+    expect(fires).toBe(0);
+    unsub();
+  });
+});
+
+describe('onChild* on an ordered query — window-aware add/change/remove (deep-divergence review item 2)', () => {
+  // The four child registrars now accept a Query. add/change/remove are
+  // computed against the ordered, windowed result: a child ENTERING the
+  // window fires child_added, one LEAVING fires child_removed, an
+  // in-window value change fires child_changed. (child_moved stays held.)
+  it('onChildAdded(query, cb) replays the current window in order on subscribe', async () => {
+    const { db } = setup();
+    await update(ref(db, 'parent'), {
+      k1: { priority: 3 },
+      k2: { priority: 1 },
+      k3: { priority: 2 },
+    });
+    const firedKeys: string[] = [];
+    const unsub = onChildAdded(
+      query(ref(db, 'parent'), orderByChild('priority')),
+      (snap) => { firedKeys.push(snap.key ?? ''); },
+    );
+    // Window order is by priority ascending: k2(1), k3(2), k1(3).
+    expect(firedKeys).toEqual(['k2', 'k3', 'k1']);
+    unsub();
+  });
+
+  it('onChildAdded(query, cb) fires when a child ENTERS a limitToLast window; the displaced child fires child_removed', async () => {
+    const { db } = setup();
+    await update(ref(db, 'parent'), {
+      k1: { priority: 1 },
+      k2: { priority: 2 },
+      k3: { priority: 3 },
+    });
+    const q = query(ref(db, 'parent'), orderByChild('priority'), limitToLast(2));
+    // Initial window (top 2 by priority): k2(2), k3(3).
+    const addedKeys: string[] = [];
+    const removedKeys: string[] = [];
+    const unsubAdd = onChildAdded(q, (snap) => { addedKeys.push(snap.key ?? ''); });
+    const unsubRemove = onChildRemoved(q, (snap) => { removedKeys.push(snap.key ?? ''); });
+    expect(addedKeys).toEqual(['k2', 'k3']); // initial replay
+    // Bump k1 to priority 5 — it enters the top-2 window, displacing k2.
+    await set(ref(db, 'parent/k1/priority'), 5);
+    expect(addedKeys).toEqual(['k2', 'k3', 'k1']); // k1 entered the window
+    expect(removedKeys).toEqual(['k2']); // k2 left the window
+    unsubAdd();
+    unsubRemove();
+  });
+
+  it('onChildChanged(query, cb) fires only for an IN-window value change', async () => {
+    const { db } = setup();
+    await update(ref(db, 'parent'), {
+      k1: { priority: 1, label: 'a' },
+      k2: { priority: 2, label: 'b' },
+      k3: { priority: 3, label: 'c' },
+    });
+    const q = query(ref(db, 'parent'), orderByChild('priority'), limitToLast(2));
+    // Window: k2, k3.
+    const changed: Array<{ key: string | null; val: unknown }> = [];
+    const unsub = onChildChanged(q, (snap) => {
+      changed.push({ key: snap.key, val: snap.val() });
+    });
+    // In-window change (k3 stays in window).
+    await set(ref(db, 'parent/k3/label'), 'C');
+    // Out-of-window change (k1 not in the top-2 window) — no fire.
+    await set(ref(db, 'parent/k1/label'), 'A');
+    expect(changed).toEqual([{ key: 'k3', val: { priority: 3, label: 'C' } }]);
+    unsub();
+  });
+
+  it('onChildRemoved(query, cb) fires with the PRIOR value when an in-window child is deleted', async () => {
+    const { db } = setup();
+    await update(ref(db, 'parent'), {
+      k1: { priority: 1 },
+      k2: { priority: 2 },
+    });
+    const fires: Array<{ key: string | null; val: unknown }> = [];
+    const unsub = onChildRemoved(
+      query(ref(db, 'parent'), orderByChild('priority')),
+      (snap) => { fires.push({ key: snap.key, val: snap.val() }); },
+    );
+    await remove(ref(db, 'parent/k1'));
+    expect(fires).toEqual([{ key: 'k1', val: { priority: 1 } }]);
+    unsub();
+  });
+
+  it('a write OUTSIDE the window does not fire an onChildAdded(query) listener', async () => {
+    const { db } = setup();
+    await update(ref(db, 'parent'), {
+      k1: { priority: 1 },
+      k2: { priority: 2 },
+      k3: { priority: 3 },
+    });
+    const q = query(ref(db, 'parent'), orderByChild('priority'), limitToLast(2));
+    let fires = 0;
+    const unsub = onChildAdded(q, () => { fires++; });
+    expect(fires).toBe(2); // initial replay of k2, k3
+    // Lower k1 further — it was never in the window and stays out.
+    await set(ref(db, 'parent/k1/priority'), -5);
+    expect(fires).toBe(2); // no new fire
     unsub();
   });
 });
