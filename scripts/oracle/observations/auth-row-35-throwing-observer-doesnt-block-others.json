@@ -1,6 +1,9 @@
 {
   "name": "auth-row-35-throwing-observer-doesnt-block-others",
   "matrixRow": "auth #35",
+  "rowIds": [
+    "auth#35"
+  ],
   "description": "A throwing observer registered on onAuthStateChanged does NOT block subsequent observers. Register two; the first throws; trigger a state change; verify the second fires.",
   "observedAt": "2026-05-17T23:58:48.462Z",
   "fbSdkVersion": "12.13.0",

@@ -1,6 +1,9 @@
 {
   "name": "auth-row-36-observer-object-form-works",
   "matrixRow": "auth #36",
+  "rowIds": [
+    "auth#36"
+  ],
   "description": "Observer object form ({next, error, complete}) works alongside the function form. Register one observer as a NextFn and another as {next}; trigger a transition; verify both fire.",
   "observedAt": "2026-05-18T00:12:32.455Z",
   "fbSdkVersion": "12.13.0",

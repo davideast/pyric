@@ -1,6 +1,10 @@
 {
   "name": "rtdb-modular-onchildadded-initial-replay",
   "matrixRow": "rtdb-modular #133",
+  "rowIds": [
+    "rtdb-modular#133",
+    "rtdb-modular#M41"
+  ],
   "description": "onChildAdded replays existing children on subscribe — register listener AFTER seeding 3 children, observe 3 initial fires (one per existing key).",
   "observedAt": "2026-05-18T04:26:29.324Z",
   "fbSdkVersion": "12.13.0",

@@ -1,6 +1,9 @@
 {
   "name": "firestore-cursor-startafter-exclusive",
   "matrixRow": "firestore #68",
+  "rowIds": [
+    "firestore#68"
+  ],
   "description": "startAfter(...values) — exclusive value cursor. Seeds 5 docs with field pos=[1,2,3,4,5], queries orderBy(pos), startAfter(3); the doc at pos=3 should be EXCLUDED.",
   "observedAt": "2026-05-18T00:11:14.781Z",
   "fbSdkVersion": "12.13.0",

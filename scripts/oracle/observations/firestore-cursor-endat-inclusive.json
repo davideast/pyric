@@ -1,6 +1,9 @@
 {
   "name": "firestore-cursor-endat-inclusive",
   "matrixRow": "firestore #69",
+  "rowIds": [
+    "firestore#69"
+  ],
   "description": "endAt(...values) — inclusive end cursor. Seeds 5 docs with field pos=[1,2,3,4,5], queries orderBy(pos), endAt(3); the doc at pos=3 should be INCLUDED.",
   "observedAt": "2026-05-18T00:11:16.198Z",
   "fbSdkVersion": "12.13.0",

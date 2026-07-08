@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-110-geopoint-roundtrip",
   "matrixRow": "firestore #110",
+  "rowIds": [
+    "firestore#110"
+  ],
   "description": "GeoPoint round-trip through setDoc / getDoc. Probe: write { loc: new GeoPoint(37.7749, -122.4194) }, then read back — verify the field is an instance of GeoPoint with the same latitude / longitude (no destructuring to a plain object).",
   "observedAt": "2026-05-18T01:12:22.307Z",
   "fbSdkVersion": "12.13.0",

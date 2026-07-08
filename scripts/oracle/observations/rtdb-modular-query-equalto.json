@@ -1,6 +1,9 @@
 {
   "name": "rtdb-modular-query-equalto",
   "matrixRow": "rtdb-modular #145",
+  "rowIds": [
+    "rtdb-modular#145"
+  ],
   "description": "query(ref, orderByChild(\"group\"), equalTo(\"blue\")) — verify equalTo filters to matching children only.",
   "observedAt": "2026-05-18T03:36:50.411Z",
   "fbSdkVersion": "12.13.0",

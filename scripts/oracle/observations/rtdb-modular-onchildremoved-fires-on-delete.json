@@ -1,6 +1,10 @@
 {
   "name": "rtdb-modular-onchildremoved-fires-on-delete",
   "matrixRow": "rtdb-modular #136",
+  "rowIds": [
+    "rtdb-modular#136",
+    "rtdb-modular#M45"
+  ],
   "description": "onChildRemoved fires when a child is deleted — seed 2 children, subscribe, remove one, observe the fire (key + the now-removed value).",
   "observedAt": "2026-05-18T04:26:34.625Z",
   "fbSdkVersion": "12.13.0",

@@ -1,6 +1,9 @@
 {
   "name": "auth-getidtoken-force-refresh",
   "matrixRow": "auth #55",
+  "rowIds": [
+    "auth#55"
+  ],
   "description": "getIdToken(forceRefresh=true) — observes whether prod actually returns a different token string.",
   "observedAt": "2026-05-18T01:02:15.882Z",
   "fbSdkVersion": "12.13.0",

@@ -1,6 +1,9 @@
 {
   "name": "rtdb-modular-update-merges-keys",
   "matrixRow": "rtdb-modular #116",
+  "rowIds": [
+    "rtdb-modular#116"
+  ],
   "description": "update(ref, {a:10}) — verify partial merge: existing key `b` is preserved alongside the updated `a`.",
   "observedAt": "2026-05-18T03:36:37.223Z",
   "fbSdkVersion": "12.13.0",

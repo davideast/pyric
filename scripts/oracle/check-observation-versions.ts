@@ -10,30 +10,31 @@
  * INF-3/INF-4 (an observation captured at one version vouching for behavior
  * at another).
  *
- * Source of truth for "resolved version": the `firebase@<v>` key in
- * bun.lock (what actually gets installed), not the `^`-range in
- * package.json.
+ * Source of truth for "resolved version": the installed
+ * node_modules/firebase/package.json (what tests actually ran against),
+ * not the `^`-range in package.json or a lockfile scrape.
  *
  * Usage: bun run scripts/oracle/check-observation-versions.ts
- * Exit codes: 0 all match, 1 a mismatch / missing field / unreadable lock.
+ * Exit codes: 0 all match, 1 a mismatch / missing field / unresolvable package.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(HERE, '..', '..');
 const OBS_DIR = join(HERE, 'observations');
 
-/** Resolved (installed) firebase version from bun.lock's package key. */
+/** Resolved (installed) firebase version from its own package.json. */
 function resolvedFirebaseVersion(): string {
-  const lock = readFileSync(join(ROOT, 'bun.lock'), 'utf8');
-  const m = lock.match(/"firebase@([\d]+\.[\d]+\.[\d]+[^"]*)"/);
-  if (!m) {
-    console.error('✗ Could not find a `firebase@<version>` key in bun.lock.');
-    process.exit(1);
+  try {
+    const pkgPath = fileURLToPath(import.meta.resolve('firebase/package.json'));
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: unknown };
+    if (typeof pkg.version === 'string' && pkg.version.length > 0) return pkg.version;
+  } catch {
+    // fall through to the shared error below
   }
-  return m[1];
+  console.error('✗ Could not read the version of the installed firebase package.');
+  process.exit(1);
 }
 
 const resolved = resolvedFirebaseVersion();
@@ -53,7 +54,7 @@ for (const file of files) {
 }
 
 console.log(`# Oracle observation version guard`);
-console.log(`Resolved firebase (bun.lock): ${resolved}`);
+console.log(`Resolved firebase (node_modules/firebase/package.json): ${resolved}`);
 console.log(`Observations checked: ${files.length}`);
 
 if (missing.length === 0 && mismatched.length === 0) {

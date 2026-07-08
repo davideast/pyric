@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-83-unsubscribe-stops-fires",
   "matrixRow": "firestore #83",
+  "rowIds": [
+    "firestore#83"
+  ],
   "description": "Unsubscribe returned by onSnapshot stops further fires. Probes: register listener, do a write (verify fire), call unsub(), do another write, verify no further fires arrive.",
   "observedAt": "2026-05-18T00:11:56.016Z",
   "fbSdkVersion": "12.13.0",

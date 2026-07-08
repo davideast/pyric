@@ -1,6 +1,9 @@
 {
   "name": "auth-row-24-createuser-fires-once",
   "matrixRow": "auth #24",
+  "rowIds": [
+    "auth#24"
+  ],
   "description": "createUserWithEmailAndPassword fires onAuthStateChanged with the new user exactly once. Subscribe, createUser, count fires for the create transition.",
   "observedAt": "2026-05-18T00:12:22.188Z",
   "fbSdkVersion": "12.13.0",

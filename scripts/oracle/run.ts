@@ -819,7 +819,10 @@ const RTDB_RUN_PATH = (probe: string) =>
 
 interface Observation {
   name: string;
+  /** Display prose only ("firestore #39") — machines read rowIds. */
   matrixRow: string;
+  /** Structured registry links, e.g. ['firestore#39']. */
+  rowIds: string[];
   description: string;
   observedAt: string;
   fbSdkVersion: string;
@@ -830,6 +833,7 @@ interface Observation {
 interface Probe {
   name: string;
   matrixRow: string;
+  rowIds: string[];
   description: string;
   observe(): Promise<Record<string, unknown>>;
 }
@@ -865,6 +869,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-deletedoc-missing',
     matrixRow: 'firestore #39',
+    rowIds: ['firestore#39'],
     description: 'deleteDoc against a non-existent doc — locks whether prod throws or no-ops.',
     async observe() {
       await signInAnonymously(auth);
@@ -886,6 +891,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-queryequal-structural',
     matrixRow: 'firestore #116',
+    rowIds: ['firestore#116'],
     description: 'queryEqual semantics — does prod compare structurally or by identity?',
     async observe() {
       const c = collection(db, RUN_DOC('queryequal'));
@@ -902,6 +908,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-snapshotequal-structural',
     matrixRow: 'firestore #117',
+    rowIds: ['firestore#117'],
     description: 'snapshotEqual semantics — does prod compare structurally or by identity across two fetches of the same query?',
     async observe() {
       await signInAnonymously(auth);
@@ -923,6 +930,7 @@ const probes: Probe[] = [
   {
     name: 'auth-signout-idempotent',
     matrixRow: 'auth #27',
+    rowIds: ['auth#27'],
     description: 'signOut on already-signed-out auth — does prod throw, no-op, and does it fire onAuthStateChanged?',
     async observe() {
       const fires: Array<string | null> = [];
@@ -959,6 +967,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-adddoc-autoid-format',
     matrixRow: 'firestore #45',
+    rowIds: ['firestore#45'],
     description: 'addDoc auto-id format — observes the length and character set prod mints for auto-ids.',
     async observe() {
       await signInAnonymously(auth);
@@ -990,6 +999,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-count-aggregate-shape',
     matrixRow: 'firestore #79',
+    rowIds: ['firestore#79'],
     description: 'getCountFromServer on empty vs non-empty query — observes the .data().count shape.',
     async observe() {
       await signInAnonymously(auth);
@@ -1037,6 +1047,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-rules-denied-error',
     matrixRow: 'firestore #21',
+    rowIds: ['firestore#21'],
     description: 'Rules-denied write — observes the error class, code, and message prod returns. Writes deliberately outside pyric_oracle/* so the rules deny it.',
     async observe() {
       await signInAnonymously(auth);
@@ -1084,6 +1095,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-read-denied-error-code',
     matrixRow: 'firestore #20',
+    rowIds: ['firestore#20'],
     description: 'Rules-denied read — observes the error class, code, and message prod returns when getDoc targets a path outside pyric_oracle/* that the rules deny.',
     async observe() {
       await signInAnonymously(auth);
@@ -1129,6 +1141,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-write-denied-error-code',
     matrixRow: 'firestore #32',
+    rowIds: ['firestore#32'],
     description: 'Rules-denied write — pins the error class/code/message setDoc returns when the target is outside pyric_oracle/*. Companion to firestore-rules-denied-error but namespaced to #32 (setDoc).',
     async observe() {
       await signInAnonymously(auth);
@@ -1172,6 +1185,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-delete-denied-error-code',
     matrixRow: 'firestore #40',
+    rowIds: ['firestore#40'],
     description: 'Rules-denied delete — observes the error class/code/message deleteDoc returns when the target is outside pyric_oracle/*. The doc need not exist; prod evaluates the rule before touching storage, so a deleteDoc on a denied path throws permission-denied regardless of whether the doc is present.',
     async observe() {
       await signInAnonymously(auth);
@@ -1215,6 +1229,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-include-metadata-changes',
     matrixRow: 'firestore #85',
+    rowIds: ['firestore#85'],
     description: 'onSnapshot with includeMetadataChanges:true vs default — observes how many fires prod produces for one write.',
     async observe() {
       await signInAnonymously(auth);
@@ -1282,6 +1297,7 @@ const probes: Probe[] = [
   {
     name: 'auth-getidtoken-force-refresh',
     matrixRow: 'auth #55',
+    rowIds: ['auth#55'],
     description: 'getIdToken(forceRefresh=true) — observes whether prod actually returns a different token string.',
     async observe() {
       await signInAnonymously(auth);
@@ -1307,6 +1323,7 @@ const probes: Probe[] = [
   {
     name: 'auth-onidtokenchanged-force-refresh',
     matrixRow: 'auth #39',
+    rowIds: ['auth#39'],
     description: 'onIdTokenChanged on getIdToken(true) — observes whether prod fires the listener on a forced refresh.',
     async observe() {
       const fires: Array<{ uid: string | null; ts: number }> = [];
@@ -1337,6 +1354,7 @@ const probes: Probe[] = [
   {
     name: 'auth-anonymous-credential-providerid',
     matrixRow: 'auth #6',
+    rowIds: ['auth#6'],
     description: 'UserCredential.providerId for anonymous sign-in — locks whether prod returns "anonymous" or null.',
     async observe() {
       const cred = await signInAnonymously(auth);
@@ -1354,6 +1372,7 @@ const probes: Probe[] = [
   {
     name: 'auth-wrong-password-error-code',
     matrixRow: 'auth #15',
+    rowIds: ['auth#15'],
     description: 'signInWithEmailAndPassword with wrong password — locks the FirebaseError code prod actually emits (older "auth/wrong-password" vs newer "auth/invalid-credential").',
     async observe() {
       // Create a throwaway user so we can attempt sign-in against it.
@@ -1394,6 +1413,7 @@ const probes: Probe[] = [
   {
     name: 'auth-user-not-found-error-code',
     matrixRow: 'auth #14',
+    rowIds: ['auth#14'],
     description: 'signInWithEmailAndPassword with an email that was never registered — locks the FirebaseError code prod actually emits (older "auth/user-not-found" vs newer "auth/invalid-credential").',
     async observe() {
       // Build a uniquely-randomized email that has not been seeded /
@@ -1429,6 +1449,7 @@ const probes: Probe[] = [
   {
     name: 'auth-createUser-operationType',
     matrixRow: 'auth #21',
+    rowIds: ['auth#21', 'auth#13'],
     description: 'createUserWithEmailAndPassword returns UserCredential with operationType: "signIn" (NOT "register") per matrix claim — empirically lock the value prod actually emits.',
     async observe() {
       const email = `oracle-create-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
@@ -1455,6 +1476,7 @@ const probes: Probe[] = [
   {
     name: 'auth-email-already-in-use-error-code',
     matrixRow: 'auth #22',
+    rowIds: ['auth#22'],
     description: 'createUserWithEmailAndPassword called twice with the same email — locks the FirebaseError code prod emits for the duplicate-registration path.',
     async observe() {
       const email = `oracle-dup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
@@ -1501,6 +1523,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-18-invalid-email-error-code',
     matrixRow: 'auth #18',
+    rowIds: ['auth#18'],
     description: 'createUserWithEmailAndPassword with a malformed email (no `@`, no domain) — locks the FirebaseError code prod actually emits for the format-validation path. Matrix language says `auth/invalid-email`; this probe verifies that empirically.',
     async observe() {
       const malformedEmail = 'not-an-email';
@@ -1547,6 +1570,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-19-weak-password-error-code',
     matrixRow: 'auth #19',
+    rowIds: ['auth#19'],
     description: 'createUserWithEmailAndPassword with a short password (5 chars or fewer) — locks the FirebaseError code prod actually emits for the strength-validation path. Matrix language says "≥6 chars per prod default"; verify the specific code empirically (could be auth/weak-password, auth/missing-password, etc.).',
     async observe() {
       const email = `oracle-weak-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
@@ -1591,6 +1615,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-updatedoc-missing-error',
     matrixRow: 'firestore #34',
+    rowIds: ['firestore#34'],
     description: 'updateDoc on a non-existent doc — locks the FirebaseError code/class prod returns when the precondition fails. Writes inside pyric_oracle/* so rules permit; only the missing-doc precondition should fire.',
     async observe() {
       await signInAnonymously(auth);
@@ -1634,6 +1659,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-transaction-rules-denied-error',
     matrixRow: 'firestore #94',
+    rowIds: ['firestore#94'],
     description: 'runTransaction with an inner write that violates rules — locks the FirebaseError code prod actually returns. Matrix says "aborted / similar"; this observation pins the specific code (permission-denied vs aborted vs other).',
     async observe() {
       await signInAnonymously(auth);
@@ -1685,6 +1711,7 @@ const probes: Probe[] = [
   {
     name: 'auth-bare-getauth-no-default-app',
     matrixRow: 'auth #4',
+    rowIds: ['auth#4'],
     description: 'getAuth() with no argument and no default Firebase App initialized — locks the FirebaseError code prod throws. The harness uses a NAMED app (not the default), so a bare getAuth() call has no app to fall back to.',
     async observe() {
       let threw = false;
@@ -1709,6 +1736,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-bare-getfirestore-no-default-app',
     matrixRow: 'firestore #4',
+    rowIds: ['firestore#4'],
     description: 'getFirestore() with no argument and no default Firebase App initialized — locks the FirebaseError code prod throws.',
     async observe() {
       let threw = false;
@@ -1730,6 +1758,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-80-onsnapshot-fires-initial',
     matrixRow: 'firestore #80',
+    rowIds: ['firestore#80'],
     description: 'onSnapshot(docRef, cb) fires the initial snapshot microtask-deferred — not synchronously. Probes whether the first fire arrives during the registering call (synchronous), in the next microtask (queueMicrotask boundary), or after a macrotask (setTimeout(0) boundary).',
     async observe() {
       await signInAnonymously(auth);
@@ -1793,6 +1822,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-82-onsnapshot-missing-initial',
     matrixRow: 'firestore #82',
+    rowIds: ['firestore#82'],
     description: 'Initial fire for a missing doc has exists() === false and data() === undefined. Probes onSnapshot on a doc that does not exist and inspects the first snapshot.',
     async observe() {
       await signInAnonymously(auth);
@@ -1838,6 +1868,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-42-adddoc-returned-ref-usable',
     matrixRow: 'firestore #42',
+    rowIds: ['firestore#42'],
     description: 'addDoc returns a DocumentReference that is immediately usable in subsequent ops — getDoc round-trips the data, setDoc overwrites it, and onSnapshot registers on it and fires. Probes addDoc({v:1}), getDoc(ref) → {v:1}, setDoc(ref, {v:2}), onSnapshot(ref, cb) with first fire having v:2.',
     async observe() {
       await signInAnonymously(auth);
@@ -1899,6 +1930,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-81-onsnapshot-query-fires-on-write',
     matrixRow: 'firestore #81',
+    rowIds: ['firestore#81'],
     description: 'onSnapshot(query, cb) fires on writes to the underlying collection. Probes: register a listener on a collection-level query, then perform writes (add a doc, modify, delete) and confirm each write produces a fire reflecting the new state.',
     async observe() {
       await signInAnonymously(auth);
@@ -1958,6 +1990,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-83-unsubscribe-stops-fires',
     matrixRow: 'firestore #83',
+    rowIds: ['firestore#83'],
     description: 'Unsubscribe returned by onSnapshot stops further fires. Probes: register listener, do a write (verify fire), call unsub(), do another write, verify no further fires arrive.',
     async observe() {
       await signInAnonymously(auth);
@@ -2005,6 +2038,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-84-observer-object-form',
     matrixRow: 'firestore #84',
+    rowIds: ['firestore#84'],
     description: 'Observer object form `{next, error, complete}` works alongside the function form. Probes: register one listener as a function and another as `{next}` on the same doc, do a write, verify both fire with the same snapshot data.',
     async observe() {
       await signInAnonymously(auth);
@@ -2068,6 +2102,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-89-snapshot-ref-usable',
     matrixRow: 'firestore #89',
+    rowIds: ['firestore#89'],
     description: 'Snapshot `.ref` (docRef listener) and `.docs[i].ref` (query listener) are usable in follow-up ops. Probes: register both kinds of listeners; capture refs from the first fire; use them in getDoc + setDoc; verify the ref points back at the same data.',
     async observe() {
       await signInAnonymously(auth);
@@ -2177,6 +2212,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-30-sentinels-in-setdoc',
     matrixRow: 'firestore #30',
+    rowIds: ['firestore#30'],
     description: 'Sentinels (serverTimestamp, increment, arrayUnion, arrayRemove, deleteField) resolve in the same setDoc call. Probes setDoc({createdAt: serverTimestamp(), count: 5, tags: [\"a\"]}) then getDoc and checks the resolved shape — createdAt is a Timestamp instance, count === 5, tags === [\"a\"].',
     async observe() {
       await signInAnonymously(auth);
@@ -2209,6 +2245,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-36-sentinels-in-updatedoc',
     matrixRow: 'firestore #36',
+    rowIds: ['firestore#36'],
     description: 'Sentinels resolve mid-update. Probes setDoc({count:5, tags:[\"a\"], oldField:\"keep-then-remove\"}), then updateDoc({count: increment(3), tags: arrayUnion(\"b\"), oldField: deleteField()}), then getDoc — verifies increment, arrayUnion, and deleteField all applied.',
     async observe() {
       await signInAnonymously(auth);
@@ -2237,6 +2274,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-101-arrayunion-dedupes',
     matrixRow: 'firestore #101',
+    rowIds: ['firestore#101'],
     description: 'arrayUnion(...values) de-dupes against existing members. Probes setDoc({tags:[\"a\",\"b\"]}) then updateDoc({tags: arrayUnion(\"b\",\"c\")}) then getDoc — verifies tags is [\"a\",\"b\",\"c\"] not [\"a\",\"b\",\"b\",\"c\"]. Also probes inline dedup of duplicate args (arrayUnion(\"d\",\"d\")) in a follow-up update.',
     async observe() {
       await signInAnonymously(auth);
@@ -2272,6 +2310,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-96-batch-commit-atomic',
     matrixRow: 'firestore #96',
+    rowIds: ['firestore#96'],
     description:
       'batch.commit() applies all queued writes atomically. Success path: queue 3 writes to 3 different docs (one set on a fresh doc, one update on a previously-set doc, one delete) and verify all 3 changes are present after a single commit. Failure path: a batch where one write targets a path OUTSIDE pyric_oracle/* — verify the whole batch rejects (no partial application: the previously-set doc still has its original value, the would-be-new doc never lands).',
     async observe() {
@@ -2379,6 +2418,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-99-servertimestamp-resolves-to-timestamp',
     matrixRow: 'firestore #99',
+    rowIds: ['firestore#99'],
     description:
       "serverTimestamp() resolves to a Timestamp after the write commits. Probes setDoc({at: serverTimestamp()}) then getDoc — verifies `at` is a Timestamp instance (constructor.name === 'Timestamp', .seconds + .nanoseconds present, instanceof Timestamp).",
     async observe() {
@@ -2410,6 +2450,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-100-increment-bumps-numeric',
     matrixRow: 'firestore #100',
+    rowIds: ['firestore#100'],
     description:
       "increment(n) atomically bumps a numeric field. Matrix claim: null/missing field starts from 0. Probe: setDoc with no `count` field, then updateDoc with {count: increment(5)} → expect 5. Then increment(3) → expect 8. Then increment(-2) → expect 6.",
     async observe() {
@@ -2450,6 +2491,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-102-arrayremove-strips',
     matrixRow: 'firestore #102',
+    rowIds: ['firestore#102'],
     description:
       "arrayRemove(...values) strips matching members. Probe: setDoc({tags:['a','b','c']}), then updateDoc({tags: arrayRemove('b','d')}) where 'd' isn't in the array — verify tags === ['a','c'] ('b' removed, 'd' silent no-op).",
     async observe() {
@@ -2474,6 +2516,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-103-deletefield-removes-field',
     matrixRow: 'firestore #103',
+    rowIds: ['firestore#103'],
     description:
       "deleteField() removes a field on update. Probe: setDoc({keep:1, remove:2}), then updateDoc({remove: deleteField()}), then getDoc — verify keep===1 AND remove is absent from the returned data (not just undefined-valued, actually not present).",
     async observe() {
@@ -2505,6 +2548,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-109-bytes-roundtrip',
     matrixRow: 'firestore #109',
+    rowIds: ['firestore#109'],
     description:
       "Bytes round-trip through setDoc / getDoc. Probe: write { payload: Bytes.fromUint8Array([1,2,3,4]) }, then read back — verify the field is an instance of Bytes with the same toBase64() and the same byte sequence (no destructuring to a plain object).",
     async observe() {
@@ -2548,6 +2592,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-row-110-geopoint-roundtrip',
     matrixRow: 'firestore #110',
+    rowIds: ['firestore#110'],
     description:
       "GeoPoint round-trip through setDoc / getDoc. Probe: write { loc: new GeoPoint(37.7749, -122.4194) }, then read back — verify the field is an instance of GeoPoint with the same latitude / longitude (no destructuring to a plain object).",
     async observe() {
@@ -2587,6 +2632,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-or-composite',
     matrixRow: 'firestore #56',
+    rowIds: ['firestore#56'],
     description: 'or(...) composite — at least one sub-filter matches. Seeds 3 docs (x=1/y=9, x=2/y=2, x=3/y=3) and queries with or(where(x,==,1), where(y,==,2)); observed match set should be the union of each sub-filter\'s matches.',
     async observe() {
       await signInAnonymously(auth);
@@ -2633,6 +2679,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-and-composite',
     matrixRow: 'firestore #57',
+    rowIds: ['firestore#57'],
     description: 'and(...) composite — every sub-filter must match. Seeds 4 docs with overlapping conditions and queries with and(where(x,==,1), where(y,==,2)); only the doc matching ALL sub-filters should come back.',
     async observe() {
       await signInAnonymously(auth);
@@ -2679,6 +2726,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-nested-or-and-composite',
     matrixRow: 'firestore #58',
+    rowIds: ['firestore#58'],
     description: 'Nested or/and — the canonical composite pattern. Query: or(and(where(x,==,1), where(y,==,2)), where(z,==,3)). Result should be the boolean union of "x==1 AND y==2" with "z==3".',
     async observe() {
       await signInAnonymously(auth);
@@ -2732,6 +2780,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-cursor-startat-inclusive',
     matrixRow: 'firestore #67',
+    rowIds: ['firestore#67'],
     description: 'startAt(...values) — inclusive value cursor. Seeds 5 docs with field pos=[1,2,3,4,5], queries orderBy(pos), startAt(3); the doc at pos=3 should be INCLUDED. Pins the one-off-by-one boundary.',
     async observe() {
       await signInAnonymously(auth);
@@ -2776,6 +2825,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-cursor-startafter-exclusive',
     matrixRow: 'firestore #68',
+    rowIds: ['firestore#68'],
     description: 'startAfter(...values) — exclusive value cursor. Seeds 5 docs with field pos=[1,2,3,4,5], queries orderBy(pos), startAfter(3); the doc at pos=3 should be EXCLUDED.',
     async observe() {
       await signInAnonymously(auth);
@@ -2820,6 +2870,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-cursor-endat-inclusive',
     matrixRow: 'firestore #69',
+    rowIds: ['firestore#69'],
     description: 'endAt(...values) — inclusive end cursor. Seeds 5 docs with field pos=[1,2,3,4,5], queries orderBy(pos), endAt(3); the doc at pos=3 should be INCLUDED.',
     async observe() {
       await signInAnonymously(auth);
@@ -2864,6 +2915,7 @@ const probes: Probe[] = [
   {
     name: 'firestore-cursor-endbefore-exclusive',
     matrixRow: 'firestore #70',
+    rowIds: ['firestore#70'],
     description: 'endBefore(...values) — exclusive end cursor. Seeds 5 docs with field pos=[1,2,3,4,5], queries orderBy(pos), endBefore(3); the doc at pos=3 should be EXCLUDED.',
     async observe() {
       await signInAnonymously(auth);
@@ -2908,6 +2960,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-25-signout-currentuser-null-sync',
     matrixRow: 'auth #25',
+    rowIds: ['auth#25'],
     description: 'signOut sets currentUser to null synchronously after the returned promise resolves — read auth.currentUser BEFORE any await/microtask runs after `await signOut(auth)`.',
     async observe() {
       await signInAnonymously(auth);
@@ -2940,6 +2993,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-29-onauthstatechanged-initial-fire-timing',
     matrixRow: 'auth #29',
+    rowIds: ['auth#29'],
     description: 'onAuthStateChanged initial-fire timing — does the first fire arrive synchronously on subscribe, after a microtask, or after a macrotask? Fences capture each tier.',
     async observe() {
       await signInAnonymously(auth);
@@ -2977,6 +3031,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-31-onauthstatechanged-no-dup-on-sync-transition',
     matrixRow: 'auth #31',
+    rowIds: ['auth#31'],
     description: 'onAuthStateChanged dedup — subscribe then immediately (same tick) trigger a sign-in; matrix claims 1 fire (new value), not 2 (initial-null replay + new). Probe counts fires after enough time for both to settle.',
     async observe() {
       // Ensure starting state is signed out.
@@ -3011,6 +3066,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-35-throwing-observer-doesnt-block-others',
     matrixRow: 'auth #35',
+    rowIds: ['auth#35'],
     description: 'A throwing observer registered on onAuthStateChanged does NOT block subsequent observers. Register two; the first throws; trigger a state change; verify the second fires.',
     async observe() {
       // Ensure starting state is signed out.
@@ -3049,6 +3105,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-37-same-user-no-double-fire',
     matrixRow: 'auth #37',
+    rowIds: ['auth#37'],
     description: 'signInAnonymously twice in a row — does the second call (which prod treats as "already signed in anonymously, return same user") fire onAuthStateChanged again? Matrix claims no double-fire for same-user.',
     async observe() {
       // Ensure starting state is signed out.
@@ -3089,6 +3146,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-38-onidtokenchanged-fires-on-user-change',
     matrixRow: 'auth #38',
+    rowIds: ['auth#38'],
     description: 'onIdTokenChanged fires on user change. Probe: signInAnonymously → signOut → signInAnonymously, count + shape the fires.',
     async observe() {
       // Ensure starting state is signed out.
@@ -3133,6 +3191,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-40-onidtokenchanged-matches-onauthstatechanged-initial-fire',
     matrixRow: 'auth #40',
+    rowIds: ['auth#40'],
     description: 'Subscribe onIdTokenChanged and onAuthStateChanged simultaneously; capture count + timing of their initial fires. Matrix claims same initial-fire semantics.',
     async observe() {
       // Ensure starting state is signed out so the initial fire is null.
@@ -3175,6 +3234,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-10-onauthstatechanged-one-per-transition',
     matrixRow: 'auth #10',
+    rowIds: ['auth#10'],
     description:
       'onAuthStateChanged fires exactly once per state transition (no same-value double-fire). Subscribe, then signInAnonymously → signOut → signInAnonymously; count fires per transition. Matrix claim: each of the 3 transitions produces 1 fire.',
     async observe() {
@@ -3228,6 +3288,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-17-signin-email-password-fires-once',
     matrixRow: 'auth #17',
+    rowIds: ['auth#17'],
     description:
       'signInWithEmailAndPassword fires onAuthStateChanged with the new user exactly once. Probe: createUser → signOut → subscribe → signInWithEmailAndPassword; count fires for the signIn transition.',
     async observe() {
@@ -3282,6 +3343,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-24-createuser-fires-once',
     matrixRow: 'auth #24',
+    rowIds: ['auth#24'],
     description:
       'createUserWithEmailAndPassword fires onAuthStateChanged with the new user exactly once. Subscribe, createUser, count fires for the create transition.',
     async observe() {
@@ -3330,6 +3392,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-26-signout-fires-null-once',
     matrixRow: 'auth #26',
+    rowIds: ['auth#26'],
     description:
       'signOut fires onAuthStateChanged with null exactly once. Subscribe, signInAnonymously, then signOut; count fires for the signOut transition and verify the fire delivers null.',
     async observe() {
@@ -3371,6 +3434,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-30-onauthstatechanged-fires-on-every-transition',
     matrixRow: 'auth #30',
+    rowIds: ['auth#30'],
     description:
       'onAuthStateChanged fires on every subsequent identity change. Subscribe, then run signIn → signOut → signIn → signOut; verify the listener receives a fire for each of the 4 transitions.',
     async observe() {
@@ -3429,6 +3493,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-32-unsubscribe-stops-fires',
     matrixRow: 'auth #32',
+    rowIds: ['auth#32'],
     description:
       'Returned Unsubscribe removes the observer; subsequent state changes do NOT fire it. Subscribe, do one transition (to confirm the listener is wired), unsubscribe, then do further transitions and verify no further fires.',
     async observe() {
@@ -3482,6 +3547,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-33-multiple-subscribers-all-fire',
     matrixRow: 'auth #33',
+    rowIds: ['auth#33'],
     description:
       'Multiple subscribers all fire on each state change. Register two onAuthStateChanged subscribers, do a signIn transition, verify both fire.',
     async observe() {
@@ -3543,6 +3609,7 @@ const probes: Probe[] = [
   {
     name: 'auth-row-36-observer-object-form-works',
     matrixRow: 'auth #36',
+    rowIds: ['auth#36'],
     description:
       'Observer object form ({next, error, complete}) works alongside the function form. Register one observer as a NextFn and another as {next}; trigger a transition; verify both fire.',
     async observe() {
@@ -3635,6 +3702,7 @@ const probes: Probe[] = [
   {
     name: 'storage-upload-bytes-roundtrip',
     matrixRow: 'storage #36',
+    rowIds: ['storage#36'],
     description:
       'uploadBytes a small ArrayBuffer, getDownloadURL + fetch, verify byte-for-byte equality with what was uploaded.',
     async observe() {
@@ -3687,6 +3755,7 @@ const probes: Probe[] = [
   {
     name: 'storage-upload-then-getmetadata',
     matrixRow: 'storage #89',
+    rowIds: ['storage#89', 'storage#37', 'storage#91'],
     description:
       'uploadBytes with contentType: application/octet-stream, then getMetadata — verify contentType and size round-trip exactly.',
     async observe() {
@@ -3750,6 +3819,7 @@ const probes: Probe[] = [
   {
     name: 'storage-uploadstring-base64-roundtrip',
     matrixRow: 'storage #46',
+    rowIds: ['storage#46'],
     description:
       'uploadString with format: base64 — payload "hello" base64-encoded as "aGVsbG8=" — fetch and verify decoded bytes match.',
     async observe() {
@@ -3795,6 +3865,7 @@ const probes: Probe[] = [
   {
     name: 'storage-delete-then-get-throws',
     matrixRow: 'storage #66',
+    rowIds: ['storage#66', 'storage#54'],
     description:
       'Upload, deleteObject, then getDownloadURL on the deleted ref — observe the error code (expected: storage/object-not-found).',
     async observe() {
@@ -3861,6 +3932,7 @@ const probes: Probe[] = [
   {
     name: 'storage-delete-missing-throws',
     matrixRow: 'storage #64',
+    rowIds: ['storage#64'],
     description:
       'deleteObject on a path that was never uploaded — observe the error code (expected: storage/object-not-found). Sandbox is no-op; this oracle locks prod\'s shape.',
     async observe() {
@@ -3902,6 +3974,7 @@ const probes: Probe[] = [
   {
     name: 'storage-listall-shape',
     matrixRow: 'storage #77',
+    rowIds: ['storage#77'],
     description:
       'Upload 3 objects under a directory ref + one in a sub-folder; listAll returns items + prefixes in the documented shape.',
     async observe() {
@@ -3962,6 +4035,7 @@ const probes: Probe[] = [
   {
     name: 'storage-update-metadata-roundtrip',
     matrixRow: 'storage #90',
+    rowIds: ['storage#90'],
     description:
       'uploadBytes, then updateMetadata({customMetadata: {k: "v"}}), then getMetadata — verify the customMetadata survived and metageneration bumped.',
     async observe() {
@@ -4026,6 +4100,7 @@ const probes: Probe[] = [
   {
     name: 'storage-rules-denied-error-code',
     matrixRow: 'storage #105',
+    rowIds: ['storage#105'],
     description:
       'Attempt to upload to a path the rules deny (deliberately outside pyric_oracle/* if the bucket rules scope writes to that namespace, or any path if rules default-deny). Capture error code + class.',
     async observe() {
@@ -4075,6 +4150,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-set-then-get-roundtrip',
     matrixRow: 'rtdb #16/#10',
+    rowIds: ['rtdb#16', 'rtdb#10', 'rtdb-modular#M10', 'rtdb-modular#109', 'rtdb-modular#114'],
     description: 'Write a JSON value with set(), read back with get(), verify the round-trip. Locks the basic admin/user-mode write + read contract against the live service.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4108,6 +4184,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-onvalue-fires-on-set',
     matrixRow: 'rtdb #(listeners — currently deny-listed; oracle locks the upstream SDK shape)',
+    rowIds: ['rtdb-modular#130'],
     description: 'Register an onValue listener at a path, perform a set(), observe the fire count. Locks the upstream firebase/database onValue semantics so the deny-list rationale (long-lived listeners) is informed by real behavior.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4157,6 +4234,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-remove-vs-set-null',
     matrixRow: 'rtdb #18/#31',
+    rowIds: ['rtdb#18', 'rtdb#31', 'rtdb-modular#M11', 'rtdb-modular#M12', 'rtdb-modular#121', 'rtdb-modular#123'],
     description: 'Confirm remove(ref) and set(ref, null) produce the same end state: a subsequent get() returns null in both cases. Locks the documented RTDB invariant that null-write and remove are equivalent.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4197,6 +4275,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-push-autoid-format',
     matrixRow: 'rtdb #27/#28',
+    rowIds: ['rtdb#27', 'rtdb#28', 'rtdb-modular#M17', 'rtdb-modular#M70', 'rtdb-modular#124', 'rtdb-modular#125'],
     description: 'Call push(ref).key three times and capture the auto-id format: length, leading char, monotonicity. RTDB push IDs are documented as 20-char, dash-prefixed, timestamp-encoding, lexicographically sortable.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4238,6 +4317,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-servertimestamp-resolves',
     matrixRow: 'rtdb #(sentinels — currently deny-listed; oracle locks the upstream SDK shape)',
+    rowIds: ['rtdb-modular#M21', 'rtdb-modular#153', 'rtdb-modular#154'],
     description: 'Write a value containing serverTimestamp() as a field, read back, observe that the field resolved to a numeric millisecond timestamp (not the {".sv":"timestamp"} sentinel placeholder).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4274,6 +4354,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-rules-denied-error-code',
     matrixRow: 'rtdb #15/#20',
+    rowIds: ['rtdb#15', 'rtdb#20', 'rtdb#14', 'rtdb-modular#M23', 'rtdb-modular#M24', 'rtdb-modular#110', 'rtdb-modular#115'],
     description: 'Attempt a write to a path that RTDB rules deny (outside /pyric_oracle/*). Locks the FirebaseError code + message text the upstream firebase/database SDK emits for permission denial.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4322,6 +4403,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-get-snapshot-shape',
     matrixRow: 'rtdb-modular #106',
+    rowIds: ['rtdb-modular#106', 'rtdb-modular#M71'],
     description: 'Lock the DataSnapshot shape returned by get(): val/exists/key/ref/size/hasChildren/hasChild/forEach all present. Modular SDK uses `size` getter (NOT `numChildren()` method — that was the legacy namespaced API).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4372,6 +4454,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-get-missing-path',
     matrixRow: 'rtdb-modular #107/#108',
+    rowIds: ['rtdb-modular#107', 'rtdb-modular#108'],
     description: 'get() on a nonexistent path — RTDB returns a snapshot with val()===null and exists()===false (NOT a thrown error, diverging from intuition that maps `getDoc` errors onto RTDB).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4398,6 +4481,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-set-null-equals-remove',
     matrixRow: 'rtdb-modular #112',
+    rowIds: ['rtdb-modular#112'],
     description: 'set(ref, null) — confirm the end state is identical to remove(ref): subsequent get() returns null. Companion to rtdb-remove-vs-set-null but scoped to the modular SDK set-null behavior alone.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4436,6 +4520,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-set-replaces-not-merges',
     matrixRow: 'rtdb-modular #113',
+    rowIds: ['rtdb-modular#113'],
     description: 'set(ref, {a:1}) after set(ref, {a:1, b:2}) — verify the second set REPLACES (final state is {a:1}, NOT a merge of {a:1, b:2}).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4470,6 +4555,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-update-merges-keys',
     matrixRow: 'rtdb-modular #116',
+    rowIds: ['rtdb-modular#116'],
     description: 'update(ref, {a:10}) — verify partial merge: existing key `b` is preserved alongside the updated `a`.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4504,6 +4590,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-update-multipath-atomic',
     matrixRow: 'rtdb-modular #117',
+    rowIds: ['rtdb-modular#117', 'rtdb#23'],
     description: 'Multi-path update — update(parentRef, {"a/x":1, "b/y":2}) — verify both subtrees land in a single call. The "fan-out" pattern is RTDB\'s most distinctive feature.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4541,6 +4628,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-update-multipath-rules-denial',
     matrixRow: 'rtdb-modular #118',
+    rowIds: ['rtdb-modular#118'],
     description: 'Multi-path update where one path is denied by rules — confirm the WHOLE update rejects and neither path is written (atomicity contract).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4582,6 +4670,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-update-null-removes-key',
     matrixRow: 'rtdb-modular #119',
+    rowIds: ['rtdb-modular#119'],
     description: 'update(ref, {a: null}) removes key a — same null-equivalence as set(ref, null) but scoped to a single key inside a multi-key update.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4617,6 +4706,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-remove-idempotent',
     matrixRow: 'rtdb-modular #122',
+    rowIds: ['rtdb-modular#122', 'rtdb#32'],
     description: 'remove(ref) on an absent path — confirm it resolves successfully without throwing (idempotent).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4648,6 +4738,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-push-with-value',
     matrixRow: 'rtdb-modular #126/#127',
+    rowIds: ['rtdb-modular#126', 'rtdb-modular#127'],
     description: 'push(parent, value) — verify (a) the value is written under the new auto-id, (b) the returned ref is usable in follow-up ops.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4696,6 +4787,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-onvalue-initial-with-data',
     matrixRow: 'rtdb-modular #128',
+    rowIds: ['rtdb-modular#128'],
     description: 'onValue on a path with existing data — observe the initial fire snapshot value.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4735,6 +4827,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-onvalue-initial-no-data',
     matrixRow: 'rtdb-modular #129',
+    rowIds: ['rtdb-modular#129'],
     description: 'onValue on a NONEXISTENT path — does it fire at all? Locks the RTDB-vs-Firestore divergence: Firestore fires with exists=false; RTDB fires with val=null (or might not fire at all).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4774,6 +4867,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-onvalue-unsubscribe',
     matrixRow: 'rtdb-modular #131',
+    rowIds: ['rtdb-modular#131'],
     description: 'Returned unsubscribe from onValue stops further fires — after unsub(), subsequent set() produces 0 additional fires.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4815,6 +4909,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-onchildadded-initial-replay',
     matrixRow: 'rtdb-modular #133',
+    rowIds: ['rtdb-modular#133', 'rtdb-modular#M41'],
     description: 'onChildAdded replays existing children on subscribe — register listener AFTER seeding 3 children, observe 3 initial fires (one per existing key).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4853,6 +4948,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-onchildadded-post-subscribe',
     matrixRow: 'rtdb-modular #134',
+    rowIds: ['rtdb-modular#134', 'rtdb-modular#M42'],
     description: 'After subscribe, adding a NEW child fires onChildAdded exactly once for that key — seed 2 children, subscribe, then write a 3rd child via set(child, …).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4899,6 +4995,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-onchildchanged-fires-on-update',
     matrixRow: 'rtdb-modular #135',
+    rowIds: ['rtdb-modular#135', 'rtdb-modular#M43'],
     description: 'onChildChanged fires when an existing child is updated — write a child, subscribe, update the child, observe the fire (key + new val).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4943,6 +5040,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-onchildremoved-fires-on-delete',
     matrixRow: 'rtdb-modular #136',
+    rowIds: ['rtdb-modular#136', 'rtdb-modular#M45'],
     description: 'onChildRemoved fires when a child is deleted — seed 2 children, subscribe, remove one, observe the fire (key + the now-removed value).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -4989,6 +5087,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-onchildmoved-with-orderby',
     matrixRow: 'rtdb-modular #137',
+    rowIds: ['rtdb-modular#137', 'rtdb-modular#M46'],
     description: 'onChildMoved fires when a child\'s ordering value changes — only emits under an ordered query. Seed 3 children with priorities, subscribe via query(ref, orderByChild("priority")), update one\'s priority so its sort position changes, observe the fire (or its absence).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5039,6 +5138,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-off-stops-child-fires',
     matrixRow: 'rtdb-modular #138/#139',
+    rowIds: ['rtdb-modular#138', 'rtdb-modular#139', 'rtdb-modular#M47'],
     description: 'off(ref) (no eventType) removes ALL listeners at the ref — register onChildAdded, call off(ref), then write a NEW child; verify zero additional fires.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5083,6 +5183,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-query-orderbychild-limit',
     matrixRow: 'rtdb-modular #142/#150',
+    rowIds: ['rtdb-modular#142', 'rtdb-modular#150'],
     description: 'query(ref, orderByChild("pos"), limitToFirst(2)) — verify the result window respects both ordering and limit.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5129,6 +5230,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-query-equalto',
     matrixRow: 'rtdb-modular #145',
+    rowIds: ['rtdb-modular#145'],
     description: 'query(ref, orderByChild("group"), equalTo("blue")) — verify equalTo filters to matching children only.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5173,6 +5275,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-query-startat-inclusive',
     matrixRow: 'rtdb-modular #146',
+    rowIds: ['rtdb-modular#146'],
     description: 'query(ref, orderByChild("pos"), startAt(2)) — verify the cursor is INCLUSIVE (child with pos===2 is in the result).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5215,6 +5318,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-orderbychild-window',
     matrixRow: 'rtdb-modular #142/#146/#147',
+    rowIds: ['rtdb-modular#142', 'rtdb-modular#146', 'rtdb-modular#147', 'rtdb-modular#M49'],
     description: 'query(ref, orderByChild("pos"), startAt(2), endAt(4)) — seed 5 children with pos 1..5; observe windowed matched keys + ordered positions.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5267,6 +5371,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-orderbykey-window',
     matrixRow: 'rtdb-modular #143/#146/#147',
+    rowIds: ['rtdb-modular#143', 'rtdb-modular#146', 'rtdb-modular#147'],
     description: 'query(ref, orderByKey(), startAt("b"), endAt("d")) — seed children with keys a..e; observe windowed matched keys in key order.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5314,6 +5419,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-orderbyvalue-numeric',
     matrixRow: 'rtdb-modular #144/#150',
+    rowIds: ['rtdb-modular#144', 'rtdb-modular#150', 'rtdb-modular#M51'],
     description: 'query(ref, orderByValue(), limitToFirst(3)) over primitive numeric children — observe first 3 by ascending value.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5364,6 +5470,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-equalTo-filter',
     matrixRow: 'rtdb-modular #145',
+    rowIds: ['rtdb-modular#145', 'rtdb-modular#M52'],
     description: 'query(ref, orderByChild("group"), equalTo("b")) — seed children with group "a"|"b"|"c"; verify only "b" children come back.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5417,6 +5524,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-limittofirst-vs-limittolast',
     matrixRow: 'rtdb-modular #150/#151',
+    rowIds: ['rtdb-modular#150', 'rtdb-modular#151', 'rtdb-modular#M54', 'rtdb-modular#M55'],
     description: 'Compare limitToFirst(2) vs limitToLast(2) on the same orderByChild query — observe which children land in each window.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5476,6 +5584,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-startafter-endbefore-exclusive',
     matrixRow: 'rtdb-modular #148/#149',
+    rowIds: ['rtdb-modular#148', 'rtdb-modular#149', 'rtdb-modular#M57'],
     description: 'query(ref, orderByChild("pos"), startAfter(2), endBefore(5)) — verify startAfter + endBefore are EXCLUSIVE (the cursor positions are dropped).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5527,6 +5636,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-onvalue-with-query',
     matrixRow: 'rtdb-modular #152',
+    rowIds: ['rtdb-modular#152', 'rtdb-modular#M58'],
     description: 'onValue(query(ref, orderByChild("pos"), limitToFirst(2))) — does the listener fire only when the windowed result changes, or on every parent write?',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5594,6 +5704,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-increment-from-missing',
     matrixRow: 'rtdb-modular #155/#156',
+    rowIds: ['rtdb-modular#155', 'rtdb-modular#156'],
     description: 'increment(n) against a missing field starts at 0; subsequent increments accumulate (positive then negative deltas).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5635,6 +5746,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-runtransaction-success',
     matrixRow: 'rtdb-modular #158/#160/#162',
+    rowIds: ['rtdb-modular#158', 'rtdb-modular#160', 'rtdb-modular#162', 'rtdb-modular#M37'],
     description: 'Basic runTransaction success — current value is null on first call, fn returns the new value, result.committed === true, result.snapshot.val() is the committed value.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5675,6 +5787,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-runtransaction-abort-undefined',
     matrixRow: 'rtdb-modular #159',
+    rowIds: ['rtdb-modular#159', 'rtdb-modular#M37a'],
     description: 'runTransaction abort by returning undefined — RTDB-specific: returning `undefined` from the update fn aborts. result.committed === false, no write performed.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5717,6 +5830,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-runtransaction-current-value-arg',
     matrixRow: 'rtdb-modular #160',
+    rowIds: ['rtdb-modular#160', 'rtdb-modular#M37b'],
     description: 'runTransaction update fn — what shape does `current` arrive as when the path does not exist? Locks the null-vs-undefined question for empty paths AND records the existing-value shape for a seeded path so the sandbox round-trips the right type.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5786,6 +5900,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-runtransaction-returns-committed-snapshot',
     matrixRow: 'rtdb-modular #162',
+    rowIds: ['rtdb-modular#162'],
     description: 'runTransaction success — the resolved value is `{ committed: boolean, snapshot: DataSnapshot }`. Lock the resolved snapshot.val() against the actual committed value (not the seed value, not the update-fn return value). Pin the shape (`committed` is a boolean primitive, `snapshot` is an object that responds to .val()/.exists()/.key).',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5853,6 +5968,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-runtransaction-options-applylocally',
     matrixRow: 'rtdb-modular #158/#160 (options.applyLocally)',
+    rowIds: ['rtdb-modular#158', 'rtdb-modular#160', 'rtdb-modular#M37d'],
     description: 'runTransaction with options.applyLocally — RTDB optionally suppresses optimistic local writes. With applyLocally:false the in-flight value should NOT be visible to onValue listeners until the commit lands. Probe both branches against an onValue listener registered on the ref before the transaction starts.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5939,6 +6055,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-modular-runtransaction-on-rules-denied-path',
     matrixRow: 'rtdb-modular #158 (denial)',
+    rowIds: ['rtdb-modular#158', 'rtdb#14', 'rtdb-modular#M37e'],
     description: 'runTransaction against a path the rules deny — confirm the promise rejects, capture the error shape (FirebaseError vs plain Error, .code, .message). Locks the denial contract so the sandbox throws an equivalent shape.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -5996,6 +6113,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-rest-json-suffix-contract',
     matrixRow: 'rtdb #5',
+    rowIds: ['rtdb#5'],
     description: '`.json`-suffix REST contract — fetching `<databaseUrl>/<path>.json` returns the JSON value at that path, while omitting `.json` returns HTML (the Firebase console redirector). Locks the contract every handler that calls `fetchDatabase` depends on.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -6064,6 +6182,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-rules-json-roundtrip',
     matrixRow: 'rtdb #39',
+    rowIds: ['rtdb#39'],
     description: 'Rules-JSON round-trip — PUT a rules JSON containing path-variable segments (`$userId`), `.indexOn` arrays, and `.read`/`.write`/`.validate` keys, GET it back, verify the structure is preserved. Locks the REST `/.settings/rules.json` accept/return contract.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -6187,6 +6306,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-rules-deploy-propagation-timing',
     matrixRow: 'rtdb #46',
+    rowIds: ['rtdb#46'],
     description: 'Rules-deploy propagation timing — write a permissive rule for a fresh path, then poll a write-under-that-rule to measure how long until the new rules take effect. Locks the empirical upper bound the harness needs to wait between rule deploys and dependent writes.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -6307,6 +6427,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-shallow-rest-response-shape',
     matrixRow: 'rtdb #58',
+    rowIds: ['rtdb#58'],
     description: '`?shallow=true` REST response shape — write a tree with objects, leaf primitives, and a missing path, then GET each with `?shallow=true`. Locks the response shape the crawl handler depends on: object children → `{key: true, ...}`, leaf primitive → the primitive itself, missing path → `null`.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -6397,6 +6518,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-handler-admin-vs-user-returnshape',
     matrixRow: 'rtdb #10/#11',
+    rowIds: ['rtdb#10', 'rtdb#11'],
     description: 'DataHandler return shape — invoke handler.execute() against a real RTDB in admin mode (no auth) and user mode (anonymous auth) and verify both return `{ success: true, data: <value> }` with the same value. Locks the admin/user-mode return-shape contract end-to-end against the live service.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -6478,6 +6600,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-off-eventtype-precision',
     matrixRow: 'rtdb #139',
+    rowIds: ['rtdb-modular#139'],
     description: '`off(ref, eventType)` precision — register a `value` listener and a `child_added` listener at the same ref, call `off(ref, \'value\')`, verify a subsequent set fires only the child listener. Also verify `off(ref, \'value\')` with no callback clears ALL value listeners at the ref.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -6551,6 +6674,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-onvalue-unsub-equivalence',
     matrixRow: 'rtdb #141',
+    rowIds: ['rtdb-modular#141'],
     description: 'onValue unsubscribe equivalence — register an `onValue(ref, cb)` and capture its return value. Then call BOTH `unsub()` AND `off(ref, \'value\', cb)` against fresh registrations; verify each form stops the listener on its own.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -6634,6 +6758,7 @@ const probes: Probe[] = [
   {
     name: 'rtdb-simulator-vs-prod-agreement',
     matrixRow: 'rtdb #71',
+    rowIds: ['rtdb#71'],
     description: 'Simulator-vs-prod allow/deny agreement audit — deploy N rules to live RTDB, run M ops per rule against prod and through SimulateHandler, report per-op agreement / disagreement. Lists every divergence so the matrix can call them out.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
@@ -7127,6 +7252,7 @@ async function main(): Promise<void> {
       const obs: Observation = {
         name: probe.name,
         matrixRow: probe.matrixRow,
+        rowIds: probe.rowIds,
         description: probe.description,
         observedAt: new Date().toISOString(),
         fbSdkVersion: FB_SDK_VERSION,

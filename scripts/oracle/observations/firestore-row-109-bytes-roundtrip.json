@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-109-bytes-roundtrip",
   "matrixRow": "firestore #109",
+  "rowIds": [
+    "firestore#109"
+  ],
   "description": "Bytes round-trip through setDoc / getDoc. Probe: write { payload: Bytes.fromUint8Array([1,2,3,4]) }, then read back — verify the field is an instance of Bytes with the same toBase64() and the same byte sequence (no destructuring to a plain object).",
   "observedAt": "2026-05-18T01:12:21.003Z",
   "fbSdkVersion": "12.13.0",

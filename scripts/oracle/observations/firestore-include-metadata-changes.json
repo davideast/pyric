@@ -1,6 +1,9 @@
 {
   "name": "firestore-include-metadata-changes",
   "matrixRow": "firestore #85",
+  "rowIds": [
+    "firestore#85"
+  ],
   "description": "onSnapshot with includeMetadataChanges:true vs default — observes how many fires prod produces for one write.",
   "observedAt": "2026-05-17T23:36:58.501Z",
   "fbSdkVersion": "12.13.0",

@@ -1,6 +1,9 @@
 {
   "name": "storage-listall-shape",
   "matrixRow": "storage #77",
+  "rowIds": [
+    "storage#77"
+  ],
   "description": "Upload 3 objects under a directory ref + one in a sub-folder; listAll returns items + prefixes in the documented shape.",
   "observedAt": "2026-05-18T01:30:09.413Z",
   "fbSdkVersion": "12.13.0",

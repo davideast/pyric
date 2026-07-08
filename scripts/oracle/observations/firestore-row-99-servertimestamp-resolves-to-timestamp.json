@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-99-servertimestamp-resolves-to-timestamp",
   "matrixRow": "firestore #99",
+  "rowIds": [
+    "firestore#99"
+  ],
   "description": "serverTimestamp() resolves to a Timestamp after the write commits. Probes setDoc({at: serverTimestamp()}) then getDoc — verifies `at` is a Timestamp instance (constructor.name === 'Timestamp', .seconds + .nanoseconds present, instanceof Timestamp).",
   "observedAt": "2026-05-18T00:20:08.694Z",
   "fbSdkVersion": "12.13.0",

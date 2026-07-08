@@ -1,6 +1,9 @@
 {
   "name": "auth-row-33-multiple-subscribers-all-fire",
   "matrixRow": "auth #33",
+  "rowIds": [
+    "auth#33"
+  ],
   "description": "Multiple subscribers all fire on each state change. Register two onAuthStateChanged subscribers, do a signIn transition, verify both fire.",
   "observedAt": "2026-05-18T00:12:30.915Z",
   "fbSdkVersion": "12.13.0",

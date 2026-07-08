@@ -1,6 +1,9 @@
 {
   "name": "auth-row-26-signout-fires-null-once",
   "matrixRow": "auth #26",
+  "rowIds": [
+    "auth#26"
+  ],
   "description": "signOut fires onAuthStateChanged with null exactly once. Subscribe, signInAnonymously, then signOut; count fires for the signOut transition and verify the fire delivers null.",
   "observedAt": "2026-05-18T00:12:23.882Z",
   "fbSdkVersion": "12.13.0",

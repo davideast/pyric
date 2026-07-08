@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-89-snapshot-ref-usable",
   "matrixRow": "firestore #89",
+  "rowIds": [
+    "firestore#89"
+  ],
   "description": "Snapshot `.ref` (docRef listener) and `.docs[i].ref` (query listener) are usable in follow-up ops. Probes: register both kinds of listeners; capture refs from the first fire; use them in getDoc + setDoc; verify the ref points back at the same data.",
   "observedAt": "2026-05-18T00:12:01.788Z",
   "fbSdkVersion": "12.13.0",

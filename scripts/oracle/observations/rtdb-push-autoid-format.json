@@ -1,6 +1,14 @@
 {
   "name": "rtdb-push-autoid-format",
   "matrixRow": "rtdb #27/#28",
+  "rowIds": [
+    "rtdb#27",
+    "rtdb#28",
+    "rtdb-modular#M17",
+    "rtdb-modular#M70",
+    "rtdb-modular#124",
+    "rtdb-modular#125"
+  ],
   "description": "Call push(ref).key three times and capture the auto-id format: length, leading char, monotonicity. RTDB push IDs are documented as 20-char, dash-prefixed, timestamp-encoding, lexicographically sortable.",
   "observedAt": "2026-05-18T03:36:30.531Z",
   "fbSdkVersion": "12.13.0",

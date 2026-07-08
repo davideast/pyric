@@ -1,6 +1,11 @@
 {
   "name": "rtdb-modular-orderbykey-window",
   "matrixRow": "rtdb-modular #143/#146/#147",
+  "rowIds": [
+    "rtdb-modular#143",
+    "rtdb-modular#146",
+    "rtdb-modular#147"
+  ],
   "description": "query(ref, orderByKey(), startAt(\"b\"), endAt(\"d\")) — seed children with keys a..e; observe windowed matched keys in key order.",
   "observedAt": "2026-05-18T04:28:06.901Z",
   "fbSdkVersion": "12.13.0",

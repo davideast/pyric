@@ -1,6 +1,9 @@
 {
   "name": "firestore-bare-getfirestore-no-default-app",
   "matrixRow": "firestore #4",
+  "rowIds": [
+    "firestore#4"
+  ],
   "description": "getFirestore() with no argument and no default Firebase App initialized — locks the FirebaseError code prod throws.",
   "observedAt": "2026-05-17T23:37:10.104Z",
   "fbSdkVersion": "12.13.0",

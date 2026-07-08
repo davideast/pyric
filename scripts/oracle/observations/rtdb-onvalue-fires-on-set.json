@@ -1,6 +1,9 @@
 {
   "name": "rtdb-onvalue-fires-on-set",
   "matrixRow": "rtdb #(listeners — currently deny-listed; oracle locks the upstream SDK shape)",
+  "rowIds": [
+    "rtdb-modular#130"
+  ],
   "description": "Register an onValue listener at a path, perform a set(), observe the fire count. Locks the upstream firebase/database onValue semantics so the deny-list rationale (long-lived listeners) is informed by real behavior.",
   "observedAt": "2026-05-18T03:36:28.536Z",
   "fbSdkVersion": "12.13.0",

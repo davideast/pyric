@@ -1,6 +1,11 @@
 {
   "name": "rtdb-modular-off-stops-child-fires",
   "matrixRow": "rtdb-modular #138/#139",
+  "rowIds": [
+    "rtdb-modular#138",
+    "rtdb-modular#139",
+    "rtdb-modular#M47"
+  ],
   "description": "off(ref) (no eventType) removes ALL listeners at the ref — register onChildAdded, call off(ref), then write a NEW child; verify zero additional fires.",
   "observedAt": "2026-05-18T04:26:38.300Z",
   "fbSdkVersion": "12.13.0",

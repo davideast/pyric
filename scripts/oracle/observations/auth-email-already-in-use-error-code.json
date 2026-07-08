@@ -1,6 +1,9 @@
 {
   "name": "auth-email-already-in-use-error-code",
   "matrixRow": "auth #22",
+  "rowIds": [
+    "auth#22"
+  ],
   "description": "createUserWithEmailAndPassword called twice with the same email — locks the FirebaseError code prod emits for the duplicate-registration path.",
   "observedAt": "2026-05-17T23:37:08.079Z",
   "fbSdkVersion": "12.13.0",

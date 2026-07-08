@@ -1,6 +1,11 @@
 {
   "name": "rtdb-servertimestamp-resolves",
   "matrixRow": "rtdb #(sentinels — currently deny-listed; oracle locks the upstream SDK shape)",
+  "rowIds": [
+    "rtdb-modular#M21",
+    "rtdb-modular#153",
+    "rtdb-modular#154"
+  ],
   "description": "Write a value containing serverTimestamp() as a field, read back, observe that the field resolved to a numeric millisecond timestamp (not the {\".sv\":\"timestamp\"} sentinel placeholder).",
   "observedAt": "2026-05-18T03:36:31.440Z",
   "fbSdkVersion": "12.13.0",

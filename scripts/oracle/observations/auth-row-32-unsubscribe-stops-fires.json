@@ -1,6 +1,9 @@
 {
   "name": "auth-row-32-unsubscribe-stops-fires",
   "matrixRow": "auth #32",
+  "rowIds": [
+    "auth#32"
+  ],
   "description": "Returned Unsubscribe removes the observer; subsequent state changes do NOT fire it. Subscribe, do one transition (to confirm the listener is wired), unsubscribe, then do further transitions and verify no further fires.",
   "observedAt": "2026-05-18T00:12:29.402Z",
   "fbSdkVersion": "12.13.0",

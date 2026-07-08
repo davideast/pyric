@@ -1,6 +1,9 @@
 {
   "name": "firestore-write-denied-error-code",
   "matrixRow": "firestore #32",
+  "rowIds": [
+    "firestore#32"
+  ],
   "description": "Rules-denied write — pins the error class/code/message setDoc returns when the target is outside pyric_oracle/*. Companion to firestore-rules-denied-error but namespaced to #32 (setDoc).",
   "observedAt": "2026-05-17T23:36:54.021Z",
   "fbSdkVersion": "12.13.0",

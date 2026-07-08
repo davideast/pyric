@@ -1,6 +1,9 @@
 {
   "name": "firestore-queryequal-structural",
   "matrixRow": "firestore #116",
+  "rowIds": [
+    "firestore#116"
+  ],
   "description": "queryEqual semantics — does prod compare structurally or by identity?",
   "observedAt": "2026-05-17T23:36:46.155Z",
   "fbSdkVersion": "12.13.0",

@@ -1,6 +1,9 @@
 {
   "name": "auth-row-38-onidtokenchanged-fires-on-user-change",
   "matrixRow": "auth #38",
+  "rowIds": [
+    "auth#38"
+  ],
   "description": "onIdTokenChanged fires on user change. Probe: signInAnonymously → signOut → signInAnonymously, count + shape the fires.",
   "observedAt": "2026-05-17T23:58:52.248Z",
   "fbSdkVersion": "12.13.0",

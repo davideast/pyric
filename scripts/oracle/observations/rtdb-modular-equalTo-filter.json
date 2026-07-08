@@ -1,6 +1,10 @@
 {
   "name": "rtdb-modular-equalTo-filter",
   "matrixRow": "rtdb-modular #145",
+  "rowIds": [
+    "rtdb-modular#145",
+    "rtdb-modular#M52"
+  ],
   "description": "query(ref, orderByChild(\"group\"), equalTo(\"b\")) — seed children with group \"a\"|\"b\"|\"c\"; verify only \"b\" children come back.",
   "observedAt": "2026-05-18T04:28:08.758Z",
   "fbSdkVersion": "12.13.0",

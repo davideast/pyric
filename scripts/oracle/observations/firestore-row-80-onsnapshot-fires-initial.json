@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-80-onsnapshot-fires-initial",
   "matrixRow": "firestore #80",
+  "rowIds": [
+    "firestore#80"
+  ],
   "description": "onSnapshot(docRef, cb) fires the initial snapshot microtask-deferred — not synchronously. Probes whether the first fire arrives during the registering call (synchronous), in the next microtask (queueMicrotask boundary), or after a macrotask (setTimeout(0) boundary).",
   "observedAt": "2026-05-17T23:58:10.819Z",
   "fbSdkVersion": "12.13.0",

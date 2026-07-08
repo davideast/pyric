@@ -1,6 +1,9 @@
 {
   "name": "firestore-adddoc-autoid-format",
   "matrixRow": "firestore #45",
+  "rowIds": [
+    "firestore#45"
+  ],
   "description": "addDoc auto-id format — observes the length and character set prod mints for auto-ids.",
   "observedAt": "2026-05-17T23:36:49.494Z",
   "fbSdkVersion": "12.13.0",

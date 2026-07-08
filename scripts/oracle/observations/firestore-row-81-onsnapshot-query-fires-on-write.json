@@ -1,6 +1,9 @@
 {
   "name": "firestore-row-81-onsnapshot-query-fires-on-write",
   "matrixRow": "firestore #81",
+  "rowIds": [
+    "firestore#81"
+  ],
   "description": "onSnapshot(query, cb) fires on writes to the underlying collection. Probes: register a listener on a collection-level query, then perform writes (add a doc, modify, delete) and confirm each write produces a fire reflecting the new state.",
   "observedAt": "2026-05-18T00:11:50.823Z",
   "fbSdkVersion": "12.13.0",
