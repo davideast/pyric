@@ -23,6 +23,15 @@
  *     `createCustomToken` / `verifyIdToken`, not enough to model a
  *     real identity platform.
  *
+ *   - **Remote sandbox arm** — when the sandbox carries `pyric/sandbox`'s
+ *     remote brand (a Node-side handle onto the browser-hosted
+ *     SharedWorker sandbox from `pyric-tools`' `connectRemoteSandbox()`),
+ *     user CRUD relays over the handle's worker channel instead of the
+ *     in-memory store, so server-created users land in the ONE user pool
+ *     the browser app + Studio share. See the "Remote sandbox arm"
+ *     section below for the details (including the extra methods it
+ *     supports: `updateUser`, `listUsers`).
+ *
  * Surface scope on the sandbox backend (what works):
  *
  *   - {@link getAuth}
@@ -69,10 +78,22 @@ import type {
   Auth as AdminAuth,
   CreateRequest,
   DecodedIdToken,
+  ListUsersResult,
+  UpdateRequest,
   UserRecord,
 } from 'firebase-admin/auth';
 import type { App } from 'firebase-admin/app';
-import type { Sandbox, SandboxEvent } from 'pyric/sandbox';
+import {
+  isRemoteSandbox,
+  type RemoteSandbox,
+  type Sandbox,
+  type SandboxEvent,
+} from 'pyric/sandbox';
+import type {
+  AuthUserRecord,
+  CreateUserRequest as SandboxCreateUserRequest,
+  UpdateUserRequest as SandboxUpdateUserRequest,
+} from 'pyric/auth';
 import {
   ADMIN_APP_TARGET,
   type PyricAdminApp,
@@ -194,6 +215,87 @@ function storeFor(sandbox: Sandbox): AuthStore {
 export const SANDBOX_TOKEN_PREFIX = 'pyric-sandbox-custom';
 
 /**
+ * Mint a deterministic sandbox token (the {@link SANDBOX_TOKEN_PREFIX}
+ * format). Stateless — shared verbatim by the local and remote sandbox
+ * arms, so a token minted against either round-trips through
+ * {@link verifySandboxIdToken} on the other.
+ */
+function mintSandboxCustomToken(uid: string, developerClaims?: object): Promise<string> {
+  const claims = developerClaims ?? {};
+  const token = `${SANDBOX_TOKEN_PREFIX}:${uid}:${JSON.stringify(claims)}`;
+  return Promise.resolve(token);
+}
+
+/**
+ * Parse a token minted by {@link mintSandboxCustomToken}. Returns a
+ * `DecodedIdToken`-shaped object — every required field is filled with a
+ * sandbox-appropriate placeholder (`iss`/`aud` = `pyric-sandbox`, time
+ * fields = now), and the developer claims are spread onto the result so
+ * `decoded.role` etc. work the same way they do in prod.
+ *
+ * Throws on any token that doesn't match the
+ * `${SANDBOX_TOKEN_PREFIX}:${uid}:${json}` shape — including real JWTs
+ * that another verifier would parse. The sandbox backends are
+ * intentionally not drop-ins for production token verification.
+ */
+function verifySandboxIdToken(idToken: string): Promise<DecodedIdToken> {
+  if (typeof idToken !== 'string' || !idToken.startsWith(`${SANDBOX_TOKEN_PREFIX}:`)) {
+    return Promise.reject(
+      new Error(
+        'pyric-admin/auth: verifyIdToken on the sandbox backend only ' +
+          'accepts tokens minted by this sandbox\'s createCustomToken. ' +
+          `Token prefix must be "${SANDBOX_TOKEN_PREFIX}:".`,
+      ),
+    );
+  }
+  // The token is `prefix:uid:json`. Split on the first two colons
+  // only — the JSON payload may itself contain colons (e.g. inside
+  // a string value) so `split(':')` with no limit would corrupt it.
+  const firstColon = idToken.indexOf(':');
+  const secondColon = idToken.indexOf(':', firstColon + 1);
+  if (secondColon < 0) {
+    return Promise.reject(
+      new Error(
+        `pyric-admin/auth: verifyIdToken received a malformed sandbox token (missing claims segment): ${idToken}`,
+      ),
+    );
+  }
+  const uid = idToken.slice(firstColon + 1, secondColon);
+  const jsonClaims = idToken.slice(secondColon + 1);
+  let claims: Record<string, unknown>;
+  try {
+    claims = JSON.parse(jsonClaims) as Record<string, unknown>;
+  } catch (e) {
+    return Promise.reject(
+      new Error(
+        `pyric-admin/auth: verifyIdToken failed to parse sandbox token claims as JSON: ${(e as Error).message}`,
+      ),
+    );
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  // `DecodedIdToken` requires `aud`/`iss`/`sub`/`uid`/`auth_time`/
+  // `exp`/`iat`/`firebase` to be present; the sandbox fills them
+  // with placeholders so consumers that read them get sensible
+  // values rather than `undefined`. Developer claims are spread on
+  // top so they shadow nothing critical.
+  const decoded: DecodedIdToken = {
+    aud: 'pyric-sandbox',
+    auth_time: nowSec,
+    exp: nowSec + 3600,
+    firebase: {
+      identities: {},
+      sign_in_provider: 'custom',
+    },
+    iat: nowSec,
+    iss: 'pyric-sandbox',
+    sub: uid,
+    uid,
+    ...claims,
+  };
+  return Promise.resolve(decoded);
+}
+
+/**
  * Build the in-memory `Auth` handle for a sandbox app. Returns an
  * object structurally compatible with `firebase-admin/auth`'s `Auth`
  * (cast at the boundary) where the documented method subset is wired
@@ -271,82 +373,19 @@ function makeSandboxAuth(sandbox: Sandbox): Auth {
      * Mint a deterministic sandbox token. Format is fixed at
      * `${SANDBOX_TOKEN_PREFIX}:${uid}:${JSON.stringify(claims ?? {})}`.
      * Round-trips through {@link verifyIdToken} on the same sandbox
-     * backend; rejected by every other token verifier.
+     * backend; rejected by every other token verifier. Shared
+     * implementation: {@link mintSandboxCustomToken}.
      */
     createCustomToken(uid: string, developerClaims?: object): Promise<string> {
-      const claims = developerClaims ?? {};
-      const token = `${SANDBOX_TOKEN_PREFIX}:${uid}:${JSON.stringify(claims)}`;
-      return Promise.resolve(token);
+      return mintSandboxCustomToken(uid, developerClaims);
     },
 
     /**
-     * Parse a token minted by {@link createCustomToken}. Returns a
-     * `DecodedIdToken`-shaped object — every required field is filled
-     * with a sandbox-appropriate placeholder (`iss`/`aud` =
-     * `pyric-sandbox`, time fields = now), and the developer claims are
-     * spread onto the result so `decoded.role` etc. work the same way
-     * they do in prod.
-     *
-     * Throws on any token that doesn't match the
-     * `${SANDBOX_TOKEN_PREFIX}:${uid}:${json}` shape — including real
-     * JWTs that another verifier would parse. The sandbox backend is
-     * intentionally not a drop-in for production token verification.
+     * Parse a token minted by {@link createCustomToken}. Shared
+     * implementation: {@link verifySandboxIdToken}.
      */
     verifyIdToken(idToken: string, _checkRevoked?: boolean): Promise<DecodedIdToken> {
-      if (typeof idToken !== 'string' || !idToken.startsWith(`${SANDBOX_TOKEN_PREFIX}:`)) {
-        return Promise.reject(
-          new Error(
-            'pyric-admin/auth: verifyIdToken on the sandbox backend only ' +
-              'accepts tokens minted by this sandbox\'s createCustomToken. ' +
-              `Token prefix must be "${SANDBOX_TOKEN_PREFIX}:".`,
-          ),
-        );
-      }
-      // The token is `prefix:uid:json`. Split on the first two colons
-      // only — the JSON payload may itself contain colons (e.g. inside
-      // a string value) so `split(':')` with no limit would corrupt it.
-      const firstColon = idToken.indexOf(':');
-      const secondColon = idToken.indexOf(':', firstColon + 1);
-      if (secondColon < 0) {
-        return Promise.reject(
-          new Error(
-            `pyric-admin/auth: verifyIdToken received a malformed sandbox token (missing claims segment): ${idToken}`,
-          ),
-        );
-      }
-      const uid = idToken.slice(firstColon + 1, secondColon);
-      const jsonClaims = idToken.slice(secondColon + 1);
-      let claims: Record<string, unknown>;
-      try {
-        claims = JSON.parse(jsonClaims) as Record<string, unknown>;
-      } catch (e) {
-        return Promise.reject(
-          new Error(
-            `pyric-admin/auth: verifyIdToken failed to parse sandbox token claims as JSON: ${(e as Error).message}`,
-          ),
-        );
-      }
-      const nowSec = Math.floor(Date.now() / 1000);
-      // `DecodedIdToken` requires `aud`/`iss`/`sub`/`uid`/`auth_time`/
-      // `exp`/`iat`/`firebase` to be present; the sandbox fills them
-      // with placeholders so consumers that read them get sensible
-      // values rather than `undefined`. Developer claims are spread on
-      // top so they shadow nothing critical.
-      const decoded: DecodedIdToken = {
-        aud: 'pyric-sandbox',
-        auth_time: nowSec,
-        exp: nowSec + 3600,
-        firebase: {
-          identities: {},
-          sign_in_provider: 'custom',
-        },
-        iat: nowSec,
-        iss: 'pyric-sandbox',
-        sub: uid,
-        uid,
-        ...claims,
-      };
-      return Promise.resolve(decoded);
+      return verifySandboxIdToken(idToken);
     },
 
     /**
@@ -515,6 +554,268 @@ function makeSandboxAuth(sandbox: Sandbox): Auth {
   return handle as Auth;
 }
 
+// ─── Remote sandbox arm (remote sandbox, slice 1) ───────────────────────
+//
+// The app's `Sandbox` is a Node-side handle onto the browser-hosted
+// SharedWorker sandbox (`pyric/sandbox`'s remote brand). User CRUD relays
+// over the handle's worker channel as the existing admin auth ops
+// (`auth.adminCreateUser` / `auth.adminUpdateUser` / `auth.adminDeleteUser`
+// / `auth.listUsers`) so server-created users land in the ONE user pool
+// the browser app + Studio + agents share — an in-memory `AuthStore` keyed
+// off a remote handle would be a private user table the browser never
+// sees. Auth ops are never lensed (they operate the worker's user pool
+// directly), so no `actAs` is pinned here, unlike the RTDB arm.
+//
+// Single-user lookups (`getUser` / `getUserByEmail`) go through
+// `auth.listUsers` + a client-side filter: the worker protocol has no
+// dedicated single-lookup op, and O(n) over the wire is fine at sandbox
+// scale (per the design spike — add an op if it ever matters).
+//
+// Tokens stay stateless and local: `createCustomToken` / `verifyIdToken`
+// are the same string transforms as the local arm
+// ({@link mintSandboxCustomToken} / {@link verifySandboxIdToken}), so a
+// token minted server-side verifies against any pyric-admin backend.
+
+/** Map a firebase-admin `CreateRequest` onto the worker's sandbox
+ *  create-user request. `null`s (upstream "clear") become "unset" — a
+ *  fresh user has nothing to clear. `multiFactor` isn't modeled. */
+function toSandboxCreateRequest(props: CreateRequest): SandboxCreateUserRequest {
+  return {
+    uid: props.uid,
+    email: props.email,
+    password: props.password,
+    displayName: props.displayName ?? undefined,
+    phoneNumber: props.phoneNumber ?? undefined,
+    photoUrl: props.photoURL ?? undefined,
+    disabled: props.disabled,
+    emailVerified: props.emailVerified,
+  };
+}
+
+/** Convert the worker's `AuthUserRecord` (emulator-REST-shaped, from
+ *  `pyric/auth`) into a firebase-admin `UserRecord`-shaped object — the
+ *  same field set the local arm's `toUserRecord` fills. */
+function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
+  const metadata = {
+    creationTime: r.createdAt,
+    lastSignInTime: r.lastLoginAt ?? '',
+    toJSON: () => ({ creationTime: r.createdAt, lastSignInTime: r.lastLoginAt ?? '' }),
+  } as UserRecord['metadata'];
+  const record: Partial<UserRecord> = {
+    uid: r.uid,
+    email: r.email ?? undefined,
+    emailVerified: r.emailVerified,
+    displayName: r.displayName ?? undefined,
+    photoURL: r.photoUrl ?? undefined,
+    phoneNumber: r.phoneNumber ?? undefined,
+    disabled: r.disabled,
+    metadata,
+    providerData: r.providerUserInfo.map((p) => ({
+      providerId: p.providerId,
+      uid: r.uid,
+      displayName: r.displayName ?? undefined,
+      email: r.email ?? undefined,
+      photoURL: r.photoUrl ?? undefined,
+      phoneNumber: r.phoneNumber ?? undefined,
+      toJSON: () => ({ providerId: p.providerId, uid: r.uid }),
+    })) as unknown as UserRecord['providerData'],
+    customClaims:
+      Object.keys(r.customClaims).length > 0
+        ? (r.customClaims as Record<string, unknown>)
+        : undefined,
+    tenantId: null,
+    toJSON: () => ({ uid: r.uid, email: r.email ?? undefined }),
+  };
+  return record as UserRecord;
+}
+
+/**
+ * Build the remote `Auth` handle: the documented CRUD subset relays over
+ * the worker channel; tokens are the shared stateless transforms; the
+ * rest of the surface throws the canonical "not implemented" error (same
+ * cast-at-the-boundary rationale as {@link makeSandboxAuth}).
+ *
+ * Differences from the local in-memory arm, all deliberate:
+ *   - `updateUser` and `listUsers` WORK (the worker has the ops; the
+ *     local arm predates them and still throws).
+ *   - User mutations emit auth `SandboxEvent`s in the worker (visible to
+ *     Studio/agents) and are visible to the browser app immediately.
+ */
+function makeRemoteAuth(sandbox: RemoteSandbox): Auth {
+  const channel = sandbox.channel;
+
+  const notImplemented = (method: string): Error =>
+    new Error(
+      `pyric-admin/auth: ${method} is not implemented in pyric-admin/auth remote sandbox backend`,
+    );
+
+  const listRecords = async (): Promise<AuthUserRecord[]> =>
+    (await channel.op({ method: 'auth.listUsers' })) as AuthUserRecord[];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handle: any = {
+    get app() {
+      throw notImplemented('auth.app');
+    },
+
+    /** Stateless mint — identical to the local arm; needs no relay. */
+    createCustomToken(uid: string, developerClaims?: object): Promise<string> {
+      return mintSandboxCustomToken(uid, developerClaims);
+    },
+
+    /** Stateless parse — identical to the local arm; needs no relay. */
+    verifyIdToken(idToken: string, _checkRevoked?: boolean): Promise<DecodedIdToken> {
+      return verifySandboxIdToken(idToken);
+    },
+
+    /** Relays `auth.adminCreateUser`. Uid conflicts / invalid emails /
+     *  weak passwords reject with the worker backend's `auth/*` error. */
+    async createUser(properties: CreateRequest): Promise<UserRecord> {
+      const record = await channel.op({
+        method: 'auth.adminCreateUser',
+        request: toSandboxCreateRequest(properties) as unknown as Record<string, unknown>,
+      });
+      return fromAuthUserRecord(record as AuthUserRecord);
+    },
+
+    /** `auth.listUsers` + client-side filter (see module note). */
+    async getUser(uid: string): Promise<UserRecord> {
+      const record = (await listRecords()).find((u) => u.uid === uid);
+      if (!record) {
+        throw new Error(`pyric-admin/auth: getUser failed — no user with uid "${uid}"`);
+      }
+      return fromAuthUserRecord(record);
+    },
+
+    /** `auth.listUsers` + client-side filter (see module note). */
+    async getUserByEmail(email: string): Promise<UserRecord> {
+      const record = (await listRecords()).find((u) => u.email === email);
+      if (!record) {
+        throw new Error(
+          `pyric-admin/auth: getUserByEmail failed — no user with email "${email}"`,
+        );
+      }
+      return fromAuthUserRecord(record);
+    },
+
+    /** Relays `auth.listUsers`. The whole pool fits one page at sandbox
+     *  scale, so `pageToken` is never set; `maxResults` is honored. */
+    async listUsers(maxResults?: number, _pageToken?: string): Promise<ListUsersResult> {
+      let records = await listRecords();
+      if (maxResults !== undefined) records = records.slice(0, maxResults);
+      return { users: records.map(fromAuthUserRecord) } as ListUsersResult;
+    },
+
+    /**
+     * Relays `auth.adminUpdateUser` for the fields the worker models
+     * (`displayName` / `email` / `password` / `disabled` /
+     * `emailVerified`). Fields it can't express (`photoURL`,
+     * `phoneNumber`, `multiFactor`, provider links) throw rather than
+     * silently dropping a requested change.
+     */
+    async updateUser(uid: string, properties: UpdateRequest): Promise<UserRecord> {
+      const unsupported = (['photoURL', 'phoneNumber', 'multiFactor', 'providerToLink', 'providersToUnlink'] as const).filter(
+        (k) => (properties as Record<string, unknown>)[k] !== undefined,
+      );
+      if (unsupported.length > 0) {
+        throw notImplemented(`updateUser({ ${unsupported.join(', ')} })`);
+      }
+      const request: SandboxUpdateUserRequest = {
+        displayName: properties.displayName,
+        email: properties.email,
+        password: properties.password,
+        disabled: properties.disabled,
+        emailVerified: properties.emailVerified,
+      };
+      const record = await channel.op({
+        method: 'auth.adminUpdateUser',
+        uid,
+        request: request as unknown as Record<string, unknown>,
+      });
+      return fromAuthUserRecord(record as AuthUserRecord);
+    },
+
+    /** Relays `auth.adminDeleteUser`. A missing uid rejects with the
+     *  worker backend's `auth/user-not-found` error (matches upstream's
+     *  strict delete contract, like the local arm). */
+    async deleteUser(uid: string): Promise<void> {
+      await channel.op({ method: 'auth.adminDeleteUser', uid });
+    },
+
+    /** Relays `auth.adminUpdateUser` with a `customClaims` replacement —
+     *  `null` clears (the worker's UpdateUserRequest.customClaims
+     *  replaces the whole map, admin `setCustomUserClaims` semantics). */
+    async setCustomUserClaims(uid: string, customUserClaims: object | null): Promise<void> {
+      await channel.op({
+        method: 'auth.adminUpdateUser',
+        uid,
+        request: { customClaims: customUserClaims ?? {} },
+      });
+    },
+
+    // ─── Explicitly-not-implemented surface (parity with local) ──────
+
+    getUserByPhoneNumber(): Promise<UserRecord> {
+      return Promise.reject(notImplemented('getUserByPhoneNumber'));
+    },
+    getUserByProviderUid(): Promise<UserRecord> {
+      return Promise.reject(notImplemented('getUserByProviderUid'));
+    },
+    getUsers(): Promise<unknown> {
+      return Promise.reject(notImplemented('getUsers'));
+    },
+    deleteUsers(): Promise<unknown> {
+      return Promise.reject(notImplemented('deleteUsers'));
+    },
+    importUsers(): Promise<unknown> {
+      return Promise.reject(notImplemented('importUsers'));
+    },
+    revokeRefreshTokens(): Promise<void> {
+      return Promise.reject(notImplemented('revokeRefreshTokens'));
+    },
+    createSessionCookie(): Promise<string> {
+      return Promise.reject(notImplemented('createSessionCookie'));
+    },
+    verifySessionCookie(): Promise<DecodedIdToken> {
+      return Promise.reject(notImplemented('verifySessionCookie'));
+    },
+    generatePasswordResetLink(): Promise<string> {
+      return Promise.reject(notImplemented('generatePasswordResetLink'));
+    },
+    generateEmailVerificationLink(): Promise<string> {
+      return Promise.reject(notImplemented('generateEmailVerificationLink'));
+    },
+    generateSignInWithEmailLink(): Promise<string> {
+      return Promise.reject(notImplemented('generateSignInWithEmailLink'));
+    },
+    generateVerifyAndChangeEmailLink(): Promise<string> {
+      return Promise.reject(notImplemented('generateVerifyAndChangeEmailLink'));
+    },
+    createProviderConfig(): Promise<unknown> {
+      return Promise.reject(notImplemented('createProviderConfig'));
+    },
+    getProviderConfig(): Promise<unknown> {
+      return Promise.reject(notImplemented('getProviderConfig'));
+    },
+    listProviderConfigs(): Promise<unknown> {
+      return Promise.reject(notImplemented('listProviderConfigs'));
+    },
+    updateProviderConfig(): Promise<unknown> {
+      return Promise.reject(notImplemented('updateProviderConfig'));
+    },
+    deleteProviderConfig(): Promise<void> {
+      return Promise.reject(notImplemented('deleteProviderConfig'));
+    },
+    get tenantManager(): never {
+      throw notImplemented('tenantManager');
+    },
+    get projectConfigManager(): never {
+      throw notImplemented('projectConfigManager');
+    },
+  };
+  return handle as Auth;
+}
+
 // ─── Dispatch ────────────────────────────────────────────────────────────
 
 /**
@@ -577,6 +878,13 @@ export function getAuth(app: PyricAdminApp): Auth {
     );
   }
   if (isSandboxAdminApp(app)) {
+    // Remote-branded sandboxes dispatch BEFORE the local arm: the local
+    // in-memory store would be a private server-side user table the
+    // browser never sees (and its `sandbox.onEvent` reset wiring throws
+    // on remote handles by design).
+    if (isRemoteSandbox(app.sandbox)) {
+      return makeRemoteAuth(app.sandbox);
+    }
     return makeSandboxAuth(app.sandbox);
   }
   if (isProdAdminApp(app)) {

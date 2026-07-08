@@ -58,6 +58,30 @@
  *     Successive `getDatabase(app)` calls for the same sandbox return
  *     handles that share data (matches firebase-admin's
  *     singleton-per-app semantics).
+ *
+ *   - **Remote sandbox arm** (sandbox target whose `Sandbox` carries the
+ *     `pyric/sandbox` remote brand — a Node-side handle onto the
+ *     browser-hosted SharedWorker sandbox, built by `pyric-tools`'
+ *     `connectRemoteSandbox()`) — every `Reference` data operation routes
+ *     through the handle's worker-relay channel (`rtdb.get/set/update/
+ *     remove/push` ops with `actAs: { mode: 'admin' }` pinned — firebase-
+ *     admin's rules-bypass semantics), NOT into the process-local tree:
+ *     a local tree on a remote handle would be private server-side data
+ *     the browser never sees. Differences from the local arm, both
+ *     deliberate upgrades:
+ *
+ *       - `on('value')` / `once('value')` WORK (routed through the
+ *         channel's RTDB value subscription; other event types still
+ *         throw "not implemented").
+ *       - `update()` relays to the worker's full multi-path update
+ *         (`pyric/database/modular` semantics) rather than the local
+ *         arm's shallow per-key merge.
+ *       - Server-side writes run through the real worker RTDB backend,
+ *         so they emit `SandboxEvent`s into the unified stream (visible
+ *         to Studio/agents) and fire the app's live listeners.
+ *
+ *     `push()` keeps its sync `.key`: the client mints the push id and
+ *     sends it with the `rtdb.push` op (the worker-protocol contract).
  */
 
 import type { App } from 'firebase-admin/app';
@@ -74,7 +98,12 @@ import type {
   OnDisconnect as AdminOnDisconnect,
   EventType as AdminEventType,
 } from 'firebase-admin/database';
-import type { Sandbox } from 'pyric/sandbox';
+import {
+  isRemoteSandbox,
+  type RemoteSandbox,
+  type RemoteSandboxChannel,
+  type Sandbox,
+} from 'pyric/sandbox';
 
 import {
   ADMIN_APP_TARGET,
@@ -188,23 +217,42 @@ function getOrCreateState(sandbox: Sandbox): SandboxState {
   return state;
 }
 
-/** Build (or reuse) the sandbox Database handle for `sandbox`. */
+/** Build (or reuse) the sandbox Database handle for `sandbox`.
+ *
+ *  REMOTE handles dispatch here, BEFORE any local state is touched: a
+ *  remote sandbox must never get a `SandboxState` (a private local tree)
+ *  or a `sandbox.onEvent` wire-up (which throws on remote handles). */
 function getSandboxDatabase(sandbox: Sandbox): AdminDatabase {
+  if (isRemoteSandbox(sandbox)) {
+    return getRemoteDatabase(sandbox);
+  }
   const state = getOrCreateState(sandbox);
   return buildSandboxDatabase(state);
 }
 
 function buildSandboxDatabase(state: SandboxState): AdminDatabase {
+  return buildDatabaseShell((db, path) => buildSandboxRef(state, db, path));
+}
+
+/**
+ * The `Database`-level shell shared by the local and remote sandbox arms —
+ * everything except how a `Reference` is built. Rules metadata isn't
+ * modeled on either arm; connection toggles are no-ops (the sandbox IS the
+ * local emulator).
+ */
+function buildDatabaseShell(
+  refFactory: (db: AdminDatabase, path: string) => AdminReference,
+): AdminDatabase {
   const db = {
     ref(path?: string): AdminReference {
-      return buildSandboxRef(state, db as unknown as AdminDatabase, path ?? '/');
+      return refFactory(db as unknown as AdminDatabase, path ?? '/');
     },
     refFromURL(url: string): AdminReference {
       // Best-effort: strip the `https://<host>` prefix and treat the
       // remainder as a path. The sandbox has no notion of multi-database
       // hosts, so the host portion is ignored.
       const u = url.replace(/^https?:\/\/[^/]+/, '');
-      return buildSandboxRef(state, db as unknown as AdminDatabase, u || '/');
+      return refFactory(db as unknown as AdminDatabase, u || '/');
     },
     // Admin-only metadata methods — not modeled in the sandbox. The
     // sandbox is rule-bypass by construction; surfacing rule JSON would
@@ -495,7 +543,7 @@ function buildSandboxRef(
     /** Read this path. Resolves to a {@link DataSnapshot}-shaped value. */
     async get(): Promise<AdminDataSnapshot> {
       const val = readPath(state.root, canonical);
-      return buildSandboxSnap(state, db, canonical, val);
+      return buildSandboxSnap((p) => buildSandboxRef(state, db, p), canonical, val);
     },
 
     /** `once(eventType)` — admin-shape one-shot read. Only `'value'` is
@@ -512,7 +560,7 @@ function buildSandboxRef(
         throw notImplemented(`once('${eventType}')`);
       }
       const val = readPath(state.root, canonical);
-      return buildSandboxSnap(state, db, canonical, val);
+      return buildSandboxSnap((p) => buildSandboxRef(state, db, p), canonical, val);
     },
 
     /** Shallow merge: each key in `values` replaces the corresponding
@@ -555,14 +603,18 @@ function buildSandboxRef(
       // ThenableReference: the ref plus a `.then()` that resolves to it.
       // Returning a Reference with a tacked-on `.then` satisfies the
       // firebase-admin shape for the common `push(value).key` usage.
+      // CRITICAL: the promise must resolve with a PLAIN (non-thenable)
+      // ref — resolving with the thenable itself would make promise
+      // resolution unwrap it forever (`await push(...)` would spin).
+      const resolvedRef = buildSandboxRef(state, db, childPath);
       const thenable = childRef as AdminReference & PromiseLike<AdminReference>;
       (thenable as unknown as { then: PromiseLike<AdminReference>['then'] }).then = (
         onFulfilled,
         onRejected,
-      ) => Promise.resolve(childRef).then(onFulfilled, onRejected);
+      ) => Promise.resolve(resolvedRef).then(onFulfilled, onRejected);
       (thenable as unknown as { catch: <U>(onRejected: (reason: unknown) => U | PromiseLike<U>) => Promise<AdminReference | U> }).catch = (
         onRejected,
-      ) => Promise.resolve(childRef).catch(onRejected);
+      ) => Promise.resolve(resolvedRef).catch(onRejected);
       return thenable as AdminThenableReference;
     },
 
@@ -659,10 +711,12 @@ function buildSandboxRef(
 // ─── DataSnapshot ─────────────────────────────────────────────────────
 
 /** Build a sandbox `DataSnapshot` for the value at `path`. Implements
- *  the load-bearing subset of firebase-admin's `DataSnapshot` shape. */
+ *  the load-bearing subset of firebase-admin's `DataSnapshot` shape.
+ *  Backend-agnostic: the snapshot is a pure (path, value) view; `refAt`
+ *  supplies backend-appropriate `Reference`s (local tree or remote), so
+ *  the local and remote arms share one snapshot implementation. */
 function buildSandboxSnap(
-  state: SandboxState,
-  db: AdminDatabase,
+  refAt: (path: string) => AdminReference,
   path: string,
   val: JsonValue,
 ): AdminDataSnapshot {
@@ -672,7 +726,7 @@ function buildSandboxSnap(
   const snap = {
     key,
     get ref(): AdminReference {
-      return buildSandboxRef(state, db, path);
+      return refAt(path);
     },
     exists(): boolean {
       return exists;
@@ -690,7 +744,7 @@ function buildSandboxSnap(
         }
         cur = (cur as Record<string, JsonValue>)[s] ?? null;
       }
-      return buildSandboxSnap(state, db, joinPath([...segs, ...childSegs]), cur);
+      return buildSandboxSnap(refAt, joinPath([...segs, ...childSegs]), cur);
     },
     hasChild(p: string): boolean {
       return snap.child(p).exists();
@@ -710,7 +764,7 @@ function buildSandboxSnap(
     forEach(cb: (child: AdminDataSnapshot) => boolean | void): boolean {
       if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
       for (const [k, v] of Object.entries(val as Record<string, JsonValue>)) {
-        const childSnap = buildSandboxSnap(state, db, joinPath([...segs, k]), v);
+        const childSnap = buildSandboxSnap(refAt, joinPath([...segs, k]), v);
         if (cb(childSnap) === true) return true;
       }
       return false;
@@ -730,4 +784,380 @@ function buildSandboxSnap(
     },
   };
   return snap as unknown as AdminDataSnapshot;
+}
+
+// ─── Remote sandbox arm (remote sandbox, slice 1) ─────────────────────
+//
+// The app's `Sandbox` is a Node-side handle onto the browser-hosted
+// SharedWorker sandbox (`pyric/sandbox`'s remote brand). Every data
+// operation relays over the handle's worker channel with
+// `actAs: { mode: 'admin' }` pinned — firebase-admin's rules-bypass
+// semantics against the ONE tree the app + Studio + agents share. There
+// is deliberately NO local state here: a `WeakMap` tree keyed off a
+// remote handle would be private server-side data the browser never sees
+// (exactly the failure the remote sandbox exists to avoid). No
+// `session_boundary` wiring either — there is nothing local to wipe, and
+// `onEvent` throws on remote handles by design.
+
+/** firebase-admin's rules-bypass lens, pinned on every relayed operation. */
+const REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
+
+/** Wire shape of an RTDB snapshot as the worker host serializes it. */
+interface RemoteWireSnapshot {
+  key: string | null;
+  exists: boolean;
+  value: unknown;
+  size: number;
+}
+
+/**
+ * Per-remote-handle state: the relay channel plus the `on('value')`
+ * listener registry (`path → callback → detach`) that `off()` consults.
+ */
+interface RemoteDbState {
+  channel: RemoteSandboxChannel;
+  listeners: Map<string, Map<unknown, () => void>>;
+}
+
+/** One `Database` per remote handle — successive `getDatabase(app)` calls
+ *  share the listener registry (matches the local arm's singleton-per-
+ *  sandbox semantics). Keyed off the handle object; the data itself lives
+ *  in the browser worker. */
+const remoteDbBySandbox = new WeakMap<Sandbox, AdminDatabase>();
+
+function getRemoteDatabase(sandbox: RemoteSandbox): AdminDatabase {
+  let db = remoteDbBySandbox.get(sandbox);
+  if (db !== undefined) return db;
+  const state: RemoteDbState = {
+    channel: sandbox.channel,
+    listeners: new Map(),
+  };
+  db = buildDatabaseShell((dbHandle, path) => buildRemoteRef(state, dbHandle, path));
+  remoteDbBySandbox.set(sandbox, db);
+  return db;
+}
+
+/**
+ * Build a remote `Reference` at `path`. Same load-bearing surface as the
+ * local arm's {@link buildSandboxRef} — plus working `on('value')` /
+ * `off()` (the channel relays the worker's RTDB value subscription).
+ * Transactions / queries / priorities / `onDisconnect` throw the same
+ * "not implemented" sentinel as the local arm.
+ */
+function buildRemoteRef(
+  state: RemoteDbState,
+  db: AdminDatabase,
+  path: string,
+): AdminReference {
+  const canonical = joinPath(pathSegments(path));
+  const segs = pathSegments(canonical);
+  const key = segs.length === 0 ? null : segs[segs.length - 1]!;
+  const refAt = (p: string): AdminReference => buildRemoteRef(state, db, p);
+  const snapFromWire = (wire: RemoteWireSnapshot): AdminDataSnapshot =>
+    buildSandboxSnap(refAt, canonical, (wire.value ?? null) as JsonValue);
+
+  const ref = {
+    key,
+    get parent(): AdminReference | null {
+      if (segs.length === 0) return null;
+      return refAt(joinPath(segs.slice(0, -1)));
+    },
+    get root(): AdminReference {
+      return refAt('/');
+    },
+    get path(): string {
+      return canonical;
+    },
+    toString(): string {
+      return `sandbox://rtdb${canonical}`;
+    },
+
+    // ─── Data-plane methods (relayed worker ops) ─────────────────────
+
+    /** Set `value` at this path. `null` deletes. Relays `rtdb.set`. */
+    async set(value: unknown): Promise<void> {
+      await state.channel.op({
+        method: 'rtdb.set',
+        path: canonical,
+        value: value ?? null,
+        actAs: REMOTE_ADMIN_LENS,
+      });
+    },
+
+    /** Read this path (`rtdb.get`). Resolves to a `DataSnapshot`. */
+    async get(): Promise<AdminDataSnapshot> {
+      const wire = (await state.channel.op({
+        method: 'rtdb.get',
+        path: canonical,
+        actAs: REMOTE_ADMIN_LENS,
+      })) as RemoteWireSnapshot;
+      return snapFromWire(wire);
+    },
+
+    /** One-shot read via the channel's value subscription: the initial
+     *  snapshot resolves the promise, then the subscription detaches.
+     *  Only `'value'` is supported (parity with the local arm). */
+    once(
+      eventType: AdminEventType,
+      _successCb?: unknown,
+      _failureCb?: unknown,
+      _context?: unknown,
+    ): Promise<AdminDataSnapshot> {
+      if (eventType !== 'value') {
+        throw notImplemented(`once('${eventType}')`);
+      }
+      return new Promise<AdminDataSnapshot>((resolve, reject) => {
+        let detach: (() => void) | null = null;
+        let settled = false;
+        detach = state.channel.subscribe(
+          { target: { service: 'rtdb', path: canonical }, actAs: REMOTE_ADMIN_LENS },
+          (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(snapFromWire(value as RemoteWireSnapshot));
+            if (detach) detach();
+          },
+          (err) => {
+            if (settled) return;
+            settled = true;
+            reject(err);
+            if (detach) detach();
+          },
+        );
+        if (settled) detach();
+      });
+    },
+
+    /** Relays `rtdb.update` — the worker applies the FULL multi-path
+     *  update semantics (`pyric/database/modular`), an upgrade over the
+     *  local arm's shallow per-key merge. `null` values delete. */
+    async update(values: object): Promise<void> {
+      if (values === null || typeof values !== 'object') {
+        throw new TypeError(
+          'pyric-admin/database sandbox: update expected an object.',
+        );
+      }
+      await state.channel.op({
+        method: 'rtdb.update',
+        path: canonical,
+        values: values as Record<string, unknown>,
+        actAs: REMOTE_ADMIN_LENS,
+      });
+    },
+
+    /** Delete the subtree at this path (`rtdb.remove`). */
+    async remove(): Promise<void> {
+      await state.channel.op({
+        method: 'rtdb.remove',
+        path: canonical,
+        actAs: REMOTE_ADMIN_LENS,
+      });
+    },
+
+    /**
+     * Mint a 20-char push id CLIENT-side and relay `rtdb.push` carrying it
+     * (the worker-protocol contract) — so the returned
+     * `ThenableReference.key` is available synchronously, exactly like the
+     * local arm and firebase-admin. `.then()` settles when the relayed
+     * write commits (or immediately when no value was supplied — a bare
+     * `push()` performs no write, matching upstream); a write failure
+     * rejects the thenable and reaches `onComplete`.
+     */
+    push(value?: unknown, onComplete?: (err: Error | null) => void): AdminThenableReference {
+      const id = generatePushId();
+      const childPath = joinPath([...segs, id]);
+      const write: Promise<void> =
+        value === undefined
+          ? Promise.resolve()
+          : state.channel
+              .op({
+                method: 'rtdb.push',
+                path: canonical,
+                key: id,
+                value,
+                actAs: REMOTE_ADMIN_LENS,
+              })
+              .then(() => undefined);
+      // Surface completion without forcing the caller to await: `.then`'s
+      // rejection handler also keeps a fire-and-forget push from becoming
+      // an unhandled rejection (the failure still reaches `onComplete` and
+      // any `.then()`/`await` on the returned thenable).
+      write.then(
+        () => {
+          if (onComplete) onComplete(null);
+        },
+        (err: Error) => {
+          if (onComplete) onComplete(err);
+        },
+      );
+      const childRef = refAt(childPath);
+      // CRITICAL: settle with a PLAIN (non-thenable) ref — resolving with
+      // the thenable itself would make promise resolution unwrap it
+      // forever (`await push(...)` would spin). Same guard as local arm.
+      const resolvedRef = refAt(childPath);
+      const thenable = childRef as AdminReference & PromiseLike<AdminReference>;
+      (thenable as unknown as { then: PromiseLike<AdminReference>['then'] }).then = (
+        onFulfilled,
+        onRejected,
+      ) => write.then(() => resolvedRef).then(onFulfilled, onRejected);
+      (thenable as unknown as { catch: <U>(onRejected: (reason: unknown) => U | PromiseLike<U>) => Promise<AdminReference | U> }).catch = (
+        onRejected,
+      ) => write.then(() => resolvedRef).catch(onRejected);
+      return thenable as AdminThenableReference;
+    },
+
+    /** Relative ref builder — pure local path manipulation. */
+    child(p: string): AdminReference {
+      return refAt(joinPath([...segs, ...pathSegments(p)]));
+    },
+
+    // ─── Value listeners (relayed worker subscription) ────────────────
+
+    /**
+     * `on('value', callback)` — routed through the channel's RTDB value
+     * subscription: the callback fires with the initial snapshot and on
+     * every subsequent change (including changes made by the browser app,
+     * Studio, or agents — one shared tree). A subscription-establishment
+     * failure routes to `cancelCallback` when one is supplied. Other
+     * event types (`child_added`, …) still throw "not implemented" —
+     * the worker relays only value subscriptions today.
+     */
+    on(
+      eventType: AdminEventType,
+      callback: (snap: AdminDataSnapshot, prevChildKey?: string | null) => unknown,
+      cancelCallbackOrContext?: ((err: Error) => unknown) | object | null,
+      _context?: object | null,
+    ): (snap: AdminDataSnapshot, prevChildKey?: string | null) => unknown {
+      if (eventType !== 'value') {
+        throw notImplemented(`on('${eventType}')`);
+      }
+      const cancelCallback =
+        typeof cancelCallbackOrContext === 'function'
+          ? (cancelCallbackOrContext as (err: Error) => unknown)
+          : undefined;
+      const detach = state.channel.subscribe(
+        { target: { service: 'rtdb', path: canonical }, actAs: REMOTE_ADMIN_LENS },
+        (value) => {
+          callback(snapFromWire(value as RemoteWireSnapshot));
+        },
+        (err) => {
+          detachListener(state, canonical, callback);
+          if (cancelCallback) cancelCallback(err);
+          else console.error(`pyric-admin/database: on('value') subscription failed at ${canonical}:`, err);
+        },
+      );
+      let atPath = state.listeners.get(canonical);
+      if (atPath === undefined) {
+        atPath = new Map();
+        state.listeners.set(canonical, atPath);
+      }
+      // Re-registering the same callback replaces the prior registration
+      // (detach it first so the old worker subscription doesn't leak).
+      atPath.get(callback)?.();
+      atPath.set(callback, detach);
+      return callback;
+    },
+
+    /**
+     * Detach value listeners at this path: `off('value', callback)` removes
+     * that registration; `off()` / `off('value')` removes all of them.
+     * Unknown callbacks and other event types are no-ops (nothing else can
+     * be registered on the remote arm).
+     */
+    off(
+      eventType?: AdminEventType,
+      callback?: (snap: AdminDataSnapshot, prevChildKey?: string | null) => unknown,
+      _context?: object | null,
+    ): void {
+      if (eventType !== undefined && eventType !== 'value') return;
+      if (callback !== undefined) {
+        detachListener(state, canonical, callback);
+        return;
+      }
+      const atPath = state.listeners.get(canonical);
+      if (atPath === undefined) return;
+      for (const detach of atPath.values()) detach();
+      state.listeners.delete(canonical);
+    },
+
+    // ─── Not implemented on the remote arm (parity with local) ────────
+
+    onDisconnect(): never {
+      throw notImplemented('onDisconnect');
+    },
+    transaction(..._args: unknown[]): never {
+      throw notImplemented('transaction');
+    },
+    setPriority(..._args: unknown[]): never {
+      throw notImplemented('setPriority');
+    },
+    setWithPriority(..._args: unknown[]): never {
+      throw notImplemented('setWithPriority');
+    },
+    orderByChild(..._args: unknown[]): never {
+      throw notImplemented('orderByChild');
+    },
+    orderByKey(..._args: unknown[]): never {
+      throw notImplemented('orderByKey');
+    },
+    orderByValue(..._args: unknown[]): never {
+      throw notImplemented('orderByValue');
+    },
+    orderByPriority(..._args: unknown[]): never {
+      throw notImplemented('orderByPriority');
+    },
+    startAt(..._args: unknown[]): never {
+      throw notImplemented('startAt');
+    },
+    startAfter(..._args: unknown[]): never {
+      throw notImplemented('startAfter');
+    },
+    endAt(..._args: unknown[]): never {
+      throw notImplemented('endAt');
+    },
+    endBefore(..._args: unknown[]): never {
+      throw notImplemented('endBefore');
+    },
+    equalTo(..._args: unknown[]): never {
+      throw notImplemented('equalTo');
+    },
+    limitToFirst(..._args: unknown[]): never {
+      throw notImplemented('limitToFirst');
+    },
+    limitToLast(..._args: unknown[]): never {
+      throw notImplemented('limitToLast');
+    },
+    isEqual(other: unknown): boolean {
+      return (
+        other !== null &&
+        typeof other === 'object' &&
+        (other as { path?: string }).path === canonical
+      );
+    },
+    toJSON(): object {
+      return { path: canonical };
+    },
+    get database(): AdminDatabase {
+      return db;
+    },
+    get ref(): AdminReference {
+      return ref as unknown as AdminReference;
+    },
+  };
+
+  return ref as unknown as AdminReference;
+}
+
+/** Remove one `on('value')` registration (and its worker subscription). */
+function detachListener(
+  state: RemoteDbState,
+  path: string,
+  callback: unknown,
+): void {
+  const atPath = state.listeners.get(path);
+  const detach = atPath?.get(callback);
+  if (atPath === undefined || detach === undefined) return;
+  atPath.delete(callback);
+  if (atPath.size === 0) state.listeners.delete(path);
+  detach();
 }
