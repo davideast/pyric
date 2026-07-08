@@ -31,13 +31,14 @@ of them appear in your app code.
 ## Step 2 — Run it
 
 ```bash
-npx pyric dev --bridge
+npx pyric dev
 ```
 
 `pyric dev` starts the sandbox host and then runs **your own `dev`
 script** with the environment activated (or run an explicit command:
-`npx pyric dev --bridge -- node server.mjs`). `--bridge` mounts the
-WebSocket relay your server's Firebase calls travel through.
+`npx pyric dev -- node server.mjs`). Whenever it runs your server,
+`pyric dev` also mounts the WebSocket relay the server's Firebase
+calls travel through — no extra flag needed.
 
 Your server needs nothing pyric-shaped. This works as-is:
 
