@@ -821,10 +821,16 @@ export function onValue(
  *     (one fire per existing key, in `orderByKey`-default order).
  *   - After subscribe, fires exactly once per new direct child write.
  *
+ * Also accepts a {@link Query} (a `query(ref, ...)` with `orderBy*` /
+ * `limitTo*` constraints): child events are then computed against the
+ * ordered, windowed result — a child ENTERING the window fires
+ * `child_added`; on subscribe the current window is replayed in window
+ * order.
+ *
  * Returns an unsubscribe; calling it twice is a no-op.
  */
 export function onChildAdded(
-  r: DatabaseReference,
+  r: DatabaseReference | Query,
   cb: (snap: DataSnapshot) => void,
 ): Unsubscribe {
   return onChildEvent(r, 'child_added', cb);
@@ -839,9 +845,12 @@ export function onChildAdded(
  *   - Fires when an existing direct child's value transitions to a
  *     NEW non-null value. Snapshot carries the NEW value.
  *   - Does NOT fire for added or removed children.
+ *
+ * Also accepts a {@link Query}: fires when a child that is IN the query
+ * window changes value (an in-window update).
  */
 export function onChildChanged(
-  r: DatabaseReference,
+  r: DatabaseReference | Query,
   cb: (snap: DataSnapshot) => void,
 ): Unsubscribe {
   return onChildEvent(r, 'child_changed', cb);
@@ -857,9 +866,13 @@ export function onChildChanged(
  *     `set(child, null)`).
  *   - Snapshot carries the PRIOR (now-removed) value — the listener
  *     sees what was there before deletion.
+ *
+ * Also accepts a {@link Query}: a child LEAVING the query window (e.g.
+ * displaced past a `limitTo*` boundary or filtered out) fires
+ * `child_removed` carrying its prior value.
  */
 export function onChildRemoved(
-  r: DatabaseReference,
+  r: DatabaseReference | Query,
   cb: (snap: DataSnapshot) => void,
 ): Unsubscribe {
   return onChildEvent(r, 'child_removed', cb);
@@ -874,10 +887,16 @@ export function onChildRemoved(
  *   - Under a plain ref, this listener is effectively a no-op — the
  *     upstream SDK accepts the subscription but never fires it
  *     (matches RTDB docs).
- *   - Tier 3 will wire the ordered-query path in.
+ *
+ * Accepts a {@link Query} WITHOUT throwing, but the sandbox deliberately
+ * does NOT fire `child_moved` on reorder yet: prod fires here (matrix row
+ * `rtdb-modular#137`) while the sandbox holds — the reorder /
+ * `previousChildName` ordering semantics are pending two new oracle
+ * captures. This is a documented, pinned divergence (both sides asserted
+ * in `test/database/modular/sandbox-child-events.test.ts`).
  */
 export function onChildMoved(
-  r: DatabaseReference,
+  r: DatabaseReference | Query,
   cb: (snap: DataSnapshot) => void,
 ): Unsubscribe {
   return onChildEvent(r, 'child_moved', cb);
@@ -952,19 +971,34 @@ function forgetWrapper(
   wrapperRegistry.get(backend)?.delete(registryKey(path, event, userCb));
 }
 
-/** Internal shared implementation for the four `onChild*` variants. */
+/**
+ * Internal shared implementation for the four `onChild*` variants.
+ *
+ * Accepts a plain {@link DatabaseReference} OR a {@link Query}
+ * (a `query(ref, ...)` with `orderBy*` / `limitTo*`). For a query, the
+ * child-event diff is computed against the ordered, windowed result rather
+ * than the raw child
+ * key-set — a child entering/leaving the window fires `child_added` /
+ * `child_removed`, an in-window value change fires `child_changed`. (Note
+ * `child_moved` on a query registers but does not fire on reorder — the
+ * reorder semantics are held pending fresh oracle captures.)
+ */
 function onChildEvent(
-  r: DatabaseReference,
+  r: DatabaseReference | Query,
   event: ChildEvent,
   cb: (snap: DataSnapshot) => void,
 ): Unsubscribe {
-  const target = targetOf(r as unknown as object);
+  // Unwrap a Query into its base ref + spec; a plain ref has no spec.
+  const isQ = isQuery(r as object);
+  const baseRef = isQ ? (r as Query).ref : (r as DatabaseReference);
+  const spec = isQ ? (r as Query)._spec : undefined;
+  const target = targetOf(baseRef as unknown as object);
   if (isSandboxKind(target)) {
     const wrapper = (raw: { key: string; val: JsonValue }): void => {
       // Synthesize a snapshot rooted at the child path so `snap.key`
       // and `snap.val()` match the upstream `onChildAdded` snapshot
       // shape (key = the child's key, val = the child's value).
-      const childRef = child(r, raw.key);
+      const childRef = child(baseRef, raw.key);
       const snap = buildSandboxSnapFromRaw(target, childRef, raw.val);
       try {
         cb(snap);
@@ -973,25 +1007,30 @@ function onChildEvent(
         // behavior where one observer's exception doesn't block others.
       }
     };
-    rememberWrapper(target.backend, r._path, event, cb, wrapper);
-    const unsub = target.backend.onChild(authFor(target), event, r._path, wrapper);
+    rememberWrapper(target.backend, baseRef._path, event, cb, wrapper);
+    const unsub = target.backend.onChild(authFor(target), event, baseRef._path, wrapper, spec);
     return () => {
-      forgetWrapper(target.backend, r._path, event, cb);
+      forgetWrapper(target.backend, baseRef._path, event, cb);
       unsub();
     };
   }
   const handler = (snap: fb.DataSnapshot): void => {
-    cb(wrapFbSnap(snap, target, child(r, snap.key ?? '')));
+    cb(wrapFbSnap(snap, target, child(baseRef, snap.key ?? '')));
   };
+  // Prod: subscribe against the fb Query when one was built at construction
+  // time, else the plain fb ref.
+  const fbListenTarget = (isQ
+    ? ((r as Query)._fbQuery ?? (baseRef as unknown as fb.Query))
+    : (baseRef as unknown as fb.Query));
   switch (event) {
     case 'child_added':
-      return fb.onChildAdded(r as unknown as fb.DatabaseReference, handler);
+      return fb.onChildAdded(fbListenTarget, handler);
     case 'child_changed':
-      return fb.onChildChanged(r as unknown as fb.DatabaseReference, handler);
+      return fb.onChildChanged(fbListenTarget, handler);
     case 'child_removed':
-      return fb.onChildRemoved(r as unknown as fb.DatabaseReference, handler);
+      return fb.onChildRemoved(fbListenTarget, handler);
     case 'child_moved':
-      return fb.onChildMoved(r as unknown as fb.DatabaseReference, handler);
+      return fb.onChildMoved(fbListenTarget, handler);
   }
 }
 
