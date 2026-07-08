@@ -563,9 +563,17 @@ export async function connectRemoteSandbox(
 ): Promise<RemoteSandbox> {
   const cwd = options.cwd ?? process.cwd();
 
+  // Two URLs on purpose: `serveUrl` is the CANONICAL display URL that lands in
+  // "open <url>" guidance — it MUST match the origin serve's banner/auto-open
+  // use (`http://localhost:<port>` for the default host), or a user following
+  // the guidance opens a DIFFERENT browser origin (127.0.0.1 vs localhost →
+  // separate SharedWorkers → split sandboxes). `wsBase` is connectivity: the
+  // literal loopback family the health probe actually reached.
   let serveUrl: string;
+  let wsBase: string;
   if (options.url) {
     serveUrl = options.url.replace(/\/$/, '');
+    wsBase = serveUrl;
   } else {
     const found = await discoverServe(cwd);
     if (!found) {
@@ -575,10 +583,11 @@ export async function connectRemoteSandbox(
           `${cwd} and the default ports) — start your dev server with the bridge enabled and retry.`,
       );
     }
-    serveUrl = found.base;
+    serveUrl = found.url;
+    wsBase = found.base;
   }
 
-  const wsUrl = `${serveUrl.replace(/^http/, 'ws')}/__pyric/sandbox`;
+  const wsUrl = `${wsBase.replace(/^http/, 'ws')}/__pyric/sandbox`;
   const ws = new WebSocket(wsUrl);
 
   const core = createRemoteSandboxCore(
