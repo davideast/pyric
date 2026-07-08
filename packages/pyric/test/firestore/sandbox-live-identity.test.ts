@@ -5,17 +5,17 @@
  * `sandbox.currentUser` per-op. Counterpart to the frozen-ctx
  * `getFirestore(ctx)` overload (covered in `sandbox-target.test.ts`).
  *
- * The integration seam: `@pyric/auth`'s sandbox backend writes
+ * The integration seam: `pyric/auth`'s sandbox backend writes
  * through to `sandbox.currentUser`. App code that uses both
- * `@pyric/auth` and `@pyric/firestore` against the same `Sandbox`
+ * `pyric/auth` and `pyric/firestore` against the same `Sandbox`
  * should see auth-state changes live — every Firestore op evaluates
  * rules under whatever user is currently signed in, without
  * re-binding the Firestore handle.
  *
- * These tests don't depend on `@pyric/auth`; they mutate
+ * These tests don't depend on `pyric/auth`; they mutate
  * `sandbox.currentUser` directly to simulate what `signIn*` /
  * `setUser` would do. That keeps the test surface focused on the
- * `@pyric/firestore` behavior and avoids a cross-package
+ * `pyric/firestore` behavior and avoids a cross-package
  * dependency cycle.
  */
 import { describe, it, expect } from 'bun:test';

@@ -1,5 +1,5 @@
 /**
- * `@pyric/firestore-rules/extract`: composite-index extractor entry.
+ * `pyric/rules/extract`: composite-index extractor entry.
  *
  * The extractor statically analyzes JS/TS source (via the TypeScript compiler)
  * for the modular Firestore client's `query(collection(...), where(...),

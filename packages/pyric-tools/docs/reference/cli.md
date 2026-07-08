@@ -196,11 +196,11 @@ These wrap the rules toolchain documented in
 
 ### `pyric rules:lint <path>`
 
-Run the firestore-rules linter against a file.
+Run the Firestore rules linter against a file.
 
 ### `pyric rules:validate <path>`
 
-Validate firestore-rules structure against a file.
+Validate Firestore rules structure against a file.
 
 ### `pyric rules:simulate [--stdin]`
 

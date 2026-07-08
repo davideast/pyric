@@ -3,7 +3,7 @@
 #   1. `test/firestore/*.test.tsx` — drive React hooks via
 #      `react-test-renderer` (no DOM needed). Keeping the realm
 #      clean avoids a known cross-realm breakage in
-#      `@pyric/firestore-rules`' OHM parser that fires when JSDOM
+#      `pyric/rules`' OHM parser that fires when JSDOM
 #      or happy-dom installs replacement globals.
 #
 #   2. `test/primitives/*.test.tsx` — install JSDOM locally at the

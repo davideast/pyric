@@ -11,7 +11,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
  *
  * `@testing-library/react`'s `renderHook` mounts to a real DOM
  * container, which requires JSDOM globals on `globalThis`. Installing
- * those globals fights `@pyric/firestore-rules`' OHM parser (the
+ * those globals fights `pyric/rules`' OHM parser (the
  * rules parser hits cross-realm checks and fails with
  * `Failed to parse rules source`). `react-test-renderer` runs hooks
  * the same way React does internally but doesn't need a DOM at all,

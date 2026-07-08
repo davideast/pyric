@@ -7,7 +7,7 @@ This guide shows you how to parse rules into a typed AST and walk the tree for c
 `parseToASTOrError` returns either the AST or a structured failure. Use it when you want a diagnostic on parse failure:
 
 ```ts
-import { parseToASTOrError } from 'pyric/firestore-rules';
+import { parseToASTOrError } from 'pyric/rules';
 
 const result = parseToASTOrError(source);
 if (!result.ok) {
@@ -20,7 +20,7 @@ const ast = result.ast;
 When `null` is sufficient signal:
 
 ```ts
-import { parseToAST } from 'pyric/firestore-rules';
+import { parseToAST } from 'pyric/rules';
 
 const ast = parseToAST(source);
 if (!ast) throw new Error('parse failed');
@@ -31,7 +31,7 @@ if (!ast) throw new Error('parse failed');
 `FirestoreRules.service.match` is the root match (always `/databases/{db}/documents`). Walk its `children` recursively to enumerate every nested match block:
 
 ```ts
-import type { MatchBlock } from 'pyric/firestore-rules';
+import type { MatchBlock } from 'pyric/rules';
 
 function walk(block: MatchBlock, parentPath = ''): void {
   const path = parentPath + block.path.raw;
@@ -67,7 +67,7 @@ for (const seg of block.path.segments) {
 `Expression` is a discriminated union. The discriminator is `type`:
 
 ```ts
-import type { Expression } from 'pyric/firestore-rules';
+import type { Expression } from 'pyric/rules';
 
 function walkExpr(expr: Expression, visit: (e: Expression) => void): void {
   visit(expr);
@@ -95,7 +95,7 @@ See [AST reference](../reference/ast.md) for every node shape.
 If your custom checks overlap with security or quality concerns, run the bundled validator and union the findings into your output:
 
 ```ts
-import { validateFirestoreRules } from 'pyric/firestore-rules';
+import { validateFirestoreRules } from 'pyric/rules';
 
 const findings = validateFirestoreRules(ast);
 for (const f of findings) {
@@ -110,7 +110,7 @@ The validator covers public-write detection, default-deny audit, duplicate funct
 Useful for editor pop-ups or function-level lint hooks:
 
 ```ts
-import { parseFunctions } from 'pyric/firestore-rules';
+import { parseFunctions } from 'pyric/rules';
 
 const fns = parseFunctions(`
   function isAdmin() { return request.auth.token.role == 'admin'; }

@@ -10,7 +10,7 @@ export interface RecursiveDeleteProgress {
 
 /**
  * Implementation injected by the consumer. The library doesn't ship
- * one — sandbox-backed apps usually walk `@pyric/sandbox`'s in-process
+ * one — sandbox-backed apps usually walk `pyric/sandbox`'s in-process
  * tree; production apps usually call a Cloud Function. Either way,
  * `start` returns an async iterator emitting progress.
  */

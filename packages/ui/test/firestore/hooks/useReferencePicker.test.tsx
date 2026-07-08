@@ -12,7 +12,7 @@ import { renderHook, act, waitFor } from '../../helpers/render-hook.js';
 
 // One sandbox + one Firestore handle shared by every test in the
 // file. `useReferencePicker` calls `doc(firestore, path)` and
-// `query(coll, limit)` — both check the @pyric/firestore brand on
+// `query(coll, limit)` — both check the pyric/firestore brand on
 // the input ref. Plain `{ path, id, firestore }` literals don't
 // pass that check; refs must come from the real factories. We
 // initialize one sandbox + handle and reuse, so the multi-

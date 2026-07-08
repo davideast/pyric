@@ -13,7 +13,7 @@ export interface DeleteWithConfirmProps {
   /** The doc / collection to delete. */
   target: DocumentReference | CollectionReference;
   /** Implementation that walks the tree + deletes. Consumer-supplied.
-   *  Sandbox-backed apps usually wire `@pyric/sandbox` introspection;
+   *  Sandbox-backed apps usually wire `pyric/sandbox` introspection;
    *  production apps usually call a Cloud Function. */
   impl: RecursiveDeleteImpl;
   /** Confirm-dialog title. Defaults to a sensible derivation from

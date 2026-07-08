@@ -1,10 +1,10 @@
 /**
- * Types for the auth control-plane surface (`@pyric/auth/admin`).
+ * Types for the auth control-plane surface (`pyric/auth/admin`).
  *
  * Pairs with mapper.ts +
  * resolver.ts + provider/ + domains/ — the Identity Toolkit-driven
  * tooling that's distinct from the modular Web-SDK adapter that
- * @pyric/auth's root entry provides.
+ * pyric/auth's root entry provides.
  */
 
 // 1. Strict provider-id union to prevent hallucinations.

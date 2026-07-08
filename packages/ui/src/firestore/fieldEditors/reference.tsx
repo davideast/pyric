@@ -61,7 +61,7 @@ function ReferenceEdit({ value, onChange, error, path }: FieldEditProps<Document
           // Preserve the existing firestore handle if the current
           // value already carries one (so it can be wired back when
           // the M5 picker arrives). Cast through `unknown` because
-          // the @pyric/firestore type union doesn't expose
+          // the pyric/firestore type union doesn't expose
           // `.firestore` uniformly across chainable + modular.
           const existingFirestore =
             (value as unknown as { firestore?: unknown }).firestore ?? {};

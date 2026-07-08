@@ -1,7 +1,7 @@
 /**
  * Service module — handles, factories, and target-discriminated
- * routing. Mirrors `@pyric/firestore`'s dual-target shape so the same
- * playground (or any consumer) can switch from a `@pyric/sandbox`-
+ * routing. Mirrors `pyric/firestore`'s dual-target shape so the same
+ * playground (or any consumer) can switch from a `pyric/sandbox`-
  * backed IDB store to a real Firebase Storage bucket by swapping the
  * factory call.
  *
@@ -47,7 +47,7 @@ const DEFAULT_BUCKET = 'pyric-default';
  * the target discriminator so free functions can route between
  * sandbox + prod backends without consumer-visible API differences.
  */
-export const TARGET_SYMBOL: unique symbol = Symbol('@pyric/storage/target');
+export const TARGET_SYMBOL: unique symbol = Symbol('pyric/storage/target');
 
 /**
  * Sandbox target — IDB-backed, identity from `SandboxContext`, rules
@@ -246,7 +246,7 @@ export function targetOf(storage: FirebaseStorage): Target {
   const t = (storage as { [TARGET_SYMBOL]?: Target })[TARGET_SYMBOL];
   if (!t) {
     throw new TypeError(
-      '@pyric/storage: not a FirebaseStorage handle — was it produced by getStorageSandbox or getStorageProd?',
+      'pyric/storage: not a FirebaseStorage handle — was it produced by getStorageSandbox or getStorageProd?',
     );
   }
   return t;

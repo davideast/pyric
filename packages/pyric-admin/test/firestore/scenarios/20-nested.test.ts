@@ -5,7 +5,7 @@
  * role-based access at each level, and field immutability.
  * Stdlib: auth, membership, lifecycle, validation
  *
- * Migrated through `@pyric/sandbox` — operations dispatch through
+ * Migrated through `pyric/sandbox` — operations dispatch through
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  */
 import { describe, test, expect } from 'bun:test';

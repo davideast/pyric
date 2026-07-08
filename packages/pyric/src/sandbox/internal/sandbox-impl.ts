@@ -119,7 +119,7 @@ export class SandboxImpl implements Sandbox {
   private eventHistory: SandboxEvent[] = [];
 
   /**
-   * Currently authenticated user. Mutated by `@pyric/auth` (and any
+   * Currently authenticated user. Mutated by `pyric/auth` (and any
    * future stateful identity bridge). Read per-call by service
    * factories that want to see auth changes without re-binding.
    * Defaults to `null` (anonymous / signed out).
@@ -313,7 +313,7 @@ export class SandboxImpl implements Sandbox {
    * returned array doesn't affect future history() calls.
    *
    * Replay engine consumes this: hand the array to
-   * `replay(events, rules)` from `@pyric/sandbox` and the
+   * `replay(events, rules)` from `pyric/sandbox` and the
    * engine re-issues every captured write against a fresh sandbox.
    *
    * `reset()` clears the history AFTER emitting the closing
@@ -451,7 +451,7 @@ export class SandboxImpl implements Sandbox {
 
   /**
    * Current authenticated user across the sandbox. See the doc on
-   * {@link Sandbox.currentUser} — used by `@pyric/auth` to thread
+   * {@link Sandbox.currentUser} — used by `pyric/auth` to thread
    * identity through stateful Auth handles.
    */
   get currentUser(): AuthState {
@@ -657,10 +657,10 @@ export function getInternalEnv(sandbox: Sandbox): LocalEnvironment {
  * than bending into Firestore's rule-eval-shaped `request`/`write` kinds.
  * Wired emit sites:
  *   - auth:    user create/update/delete, users-clear, sign-in, sign-out
- *              (`SandboxBackend` in `@pyric/auth`).
- *   - storage: object put / delete / metadata-update (`@pyric/storage`).
+ *              (`SandboxBackend` in `pyric/auth`).
+ *   - storage: object put / delete / metadata-update (`pyric/storage`).
  *   - rtdb:    set / update / remove / transaction-commit
- *              (`RtdbBackend` in `@pyric/database`, via the modular surface).
+ *              (`RtdbBackend` in `pyric/database`, via the modular surface).
  * Firestore still rides the env→sandbox fan-out and is unchanged. See
  * the design rationale.
  *

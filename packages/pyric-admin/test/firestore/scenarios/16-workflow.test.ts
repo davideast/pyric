@@ -5,7 +5,7 @@
  * immutable approval records, and batch operations.
  * Stdlib: auth, transitions, validation, lifecycle
  *
- * Migrated through `@pyric/sandbox` — operations dispatch through
+ * Migrated through `pyric/sandbox` — operations dispatch through
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  *
  * NOTE: 3 batch tests from the original suite are skipped here because

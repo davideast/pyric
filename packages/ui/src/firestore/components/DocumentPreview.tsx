@@ -19,7 +19,7 @@ import {
 /**
  * `DocumentSnapshot.exists` is a method on the firebase/firestore
  * `QueryDocumentSnapshot` (`.exists()`) and a getter/property on the
- * Admin chainable adapter. `@pyric/firestore` unions the two; this
+ * Admin chainable adapter. `pyric/firestore` unions the two; this
  * helper handles either.
  */
 function snapshotExists(snapshot: DocumentSnapshot): boolean {
@@ -66,7 +66,7 @@ export interface DocumentPreviewProps {
   /**
    * Injected lister for the document's subcollections. The modular Web
    * SDK has no client-side `listCollections`; sandbox-backed apps wire
-   * `@pyric/sandbox`'s in-process listing, production apps pass a known
+   * `pyric/sandbox`'s in-process listing, production apps pass a known
    * list or a server proxy. Same shape `ReferencePicker` /
    * `useCollectionList` use. Omit to hide the Subcollections section.
    */

@@ -1,6 +1,6 @@
 # Lint your first rules file
 
-In this tutorial you will install `pyric/firestore-rules`, write a small rules file with a deliberate problem in it, and use the linter to find that problem. By the end you will have seen the parse → lint cycle end-to-end, and you will know what a `LintWarning` looks like in practice.
+In this tutorial you will install `pyric/rules`, write a small rules file with a deliberate problem in it, and use the linter to find that problem. By the end you will have seen the parse → lint cycle end-to-end, and you will know what a `LintWarning` looks like in practice.
 
 This tutorial assumes you have Node.js 18+ or Bun 1.x available. No Firebase project is required — everything runs in-process.
 
@@ -18,10 +18,10 @@ cd rules-lint-tutorial
 bun init -y
 ```
 
-Add `pyric/firestore-rules`:
+Add `pyric/rules`:
 
 ```bash
-bun add pyric/firestore-rules
+bun add pyric/rules
 ```
 
 You now have a working project. Let's write a rules file.
@@ -61,7 +61,7 @@ Create a file called `lint.ts`:
 
 ```ts
 import { readFileSync } from 'node:fs';
-import { lintFirestoreRules } from 'pyric/firestore-rules';
+import { lintFirestoreRules } from 'pyric/rules';
 
 const source = readFileSync('./firestore.rules', 'utf-8');
 const result = lintFirestoreRules(source);

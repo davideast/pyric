@@ -1,5 +1,5 @@
 /**
- * Tests for the branches primitive exported from `@pyric/sandbox`.
+ * Tests for the branches primitive exported from `pyric/sandbox`.
  *
  * Branches compose on top of `snapshot()` + `replay()`: `fork(snapshot)`
  * seeds a fresh isolated sandbox from a `SandboxSnapshot`, `apply` re-

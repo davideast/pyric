@@ -113,7 +113,7 @@ type AuthState =
 - `{ uid }` → authenticated; `request.auth.uid` carries the value.
 - `{ uid, token }` → authenticated with custom claims; `request.auth.token.<key>` carries each entry.
 
-The same shape feeds the rules simulator's `TestCase.auth` field (`pyric/firestore-rules`), so test data written against one surface works with the other.
+The same shape feeds the rules simulator's `TestCase.auth` field (`pyric/rules`), so test data written against one surface works with the other.
 
 ## Lifecycle in pictures
 

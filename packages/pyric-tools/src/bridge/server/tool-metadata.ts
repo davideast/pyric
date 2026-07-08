@@ -1,6 +1,6 @@
 /**
  * Extract tool metadata (name + description + parameters) from the
- * existing `@pyric/firestore-rules` factories without running any
+ * existing `pyric/rules` factories without running any
  * tool logic. Used by the bridge to register MCP tools whose actual
  * dispatch happens against the connected browser peer.
  *
@@ -83,7 +83,7 @@ export function getSandboxToolMetadata(): ToolMetadata[] {
  * need a `ProjectScope` work in prod-mode bridges too.
  */
 export function getRulesToolHandlers(scope?: unknown): ToolHandler[] {
-  // Factory accepts { scope } per packages/firestore-rules/src/tools.ts.
+  // Factory accepts { scope } per packages/pyric/src/rules/tools.ts.
   // The cast is because pyric/rules's ProjectScope type is re-exported
   // from pyric-tools/deploy and we'd otherwise force a type-only import
   // here. Bridge level we don't need the type.

@@ -34,7 +34,7 @@ These have no production analog and use sandbox-specific verbs so they can't be 
 
 ### `setRules(rules: string): LintResult`
 
-Replace the active ruleset. Returns the lint result from `pyric/firestore-rules` — surface the warnings if any. If the source has parse-level errors, the rules are not swapped (consistent with `LocalEnvironment.deployRules`).
+Replace the active ruleset. Returns the lint result from `pyric/rules` — surface the warnings if any. If the source has parse-level errors, the rules are not swapped (consistent with `LocalEnvironment.deployRules`).
 
 After a successful `setRules`, every active snapshot listener is re-evaluated under the new rules. See [Listener re-evaluation on `deployRules`](../../../sandbox/docs/explanation/listener-re-evaluation.md) in `pyric/sandbox`.
 

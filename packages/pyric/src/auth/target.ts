@@ -1,10 +1,10 @@
 /**
- * Dispatch routing for `@pyric/auth`.
+ * Dispatch routing for `pyric/auth`.
  *
  * Each {@link Auth} handle carries a hidden {@link Target} discriminator
  * via {@link TARGET_SYMBOL}. Free functions read it through
  * {@link targetOf} and switch on `target.kind`, mirroring the same
- * pattern `@pyric/firestore` uses (see
+ * pattern `pyric/firestore` uses (see
  * `packages/firestore/src/index.ts`).
  *
  * Sandbox-side state (the in-memory user DB, listener set,
@@ -47,7 +47,7 @@ export function targetOf(auth: Auth): Target {
   const t = (auth as { [TARGET_SYMBOL]?: Target })[TARGET_SYMBOL];
   if (!t) {
     throw new TypeError(
-      '@pyric/auth: unrecognized Auth handle — was it produced by getAuth(...)?',
+      'pyric/auth: unrecognized Auth handle — was it produced by getAuth(...)?',
     );
   }
   return t;

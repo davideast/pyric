@@ -58,9 +58,9 @@ This documentation follows the [Diataxis](https://diataxis.fr/) framework:
 
 ## Position in the Pyric stack
 
-`pyric/storage` is the **storage data-plane adapter** (plus a thin control plane). It depends on `pyric/sandbox` for identity (and lifecycle on the sandbox backend), `@pyric/deploy` for the bucket-provisioning calls, and `@inbrowser/agent` for the tool-factory contract. It exposes the modular Web SDK's Storage surface. Sibling to `pyric/firestore` and `pyric-admin` on the Firestore side.
+`pyric/storage` is the **storage data-plane adapter** (plus a thin control plane). It depends on `pyric/sandbox` for identity (and lifecycle on the sandbox backend), `pyric-tools/deploy` for the bucket-provisioning calls, and `@inbrowser/agent` for the tool-factory contract. It exposes the modular Web SDK's Storage surface. Sibling to `pyric/firestore` and `pyric-admin` on the Firestore side.
 
-The package's rules engine is local to the package — Storage rules use a different DSL from Firestore rules, so unlike `pyric/firestore` (which depends on `pyric/firestore-rules`), this package keeps the Storage-specific parser and evaluator in-tree.
+The package's rules engine is local to the package — Storage rules use a different DSL from Firestore rules, so unlike `pyric/firestore` (which depends on `pyric/rules`), this package keeps the Storage-specific parser and evaluator in-tree.
 
 ## Licence
 

@@ -54,7 +54,7 @@ You don't need a translation layer between "deploy primitives" and "tool handler
 ## What stays out
 
 - **Data plane** (read / write documents) — that's `pyric/firestore` and `pyric-admin`.
-- **Rules tooling** (parse, lint, simulate) — that's `pyric/firestore-rules`.
+- **Rules tooling** (parse, lint, simulate) — that's `pyric/rules`.
 - **Auth admin** (user management, custom claims) — not yet implemented; will live here when it lands.
 - **Realtime Database deploy** — deferred until a consumer asks.
 - **Storage upload** — `pyric/storage` covers the storage data plane; the storage admin surface (CORS, bucket creation) will live here when needed.

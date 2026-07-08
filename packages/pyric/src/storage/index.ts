@@ -1,9 +1,9 @@
 /**
- * `@pyric/storage` — Firebase Storage adapter for the Pyric sandbox.
+ * `pyric/storage` — Firebase Storage adapter for the Pyric sandbox.
  *
  * Sibling-package layout mirrors Firebase:
  *   `firebase/app`     ↔ `firebase/storage`
- *   `@pyric/sandbox`   ↔ `@pyric/storage`
+ *   `pyric/sandbox`   ↔ `pyric/storage`
  *
  * Public surface lands incrementally through the slices in
  * the design rationale:

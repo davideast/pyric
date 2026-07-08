@@ -27,11 +27,11 @@ function translateValue(value: unknown): unknown {
     return new CompatTimestamp(value.seconds, value.nanos);
   }
   // Bytes + LatLng wrappers (rules-internal) ride through the read path
-  // as their instance form. The `@pyric/firestore` modular layer does
+  // as their instance form. The `pyric/firestore` modular layer does
   // the final conversion to `firebase/firestore`'s `Bytes` / `GeoPoint`
   // for its consumers; the admin-compat read path here leaves them as
   // the wrapper so downstream layers can identify the type via
-  // `instanceof` against `@pyric/firestore-rules`. Without these
+  // `instanceof` against `pyric/rules`. Without these
   // short-circuits, the generic object walk below would destructure the
   // class instance into a plain `{...}` and erase the type.
   if (value instanceof InternalBytes) return value;

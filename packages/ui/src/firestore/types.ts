@@ -51,7 +51,7 @@ export function inferType(value: unknown): FieldType {
   if (Array.isArray(value)) return 'array';
 
   // Firestore SDK value types — these are class instances at runtime.
-  // `instanceof` works against the same import @pyric/firestore
+  // `instanceof` works against the same import pyric/firestore
   // re-exports (Bytes / GeoPoint from firebase/firestore directly;
   // Timestamp from either backend's compatible class).
   if (value instanceof Timestamp) return 'timestamp';

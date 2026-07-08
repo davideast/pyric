@@ -73,7 +73,7 @@ The handler resolves every `{ __type: 'serverTimestamp' }` sentinel in your test
 
 The sandbox in `pyric/sandbox` also needs `Timestamp`, `Vector`, `Reference` — when it reads a document containing a timestamp field, it needs to return a `Timestamp` instance that `instanceof Timestamp` is true for. If the wrapper classes lived in the sandbox, the rules simulator couldn't use them without depending on the sandbox; if they lived in both packages, `instanceof Timestamp` would lie depending on which copy was imported.
 
-The wrappers live in `pyric/firestore-rules` because:
+The wrappers live in `pyric/rules` because:
 
 - This is the package that defines what `is timestamp` means.
 - This is the package that evaluates expressions, which is where most wrapper code is exercised.

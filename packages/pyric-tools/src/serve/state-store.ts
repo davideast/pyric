@@ -3,7 +3,7 @@
  * flow doc section 3c ("persistence = an autosaved seed").
  *
  * The file is an ENVELOPE around two sections:
- *   - `firestore`: the `@pyric/sandbox` persistence controller's own blob
+ *   - `firestore`: the `pyric/sandbox` persistence controller's own blob
  *     (`{version, savedAt, firestore: {path: fields}}`), stored verbatim as
  *     parsed JSON. The page's controller wrote it and will read it back
  *     through its own (de)serializer — wrapper types (Timestamp, Bytes, …)

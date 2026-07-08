@@ -80,7 +80,7 @@ const rooms = sandbox.admin.listDocuments('rooms');
 // ]
 ```
 
-The `phantom: true` flag lets test code distinguish "this doc was explicitly written and is empty" from "this doc exists only because something underneath it was written". The discover crawler in `pyric/firestore-rules` uses this signal to walk structure without confusing the two cases.
+The `phantom: true` flag lets test code distinguish "this doc was explicitly written and is empty" from "this doc exists only because something underneath it was written". The discover crawler in `pyric/rules` uses this signal to walk structure without confusing the two cases.
 
 ## Why this surface is on the root sandbox
 

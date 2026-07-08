@@ -21,11 +21,11 @@ service cloud.firestore {
 }`);
 ```
 
-Returns the `LintResult` from `pyric/firestore-rules`. Source with parse-level errors is not swapped; check the warnings.
+Returns the `LintResult` from `pyric/rules`. Source with parse-level errors is not swapped; check the warnings.
 
 After a successful swap, every active snapshot listener re-evaluates under the new rules. See [Listener re-evaluation on `deployRules`](../../../sandbox/docs/explanation/listener-re-evaluation.md).
 
-On prod, deploy rules through `@pyric/deploy.firestore.rules.deploy` — that hits Firebase's rules API.
+On prod, import `firestore` from `pyric-tools/deploy` and call `firestore.rules.deploy(...)` — that hits Firebase's rules API.
 
 ## `sandbox.seedDocuments(db, documents): LintResult`
 
@@ -82,5 +82,5 @@ Both styles work. The chosen tradeoff in `pyric/firestore` is "stay shape-faithf
 
 ## Where to look next
 
-- For the lint result shape, see [`pyric/firestore-rules` lint rules reference](../../../firestore-rules/docs/reference/lint-rules.md).
-- For prod rule deploys, see [`@pyric/deploy`'s firestore namespace](../../../deploy/docs/reference/firestore-namespace.md).
+- For the lint result shape, see [`pyric/rules` lint rules reference](../../rules/reference/lint-rules.md).
+- For prod rule deploys, see [`pyric-tools/deploy`'s firestore namespace](../../../../pyric-tools/docs/deploy/reference/firestore-namespace.md).

@@ -1,5 +1,5 @@
 /**
- * Public types for `@pyric/auth`. Backend-opaque shapes that mirror
+ * Public types for `pyric/auth`. Backend-opaque shapes that mirror
  * `firebase/auth`'s modular surface at the type level. Sandbox and
  * prod targets both satisfy these interfaces — consumer code stays
  * agnostic.
@@ -17,7 +17,7 @@ import type { Target } from './target.js';
  *  {@link getAuth}; consumers don't read it. Exposed only so the
  *  dispatch helpers in this package can recover routing without a
  *  WeakMap lookup. */
-export const TARGET_SYMBOL: unique symbol = Symbol('@pyric/auth/target');
+export const TARGET_SYMBOL: unique symbol = Symbol('pyric/auth/target');
 
 /**
  * Result of `getIdTokenResult()`. Mirrors the `firebase/auth` shape.

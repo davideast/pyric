@@ -93,7 +93,7 @@ type WriteMode =
 When your write payload contains a server-timestamp sentinel — exactly `{ __type: 'serverTimestamp' }` — the simulator resolves every occurrence to the same `Timestamp` instance (matching `request.time`). Use the exported `SERVER_TIMESTAMP` constant for clarity:
 
 ```ts
-import { SERVER_TIMESTAMP } from 'pyric/firestore-rules';
+import { SERVER_TIMESTAMP } from 'pyric/rules';
 
 const tc: TestCase = {
   description: 'create stamps createdAt = request.time',
@@ -111,7 +111,7 @@ The single-instance invariant matters because `data.createdAt == request.time` s
 ## Validation
 
 ```ts
-import { TestCaseSchema } from 'pyric/firestore-rules';
+import { TestCaseSchema } from 'pyric/rules';
 
 const parsed = TestCaseSchema.parse(input);  // throws on schema mismatch
 ```

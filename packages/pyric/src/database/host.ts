@@ -2,7 +2,7 @@
  * The `RtdbHost` contract — what `@pyric/rtdb` needs from its caller
  * to talk to a Realtime Database.
  *
- * Unlike `@pyric/storage`'s `ProjectScope` (admin-token-only),
+ * Unlike `pyric/storage`'s `ProjectScope` (admin-token-only),
  * RTDB needs four things:
  *
  *   - `projectId` + `databaseUrl` — identity

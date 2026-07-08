@@ -1,5 +1,5 @@
 /**
- * `@pyric/admin` — Admin-SDK-shaped chainable Firestore adapter for
+ * `pyric-admin` — Admin-SDK-shaped chainable Firestore adapter for
  * the Pyric sandbox.
  *
  * `getFirestore(ctx)` returns a `SandboxFirestore` whose operations
@@ -7,7 +7,7 @@
  * `LocalEnvironment` of the context's sandbox. Idempotent — a second
  * call with the same `SandboxContext` returns the same wrapper.
  *
- * Wraps the `@pyric/sandbox/admin-compat` implementation.
+ * Wraps the `pyric/sandbox/admin-compat` implementation.
  * Per-operation methods construct a fresh delegate so a
  * `sandbox.reset()` (which swaps the underlying environment) is
  * picked up on the next operation. Refs returned from the wrapper
@@ -37,8 +37,8 @@ import { getInternalEnv } from 'pyric/sandbox/internal';
 import { CONTEXT_SYMBOL, registerOnSnapshotImpl, wrapWithErrorTranslation } from './error-translation.js';
 
 // Re-export commonly-needed foundation types so most consumers can
-// import everything from `@pyric/admin`. Anyone needing more reaches
-// into `@pyric/sandbox` directly.
+// import everything from `pyric-admin`. Anyone needing more reaches
+// into `pyric/sandbox` directly.
 export type {
   AuthState,
   Sandbox,
@@ -47,7 +47,7 @@ export type {
 export { SandboxError } from 'pyric/sandbox';
 
 // Re-export the production-shaped types so consumers can spell them
-// with a `@pyric/admin` import path.
+// with a `pyric-admin` import path.
 //
 // `DocumentSnapshot`, `QueryDocumentSnapshot`, `QuerySnapshot` are
 // re-exported from the Web-SDK-shaped snapshot-listener types — that's
@@ -105,7 +105,7 @@ export type {
 export type SnapshotListenOptions = SnapshotListenerOptions;
 
 /**
- * Internal channel for the modular `@pyric/firestore` layer to mark a
+ * Internal channel for the modular `pyric/firestore` layer to mark a
  * listener as live (identity follows `sandbox.currentUser`) vs frozen
  * (`getFirestore(ctx)`, pinned identity). The chainable adapter sees only
  * a `SandboxContext` per call and can't tell the two apart on its own — the
@@ -117,7 +117,7 @@ export type SnapshotListenOptions = SnapshotListenerOptions;
  * Symbol-keyed (not a named field) so it never collides with a real
  * `SnapshotListenOptions` field and never leaks to consumer code.
  */
-export const FOLLOWS_CURRENT_USER: unique symbol = Symbol('@pyric/firestore/followsCurrentUser');
+export const FOLLOWS_CURRENT_USER: unique symbol = Symbol('pyric/firestore/followsCurrentUser');
 
 /**
  * Returned from `onSnapshot`. Calling it deregisters the listener and
@@ -382,7 +382,7 @@ function isSandboxContext(target: SandboxContext | Sandbox): target is SandboxCo
  *
  * Read it via a structural lookup rather than `instanceof` so this
  * adapter never has to import the compat impl class (which would create
- * a circular dependency through `@pyric/sandbox/admin-compat`).
+ * a circular dependency through `pyric/sandbox/admin-compat`).
  *
  * Returns `null` for refs we cannot route (anonymous/foreign Query
  * implementations); the caller throws a clear remediation error.
@@ -633,7 +633,7 @@ function contextFromRef(ref: unknown): SandboxContext {
 // ─── Chainable `.onSnapshot(...)` shim ─────────────────────────────────
 //
 // The free `onSnapshot(ref, observer)` function above mirrors
-// `firebase/firestore`'s modular shape. The rest of `@pyric/admin` is
+// `firebase/firestore`'s modular shape. The rest of `pyric-admin` is
 // chainable-method-shaped, though, and agents reach for
 // `db.collection(path).where(...).onSnapshot(cb)` more often than the
 // free form. To eliminate the asymmetry without losing the modular

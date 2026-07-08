@@ -45,7 +45,7 @@ The dispatch is hidden inside each function. Same call sites; the backend choice
 
 ## What only the sandbox does
 
-- **`rules` option** at config time. Prod deploys rules separately, via `firebase deploy --only storage:rules` or `@pyric/deploy`'s control plane (when Storage admin support lands).
+- **`rules` option** at config time. Prod deploys rules separately, via `firebase deploy --only storage:rules` or `pyric-tools/deploy`'s control plane (when Storage admin support lands).
 - **`dbName` option** for IndexedDB partition. Doesn't apply on prod.
 - **Synchronous rule changes**. The sandbox enforces rules from the `rules` option immediately. Prod has propagation time.
 

@@ -6,7 +6,7 @@
  * Config doc built programmatically for the 4x4 board.
  * Stdlib: geometry, turns, state, auth
  *
- * Migrated through `@pyric/sandbox` — operations dispatch through
+ * Migrated through `pyric/sandbox` — operations dispatch through
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  */
 import { describe, test, expect } from 'bun:test';

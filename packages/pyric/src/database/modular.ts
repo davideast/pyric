@@ -11,12 +11,12 @@
  *     plus the existing `@pyric/rtdb` rule simulator). Identity is the
  *     `SandboxContext`'s frozen `auth`.
  *   - **Sandbox-live target** — same backend, but identity is read
- *     per-op from `sandbox.currentUser` so a `@pyric/auth`-driven
+ *     per-op from `sandbox.currentUser` so a `pyric/auth`-driven
  *     sign-in flips the next op's `request.auth` without re-binding.
  *   - **Prod target** — wraps `firebase/database` against a real
  *     Firebase project.
  *
- * Dispatch machinery mirrors `@pyric/firestore`:
+ * Dispatch machinery mirrors `pyric/firestore`:
  *   - {@link TARGET_SYMBOL} brand on every {@link Database} handle.
  *   - {@link refToTarget} WeakMap from refs to their owning target so
  *     chained calls (`child(ref, 'sub')`, `get(ref)`) recover routing.
@@ -1369,7 +1369,7 @@ export function connectDatabaseEmulator(
 
 // ─── Sandbox-only ops ───────────────────────────────────────────────
 //
-// Mirrors `@pyric/firestore`'s `sandbox` namespace — explicit
+// Mirrors `pyric/firestore`'s `sandbox` namespace — explicit
 // per-package sandbox lifecycle that the prod target doesn't ship.
 // Calling against a prod handle throws.
 

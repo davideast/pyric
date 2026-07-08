@@ -1,5 +1,5 @@
 /**
- * `@pyric/sandbox/admin-compat` — chainable Admin-shaped Firestore
+ * `pyric/sandbox/admin-compat` — chainable Admin-shaped Firestore
  * wrapper backed by `LocalEnvironment`.
  *
  * This is the surface that mirrors `firebase-admin/firestore` (the
@@ -7,7 +7,7 @@
  * chainable Admin shape — `db.collection('x').doc('y').get()` etc. —
  * can run unmodified against the in-process sandbox.
  *
- * `@pyric/admin` imports from here directly rather than reaching across
+ * `pyric-admin` imports from here directly rather than reaching across
  * packages for its substrate.
  *
  * Exported as a separate subpath (not via `/internal`) because the
@@ -21,7 +21,7 @@ export * from './firestore/admin-compat/index.js';
 // Web-SDK-shaped snapshot aliases — what onSnapshot listener callbacks
 // receive. Re-exported here with `Live*` prefixes to disambiguate from
 // admin-compat's own DocumentSnapshot / QuerySnapshot (chainable Admin
-// shape). Consumers (e.g. `@pyric/admin`) augment THIS module's
+// shape). Consumers (e.g. `pyric-admin`) augment THIS module's
 // LiveDocumentSnapshot / LiveQuerySnapshot to attach `onSnapshot` methods.
 export type {
   DocumentSnapshot as LiveDocumentSnapshot,

@@ -1,5 +1,5 @@
 /**
- * Sandbox backend for `@pyric/auth`.
+ * Sandbox backend for `pyric/auth`.
  *
  * Owns four pieces of per-sandbox state:
  *   1. In-memory user database — emails / passwords / customClaims

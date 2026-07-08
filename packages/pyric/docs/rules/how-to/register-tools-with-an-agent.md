@@ -7,7 +7,7 @@ This guide shows you how to expose the rules surface as tool handlers for an `@i
 `createFirestoreRulesTools()` returns three handlers:
 
 ```ts
-import { createFirestoreRulesTools } from 'pyric/firestore-rules';
+import { createFirestoreRulesTools } from 'pyric/rules/node';
 import { createToolRegistry } from '@inbrowser/agent';
 
 const registry = createToolRegistry();
@@ -26,7 +26,7 @@ These are pure-local: no network, no credentials, safe to expose anywhere.
 Pass a `ProjectScope` and a fourth handler appears: `firestore_test_rules`, which calls Google's Rules Test API.
 
 ```ts
-import { fromServiceAccount } from '@pyric/deploy';
+import { fromServiceAccount } from 'pyric-tools/deploy';
 
 const scope = await fromServiceAccount('./service-account.json');
 
@@ -70,7 +70,7 @@ The `ToolResult` shape is uniform across handlers: `{ ok, summary, data }`. Look
 `createFirestoreSimulatorTools({ resolveSandbox })` is the entry point for the seven-tool simulator family that operates against a session-scoped `LocalEnvironment` from `pyric/sandbox`. It currently returns an empty array — the full implementation lands as consumers ask for it. The factory shape and dependency contract are stable; only the handlers are pending.
 
 ```ts
-import { createFirestoreSimulatorTools } from 'pyric/firestore-rules';
+import { createFirestoreSimulatorTools } from 'pyric/rules/node';
 
 // Today: returns [] — placeholder
 const tools = createFirestoreSimulatorTools({

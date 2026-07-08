@@ -16,7 +16,7 @@ g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 g.IS_REACT_ACT_ENVIRONMENT = true;
 
 // Real sandbox behind the rules-gate probe. Storage rules use the
-// hand-rolled `@pyric/storage` parser (NOT the firestore OHM one), so
+// hand-rolled `pyric/storage` parser (NOT the firestore OHM one), so
 // deploying rules in a DOM test is safe. Explicit global assignment —
 // see ObjectInspector.test.tsx for the shared-process rationale.
 import { indexedDB as fakeIndexedDB, IDBKeyRange as fakeIDBKeyRange } from 'fake-indexeddb';

@@ -50,7 +50,7 @@ export function fbRefOf(ref: StorageReference): fb.StorageReference {
   const r = PROD_FB_REF.get(ref);
   if (!r) {
     throw new Error(
-      '@pyric/storage: expected a prod-target reference but the WeakMap had no entry. ' +
+      'pyric/storage: expected a prod-target reference but the WeakMap had no entry. ' +
       'Mixing sandbox + prod refs in the same call?',
     );
   }

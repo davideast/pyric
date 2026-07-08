@@ -7,7 +7,7 @@
  *
  * Rules: examples/scenarios/04-publishing.rules
  *
- * Migrated through `@pyric/sandbox` — operations dispatch through
+ * Migrated through `pyric/sandbox` — operations dispatch through
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  */
 import { describe, test, expect } from 'bun:test';

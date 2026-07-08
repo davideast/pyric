@@ -5,7 +5,7 @@
  * role-based claims for admin vs logistics, capacity enforcement.
  * Stdlib: auth, membership, validation, lifecycle
  *
- * Migrated through `@pyric/sandbox` — operations dispatch through
+ * Migrated through `pyric/sandbox` — operations dispatch through
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  */
 import { describe, test, expect } from 'bun:test';

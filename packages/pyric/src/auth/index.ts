@@ -1,5 +1,5 @@
 /**
- * `@pyric/auth` — modular Web-SDK Auth adapter for the Pyric
+ * `pyric/auth` — modular Web-SDK Auth adapter for the Pyric
  * sandbox.
  *
  * Mirrors `firebase/auth`'s tree-shakable free-function surface
@@ -16,19 +16,19 @@
  * Same call surface across both. Agent code that writes against the
  * sandbox during iteration runs unmodified against prod at deploy.
  *
- * Dual-target dispatch follows the same pattern as `@pyric/firestore`:
+ * Dual-target dispatch follows the same pattern as `pyric/firestore`:
  *   - {@link TARGET_SYMBOL} brands every {@link Auth} handle.
  *   - {@link targetOf} (internal) reads it and switches on
  *     `target.kind`.
  *
  * Sandbox-only test driver lives under {@link sandbox}, mirroring
- * `@pyric/firestore`'s `sandbox.setRules` etc. — each method throws
+ * `pyric/firestore`'s `sandbox.setRules` etc. — each method throws
  * `failed-precondition` if called against a prod-backed handle.
  *
  * v0 scope is deliberately minimal. The deny-list is documented in
  * `docs/reference/feature-matrix.md`; agent `appSource` that imports
  * any of those will fail to bundle once the playground's
- * `firebase/auth` → `@pyric/auth` alias swap lands.
+ * `firebase/auth` → `pyric/auth` alias swap lands.
  */
 
 import { SandboxError, type Sandbox } from 'pyric/sandbox';
@@ -600,7 +600,7 @@ export async function updateProfile(
 /**
  * Sandbox-only lifecycle / test-driver surface. Throws
  * `failed-precondition` on prod-backed handles — mirrors the
- * `@pyric/firestore` `sandbox.*` pattern.
+ * `pyric/firestore` `sandbox.*` pattern.
  *
  * **Naming note:** the `sandbox` export name collides with the
  * common `const sandbox = initializeSandbox()` local. Alias on

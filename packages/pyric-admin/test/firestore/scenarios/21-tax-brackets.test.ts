@@ -5,7 +5,7 @@
  * verify each intermediate step against a config document with pre-computed
  * bracket data. Same approach that made chess work — lookup document + verify.
  *
- * Migrated through `@pyric/sandbox` — operations dispatch through
+ * Migrated through `pyric/sandbox` — operations dispatch through
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  *
  * NOTE: Test #24 ('owner can read own return') from the original suite is

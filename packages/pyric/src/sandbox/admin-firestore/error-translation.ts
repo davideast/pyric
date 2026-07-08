@@ -45,7 +45,7 @@ import {
  * `db.collection(path)` regardless of how many contexts share the
  * underlying sandbox. Symbol so it never collides with a real property.
  */
-export const CONTEXT_SYMBOL: unique symbol = Symbol('@pyric/sandbox/context');
+export const CONTEXT_SYMBOL: unique symbol = Symbol('pyric/sandbox/context');
 
 /**
  * Late-bound reference to the free `onSnapshot(ref, ...args)` function

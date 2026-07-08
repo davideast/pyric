@@ -1,7 +1,7 @@
 /**
- * `@pyric/firestore-rules` — Pyric-native Firestore rules tooling.
+ * `pyric/rules` — Pyric-native Firestore rules tooling.
  *
- * Sibling to `@pyric/firestore` (the modular Web-SDK swap-in). Rules
+ * Sibling to `pyric/firestore` (the modular Web-SDK swap-in). Rules
  * tooling lives here so non-standard surface (linter, parser, etc.)
  * doesn't pollute the swap-in namespace.
  *
@@ -48,7 +48,7 @@ export type {
 
 // ─── Modules resolver — Node-only ────────────────────────────────────
 // The resolver reads stdlib files off disk and so can't ship to the
-// browser. Its value exports live on `@pyric/firestore-rules/node`;
+// browser. Its value exports live on `pyric/rules/node`;
 // only the (erasable) types stay on the universal root entry.
 export type { ResolveResult, ResolveOptions } from './modules/resolver.js';
 
@@ -108,7 +108,7 @@ export {
 // ─── Tool factories (Slice 8) — Node-only ────────────────────────────
 // `createFirestoreRulesTools` wraps the resolver (Node-only) into
 // agent tools, so the factory itself is Node-only. Values live on
-// `@pyric/firestore-rules/node`; types stay here so consumers in
+// `pyric/rules/node`; types stay here so consumers in
 // either environment can describe tool deps without dragging Node
 // imports along.
 export type {
@@ -136,7 +136,7 @@ export { createFirestoreRulesStdlibTools } from './stdlib-tools.js';
 
 // Browser-safe `2+modules` resolver — pre-supplies the inlined stdlib
 // content so it works without `node:fs`. Node consumers should keep
-// importing `resolveModules` from `@pyric/firestore-rules/node`,
+// importing `resolveModules` from `pyric/rules/node`,
 // which falls back to disk reads for stdlib modules and picks up
 // `.rules` edits between builds without re-running the inliner.
 export { resolveModulesBrowser, STDLIB_INLINE } from './modules/resolver-browser.js';

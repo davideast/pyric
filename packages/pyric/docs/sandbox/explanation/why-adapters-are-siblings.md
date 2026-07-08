@@ -60,16 +60,16 @@ This is what makes "the substrate is shared" workable. Both adapters bottom out 
 | `LocalEnvironment` (raw substrate) | `pyric/sandbox/internal` |
 | Admin-SDK-shaped Firestore API | `pyric-admin` |
 | Modular Web SDK-shaped Firestore API | `pyric/firestore` |
-| Rules parser, linter, simulator | `pyric/firestore-rules` |
-| Deploy primitives (rules, indexes, hosting, functions) | `@pyric/deploy` |
+| Rules parser, linter, simulator | `pyric/rules` |
+| Deploy primitives (rules, indexes, hosting, functions) | `pyric-tools/deploy` |
 
 The rule of thumb: anything *shape-agnostic* (the data, the rules, the lifecycle) lives in the substrate; anything *shape-specific* lives in an adapter.
 
 ## The runtime cycle
 
-`pyric/sandbox` imports the rules simulator from `pyric/firestore-rules`. `pyric/firestore-rules` imports `LocalEnvironment` (type-only) from `pyric/sandbox/internal`. This is a workspace cycle.
+`pyric/sandbox` imports the rules simulator from `pyric/rules`. `pyric/rules` imports `LocalEnvironment` (type-only) from `pyric/sandbox/internal`. This is a module cycle inside the package graph.
 
-The cycle is benign: the import from `firestore-rules` into `sandbox` is value (the `SimulateFirestoreRulesHandler` class and a handful of wrappers); the import from `sandbox` back into `firestore-rules` is type-only (the `LocalEnvironment` interface for `createFirestoreSimulatorTools`'s `resolveSandbox` dep). The two packages have to build in a specific order, but neither is in the other's runtime call graph beyond what's documented.
+The cycle is benign: the import from `pyric/rules` into `pyric/sandbox` is value (the `SimulateFirestoreRulesHandler` class and a handful of wrappers); the import from `pyric/sandbox` back into `pyric/rules` is type-only (the `LocalEnvironment` interface for `createFirestoreSimulatorTools`'s `resolveSandbox` dep). Neither side is in the other's runtime call graph beyond what's documented.
 
 We accepted the cycle because the alternative — duplicating wrapper classes in both packages — would make `instanceof Timestamp` start lying depending on which copy was imported. The substrate consuming the simulator's wrapper types is the canonical path.
 
@@ -84,6 +84,6 @@ The same pattern extends to other services. Hypothetical `pyric/auth` would:
 
 The substrate would need a multi-service split inside `LocalEnvironment` (currently Firestore-only) and the adapter would slot in.
 
-Same for `pyric/database` (Realtime Database) and `pyric/storage` (Cloud Storage). `pyric/storage` already exists for the storage data plane; its admin surface (CORS, bucket lifecycle) will eventually land in `@pyric/deploy`.
+Same for `pyric/database` (Realtime Database) and `pyric/storage` (Cloud Storage). `pyric/storage` already exists for the storage data plane; its admin surface (CORS, bucket lifecycle) will eventually land in `pyric-tools/deploy`.
 
 The point of the sibling-package shape is that each new adapter is a contained addition. Nobody who already uses `pyric-admin` cares when `pyric/database` lands; the substrate gets a new service slot but the existing adapter surface doesn't move.

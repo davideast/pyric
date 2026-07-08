@@ -5,7 +5,7 @@
  * get() to verify teacherId, MapDiff to constrain which fields change.
  * Stdlib: auth, validation, lifecycle, membership
  *
- * Migrated through `@pyric/sandbox` — operations dispatch through
+ * Migrated through `pyric/sandbox` — operations dispatch through
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  */
 import { describe, test, expect } from 'bun:test';

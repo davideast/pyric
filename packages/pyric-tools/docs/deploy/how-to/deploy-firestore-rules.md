@@ -114,4 +114,4 @@ Returns `null` for greenfield projects.
 
 - For the `EnsureRuleOutcome` and `RuleCheckResult` shapes, see [`firestore` namespace](../reference/firestore-namespace.md#firestorerules).
 - For why `ensure` is an orchestrator (returns `Outcome`) while `deploy` is a primitive (throws), see [Primitives throw, orchestrators return](../explanation/primitives-vs-orchestrators.md).
-- For linting rules before deploying them, see [`pyric/firestore-rules`](../../../firestore-rules/README.md).
+- For linting rules before deploying them, see [`pyric/rules`](../../../../pyric/docs/rules/README.md).

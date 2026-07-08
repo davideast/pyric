@@ -67,7 +67,7 @@ export interface CreateCompatFirestoreOptions {
    * treated as ALLOW (the modular-shaped equivalent of `sandbox.admin.*`).
    * Storage preconditions and the event/listener path are unchanged; only
    * rule evaluation is skipped. Default `false` → rules enforced under
-   * `auth`. Used by `getAdminFirestore` (see `@pyric/admin` and
+   * `auth`. Used by `getAdminFirestore` (see `pyric-admin` and
    * `pyric/firestore`).
    */
   bypassRules?: boolean;

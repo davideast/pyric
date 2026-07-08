@@ -3,7 +3,7 @@
  * every write against a fresh sandbox; the engine classifies any
  * divergences.
  *
- * Exported from the main `@pyric/sandbox` entry. The file lives at
+ * Exported from the main `pyric/sandbox` entry. The file lives at
  * `src/replay/index.ts` as an organizational unit; importers use
  * the public bare-package import path.
  *

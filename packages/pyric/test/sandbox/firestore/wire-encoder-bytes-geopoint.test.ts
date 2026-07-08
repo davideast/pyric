@@ -6,23 +6,23 @@
  *
  *   1. **Converter unit:** `bytesConverter` / `geoPointConverter`
  *      duck-type-detect `firebase/firestore`'s `Bytes` / `GeoPoint`
- *      shapes and substitute the `@pyric/firestore-rules` wrappers
+ *      shapes and substitute the `pyric/rules` wrappers
  *      (`Bytes`, `LatLng`). KEEP on idempotency, on plain shapes that
  *      lack the duck-type, and on non-objects.
  *
  *   2. **Storage round-trip:** writing a doc with the rules-wrapper
  *      forms through `LocalEnvironment.execute({ method: 'create' })`
  *      and reading it back via `getDocument` returns the same wrapper
- *      instances — so the final `@pyric/firestore` translation hop
+ *      instances — so the final `pyric/firestore` translation hop
  *      (rules wrapper → `firebase/firestore.Bytes` / `.GeoPoint`) has
  *      a stable source. The end-to-end fb.Bytes → fb.Bytes round-trip
  *      through setDoc / getDoc is verified at
  *      `packages/firestore/test/sandbox-target.test.ts`.
  *
  * The `firebase/firestore` shape is faked with a minimal duck-typed
- * object — `@pyric/sandbox` deliberately doesn't depend on `firebase`,
+ * object — `pyric/sandbox` deliberately doesn't depend on `firebase`,
  * matching the converter's duck-typing approach. The integration test
- * at the `@pyric/firestore` layer uses the real `firebase/firestore`
+ * at the `pyric/firestore` layer uses the real `firebase/firestore`
  * exports.
  */
 import { describe, test, expect } from 'bun:test';

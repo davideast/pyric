@@ -6,7 +6,7 @@
  * paths, and denial conditions.
  * Stdlib: auth, transitions, lifecycle
  *
- * Migrated through `@pyric/sandbox` — operations dispatch through
+ * Migrated through `pyric/sandbox` — operations dispatch through
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  */
 import { describe, test, expect } from 'bun:test';

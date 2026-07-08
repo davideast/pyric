@@ -31,7 +31,7 @@ function makeFirestore() {
 // Minimal repro (no React, no hooks):
 //   test('a', () => { … setDoc(...) });
 //   test('b', () => { … setDoc(...) }); // <- fails
-// Reproduces against the *built* `@pyric/firestore` dist. The
+// Reproduces against the *built* `pyric/firestore` dist. The
 // existing `packages/firestore/test/sandbox-target.test.ts` avoids
 // the issue by seeding via `sandboxOps.seedDocuments` and rarely
 // calling `setDoc` directly across tests — a workaround, not a fix.

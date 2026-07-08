@@ -73,7 +73,7 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
 }
 ```
 
-`seed` returns the `LintResult` from `pyric/firestore-rules`. Check it before treating the seed as successful — a ruleset with errors leaves the sandbox in default-deny.
+`seed` returns the `LintResult` from `pyric/rules`. Check it before treating the seed as successful — a ruleset with errors leaves the sandbox in default-deny.
 
 `/internal` is documented as adapter-only. Tooling that uses it accepts that the surface may change between minor versions.
 
@@ -118,5 +118,5 @@ Rules first, then documents. If you write documents before rules, the writes eva
 
 ## Where to look next
 
-- For rules linting and the lint result shape, see [`pyric/firestore-rules`](../../../firestore-rules/docs/reference/lint-rules.md).
+- For rules linting and the lint result shape, see [`pyric/rules`](../../rules/reference/lint-rules.md).
 - For resetting between tests, see [Reset between tests](./reset-between-tests.md).

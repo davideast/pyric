@@ -1,5 +1,5 @@
 /**
- * Type-level checks — the `@pyric/auth` public surface should be
+ * Type-level checks — the `pyric/auth` public surface should be
  * shape-compatible with `firebase/auth`'s modular surface for the
  * v0 subset.
  *

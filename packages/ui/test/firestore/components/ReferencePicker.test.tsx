@@ -25,7 +25,7 @@ afterEach(() => cleanup());
 
 // Shared sandbox + Firestore handle. The hook calls `doc()` to
 // parse text input and `query()` to fetch a collection's first
-// page — both refuse refs that didn't come from a @pyric/firestore
+// page — both refuse refs that didn't come from a pyric/firestore
 // factory. Initialize once + reuse so the multi-init upstream bug
 // (M1 note) doesn't apply.
 const sandbox = initializeSandbox();

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 
 /** Strip leading/trailing slashes and collapse repeats — mirrors
- *  `@pyric/storage`'s reference normalization so `usePathState` and
+ *  `pyric/storage`'s reference normalization so `usePathState` and
  *  `useStorageList` always agree on what a path is. */
 export function normalizeStoragePath(path: string): string {
   return path.split('/').filter(Boolean).join('/');
