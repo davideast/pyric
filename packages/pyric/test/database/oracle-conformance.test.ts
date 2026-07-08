@@ -316,12 +316,14 @@ describe('oracle conformance (rtdb)', () => {
     expect(obs.within10s).toBe(true);
   });
 
-  it('rtdb-simulator-vs-prod-agreement (KNOWN DIVERGENCE: `.validate` not enforced)', async () => {
+  it('rtdb-simulator-vs-prod-agreement (CONFORMS: `.validate` now enforced)', async () => {
     // Prod capture: an allow/deny audit of the pyric rule simulator vs
     // live RTDB across 29 ops found 28 agreements and exactly 1
     // disagreement — `r4-validate-structure`'s "missing body denied": prod
-    // DENIES the write (its `.validate` fails) while the simulator ALLOWS
-    // it (it evaluates only `.write`, never `.validate`).
+    // DENIES the write (its `.validate` fails) while the simulator at
+    // capture time ALLOWED it (it evaluated only `.write`). The sandbox
+    // now runs the `.validate` walk on writes, closing the divergence; the
+    // frozen audit facts below document the historical disagreement.
     const obs = load('rtdb-simulator-vs-prod-agreement.json');
     // Environment-independent audit facts recorded against the sandbox's
     // own simulator.
@@ -336,12 +338,13 @@ describe('oracle conformance (rtdb)', () => {
     expect(divs[0]!.simAllowed).toBe(true); // sandbox sim: allows
     expect(divs[0]!.agree).toBe(false);
 
-    // Reproduce the divergence live through the sandbox write path (same
-    // rule engine the audit exercised): a `.validate`-requiring rule does
-    // NOT deny a structurally-invalid write, because backend writes
-    // evaluate only `.write` (src/database/sandbox/backend.ts) — matching
-    // the recorded `simAllowed: true`.
-    const { db } = setup();
+    // Replay the once-divergent case live through the sandbox write path
+    // (same rule engine the audit exercised): a `.validate`-requiring rule
+    // now DENIES the structurally-invalid write, matching prod's recorded
+    // `prodAllowed: false` (`.validate` walk in
+    // src/database/simulation/handler.ts, reached from all backend write
+    // sites).
+    const { sandbox, db } = setup();
     rtdbSandbox.setRules(db, {
       rules: {
         entry: {
@@ -350,15 +353,18 @@ describe('oracle conformance (rtdb)', () => {
         },
       },
     });
-    let writeThrew = false;
+    let thrown: unknown;
     try {
       await set(ref(db, 'entry'), { notBody: 1 }); // missing required `body`
-    } catch {
-      writeThrew = true;
+    } catch (e) {
+      thrown = e;
     }
-    // Sandbox today: allowed (no throw) — the `.validate` denial prod
-    // applied is NOT enforced.
-    expect(writeThrew).toBe(false);
+    expect(thrown).toBeDefined();
+    expect((thrown as { code?: string }).code).toBe('PERMISSION_DENIED');
+    // The invalid value was not committed (admin read bypasses the rules,
+    // which grant no `.read` here).
+    const after = await get(ref(getAdminDatabase(sandbox), 'entry'));
+    expect(after.val()).toBeNull();
   });
 
   // ── admin/user return-shape agreement ────────────────────────────────

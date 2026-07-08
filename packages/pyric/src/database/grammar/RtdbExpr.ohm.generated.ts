@@ -49,8 +49,11 @@ export const RTDB_EXPR_OHM_SOURCE = `RtdbExpr {
 
   Primary
     = "(" Expr ")"  -- paren
+    | Array
     | literal
     | ident
+
+  Array = "[" ListOf<Expr, ","> "]"
 
   literal
     = number

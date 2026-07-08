@@ -58,7 +58,13 @@ export class DataSnapshot {
     return this.child(path).exists();
   }
 
-  hasChildren(): boolean {
+  hasChildren(keys?: readonly unknown[]): boolean {
+    // `hasChildren(['a', 'b'])` — true only when EVERY listed key is
+    // present (prod semantics). `hasChildren()` — true when the node has
+    // at least one child.
+    if (Array.isArray(keys)) {
+      return keys.every((key) => this.hasChild(String(key)));
+    }
     return (
       typeof this._value === 'object' &&
       this._value !== null &&
@@ -203,7 +209,7 @@ evalSemantics.addOperation<unknown>('eval', {
         case 'val': return recv.val();
         case 'exists': return recv.exists();
         case 'hasChild': return recv.hasChild(String(argValues[0]));
-        case 'hasChildren': return recv.hasChildren();
+        case 'hasChildren': return recv.hasChildren(argValues.length > 0 ? (argValues[0] as unknown[]) : undefined);
         case 'isString': return recv.isString();
         case 'isNumber': return recv.isNumber();
         case 'isBoolean': return recv.isBoolean();
@@ -253,6 +259,10 @@ evalSemantics.addOperation<unknown>('eval', {
 
   Primary_paren(_open, expr, _close) { return (expr as any).eval(); },
   Primary(node) { return (node as any).eval(); },
+
+  Array(_open, elems, _close) {
+    return (elems as any).asIteration().children.map((e: any) => (e as any).eval());
+  },
 
   literal(node) { return (node as any).eval(); },
 
