@@ -1,16 +1,21 @@
 /**
- * Pyric Studio V1 routes. This is the single route registry used by the shell,
+ * Pyric Studio routes. This is the single route registry used by the shell,
  * Home navigation, and tests, so top-level scope cannot drift across files.
+ *
+ * Tab set per `specs/shell.md`: Home, Firestore, Auth, RTDB, Storage, Traffic,
+ * Prototype, Settings. The spec also names Rules; no approved Rules surface
+ * exists yet (the assist-era one was deliberately de-mounted, PRINCIPLES P4/M9),
+ * so the tab is left out rather than shipping a placeholder.
  */
 
 export type RouteId =
   | 'home'
   | 'firestore'
   | 'auth'
-  | 'storage'
   | 'rtdb'
+  | 'storage'
   | 'traffic'
-  | 'playground'
+  | 'prototype'
   | 'settings';
 
 export interface StudioRoute {
@@ -24,7 +29,7 @@ export const ROUTES: readonly StudioRoute[] = [
   {
     id: 'home',
     label: 'Home',
-    description: 'Start from the surface that matches the task in front of you.',
+    description: 'What is happening in the sandbox, and where to go next.',
   },
   {
     id: 'firestore',
@@ -37,14 +42,14 @@ export const ROUTES: readonly StudioRoute[] = [
     description: 'View and edit users, claims, providers, and account state.',
   },
   {
-    id: 'storage',
-    label: 'Storage',
-    description: 'Browse buckets, inspect objects, upload, and delete files.',
-  },
-  {
     id: 'rtdb',
     label: 'RTDB',
     description: 'Browse and edit RTDB data in the shared sandbox.',
+  },
+  {
+    id: 'storage',
+    label: 'Storage',
+    description: 'Browse buckets, inspect objects, upload, and delete files.',
   },
   {
     id: 'traffic',
@@ -52,9 +57,9 @@ export const ROUTES: readonly StudioRoute[] = [
     description: 'Watch sandbox requests, listener activity, and rule decisions.',
   },
   {
-    id: 'playground',
-    label: 'Playground',
-    description: 'Build and test with the full playground workspace.',
+    id: 'prototype',
+    label: 'Prototype',
+    description: 'Prototype and preview an app against the shared sandbox.',
   },
   {
     id: 'settings',
