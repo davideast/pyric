@@ -221,9 +221,13 @@ function decodeString(
   }
   if (format !== 'data_url') {
     // A JS caller can pass a string the `StringFormat` type rules out
-    // (`'base64url'`, `'hex'`, …). Upstream throws `invalid-argument`
-    // for an unknown format; surface a `StorageError` naming the bad
-    // format rather than mis-parsing it as a data_url.
+    // (`'base64url'`, `'hex'`, …). Divergence, oracle-locked by
+    // `storage-uploadstring-unknown-format.json`: prod ACCEPTS
+    // `base64url` (uploads succeed) and throws `storage/unknown` for a
+    // genuinely-unrecognized format. The sandbox instead throws
+    // `storage/invalid-format` for anything outside the v1 scope's
+    // `raw`/`base64`/`data_url`, naming the bad format rather than
+    // mis-parsing it as a data_url. See storage#41 in COMPAT.md.
     throw invalidFormat(
       String(format),
       `unknown uploadString format — expected "raw", "base64", or "data_url".`,
