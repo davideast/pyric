@@ -84,6 +84,10 @@ import type {
 } from './protocol.js';
 import type { PolicyRequest } from './protocol.js';
 import { deserializeDocData, isSentinelMarker } from './protocol.js';
+// TYPE-ONLY — the generic worker-relay wire payloads (op/sub messages minus
+// the port-level ids this module re-mints). Erased at build; `bridge/
+// protocol.ts` itself has no runtime imports, so no engine code is pulled in.
+import type { WorkerOpPayload, WorkerSubPayload } from '../../bridge/protocol.js';
 // TYPE-ONLY — the auth-lens contract + the cross-service event envelope, shared
 // with the worker host + the sandbox's event provenance. Erased at build, so the
 // leaf client bundle stays engine-free.
@@ -420,6 +424,64 @@ export async function callTool(
     ok: boolean;
     summary: string;
     data?: unknown;
+  };
+}
+
+// ─── Generic worker relay (remote sandbox, slice 1) ────────────────────────
+//
+// The bridge peer forwards `worker-op` / `worker-sub` frames from the Node
+// side (`connectRemoteSandbox`) into the SharedWorker through these two
+// functions (see `workerRelay` in `bridge/client/bridge.ts` + the wiring in
+// `entries/runtime.ts`). Ids are re-minted LOCALLY (`nextId`/`nextSubId`) so
+// relayed traffic shares this page's pending/sub maps without any chance of
+// colliding with the page's own ids — the bridge correlates by ITS frame id.
+
+/**
+ * Relay one raw worker-protocol op into the SharedWorker. `op` is the op
+ * message minus `t`/`id` (the `WorkerOpPayload` wire shape); resolves with
+ * the worker's `res.value`, rejects with an Error carrying `.code`.
+ */
+export function relayWorkerOp(db: ClientDb, op: WorkerOpPayload): Promise<unknown> {
+  return rpc(db.port, { ...op, t: 'op', id: nextId() } as InboundMessage);
+}
+
+/**
+ * Relay a raw worker-protocol subscription into the SharedWorker. `sub` is
+ * the sub message minus `t`/`subId` (the `WorkerSubPayload` wire shape).
+ * `onValue` receives every snap value VERBATIM — including the worker host's
+ * `{ __error: { code, message } }` establishment-failure convention (listener
+ * errors are re-wrapped into the same shape so the far side sees one form).
+ * Returns the unsubscribe function.
+ *
+ * The unified event stream (`target: 'events'`) is NOT relayable yet — its
+ * history batches aren't coalescible, so it needs bounded backpressure first
+ * (slice 2).
+ */
+export function relayWorkerSub(
+  db: ClientDb,
+  sub: WorkerSubPayload,
+  onValue: (value: unknown) => void,
+): () => void {
+  if (sub.target === 'events') {
+    throw new Error(
+      'event-stream subscriptions cannot be relayed over the bridge yet (needs bounded backpressure — slice 2)',
+    );
+  }
+  const subId = nextSubId();
+  _snapSubs.set(subId, {
+    next: onValue,
+    error: (err) =>
+      onValue({
+        __error: {
+          code: (err as { code?: string }).code ?? 'unknown',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }),
+  });
+  db.port.postMessage({ ...sub, t: 'sub', subId } as InboundMessage);
+  return () => {
+    _snapSubs.delete(subId);
+    db.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
   };
 }
 
