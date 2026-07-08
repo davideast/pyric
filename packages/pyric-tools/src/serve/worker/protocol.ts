@@ -400,11 +400,13 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.adminUpdateUser'; uid: string; request: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'auth.adminDeleteUser'; uid: string }
   | { t: 'op'; id: string; method: 'auth.adminClearUsers' }
-  // Storage ops (Pyric Studio data browse): mirror `pyric/storage`'s `listAll` +
-  // `getMetadata` over the port. The ref is a path; `listAll` replies with plain
-  // `{ fullPath, name }` entries, `getMetadata` with the plain `FullMetadata`.
+  // Storage ops (Pyric Studio data browse): mirror `pyric/storage` over the port.
+  // The ref is a path; `listAll` replies with plain `{ fullPath, name }` entries,
+  // `getMetadata` with the plain `FullMetadata`, and `getBlob` with a structured
+  // cloneable browser Blob.
   | { t: 'op'; id: string; method: 'storage.listAll'; path: string }
   | { t: 'op'; id: string; method: 'storage.getMetadata'; path: string }
+  | { t: 'op'; id: string; method: 'storage.getBlob'; path: string }
   // Staleness guard: report the worker's baked build version so the page can
   // warn when a still-running OLD worker serves code older than what's served.
   | { t: 'op'; id: string; method: 'getVersion' }

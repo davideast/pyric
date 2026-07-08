@@ -94,6 +94,7 @@ import {
   ref as storageRef,
   listAll as storageListAll,
   getMetadata as storageGetMetadata,
+  getBlob as storageGetBlob,
   type FirebaseStorage,
 } from 'pyric/storage';
 import {
@@ -1075,6 +1076,14 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
         const storage = ensureStorage(ctx);
         // FullMetadata is plain JSON (bucket/fullPath/name/size/contentType/...).
         ok(port, msg.id, await storageGetMetadata(storageRef(storage, msg.path)));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'storage.getBlob': {
+      try {
+        const storage = ensureStorage(ctx);
+        ok(port, msg.id, await storageGetBlob(storageRef(storage, msg.path)));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

@@ -64,9 +64,7 @@ export function useStorageObject(
   path: string | null | undefined,
 ): UseStorageObjectResult {
   // Injected: in-process `pyric/storage` by default, or the SharedWorker client
-  // bundle in Studio served mode (via StorageApiProvider). Over the worker
-  // `getBlob` (preview) is not wired yet, so it rejects and the preview shows
-  // its error state while metadata still loads.
+  // bundle in Studio served mode (via StorageApiProvider).
   const { getBlob, getMetadata, ref: refFn } = useStorageApi();
   const normalized = path == null ? null : normalizeStoragePath(path);
   const active = storage != null && normalized != null && normalized !== '';

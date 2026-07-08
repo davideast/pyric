@@ -64,8 +64,8 @@ import { readFirebaseJson, type FirebaseJson } from '../cli/firebase-json.js';
 
 /** Any `firebase/<sub>` specifier. */
 const FB_ANY = /^firebase\/([a-z-]+)$/;
-/** The only subpaths with a swap entry (mirror of `SDK_MODULES`). */
-const SERVED = new Set(['app', 'auth', 'firestore', 'database']);
+/** The firebase subpaths with swap entries. */
+const SERVED = new Set(SDK_MODULES.map((specifier) => specifier.slice('firebase/'.length)));
 const STUB_PREFIX = '\0pyric:fb-stub:';
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
 

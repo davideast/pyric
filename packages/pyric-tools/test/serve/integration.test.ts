@@ -45,8 +45,9 @@ function fixtureProject(): string {
   import { initializeApp } from 'firebase/app';
   import { getAuth } from 'firebase/auth';
   import { getFirestore } from 'firebase/firestore';
+  import { getStorage } from 'firebase/storage';
   const app = initializeApp({ apiKey: 'fake', projectId: 'demo' });
-  getAuth(app); getFirestore(app);
+  getAuth(app); getFirestore(app); getStorage(app);
 </script></body></html>`,
   );
   return dir;
@@ -73,11 +74,12 @@ describe('pyric serve end-to-end (HTTP)', () => {
     expect(mapAt).toBeLessThan(appAt);
     expect(html).toContain('"firebase/firestore":"/__pyric/sdk/firestore.js"');
     expect(html).toContain('"firebase/database":"/__pyric/sdk/database.js"');
+    expect(html).toContain('"firebase/storage":"/__pyric/sdk/storage.js"');
     expect(html).toContain('"firebase/app":"/__pyric/sdk/app.js"');
     expect(html).toContain('/__pyric/sdk/init.js');
 
     // 2. the mapped SDK files are served, browser-standalone
-    for (const mod of ['app', 'auth', 'firestore', 'database', 'init']) {
+    for (const mod of ['app', 'auth', 'firestore', 'database', 'storage', 'init']) {
       const res = await fetch(`${base}/__pyric/sdk/${mod}.js`);
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('javascript');

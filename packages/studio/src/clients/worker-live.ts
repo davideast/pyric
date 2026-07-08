@@ -39,6 +39,7 @@ import {
   ref as workerStorageRef,
   listAll as workerStorageListAll,
   getMetadata as workerStorageGetMetadata,
+  getBlob as workerStorageGetBlob,
   getSnapshot as workerGetSnapshot,
   getWorkerInstanceId,
   exportWorkerState,
@@ -145,8 +146,7 @@ export interface WorkerLivePlane {
    *  served app + agent share). Passed to the storage hooks as the handle. */
   storage: FirebaseStorage;
   /** F2 data browse: the worker storage ops as an injectable {@link StorageApi}
-   *  bundle (Studio feeds it to `@pyric/ui`'s `StorageApiProvider`). Read-only:
-   *  `getBlob` (preview) is not wired over the worker yet, so it rejects. */
+   *  bundle (Studio feeds it to `@pyric/ui`'s `StorageApiProvider`). */
   storageApi: StorageApi;
   /** F4 rules re-run: export the worker sandbox snapshot. Studio forks it
    *  locally to test a denied op against edited rules / re-issue as the user,
@@ -325,17 +325,12 @@ export function connectWorkerLive(
       clearUsers: () => workerAdminClearUsers(authHandle),
     } as unknown as AuthApi,
     storage: workerGetStorage(db) as unknown as FirebaseStorage,
-    // The worker storage ops as a StorageApi bundle (read-only browse + metadata).
-    // getBlob (preview) is not wired over the worker yet, so it rejects; the
-    // inspector shows its preview error while metadata still loads.
+    // The worker storage ops as a StorageApi bundle.
     storageApi: {
       ref: workerStorageRef,
       listAll: workerStorageListAll,
       getMetadata: workerStorageGetMetadata,
-      getBlob: () =>
-        Promise.reject(
-          new Error('Storage preview over the worker is not wired yet (browse + metadata only).'),
-        ),
+      getBlob: workerStorageGetBlob,
     } as unknown as StorageApi,
     getSnapshot: () => workerGetSnapshot(db),
   };

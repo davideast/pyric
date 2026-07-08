@@ -35,49 +35,24 @@ PACKAGES=(
 )
 
 # Subpath exports per package — used to assert every advertised entry resolves.
-# Keep this in sync with each package.json's "exports" field.
-declare -a PYRIC_SUBPATHS=(
-  "pyric/app"
-  "pyric/auth"
-  "pyric/database"
-  "pyric/firestore"
-  "pyric/rules"
-  "pyric/rules/node"
-  "pyric/rules/extract"
-  "pyric/rules/rtdb"
-  "pyric/rules/rtdb-constraints"
-  "pyric/sandbox"
-  "pyric/sandbox/admin-compat"
-  "pyric/sandbox/admin-firestore"
-  "pyric/sandbox/internal"
-  "pyric/storage"
-)
-declare -a PYRIC_ADMIN_SUBPATHS=(
-  "pyric-admin/app"
-  "pyric-admin/auth"
-  "pyric-admin/database"
-  "pyric-admin/firestore"
-  "pyric-admin/storage"
-)
-declare -a PYRIC_TOOLS_SUBPATHS=(
-  "pyric-tools/auth"
-  "pyric-tools/bridge"
-  "pyric-tools/deploy"
-  "pyric-tools/discover"
-  "pyric-tools/vite"
-)
-declare -a PYRIC_UI_SUBPATHS=(
-  "@pyric/ui/agents"
-  "@pyric/ui/auth"
-  "@pyric/ui/auth/hooks"
-  "@pyric/ui/firestore"
-  "@pyric/ui/firestore/hooks"
-  "@pyric/ui/primitives"
-  "@pyric/ui/storage"
-  "@pyric/ui/storage/hooks"
-  "@pyric/ui/traffic"
-  "@pyric/ui/traffic/hooks"
-)
+# Derived from package.json so the smoke test cannot drift behind newly-added
+# public exports.
+exported_subpaths() {
+  local pkg_dir="$1"
+  node -e '
+    const fs = require("node:fs");
+    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    for (const key of Object.keys(manifest.exports ?? {})) {
+      if (key === ".") continue;
+      process.stdout.write(`${manifest.name}${key.slice(1)}\n`);
+    }
+  ' "$ROOT/$pkg_dir/package.json"
+}
+
+PYRIC_SUBPATHS=( $(exported_subpaths packages/pyric) )
+PYRIC_ADMIN_SUBPATHS=( $(exported_subpaths packages/pyric-admin) )
+PYRIC_TOOLS_SUBPATHS=( $(exported_subpaths packages/pyric-tools) )
+PYRIC_UI_SUBPATHS=( $(exported_subpaths packages/ui) )
 
 # Tracks the backgrounded `pyric serve` (Phase 5.5) so a failure mid-smoke
 # doesn't leave it listening; killed in the error trap and after the probe.
@@ -229,11 +204,13 @@ if ! grep -R "Shared sandbox" packages/pyric-tools/dist/serve/playground-ui/_ast
   echo "         cp -R packages/playground/dist/client/. packages/pyric-tools/dist/serve/playground-ui/" >&2
   exit 1
 fi
-# All four swap/boot entries are load-bearing: defaultSdkEntries() throws at plugin
+# All swap/boot entries are load-bearing: defaultSdkEntries() throws at plugin
 # construction if any is missing. Guard each, not just firestore.
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/app\.js$' "pyric-tools ships the firebase/app swap entry"
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/auth\.js$' "pyric-tools ships the firebase/auth swap entry"
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/firestore\.js$' "pyric-tools ships the firebase/firestore swap entry"
+assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/database\.js$' "pyric-tools ships the firebase/database swap entry"
+assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/storage\.js$' "pyric-tools ships the firebase/storage swap entry"
 assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/init\.js$' "pyric-tools ships the sandbox boot entry"
 
 # ─── Phase 3: install all tarballs into a fresh consumer project ──────
