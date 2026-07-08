@@ -161,6 +161,50 @@ const SANDBOX_HANDLES = new WeakMap<SandboxContext, FirebaseStorage>();
 const BARE_SANDBOX_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
 
 /**
+ * The rules SOURCE each sandbox's service was opened with (`null` when
+ * opened without rules). Late-config detection: rules are honored only on
+ * the FIRST storage call per `Sandbox`, so silently discarding a LATER,
+ * DIFFERENT `rules` option would be a silent rules wipe — {@link
+ * ensureService} throws instead. Re-supplying the IDENTICAL source stays
+ * fine (idempotent multi-handle construction, e.g. per-user contexts).
+ */
+const SERVICE_RULES_SOURCE = new WeakMap<Sandbox, string | null>();
+
+/**
+ * Get (or open) the ONE per-sandbox `StorageService`. Loud on the
+ * silent-rules-wipe hazard: when the service is already open and the
+ * caller supplies a `rules` source differing from the one it was opened
+ * with (including "opened without rules"), this throws — configure rules
+ * on the first storage call for the sandbox instead.
+ */
+function ensureService(
+  sandbox: Sandbox,
+  options: StorageOptions,
+  caller: string,
+): Promise<StorageService> {
+  const existing = SERVICES.get(sandbox);
+  if (existing) {
+    const openedWith = SERVICE_RULES_SOURCE.get(sandbox) ?? null;
+    if (options.rules !== undefined && options.rules !== openedWith) {
+      throw new Error(
+        `pyric/storage: ${caller} received a rules source, but this sandbox's storage ` +
+          `service is already open ${openedWith === null ? 'without rules' : 'with a different rules source'} ` +
+          '— rules are honored only on the FIRST storage call per Sandbox, so these rules ' +
+          'would be silently discarded. Configure rules on the first storage call for this sandbox.',
+      );
+    }
+    return existing;
+  }
+  const rules = options.rules ? parseStorageRules(options.rules) : null;
+  const servicePromise = openStorageBackend(options.dbName).then(
+    (backend) => new StorageService(backend, rules),
+  );
+  SERVICES.set(sandbox, servicePromise);
+  SERVICE_RULES_SOURCE.set(sandbox, options.rules ?? null);
+  return servicePromise;
+}
+
+/**
  * Type predicate distinguishing `SandboxContext` from `Sandbox`. We
  * use the class-identity test (every real `SandboxContext` is a
  * `SandboxContextImpl`) so the TS narrowing works downstream.
@@ -182,11 +226,16 @@ export function getStorageSandbox(
   const fromBareSandbox = !isContext(target);
   const sandbox: Sandbox = isContext(target) ? target.sandbox : target;
 
+  // Open (or fetch) the ONE per-sandbox service FIRST — before any handle
+  // cache fast-path — so a late, differing `rules` option throws instead of
+  // being silently discarded (see ensureService).
+  const servicePromise = ensureService(sandbox, options, 'getStorageSandbox');
+
   // Fast path: a repeat bare-`Sandbox` call returns the cached
   // anonymous handle (the per-context cache below can't catch it
   // because `withAuth(null)` mints a fresh context each time). Like
-  // the per-context path, bucket/dbName/rules options are honored
-  // only on the FIRST call per Sandbox.
+  // the per-context path, bucket/dbName options are honored only on
+  // the FIRST call per Sandbox.
   if (fromBareSandbox) {
     const cachedBare = BARE_SANDBOX_HANDLES.get(sandbox);
     if (cachedBare) return cachedBare;
@@ -194,15 +243,6 @@ export function getStorageSandbox(
 
   const ctx = isContext(target) ? target : target.withAuth(null);
   const bucket = options.bucket ?? DEFAULT_BUCKET;
-
-  let servicePromise = SERVICES.get(sandbox);
-  if (!servicePromise) {
-    const rules = options.rules ? parseStorageRules(options.rules) : null;
-    servicePromise = openStorageBackend(options.dbName).then(
-      (backend) => new StorageService(backend, rules),
-    );
-    SERVICES.set(sandbox, servicePromise);
-  }
 
   const cached = SANDBOX_HANDLES.get(ctx);
   if (cached) return cached;
@@ -242,17 +282,11 @@ export function getAdminStorageSandbox(
   sandbox: Sandbox,
   options: StorageOptions = {},
 ): FirebaseStorage {
+  // Service first (late differing `rules` must throw, even on a cache hit).
+  const servicePromise = ensureService(sandbox, options, 'getAdminStorageSandbox');
+
   const cached = ADMIN_SANDBOX_HANDLES.get(sandbox);
   if (cached) return cached;
-
-  let servicePromise = SERVICES.get(sandbox);
-  if (!servicePromise) {
-    const rules = options.rules ? parseStorageRules(options.rules) : null;
-    servicePromise = openStorageBackend(options.dbName).then(
-      (backend) => new StorageService(backend, rules),
-    );
-    SERVICES.set(sandbox, servicePromise);
-  }
 
   const sandboxTarget: SandboxTarget = {
     kind: 'sandbox',
