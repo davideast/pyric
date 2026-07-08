@@ -1,0 +1,18 @@
+{
+  "name": "admin-app-deleteapp",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin deleteApp(app) returns a Promise, removes the app from the registry (getApps() drops it), and after deletion getApp() for that name throws app/no-app; the name can be re-initialized afterward. deleteApp(nonApp) throws FirebaseAppError code app/invalid-argument. rowIds empty — admin-bootstrap capture; admin matrix rows land post-publish.",
+  "observedAt": "2026-07-08T00:00:00.000Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "deleteReturnsPromise": true,
+    "getAppsAfterDelete": 0,
+    "getAppAfterDeleteThrew": true,
+    "getAppAfterDeleteCode": "app/no-app",
+    "reinitAfterDeleteThrew": false,
+    "deleteNonAppThrew": true,
+    "deleteNonAppCode": "app/invalid-argument",
+    "deleteNonAppErrorName": "FirebaseAppError"
+  }
+}

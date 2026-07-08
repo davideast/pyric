@@ -30,9 +30,10 @@
  *     configuration, `app/invalid-app-options` for a bare-vs-config'd
  *     mismatch (firebase-admin's autoInit mismatch), `app/no-app` from
  *     `getApp` on a missing name, `app/invalid-app-name` for a
- *     non-string/empty name. Errors are {@link PyricAdminAppError} —
- *     plain `Error`s with a firebase-admin-shaped `.code` (the closest
- *     the existing pyric-admin error style gets to `FirebaseAppError`).
+ *     non-string/empty name. Errors reuse firebase-admin's own
+ *     `FirebaseAppError` class, so `instanceof`, `constructor.name`,
+ *     `.code`, and message text match production byte-for-byte
+ *     (oracle: `admin-app-*` observations).
  *   - Idempotency mirror: a bare `initializeApp()` repeated for the same
  *     name returns the existing auto-initialized app (firebase-admin's
  *     autoInit path); `initializeApp({ sandbox })` repeated with the
@@ -76,6 +77,7 @@ import {
 import {
   initializeApp as initializeFirebaseAdminApp,
   deleteApp as deleteFirebaseAdminApp,
+  FirebaseAppError,
   type App as AdminApp,
   type AppOptions,
 } from 'firebase-admin/app';
@@ -111,21 +113,24 @@ export type PyricAdminApp = SandboxAdminApp | ProdAdminApp;
 export type InitializeAdminAppConfig = { sandbox: Sandbox } | AppOptions;
 
 /**
- * App-lifecycle error, mirroring `firebase-admin`'s `FirebaseAppError`:
- * a plain `Error` whose `.code` is the `app/`-prefixed error code
- * (`app/no-app`, `app/duplicate-app`, `app/invalid-app-options`,
- * `app/invalid-app-name`, `app/invalid-argument`) and whose message text
- * matches upstream's word for word where a direct mirror exists.
+ * App-lifecycle errors reuse `firebase-admin`'s own exported
+ * `FirebaseAppError` so the thrown error's class, `constructor.name`,
+ * `.code` (`app/no-app`, `app/duplicate-app`, `app/invalid-app-options`,
+ * `app/invalid-app-name`, `app/invalid-argument`), and message text match
+ * production byte-for-byte (oracle: `admin-app-*` observations assert
+ * `errorName: "FirebaseAppError"`). The published typings declare only the
+ * base `Error` constructor, but the real runtime class is
+ * `new FirebaseAppError(code, message)` where `code` becomes `app/<code>` —
+ * the typed cast recovers it.
  */
-export class PyricAdminAppError extends Error {
-  readonly code: string;
+const AdminAppError = FirebaseAppError as unknown as new (
+  code: string,
+  message: string,
+) => Error & { readonly code: string };
 
-  constructor(code: string, message: string) {
-    super(message);
-    this.name = 'PyricAdminAppError';
-    this.code = `app/${code}`;
-  }
-}
+/** @deprecated Alias kept for pre-merge call sites; errors ARE `FirebaseAppError`. */
+export const PyricAdminAppError = AdminAppError;
+export type PyricAdminAppError = InstanceType<typeof AdminAppError>;
 
 // ─── Registry ───────────────────────────────────────────────────────────
 //
@@ -140,7 +145,7 @@ const autoInitApps = new WeakSet<PyricAdminApp>();
 /** firebase-admin's app-name validation, verbatim message. */
 function validateAppName(name: unknown): asserts name is string {
   if (typeof name !== 'string' || name === '') {
-    throw new PyricAdminAppError(
+    throw new AdminAppError(
       'invalid-app-name',
       `Invalid Firebase app name "${String(name)}" provided. App name must be a non-empty string.`,
     );
@@ -148,8 +153,8 @@ function validateAppName(name: unknown): asserts name is string {
 }
 
 /** firebase-admin's message for every same-name/different-config case. */
-function alreadyExists(name: string, code: 'duplicate-app' | 'invalid-app-options'): PyricAdminAppError {
-  return new PyricAdminAppError(
+function alreadyExists(name: string, code: 'duplicate-app' | 'invalid-app-options'): Error & { readonly code: string } {
+  return new AdminAppError(
     code,
     `A Firebase app named "${name}" already exists with a different configuration.`,
   );
@@ -254,7 +259,7 @@ export function getApp(name: string = DEFAULT_APP_NAME): PyricAdminApp {
       name === DEFAULT_APP_NAME
         ? 'The default Firebase app does not exist. '
         : `Firebase app named "${name}" does not exist. `;
-    throw new PyricAdminAppError(
+    throw new AdminAppError(
       'no-app',
       lead + 'Make sure you call initializeApp() before using any of the Firebase services.',
     );
@@ -279,7 +284,7 @@ export function getApps(): PyricAdminApp[] {
  */
 export function deleteApp(app: PyricAdminApp): Promise<void> {
   if (typeof app !== 'object' || app === null || !(ADMIN_APP_TARGET in app)) {
-    throw new PyricAdminAppError('invalid-argument', 'Invalid app argument.');
+    throw new AdminAppError('invalid-argument', 'Invalid app argument.');
   }
   // Make sure the given app is actually registered (throws app/no-app).
   const existing = getApp(app.name);

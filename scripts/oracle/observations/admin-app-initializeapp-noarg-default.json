@@ -1,0 +1,16 @@
+{
+  "name": "admin-app-initializeapp-noarg-default",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin initializeApp() with NO args registers the default app named \"[DEFAULT]\". getApps() is empty before init and has length 1 after; getApp() with no arg resolves that same default instance. rowIds is intentionally empty — this is an admin-bootstrap capture and the admin matrix rows land post-publish.",
+  "observedAt": "2026-07-08T00:00:00.000Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "threw": false,
+    "defaultAppName": "[DEFAULT]",
+    "getAppsBeforeInit": 0,
+    "getAppsAfterInit": 1,
+    "getAppNoArgResolvesDefault": true,
+    "getAppNoArgName": "[DEFAULT]"
+  }
+}

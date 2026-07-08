@@ -257,12 +257,20 @@ run_subpath_check() {
   cat > "$WORK/consumer/__subpath-check.mjs" <<'CHECKJS'
 import { readFileSync } from 'node:fs';
 const subpaths = readFileSync('__subpaths.txt', 'utf8').split('\n').filter(Boolean);
+// Side-effect-only subpaths (register loaders for `node --import`): importing
+// them IS the contract; they intentionally export zero symbols. Import failure
+// still fails the gate.
+const SIDE_EFFECT_ONLY = new Set(['pyric-tools/register']);
 let failed = false;
 for (const subpath of subpaths) {
   try {
     const mod = await import(subpath);
     const keys = Object.keys(mod).sort();
     if (keys.length === 0) {
+      if (SIDE_EFFECT_ONLY.has(subpath)) {
+        console.log('  ✓ ' + subpath + ' (side-effect-only register loader; zero exports by design)');
+        continue;
+      }
       console.error('  ✗ ' + subpath + ' — imported but exported zero symbols');
       failed = true;
       continue;

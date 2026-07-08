@@ -19,7 +19,7 @@ import {
   type OracleConformanceCheck,
 } from '../compat/ledger.ts';
 
-const REQUIRED = ['name', 'matrixRow', 'rowIds', 'description', 'observedAt', 'fbSdkVersion', 'behavior'] as const;
+const REQUIRED = ['name', 'matrixRow', 'rowIds', 'description', 'observedAt', 'behavior'] as const;
 
 const ledger = buildCompatibilityLedger();
 const checks = ledger.entries.flatMap((row) => (row.conformanceChecks ?? []).map((check) => ({ ...check, rowId: row.id })));
@@ -29,6 +29,10 @@ const byName = new Map(observations.map((obs) => [obs.name, obs]));
 const structural: string[] = [];
 for (const obs of observations) {
   for (const key of REQUIRED) if (!(key in obs.raw)) structural.push(`${obs.file}: missing '${key}'`);
+  // Version field: admin-SDK captures carry `adminSdkVersion` (guarded against
+  // firebase-admin); firebase-JS-SDK captures carry `fbSdkVersion`.
+  const versionField = 'adminSdkVersion' in obs.raw ? 'adminSdkVersion' : 'fbSdkVersion';
+  if (!(versionField in obs.raw)) structural.push(`${obs.file}: missing 'fbSdkVersion'`);
   if (`${obs.name}.json` !== obs.file) structural.push(`${obs.file}: name '${obs.name}' does not match filename`);
 }
 

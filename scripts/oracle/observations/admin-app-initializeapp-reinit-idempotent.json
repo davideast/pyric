@@ -1,0 +1,14 @@
+{
+  "name": "admin-app-initializeapp-reinit-idempotent",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin 13.10 initializeApp is idempotent for identical re-init: calling initializeApp() twice (no args) returns the same [DEFAULT] app WITHOUT throwing, and initializeApp(sameOptions, name) twice returns the same named app without throwing. rowIds empty — admin-bootstrap capture; admin matrix rows land post-publish.",
+  "observedAt": "2026-07-08T00:00:00.000Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "reinitNoArgThrew": false,
+    "reinitNoArgName": "[DEFAULT]",
+    "reinitSameOptionsThrew": false,
+    "reinitSameOptionsName": "app1"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "admin-app-initializeapp-named",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin initializeApp(options, name) registers a named app; getApp(name) resolves it and getApps() includes both the default and the named app (length 2). rowIds empty — admin-bootstrap capture; admin matrix rows land post-publish.",
+  "observedAt": "2026-07-08T00:00:00.000Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "threw": false,
+    "namedAppName": "secondary",
+    "getAppByNameName": "secondary",
+    "getAppsCountWithDefaultAndNamed": 2
+  }
+}

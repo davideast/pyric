@@ -1,0 +1,15 @@
+{
+  "name": "admin-app-initializeapp-duplicate-different-config",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin initializeApp(options, name) when name already exists WITH A DIFFERENT CONFIG throws FirebaseAppError code app/duplicate-app. This is the exact duplicate-app shape to mirror. rowIds empty — admin-bootstrap capture; admin matrix rows land post-publish.",
+  "observedAt": "2026-07-08T00:00:00.000Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "threw": true,
+    "code": "app/duplicate-app",
+    "errorName": "FirebaseAppError",
+    "isError": true,
+    "message": "A Firebase app named \"app1\" already exists with a different configuration."
+  }
+}
