@@ -237,7 +237,7 @@ export function promote(branch: Branch, target: Sandbox): void {
       target.admin.deleteDocument(path);
       continue;
     }
-    if (before === undefined || !deepEqual(before, after)) {
+    if (before === undefined || !sandboxDocumentsEqual(before, after)) {
       // Branch added or changed this doc.
       target.admin.setDocument(path, after);
     }
@@ -343,13 +343,13 @@ function walkDoc(path: string, before: unknown, after: unknown, out: Divergence[
       return;
     }
 
-    if (deepEqual(a, b)) return;
+    if (sandboxDocumentsEqual(a, b)) return;
     out.push({ kind: 'real-divergence', path, field: fieldPath || undefined, before: a, after: b });
   }
 }
 
-/** Structural deep-equality on plain JSON-ish values. */
-function deepEqual(a: unknown, b: unknown): boolean {
+/** Structural equality on sandbox document snapshots. */
+function sandboxDocumentsEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
   if (typeof a !== 'object' || typeof b !== 'object') return false;
@@ -359,7 +359,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
   if (aArr && bArr) {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
-      if (!deepEqual(a[i], b[i])) return false;
+      if (!sandboxDocumentsEqual(a[i], b[i])) return false;
     }
     return true;
   }
@@ -370,7 +370,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
   if (ak.length !== bk.length) return false;
   for (const k of ak) {
     if (!Object.prototype.hasOwnProperty.call(bo, k)) return false;
-    if (!deepEqual(ao[k], bo[k])) return false;
+    if (!sandboxDocumentsEqual(ao[k], bo[k])) return false;
   }
   return true;
 }

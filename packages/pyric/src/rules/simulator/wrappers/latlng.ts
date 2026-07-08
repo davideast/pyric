@@ -112,5 +112,5 @@ export class LatLng extends RulesValue {
 
   // No binaryOp override — defaults to NO_OP, so arithmetic falls
   // through to the generic numeric switch which produces NaN. == / !=
-  // route through deepEqualsForRules → equals(). This is correct.
+  // route through rulesValuesEqual -> equals(). This is correct.
 }

@@ -102,6 +102,26 @@ describe('admin-compat — Query', () => {
     expect(snap.docs[0]!.data().ownerId).toBe('alice');
   });
 
+  test('query.where(==) matches object values without depending on key order', async () => {
+    const env = new LocalEnvironment();
+    env.seed({
+      rules: RULES,
+      documents: {
+        'profiles/a': { prefs: { role: 'admin', active: true } },
+        'profiles/b': { prefs: { role: 'member', active: true } },
+      },
+    });
+    const db = createCompatFirestore(env, { auth: { uid: 'alice' } });
+
+    const snap = await db
+      .collection('profiles')
+      .where('prefs', '==', { active: true, role: 'admin' })
+      .get();
+
+    expect(snap.size).toBe(1);
+    expect(snap.docs[0]!.id).toBe('a');
+  });
+
   test('query.orderBy(desc).limit(1)', async () => {
     const { db } = freshDb();
     const snap = await db.collection('accounts').orderBy('balance', 'desc').limit(1).get();

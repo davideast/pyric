@@ -94,6 +94,14 @@ describe('MapDiff', () => {
       );
       expect(diff.changedKeys().size()).toBe(0);
     });
+
+    test('nested object unchanged regardless of key order', () => {
+      const diff = new MapDiff(
+        { a: { x: 1, y: 2 } },
+        { a: { y: 2, x: 1 } },
+      );
+      expect(diff.changedKeys().size()).toBe(0);
+    });
   });
 
   describe('affectedKeys', () => {
@@ -170,7 +178,7 @@ describe('MapDiff', () => {
     });
   });
 
-  describe('deep equality edge cases', () => {
+  describe('rules value equality edge cases', () => {
     test('null values', () => {
       const diff = new MapDiff({ a: null }, { a: null });
       expect(diff.changedKeys().size()).toBe(0);

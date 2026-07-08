@@ -118,6 +118,14 @@ describe('arrayUnionConverter', () => {
     expect(out).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
+  test('dedups object values without depending on key order', () => {
+    const out = arrayUnionConverter.convert(
+      ARRAY_UNION({ active: true, role: 'admin' }),
+      baseCtx({ prior: { items: [{ role: 'admin', active: true }] }, fieldPath: 'items' }),
+    );
+    expect(out).toEqual([{ role: 'admin', active: true }]);
+  });
+
   test('treats absent prior as empty array', () => {
     const out = arrayUnionConverter.convert(
       ARRAY_UNION('x'),
@@ -148,6 +156,22 @@ describe('arrayRemoveConverter', () => {
       baseCtx({ prior: { tags: ['a', 'b', 'c'] }, fieldPath: 'tags' }),
     );
     expect(out).toEqual(['a', 'c']);
+  });
+
+  test('removes object values without depending on key order', () => {
+    const out = arrayRemoveConverter.convert(
+      ARRAY_REMOVE({ active: true, role: 'admin' }),
+      baseCtx({
+        prior: {
+          items: [
+            { role: 'admin', active: true },
+            { role: 'member', active: true },
+          ],
+        },
+        fieldPath: 'items',
+      }),
+    );
+    expect(out).toEqual([{ role: 'member', active: true }]);
   });
 
   test('returns empty array when prior is absent', () => {

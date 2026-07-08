@@ -3,7 +3,7 @@
  * REBUILD_PLAN.md Item 0.B + Item 1.
  *
  * Why an abstract base instead of duck typing: the evaluator dispatches
- * through six different code paths (deepEqualsForRules, memberAccess,
+ * through six different code paths (rulesValuesEqual, memberAccess,
  * bracketAccess, evaluateMethodCall, evaluateBinaryOp, isExpr, inExpr).
  * Without a single base class, every new wrapper would have to be
  * registered at six sites — and forgetting one is the exact failure mode
@@ -76,7 +76,7 @@ export abstract class RulesValue {
 
   /**
    * Value equality. THE single source of truth for `==` / `!=` /
-   * `deepEqualsForRules`. `===` reference equality is intentionally
+   * `rulesValuesEqual`. `===` reference equality is intentionally
    * insufficient (the 0.B failure: two `timestamp.value(1234)` calls
    * produce two distinct instances; `===` is false; rule denies).
    */
@@ -126,7 +126,7 @@ export abstract class RulesValue {
    *   Bytes < <= > >= Bytes → lexicographic byte compare
    *
    * `==` and `!=` do NOT route through this hook — they go through
-   * `deepEqualsForRules` which calls `equals()`. This split keeps the
+   * `rulesValuesEqual` which calls `equals()`. This split keeps the
    * "is this the same value?" question separate from "what does
    * `lhs OP rhs` evaluate to?".
    *

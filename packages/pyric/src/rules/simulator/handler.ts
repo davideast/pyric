@@ -309,7 +309,7 @@ function isServerTimestampSentinel(value: unknown): boolean {
  * Recursively replace serverTimestamp sentinels with the actual server time.
  * Item 1.3: `serverTime` is now a Timestamp wrapper (was ISO string). The
  * SAME instance is reused across every sentinel hit so `data.createdAt ==
- * request.time` succeeds via deepEqualsForRules → Timestamp.equals (field
+ * request.time` succeeds via rulesValuesEqual -> Timestamp.equals (field
  * compare). Without instance reuse, two distinct Timestamp instances would
  * still equate via field compare — but the single-instance invariant is
  * documented here so future refactors don't break it accidentally.
