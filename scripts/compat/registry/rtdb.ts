@@ -3619,13 +3619,13 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface",
           "behavior": "Round-trip: `set(ref, payload)` then `get(ref)` returns the payload (lock the basic write→read invariant)",
           "status": "conforms",
-          "evidence": "oracle: `scripts/oracle/observations/rtdb-set-then-get-roundtrip.json`",
+          "evidence": "oracle: `scripts/oracle/observations/rtdb-set-then-get-roundtrip.json` — the payload round-trips structurally on both sides (this row's claim holds). NOTE — adjacent divergence pinned in `oracle-conformance.test.ts`: prod returns object children in LEXICOGRAPHIC key order (the capture's `roundTripEqual: false` — a `JSON.stringify` round-trip against a non-sorted payload fails), while the sandbox preserves insertion order (stringify round-trip succeeds). Key-order-sensitive consumers behave differently.",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],
           "automation": "oracle-backed",
           "oracleObservations": ["rtdb-set-then-get-roundtrip"],
-          "conformanceTests": []
+          "conformanceTests": ["packages/pyric/test/database/oracle-conformance.test.ts"]
         },
         {
           "id": "rtdb-modular#110",
@@ -3715,13 +3715,13 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface",
           "behavior": "Primitive round-trip — numbers, strings, booleans, arrays all survive a set→get cycle",
           "status": "conforms",
-          "evidence": "oracle: `scripts/oracle/observations/rtdb-set-then-get-roundtrip.json`",
+          "evidence": "oracle: `scripts/oracle/observations/rtdb-set-then-get-roundtrip.json` — the payload round-trips structurally on both sides (this row's claim holds). NOTE — adjacent divergence pinned in `oracle-conformance.test.ts`: prod returns object children in LEXICOGRAPHIC key order (the capture's `roundTripEqual: false` — a `JSON.stringify` round-trip against a non-sorted payload fails), while the sandbox preserves insertion order (stringify round-trip succeeds). Key-order-sensitive consumers behave differently.",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],
           "automation": "oracle-backed",
           "oracleObservations": ["rtdb-set-then-get-roundtrip"],
-          "conformanceTests": []
+          "conformanceTests": ["packages/pyric/test/database/oracle-conformance.test.ts"]
         },
         {
           "id": "rtdb-modular#115",
@@ -4157,15 +4157,15 @@ export const rtdbRegistry = {
           "rowNumber": 137,
           "section": "Modular SDK surface",
           "api": "Modular SDK surface",
-          "behavior": "`onChildMoved` fires when a child's `orderByChild`/`orderByValue` priority changes — emitted only on ordered queries",
-          "status": "conforms",
-          "evidence": "oracle: `scripts/oracle/observations/rtdb-modular-onchildmoved-with-orderby.json` — observed `firedOnMove: 1` under `query(ref, orderByChild('priority'))` after bumping a child's priority to a new sort position. Sandbox Tier 2 locks the plain-ref no-fire case (M46); ordered-query Tier 3 will lift the sandbox row.",
+          "behavior": "`onChildMoved` under an ordered query. Prod: fires when a child's `orderByChild`/`orderByValue` priority changes — emitted only on ordered queries. Sandbox: **never fires on reorder** — `onChildMoved` supports the plain-ref (no-fire) case only; the ordered-query overload is unimplemented",
+          "status": "diverged-documented",
+          "evidence": "divergence, oracle-locked by `scripts/oracle/observations/rtdb-modular-onchildmoved-with-orderby.json`: prod observed `firedOnMove: 1` under `query(ref, orderByChild('priority'))` after bumping a child's priority to a new sort position; the sandbox fires 0 (plain-ref semantics only). `firedOnInitial: 0` conforms on both sides. Both sides pinned in `modular/oracle-conformance.test.ts`. Sandbox Tier 2 locks the plain-ref no-fire case (M46); ordered-query Tier 3 lifts this row.",
           "risk": ["specific-field", "listener"],
           "riskScore": 3,
           "riskReasons": ["asserts a specific field/property value", "asserts listener semantics"],
           "automation": "oracle-backed",
           "oracleObservations": ["rtdb-modular-onchildmoved-with-orderby"],
-          "conformanceTests": []
+          "conformanceTests": ["packages/pyric/test/database/modular/oracle-conformance.test.ts"]
         },
       ],
     },
@@ -4608,7 +4608,7 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface",
           "behavior": "The update fn is called with the CURRENT server value (may be `null` if the ref is empty); the fn's return value is the proposed new value",
           "status": "conforms",
-          "evidence": "oracle: `scripts/oracle/observations/rtdb-modular-runtransaction-success.json` — observed `seenCurrentValues: [null]` on first invocation against an empty ref (a single call, no speculative re-runs against `undefined`).",
+          "evidence": "oracle: `scripts/oracle/observations/rtdb-modular-runtransaction-success.json` — observed `seenCurrentValues: [null]` on first invocation against an empty ref (a single call, no speculative re-runs against `undefined`). NOTE — adjacent divergence pinned in `modular/oracle-conformance.test.ts`: for a SEEDED path, prod speculatively invokes the update fn twice (first with `null`, then the real value; `rtdb-modular-runtransaction-current-value-arg.json` `seededArgs.length: 2`) while the sandbox invokes once with the actual value. The argument-semantics claim of this row holds for the effective invocation on both sides.",
           "risk": ["atomicity"],
           "riskScore": 2,
           "riskReasons": ["asserts transaction/batch atomicity"],

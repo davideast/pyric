@@ -437,7 +437,7 @@ export const firestoreRegistry = {
           "riskReasons": ["asserts a specific field/property value"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts"],
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/firestore/oracle-conformance.test.ts"],
           "exceptionReason": "playground / preview behavior — no firebase-js-sdk counterpart to observe"
         },
         {
@@ -1304,15 +1304,15 @@ export const firestoreRegistry = {
           "rowNumber": 61,
           "section": "Query construction — `query` / `where` / `or` / `and` / `orderBy` / `limit`",
           "api": "Query construction",
-          "behavior": "`limitToLast(n)` — trailing n in ordered result (requires `orderBy`). **The no-orderBy precondition + the cursor/empty-snapshot errors throw a `FirestoreError` with a typed `.code`** (`invalid-argument` for limit/cursor preconditions, `not-found` for a snapshot cursor off a non-existent doc) — FS-B16; pre-fix they were plain `Error`s with no `.code`.",
-          "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`, `unit:admin-compat/cursors.test.ts` (limitToLast + snapshot-cursor `.code`; verified failing pre-fix)",
+          "behavior": "`limitToLast(n)` — trailing n in ordered result (requires `orderBy`). Sandbox: the no-orderBy precondition throws a `FirestoreError` with `.code === 'invalid-argument'` (FS-B16; pre-fix plain `Error`s). Prod: the same precondition throws `.code === 'unimplemented'`",
+          "status": "diverged-documented",
+          "evidence": "divergence, oracle-locked by `scripts/oracle/observations/firestore-limittolast-preconditions.json`: prod's no-orderBy `limitToLast` throws code `unimplemented`, the sandbox throws `invalid-argument`. Trailing-window semantics with `orderBy` conform (observed `[\"b\"]` matches). Both sides pinned in `oracle-conformance.test.ts`. Cursor/empty-snapshot precondition codes remain per `unit:sandbox-target.test.ts` + `unit:admin-compat/cursors.test.ts` (verified failing pre-fix)",
           "risk": ["specific-value", "error-code"],
           "riskScore": 5,
           "riskReasons": ["asserts 2 specific value(s)", "asserts Firebase error code(s): `invalid-argument`, `not-found`"],
           "automation": "oracle-backed",
           "oracleObservations": ["firestore-limittolast-preconditions"],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/sandbox/firestore/admin-compat/cursors.test.ts"]
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric/test/sandbox/firestore/admin-compat/cursors.test.ts", "packages/pyric/test/firestore/oracle-conformance.test.ts"]
         },
         {
           "id": "firestore#62",
@@ -1664,9 +1664,9 @@ export const firestoreRegistry = {
           "rowNumber": 80,
           "section": "`onSnapshot(refOrQuery, …)` — listeners",
           "api": "onSnapshot(refOrQuery, …)",
-          "behavior": "`onSnapshot(docRef, cb)` fires the initial snapshot **asynchronously** — never synchronously during the registering call. Empirically the prod first fire lands after a `setTimeout(0)` macrotask boundary on a doc the client has not warmed up (the fire travels over the network listener channel), not in the registering tick's microtask. Sandbox is also async (microtask-deferred). The matrix contract is \"asynchronous\", not \"exactly the next microtask\".",
-          "status": "conforms",
-          "evidence": "`unit:sandbox-target.test.ts`, `playground:firestore-onsnapshot` (bundled) + `playground:firestore-row-80-onsnapshot-fires-initial` (one-claim), oracle: `scripts/oracle/observations/firestore-row-80-onsnapshot-fires-initial.json` — `firstFireAt: \"after-timeout\"`, `firstFireSyncDuringRegister: false`, single fire received with the seeded data.",
+          "behavior": "`onSnapshot(docRef, cb)` initial-fire timing. Prod: fires **asynchronously** — never synchronously during the registering call (empirically lands after a `setTimeout(0)` macrotask; the fire travels the network listener channel). Sandbox: fires **synchronously during the `onSnapshot` register call**",
+          "status": "diverged-documented",
+          "evidence": "divergence, oracle-locked by `scripts/oracle/observations/firestore-row-80-onsnapshot-fires-initial.json` (`firstFireAt: \"after-timeout\"`, `firstFireSyncDuringRegister: false`): prod is async; the sandbox delivers the initial doc snapshot synchronously during registration (verified empirically; this row's earlier \"sandbox is microtask-deferred\" claim was wrong — nothing had loaded the capture). Fire count and contents conform. Both sides pinned in `oracle-conformance.test.ts`; also `unit:sandbox-target.test.ts`, `playground:firestore-onsnapshot` (bundled) + `playground:firestore-row-80-onsnapshot-fires-initial` (one-claim). Aligning would defer the sandbox's initial fire to a microtask/macrotask — code relying on sync initial fire (FS-B2 listener suite) would need updating.",
           "risk": ["specific-field", "listener", "timing"],
           "riskScore": 5,
           "riskReasons": ["asserts a specific field/property value", "asserts listener semantics", "asserts timing semantics"],
@@ -2467,15 +2467,15 @@ export const firestoreRegistry = {
           "rowNumber": 117,
           "section": "Equality helpers — `refEqual` / `queryEqual` / `snapshotEqual`",
           "api": "Equality helpers",
-          "behavior": "`snapshotEqual(a, b)` — true on identity, false even for two fetches of the same data",
-          "status": "conforms",
-          "evidence": "Oracle-locked: `scripts/oracle/observations/firestore-snapshotequal-structural.json` — `identity: true`, but `twoFetchesSameData: false` against blockingfun. Production's `snapshotEqual` is identity-only, NOT structural — each `getDocs()` returns a fresh snapshot object that doesn't equal a prior fetch. Sandbox's identity-only behavior matches prod. (Earlier guess that prod did structural comparison was wrong; corrected by the oracle.)",
+          "behavior": "`snapshotEqual(a, b)`. Prod: returns a boolean — true on identity, false even for two fetches of the same data. Sandbox: **throws** (`unrecognized reference`) for sandbox-target snapshots instead of returning a boolean",
+          "status": "diverged-documented",
+          "evidence": "divergence, oracle-locked by `scripts/oracle/observations/firestore-snapshotequal-structural.json` (`identity: true`, `twoFetchesSameData: false` — prod is identity-only, NOT structural; an earlier structural guess was corrected by the oracle). The sandbox routes both args through the ref-tagging path, which does not recognize sandbox `QuerySnapshot`s, so `snapshotEqual` throws rather than comparing. Both sides pinned in `oracle-conformance.test.ts`. Fix candidate: identity-compare sandbox snapshots before the ref-tagging dispatch.",
           "risk": ["specific-field"],
           "riskScore": 1,
           "riskReasons": ["asserts a specific field/property value"],
           "automation": "oracle-backed",
           "oracleObservations": ["firestore-snapshotequal-structural"],
-          "conformanceTests": []
+          "conformanceTests": ["packages/pyric/test/firestore/oracle-conformance.test.ts"]
         },
         {
           "id": "firestore#118",
