@@ -1,4 +1,5 @@
 import type { EventService, Sandbox, SandboxEvent } from 'pyric/sandbox';
+import { isRtdbRulesJson } from '../rtdb/rules-json.js';
 
 export const VERIFY_FIXTURE_SCHEMA = 'pyric.verify.fixture.v1' as const;
 
@@ -111,7 +112,7 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
 }
 
 export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
-  if (!isRecord(value)) {
+  if (!isVerifyFixtureObject(value)) {
     throw new Error('fixture must be a JSON object.');
   }
   if (value.schema !== VERIFY_FIXTURE_SCHEMA) {
@@ -120,7 +121,7 @@ export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
   if (!Array.isArray(value.events)) {
     throw new Error('fixture.events must be an array.');
   }
-  if (!isRecord(value.services)) {
+  if (!isVerifyFixtureObject(value.services)) {
     throw new Error('fixture.services must be an object.');
   }
 
@@ -131,7 +132,7 @@ export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
   if (services.rtdb !== undefined) {
     assertRtdbService(services.rtdb);
   }
-  if (services.auth !== undefined && !isRecord(services.auth)) {
+  if (services.auth !== undefined && !isVerifyFixtureObject(services.auth)) {
     throw new Error('fixture.services.auth must be an object.');
   }
 
@@ -148,26 +149,25 @@ export function fixtureVerifiableServices(
 }
 
 function assertFirestoreService(value: unknown): void {
-  if (!isRecord(value)) throw new Error('fixture.services.firestore must be an object.');
-  if (!isRecord(value.rules) || value.rules.format !== 'firestore.rules' || typeof value.rules.source !== 'string') {
+  if (!isVerifyFixtureObject(value)) throw new Error('fixture.services.firestore must be an object.');
+  if (!isVerifyFixtureObject(value.rules) || value.rules.format !== 'firestore.rules' || typeof value.rules.source !== 'string') {
     throw new Error('fixture.services.firestore.rules must contain firestore.rules source.');
   }
-  if (!isRecord(value.state) || !isRecord(value.state.documents)) {
+  if (!isVerifyFixtureObject(value.state) || !isVerifyFixtureObject(value.state.documents)) {
     throw new Error('fixture.services.firestore.state.documents must be an object.');
   }
 }
 
 function assertRtdbService(value: unknown): void {
-  if (!isRecord(value)) throw new Error('fixture.services.rtdb must be an object.');
+  if (!isVerifyFixtureObject(value)) throw new Error('fixture.services.rtdb must be an object.');
   if (
-    !isRecord(value.rules) ||
+    !isVerifyFixtureObject(value.rules) ||
     value.rules.format !== 'rtdb.rules.json' ||
-    !isRecord(value.rules.json) ||
-    !isRecord(value.rules.json.rules)
+    !isRtdbRulesJson(value.rules.json)
   ) {
     throw new Error('fixture.services.rtdb.rules must contain RTDB rules JSON.');
   }
-  if (!isRecord(value.state) || !('tree' in value.state)) {
+  if (!isVerifyFixtureObject(value.state) || !('tree' in value.state)) {
     throw new Error('fixture.services.rtdb.state.tree is required.');
   }
 }
@@ -179,6 +179,6 @@ function eventService(event: SandboxEvent): EventService {
   return 'firestore';
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isVerifyFixtureObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

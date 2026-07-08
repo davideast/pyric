@@ -1,69 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import {
+  formatRtdbJson,
+  joinRtdbPath,
+  parentRtdbPath,
+  parseRtdbJson,
+  previewRtdbValue,
+  rtdbChildEntries,
+  rtdbPathSegments,
+  rtdbValueAt,
+  rtdbValueKind,
+} from '@pyric/ui/rtdb';
 import { useEnvironment } from '../../shell/environment.js';
 import type { WorkerLivePlane } from '../../clients/worker-live.js';
-
-function normalizePath(path: string): string {
-  const segments = path.split('/').filter(Boolean);
-  return segments.length === 0 ? '/' : `/${segments.join('/')}`;
-}
-
-function pathSegments(path: string): string[] {
-  return normalizePath(path).split('/').filter(Boolean);
-}
-
-function joinPath(base: string, child: string): string {
-  return normalizePath([...pathSegments(base), ...child.split('/').filter(Boolean)].join('/'));
-}
-
-function parentPath(path: string): string {
-  const segments = pathSegments(path);
-  if (segments.length <= 1) return '/';
-  return `/${segments.slice(0, -1).join('/')}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function childEntries(value: unknown): Array<[string, unknown]> {
-  if (value === null || typeof value !== 'object') return [];
-  return Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
-}
-
-function valueAt(root: unknown, path: string): unknown {
-  let value = root ?? null;
-  for (const segment of pathSegments(path)) {
-    if (value === null || typeof value !== 'object') return null;
-    value = (value as Record<string, unknown>)[segment] ?? null;
-  }
-  return value;
-}
-
-function formatJson(value: unknown): string {
-  return JSON.stringify(value ?? null, null, 2);
-}
-
-function parseJson(value: string): unknown {
-  const text = value.trim();
-  return text.length === 0 ? null : JSON.parse(text);
-}
-
-function valueKind(value: unknown): string {
-  if (value === null || value === undefined) return 'null';
-  if (Array.isArray(value)) return 'array';
-  return typeof value;
-}
-
-function previewValue(value: unknown): string {
-  if (value === null || value === undefined) return 'null';
-  if (Array.isArray(value)) return `${value.length} items`;
-  if (isRecord(value)) {
-    const count = Object.keys(value).length;
-    return count === 1 ? '1 child' : `${count} children`;
-  }
-  if (typeof value === 'string') return JSON.stringify(value);
-  return String(value);
-}
 
 export function RtdbSurface() {
   const env = useEnvironment();
@@ -127,11 +75,11 @@ function LiveRtdbBrowser({ live }: { live: WorkerLivePlane }) {
     });
   }, [live, refresh]);
 
-  const selectedValue = useMemo(() => valueAt(snapshot, path), [path, snapshot]);
-  const children = useMemo(() => childEntries(selectedValue), [selectedValue]);
+  const selectedValue = useMemo(() => rtdbValueAt(snapshot, path), [path, snapshot]);
+  const children = useMemo(() => rtdbChildEntries(selectedValue), [selectedValue]);
 
   useEffect(() => {
-    if (!editing) setDraft(formatJson(selectedValue));
+    if (!editing) setDraft(formatRtdbJson(selectedValue));
   }, [editing, selectedValue]);
 
   const navigate = (nextPath: string) => {
@@ -143,7 +91,7 @@ function LiveRtdbBrowser({ live }: { live: WorkerLivePlane }) {
 
   const saveValue = async () => {
     try {
-      await live.setRtdbValue(path, parseJson(draft));
+      await live.setRtdbValue(path, parseRtdbJson(draft));
       setMessage(`Saved ${path}`);
       setError(null);
       setEditing(false);
@@ -159,7 +107,7 @@ function LiveRtdbBrowser({ live }: { live: WorkerLivePlane }) {
       await live.deleteRtdbValue(path);
       setMessage(`Deleted ${path}`);
       setError(null);
-      setPath(parentPath(path));
+      setPath(parentRtdbPath(path));
       setEditing(false);
       await refresh();
     } catch (e) {
@@ -172,8 +120,8 @@ function LiveRtdbBrowser({ live }: { live: WorkerLivePlane }) {
     const key = childKey.trim();
     if (!key) return;
     try {
-      const nextPath = joinPath(path, key);
-      await live.setRtdbValue(nextPath, parseJson(childDraft));
+      const nextPath = joinRtdbPath(path, key);
+      await live.setRtdbValue(nextPath, parseRtdbJson(childDraft));
       setMessage(`Added ${nextPath}`);
       setError(null);
       setChildKey('');
@@ -214,7 +162,7 @@ function LiveRtdbBrowser({ live }: { live: WorkerLivePlane }) {
               </p>
             </div>
             {path !== '/' ? (
-              <button type="button" className="studio-button" onClick={() => navigate(parentPath(path))}>
+              <button type="button" className="studio-button" onClick={() => navigate(parentRtdbPath(path))}>
                 Back
               </button>
             ) : null}
@@ -226,15 +174,15 @@ function LiveRtdbBrowser({ live }: { live: WorkerLivePlane }) {
                 <button
                   key={key}
                   type="button"
-                  onClick={() => navigate(joinPath(path, key))}
+                  onClick={() => navigate(joinRtdbPath(path, key))}
                   className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-line bg-transparent px-3 py-3 text-left last:border-b-0 hover:bg-elevated"
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-mono text-sm text-ink">{key}</span>
-                    <span className="block truncate text-xs text-muted">{previewValue(value)}</span>
+                    <span className="block truncate text-xs text-muted">{previewRtdbValue(value)}</span>
                   </span>
                   <span className="rounded-full border border-line px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted">
-                    {valueKind(value)}
+                    {rtdbValueKind(value)}
                   </span>
                 </button>
               ))}
@@ -279,7 +227,7 @@ function LiveRtdbBrowser({ live }: { live: WorkerLivePlane }) {
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h2 className="m-0 truncate font-mono text-sm text-ink">{path}</h2>
-              <p className="m-0 text-xs text-muted">{valueKind(selectedValue)}</p>
+              <p className="m-0 text-xs text-muted">{rtdbValueKind(selectedValue)}</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {editing ? (
@@ -289,7 +237,7 @@ function LiveRtdbBrowser({ live }: { live: WorkerLivePlane }) {
                     className="studio-button"
                     onClick={() => {
                       setEditing(false);
-                      setDraft(formatJson(selectedValue));
+                      setDraft(formatRtdbJson(selectedValue));
                     }}
                   >
                     Cancel
@@ -324,7 +272,7 @@ function LiveRtdbBrowser({ live }: { live: WorkerLivePlane }) {
             />
           ) : (
             <pre className="min-h-[320px] overflow-auto rounded-md border border-line bg-bg p-3 font-mono text-sm leading-relaxed text-ink">
-              {formatJson(selectedValue)}
+              {formatRtdbJson(selectedValue)}
             </pre>
           )}
         </section>
@@ -340,7 +288,7 @@ function RtdbBreadcrumb({
   path: string;
   onNavigate: (path: string) => void;
 }) {
-  const segments = pathSegments(path);
+  const segments = rtdbPathSegments(path);
   return (
     <div className="border-b border-line px-4 py-3 font-mono text-sm">
       <button type="button" onClick={() => onNavigate('/')} className="text-muted hover:text-ink">

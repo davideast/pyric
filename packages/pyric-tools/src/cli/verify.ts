@@ -18,6 +18,7 @@ import {
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from './scope.js';
+import { parseRtdbRulesJson } from '../rtdb/rules-json.js';
 
 export type Fixture = PyricVerifyFixture;
 
@@ -361,10 +362,10 @@ function parseRtdbRulesFile(path: string): { rules: Record<string, unknown> } {
   } catch (e) {
     throw new Error(`failed to parse RTDB rules JSON at ${path}: ${messageOf(e)}`);
   }
-  if (!isRecord(parsed) || !isRecord(parsed.rules)) {
-    throw new Error(`RTDB rules file must contain a top-level "rules" object: ${path}`);
-  }
-  return parsed as { rules: Record<string, unknown> };
+  return parseRtdbRulesJson(
+    parsed,
+    () => new Error(`RTDB rules file must contain a top-level "rules" object: ${path}`),
+  );
 }
 
 function toVerifiableService(raw: string): VerifiableService {
@@ -412,8 +413,4 @@ function formatDivergence(divergence: VerifyDivergence): string {
 
 function messageOf(value: unknown): string {
   return value instanceof Error ? value.message : String(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -16,6 +16,7 @@ import {
 } from 'pyric/rules';
 import type { RtdbRulesDocument } from 'pyric/rules/rtdb';
 import type { ProjectScope } from '../deploy/index.js';
+import { parseRtdbRulesJson, type RtdbRulesJson } from '../rtdb/rules-json.js';
 import {
   fixtureVerifiableServices,
   parseVerifyFixture,
@@ -440,10 +441,20 @@ function requireFirestoreRules(input: VerifyRulesInput): string {
   throw new VerifyInputError('missing candidate Firestore rules. Pass rules.firestore.');
 }
 
-function requireRtdbRules(input: VerifyRulesInput): { rules: Record<string, unknown> } {
+function requireRtdbRules(input: VerifyRulesInput): RtdbRulesJson {
   const rules = input.rtdb;
-  if (isRtdbRulesDocument(rules)) return rules.toJSON();
-  if (isRtdbRulesJson(rules)) return rules;
+  if (isRtdbRulesDocument(rules)) {
+    return parseRtdbRulesJson(
+      rules.toJSON(),
+      () => new VerifyInputError('candidate RTDB rules document must compile to { rules: object }.'),
+    );
+  }
+  if (rules !== undefined) {
+    return parseRtdbRulesJson(
+      rules,
+      () => new VerifyInputError('candidate RTDB rules must be { rules: object }.'),
+    );
+  }
   throw new VerifyInputError('missing candidate RTDB rules. Pass rules.rtdb.');
 }
 
@@ -453,15 +464,6 @@ function isRtdbRulesDocument(value: unknown): value is RtdbRulesDocument {
     value !== null &&
     'toJSON' in value &&
     typeof (value as { toJSON?: unknown }).toJSON === 'function'
-  );
-}
-
-function isRtdbRulesJson(value: unknown): value is { rules: Record<string, unknown> } {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'rules' in value &&
-    isRecord((value as { rules?: unknown }).rules)
   );
 }
 
@@ -517,8 +519,4 @@ function mapRtdbReplayDivergence(divergence: RtdbReplayDivergence): VerifyDiverg
 
 function isInformational(divergence: VerifyDivergence): boolean {
   return divergence.kind === 'expected-drift';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

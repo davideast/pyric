@@ -2,6 +2,7 @@
 //   @pyric/ui/primitives
 //   @pyric/ui/firestore
 //   @pyric/ui/firestore/hooks
+//   @pyric/ui/rtdb
 //
 // This forces deliberate dependency choices — a consumer that only
 // uses `useFirestoreDoc` doesn't pull in any primitive components,

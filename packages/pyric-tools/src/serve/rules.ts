@@ -15,6 +15,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { lintFirestoreRules, resolveModulesBrowser } from 'pyric/rules';
 import type { FirebaseJson } from '../cli/firebase-json.js';
+import { parseRtdbRulesJson } from '../rtdb/rules-json.js';
 
 export interface LoadedRules {
   /** Plain-v2 source ready for the sandbox, or null when the project has no
@@ -129,12 +130,13 @@ export async function loadProjectDatabaseRules(
   } catch (e) {
     throw new Error(`pyric serve: ${path} failed to parse as RTDB rules JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
-  if (!isRecord(parsed) || !isRecord(parsed.rules)) {
-    throw new Error(`pyric serve: ${path} must contain a top-level "rules" object.`);
-  }
+  const rules = parseRtdbRulesJson(
+    parsed,
+    () => new Error(`pyric serve: ${path} must contain a top-level "rules" object.`),
+  );
 
   return {
-    rules: parsed as { rules: Record<string, unknown> },
+    rules,
     rulesHash: rulesHashOf(raw),
     sourcePath: path,
     databaseUrl: config?.database?.url ?? null,
@@ -171,8 +173,4 @@ export function watchProjectRules(
       );
     }, debounceMs);
   });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
