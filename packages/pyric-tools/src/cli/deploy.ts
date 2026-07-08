@@ -211,7 +211,7 @@ export async function runDeploy(parsed: ParsedArgs, deps: DeployDeps = {}): Prom
     {
       firebaseJson,
       firebaseRc: rc,
-      flags: parsed.flags,
+      flags: singleValueFlags(parsed.flags),
       projectId: scope.projectId,
       cwd,
       env: deps.env ?? process.env,
@@ -236,6 +236,14 @@ export async function runDeploy(parsed: ParsedArgs, deps: DeployDeps = {}): Prom
     deps.stdout === undefined && process.stdout.isTTY === true,
   );
 
+}
+
+function singleValueFlags(flags: ParsedArgs['flags']): ReadonlyMap<string, string | boolean> {
+  const out = new Map<string, string | boolean>();
+  for (const [key, value] of flags) {
+    out.set(key, Array.isArray(value) ? value[value.length - 1] ?? true : value);
+  }
+  return out;
 }
 
 // ─── Agent I/O helpers (A6) ──────────────────────────────────────────

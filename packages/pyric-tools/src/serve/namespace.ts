@@ -23,6 +23,9 @@ import { contentTypeFor, resolveStaticFile } from './server.js';
 export interface InitPayload {
   rules: string | null;
   rulesHash: string | null;
+  databaseRules?: { rules: Record<string, unknown> } | null;
+  databaseRulesHash?: string | null;
+  databaseUrl?: string | null;
   bridgeUrl: string | null;
   /** `--seed` documents (path → fields), applied admin-style at page init.
    *  Null in persist mode once a state file exists — the lived state wins. */

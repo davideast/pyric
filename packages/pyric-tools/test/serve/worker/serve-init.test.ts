@@ -70,6 +70,13 @@ const DENY_ALL_RULES = `
   }
 `;
 
+const RTDB_RULES = {
+  rules: {
+    '.read': true,
+    '.write': true,
+  },
+};
+
 async function makeCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
   const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
@@ -208,12 +215,12 @@ describe('applyServeInit — seed + authUsers', () => {
 });
 
 describe('applyServeInit — capture (the verify loop)', () => {
-  it('POSTs the session fixture to /__pyric/capture on a write, then dispose stops it', async () => {
+  it('POSTs the service-shaped session fixture to /__pyric/capture, then dispose stops it', async () => {
     const ctx = await makeCtx();
     const fetchSpy = recordingFetch();
     const result = applyServeInit(
       ctx,
-      { ...basePayload, rules: PERMISSIVE_RULES, capture: true },
+      { ...basePayload, rules: PERMISSIVE_RULES, databaseRules: RTDB_RULES, capture: true },
       { fetch: fetchSpy, captureDebounceMs: 5 },
     );
     expect(result.captureEnabled).toBe(true);
@@ -221,14 +228,25 @@ describe('applyServeInit — capture (the verify loop)', () => {
     // A write emits a sandbox event → debounced capture POST.
     const port = fakePort();
     await handleMessage(ctx, port, { t: 'op', id: 'w1', method: 'setDoc', path: 'todos/t1', data: { title: 'live' } });
+    await handleMessage(ctx, port, { t: 'op', id: 'r1', method: 'rtdb.set', path: '/rooms/r1', value: { name: 'General' } });
     await tick(20);
 
     const captures = fetchSpy.calls.filter((c) => c.url === '/__pyric/capture');
     expect(captures.length).toBeGreaterThanOrEqual(1);
-    const body = JSON.parse(captures.at(-1)!.body) as { rules: string; events: unknown[]; state: Record<string, unknown> };
-    expect(body.rules).toContain('rules_version');
+    const body = JSON.parse(captures.at(-1)!.body) as {
+      schema: string;
+      events: unknown[];
+      services: {
+        firestore: { rules: { source: string }; state: { documents: Record<string, unknown> } };
+        rtdb: { rules: { json: unknown }; state: { tree: { rooms?: unknown } } };
+      };
+    };
+    expect(body.schema).toBe('pyric.verify.fixture.v1');
+    expect(body.services.firestore.rules.source).toContain('rules_version');
     expect(Array.isArray(body.events)).toBe(true);
-    expect(body.state['todos/t1']).toBeDefined();
+    expect(body.services.firestore.state.documents['todos/t1']).toBeDefined();
+    expect(body.services.rtdb.rules.json).toEqual(RTDB_RULES);
+    expect(body.services.rtdb.state.tree.rooms).toBeDefined();
 
     // After dispose, further writes do NOT capture.
     result.dispose();

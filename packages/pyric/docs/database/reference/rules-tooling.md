@@ -106,6 +106,35 @@ type RtdbRulesCheckResult = {
 
 Compile failures return an error finding with code `COMPILE_ERROR`.
 
+### Verifying captured sessions
+
+Constraints documents can be passed directly to `pyric-tools/verify` as
+candidate RTDB rules:
+
+```ts
+import { verifyFixture } from 'pyric-tools/verify';
+import { rules } from './database.rules.js';
+
+const fixture = JSON.parse(await Bun.file('.pyric/last-session.json').text());
+
+const result = await verifyFixture(fixture, {
+  rules: { rtdb: rules },
+});
+```
+
+For CLI verification, generate JSON first and pass it as the RTDB rules file:
+
+```ts
+await Bun.write('database.rules.json', JSON.stringify(rules.toJSON(), null, 2));
+```
+
+```sh
+pyric verify --service rtdb --rules rtdb=database.rules.json
+```
+
+Verification lives in `pyric-tools/verify` because constraints are an authoring
+surface and captured-session replay is local tooling around an app session.
+
 ## Rule JSON and IR
 
 ### `RtdbMapper.mapToIR(rulesJson, shallowData, databaseUrl): RtdbIR`

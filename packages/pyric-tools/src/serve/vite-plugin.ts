@@ -56,7 +56,7 @@ import {
 import { createEventHub, createPyricNamespace, type InitPayload } from './namespace.js';
 import { diskWorkspace, diskProjectStore } from './studio/index.js';
 import { createBridgeMount } from './bridge-mount.js';
-import { loadProjectRules, prepareRulesSource, rulesHashOf } from './rules.js';
+import { loadProjectDatabaseRules, loadProjectRules, prepareRulesSource, rulesHashOf } from './rules.js';
 import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from './state-store.js';
 import { createCaptureStore } from './capture-store.js';
 import { isAllowedHost } from './server.js';
@@ -65,7 +65,7 @@ import { readFirebaseJson, type FirebaseJson } from '../cli/firebase-json.js';
 /** Any `firebase/<sub>` specifier. */
 const FB_ANY = /^firebase\/([a-z-]+)$/;
 /** The only subpaths with a swap entry (mirror of `SDK_MODULES`). */
-const SERVED = new Set(['app', 'auth', 'firestore']);
+const SERVED = new Set(['app', 'auth', 'firestore', 'database']);
 const STUB_PREFIX = '\0pyric:fb-stub:';
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
 
@@ -204,7 +204,19 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
 
   // Live rules box — the watcher swaps it; the init payload always serves the
   // current version.
-  const live: { rules: string | null; rulesHash: string | null } = { rules: null, rulesHash: null };
+  const live: {
+    rules: string | null;
+    rulesHash: string | null;
+    databaseRules: { rules: Record<string, unknown> } | null;
+    databaseRulesHash: string | null;
+    databaseUrl: string | null;
+  } = {
+    rules: null,
+    rulesHash: null,
+    databaseRules: null,
+    databaseRulesHash: null,
+    databaseUrl: null,
+  };
 
   // M2: the SharedWorker bundle's content hash (sync) — stamped into the page so
   // a still-running OLD worker is detected as stale. `workerReady` flips true once
@@ -292,8 +304,12 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         ? { ...(fbJson ?? {}), firestore: { ...(fbJson?.firestore ?? {}), rules: options.rules } }
         : fbJson;
       const loaded = await loadProjectRules(cwd, config);
+      const loadedDatabase = await loadProjectDatabaseRules(cwd, config);
       live.rules = loaded.rules;
       live.rulesHash = loaded.rulesHash;
+      live.databaseRules = loadedDatabase.rules;
+      live.databaseRulesHash = loadedDatabase.rulesHash;
+      live.databaseUrl = loadedDatabase.databaseUrl;
 
       // ── M2 durable stores (mirrors serve's startServe orchestration) ──────
       // Capture (default-on): the worker/page pushes its session fixture to
@@ -394,6 +410,9 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       const initPayload = (): InitPayload => ({
         rules: live.rules,
         rulesHash: live.rulesHash,
+        databaseRules: live.databaseRules,
+        databaseRulesHash: live.databaseRulesHash,
+        databaseUrl: live.databaseUrl,
         // The bound port is known only after `listen`; initPayload runs per
         // request (after listen), so resolve it lazily here. Absolute ws://host:port
         // mirrors serve (the browser reads this as the bridge peer URL).

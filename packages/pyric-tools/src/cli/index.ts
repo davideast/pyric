@@ -77,7 +77,7 @@ USAGE
   pyric serve [flags]
   pyric init [dir] [--template=web|node]
   pyric snapshot [--out=FILE]
-  pyric verify [fixture|dir] [--rules=firestore.rules]
+  pyric verify [fixture|dir] [--service firestore|rtdb] [--rules service=path]
   pyric deploy <rules|indexes|database|hosting|functions>
   pyric hosting:channel:deploy <channelId> [--expires <ttl>]
   pyric rules:lint <path>
@@ -116,12 +116,12 @@ COMMANDS
                              .pyric/state/state.json) to a committable fixture that
                              \`pyric serve --seed FILE\` re-serves. Passwords are redacted
                              by default (--include-passwords keeps them). --port, --force, --json.
-  verify [fixture|dir]       Replay a captured sandbox session against your rules and
-                             report real divergences — writes that worked in the sandbox
-                             but would be DENIED by the rules you're shipping. No arg
-                             replays the latest \`pyric serve\` capture (.pyric/last-session.json).
-                             --rules=PATH (default firestore.rules), --json. Exit 1 on
-                             any real divergence.
+  verify [fixture|dir]       Replay a captured sandbox session against candidate rules
+                             for the Firestore/RTDB services present in the fixture.
+                             No arg replays the latest \`pyric serve\` capture
+                             (.pyric/last-session.json). --service filters services.
+                             --rules service=path overrides firebase.json resolution
+                             (repeat for mixed captures). --json. Exit 1 on divergence.
   deploy [target]            Deploy rules / indexes / database / hosting / functions.
                              hosting: deploys the firebase.json hosting block
                              (rewrites/redirects/headers/cleanUrls/trailingSlash/
@@ -238,10 +238,11 @@ function printVersion(): void {
   process.stdout.write(`${VERSION}\n`);
 }
 
-function splitCommaList(value: string | boolean | undefined): string[] {
-  if (typeof value !== 'string') return [];
-  return value
-    .split(',')
+function splitCommaList(value: string | boolean | Array<string | boolean> | undefined): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values
+    .filter((v): v is string => typeof v === 'string')
+    .flatMap((v) => v.split(','))
     .map((v) => v.trim())
     .filter((v) => v.length > 0);
 }
@@ -352,21 +353,6 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
           (requireConfirmAll ? `  ⚠  Paranoid mode: every tool prompts, even reads.\n` : '')
       : '';
 
-  process.stdout.write(
-    `\npyric bridge ${VERSION} ready\n` +
-      `  mode:    ${handle.bridge.mode}\n` +
-      `  project: ${handle.bridge.project}\n` +
-      `  health:  ${handle.url}/health\n` +
-      `  mcp:     ${handle.url}/mcp\n` +
-      `  sandbox: ${handle.url.replace('http://', 'ws://')}/sandbox\n` +
-      (handle.auditLogPath ? `  audit:   ${handle.auditLogPath}\n` : '') +
-      prodNotes +
-      `\nRegister with Claude Code:\n` +
-      `  claude mcp add --transport http pyric ${handle.url}/mcp --scope project\n` +
-      `\nBridge will log peer connect/disconnect to stderr. Set PYRIC_VERBOSE=1 for per-tool-call logs.\n` +
-      `Press Ctrl-C to stop.\n`,
-  );
-
   // Graceful shutdown. Idempotent because:
   //   1. npx forwards SIGINT to its child AND the terminal sends SIGINT
   //      to the process group, so one Ctrl-C delivers SIGINT TWICE to
@@ -403,6 +389,21 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
   };
   process.on('SIGINT', () => void stop('SIGINT'));
   process.on('SIGTERM', () => void stop('SIGTERM'));
+
+  process.stdout.write(
+    `\npyric bridge ${VERSION} ready\n` +
+      `  mode:    ${handle.bridge.mode}\n` +
+      `  project: ${handle.bridge.project}\n` +
+      `  health:  ${handle.url}/health\n` +
+      `  mcp:     ${handle.url}/mcp\n` +
+      `  sandbox: ${handle.url.replace('http://', 'ws://')}/sandbox\n` +
+      (handle.auditLogPath ? `  audit:   ${handle.auditLogPath}\n` : '') +
+      prodNotes +
+      `\nRegister with Claude Code:\n` +
+      `  claude mcp add --transport http pyric ${handle.url}/mcp --scope project\n` +
+      `\nBridge will log peer connect/disconnect to stderr. Set PYRIC_VERBOSE=1 for per-tool-call logs.\n` +
+      `Press Ctrl-C to stop.\n`,
+  );
 
   // Keep the event loop alive.
   return await new Promise<number>(() => {});

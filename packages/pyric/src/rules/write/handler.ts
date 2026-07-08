@@ -1,4 +1,4 @@
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '../../project-scope.js';
 import type { WriteFirestoreRulesResult } from './spec.js';
 import { parseToASTOrError } from '../grammar/FirestoreParser.js';
 import { validateFirestoreRules } from '../grammar/FirestoreValidator.js';

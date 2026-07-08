@@ -1,4 +1,4 @@
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '../../project-scope.js';
 import type { TestCase, TestResult, TestFirestoreRulesResult, ApiTestCase } from './spec.js';
 import { buildApiTestCase } from './spec.js';
 

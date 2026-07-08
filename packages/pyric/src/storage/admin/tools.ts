@@ -8,7 +8,7 @@
  * shape: a `ProjectScope` in, JSON-Schema-typed `ToolHandler`s out.
  */
 import type { ToolHandler } from '@inbrowser/agent';
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '../../project-scope.js';
 import { InspectStorageHandler, ProvisionStorageHandler } from './handler.js';
 import type { ProvisionStorageInput } from './spec.js';
 import type { ProvisionProgress } from './api.js';

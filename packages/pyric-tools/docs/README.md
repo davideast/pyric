@@ -33,6 +33,8 @@ Real Firebase projects:
 
 - **[CLI reference](reference/cli.md)** — every `pyric` command, every flag,
   exit codes, environment variables. The authoritative source.
+- [Verify API](reference/verify.md) — programmatic captured-session replay for
+  Firestore and RTDB rules.
 - [Deploy library + agent I/O](deploy/README.md) — `pyric-tools/deploy` API,
   namespaces, error codes, [CLI agent I/O](deploy/reference/cli-agent-io.md).
 - [Bridge](bridge/README.md) — `pyric-tools/bridge` (server + client).

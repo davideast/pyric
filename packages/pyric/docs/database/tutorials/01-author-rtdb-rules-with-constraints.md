@@ -128,3 +128,30 @@ await writeFile('database.rules.json', JSON.stringify(rules.toJSON(), null, 2));
 
 You have built an in-memory rules document, checked it, simulated it, and
 generated the JSON expected by Firebase Realtime Database.
+
+## Verify a captured app journey
+
+After running `pyric serve` and exercising the app, the latest session is saved
+to `.pyric/last-session.json`. You can verify that capture against the in-memory
+rules document before generating JSON:
+
+```ts
+import { verifyFixture } from 'pyric-tools/verify';
+import { rules } from './database.rules.js';
+
+const fixture = JSON.parse(await Bun.file('.pyric/last-session.json').text());
+const result = await verifyFixture(fixture, {
+  rules: { rtdb: rules },
+});
+
+if (!result.ok) {
+  console.error(result.services.rtdb?.divergences);
+  process.exit(1);
+}
+```
+
+For the CLI path, use the JSON file from the previous step:
+
+```bash
+pyric verify --service rtdb --rules rtdb=database.rules.json
+```

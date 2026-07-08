@@ -10,12 +10,14 @@
 
 export interface ParsedArgs {
   subcommand: string | null;
-  flags: Map<string, string | boolean>;
+  flags: Map<string, FlagValue>;
   positional: string[];
 }
 
+export type FlagValue = string | boolean | Array<string | boolean>;
+
 export function parseArgs(argv: string[]): ParsedArgs {
-  const flags = new Map<string, string | boolean>();
+  const flags = new Map<string, FlagValue>();
   const positional: string[] = [];
   let subcommand: string | null = null;
   let i = 0;
@@ -28,18 +30,18 @@ export function parseArgs(argv: string[]): ParsedArgs {
     if (arg.startsWith('--')) {
       const eq = arg.indexOf('=');
       if (eq !== -1) {
-        flags.set(arg.slice(2, eq), arg.slice(eq + 1));
+        setFlag(flags, arg.slice(2, eq), arg.slice(eq + 1));
       } else {
         const next = argv[i + 1];
         if (next && !next.startsWith('-')) {
-          flags.set(arg.slice(2), next);
+          setFlag(flags, arg.slice(2), next);
           i += 1;
         } else {
-          flags.set(arg.slice(2), true);
+          setFlag(flags, arg.slice(2), true);
         }
       }
     } else if (arg.startsWith('-')) {
-      flags.set(arg.slice(1), true);
+      setFlag(flags, arg.slice(1), true);
     } else if (subcommand === null) {
       subcommand = arg;
     } else {
@@ -48,4 +50,15 @@ export function parseArgs(argv: string[]): ParsedArgs {
     i += 1;
   }
   return { subcommand, flags, positional };
+}
+
+function setFlag(flags: Map<string, FlagValue>, key: string, value: string | boolean): void {
+  const current = flags.get(key);
+  if (current === undefined) {
+    flags.set(key, value);
+  } else if (Array.isArray(current)) {
+    current.push(value);
+  } else {
+    flags.set(key, [current, value]);
+  }
 }

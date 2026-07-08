@@ -17,7 +17,7 @@
  * `reason` field to a typed error code so callers can route to
  * actionable UX.
  */
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '../../project-scope.js';
 import {
   getDefaultLocation,
   getStorageServiceState,
