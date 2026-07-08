@@ -5,7 +5,8 @@
  * `PYRIC_PROJECT` / `.firebaserc`; resolves a service-account scope
  * from env.
  *
- * Supported targets: `rules`, `indexes`, `database`, `hosting`, `functions`.
+ * Supported targets come from the deploy provider registry (`rules`, `indexes`,
+ * `database`, `hosting`, `functions`, `storage`, ...).
  * `functions` requires `--source <dir>` and a JSON-formatted
  * `--config` (FunctionDeployConfig[]); this is the minimum to make
  * the CLI a real handle on the library — extras (multi-function
@@ -21,12 +22,12 @@
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import type { ToolHandler } from '@inbrowser/agent';
-import {
+import type {
   createFirestoreDeployTools,
   createRtdbDeployTools,
   createHostingDeployTools,
   createFunctionsDeployTools,
-  type ProjectScope,
+  ProjectScope,
 } from '../deploy/index.js';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
@@ -86,21 +87,6 @@ export interface DeployDeps {
 //   --json             (bare) machine output for a normal resolved deploy
 //                      (mirror of firebase-tools' global -j/--json,
 //                      clones/firebase-tools/src/index.ts:16)
-// Every deploy target wraps a ToolHandler, so adding one = one entry
-// here. Hosting is wired today; rules/indexes/database/functions are follow-ups.
-interface AgentIoEntry {
-  toolName: string;
-  tools(deps: DeployDeps, scope: ProjectScope): ToolHandler[];
-}
-
-const AGENT_IO: Record<string, AgentIoEntry | undefined> = {
-  hosting: {
-    toolName: 'hosting_deploy',
-    tools: (deps, scope) =>
-      (deps.createHostingDeployTools ?? createHostingDeployTools)({ scope }),
-  },
-};
-
 export async function runDeploy(parsed: ParsedArgs, deps: DeployDeps = {}): Promise<number> {
   const out = deps.stdout ?? process.stdout;
   const err = deps.stderr ?? process.stderr;
@@ -122,20 +108,12 @@ export async function runDeploy(parsed: ParsedArgs, deps: DeployDeps = {}): Prom
     return 1;
   }
 
-  // ── Agent I/O (A6) ──
-  const agentIo = AGENT_IO[target];
   const flagJson = parsed.flags.get('json');
   const machineOutput = flagJson !== undefined;
   const jsonPayload = typeof flagJson === 'string' ? flagJson : undefined;
 
   if (parsed.flags.get('schema') !== undefined) {
-    return printToolSchema(target, agentIo, deps, out, err);
-  }
-  if (machineOutput && !agentIo) {
-    err.write(
-      `pyric deploy ${target}: --json is not wired for '${target}' yet (hosting only; rules/indexes/database/functions are follow-ups).\n`,
-    );
-    return 1;
+    return printToolSchema(provider, deps, out, err);
   }
 
   // A direct payload bypasses firebase.json entirely — the payload is
@@ -181,8 +159,8 @@ export async function runDeploy(parsed: ParsedArgs, deps: DeployDeps = {}): Prom
     return 1;
   }
 
-  if (jsonPayload !== undefined && agentIo) {
-    return executeJsonPayload(jsonPayload, agentIo, scope, deps, out, err);
+  if (jsonPayload !== undefined) {
+    return executeJsonPayload(jsonPayload, provider, scope, deps, out, err);
   }
 
   // Scope-upgrade preflight (logged-in users only; a service account is 'all').
@@ -250,6 +228,10 @@ function singleValueFlags(flags: ParsedArgs['flags']): ReadonlyMap<string, strin
 
 type Sink = { write(s: string): void };
 
+function defaultOperation(provider: DeployProvider) {
+  return provider.operations.find((o) => o.default) ?? provider.operations[0];
+}
+
 /**
  * Resolve a provider's tools, honoring the per-target test-injection overrides
  * the CLI suite uses (`deps.createXxxDeployTools`). Production passes none, so the
@@ -288,7 +270,7 @@ async function runProviderDeploy(
   machineOutput: boolean,
   isTTY: boolean,
 ): Promise<number> {
-  const op = provider.operations.find((o) => o.default) ?? provider.operations[0];
+  const op = defaultOperation(provider);
   if (!op) {
     err.write(`pyric deploy ${provider.target}: provider exposes no operations.\n`);
     return 2;
@@ -354,17 +336,15 @@ async function runProviderDeploy(
  * tries to execute.
  */
 function printToolSchema(
-  target: string,
-  agentIo: AgentIoEntry | undefined,
+  provider: DeployProvider,
   deps: DeployDeps,
   out: Sink,
   err: Sink,
 ): number {
-  if (!agentIo) {
-    err.write(
-      `pyric deploy ${target}: --schema is not wired for '${target}' yet (hosting only; rules/indexes/database/functions are follow-ups).\n`,
-    );
-    return 1;
+  const op = defaultOperation(provider);
+  if (!op) {
+    err.write(`pyric deploy ${provider.target}: provider exposes no operations.\n`);
+    return 2;
   }
   const stubScope: ProjectScope = {
     projectId: '(schema-introspection)',
@@ -372,9 +352,9 @@ function printToolSchema(
       throw new Error('schema introspection never mints tokens');
     },
   };
-  const handler = agentIo.tools(deps, stubScope).find((t) => t.name === agentIo.toolName);
+  const handler = resolveDeployTools(provider, stubScope, deps).find((t) => t.name === op.toolName);
   if (!handler) {
-    err.write(`pyric deploy ${target}: ${agentIo.toolName} tool not found.\n`);
+    err.write(`pyric deploy ${provider.target}: ${op.toolName} tool not found.\n`);
     return 2;
   }
   out.write(`${JSON.stringify(handler.parameters, null, 2)}\n`);
@@ -390,7 +370,7 @@ function printToolSchema(
  */
 async function executeJsonPayload(
   raw: string,
-  agentIo: AgentIoEntry,
+  provider: DeployProvider,
   scope: ProjectScope,
   deps: DeployDeps,
   out: Sink,
@@ -407,15 +387,20 @@ async function executeJsonPayload(
     writeJsonError(err, '--json payload must be a JSON object (the tool input)');
     return 1;
   }
-  const handler = agentIo.tools(deps, scope).find((t) => t.name === agentIo.toolName);
+  const op = defaultOperation(provider);
+  if (!op) {
+    writeJsonError(err, `pyric deploy ${provider.target}: provider exposes no operations`);
+    return 2;
+  }
+  const handler = resolveDeployTools(provider, scope, deps).find((t) => t.name === op.toolName);
   if (!handler) {
-    writeJsonError(err, `${agentIo.toolName} tool not found`);
+    writeJsonError(err, `${op.toolName} tool not found`);
     return 2;
   }
   const schema = handler.parameters as SchemaNode;
   const problems = validateAgainstSchema(payload, schema, 'input');
   if (problems.length > 0) {
-    writeJsonError(err, `--json payload does not match the ${agentIo.toolName} schema`, problems);
+    writeJsonError(err, `--json payload does not match the ${op.toolName} schema`, problems);
     return 1;
   }
   // Typo guard: JSON Schema permits unknown keys (the handler ignores

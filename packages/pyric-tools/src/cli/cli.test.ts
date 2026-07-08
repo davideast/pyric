@@ -564,7 +564,7 @@ describe('runDeploy', () => {
     }
   });
 
-  it('--schema on a not-yet-wired target is a usage error naming the rollout', async () => {
+  it('deploy rules --schema prints the provider tool parameters without credentials or firebase.json', async () => {
     const io = bufferIo();
     const code = await runDeploy(parseArgs(['deploy', 'rules', '--schema']), {
       ...io,
@@ -572,8 +572,15 @@ describe('runDeploy', () => {
       readFirebaseJson: neverCalled('readFirebaseJson') as never,
       resolveScope: neverCalled('resolveScope') as never,
     });
-    expect(code).toBe(1);
-    expect(io.getErr()).toContain('hosting only');
+    expect(code).toBe(0);
+    const schema = JSON.parse(io.getOut()) as {
+      type: string;
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    expect(schema.type).toBe('object');
+    expect(schema.required).toEqual(['source']);
+    expect(Object.keys(schema.properties)).toContain('source');
   });
 
   it("deploy hosting --json '<payload>' feeds the handler DIRECTLY and skips firebase.json", async () => {
@@ -646,6 +653,27 @@ describe('runDeploy', () => {
     expect((JSON.parse(errLine) as { ok: boolean }).ok).toBe(false);
   });
 
+  it("deploy rules --json '<payload>' feeds the provider handler directly", async () => {
+    const io = bufferIo();
+    const tool = makeFakeTool(
+      'firestore_deploy_rules',
+      { ok: true, summary: 'rules ok' },
+      { type: 'object', properties: { source: { type: 'string' } }, required: ['source'] },
+    );
+    const payload = { source: 'rules_version = "2";' };
+    const code = await runDeploy(parseArgs(['deploy', 'rules', '--json', JSON.stringify(payload)]), {
+      ...io,
+      cwd: '/tmp/nope',
+      readFirebaseJson: neverCalled('readFirebaseJson') as never,
+      readFirebaseRc: async () => null,
+      resolveScope: async () => ({ scope: makeScope(), source: 'FIREBASE_SA_BASE64' }),
+      createFirestoreDeployTools: mock(() => [tool.handler]),
+    });
+    expect(code).toBe(0);
+    expect(tool.calls[0]?.args).toEqual(payload);
+    expect(JSON.parse(io.getOut())).toEqual({ ok: true, summary: 'rules ok' });
+  });
+
   it('--json payload with an unknown key warns (typo guard) but still executes', async () => {
     const io = bufferIo();
     const tool = makeFakeTool('hosting_deploy', { ok: true, summary: 'ok' });
@@ -696,16 +724,22 @@ describe('runDeploy', () => {
     expect(io.getErr()).toContain('using project');
   });
 
-  it('bare --json on a not-yet-wired target is a usage error', async () => {
+  it('bare --json on rules uses the resolved provider deploy flow', async () => {
     const io = bufferIo();
+    const tool = makeFakeTool('firestore_deploy_rules', { ok: true, summary: 'rules ok' });
     const code = await runDeploy(parseArgs(['deploy', 'rules', '--json']), {
       ...io,
-      cwd: '/tmp/nope',
-      readFirebaseJson: neverCalled('readFirebaseJson') as never,
-      resolveScope: neverCalled('resolveScope') as never,
+      cwd: '/tmp',
+      readFirebaseJson: async () => ({ firestore: { rules: 'firestore.rules' } }),
+      readFirebaseRc: async () => null,
+      readFile: (async () => 'rules_version = "2";') as never,
+      resolveScope: async () => ({ scope: makeScope(), source: 'FIREBASE_SA_BASE64' }),
+      createFirestoreDeployTools: mock(() => [tool.handler]),
     });
-    expect(code).toBe(1);
-    expect(io.getErr()).toContain('hosting only');
+    expect(code).toBe(0);
+    expect((tool.calls[0]?.args as { source: string }).source).toBe('rules_version = "2";');
+    expect(JSON.parse(io.getOut())).toEqual({ ok: true, summary: 'rules ok' });
+    expect(io.getErr()).toContain('using project');
   });
 });
 

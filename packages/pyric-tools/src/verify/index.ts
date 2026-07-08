@@ -16,7 +16,11 @@ import {
 } from 'pyric/rules';
 import type { RtdbRulesDocument } from 'pyric/rules/rtdb';
 import type { ProjectScope } from '../deploy/index.js';
-import { parseRtdbRulesJson, type RtdbRulesJson } from '../rtdb/rules-json.js';
+import {
+  isRtdbRulesDocument,
+  parseRtdbRulesJson,
+  type RtdbRulesJson,
+} from '../rtdb/rules-json.js';
 import {
   fixtureVerifiableServices,
   parseVerifyFixture,
@@ -456,15 +460,6 @@ function requireRtdbRules(input: VerifyRulesInput): RtdbRulesJson {
     );
   }
   throw new VerifyInputError('missing candidate RTDB rules. Pass rules.rtdb.');
-}
-
-function isRtdbRulesDocument(value: unknown): value is RtdbRulesDocument {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'toJSON' in value &&
-    typeof (value as { toJSON?: unknown }).toJSON === 'function'
-  );
 }
 
 function mapFirestoreDivergence(divergence: Divergence): VerifyDivergence {
