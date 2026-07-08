@@ -55,6 +55,8 @@ import {
   collectionGroup as pyricCollectionGroup,
   query as pyricQuery,
   where as pyricWhere,
+  and as pyricAnd,
+  or as pyricOr,
   orderBy as pyricOrderBy,
   limit as pyricLimit,
   limitToLast as pyricLimitToLast,
@@ -267,6 +269,14 @@ function resolveConstraint(c: QueryConstraintDescriptor): ReturnType<typeof pyri
   switch (c.kind) {
     case 'where':
       return pyricWhere(c.field, c.op as Parameters<typeof pyricWhere>[1], c.value);
+    // Composite filters rebuild through the modular `and`/`or` factories,
+    // which validate operands: an empty composite or a nested non-filter
+    // throws the same TypeError the in-page SDK raises (surfaces as an
+    // error res / snap-error, never a crash).
+    case 'and':
+      return pyricAnd(...c.filters.map(resolveConstraint));
+    case 'or':
+      return pyricOr(...c.filters.map(resolveConstraint));
     case 'orderBy':
       return pyricOrderBy(c.field, c.direction);
     case 'limit':

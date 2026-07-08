@@ -55,6 +55,8 @@ export {
   collectionGroup,
   query,
   where,
+  and,
+  or,
   orderBy,
   limit,
   limitToLast,

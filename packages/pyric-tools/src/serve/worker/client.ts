@@ -69,6 +69,7 @@ import type {
   GroupRef,
   QueryDescriptor,
   QueryConstraintDescriptor,
+  FilterConstraintDescriptor,
   TargetDescriptor,
   SentinelMarker,
   WriteDescriptor,
@@ -578,6 +579,45 @@ export interface QueryConstraintHandle {
 
 export function where(field: string, op: string, value: unknown): QueryConstraintHandle {
   return { _descriptor: { kind: 'where', field, op, value } };
+}
+
+/**
+ * Extract a constraint's FILTER descriptor for composite embedding — throws
+ * the same TypeError `pyric/firestore`'s `and()`/`or()` raise when handed a
+ * non-filter (`orderBy` / `limit` / cursors are not valid inside composites).
+ */
+function toFilterDescriptor(
+  kind: 'and' | 'or',
+  c: QueryConstraintHandle,
+): FilterConstraintDescriptor {
+  const d = c._descriptor;
+  if (d.kind !== 'where' && d.kind !== 'and' && d.kind !== 'or') {
+    throw new TypeError(
+      `pyric worker client: ${kind}() received a non-filter constraint (orderBy / limit are not valid here).`,
+    );
+  }
+  return d;
+}
+
+function composite(kind: 'and' | 'or', filters: QueryConstraintHandle[]): QueryConstraintHandle {
+  if (filters.length === 0) {
+    throw new TypeError(`pyric worker client: ${kind}() requires at least one filter argument.`);
+  }
+  return { _descriptor: { kind, filters: filters.map((f) => toFilterDescriptor(kind, f)) } };
+}
+
+/**
+ * OR composite filter — at least one operand must match. Operands must be
+ * filters (`where()`, or nested `or()`/`and()`). Mirrors `pyric/firestore`'s
+ * `or(...)`; the worker rebuilds it with the real modular factory.
+ */
+export function or(...filters: QueryConstraintHandle[]): QueryConstraintHandle {
+  return composite('or', filters);
+}
+
+/** AND composite filter — every operand must match. See {@link or}. */
+export function and(...filters: QueryConstraintHandle[]): QueryConstraintHandle {
+  return composite('and', filters);
 }
 
 export function orderBy(field: string, direction?: 'asc' | 'desc'): QueryConstraintHandle {

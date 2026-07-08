@@ -29,7 +29,7 @@
  * SURFACE SPLIT
  * -------------
  * Client-side only (never cross the port):
- *   doc, collection, collectionGroup, query, where, orderBy, limit,
+ *   doc, collection, collectionGroup, query, where, and, or, orderBy, limit,
  *   limitToLast, startAt, startAfter, endAt, endBefore
  *   → return plain RefDescriptor / QueryDescriptor objects.
  *   getFirestore → returns a ClientDb holding the MessagePort.
@@ -94,9 +94,21 @@ export interface QueryDescriptor {
   readonly constraints: readonly QueryConstraintDescriptor[];
 }
 
+/**
+ * Plain data representation of a FILTER constraint — the subset of
+ * constraints valid at a query's top level AND inside composite `and`/`or`
+ * filters (orderBy/limit/cursors are not filters). Mirrors the modular SDK's
+ * `where()` / `and(...)` / `or(...)` composition: composites nest arbitrarily,
+ * and the worker rebuilds them with the pyric/firestore `and`/`or` factories.
+ */
+export type FilterConstraintDescriptor =
+  | { kind: 'where'; field: string; op: string; value: unknown }
+  | { kind: 'and'; filters: readonly FilterConstraintDescriptor[] }
+  | { kind: 'or'; filters: readonly FilterConstraintDescriptor[] };
+
 /** Plain data representation of a query constraint. */
 export type QueryConstraintDescriptor =
-  | { kind: 'where'; field: string; op: string; value: unknown }
+  | FilterConstraintDescriptor
   | { kind: 'orderBy'; field: string; direction?: 'asc' | 'desc' }
   | { kind: 'limit'; n: number }
   | { kind: 'limitToLast'; n: number }
