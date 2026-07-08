@@ -3,8 +3,8 @@
  *
  * Production supports `set == set` (e.g.
  * `diff.addedKeys() == [request.auth.uid].toSet()`). Before the fix,
- * `FirestoreSet` was not a `RulesValue`, so `deepEqualsForRules` fell
- * into its generic-object branch — where the private JS `Set` exposes
+ * `FirestoreSet` did not have Rules-owned equality, so it fell into
+ * the plain object branch — where the private JS `Set` exposes
  * no enumerable keys, so ANY two sets compared EQUAL. That divergence
  * was false-PERMISSIVE (simulator ALLOWED what production DENIES):
  * caught by joining validation, whose 10 cases all pass in the production

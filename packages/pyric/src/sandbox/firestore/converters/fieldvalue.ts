@@ -42,6 +42,7 @@
  *   (`computeTransformOperationBaseValue`, `coercedFieldValuesArray`).
  */
 import { KEEP, DELETE_MARKER, type ValueConverter, type ResolveContext } from '../value-resolver.js';
+import { firestoreValuesEqual } from '../value-equality.js';
 
 // ═══ Sentinel shapes ═══
 
@@ -143,12 +144,7 @@ export const arrayUnionConverter: ValueConverter = {
     // throwing (upstream `coercedFieldValuesArray`).
     const base: unknown[] = Array.isArray(prior) ? prior.slice() : [];
     for (const v of value.values) {
-      // Firestore's union dedups by deep value equality. JSON-string
-      // comparison covers the common cases (primitives, plain objects,
-      // arrays of primitives). Wrappers like Timestamp/Path/DocRef are
-      // compared by reference here — refine in Item 5+ once those
-      // wrappers carry value-equals.
-      const exists = base.some((b) => deepEqual(b, v));
+      const exists = base.some((b) => firestoreValuesEqual(b, v));
       if (!exists) base.push(v);
     }
     return base;
@@ -163,7 +159,7 @@ export const arrayRemoveConverter: ValueConverter = {
     // FS-B11 — a non-array (or absent) prior coerces to `[]` (so the result
     // is `[]`), rather than throwing.
     if (!Array.isArray(prior)) return [];
-    return prior.filter((b) => !value.values.some((v) => deepEqual(b, v)));
+    return prior.filter((b) => !value.values.some((v) => firestoreValuesEqual(b, v)));
   },
 };
 
@@ -174,21 +170,3 @@ export const deleteFieldConverter: ValueConverter = {
     return DELETE_MARKER;
   },
 };
-
-// ═══ Helpers ═══
-
-/**
- * Best-effort deep-equality for arrayUnion/arrayRemove dedup.
- * Handles primitives, arrays, and plain objects via JSON; class
- * instances (Date, Timestamp, etc.) fall back to reference equality.
- */
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (typeof a !== 'object' || typeof b !== 'object') return false;
-  try {
-    return JSON.stringify(a) === JSON.stringify(b);
-  } catch {
-    return false;
-  }
-}

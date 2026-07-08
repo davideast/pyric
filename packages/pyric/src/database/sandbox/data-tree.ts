@@ -95,6 +95,33 @@ export function cloneJson<T extends JsonValue>(v: T): T {
   return out as T;
 }
 
+/** True for RTDB JSON object nodes. Arrays are ordered values in RTDB,
+ *  not object patches or path maps. */
+export function isJsonObject(value: unknown): value is Record<string, JsonValue> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Structural RTDB JSON equality.
+ *
+ * Object key order is ignored, array order is preserved, and primitive
+ * leaves compare by value. This is the equality RTDB listener diffs and
+ * fixture replay use when deciding whether two JSON states are the same.
+ */
+export function jsonValuesEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    return a.every((value, index) => jsonValuesEqual(value, b[index]));
+  }
+  if (!isJsonObject(a) || !isJsonObject(b)) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => key in b && jsonValuesEqual(a[key], b[key]));
+}
+
 /**
  * In-memory JSON tree. One instance per sandbox.
  *

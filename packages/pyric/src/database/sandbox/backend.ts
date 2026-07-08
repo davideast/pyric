@@ -29,6 +29,7 @@ import {
 import {
   DataTree,
   cloneJson,
+  jsonValuesEqual,
   joinPath,
   pathSegments,
   type JsonValue,
@@ -939,7 +940,7 @@ export class RtdbBackend {
       // unchanged must NOT re-fire — RTDB's SyncTree dedups no-change.
       const snap = this.makeSnap(listener.path);
       const last = listener.lastValue;
-      if (last !== undefined && deepEqualJson(last, snap.val)) {
+      if (last !== undefined && jsonValuesEqual(last, snap.val)) {
         this.emitListener('suppressed', listener, listener.auth, {
           event: 'value',
           reason: 'no-op',
@@ -1355,7 +1356,7 @@ export class RtdbBackend {
    * For each listener, compute the diff between prior and current
    * children, then dispatch:
    *   - `child_added` when a key appears that wasn't in prior.
-   *   - `child_changed` when a key's value transitions (deep-not-equal).
+   *   - `child_changed` when a key's value transitions.
    *   - `child_removed` when a prior key is gone.
    */
   private fanOutChildren(priorByParent: Map<string, Map<string, JsonValue>>): void {
@@ -1382,7 +1383,7 @@ export class RtdbBackend {
       for (const [k, v] of next) {
         if (!prior.has(k)) {
           added.push({ key: k, val: v });
-        } else if (!deepEqualJson(prior.get(k)!, v)) {
+        } else if (!jsonValuesEqual(prior.get(k)!, v)) {
           changed.push({ key: k, val: v });
         }
       }
@@ -1444,37 +1445,6 @@ function canonicalPath(path: string): string {
 }
 
 /**
- * Structural JSON equality. Used by the child-event diff to tell
- * `child_changed` from "same value". RTDB's diff is value-based — a
- * write that lands the same JSON shape is a no-op for child events.
- */
-function deepEqualJson(a: JsonValue, b: JsonValue): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  if (typeof a !== typeof b) return false;
-  if (typeof a !== 'object') return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  if (Array.isArray(a)) {
-    const bb = b as JsonValue[];
-    if (a.length !== bb.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!deepEqualJson(a[i]!, bb[i]!)) return false;
-    }
-    return true;
-  }
-  const ao = a as Record<string, JsonValue>;
-  const bo = b as Record<string, JsonValue>;
-  const ak = Object.keys(ao);
-  const bk = Object.keys(bo);
-  if (ak.length !== bk.length) return false;
-  for (const k of ak) {
-    if (!(k in bo)) return false;
-    if (!deepEqualJson(ao[k]!, bo[k]!)) return false;
-  }
-  return true;
-}
-
-/**
  * Transaction-specific denial constructor. Pinned by oracle observation
  * `rtdb-modular-runtransaction-on-rules-denied-path.json`:
  *
@@ -1516,18 +1486,18 @@ function rowsToVal(rows: QueryRow[]): JsonValue {
   return out;
 }
 
-/** Deep-equal compare for two windowed result lists. Used to decide
- *  whether a query listener should re-fire. Uses structural
- *  `deepEqualJson` (key-order-INsensitive) rather than `JSON.stringify`
- *  so a re-write that only reorders object keys is correctly treated as
- *  "no change" (DB-B11: RTDB treats objects as order-equal). */
+/** Compare two windowed result lists. Used to decide whether a query
+ *  listener should re-fire. Uses RTDB JSON value equality rather than
+ *  `JSON.stringify` so a re-write that only reorders object keys is
+ *  correctly treated as "no change" (DB-B11: RTDB treats objects as
+ *  order-equal). */
 function windowsEqual(a: QueryRow[], b: QueryRow[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     const ai = a[i]!;
     const bi = b[i]!;
     if (ai.key !== bi.key) return false;
-    if (!deepEqualJson(ai.value, bi.value)) return false;
+    if (!jsonValuesEqual(ai.value, bi.value)) return false;
   }
   return true;
 }

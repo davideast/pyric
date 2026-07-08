@@ -14,6 +14,7 @@ import {
   update,
   sandbox as rtdbSandbox,
 } from './modular.js';
+import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
 
 export interface RtdbReplayOptions {
   rules: { rules: Record<string, unknown> };
@@ -151,7 +152,7 @@ async function replayRtdbCommitWithDatabase(
       await remove(dbRef);
       break;
     case 'update':
-      if (!isRecord(commit.data)) {
+      if (!isJsonObject(commit.data)) {
         divergences.push({
           kind: 'unsupported',
           path,
@@ -189,8 +190,8 @@ function collectStateDrift(
   path: string,
   out: RtdbReplayDivergence[],
 ): void {
-  if (deepEqual(expected, actual)) return;
-  if (!isRecord(expected) || !isRecord(actual)) {
+  if (jsonValuesEqual(expected, actual)) return;
+  if (!isJsonObject(expected) || !isJsonObject(actual)) {
     out.push({
       kind: 'state-drift',
       path,
@@ -209,22 +210,4 @@ function collectStateDrift(
       out,
     );
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b)) return false;
-    if (a.length !== b.length) return false;
-    return a.every((value, index) => deepEqual(value, b[index]));
-  }
-  if (!isRecord(a) || !isRecord(b)) return false;
-  const aKeys = Object.keys(a).sort();
-  const bKeys = Object.keys(b).sort();
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every((key, index) => key === bKeys[index] && deepEqual(a[key], b[key]));
 }

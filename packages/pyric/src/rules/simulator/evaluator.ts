@@ -13,7 +13,9 @@
  */
 import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
-import { MapDiff, FirestoreSet } from './mapdiff.js';
+import { MapDiff } from './mapdiff.js';
+import { FirestoreSet } from './firestore-set.js';
+import { rulesValuesEqual } from './value-equality.js';
 import { RulesValue, NO_OP } from './wrappers/base.js';
 import { LatLng } from './wrappers/latlng.js';
 import { Duration } from './wrappers/duration.js';
@@ -419,14 +421,14 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       const element = evaluate(expr.element, ctx, scope);
       const collection = evaluate(expr.collection, ctx, scope);
       if (collection === null || collection === undefined) return false;
-      // Use deepEqualsForRules instead of Array.includes so wrapper
+      // Use Rules value equality instead of Array.includes so wrapper
       // value-equality applies (Item 0.B hook 6). Without this,
       // `someTimestamp in [t1, t2]` is always false because `===`
       // doesn't see the wrappers as equal even when their contents
       // match. Map-key membership stays as a String() check — keys
       // are always strings in Firestore rules.
       if (Array.isArray(collection)) {
-        return collection.some(v => deepEqualsForRules(v, element));
+        return collection.some(v => rulesValuesEqual(v, element));
       }
       // RULES-B7: map-key membership must use OWN keys only. `in` walks the JS
       // prototype chain, so `'toString' in resource.data` wrongly returned
@@ -616,7 +618,7 @@ function evaluateBinaryOp(
   // to the generic numeric switch below.
   //
   // == and != intentionally bypass this hook — they route through
-  // deepEqualsForRules above, which already calls the wrapper's
+  // rulesValuesEqual above, which already calls the wrapper's
   // `equals()`. Splitting "value equality" from "operator dispatch"
   // keeps each wrapper's contract clean.
   if (op !== '==' && op !== '!=') {
@@ -678,8 +680,8 @@ function evaluateBinaryOp(
   }
 
   switch (op) {
-    case '==': return lv === rv || deepEqualsForRules(lv, rv);
-    case '!=': return !(lv === rv || deepEqualsForRules(lv, rv));
+    case '==': return lv === rv || rulesValuesEqual(lv, rv);
+    case '!=': return !(lv === rv || rulesValuesEqual(lv, rv));
     case '<': return (lv as number) < (rv as number);
     case '>': return (lv as number) > (rv as number);
     case '<=': return (lv as number) <= (rv as number);
@@ -722,38 +724,6 @@ function evaluateBinaryOp(
       return (lv as number) % (rv as number);
     default: throw new EvalError(`Unknown binary op: ${op}`);
   }
-}
-
-/** Firestore == uses value equality for maps and lists */
-function deepEqualsForRules(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  // RulesValue wrappers (Timestamp, Duration, Bytes, LatLng, Path)
-  // own value-equality. The 0.B failure mode: two `timestamp.value(1234)`
-  // calls return distinct instances so `a === b` is false; without this
-  // hook the function falls into the generic object branch and compares
-  // private state field-by-field, accidentally working for some types
-  // and silently failing for others. Routing through `equals()` keeps
-  // every wrapper consistent.
-  if (a instanceof RulesValue) return a.equals(b);
-  if (b instanceof RulesValue) return b.equals(a);
-  // FirestoreSet is not a RulesValue; without this hook it falls into
-  // the generic-object branch where two sets ALWAYS compare equal
-  // (their private JS Set has no enumerable keys) — false-permissive.
-  if (a instanceof FirestoreSet || b instanceof FirestoreSet) {
-    return a instanceof FirestoreSet && a.equals(b);
-  }
-  if (a === null || b === null) return false;
-  if (typeof a !== typeof b) return false;
-  if (typeof a !== 'object') return false;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    return a.every((v, i) => deepEqualsForRules(v, b[i]));
-  }
-  if (Array.isArray(a) || Array.isArray(b)) return false;
-  const ao = a as Record<string, unknown>, bo = b as Record<string, unknown>;
-  const ak = Object.keys(ao), bk = Object.keys(bo);
-  if (ak.length !== bk.length) return false;
-  return ak.every(k => k in bo && deepEqualsForRules(ao[k], bo[k]));
 }
 
 // ═══ Type-conversion builtins (RULES-B5 / RULES-B6) ═══
@@ -1059,14 +1029,14 @@ function evaluateMethodCall(
       case 'size': return obj.length;
       // RULES-B9: list membership uses VALUE equality, not JS identity, so it
       // is consistent with `in` / `removeAll` (which already use
-      // deepEqualsForRules). Without this, `[t1].hasAll([t2])` for equal-valued
+      // rulesValuesEqual). Without this, `[t1].hasAll([t2])` for equal-valued
       // Timestamp/Bytes/Path wrappers wrongly returned false because the two
       // instances aren't `===`.
-      case 'hasAll': return (argValues[0] as unknown[]).every(v => obj.some(o => deepEqualsForRules(o, v)));
-      case 'hasAny': return (argValues[0] as unknown[]).some(v => obj.some(o => deepEqualsForRules(o, v)));
+      case 'hasAll': return (argValues[0] as unknown[]).every(v => obj.some(o => rulesValuesEqual(o, v)));
+      case 'hasAny': return (argValues[0] as unknown[]).some(v => obj.some(o => rulesValuesEqual(o, v)));
       case 'hasOnly': {
         const allowed = argValues[0] as unknown[];
-        return obj.every(v => allowed.some(o => deepEqualsForRules(o, v)));
+        return obj.every(v => allowed.some(o => rulesValuesEqual(o, v)));
       }
       case 'join': return obj.join(String(argValues[0] ?? ','));
       // ─── Item 5.2: List.concat / removeAll / toSet ─────────────────────
@@ -1079,7 +1049,7 @@ function evaluateMethodCall(
       }
       case 'removeAll': {
         // Returns a new list with all items from `other` removed (by value
-        // equality). Uses deepEqualsForRules so wrapper instances (Timestamp,
+        // equality). Uses rulesValuesEqual so wrapper instances (Timestamp,
         // Duration, etc.) compare by value, not by JS identity — without
         // this, `[t1].removeAll([t2])` where t1 and t2 are equal Timestamp
         // wrappers would not remove t1.
@@ -1087,7 +1057,7 @@ function evaluateMethodCall(
         if (!Array.isArray(other)) {
           throw new EvalError(`List.removeAll requires a list argument, got ${typeof other}`);
         }
-        return obj.filter(v => !other.some(o => deepEqualsForRules(v, o)));
+        return obj.filter(v => !other.some(o => rulesValuesEqual(v, o)));
       }
       case 'toSet': {
         // Convert to FirestoreSet. The class stores strings only — coerce

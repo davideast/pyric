@@ -21,11 +21,8 @@
  *     number/string/boolean/bigint fields (the only types the corpus
  *     exercises today, per the design-doc inventory) and a deterministic
  *     fallback (`String(...)` comparison) for cross-type cases.
- *   - `deepEqual` keeps the bench's `JSON.stringify` shortcut for
- *     objects. Brittle on key order, but matches bench's behavior
- *     exactly so probe ports don't need to relax their assertions.
- *     Slice-5 tests will fail loudly if we ever need a real structural
- *     equality here.
+ *   - `firestoreValuesEqual` keeps query value matching aligned with
+ *     transform dedupe and Firestore value wrappers.
  *
  * Circular import note: `doc-ref.ts` imports `CollectionRefImpl` for
  * `.parent` / `.collection(name)`; this file imports `DocumentRefImpl`
@@ -44,6 +41,7 @@ import { DocumentRefImpl } from './doc-ref.js';
 // mis-ordered cross-type values + broke NaN. See `value-order.ts`.
 import { compareValues, typeOrderRank } from './value-order.js';
 import { topK } from '../topk.js';
+import { firestoreValuesEqual } from '../value-equality.js';
 // RULES-B11 — structured `where`/`limit`/`orderBy` view threaded into the
 // rule-enforced read paths so the query-proof gate ("rules are not
 // filters") can discharge per-doc rule predicates from the query's
@@ -157,16 +155,6 @@ function greaterOrEqual(a: unknown, b: unknown): boolean {
   return sameType(a, b) && compareValues(a, b) >= 0;
 }
 
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== typeof b) return false;
-  if (a && b && typeof a === 'object') {
-    return JSON.stringify(a) === JSON.stringify(b);
-  }
-  return false;
-}
-
-
 // ─────────────────────────────────────────────────────────────────────────
 // Where / order / limit application.
 // ─────────────────────────────────────────────────────────────────────────
@@ -182,30 +170,30 @@ function matchesWhere(
   // short-circuits every operator to false.
   const present = value !== undefined;
   switch (op) {
-    case '==': return present && deepEqual(value, target);
+    case '==': return present && firestoreValuesEqual(value, target);
     case '!=':
       // != requires the field to EXIST and be non-null, then differ.
       // (clones/.../core/filter.ts FieldFilter.matches NOT_EQUAL branch.)
-      return present && value !== null && !deepEqual(value, target);
+      return present && value !== null && !firestoreValuesEqual(value, target);
     case '<': return present && lessThan(value, target);
     case '<=': return present && lessOrEqual(value, target);
     case '>': return present && greaterThan(value, target);
     case '>=': return present && greaterOrEqual(value, target);
     case 'in':
-      return present && Array.isArray(target) && target.some((t) => deepEqual(value, t));
+      return present && Array.isArray(target) && target.some((t) => firestoreValuesEqual(value, t));
     case 'not-in':
       // not-in requires existence + non-null; a null in the operand list
       // makes the filter match nothing (clones/.../core/filter.ts
       // NotInFilter.matches). Field must also not equal any operand.
       if (!Array.isArray(target)) return false;
       if (target.some((t) => t === null)) return false;
-      return present && value !== null && !target.some((t) => deepEqual(value, t));
+      return present && value !== null && !target.some((t) => firestoreValuesEqual(value, t));
     case 'array-contains':
-      return Array.isArray(value) && value.some((v) => deepEqual(v, target));
+      return Array.isArray(value) && value.some((v) => firestoreValuesEqual(v, target));
     case 'array-contains-any':
       return Array.isArray(value)
         && Array.isArray(target)
-        && target.some((t) => value.some((v) => deepEqual(v, t)));
+        && target.some((t) => value.some((v) => firestoreValuesEqual(v, t)));
   }
 }
 
