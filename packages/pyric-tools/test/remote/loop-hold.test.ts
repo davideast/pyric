@@ -162,6 +162,54 @@ describe('remote core — event-loop hold (ref/unref transitions)', () => {
   });
 });
 
+// ─── Terminal listener errors ───────────────────────────────────────────────
+
+describe('remote core — a listener error is terminal (auto-unsubscribe)', () => {
+  it('an __error snap releases the hold, tears down worker-side, and later snaps are dropped', async () => {
+    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const ctx = makeWorkerCtx();
+    connectTab(bridge, ctx);
+    const node = connectNode(bridge);
+    await node.core.ready;
+
+    // A registration that FAILS worker-side: an empty composite filter is
+    // rejected by the modular and() factory and comes back as an __error
+    // snap (the same wire shape a mid-stream listener denial uses).
+    const errors: Array<Error & { code: string }> = [];
+    const snaps: unknown[] = [];
+    const unsubscribe = node.channel.subscribe(
+      {
+        target: {
+          __ref: 'query',
+          source: { __ref: 'collection', path: 'x' },
+          constraints: [{ kind: 'and', filters: [] }],
+        },
+      },
+      (v) => snaps.push(v),
+      (e) => errors.push(e),
+    );
+    await tick();
+    expect(errors).toHaveLength(1);
+    expect(snaps).toHaveLength(0);
+
+    // TERMINAL: the sub record is gone, so the event-loop hold released
+    // WITHOUT the consumer calling unsubscribe — an errored listener must
+    // never pin the process (Firestore's onError-is-terminal contract).
+    expect(node.holds).toEqual(['ref', 'unref']);
+
+    // The consumer's own unsubscribe is now an idempotent no-op.
+    unsubscribe();
+    expect(node.holds).toEqual(['ref', 'unref']);
+
+    // And the worker holds no listener for this sub: no port sub records
+    // remain in the host ctx (client-side removal sent worker-unsub; a
+    // failed registration never stored one).
+    let workerSubCount = 0;
+    for (const portSubs of ctx.subs.values()) workerSubCount += portSubs.size;
+    expect(workerSubCount).toBe(0);
+  });
+});
+
 // ─── Version-skew guidance ──────────────────────────────────────────────────
 
 describe('remote core — version-skew guidance on Unknown method', () => {

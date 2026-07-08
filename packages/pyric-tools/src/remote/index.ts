@@ -388,6 +388,21 @@ export function createRemoteSandboxCore(
         if (!sub) return; // unsubscribed — drop
         const value = (msg.value ?? {}) as Record<string, unknown>;
         if (value.__error) {
+          // A listener error is TERMINAL (Firestore's onSnapshot contract:
+          // after onError, no further snapshots and the listener is dead).
+          // Auto-unsubscribe BEFORE delivering: drop the local record (so a
+          // consumer's own unsubscribe becomes an idempotent no-op and the
+          // event-loop hold releases — an errored sub must not pin the
+          // process forever) and tell the worker to tear down whatever
+          // listener it may have registered (harmless no-op for a
+          // registration failure that never registered one).
+          subs.delete(msg.subId);
+          updateLoopHold();
+          if (!disposed) {
+            try {
+              send({ type: 'worker-unsub', subId: msg.subId });
+            } catch {}
+          }
           const payload = value.__error as { code: string; message: string; denialContext?: unknown };
           const err = remoteError(payload.code, payload.message, payload.denialContext);
           if (sub.onError) sub.onError(err);
