@@ -1,29 +1,83 @@
 /**
- * Hash-based tab routing (T4).
+ * History-API tab routing (PRINCIPLES N4).
  *
  * Deliberately dependency-free: no react-router. The active tab lives in the
- * URL hash (`#data`, `#traffic`, …) so it survives reload and is shareable.
- * `useHashRoute(fallback)` returns the current tab id + a setter that updates
- * the hash; the `hashchange` listener keeps state in sync with back/forward.
+ * URL pathname under the app base (`/firestore`, `/__pyric/ui/traffic`, …) so
+ * it survives reload and is shareable. Navigation writes `history.pushState`
+ * and dispatches one app-local event; `popstate` keeps state in sync with
+ * back/forward. This module is the ONE history facade — the shell router and
+ * the data-feature nav both write through it so they never fight.
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { parseHash, serializeHash } from './hash.js';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { parsePath, serializePath, type ParsedPath } from './path.js';
 
-/** The active tab is the FIRST hash segment (`#firestore/users/abc` → tab
- *  `firestore`); the remaining path + query are in-service state owned by the
- *  feature (see `shell/hash.ts` / `features/data/navigation.tsx`). */
-function readHash(): string {
-  return parseHash().tab;
+/** Fired after every programmatic pushState/replaceState so same-document
+ *  subscribers re-read the location (popstate only covers back/forward). */
+const NAV_EVENT = 'pyric:studio:navigated';
+
+const EMPTY: ParsedPath = { tab: '', rest: [], query: {} };
+
+/** The raw location key (`pathname + search`); the store's change signal. */
+export function locationKey(): string {
+  return typeof window !== 'undefined'
+    ? window.location.pathname + window.location.search
+    : '';
+}
+
+/** Parse the current location into the routed shape. */
+export function currentPath(): ParsedPath {
+  if (typeof window === 'undefined') return EMPTY;
+  return parsePath(window.location.pathname, window.location.search);
+}
+
+/** Serialize a routed target to an href (for `<a href>` — shareable URLs). */
+export function hrefFor(input: {
+  tab: string;
+  rest?: readonly string[];
+  query?: Record<string, string | undefined | null>;
+}): string {
+  return serializePath(input);
+}
+
+function notify(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(NAV_EVENT));
+}
+
+/** Navigate: push a routed target onto the history stack. */
+export function pushPath(input: Parameters<typeof hrefFor>[0]): void {
+  if (typeof window === 'undefined') return;
+  const url = serializePath(input);
+  if (locationKey() === url) return;
+  window.history.pushState(null, '', url);
+  notify();
+}
+
+/** Normalise: replace the current entry (no new history entry). */
+export function replacePath(input: Parameters<typeof hrefFor>[0]): void {
+  if (typeof window === 'undefined') return;
+  window.history.replaceState(null, '', serializePath(input));
+  notify();
+}
+
+/** Subscribe to location changes: back/forward AND programmatic navigation. */
+export function subscribeToLocation(cb: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  window.addEventListener('popstate', cb);
+  window.addEventListener(NAV_EVENT, cb);
+  return () => {
+    window.removeEventListener('popstate', cb);
+    window.removeEventListener(NAV_EVENT, cb);
+  };
 }
 
 /**
- * Two-way bind a tab id to `location.hash`.
+ * Two-way bind a tab id to the URL pathname.
  *
- * @param valid    Known tab ids; an unknown/empty hash resolves to `fallback`.
- * @param fallback The default tab when the hash is missing or unrecognised.
+ * @param valid    Known tab ids; an unknown/empty path resolves to `fallback`.
+ * @param fallback The default tab when the path is missing or unrecognised.
  */
-export function useHashRoute(
+export function useRoute(
   valid: readonly string[],
   fallback: string,
 ): readonly [string, (id: string) => void] {
@@ -32,30 +86,48 @@ export function useHashRoute(
     [valid, fallback],
   );
 
-  const [active, setActive] = useState<string>(() => resolve(readHash()));
+  const active = useSyncExternalStore(
+    subscribeToLocation,
+    () => resolve(currentPath().tab),
+    () => fallback,
+  );
 
-  // Keep state in sync with the hash (back/forward, manual edits, deep links).
+  // Normalise on mount:
+  //  - a legacy `#<tab>/<rest>?<query>` deep link migrates to the pathname
+  //    (old shared URLs keep working across the hash → History-API cutover);
+  //  - an unknown/empty path rewrites to the fallback so the URL reflects
+  //    what's rendered. Both use replaceState — no junk history entries.
   useEffect(() => {
-    const onHashChange = () => setActive(resolve(readHash()));
-    window.addEventListener('hashchange', onHashChange);
-    // Normalise on mount: if the hash was empty/invalid, write the fallback so
-    // the URL reflects what's rendered.
-    if (readHash() !== active) {
-      window.location.hash = serializeHash({ tab: active, query: { lens: parseHash().query.lens } });
+    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    if (hash.length > 1) {
+      const h = hash.slice(1);
+      const qIdx = h.indexOf('?');
+      const legacy = parsePath(
+        `/${qIdx === -1 ? h : h.slice(0, qIdx)}`,
+        qIdx === -1 ? '' : h.slice(qIdx),
+        '/',
+      );
+      if (valid.includes(legacy.tab)) {
+        replacePath(legacy);
+        return;
+      }
     }
-    return () => window.removeEventListener('hashchange', onHashChange);
+    const cur = currentPath();
+    if (cur.tab !== resolve(cur.tab)) {
+      replacePath({ tab: resolve(cur.tab), query: { lens: cur.query.lens } });
+    }
     // Run once on mount; `resolve` is stable for a given valid/fallback pair.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolve]);
 
-  // Navigate by writing the hash; the listener flips `active`. Switching tabs
-  // clears the previous tab's in-service `rest` but preserves the lens query
-  // (a console-wide toggle, not per-view).
+  // Navigate by pushing the path. Switching tabs clears the previous tab's
+  // in-service `rest` but preserves the lens query (a console-wide parameter,
+  // not per-view).
   const navigate = useCallback(
     (id: string) => {
       const next = resolve(id);
       if (next === active) return;
-      window.location.hash = serializeHash({ tab: next, query: { lens: parseHash().query.lens } });
+      pushPath({ tab: next, query: { lens: currentPath().query.lens } });
     },
     [resolve, active],
   );

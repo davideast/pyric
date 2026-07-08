@@ -8,7 +8,7 @@ import { useCallback, useRef } from 'react';
 import { DevSeedProvider, useDevSeed } from './dev/DevSeedProvider.js';
 import { EnvironmentProvider } from './shell/environment.js';
 import { ThemeProvider } from './shell/theme.js';
-import { useHashRoute } from './shell/router.js';
+import { useRoute } from './shell/router.js';
 import { ROUTE_IDS, ROUTES, findRoute, type RouteId } from './shell/routes.js';
 import { IconKey, IconSettings, IconUser } from './shell/icons.js';
 import { FirestorePane, StoragePane } from './components/panes.js';
@@ -92,7 +92,7 @@ function Surface({
 }
 
 function Shell() {
-  const [active, navigateRoute] = useHashRoute(ROUTE_IDS, 'home');
+  const [active, navigateRoute] = useRoute(ROUTE_IDS, 'home');
   const playgroundFrameRef = useRef<HTMLIFrameElement | null>(null);
   const navigate = (id: RouteId) => navigateRoute(id);
   const sendPlaygroundCommand = useCallback((message: PlaygroundCommandMessage) => {
