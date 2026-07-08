@@ -33,6 +33,7 @@ import type {
 import type { LintResult } from 'pyric/rules';
 
 import type { Sandbox, SandboxContext } from 'pyric/sandbox';
+import { isRemoteSandbox } from '../remote.js';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { CONTEXT_SYMBOL, registerOnSnapshotImpl, wrapWithErrorTranslation } from './error-translation.js';
 
@@ -197,6 +198,17 @@ function buildFirestoreHandle(
   ctx: SandboxContext,
   bypassRules = false,
 ): SandboxFirestore {
+  // Remote-branded sandboxes have no local engine; without this check the
+  // ctx-form dies later with a misleading `invalid-argument` from
+  // getInternalEnv. Throw the honest not-yet-supported error up front.
+  if (isRemoteSandbox(ctx.sandbox)) {
+    throw new Error(
+      'pyric/sandbox/admin-firestore: Firestore is not yet supported on a ' +
+        'remote sandbox — the bridge currently carries Realtime Database and ' +
+        'Auth. Use pyric/firestore in the browser (or the MCP Firestore ' +
+        'tools) until remote Firestore lands.',
+    );
+  }
   const delegate = (): Firestore =>
     createCompatFirestore(getInternalEnv(ctx.sandbox), { auth: ctx.auth, bypassRules });
 
