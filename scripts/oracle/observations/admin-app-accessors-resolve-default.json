@@ -1,0 +1,14 @@
+{
+  "name": "admin-app-accessors-resolve-default",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "With a default app initialized, firebase-admin getAuth()/getFirestore()/getStorage() called with NO arg resolve the default app and return the service handle (constructor names Auth/Firestore/Storage). getDatabase() also resolves the default app but additionally requires a databaseURL (see admin-app-getdatabase-missing-url). rowIds empty — admin-bootstrap capture; admin matrix rows land post-publish.",
+  "observedAt": "2026-07-08T00:00:00.000Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "getAuthReturnsConstructor": "Auth",
+    "getFirestoreReturnsConstructor": "Firestore",
+    "getStorageReturnsConstructor": "Storage",
+    "allResolveDefaultNoArg": true
+  }
+}

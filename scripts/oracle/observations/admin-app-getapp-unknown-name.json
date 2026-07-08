@@ -1,0 +1,15 @@
+{
+  "name": "admin-app-getapp-unknown-name",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin getApp(name) for a name that was never initialized throws FirebaseAppError code app/no-app with a name-specific message. rowIds empty — admin-bootstrap capture; admin matrix rows land post-publish.",
+  "observedAt": "2026-07-08T00:00:00.000Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "threw": true,
+    "code": "app/no-app",
+    "errorName": "FirebaseAppError",
+    "isError": true,
+    "message": "Firebase app named \"does-not-exist\" does not exist. Make sure you call initializeApp() before using any of the Firebase services."
+  }
+}

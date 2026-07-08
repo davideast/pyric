@@ -24,20 +24,24 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, 'observations');
 
-/** Resolved (installed) firebase version from its own package.json. */
-function resolvedFirebaseVersion(): string {
+/** Resolved (installed) version of `pkg` from its own package.json. */
+function resolvedVersion(pkg: string): string {
   try {
-    const pkgPath = fileURLToPath(import.meta.resolve('firebase/package.json'));
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: unknown };
-    if (typeof pkg.version === 'string' && pkg.version.length > 0) return pkg.version;
+    const pkgPath = fileURLToPath(import.meta.resolve(`${pkg}/package.json`));
+    const meta = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: unknown };
+    if (typeof meta.version === 'string' && meta.version.length > 0) return meta.version;
   } catch {
     // fall through to the shared error below
   }
-  console.error('✗ Could not read the version of the installed firebase package.');
+  console.error(`✗ Could not read the version of the installed ${pkg} package.`);
   process.exit(1);
 }
 
-const resolved = resolvedFirebaseVersion();
+const resolved = resolvedVersion('firebase');
+// `admin-*` observations are captured against `firebase-admin` (the admin SDK),
+// not the firebase JS SDK, and are versioned by `adminSdkVersion`. They vouch
+// for admin behavior, so they must track the installed firebase-admin version.
+const resolvedAdmin = resolvedVersion('firebase-admin');
 const files = readdirSync(OBS_DIR).filter((f) => f.endsWith('.json'));
 
 const missing: string[] = [];
@@ -45,16 +49,23 @@ const mismatched: { file: string; got: string }[] = [];
 
 for (const file of files) {
   const obs = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8'));
-  const v = obs.fbSdkVersion;
+  // An admin capture carries `adminSdkVersion` and is guarded against
+  // firebase-admin; everything else carries `fbSdkVersion` and is guarded
+  // against firebase.
+  const isAdmin = typeof obs.adminSdkVersion === 'string';
+  const field = isAdmin ? 'adminSdkVersion' : 'fbSdkVersion';
+  const want = isAdmin ? resolvedAdmin : resolved;
+  const v = obs[field];
   if (!v) {
-    missing.push(file);
+    missing.push(`${file} (missing ${field})`);
     continue;
   }
-  if (v !== resolved) mismatched.push({ file, got: v });
+  if (v !== want) mismatched.push({ file: `${file} [${field}]`, got: v });
 }
 
 console.log(`# Oracle observation version guard`);
 console.log(`Resolved firebase (node_modules/firebase/package.json): ${resolved}`);
+console.log(`Resolved firebase-admin (node_modules/firebase-admin/package.json): ${resolvedAdmin}`);
 console.log(`Observations checked: ${files.length}`);
 
 if (missing.length === 0 && mismatched.length === 0) {

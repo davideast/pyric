@@ -1,0 +1,16 @@
+{
+  "name": "admin-app-no-app-error",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin accessors called with NO app while NO default app has been initialized throw FirebaseAppError code app/no-app with the [DEFAULT]-app message. Captured identically for getDatabase(), getAuth(), getFirestore(), getStorage(), and getApp(). This is the exact no-app shape to mirror. rowIds empty — admin-bootstrap capture; admin matrix rows land post-publish.",
+  "observedAt": "2026-07-08T00:00:00.000Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "threw": true,
+    "code": "app/no-app",
+    "errorName": "FirebaseAppError",
+    "isError": true,
+    "message": "The default Firebase app does not exist. Make sure you call initializeApp() before using any of the Firebase services.",
+    "appliesTo": ["getDatabase", "getAuth", "getFirestore", "getStorage", "getApp"]
+  }
+}
