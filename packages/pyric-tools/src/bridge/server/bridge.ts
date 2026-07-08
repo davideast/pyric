@@ -218,10 +218,17 @@ interface WorkerSubEntry {
   onSnap: (value: unknown) => void;
 }
 
-/** Build the typed Error worker-op rejections carry. */
-function workerOpError(code: string, message: string): Error & { code: string } {
-  const err = new Error(message) as Error & { code: string };
+/** Build the typed Error worker-op rejections carry. `denialContext` (spike
+ *  gap 6) is re-attached when the wire error carried one, so the structured
+ *  denial frame survives the bridge hop. */
+function workerOpError(
+  code: string,
+  message: string,
+  denialContext?: unknown,
+): Error & { code: string; denialContext?: unknown } {
+  const err = new Error(message) as Error & { code: string; denialContext?: unknown };
   err.code = code;
+  if (denialContext !== undefined) err.denialContext = denialContext;
   return err;
 }
 
@@ -506,7 +513,11 @@ export function createBridge(opts: BridgeOptions): Bridge {
           op.resolve(res.value);
         } else {
           op.reject(
-            workerOpError(res.error?.code ?? 'unknown', res.error?.message ?? 'unknown sandbox error'),
+            workerOpError(
+              res.error?.code ?? 'unknown',
+              res.error?.message ?? 'unknown sandbox error',
+              res.error?.denialContext,
+            ),
           );
         }
         return;

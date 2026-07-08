@@ -1447,8 +1447,7 @@ function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void
     // query or a rules-rejected target). Deliver it to the client's onSnapshot
     // error callback as a snap-error instead of letting it escape handleMessage
     // as an unhandled rejection (which would silently deliver NOTHING).
-    const { code, message } = serializeError(e);
-    post(port, { t: 'snap', subId: msg.subId, value: { __error: { code, message } } });
+    post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
     return;
   }
 
@@ -1473,8 +1472,7 @@ function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessage): 
     );
     portSubs.set(msg.subId, unsub);
   } catch (e) {
-    const { code, message } = serializeError(e);
-    post(port, { t: 'snap', subId: msg.subId, value: { __error: { code, message } } });
+    post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
   }
 }
 
@@ -1523,8 +1521,7 @@ function registerListener(
       // Snapshot listener error (e.g. rules changed to deny).
       // We forward as a snap with an __error field so the client can
       // surface it to the original onSnapshot error callback.
-      const { code, message } = serializeError(err);
-      post(port, { t: 'snap', subId: msg.subId, value: { __error: { code, message } } });
+      post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(err) } });
     },
   );
 }

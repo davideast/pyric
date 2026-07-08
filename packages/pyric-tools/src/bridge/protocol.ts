@@ -182,7 +182,10 @@ export interface WorkerResFrame {
   /** When `ok === false`, `error` is populated and `value` omitted. */
   ok: boolean;
   value?: unknown;
-  error?: { code: string; message: string };
+  /** `denialContext` (additive, spike gap 6): the structured "why did this
+   *  deny" frame a `SandboxError` carries on `permission-denied` — plain
+   *  JSON, so it rides the WS legs verbatim and the Node side re-attaches it. */
+  error?: { code: string; message: string; denialContext?: unknown };
 }
 
 /** Toward the worker: register a subscription. Re-issued by the bridge to a

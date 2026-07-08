@@ -52,7 +52,7 @@ import { rehydrateDocValue } from 'pyric/firestore-values';
 // TYPE-ONLY (erased at build, so the leaf client bundle stays engine-free).
 // The auth-lens contract and the cross-service event envelope are shared with
 // the sandbox's event provenance — Studio's Action Center folds these verbatim.
-import type { AuthLens, SandboxEvent } from 'pyric/sandbox';
+import type { AuthLens, SandboxEvent, DenialContext } from 'pyric/sandbox';
 
 // ─── Ref descriptors (client-side, never cross the port directly) ──────────
 
@@ -626,7 +626,7 @@ export type InboundMessage = OpMessage | SubMessage | UnsubMessage | ToolMessage
  */
 export type ResMessage =
   | { t: 'res'; id: string; ok: true; value: unknown }
-  | { t: 'res'; id: string; ok: false; error: { code: string; message: string } };
+  | { t: 'res'; id: string; ok: false; error: SerializedError };
 
 /**
  * Streamed snapshot delivery. `value` is the same shape as `getDoc`/`getDocs`
@@ -782,22 +782,39 @@ export function base64ToBytes(b64: string): Uint8Array {
 // ─── Error serialization ──────────────────────────────────────────────────
 
 /**
- * Serialize any thrown value to a `{ code, message }` pair suitable for
- * structured-clone across the MessagePort.
+ * Wire form of a thrown error. `denialContext` (spike gap 6) is the
+ * structured "why did this deny" frame `SandboxError` carries on
+ * `permission-denied` — plain JSON end to end (rule line/expression, auth
+ * state, simulator reasons, eval-time request shape), so it survives both
+ * structured clone AND the JSON WS relay legs verbatim. Receivers re-attach
+ * it to the reconstructed error so remote `SandboxError`s match local ones.
+ */
+export interface SerializedError {
+  code: string;
+  message: string;
+  denialContext?: DenialContext;
+}
+
+/**
+ * Serialize any thrown value to a `{ code, message, denialContext? }` shape
+ * suitable for structured-clone across the MessagePort (and the JSON relay).
  *
  * SandboxError (from pyric/sandbox) carries `.code` (e.g. 'permission-denied')
- * and `.message`. All other errors get `code: 'unknown'`. Plain strings get
+ * and `.message`, plus `.denialContext` on rule denials — carried through
+ * whenever present. All other errors get `code: 'unknown'`. Plain strings get
  * `code: 'unknown'` and `message: String(err)`.
  *
  * Class instances don't survive structured clone as their original class —
- * the receiver sees a plain object. We normalize to `{ code, message }` so
- * the client can reconstruct a typed error with `.code` attached.
+ * the receiver sees a plain object. We normalize so the client can
+ * reconstruct a typed error with `.code` (and `.denialContext`) attached.
  */
-export function serializeError(err: unknown): { code: string; message: string } {
+export function serializeError(err: unknown): SerializedError {
   if (err !== null && typeof err === 'object') {
-    const e = err as { code?: unknown; message?: unknown };
+    const e = err as { code?: unknown; message?: unknown; denialContext?: unknown };
     if (typeof e.code === 'string' && typeof e.message === 'string') {
-      return { code: e.code, message: e.message };
+      return e.denialContext !== null && typeof e.denialContext === 'object'
+        ? { code: e.code, message: e.message, denialContext: e.denialContext as DenialContext }
+        : { code: e.code, message: e.message };
     }
     if (err instanceof Error) {
       return { code: 'unknown', message: err.message };

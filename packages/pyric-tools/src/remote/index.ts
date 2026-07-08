@@ -55,9 +55,17 @@ const DEFAULT_OP_TIMEOUT_MS = 35_000;
 /** How long the attach handshake may take before connect() fails. */
 const ATTACH_TIMEOUT_MS = 5_000;
 
-function remoteError(code: string, message: string): Error & { code: string } {
-  const err = new Error(message) as Error & { code: string };
+function remoteError(
+  code: string,
+  message: string,
+  denialContext?: unknown,
+): Error & { code: string; denialContext?: unknown } {
+  const err = new Error(message) as Error & { code: string; denialContext?: unknown };
   err.code = code;
+  // Structured denial context (spike gap 6): a relayed permission-denied
+  // carries the same "why did this deny" frame a local SandboxError has —
+  // plain JSON off the wire, re-attached here.
+  if (denialContext !== undefined) err.denialContext = denialContext;
   return err;
 }
 
@@ -371,7 +379,7 @@ export function createRemoteSandboxCore(
               ' — the running sandbox may predate this feature; restart pyric dev ' +
               'and reload the browser tab.';
           }
-          call.reject(remoteError(code, message));
+          call.reject(remoteError(code, message, msg.error?.denialContext));
         }
         return;
       }
@@ -380,8 +388,8 @@ export function createRemoteSandboxCore(
         if (!sub) return; // unsubscribed — drop
         const value = (msg.value ?? {}) as Record<string, unknown>;
         if (value.__error) {
-          const payload = value.__error as { code: string; message: string };
-          const err = remoteError(payload.code, payload.message);
+          const payload = value.__error as { code: string; message: string; denialContext?: unknown };
+          const err = remoteError(payload.code, payload.message, payload.denialContext);
           if (sub.onError) sub.onError(err);
           else console.error('pyric remote sandbox: uncaught error in subscription:', err);
           return;

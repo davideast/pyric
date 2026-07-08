@@ -179,6 +179,7 @@ export function ok(port: PortLike, id: string, value: unknown): void {
 }
 
 export function fail(port: PortLike, id: string, err: unknown): void {
-  const { code, message } = serializeError(err);
-  post(port, { t: 'res', id, ok: false, error: { code, message } });
+  // The serialized error carries `denialContext` when present (spike gap 6) —
+  // post it whole so the structured denial frame reaches remote consumers.
+  post(port, { t: 'res', id, ok: false, error: serializeError(err) });
 }
