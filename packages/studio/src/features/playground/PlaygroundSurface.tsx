@@ -11,7 +11,7 @@ export type PlaygroundCommandMessage =
   | { type: 'pyric:playground:open-account' }
   | {
       type: 'pyric:playground:set-model';
-      providerId: 'gemini' | 'openrouter' | 'ollama' | 'llamaServer' | 'claude';
+      providerId: 'gemini' | 'openrouter' | 'ollama' | 'llamaServer';
       modelId: string;
       effort?: 'off' | 'low' | 'medium' | 'high';
     };

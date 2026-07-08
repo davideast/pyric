@@ -77,7 +77,7 @@
     "typecheck": "bun x tsc -p tsconfig.json --noEmit"
   },
   "peerDependencies": {
-    "@inbrowser/agent": "0.4.0",
+    "@inbrowser/agent": "0.4.1",
     "react": ">=19",
     "react-dom": ">=19",
     "firebase": ">=12",

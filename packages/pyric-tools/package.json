@@ -73,7 +73,7 @@
     "smoke:vendor": "bun scripts/standalone-vendor-smoke.ts"
   },
   "dependencies": {
-    "@inbrowser/agent": "0.4.0",
+    "@inbrowser/agent": "0.4.1",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "esbuild": "^0.28.0",
     "fflate": "^0.8.2",

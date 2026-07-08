@@ -37,7 +37,6 @@ import {
   editToolResults,
   type CompactionMarker,
 } from './context-management';
-
 export {
   formatContextPercent,
   formatContextRatio,

@@ -60,6 +60,23 @@ function activeModel(): string {
     : DEFAULT_OPENROUTER_MODEL;
 }
 
+function providerError(evt: {
+  message: string;
+  code?: string;
+  retryable?: boolean;
+  details?: Record<string, unknown>;
+}): Error {
+  const error = new Error(evt.message) as Error & {
+    code?: string;
+    retryable?: boolean;
+    details?: Record<string, unknown>;
+  };
+  if (evt.code) error.code = evt.code;
+  if (typeof evt.retryable === 'boolean') error.retryable = evt.retryable;
+  if (evt.details) error.details = evt.details;
+  return error;
+}
+
 export const openrouterProvider: CallbackProvider = {
   label: 'openrouter',
   supportsTools: true,
@@ -156,7 +173,7 @@ export const openrouterProvider: CallbackProvider = {
             if (typeof evt.costUsd === 'number') costUsd = evt.costUsd;
             break;
           case 'error':
-            throw new Error(evt.message);
+            throw providerError(evt);
         }
       }
     } finally {

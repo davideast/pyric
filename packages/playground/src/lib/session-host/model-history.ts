@@ -15,7 +15,6 @@
  * Stale tool RESULTS are a separate, continuous lever handled at the
  * client seam (`withPrunedHistory`, keepLastResults 3).
  */
-import { callbackProviderAsLlmClient } from '@inbrowser/agent';
 import {
   applyCompactionMarker,
   buildCompactionPrompt,
@@ -24,6 +23,7 @@ import {
   splitForCompaction,
   type CompactionMarker,
 } from '~/lib/agent/context-management';
+import { callbackProviderAsModelClient } from '~/lib/llm/callback-adapter';
 import { PROVIDERS } from '~/lib/llm/registry';
 import { useChatStore, type ChatMessage } from '~/lib/store/chat';
 import { useLlmStore } from '~/lib/store/llm';
@@ -75,7 +75,7 @@ async function modelWrittenSummary(older: readonly ChatMessage[]): Promise<strin
   try {
     const def = PROVIDERS[useLlmStore.getState().providerId];
     if (!def) return null;
-    const llm = callbackProviderAsLlmClient(def.provider, def.id);
+    const llm = callbackProviderAsModelClient(def.provider, def.id);
     const prompt = buildCompactionPrompt(older);
     let text = '';
     for await (const ev of llm.chat(

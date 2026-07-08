@@ -86,7 +86,7 @@
     "typecheck": "bun x tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@inbrowser/agent": "0.4.0",
+    "@inbrowser/agent": "0.4.1",
     "fake-indexeddb": "^6.0.0",
     "firebase": "^12.12.0",
     "firebase-admin": "^13.0.0",

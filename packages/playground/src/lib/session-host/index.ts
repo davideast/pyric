@@ -1,7 +1,7 @@
 /**
  * Session host — drives `@inbrowser/agent`' `AgentSession` from the
  * browser. Resolves the active provider from the LLM store, wraps it in
- * `callbackProviderAsLlmClient`, and translates `SessionEvent` →
+ * the Playground callback adapter, and translates `SessionEvent` →
  * `chatStore` patches.
  *
  * The MVP shell uses the resulting `useAgentLoop` hook to drive
@@ -12,13 +12,13 @@ import {
   createDispatch,
   createMetricsCollector,
   createReactLoopStrategy,
-  callbackProviderAsLlmClient,
   type ChatMessage as CoreChatMessage,
   type SandboxHandle,
   type SessionEvent,
   type ToolContext,
 } from '@inbrowser/agent';
 import { PROVIDERS } from '~/lib/llm/registry';
+import { callbackProviderAsModelClient } from '~/lib/llm/callback-adapter';
 import { estimateGeminiCostUsd } from '~/lib/llm/pricing';
 
 function activeProviderModelLabels(): { providerLabel: string; modelLabel: string } {
@@ -164,7 +164,7 @@ export interface SubmitOptions {
  * assistant placeholder. This function:
  *
  *   - snapshots the chat-store history
- *   - builds a fresh session with the gemini provider as LlmClient
+ *   - builds a fresh session with the active provider as ModelClient
  *   - reads events off `session.submit()` and patches the chat store
  *
  * No persistence, no logging, no event log writes — MVP keeps the
@@ -259,12 +259,15 @@ export async function runOneTurn(
     },
   };
 
+  const providerId = useLlmStore.getState().providerId;
   const strategy = createReactLoopStrategy({
     // Lane-aware default: hosted OpenRouter models default to fewer
     // iterations; local/stub lanes keep the larger cap. An explicit
     // user setting always wins.
-    maxTurns: resolveMaxTurns(settings.maxTurns, useLlmStore.getState().providerId),
+    maxTurns: resolveMaxTurns(settings.maxTurns, providerId),
     parallelDispatch: settings.parallelDispatch,
+    toolProgressErrorPolicy:
+      providerId === 'gemini' ? 'complete-with-warning' : 'strict',
     ...(settings.reflexionEnabled
       ? { reflexion: { enabled: true, maxRetries: settings.reflexionMaxRetries } }
       : {}),
@@ -286,7 +289,7 @@ export async function runOneTurn(
       // `--prune` (keepLastResults 3). Pure transform at the client seam:
       // strategy internals and @inbrowser/agent's history stay untouched,
       // tool callIds keep their pairing (only `resultJson` is compacted).
-      return withPrunedHistory(callbackProviderAsLlmClient(def.provider, def.id), {
+      return withPrunedHistory(callbackProviderAsModelClient(def.provider, def.id), {
         keepLastResults: 3,
         onPrune: (s) =>
           logPage('prune_history', undefined, { pruned: s.pruned, bytesSaved: s.bytesSaved }),
@@ -557,6 +560,22 @@ export async function runOneTurn(
           const msg = useChatStore.getState().messages.find((m) => m.id === currentId);
           opts.patchMessage(currentId, {
             reflexionCritiques: [...(msg?.reflexionCritiques ?? []), critique],
+          });
+        } else if (ev.name === 'react_loop_model_warning') {
+          const d = (ev.data ?? {}) as {
+            error?: { message?: string; code?: string };
+            successfulToolResultCount?: number;
+          };
+          opts.patchMessage(currentId, {
+            text:
+              currentBuf ||
+              `_(Gemini ended the follow-up response after ${d.successfulToolResultCount ?? 'some'} successful tool result(s). The completed tool output is above.)_`,
+            streaming: false,
+          });
+          logPage('react_loop_model_warning', undefined, {
+            message: d.error?.message,
+            code: d.error?.code,
+            successfulToolResultCount: d.successfulToolResultCount,
           });
         }
         break;

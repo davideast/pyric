@@ -1,4 +1,4 @@
-/** VENDORED tests — mirror of inbrowser-agent PR #82; delete with the vendored module. */
+/** VENDORED tests — mirror of @inbrowser/agent context-management; delete with the vendored module. */
 import { describe, expect, test } from 'bun:test';
 import {
   applyCompactionMarker,
@@ -31,7 +31,6 @@ function msg(
   };
 }
 
-/** N user turns, each followed by an assistant message with one fat tool result. */
 function session(turns: number): ModelContextMessageLike[] {
   const out: ModelContextMessageLike[] = [];
   for (let t = 0; t < turns; t++) {
@@ -44,7 +43,6 @@ function session(turns: number): ModelContextMessageLike[] {
 describe('editToolResults (lever 1)', () => {
   test('clears results older than the keep window, keeps text + args', () => {
     const { messages, stats } = editToolResults(session(6), { keepResultsRecentTurns: 2 });
-    // turns 0-3 cleared, 4-5 kept
     expect(stats.clearedResults).toBe(4);
     expect(isClearedResult(messages[1]!.toolCalls![0]!.resultJson)).toBe(true);
     expect(messages[1]!.text).toBe('answer 0');
@@ -60,7 +58,6 @@ describe('editToolResults (lever 1)', () => {
     expect(JSON.stringify(second.messages.slice(0, 8))).toBe(
       JSON.stringify(first.messages.slice(0, 8)),
     );
-    // untouched messages keep reference identity (cache-stability proxy)
     expect(second.messages[0]).toBe(first.messages[0]);
   });
 
@@ -95,7 +92,7 @@ describe('splitForCompaction / applyCompactionMarker', () => {
     const messages = session(8);
     const split = splitForCompaction(messages, { keepRecentUserTurns: 3 })!;
     expect(split).not.toBeNull();
-    expect(split.older.length).toBe(10); // turns 0-4
+    expect(split.older.length).toBe(10);
     expect(split.recent[0]!.id).toBe('u5');
     expect(split.atMessageId).toBe('a4');
 
@@ -148,7 +145,6 @@ describe('splitForCompaction / applyCompactionMarker', () => {
     const grown = [...gen1, ...session(6).map((m) => ({ ...m, id: `g2-${m.id}` }))];
     const split2 = splitForCompaction(grown, { keepRecentUserTurns: 3 });
     expect(split2).not.toBeNull();
-    // gen1 summary is inside `older` of the second split
     expect(split2!.older.some((m) => m.text.includes('gen1'))).toBe(true);
   });
 });

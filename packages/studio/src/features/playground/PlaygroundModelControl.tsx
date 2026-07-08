@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { PlaygroundCommandMessage } from './PlaygroundSurface.js';
 
-type PlaygroundProviderId = 'gemini' | 'openrouter' | 'ollama' | 'llamaServer' | 'claude';
+type PlaygroundProviderId = 'gemini' | 'openrouter' | 'ollama' | 'llamaServer';
 type PlaygroundReasoningEffort = 'off' | 'low' | 'medium' | 'high';
 
 interface ModelDef {
@@ -17,7 +17,8 @@ interface ProviderDef {
 }
 
 const STORAGE_KEY = 'pyric.playground.llm.selection';
-const EFFORT_KEY = 'pyric.playground.openrouter.effort';
+const OPENROUTER_EFFORT_KEY = 'pyric.playground.openrouter.effort';
+const GEMINI_EFFORT_KEY = 'pyric.playground.gemini.effort';
 
 const PROVIDERS: readonly ProviderDef[] = [
   {
@@ -68,17 +69,6 @@ const PROVIDERS: readonly ProviderDef[] = [
     defaultModelId: 'default',
     models: [{ id: 'default', label: 'Loaded model' }],
   },
-  {
-    id: 'claude',
-    label: 'Claude CLI',
-    defaultModelId: 'claude-sonnet-4-6',
-    models: [
-      { id: 'claude-fable-5', label: 'Fable 5' },
-      { id: 'claude-opus-4-8', label: 'Opus 4.8' },
-      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-      { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
-    ],
-  },
 ];
 
 const PROVIDER_BY_ID = Object.fromEntries(PROVIDERS.map((provider) => [provider.id, provider])) as Record<
@@ -112,9 +102,29 @@ function isProviderId(value: unknown): value is PlaygroundProviderId {
     value === 'gemini' ||
     value === 'openrouter' ||
     value === 'ollama' ||
-    value === 'llamaServer' ||
-    value === 'claude'
+    value === 'llamaServer'
   );
+}
+
+function effortKey(providerId: PlaygroundProviderId): string | null {
+  if (providerId === 'gemini') return GEMINI_EFFORT_KEY;
+  if (providerId === 'openrouter') return OPENROUTER_EFFORT_KEY;
+  return null;
+}
+
+function defaultEffort(providerId: PlaygroundProviderId): PlaygroundReasoningEffort {
+  return providerId === 'gemini' ? 'low' : 'medium';
+}
+
+function readEffort(providerId: PlaygroundProviderId): PlaygroundReasoningEffort {
+  const ls = safeLocalStorage();
+  const key = effortKey(providerId);
+  const fallback = defaultEffort(providerId);
+  if (!ls || !key) return fallback;
+  const rawEffort = ls.getItem(key);
+  return rawEffort === 'off' || rawEffort === 'low' || rawEffort === 'medium' || rawEffort === 'high'
+    ? rawEffort
+    : fallback;
 }
 
 function readSelection(): Selection {
@@ -122,7 +132,7 @@ function readSelection(): Selection {
   const ls = safeLocalStorage();
   let provider = fallback;
   let modelId = fallback.defaultModelId;
-  let effort: PlaygroundReasoningEffort = 'medium';
+  let effort: PlaygroundReasoningEffort = defaultEffort(provider.id);
   try {
     const raw = ls?.getItem(STORAGE_KEY);
     if (raw) {
@@ -139,10 +149,7 @@ function readSelection(): Selection {
   } catch {
     /* ignore malformed persisted selection */
   }
-  const rawEffort = ls?.getItem(EFFORT_KEY);
-  if (rawEffort === 'off' || rawEffort === 'low' || rawEffort === 'medium' || rawEffort === 'high') {
-    effort = rawEffort;
-  }
+  effort = readEffort(provider.id);
   return { providerId: provider.id, modelId, effort };
 }
 
@@ -153,7 +160,8 @@ function persistSelection(selection: Selection): void {
     STORAGE_KEY,
     JSON.stringify({ providerId: selection.providerId, modelId: selection.modelId }),
   );
-  ls.setItem(EFFORT_KEY, selection.effort);
+  const key = effortKey(selection.providerId);
+  if (key) ls.setItem(key, selection.effort);
 }
 
 export function PlaygroundModelControl({
@@ -164,11 +172,17 @@ export function PlaygroundModelControl({
   const [selection, setSelection] = useState(readSelection);
   const provider = PROVIDER_BY_ID[selection.providerId];
   const models = provider.models;
-  const showEffort = selection.providerId === 'openrouter' || selection.providerId === 'claude';
+  const showEffort = selection.providerId === 'gemini' || selection.providerId === 'openrouter';
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (event.key === STORAGE_KEY || event.key === EFFORT_KEY) setSelection(readSelection());
+      if (
+        event.key === STORAGE_KEY ||
+        event.key === OPENROUTER_EFFORT_KEY ||
+        event.key === GEMINI_EFFORT_KEY
+      ) {
+        setSelection(readSelection());
+      }
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
@@ -200,6 +214,7 @@ export function PlaygroundModelControl({
             ...selection,
             providerId,
             modelId: nextProvider.defaultModelId,
+            effort: readEffort(providerId),
           });
         }}
       >
