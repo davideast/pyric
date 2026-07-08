@@ -19,6 +19,14 @@
  */
 
 export {
+  // Bridge-peer relay seams (leaf-safe: ids are re-minted in-page, frames go
+  // over the worker port). The served page wires these into `connectBridge`'s
+  // `dispatcher`/`workerRelay` (entries/runtime.ts); Pyric Studio reuses the
+  // SAME wiring (studio's clients/bridge-peer.ts) so a Studio-only session
+  // still serves agent tool-calls + remote worker-ops.
+  callTool,
+  relayWorkerOp,
+  relayWorkerSub,
   // Connect + handles
   getFirestore,
   getAuth,

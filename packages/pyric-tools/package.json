@@ -39,6 +39,10 @@
         "import": "./dist/bridge/server.js"
       }
     },
+    "./bridge/client": {
+      "types": "./dist/bridge/client.d.ts",
+      "import": "./dist/bridge/client.js"
+    },
     "./discover": {
       "types": "./dist/discover/index.d.ts",
       "import": "./dist/discover/index.js"

@@ -29,6 +29,7 @@ import {
   connectWorkerLive,
   type WorkerLivePlane,
 } from './clients/worker-live.js';
+import { connectStudioBridgePeer } from './clients/bridge-peer.js';
 
 /** Where Studio's storage lives. Only `local` is wired in v1. */
 export type StudioMode = 'local' | 'browser' | 'hosted';
@@ -109,6 +110,14 @@ export function createStudioEnvironment(
       ? null
       : connectWorkerLive(options.workerUrl);
 
+    // Served Studio must ALSO register as the bridge's sandbox peer — the
+    // relay the agent (MCP) and `connectRemoteSandbox` reach the SharedWorker
+    // through. Otherwise a Studio-only session (exactly what `pyric dev --ui`
+    // auto-opens) gets "no browser tab is connected". Fire-and-forget: the
+    // factory stays synchronous, and the peer connect no-ops cleanly when no
+    // serve is present (dev-seed / review) or the bridge is off.
+    if (live) void connectStudioBridgePeer(live.db, { baseUrl });
+
     return {
       mode,
       projects: httpProjectStore(baseUrl),
@@ -145,3 +154,11 @@ export {
   type LiveEventFeed,
   type StudioLens,
 } from './clients/worker-live.js';
+
+// Re-export the bridge-peer seam (served Studio registers as the bridge's
+// sandbox peer) for the same reason.
+export {
+  connectStudioBridgePeer,
+  studioBridgePeerOptions,
+  type StudioBridgePeerOptions,
+} from './clients/bridge-peer.js';
