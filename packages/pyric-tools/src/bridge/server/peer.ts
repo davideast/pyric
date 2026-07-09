@@ -15,7 +15,12 @@
 import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { createBridge, type Bridge } from './bridge.js';
-import { isBridgeMessage, type BridgeMessage } from '../protocol.js';
+import {
+  isBridgeMessage,
+  PEER_REPLACED_CLOSE_CODE,
+  PEER_REPLACED_CLOSE_REASON,
+  type BridgeMessage,
+} from '../protocol.js';
 import { pyricToolsVersion } from '../../pkg-version.js';
 
 export function attachPeer(
@@ -74,9 +79,13 @@ export function attachPeer(
         // handler tears down its relayed worker subscriptions, so a
         // replaced tab's SharedWorker listeners don't keep streaming
         // snaps the bridge drops as stale-generation until the tab closes.
+        // The REPLACED close code tells that client to go STANDBY (health-
+        // poll for a vacant slot) instead of re-helloing — an immediate
+        // re-hello would kick the new peer right back, and two open tabs
+        // would fight over the slot forever.
         () => {
           try {
-            ws.close();
+            ws.close(PEER_REPLACED_CLOSE_CODE, PEER_REPLACED_CLOSE_REASON);
           } catch {}
         },
       );

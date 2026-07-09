@@ -13,6 +13,15 @@
  * Reconnect strategy: simple exponential backoff up to 30s. The
  * connection is best-effort — if the bridge is down the host app
  * keeps working; tool calls just won't reach an external agent.
+ *
+ * Standby: when the bridge closes this connection with the REPLACED code
+ * (another tab registered and won the last-connection-wins slot), the client
+ * does NOT re-hello — that would kick the winner right back out and the two
+ * tabs would fight forever. It health-polls the serve origin at a gentle
+ * jittered cadence and reconnects only once `sandboxConnected` is false
+ * (the winning tab closed or refreshed). Every other close keeps the
+ * immediate reconnect loop — that path is what makes tab-refresh takeover
+ * work.
  */
 
 import type { Sandbox } from 'pyric/sandbox';
@@ -31,6 +40,7 @@ import {
   assertJsonSafeRelayValue,
   DEFAULT_BRIDGE_PORT,
   DEFAULT_SANDBOX_PATH,
+  PEER_REPLACED_CLOSE_CODE,
   WORKER_RELAY_CAPABILITY,
 } from '../protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from './dispatch.js';
@@ -62,6 +72,16 @@ export interface ConnectBridgeOptions {
   initialReconnectDelayMs?: number;
   /** Max reconnect delay in ms (default 30_000). */
   maxReconnectDelayMs?: number;
+  /**
+   * Standby poll interval in ms (default 2_000). When the bridge closes this
+   * connection with the REPLACED code (another tab took the peer slot), the
+   * client polls the health endpoint at this cadence — plus per-poll jitter,
+   * so two standby tabs don't stampede a freshly vacant slot — and only
+   * reconnects when `sandboxConnected` is false.
+   */
+  standbyPollMs?: number;
+  /** Injectable fetch for the standby health poll (tests). Default: global. */
+  fetchImpl?: typeof fetch;
   /**
    * Disable the auto-reconnect loop (useful in tests where the test
    * harness explicitly controls connection lifecycle).
@@ -95,7 +115,14 @@ export type ConnectedBridgeState =
   | { kind: 'connecting' }
   | { kind: 'connected'; bridgeVersion: string }
   | { kind: 'disconnected'; reason: string }
-  | { kind: 'reconnecting'; attempt: number; delayMs: number };
+  | { kind: 'reconnecting'; attempt: number; delayMs: number }
+  /**
+   * Another tab holds the peer slot (this connection was closed with the
+   * REPLACED code). The client health-polls until the slot is vacant, then
+   * reconnects. Distinct from `reconnecting`: the bridge is healthy and
+   * deliberately serving a different tab.
+   */
+  | { kind: 'standby' };
 
 export interface SandboxToolDispatcher {
   /**
@@ -119,6 +146,14 @@ export interface ConnectedBridge {
 
 const DEFAULT_INITIAL_DELAY = 500;
 const DEFAULT_MAX_DELAY = 30_000;
+const DEFAULT_STANDBY_POLL_MS = 2_000;
+/** Per-poll jitter as a fraction of the poll interval (0..50% added), so two
+ *  standby tabs don't race a freshly vacant slot in lockstep. */
+const STANDBY_POLL_JITTER_RATIO = 0.5;
+/** Consecutive unreachable/unparseable health polls before standby gives up
+ *  and falls back to the plain reconnect loop (a restarted server has a
+ *  vacant slot but may briefly serve nothing). */
+const STANDBY_MAX_POLL_FAILURES = 3;
 
 export function connectBridge(
   sandbox: Sandbox,
@@ -132,6 +167,10 @@ export function connectBridge(
   const maxDelay = opts.maxReconnectDelayMs ?? DEFAULT_MAX_DELAY;
   const noReconnect = opts.noReconnect ?? false;
   const onStateChange = opts.onStateChange ?? (() => {});
+  const standbyPollMs = opts.standbyPollMs ?? DEFAULT_STANDBY_POLL_MS;
+  // Wrap rather than alias: an unbound `window.fetch` reference throws
+  // "Illegal invocation" in browsers.
+  const fetchImpl = opts.fetchImpl ?? ((input: Parameters<typeof fetch>[0]) => fetch(input));
 
   const workerRelay = opts.workerRelay ?? null;
 
@@ -139,6 +178,8 @@ export function connectBridge(
   let closed = false;
   let attempt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let standbyTimer: ReturnType<typeof setTimeout> | null = null;
+  let standbyPollFailures = 0;
   let currentState: ConnectedBridgeState = { kind: 'connecting' };
   /** Live relay subscriptions (bridge subId → worker unsubscribe). Torn down
    *  on every socket close: the bridge re-issues its registry to the NEXT
@@ -247,6 +288,15 @@ export function connectBridge(
       // and re-issues it after the next hello, so live worker listeners from
       // THIS connection must go now (or the next connection double-delivers).
       teardownRelaySubs();
+      if (event.code === PEER_REPLACED_CLOSE_CODE) {
+        // Another tab won the peer slot. Re-helloing now would kick it right
+        // back out (last-connection-wins) and the two tabs would fight over
+        // the slot forever — re-firing every relayed subscription and
+        // failing all in-flight worker ops once per cycle. Go standby:
+        // health-poll until the slot is genuinely vacant.
+        enterStandby();
+        return;
+      }
       scheduleReconnect(reason);
     };
 
@@ -351,6 +401,86 @@ export function connectBridge(
     }
   }
 
+  // ── Standby: another tab holds the peer slot ─────────────────────────────
+
+  /**
+   * Health endpoints to poll while in standby, derived from the WS url —
+   * same host, http(s) for ws(s). `pyric dev` mounts `/__pyric/health`
+   * (bridge-mount.ts); the standalone bridge serves `/health` — try both.
+   */
+  function healthUrls(): string[] {
+    try {
+      const u = new URL(url);
+      u.protocol = u.protocol === 'wss:' ? 'https:' : 'http:';
+      const base = u.origin;
+      return [`${base}/__pyric/health`, `${base}/health`];
+    } catch {
+      return [];
+    }
+  }
+
+  function enterStandby() {
+    if (closed) return;
+    if (noReconnect) {
+      setState({ kind: 'disconnected', reason: 'replaced by a newer sandbox peer' });
+      return;
+    }
+    attempt = 0;
+    standbyPollFailures = 0;
+    setState({ kind: 'standby' });
+    scheduleStandbyPoll();
+  }
+
+  function scheduleStandbyPoll() {
+    if (closed) return;
+    const delay = standbyPollMs * (1 + Math.random() * STANDBY_POLL_JITTER_RATIO);
+    standbyTimer = setTimeout(() => {
+      standbyTimer = null;
+      void pollForVacantSlot();
+    }, delay);
+  }
+
+  async function pollForVacantSlot(): Promise<void> {
+    if (closed) return;
+    // null = health unreadable (unreachable / non-JSON / shape drift).
+    let vacant: boolean | null = null;
+    for (const target of healthUrls()) {
+      try {
+        const res = await fetchImpl(target);
+        if (!res.ok) continue;
+        const body = (await res.json()) as { sandboxConnected?: unknown };
+        if (typeof body.sandboxConnected === 'boolean') {
+          vacant = !body.sandboxConnected;
+          break;
+        }
+      } catch {
+        // try the next candidate
+      }
+    }
+    if (closed) return;
+    if (vacant === true) {
+      // The winning tab is gone (refresh / close) — claim the slot. The
+      // bridge replays its sub registry to us on hello; its re-issue dedup
+      // keeps unchanged listeners quiet.
+      connect();
+      return;
+    }
+    if (vacant === false) {
+      standbyPollFailures = 0;
+      scheduleStandbyPoll();
+      return;
+    }
+    // Health unreadable: a restarting server has a vacant slot but may
+    // briefly serve nothing. After a few consecutive failures fall back to
+    // the plain reconnect loop rather than idling in standby forever.
+    standbyPollFailures += 1;
+    if (standbyPollFailures >= STANDBY_MAX_POLL_FAILURES) {
+      scheduleReconnect('standby health poll unreachable');
+      return;
+    }
+    scheduleStandbyPoll();
+  }
+
   function scheduleReconnect(reason: string) {
     if (closed) return;
     if (noReconnect) {
@@ -376,6 +506,10 @@ export function connectBridge(
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
+      }
+      if (standbyTimer) {
+        clearTimeout(standbyTimer);
+        standbyTimer = null;
       }
       if (ws) {
         try {

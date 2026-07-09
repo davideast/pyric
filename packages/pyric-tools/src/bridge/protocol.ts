@@ -57,6 +57,22 @@ export const DEFAULT_MCP_PATH = '/mcp';
 /** Default health endpoint path. */
 export const DEFAULT_HEALTH_PATH = '/health';
 
+/**
+ * WS close code the transport sends a sandbox peer when a NEWER registration
+ * displaces it (last-connection-wins). Application-defined (4000–4999 per RFC
+ * 6455 §7.4.2) so it survives every WS stack verbatim. The browser client
+ * treats this close as "the slot is legitimately held by another tab" and
+ * enters STANDBY (poll the health endpoint, reconnect only when the slot is
+ * vacant) instead of re-helloing — two open tabs used to kick each other in a
+ * perpetual last-wins fight, re-firing every relayed subscription and failing
+ * all in-flight worker ops once per cycle. Any OTHER close (server restart,
+ * network drop, tab-refresh takeover) keeps the immediate-reconnect loop.
+ */
+export const PEER_REPLACED_CLOSE_CODE = 4001;
+
+/** Human-readable reason sent with {@link PEER_REPLACED_CLOSE_CODE}. */
+export const PEER_REPLACED_CLOSE_REASON = 'replaced by a newer sandbox peer';
+
 // ── Bridge ↔ browser WebSocket protocol ──────────────────────────────
 //
 // All messages are JSON. Each message has a `type` discriminator.
