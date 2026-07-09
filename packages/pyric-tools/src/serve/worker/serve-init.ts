@@ -32,9 +32,10 @@ import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database/modular';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import type { PersistenceBackend } from 'pyric/sandbox';
 import { initializeSandbox, serializeToBuckets, bundleRecords, parseBundle } from 'pyric/sandbox';
+import { primeEventHistory } from 'pyric/sandbox/internal';
 import type { InitPayload } from '../namespace.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
-import { buildVerifyFixture } from '../../verify/fixture.js';
+import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixture.js';
 
 /** Injected environment — `fetch` is the only ambient the worker init needs
  *  (capture POSTs through it). Injectable so tests drive it with a stub. */
@@ -181,6 +182,9 @@ export function applyServeInit(
           users: authOps.exportUsers(auth),
           currentUser: ctx.sandbox.currentUser,
         },
+        // Stamp WHO produced this capture so a booting worker only re-hydrates
+        // its OWN session (see hydrateEventHistory's identity guard).
+        capturedBy: ctx.instanceId,
       }));
       // Relative URL resolves against the worker script's origin (same origin
       // as the page). Fire-and-forget — capture failures never break ops.
@@ -206,6 +210,80 @@ export function applyServeInit(
   }
 
   return result;
+}
+
+// ─── Event-history hydration: survive worker death (served mode) ─────────────
+
+/**
+ * Cap on the number of events primed on boot. A long-lived session can
+ * accumulate a large capture; a fresh worker only needs enough recent history
+ * for Traffic / activity / metrics to feel continuous, so we prime the most
+ * recent N and drop older events rather than balloon worker memory with the
+ * whole log. The full log still lives on disk for `pyric verify`.
+ */
+export const MAX_PRIMED_EVENTS = 2000;
+
+/**
+ * Re-hydrate the worker's in-memory event history from the served capture
+ * file on boot — the fix for "worker death zeroes Traffic / activity / metrics
+ * even though the data restored from IDB".
+ *
+ * The SERVER already holds the complete event log (`.pyric/last-session.json`,
+ * written continuously by the capture flush). On a fresh worker we GET it back
+ * and REPLAY `events[]` into the sandbox's `history()` via the
+ * {@link primeEventHistory} seam — append-only, NO re-execution of ops and NO
+ * dispatch to live `onEvent` subscribers. Studio subscribes AFTER boot and
+ * reads history-first, so append-only-no-dispatch gives every consumer
+ * continuity for free with zero Studio changes.
+ *
+ * GUARD RAILS:
+ *  - Only primes when history is EMPTY (the {@link primeEventHistory} seam
+ *    enforces this) — a warm sandbox is never disturbed and primed events can
+ *    never interleave after live boot events. Call this BEFORE applyServeInit.
+ *  - Caps at {@link MAX_PRIMED_EVENTS} (most recent) so a huge capture can't
+ *    balloon worker memory.
+ *  - IDENTITY: skips when the capture was produced by a DIFFERENT instance
+ *    (`capturedBy !== ctx.instanceId`) — another browser profile sharing one
+ *    `pyric dev` shouldn't see someone else's session as its own. A capture
+ *    with no `capturedBy` (older / standalone) primes best-effort.
+ *  - Skips cleanly when the endpoint 404s (capture off / nothing captured) or
+ *    the fetch throws (standalone worker, no `pyric dev` behind it).
+ *
+ * FRESHNESS: the capture lags the last pre-death moments by up to the debounce
+ * window (~400ms), so the final events before a worker death may be missing.
+ * That is acceptable — the data itself is durable via IDB; this only restores
+ * the activity RECORD, and near-perfect is enough for Traffic/feed continuity.
+ *
+ * Returns the number of events primed (0 when skipped).
+ */
+export async function hydrateEventHistory(
+  ctx: HostCtx,
+  env: ServeInitEnv,
+): Promise<number> {
+  let res: Response;
+  try {
+    res = await env.fetch('/__pyric/capture');
+  } catch {
+    return 0; // standalone / no capture endpoint.
+  }
+  if (res.status !== 200) return 0; // 404 → capture off or nothing captured.
+
+  let fixture: PyricVerifyFixture;
+  try {
+    fixture = JSON.parse(await res.text()) as PyricVerifyFixture;
+  } catch {
+    return 0; // corrupt capture — never brick boot over the activity log.
+  }
+
+  const events = fixture.events;
+  if (!Array.isArray(events) || events.length === 0) return 0;
+
+  // Identity: don't show a neighbor profile's session as ours.
+  if (fixture.capturedBy && fixture.capturedBy !== ctx.instanceId) return 0;
+
+  const capped =
+    events.length > MAX_PRIMED_EVENTS ? events.slice(-MAX_PRIMED_EVENTS) : events;
+  return primeEventHistory(ctx.sandbox, capped);
 }
 
 // ─── Durable persistence: the --persist server-file tier + seedState (3c.D) ─
@@ -474,6 +552,20 @@ export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
     sessionBackend: env.idb,
     sessionMode: 'LOCAL',
   };
+
+  // Re-hydrate the event history from the served capture BEFORE applyServeInit
+  // runs — history is empty here (fresh sandbox, persistence restore emits no
+  // sandbox events), so primed events land first and any live boot events
+  // (seed, first ops) follow. This is what makes Traffic / activity / metrics
+  // survive a worker death: the DATA came back from IDB above, this restores
+  // the RECORD of it. Best-effort — a failure never blocks boot.
+  if (payload?.capture) {
+    try {
+      await hydrateEventHistory(ctx, env);
+    } catch {
+      /* activity-log hydration is non-essential; never brick boot over it. */
+    }
+  }
 
   // Apply rules / seed / authUsers / capture BEFORE any port op runs (so
   // seeded users exist and project rules govern the first write), then mirror

@@ -353,6 +353,33 @@ export class SandboxImpl implements Sandbox {
   }
 
   /**
+   * Prime the event-history log with events from a PRIOR session of the
+   * SAME origin (the served `.pyric/last-session.json` capture), for display
+   * continuity after a SharedWorker death — Traffic / activity / metrics read
+   * `history()` (and history-first `onEvent` batches), so a fresh worker would
+   * otherwise show an empty feed even though the data restored from IDB.
+   *
+   * This is history-priming ONLY:
+   *  - events are APPENDED to `eventHistory` so `history()` and any consumer
+   *    that subscribes AFTER boot (Studio's history-first batch) sees them;
+   *  - they are NOT dispatched to live `onEvent` subscribers (no re-emission);
+   *  - no operation is re-executed — the underlying data is restored
+   *    separately from persistence, these events are the record of it;
+   *  - `dispatchedCount` is untouched (it counts THIS session's live
+   *    dispatches, which drive session_boundary's priorOpCount).
+   *
+   * No-op unless history is empty, so a warm sandbox (live events already
+   * accumulated during boot) is never disturbed and primed events can never
+   * interleave after live ones. Returns the number of events primed.
+   */
+  primeEventHistory(events: readonly SandboxEvent[]): number {
+    if (this.eventHistory.length > 0) return 0;
+    if (events.length === 0) return 0;
+    this.eventHistory.push(...events);
+    return events.length;
+  }
+
+  /**
    * Admin-plane access. Identity-agnostic: admin reads aren't gated on
    * auth, so they're a sandbox property — not something contexts carry.
    */
@@ -664,6 +691,30 @@ export function getInternalEnv(sandbox: Sandbox): LocalEnvironment {
     );
   }
   return sandbox.getEnv();
+}
+
+/**
+ * Prime a sandbox's `history()` log with events from a prior session of the
+ * same origin (the served capture file), WITHOUT dispatching them to live
+ * `onEvent` subscribers or re-executing any op. History-priming seam for the
+ * served worker's boot-time event hydration — see
+ * {@link SandboxImpl.primeEventHistory}. No-op unless history is empty.
+ * Returns the number of events primed.
+ *
+ * Throws if `sandbox` wasn't produced by `initializeSandbox()` (same guard
+ * as {@link getInternalEnv}).
+ */
+export function primeEventHistory(
+  sandbox: Sandbox,
+  events: readonly SandboxEvent[],
+): number {
+  if (!(sandbox instanceof SandboxImpl)) {
+    throw new SandboxError(
+      'invalid-argument',
+      'Sandbox handle was not produced by initializeSandbox(); custom Sandbox implementations are not supported.',
+    );
+  }
+  return sandbox.primeEventHistory(events);
 }
 
 /**
