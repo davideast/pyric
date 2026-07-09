@@ -55,6 +55,11 @@
   --rhythm-group: 1.5rem;
   --rhythm-subsection: 2.25rem;
   --rhythm-section: 3.25rem;
+  /* Derived beat: the gap between items of one list. Tighter than the
+     para beat (a list is one group), but not so tight it stacks —
+     owner review pass 2 bumped this from half a para beat to three
+     quarters. */
+  --rhythm-list: calc(var(--rhythm-para) * 0.75);
 }
 
 /* ── Reset: no block in the content column owns a margin ─────────── */
@@ -104,15 +109,15 @@
   margin-block-start: var(--rhythm-para);
 }
 
-/* ── Inside lists: half a para beat between items ────────────────── */
+/* ── Inside lists: the list beat between items ───────────────────── */
 
 .prose li + li {
-  margin-block-start: calc(var(--rhythm-para) / 2);
+  margin-block-start: var(--rhythm-list);
 }
 
 .prose li > ul,
 .prose li > ol {
-  margin-block-start: calc(var(--rhythm-para) / 2);
+  margin-block-start: var(--rhythm-list);
 }
 
 /* Multi-paragraph list items and quotes keep the para beat. */

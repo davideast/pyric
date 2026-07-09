@@ -147,13 +147,25 @@ body {
   align-items: start;
 }
 
-/* ── Left column: package → subdir → page, disclosure per package ── */
+/* ── Left column: package → subdir → page, disclosure per package ──
+   Scroller height accounting (owner review pass 2 — the last items
+   were flush with, or off, the screen edge): the nav's TOP offset is
+   54px header + 2.5rem shell padding before sticky engages, and
+   54px + 1.5rem once stuck — so the max-height must subtract the
+   LARGER (pre-stick) offset, or the nav hangs past its breathing room
+   until the page scrolls. Plus 1.5rem of guaranteed room below the
+   scroller, and dvh (vh fallback) so mobile dynamic toolbars don't
+   inflate the budget. Comfortable end padding INSIDE the scroller
+   (--space-6) so the final item never sits flush against the clipped
+   edge. */
 
 .docs-nav {
   position: sticky;
   top: calc(54px + 1.5rem);
-  max-height: calc(100vh - 54px - 3rem);
+  max-height: calc(100vh - 54px - 4rem);
+  max-height: calc(100dvh - 54px - 4rem);
   overflow-y: auto;
+  padding-bottom: var(--space-6);
   display: grid;
   align-content: start;
   gap: var(--space-4);
@@ -224,14 +236,17 @@ body {
 }
 
 /* Full pill: a rounded-rectangle fill spanning the item width, not a
-   rail segment — hover gets the same shape at lower opacity. Comfortable
-   ~35px hit area (13px/1.5 text + --space-2 top/bottom), derived from
-   the spacing scale, not a hand-picked height. */
+   rail segment — hover gets the same shape at lower opacity. The
+   min-height (~34px) carries the comfortable hit area on its own —
+   the 13px/1.5 label centres inside it via flex — so the vertical
+   padding is the smallest spacing step (owner live-edit, second
+   review pass): it only matters if a label ever wraps; normally the
+   min-height, not the padding, sets the item height. */
 .docs-nav a {
   display: flex;
   align-items: center;
   min-height: 2.125rem; /* ~34px */
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border-radius: 0.375rem;
   color: var(--muted);
   text-decoration: none;
@@ -260,9 +275,15 @@ body {
   display: none;
 }
 
-/* ── Middle column: readable measure, optically centred ──────────── */
-
+/* ── Middle column: readable measure, optically centred ────────────
+   `width: 100%` is load-bearing: with only auto margins, a grid item
+   sizes to fit-content, and a wide table's max-content width would
+   inflate the whole column past its track (breaking the page at
+   narrow widths) instead of scrolling inside its wrapper. A definite
+   100% width caps the column at the track; the auto margins then
+   centre the 72ch measure inside it. */
 .doc-main {
+  width: 100%;
   max-width: 72ch;
   margin-inline: auto;
   min-width: 0;
@@ -274,8 +295,15 @@ body {
 .doc-toc {
   position: sticky;
   top: calc(54px + 1.5rem);
-  max-height: calc(100vh - 54px - 3rem);
+  /* Same scroller height accounting as .docs-nav above. */
+  max-height: calc(100vh - 54px - 4rem);
+  max-height: calc(100dvh - 54px - 4rem);
   overflow-y: auto;
+  padding-bottom: var(--space-6);
+  /* Grid, like .docs-nav: block scroll containers drop their bottom
+     padding past the overflow edge in Firefox; grid ones don't. */
+  display: grid;
+  align-content: start;
   font-size: 0.8125rem;
 }
 
@@ -482,7 +510,7 @@ body {
 .doc-toc,
 .docs-search-results,
 .prose pre,
-.prose table {
+.prose .table-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--line-2) transparent;
 }
@@ -491,7 +519,7 @@ body {
 .doc-toc::-webkit-scrollbar,
 .docs-search-results::-webkit-scrollbar,
 .prose pre::-webkit-scrollbar,
-.prose table::-webkit-scrollbar {
+.prose .table-scroll::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
@@ -500,7 +528,7 @@ body {
 .doc-toc::-webkit-scrollbar-track,
 .docs-search-results::-webkit-scrollbar-track,
 .prose pre::-webkit-scrollbar-track,
-.prose table::-webkit-scrollbar-track {
+.prose .table-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -508,7 +536,7 @@ body {
 .doc-toc::-webkit-scrollbar-thumb,
 .docs-search-results::-webkit-scrollbar-thumb,
 .prose pre::-webkit-scrollbar-thumb,
-.prose table::-webkit-scrollbar-thumb {
+.prose .table-scroll::-webkit-scrollbar-thumb {
   background-color: var(--line-2);
   border-radius: 999px;
   border: 2px solid transparent;
@@ -552,6 +580,27 @@ body {
 
 .prose a:hover {
   text-decoration-color: var(--accent);
+}
+
+/* External links (marked by rehype-docs.mjs at build time) carry a
+   small up-right arrow after the text. A masked pseudo-element rather
+   than an inline SVG so it inherits the link's current color in every
+   state and both themes; not scoped to .prose so any future shell
+   surface can reuse the class. The mask is the arrow glyph; the
+   element is a bottom-aligned inline box so it sits on the baseline
+   like a character of the label. */
+a.external-link::after {
+  content: '';
+  display: inline-block;
+  vertical-align: baseline;
+  width: 0.625em;
+  height: 0.625em;
+  margin-left: 0.2em;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 2.5h9v9h-2V5.91l-6.8 6.8-1.41-1.42 6.79-6.79H4.5v-2z'/%3E%3C/svg%3E")
+    no-repeat center / contain;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 2.5h9v9h-2V5.91l-6.8 6.8-1.41-1.42 6.79-6.79H4.5v-2z'/%3E%3C/svg%3E")
+    no-repeat center / contain;
 }
 
 .prose strong {
@@ -603,8 +652,8 @@ body {
    content indent, no right padding/margin. Their vertical separation
    from siblings is the same rhythm-token margin every block gets
    (rhythm.css); the padding-block here is purely INTERNAL breathing
-   room around the quoted text, also rhythm-token-derived (half a para
-   beat, the same fraction rhythm.css already uses for list items). The
+   room around the quoted text, also rhythm-token-derived (a full para
+   beat — owner review pass 2 found the earlier half-beat cramped). The
    marker is a hairline rail pushed into the left gutter with a
    negative offset (`--space-4`, the existing spacing scale) via
    `position: absolute` — it never contributes to the box's layout
@@ -613,7 +662,7 @@ body {
   position: relative;
   margin-inline: 0;
   padding-inline: 0;
-  padding-block: calc(var(--rhythm-para) / 2);
+  padding-block: var(--rhythm-para);
   color: var(--muted);
 }
 
@@ -631,12 +680,19 @@ body {
   border-top: 1px solid var(--line);
 }
 
+/* Wide tables scroll inside their own wrapper (rehype-docs.mjs wraps
+   every table at build time), never the page body. The table itself
+   stays a real table — the old `display: block` hack degraded column
+   sizing and put the scrollbar inside the table's border box. */
+.prose .table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .prose table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
-  display: block;
-  overflow-x: auto;
 }
 
 .prose th,

@@ -38,7 +38,8 @@ This paragraph introduces a list, so the list hangs off it at the para
 beat (`p + ul`):
 
 - First item.
-- Second item, half a para beat below the first.
+- Second item, one list beat below the first (`--rhythm-list`, three
+  quarters of a para beat).
 - Third item with a nested list:
   - Nested item one.
   - Nested item two.
@@ -97,6 +98,7 @@ This paragraph precedes a table at the group beat:
 | `* + *` (default) | `--rhythm-group` |
 | `* + h3` | `--rhythm-subsection` |
 | `* + h2` | `--rhythm-section` |
+| `li + li` | `--rhythm-list` |
 
 A closing paragraph after the table.
 

@@ -59,8 +59,14 @@ const TOKENS = {
   group: 24, // 1.5rem
   subsection: 36, // 2.25rem
   section: 52, // 3.25rem
+  list: 10.5, // calc(0.875rem * 0.75) — the li + li beat
 } as const;
 type Adjacency = keyof typeof TOKENS;
+
+// Non-adjacency rhythm facts, asserted as computed styles: blockquote
+// internal breathing room is a full para beat (site.css derives its
+// padding-block from --rhythm-para).
+const BLOCKQUOTE_PADDING_BLOCK = 14;
 
 const HEADINGS = new Set(['H1', 'H2', 'H3', 'H4']);
 
@@ -121,24 +127,46 @@ for (const slug of SAMPLE_SLUGS) {
     continue;
   }
   await page.goto(`${base}/docs/${slug}/`);
-  const gaps = await page.evaluate(() => {
+  const measured = await page.evaluate(() => {
     const article = document.querySelector('.prose');
-    if (!article) return [];
+    if (!article) return { gaps: [], listGaps: [], quotePaddings: [] };
     const children = [...article.children] as HTMLElement[];
-    const out: { prevTag: string; curTag: string; curText: string; gap: number }[] = [];
+    const gaps: { prevTag: string; curTag: string; curText: string; gap: number }[] =
+      [];
     for (let i = 1; i < children.length; i++) {
       const a = children[i - 1].getBoundingClientRect();
       const b = children[i].getBoundingClientRect();
-      out.push({
+      gaps.push({
         prevTag: children[i - 1].tagName,
         curTag: children[i].tagName,
         curText: (children[i].textContent ?? '').trim().slice(0, 40),
         gap: b.top - a.bottom,
       });
     }
-    return out;
+    // li + li: the list beat, anywhere in the article (incl. nested).
+    const listGaps: { curText: string; gap: number }[] = [];
+    for (const li of article.querySelectorAll('li')) {
+      const prev = li.previousElementSibling;
+      if (!prev || prev.tagName !== 'LI') continue;
+      listGaps.push({
+        curText: (li.textContent ?? '').trim().slice(0, 40),
+        gap: li.getBoundingClientRect().top - prev.getBoundingClientRect().bottom,
+      });
+    }
+    // Blockquote internal breathing room (computed, not a sibling gap).
+    const quotePaddings: { curText: string; top: number; bottom: number }[] = [];
+    for (const bq of article.querySelectorAll('blockquote')) {
+      const cs = getComputedStyle(bq);
+      quotePaddings.push({
+        curText: (bq.textContent ?? '').trim().slice(0, 40),
+        top: parseFloat(cs.paddingTop),
+        bottom: parseFloat(cs.paddingBottom),
+      });
+    }
+    return { gaps, listGaps, quotePaddings };
   });
 
+  const { gaps, listGaps, quotePaddings } = measured;
   for (let i = 0; i < gaps.length; i++) {
     const { prevTag, curTag, curText, gap } = gaps[i];
     const adjacency = classify(prevTag, curTag);
@@ -157,7 +185,45 @@ for (const slug of SAMPLE_SLUGS) {
       });
     }
   }
-  console.log(`  ok  ${slug}: ${gaps.length} adjacent pair(s) measured`);
+  for (let i = 0; i < listGaps.length; i++) {
+    const { curText, gap } = listGaps[i];
+    pairsChecked++;
+    if (Math.abs(gap - TOKENS.list) > 1) {
+      violations.push({
+        slug,
+        index: i,
+        prevTag: 'LI',
+        curTag: 'LI',
+        curText,
+        adjacency: 'list',
+        expected: TOKENS.list,
+        actual: Math.round(gap * 100) / 100,
+      });
+    }
+  }
+  for (let i = 0; i < quotePaddings.length; i++) {
+    const { curText, top, bottom } = quotePaddings[i];
+    pairsChecked++;
+    if (
+      Math.abs(top - BLOCKQUOTE_PADDING_BLOCK) > 1 ||
+      Math.abs(bottom - BLOCKQUOTE_PADDING_BLOCK) > 1
+    ) {
+      violations.push({
+        slug,
+        index: i,
+        prevTag: 'BLOCKQUOTE',
+        curTag: 'padding',
+        curText,
+        adjacency: 'para',
+        expected: BLOCKQUOTE_PADDING_BLOCK,
+        actual: Math.round(Math.max(top, bottom) * 100) / 100,
+      });
+    }
+  }
+  console.log(
+    `  ok  ${slug}: ${gaps.length} pair(s), ${listGaps.length} list gap(s), ` +
+      `${quotePaddings.length} quote(s) measured`,
+  );
 }
 
 await browser.close();

@@ -1,4 +1,5 @@
 import { defineConfig } from 'astro/config';
+import rehypeDocs from './src/lib/rehype-docs.mjs';
 
 /**
  * Pyric docs — a pure-SSG Astro site, deliberately a *sibling* of the
@@ -36,6 +37,10 @@ export default defineConfig({
   // llms.txt links point at the flat form) — see [slug].md.ts.
   build: { format: 'directory' },
   markdown: {
+    // Build-time HTML transforms: external links open in a new tab
+    // with an arrow indicator; tables get an overflow-x scroll wrapper.
+    // See src/lib/rehype-docs.mjs.
+    rehypePlugins: [rehypeDocs],
     shikiConfig: {
       theme: 'one-dark-pro',
       wrap: false,
