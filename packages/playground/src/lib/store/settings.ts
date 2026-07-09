@@ -16,6 +16,7 @@
  *     Not persisted; it only forces compaction on the next submit.
  */
 import { create } from 'zustand';
+import { IS_STATIC_PLAYGROUND_BUILD } from '~/lib/build-env';
 
 const STORAGE_KEY = 'pyric:settings';
 
@@ -270,8 +271,10 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   pyricDiagnosticsEnabled: initial.pyricDiagnosticsEnabled ?? true,
   diagnosticToolsEnabled: initial.diagnosticToolsEnabled ?? {},
   // Default ON. Read from the V2 key only: the legacy key was default-OFF,
-  // so a persisted legacy `false` was never an explicit opt-out.
-  resumableServerMode: initial.resumableServerModeV2 ?? true,
+  // so a persisted legacy `false` was never an explicit opt-out. Forced OFF in
+  // the static-site build (no server relay exists; the toggle is hidden and
+  // inference is page-direct BYOK — see selectMode / SettingsModal).
+  resumableServerMode: IS_STATIC_PLAYGROUND_BUILD ? false : (initial.resumableServerModeV2 ?? true),
   enhancePromptEnabled: initial.enhancePromptEnabled ?? false,
   maxTurns: clampMaxTurns(initial.maxTurns),
   parallelDispatch: initial.parallelDispatch ?? false,
