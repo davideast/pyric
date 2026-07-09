@@ -584,6 +584,44 @@ describe('rules inspector: ALLOWED ops project + explain with the allowing rule'
     };
     expect(denialSeverity(d)).toBe('low');
   });
+
+  it('honesty guard: an "allow" with NO recorded evaluation says so (no undefined rule)', () => {
+    // The owner-reported shape: result allow, but no matchedRule, no engine
+    // verdict, no evaluatedRule, no per-rule trace lines — an admin bypass
+    // from a worker that didn't stamp its lens.
+    const d: Denial = {
+      result: 'allow',
+      id: 'ghost1', at: 0, method: 'get', path: 'conversations/alice-bob',
+      service: 'firestore',
+      auth: null, reasons: [], origin: 'user', unsupported: false,
+    };
+    const exp = explainDenial(d);
+    expect(exp.noEvaluation).toBe(true);
+    expect(exp.headline).toContain('no rules evaluation was recorded');
+    // Never a claim it can't ground: no rule node, no "Rules allowed" line.
+    expect(exp.ruleNode).toBeUndefined();
+    expect(exp.headline).not.toContain('Rules allowed');
+    // And no trace to show work with.
+    expect(projectTraceSteps(d)).toEqual([]);
+  });
+
+  it('honesty guard does NOT fire for a genuine rules-allow (matched rule present)', () => {
+    const d: Denial = {
+      result: 'allow',
+      id: 'real1', at: 0, method: 'create', path: 'posts/p1', service: 'firestore',
+      auth: { uid: 'alice' },
+      reasons: ['Rule #1 (create,write) → ALLOW', 'Simulated: ALLOW'],
+      matchedRule: { ruleIndex: 1, operations: ['create', 'write'] },
+      evaluatedRule: { verdict: 'allow', line: 6 },
+      origin: 'user', unsupported: false,
+    };
+    const exp = explainDenial(d);
+    expect(exp.noEvaluation).toBeUndefined();
+    expect(exp.ruleNode).toBe('Rule #1 (create, write)');
+    // The ✓ line marker's inputs are present: an allow verdict + a line.
+    expect(d.evaluatedRule?.verdict).toBe('allow');
+    expect(d.evaluatedRule?.line).toBe(6);
+  });
 });
 
 describe('rules-debug: list/query denial re-run shape (INVALID-ARGUMENT fix)', () => {

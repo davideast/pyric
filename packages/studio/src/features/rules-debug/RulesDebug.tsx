@@ -228,26 +228,46 @@ export function DenialDetail({
         <p className="text-sm leading-relaxed text-soft-white">{exp.headline}</p>
       </section>
 
-      {/* Per-service rule detail, grounded in that service's mechanical trace.
-          For Firestore this includes the read-only "what happened" view of the
-          deployed ruleset with the denying line marked (✗). */}
-      <RuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />
+      {exp.noEvaluation ? (
+        /* Honesty guard: an "allow" with NO recorded rules evaluation (admin
+           bypass from a worker that didn't stamp its lens, or a mislabel).
+           The headline above says so; no matched-rule box, no ✓ marker, no
+           trace, no re-runs — they would contradict the facts. The request
+           context below is still shown: it's honest data. */
+        <p
+          data-pyric-ui="rules-debug-no-evaluation"
+          className="rounded-md border border-border bg-content-bg px-3 py-2 text-xs text-slate-gray"
+        >
+          No matched rule, evaluation trace, or re-run is shown because this
+          event carries no rules verdict to ground them in.
+        </p>
+      ) : (
+        <>
+          {/* Per-service rule detail, grounded in that service's mechanical
+              trace. For Firestore this includes the read-only "what happened"
+              view of the deployed ruleset with the deciding line marked. */}
+          <RuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />
 
-      {/* Show the work: the denying rule's sub-expression evaluation. */}
-      <TraceWork denial={denial} />
+          {/* Show the work: the deciding rule's sub-expression evaluation. */}
+          <TraceWork denial={denial} />
+        </>
+      )}
 
       {/* What the rule saw: request/resource variables, inspectable + honest
           about anything not captured for this denial. */}
       <VariablesInspector denial={denial} />
 
-      {/* Re-run actions. */}
-      <RerunPanel
-        denial={denial}
-        editedRules={editedRules}
-        onEditedRulesChange={onEditedRulesChange}
-        onRerunAsUser={onRerunAsUser}
-        onRerunAgainstRules={onRerunAgainstRules}
-      />
+      {/* Re-run actions (omitted when there is no rules evaluation to
+          reproduce — a re-run verdict would contradict the row's claim). */}
+      {!exp.noEvaluation ? (
+        <RerunPanel
+          denial={denial}
+          editedRules={editedRules}
+          onEditedRulesChange={onEditedRulesChange}
+          onRerunAsUser={onRerunAsUser}
+          onRerunAgainstRules={onRerunAgainstRules}
+        />
+      ) : null}
     </div>
   );
 }
@@ -288,7 +308,7 @@ function FirestoreRuleDetail({
   return (
     <Field
       label={
-        exp.implicitDeny
+        exp.implicitDeny || !exp.ruleNode
           ? 'matched rule'
           : `matched rule — ${exp.ruleNode}${line ? ` · line ${line}` : ''}`
       }

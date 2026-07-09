@@ -210,6 +210,13 @@ export interface RuleExplanation {
   ruleLines: string[];
   otherLines: string[];
   implicitDeny: boolean;
+  /** True when the event is marked `allow` but carries NO rules evaluation at
+   *  all (no matchedRule, no engine verdict, no evaluatedRule, no per-rule
+   *  trace lines). That means rules likely never ran — an admin-bypass op from
+   *  a worker that didn't stamp its lens, or a mislabel. The UI must NOT
+   *  render a matched rule / ✓ marker / trace / re-runs for it; it says so
+   *  explicitly instead. */
+  noEvaluation?: boolean;
 }
 
 const RULE_LINE = /^Rule #(\d+) \(([^)]+)\) → (ALLOW|deny|unsupported)/;
@@ -259,6 +266,25 @@ export function explainDenial(denial: Denial): RuleExplanation {
         ruleLines,
         otherLines,
         implicitDeny: false,
+      };
+    }
+    // Honesty guard: `result: 'allow'` with NO recorded rules evaluation at
+    // all. Rules likely never ran (an admin-bypass op whose lens wasn't
+    // stamped by an older worker, or a mislabel) — say so rather than render
+    // a "Rules allowed …" claim with an undefined matched rule.
+    const noEvaluation =
+      !denial.matchedRule &&
+      !denial.rules &&
+      !denial.evaluatedRule &&
+      ruleLines.length === 0;
+    if (noEvaluation) {
+      return {
+        headline: `This ${denial.method} on ${denial.path} succeeded, but no rules evaluation was recorded for it — rules likely never ran (an admin/bypass operation from a worker that didn't stamp its lens, or a pre-provenance event).`,
+        engine,
+        ruleLines,
+        otherLines,
+        implicitDeny: false,
+        noEvaluation: true,
       };
     }
     return {
