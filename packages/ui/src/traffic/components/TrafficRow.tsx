@@ -35,6 +35,9 @@ export interface TrafficRowProps {
  *   `data-pyric-result`, `data-pyric-origin`, `data-pyric-method`
  * - `[data-pyric-traffic-row][data-pyric-selected]` — active row
  * - `[data-pyric-traffic-time]` / `[data-pyric-traffic-path]`
+ * - `[data-pyric-traffic-service]` — the service label (firestore / rtdb /
+ *   storage / auth), rendered even when unknown (empty) so fixed-width
+ *   styling keeps the columns aligned
  * - method renders as `<Badge>` (`data-pyric-badge-kind`)
  */
 export function TrafficRow({
@@ -57,6 +60,7 @@ export function TrafficRow({
       data-pyric-selected={selected ? '' : undefined}
     >
       <span data-pyric-traffic-time="">{formatTime(event.at)}</span>
+      <span data-pyric-traffic-service={event.service ?? ''}>{event.service ?? ''}</span>
       <Badge kind={event.method}>{event.method}</Badge>
       <span data-pyric-traffic-path="">{event.path}</span>
       {renderClassification ? renderClassification(event) : null}
