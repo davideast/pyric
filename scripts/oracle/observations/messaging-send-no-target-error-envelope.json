@@ -1,8 +1,11 @@
 {
   "name": "messaging-send-no-target-error-envelope",
-  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
-  "rowIds": [],
-  "description": "v1 messages:send with no recipient: HTTP 400, google.rpc envelope with status INVALID_ARGUMENT, details carrying BOTH google.rpc.BadRequest (fieldViolations naming the field) and google.firebase.fcm.v1.FcmError (errorCode). Detail ORDER differs across error cases and is not a contract.",
+  "matrixRow": "messaging-admin#4, messaging-admin#39",
+  "rowIds": [
+    "messaging-admin#4",
+    "messaging-admin#39"
+  ],
+  "description": "v1 messages:send with no recipient: HTTP 400, google.rpc envelope with status INVALID_ARGUMENT, details carrying BOTH google.rpc.BadRequest (fieldViolations naming the field) and google.firebase.fcm.v1.FcmError (errorCode). Detail ORDER differs across error cases and is not a contract. Cited by messaging-admin#4, messaging-admin#39 (surface climbing under CDD; cited, not yet replayed).",
   "observedAt": "2026-07-09T05:00:43.837Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "genkit-idx",

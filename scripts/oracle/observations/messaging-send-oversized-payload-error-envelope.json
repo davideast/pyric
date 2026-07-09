@@ -1,8 +1,10 @@
 {
   "name": "messaging-send-oversized-payload-error-envelope",
-  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
-  "rowIds": [],
-  "description": "v1 messages:send with a data payload over the documented 4096-byte cap: the error envelope FCM returns, plus the bisected accept/reject boundary. behavior.documentedCapBytes is the published cap; largestAcceptedDataValueLen/smallestRejectedDataValueLen pin where a minimal single-field topic message actually flips (value length, not total bytes — total includes JSON framing). realSendEnvelopeIdentical records validate_only parity. rowIds land with the registry-admission ticket.",
+  "matrixRow": "messaging-admin#4",
+  "rowIds": [
+    "messaging-admin#4"
+  ],
+  "description": "v1 messages:send with a data payload over the documented 4096-byte cap: the error envelope FCM returns, plus the bisected accept/reject boundary. behavior.documentedCapBytes is the published cap; largestAcceptedDataValueLen/smallestRejectedDataValueLen pin where a minimal single-field topic message actually flips (value length, not total bytes — total includes JSON framing). realSendEnvelopeIdentical records validate_only parity. Cited by messaging-admin#4 (surface climbing under CDD; cited, not yet replayed).",
   "observedAt": "2026-07-09T05:00:46.120Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "genkit-idx",

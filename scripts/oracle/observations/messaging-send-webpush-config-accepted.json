@@ -1,8 +1,12 @@
 {
   "name": "messaging-send-webpush-config-accepted",
-  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
-  "rowIds": [],
-  "description": "firebase-admin/messaging send() with a webpush config carrying headers.TTL=\"3600\" and fcmOptions.link=\"https://example.com/oracle\": FCM accepts and returns the standard resource-name shape. dryRun=true matches. rowIds land with the registry-admission ticket.",
+  "matrixRow": "messaging-admin#4, messaging-admin#18, messaging-admin#19",
+  "rowIds": [
+    "messaging-admin#4",
+    "messaging-admin#18",
+    "messaging-admin#19"
+  ],
+  "description": "firebase-admin/messaging send() with a webpush config carrying headers.TTL=\"3600\" and fcmOptions.link=\"https://example.com/oracle\": FCM accepts and returns the standard resource-name shape. dryRun=true matches. Cited by messaging-admin#4, messaging-admin#18, messaging-admin#19 (surface climbing under CDD; cited, not yet replayed).",
   "observedAt": "2026-07-09T05:00:46.547Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "genkit-idx",

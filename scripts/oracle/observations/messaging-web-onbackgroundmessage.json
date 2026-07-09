@@ -1,8 +1,11 @@
 {
   "name": "messaging-web-onbackgroundmessage",
-  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
-  "rowIds": [],
-  "description": "A notification+data message sent while the page has NO visible client is delivered to the service worker onBackgroundMessage handler instead of onMessage. Payload structural facts. rowIds:[]; rows land with the registry-admission ticket (surface admitted born-unverified under the CDD map).",
+  "matrixRow": "messaging#8, messaging#14",
+  "rowIds": [
+    "messaging#8",
+    "messaging#14"
+  ],
+  "description": "A notification+data message sent while the page has NO visible client is delivered to the service worker onBackgroundMessage handler instead of onMessage. Payload structural facts. Cited by messaging#8, messaging#14 (surface climbing under CDD; cited, not yet replayed).",
   "observedAt": "2026-07-09T05:16:38.754Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",

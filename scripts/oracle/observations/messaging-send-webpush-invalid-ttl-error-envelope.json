@@ -1,8 +1,11 @@
 {
   "name": "messaging-send-webpush-invalid-ttl-error-envelope",
-  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
-  "rowIds": [],
-  "description": "v1 messages:send with webpush.headers.TTL set to a non-numeric value (\"not-a-number\"): the error envelope FCM returns. realSendEnvelopeIdentical records validate_only=false parity. rowIds land with the registry-admission ticket.",
+  "matrixRow": "messaging-admin#4, messaging-admin#18",
+  "rowIds": [
+    "messaging-admin#4",
+    "messaging-admin#18"
+  ],
+  "description": "v1 messages:send with webpush.headers.TTL set to a non-numeric value (\"not-a-number\"): the error envelope FCM returns. realSendEnvelopeIdentical records validate_only=false parity. Cited by messaging-admin#4, messaging-admin#18 (surface climbing under CDD; cited, not yet replayed).",
   "observedAt": "2026-07-09T05:00:46.630Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "genkit-idx",

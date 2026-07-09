@@ -8,10 +8,10 @@
  * records `adminSdkVersion` (the transport used) and `observedAt`; drift is
  * detected by re-running and diffing, same as every other observation.
  *
- * Rows do not exist yet (the messaging surface is being admitted born
- * unverified under the CDD map, #43), so every capture ships with
- * `rowIds: []` and an observationExceptions entry, mirroring how the
- * admin-app captures landed pre-matrix.
+ * The messaging surface has been admitted under CDD: each capture cites the
+ * born-unverified `messaging-admin#*` rows it evidences (see
+ * scripts/compat/registry/messaging.ts) via `rowIds`. Citation is not replay —
+ * the rows stay `unverified` until the conformance suite replays them.
  *
  * Requires: PYRIC_MESSAGING_SA_BASE64.
  * Run: bun run scripts/oracle/messaging-send-probes.ts
@@ -51,12 +51,12 @@ async function rawSend(payload: unknown): Promise<{ status: number; body: Record
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
-function writeObservation(name: string, description: string, behavior: Record<string, unknown>): void {
+function writeObservation(name: string, rowIds: string[], description: string, behavior: Record<string, unknown>): void {
   const obs = {
     name,
-    matrixRow: 'messaging (no rows yet; surface admitted born-unverified under the CDD map)',
-    rowIds: [] as string[],
-    description,
+    matrixRow: rowIds.join(', '),
+    rowIds,
+    description: `${description} Cited by ${rowIds.join(', ')} (surface climbing under CDD; cited, not yet replayed).`,
     observedAt: new Date().toISOString(),
     adminSdkVersion,
     projectId,
@@ -114,6 +114,7 @@ async function errorEnvelopeParity(message: unknown): Promise<{
   );
   writeObservation(
     'messaging-send-topic-accepted',
+    ['messaging-admin#4', 'messaging-admin#13'],
     'firebase-admin/messaging send() to a topic: FCM accepts and returns the message resource name projects/<projectId>/messages/<numeric id>. dryRun=true returns a name in the SAME format (fake id), so callers cannot distinguish validation from acceptance by shape alone.',
     {
       realSend: nameFacts(real),
@@ -128,6 +129,7 @@ async function errorEnvelopeParity(message: unknown): Promise<{
   const { status, body } = await rawSend({ validate_only: true, message: {} });
   writeObservation(
     'messaging-send-no-target-error-envelope',
+    ['messaging-admin#4', 'messaging-admin#39'],
     'v1 messages:send with no recipient: HTTP 400, google.rpc envelope with status INVALID_ARGUMENT, details carrying BOTH google.rpc.BadRequest (fieldViolations naming the field) and google.firebase.fcm.v1.FcmError (errorCode). Detail ORDER differs across error cases and is not a contract.',
     { status, error: body.error },
   );
@@ -141,6 +143,7 @@ async function errorEnvelopeParity(message: unknown): Promise<{
   });
   writeObservation(
     'messaging-send-invalid-token-error-envelope',
+    ['messaging-admin#4', 'messaging-admin#12', 'messaging-admin#39'],
     'v1 messages:send with a syntactically invalid registration token: HTTP 400 INVALID_ARGUMENT; fieldViolations names message.token; FcmError errorCode INVALID_ARGUMENT. Note details array order differs from the no-target case.',
     { status, error: body.error },
   );
@@ -160,7 +163,8 @@ async function errorEnvelopeParity(message: unknown): Promise<{
   );
   writeObservation(
     'messaging-send-condition-accepted',
-    "firebase-admin/messaging send() with a condition target of the form \"'a' in topics && 'b' in topics\": FCM accepts and returns projects/<projectId>/messages/<numeric id>, the same resource-name shape as a direct topic send, with no subscribers required. dryRun=true returns the same shape. rowIds land with the registry-admission ticket.",
+    ['messaging-admin#4', 'messaging-admin#14'],
+    "firebase-admin/messaging send() with a condition target of the form \"'a' in topics && 'b' in topics\": FCM accepts and returns projects/<projectId>/messages/<numeric id>, the same resource-name shape as a direct topic send, with no subscribers required. dryRun=true returns the same shape.",
     {
       realSend: nameFacts(real),
       dryRunSend: nameFacts(dry),
@@ -177,7 +181,8 @@ async function errorEnvelopeParity(message: unknown): Promise<{
   });
   writeObservation(
     'messaging-send-invalid-condition-error-envelope',
-    'v1 messages:send with a syntactically malformed condition ("\'a\' in topics &&", dangling operator): the error envelope FCM returns (HTTP status + google.rpc envelope). realSendEnvelopeIdentical records whether validate_only=false returns the byte-identical envelope. rowIds land with the registry-admission ticket.',
+    ['messaging-admin#4', 'messaging-admin#14'],
+    'v1 messages:send with a syntactically malformed condition ("\'a\' in topics &&", dangling operator): the error envelope FCM returns (HTTP status + google.rpc envelope). realSendEnvelopeIdentical records whether validate_only=false returns the byte-identical envelope.',
     parity,
   );
 }
@@ -190,7 +195,8 @@ async function errorEnvelopeParity(message: unknown): Promise<{
   });
   writeObservation(
     'messaging-send-invalid-topic-name-error-envelope',
-    "v1 messages:send with a topic name containing characters outside the documented [a-zA-Z0-9-_.~%] set ('bad#topic!name'): the error envelope FCM returns. realSendEnvelopeIdentical records validate_only=false parity. rowIds land with the registry-admission ticket.",
+    ['messaging-admin#4', 'messaging-admin#13'],
+    "v1 messages:send with a topic name containing characters outside the documented [a-zA-Z0-9-_.~%] set ('bad#topic!name'): the error envelope FCM returns. realSendEnvelopeIdentical records validate_only=false parity.",
     parity,
   );
 }
@@ -224,7 +230,8 @@ async function errorEnvelopeParity(message: unknown): Promise<{
 
   writeObservation(
     'messaging-send-oversized-payload-error-envelope',
-    `v1 messages:send with a data payload over the documented 4096-byte cap: the error envelope FCM returns, plus the bisected accept/reject boundary. behavior.documentedCapBytes is the published cap; largestAcceptedDataValueLen/smallestRejectedDataValueLen pin where a minimal single-field topic message actually flips (value length, not total bytes — total includes JSON framing). realSendEnvelopeIdentical records validate_only parity. rowIds land with the registry-admission ticket.`,
+    ['messaging-admin#4'],
+    `v1 messages:send with a data payload over the documented 4096-byte cap: the error envelope FCM returns, plus the bisected accept/reject boundary. behavior.documentedCapBytes is the published cap; largestAcceptedDataValueLen/smallestRejectedDataValueLen pin where a minimal single-field topic message actually flips (value length, not total bytes — total includes JSON framing). realSendEnvelopeIdentical records validate_only parity.`,
     {
       documentedCapBytes: DOCUMENTED_CAP_BYTES,
       oversizedDataValueLen: oversizedValueLen,
@@ -248,7 +255,8 @@ async function errorEnvelopeParity(message: unknown): Promise<{
   });
   writeObservation(
     'messaging-send-notification-only-vs-data-only-accepted',
-    'firebase-admin/messaging send() to a topic with ONLY a notification block, and separately with ONLY a data block: FCM accepts both and returns the same projects/<projectId>/messages/<numeric id> resource-name shape; neither a data nor a notification block is individually required. rowIds land with the registry-admission ticket.',
+    ['messaging-admin#4', 'messaging-admin#11', 'messaging-admin#16'],
+    'firebase-admin/messaging send() to a topic with ONLY a notification block, and separately with ONLY a data block: FCM accepts both and returns the same projects/<projectId>/messages/<numeric id> resource-name shape; neither a data nor a notification block is individually required.',
     {
       notificationOnly: nameFacts(notifOnly),
       dataOnly: nameFacts(dataOnly),
@@ -277,7 +285,8 @@ async function errorEnvelopeParity(message: unknown): Promise<{
   );
   writeObservation(
     'messaging-send-webpush-config-accepted',
-    'firebase-admin/messaging send() with a webpush config carrying headers.TTL="3600" and fcmOptions.link="https://example.com/oracle": FCM accepts and returns the standard resource-name shape. dryRun=true matches. rowIds land with the registry-admission ticket.',
+    ['messaging-admin#4', 'messaging-admin#18', 'messaging-admin#19'],
+    'firebase-admin/messaging send() with a webpush config carrying headers.TTL="3600" and fcmOptions.link="https://example.com/oracle": FCM accepts and returns the standard resource-name shape. dryRun=true matches.',
     {
       realSend: nameFacts(real),
       dryRunSend: nameFacts(dry),
@@ -295,7 +304,8 @@ async function errorEnvelopeParity(message: unknown): Promise<{
   });
   writeObservation(
     'messaging-send-webpush-invalid-ttl-error-envelope',
-    'v1 messages:send with webpush.headers.TTL set to a non-numeric value ("not-a-number"): the error envelope FCM returns. realSendEnvelopeIdentical records validate_only=false parity. rowIds land with the registry-admission ticket.',
+    ['messaging-admin#4', 'messaging-admin#18'],
+    'v1 messages:send with webpush.headers.TTL set to a non-numeric value ("not-a-number"): the error envelope FCM returns. realSendEnvelopeIdentical records validate_only=false parity.',
     parity,
   );
 }
