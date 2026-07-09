@@ -22,6 +22,8 @@ export {
   parseRtdbJson,
   rtdbValueKind,
   previewRtdbValue,
+  normalizeRtdbSnapshotValue,
+  formatRtdbValueLabel,
 } from './values.js';
 
 // Path-bar input parsing + crumb derivation.

@@ -31,6 +31,15 @@ describe('rtdbTreeReducer: navigate + value', () => {
     expect(moved.expanded).toEqual({});
   });
 
+  test('normalizes an empty-object snapshot to null at ingestion (empty DB)', () => {
+    const s = value(initialRtdbTree('/'), {});
+    expect(s.status).toBe('live');
+    expect(s.value).toBeNull();
+    // Nested empties prune on the way in, too.
+    const nested = value(initialRtdbTree('/'), { rooms: {}, version: 1 });
+    expect(nested.value).toEqual({ version: 1 });
+  });
+
   test('ignores a snapshot from a superseded subscription (stale path)', () => {
     const s = initialRtdbTree('/rooms');
     const stale = rtdbTreeReducer(s, { type: 'value', path: '/', value: { x: 1 } });

@@ -157,6 +157,16 @@ describe('RtdbTree: rendering + lazy expansion', () => {
     const { container } = render(<Viewer api={api} />);
     expect(container.querySelector('[data-rtdb-empty]')).not.toBeNull();
   });
+
+  it('renders an empty-object snapshot as the empty root, never "[object Object]"', () => {
+    // An empty database reads back as {} from some backends; RTDB semantics
+    // say {} IS null, so the root must render like the console's empty state.
+    const { api } = makeFakeApi({});
+    const { container } = render(<Viewer api={api} />);
+    expect(container.querySelector('[data-rtdb-empty]')).not.toBeNull();
+    expect(container.textContent).not.toContain('[object Object]');
+    expect(container.querySelector('[data-rtdb-kind="leaf"] [data-rtdb-value]')).toBeNull();
+  });
 });
 
 describe('RtdbTree: inline mutations', () => {
