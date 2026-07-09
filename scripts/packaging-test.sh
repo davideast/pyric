@@ -42,8 +42,13 @@ exported_subpaths() {
   node -e '
     const fs = require("node:fs");
     const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    // Subpaths flagged pyricUnreleasedExports are stripped from the manifest
+    // at pack time (CDD climbing surfaces): they must NOT be smoked as
+    // shipped surface, because the published tarball deliberately omits them.
+    const unreleased = new Set(manifest.pyricUnreleasedExports ?? []);
     for (const key of Object.keys(manifest.exports ?? {})) {
       if (key === ".") continue;
+      if (unreleased.has(key)) continue;
       process.stdout.write(`${manifest.name}${key.slice(1)}\n`);
     }
   ' "$ROOT/$pkg_dir/package.json"
