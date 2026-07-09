@@ -11,7 +11,7 @@
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
 import { dirname, join, resolve } from 'node:path';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, resolvePlaygroundUiDir, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
@@ -162,6 +162,22 @@ export async function startServe(opts: {
         `or \`bun run build\` then \`pyric dev\` to preview the production build.`
       : '';
     throw new Error(`pyric dev: hosting.public directory does not exist: ${publicDir}${hint}`);
+  }
+
+  // The import map can only remap BARE `firebase/*` specifiers. A bundler
+  // build (vite build) inlines the real SDK into the app chunk, leaving
+  // nothing to intercept — the page then talks to REAL Firebase endpoints
+  // with the sandbox's fake credentials while the injected banner claims
+  // otherwise. Detect that loudly instead of serving it silently.
+  const inlined = scanForInlinedFirebase(publicDir);
+  if (inlined.length > 0) {
+    logger.note(
+      `  ⚠ REAL Firebase: ${inlined[0]} inlines the firebase SDK — the sandbox import map\n` +
+        `    cannot intercept a bundled build, so this page's firebase/* calls go to LIVE\n` +
+        `    Google endpoints, not the pyric sandbox. Use the vite dev server (\`bun run dev\`\n` +
+        `    with the pyric-tools/vite plugin) for a sandboxed loop, or serve an app that\n` +
+        `    imports firebase/* by bare specifier.`,
+    );
   }
 
   // Rules: fail fast on broken rules; serve rule-less only when genuinely absent.
@@ -684,4 +700,60 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     process.once('SIGINT', () => shutdown('SIGINT'));
     process.once('SIGTERM', () => shutdown('SIGTERM'));
   });
+}
+
+/**
+ * Detect a bundler build that INLINED the real firebase SDK into its served
+ * assets (`vite build` output). The served import map remaps only bare
+ * `firebase/*` specifiers, so such a build cannot be sandboxed — its calls
+ * reach real Google endpoints. Fingerprints are real-SDK-only endpoint hosts
+ * that never appear in a sandbox-clean app (whose calls all route to
+ * `/__pyric/*`). Bounded: depth ≤ 4, ≤ 200 script files, first hit per file.
+ * Returns publicDir-relative paths of offending assets.
+ */
+export function scanForInlinedFirebase(dir: string): string[] {
+  const FINGERPRINTS = [
+    'identitytoolkit.googleapis.com',
+    'firestore.googleapis.com',
+    'securetoken.googleapis.com',
+    'firebasedatabase.app',
+  ];
+  const hits: string[] = [];
+  let scanned = 0;
+  const walk = (d: string, rel: string, depth: number): void => {
+    if (depth > 4 || scanned >= 200) return;
+    let names: string[];
+    try {
+      names = readdirSync(d);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (scanned >= 200) return;
+      const p = join(d, name);
+      const r = rel ? `${rel}/${name}` : name;
+      let st;
+      try {
+        st = statSync(p);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        // The pyric namespace itself never lands in hosting.public, but a
+        // node_modules inside a served dir would be a scan-cost trap.
+        if (name === 'node_modules') continue;
+        walk(p, r, depth + 1);
+      } else if (/\.(js|mjs)$/.test(name)) {
+        scanned++;
+        try {
+          const text = readFileSync(p, 'utf8');
+          if (FINGERPRINTS.some((f) => text.includes(f))) hits.push(r);
+        } catch {
+          // unreadable asset: skip
+        }
+      }
+    }
+  };
+  walk(dir, '', 0);
+  return hits;
 }
