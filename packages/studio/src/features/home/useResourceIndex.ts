@@ -43,6 +43,7 @@ import { sandbox as authSandbox } from 'pyric/auth';
 import { ref as inProcessRef, listAll as inProcessListAll } from 'pyric/storage';
 import { useEnvironment } from '../../shell/environment.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
+import { foldIndexBatch } from './resource-index-state.js';
 import {
   bfsStorageObjectPaths,
   buildResourceIndex,
@@ -170,10 +171,16 @@ export function useResourceIndex(): ResourceIndexState {
       // Progressive: apply each source's batch as it lands (Firestore first
       // in practice — see `buildResourceIndex`'s doc comment) rather than
       // waiting for the slowest source (the storage BFS) before the palette
-      // shows anything at all.
+      // shows anything at all. The FIRST batch of THIS build replaces the last
+      // build's entries; later batches append (see `foldIndexBatch`). This is
+      // what stops a chained rebuild (every worker tick re-fires `ensure`) from
+      // stacking a fresh inventory on top of the previous one — the "counts
+      // count up rapidly" bug.
+      let firstOfBuild = true;
       void buildResourceIndex(sources, INDEX_CAPS, (batch) => {
         if (token !== buildToken.current) return; // superseded by a newer build
-        setEntries((cur) => [...(cur ?? []), ...batch]);
+        setEntries((cur) => foldIndexBatch(cur, batch, firstOfBuild));
+        firstOfBuild = false;
       })
         .catch(() => {
           // Best-effort: keep whatever landed via onBatch (possibly nothing).
