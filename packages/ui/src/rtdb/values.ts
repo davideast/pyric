@@ -45,6 +45,50 @@ export function isRtdbObjectValue(value: unknown): value is Record<string, unkno
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * Normalize a snapshot value to RTDB semantics before it enters tree state:
+ * an empty object IS null (RTDB has no empty containers — the server prunes
+ * them), so `{}` — and any object whose children all normalize away — becomes
+ * `null`. Without this, an empty database's root value `{}` fails
+ * `hasRtdbChildren` and renders as a scalar leaf (`String({})` →
+ * `"[object Object]"`). Reuses the input object when nothing changed.
+ */
+export function normalizeRtdbSnapshotValue(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'object') return value;
+  const record = value as Record<string, unknown>;
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(record)) {
+    const normalized = normalizeRtdbSnapshotValue(child);
+    if (normalized === null) {
+      changed = true;
+      continue;
+    }
+    if (normalized !== child) changed = true;
+    next[key] = normalized;
+  }
+  if (Object.keys(next).length === 0) return null;
+  return changed ? next : value;
+}
+
+/** Leaf value text, console style: strings quoted, primitives literal.
+ *  Defensive on objects: never `String`-coerce (that's `[object Object]`) —
+ *  fall back to JSON. Object values should have been normalized/expanded away
+ *  before reaching a leaf label; this keeps the label honest if one slips in. */
+export function formatRtdbValueLabel(value: unknown): string {
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value) ?? 'null';
+    } catch {
+      return 'null';
+    }
+  }
+  return String(value);
+}
+
 /** Does this value render as a PARENT node (has child keys)? RTDB has no true
  *  arrays — an array is an object with numeric keys, and renders as one. */
 export function hasRtdbChildren(value: unknown): boolean {

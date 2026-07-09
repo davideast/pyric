@@ -64,6 +64,16 @@
   gap: 14px;
   align-items: center;
 }
+.auth-sub__add {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--accent);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 0;
+}
 .auth-sub__clear {
   appearance: none;
   background: none;
@@ -83,86 +93,63 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════════
- * SIGN-IN PROVIDERS → AuthProviderToggles (data-pyric-ui="auth-provider-toggles")
- * A section (not a modal), gap-based: a wrapped row of toggle chips + an
- * inline "add a custom provider" form. Reuses `.auth-group` for the eyebrow.
+ * PER-USER SIGN-IN PROVIDERS (ProvidersEditor, in the detail pane)
+ * Form law: the group eyebrow (small text) sits tight over its rows; rows are
+ * stacked; the custom-provider label stacks ABOVE its input; errors are small
+ * text tight to the group.
  * ════════════════════════════════════════════════════════════════════════ */
-.auth-providers {
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--line);
-}
-.auth-providers .auth-group {
-  margin-top: 0;
-}
-
-[data-pyric-ui='auth-provider-toggles'] {
+.auth-providers-editor__list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 0 var(--auth-gutter);
 }
-[data-pyric-provider-toggles-error] {
-  margin: 0;
-  font-size: 12px;
-  color: var(--diff-remove);
-}
-
-[data-pyric-provider-toggle-list] {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-[data-pyric-provider-toggle-list][data-pyric-loading] {
-  opacity: 0.6;
-}
-
-[data-pyric-provider-toggle] {
-  border: 1px solid var(--line-2);
-  border-radius: 999px;
-  background: var(--elevated);
-}
-[data-pyric-provider-toggle][data-pyric-provider-enabled] {
-  border-color: var(--accent);
-  background: var(--accent-tint, var(--panel));
-}
-[data-pyric-provider-toggle-label] {
+.auth-provider-row {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
+  gap: 10px;
+  padding: 8px var(--auth-gutter);
+  border-top: 1px solid var(--line);
   cursor: pointer;
 }
-[data-pyric-provider-toggle-label] input[type='checkbox'] {
+.auth-provider-row input[type='checkbox'] {
   accent-color: var(--accent);
 }
-[data-pyric-provider-toggle-name] {
-  font-size: 12.5px;
+.auth-provider-row__label {
+  font-size: 13px;
   color: var(--ink);
 }
-[data-pyric-provider-toggle-id] {
+.auth-provider-row__id {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--faint);
+  margin-left: auto;
 }
-
-[data-pyric-add-provider-form] {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
+.auth-providers-editor__derived {
+  margin: 6px 0 0;
+  padding: 0 var(--auth-gutter);
+  font-size: 11.5px;
+  color: var(--muted);
 }
-[data-pyric-add-provider-form] [data-pyric-field-label] {
+.auth-provider-custom {
+  padding: 10px var(--auth-gutter) 0;
+}
+.auth-provider-custom__field {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-[data-pyric-add-provider-form] [data-pyric-label-text] {
+.auth-provider-custom__label {
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--faint);
 }
-[data-pyric-add-provider-form] input[data-pyric-field='custom-provider-id'] {
-  width: 200px;
+.auth-provider-custom__row {
+  display: flex;
+  gap: 10px;
+}
+.auth-provider-custom__row input {
+  flex: 1;
+  min-width: 0;
   height: 28px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -172,26 +159,29 @@
   color: var(--ink);
   background: var(--elevated);
 }
-[data-pyric-add-provider-form] input[data-pyric-field='custom-provider-id']:focus {
+.auth-provider-custom__row input:focus {
   outline: none;
   border-color: var(--accent);
 }
-[data-pyric-add-provider] {
+.auth-provider-custom__row button {
   appearance: none;
   font: inherit;
   font-size: 12.5px;
   font-weight: 500;
-  padding: 6px 14px;
+  padding: 0 14px;
+  height: 28px;
   border-radius: 7px;
   border: 1px solid var(--line-2);
   background: var(--elevated);
   color: var(--ink);
   cursor: pointer;
-  height: 28px;
 }
-[data-pyric-add-provider]:disabled {
+.auth-provider-custom__row button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+.auth-providers-editor .auth-save--error {
+  padding: 0 var(--auth-gutter);
 }
 
 /* ── Master-detail body, mock `.body` (list + 392px detail) ──────────── */
@@ -407,32 +397,6 @@
   color: var(--faint);
   margin: 18px 0 8px;
   padding: 0 var(--auth-gutter);
-}
-
-/* ── Sign-in methods (read-only), mock `.method` ────────────────────── */
-.auth-methods {
-  /* group heading paddings are handled by .auth-group */
-}
-.auth-method {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px var(--auth-gutter);
-  border-top: 1px solid var(--line);
-}
-.auth-method__label {
-  font-size: 13px;
-  color: var(--ink);
-}
-.auth-method__id {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--faint);
-}
-.auth-method__note {
-  font-size: 12px;
-  color: var(--muted);
-  margin-left: auto;
 }
 
 /* ════════════════════════════════════════════════════════════════════════

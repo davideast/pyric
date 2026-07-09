@@ -10,6 +10,7 @@ import {
   type RtdbEditorType,
 } from '../editor.js';
 import {
+  formatRtdbValueLabel,
   hasRtdbChildren,
   joinRtdbPath,
   rtdbPathSegments,
@@ -176,7 +177,7 @@ function Node({ tree, api, onNavigate, path, label, isViewRoot, emptyState }: No
                 setConfirming(false);
               }}
             >
-              {formatValueLabel(value)}
+              {formatRtdbValueLabel(value)}
             </button>
           </>
         ) : null}
@@ -299,12 +300,6 @@ function Node({ tree, api, onNavigate, path, label, isViewRoot, emptyState }: No
 function pathLabel(path: string): string {
   const segments = rtdbPathSegments(path);
   return segments.length === 0 ? 'root' : segments[segments.length - 1];
-}
-
-/** Leaf value text, console style: strings quoted, others literal. */
-function formatValueLabel(value: unknown): string {
-  if (typeof value === 'string') return JSON.stringify(value);
-  return String(value ?? null);
 }
 
 interface ValueEditorProps {

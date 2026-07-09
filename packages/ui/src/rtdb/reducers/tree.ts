@@ -20,6 +20,7 @@
 import {
   hasRtdbChildren,
   normalizeRtdbPath,
+  normalizeRtdbSnapshotValue,
   relativeRtdbPath,
   rtdbChildEntries,
   rtdbValueAt,
@@ -142,7 +143,10 @@ export function rtdbTreeReducer(
       const next: RtdbTreeState = {
         ...state,
         status: 'live',
-        value: action.value ?? null,
+        // RTDB semantics at the ingestion seam: an empty object IS null (an
+        // empty database reads back as `{}`), so the tree never holds a
+        // childless object that would render as a scalar leaf.
+        value: normalizeRtdbSnapshotValue(action.value),
         error: null,
       };
       // UPDATE-MERGE: a live snapshot keeps expansion/paging for surviving

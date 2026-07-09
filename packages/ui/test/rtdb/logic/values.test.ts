@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
   formatRtdbJson,
+  formatRtdbValueLabel,
   hasRtdbChildren,
+  normalizeRtdbSnapshotValue,
   isRtdbObjectValue,
   joinRtdbPath,
   normalizeRtdbPath,
@@ -66,6 +68,32 @@ describe('RTDB value helpers', () => {
     expect(isRtdbObjectValue({})).toBe(true);
     expect(isRtdbObjectValue([])).toBe(false);
     expect(isRtdbObjectValue(null)).toBe(false);
+  });
+
+  test('normalizeRtdbSnapshotValue: empty objects ARE null (RTDB semantics)', () => {
+    expect(normalizeRtdbSnapshotValue({})).toBeNull();
+    expect(normalizeRtdbSnapshotValue(undefined)).toBeNull();
+    expect(normalizeRtdbSnapshotValue(null)).toBeNull();
+    // Nested empties prune away; a parent left childless is itself null.
+    expect(normalizeRtdbSnapshotValue({ a: {} })).toBeNull();
+    expect(normalizeRtdbSnapshotValue({ a: {}, b: 1 })).toEqual({ b: 1 });
+    // Scalars and populated trees pass through untouched.
+    expect(normalizeRtdbSnapshotValue('x')).toBe('x');
+    expect(normalizeRtdbSnapshotValue(0)).toBe(0);
+    expect(normalizeRtdbSnapshotValue(false)).toBe(false);
+    const tree = { rooms: { r1: { title: 'Alpha' } } };
+    expect(normalizeRtdbSnapshotValue(tree)).toBe(tree); // same reference when unchanged
+  });
+
+  test('formatRtdbValueLabel never String-coerces objects', () => {
+    expect(formatRtdbValueLabel('hi')).toBe('"hi"');
+    expect(formatRtdbValueLabel(3)).toBe('3');
+    expect(formatRtdbValueLabel(true)).toBe('true');
+    expect(formatRtdbValueLabel(null)).toBe('null');
+    expect(formatRtdbValueLabel(undefined)).toBe('null');
+    expect(formatRtdbValueLabel({})).toBe('{}');
+    expect(formatRtdbValueLabel({ a: 1 })).toBe('{"a":1}');
+    expect(formatRtdbValueLabel(['a'])).toBe('["a"]');
   });
 
   test('hasRtdbChildren treats arrays and non-empty objects as parents', () => {

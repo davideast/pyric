@@ -203,6 +203,14 @@ export interface UpdateUserRequest {
   customClaims?: Record<string, unknown>;
   disabled?: boolean;
   emailVerified?: boolean;
+  /** REPLACES the user's linked OAuth providers (dedup by providerId;
+   *  multiple providers per user are supported — the record's
+   *  `providerUserInfo` is an array precisely for account linking).
+   *  The `password` entry is credential-derived and managed by the
+   *  backend: it survives the replacement while the user has a
+   *  password and cannot be linked through this field; `anonymous`
+   *  is a token-level provider, never a linked entry. */
+  providerUserInfo?: ProviderUserInfo[];
 }
 
 /**
@@ -1271,6 +1279,27 @@ export class SandboxBackend {
       if (!stored.providerUserInfo.some((p) => p.providerId === 'password')) {
         stored.providerUserInfo.push({ providerId: 'password' });
       }
+    }
+    if (update.providerUserInfo !== undefined) {
+      const seen = new Set<string>();
+      const next: ProviderUserInfo[] = [];
+      for (const entry of update.providerUserInfo) {
+        const providerId = entry?.providerId?.trim();
+        if (!providerId) {
+          throw makeAuthError(
+            'auth/argument-error',
+            'updateUser: providerUserInfo entries need a non-empty providerId.',
+          );
+        }
+        // `password` is credential-derived (set a password to link it);
+        // `anonymous` surfaces on the token, never as a linked entry.
+        if (providerId === 'password' || providerId === 'anonymous') continue;
+        if (seen.has(providerId)) continue;
+        seen.add(providerId);
+        next.push({ providerId });
+      }
+      if (stored.password !== null) next.unshift({ providerId: 'password' });
+      stored.providerUserInfo = next;
     }
     if (update.displayName !== undefined) stored.displayName = update.displayName;
     if (update.customClaims !== undefined) {

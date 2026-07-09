@@ -109,24 +109,18 @@
   color: var(--deny);
 }
 
-/* ── Upload tray (transient per-file progress/failure states) ─────────── */
-.storage__tray {
+/* ── Upload failures: one inline error line (no tray) ─────────────────── */
+.storage__upload-err {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
-}
-.storage__tray-head {
-  display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 12px;
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
   font-size: 11.5px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--faint);
+  color: var(--deny);
 }
-.storage__tray-clear {
+.storage__upload-err-dismiss {
   appearance: none;
   background: none;
   border: none;
@@ -135,41 +129,7 @@
   color: var(--accent);
   cursor: pointer;
   padding: 0;
-}
-.storage__tray-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  /* One scroll owner: a long batch scrolls inside the tray. */
-  max-height: 132px;
-  overflow: auto;
-}
-.storage__tray-row {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-.storage__tray-name {
-  color: var(--ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.storage__tray-state {
-  color: var(--faint);
   flex-shrink: 0;
-}
-.storage__tray-row[data-status="error"] .storage__tray-state {
-  color: var(--deny);
-  flex-shrink: 1;
-}
-.storage__tray-row[data-status="success"] .storage__tray-state {
-  color: var(--muted);
 }
 
 .storage [data-pyric-ui="path-breadcrumb"] [data-pyric-breadcrumb-list] {
@@ -315,8 +275,8 @@
 }
 .storage__ic {
   color: var(--faint);
-  font-family: var(--font-mono);
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
 }
 .storage__chev {
@@ -338,19 +298,6 @@
 /* Folder rows: heavier name. */
 .storage [data-pyric-entry-kind="folder"] .storage__cell-name {
   font-weight: 500;
-}
-
-/* Pending (session-only) folder badge — the created-folder honesty cue. */
-.storage__pending-badge {
-  font-family: var(--font-ui);
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--faint);
-  border: 1px dashed var(--line-2);
-  border-radius: 4px;
-  padding: 1px 6px;
-  flex-shrink: 0;
 }
 
 /* Read-denied rows (gate stamps `data-pyric-denied` on the row): muted name +
