@@ -23,6 +23,7 @@ import {
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
 import { loadProjectDatabaseRules, loadProjectRules, watchProjectRules } from '../serve/rules.js';
+import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { createEventHub, createPyricNamespace, injectServeTags, type InitPayload } from '../serve/namespace.js';
 import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from '../serve/state-store.js';
 import { diskProjectStore, diskWorkspace } from '../serve/studio/index.js';
@@ -164,20 +165,29 @@ export async function startServe(opts: {
     throw new Error(`pyric dev: hosting.public directory does not exist: ${publicDir}${hint}`);
   }
 
-  // The import map can only remap BARE `firebase/*` specifiers. A bundler
-  // build (vite build) inlines the real SDK into the app chunk, leaving
-  // nothing to intercept — the page then talks to REAL Firebase endpoints
+  // The import map can only remap BARE `firebase/*` specifiers. A plain bundler
+  // build (`vite build`) inlines the real SDK into the app chunk, leaving
+  // nothing to intercept — the page would then talk to REAL Firebase endpoints
   // with the sandbox's fake credentials while the injected banner claims
-  // otherwise. Detect that loudly instead of serving it silently.
-  const inlined = scanForInlinedFirebase(publicDir);
-  if (inlined.length > 0) {
-    logger.note(
-      `  ⚠ REAL Firebase: ${inlined[0]} inlines the firebase SDK — the sandbox import map\n` +
-        `    cannot intercept a bundled build, so this page's firebase/* calls go to LIVE\n` +
-        `    Google endpoints, not the pyric sandbox. Use the vite dev server (\`bun run dev\`\n` +
-        `    with the pyric-tools/vite plugin) for a sandboxed loop, or serve an app that\n` +
-        `    imports firebase/* by bare specifier.`,
-    );
+  // otherwise. That hole is structural, so `pyric dev` REFUSES such a dist
+  // rather than serving it. A pyric SANDBOX build (`vite build --mode
+  // development`) carries the marker and bundles pyric's in-page adapters, so it
+  // is trusted and the scan is skipped (marker present → no real SDK to find).
+  if (!hasSandboxBuildMarker(publicDir)) {
+    const inlined = scanForInlinedFirebase(publicDir);
+    if (inlined.length > 0) {
+      throw new Error(
+        `pyric dev: ${inlined[0]} bundles the REAL firebase SDK, so this dist cannot be ` +
+          `sandboxed — its firebase/* calls would reach LIVE Google endpoints, not the ` +
+          `pyric sandbox. Two ways forward:\n` +
+          `  (a) plain \`pyric dev\` runs the child dev-server flow (the pyric-tools/vite ` +
+          `plugin swaps firebase/* live) — use \`bun run dev\`;\n` +
+          `  (b) rebuild as a self-contained sandbox bundle and serve THAT: ` +
+          `\`vite build --mode development\` (or pyricSandbox({ swapInBuild: true })) then ` +
+          `\`pyric dev\`.\n` +
+          `A plain \`vite build\` is your production build — deploy it, don't sandbox it.`,
+      );
+    }
   }
 
   // Rules: fail fast on broken rules; serve rule-less only when genuinely absent.

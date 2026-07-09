@@ -89,6 +89,38 @@ describe('hostingProvider.resolveConfig (plural fan-out)', () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect((r.warnings ?? []).length).toBeGreaterThan(0);
   });
+
+  it('REFUSES a pyric sandbox build (index.html carries the marker)', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-deploy-sandbox-'));
+    mkdirSync(join(cwd, 'dist'));
+    writeFileSync(
+      join(cwd, 'dist', 'index.html'),
+      '<head><meta name="pyric-sandbox-build" content="1" data-pyric-sandbox-build></head>',
+    );
+    const r = await hostingProvider.resolveConfig('deploy', {
+      ...src({ firebaseJson: { hosting: { site: 's1', public: 'dist' } } }),
+      cwd,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toContain('SANDBOX build');
+  });
+
+  it('allows a normal (unmarked) build dir', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-deploy-prod-'));
+    mkdirSync(join(cwd, 'dist'));
+    writeFileSync(join(cwd, 'dist', 'index.html'), '<head></head>');
+    const r = await hostingProvider.resolveConfig('deploy', {
+      ...src({ firebaseJson: { hosting: { site: 's1', public: 'dist' } } }),
+      cwd,
+    });
+    expect(r.ok).toBe(true);
+  });
 });
 
 describe('storageProvider.resolveConfig (per-bucket)', () => {

@@ -38,13 +38,48 @@ const plugin = pyricSandbox();
 const resolveId = (s: string, i?: string): unknown => (plugin.resolveId as (s: string, i?: string) => unknown)(s, i);
 const load = (id: string): unknown => (plugin.load as (id: string) => unknown)(id);
 const config = (): { optimizeDeps?: { exclude?: string[]; esbuildOptions?: { plugins?: unknown[] } }; server?: { fs?: { allow?: string[] } } } =>
-  (plugin.config as () => never)();
+  (plugin.config as (c: unknown, env: unknown) => never)({}, { command: 'serve', mode: 'development' });
+
+/** Call the `apply` function with a (command, mode) env. */
+const applies = (p: typeof plugin, command: 'serve' | 'build', mode = 'production'): boolean =>
+  (p.apply as (c: unknown, env: { command: string; mode: string }) => boolean)({}, { command, mode });
 
 describe('pyricSandbox — plugin shape', () => {
-  it('is a dev-only, pre-enforced plugin', () => {
+  it('is a pre-enforced plugin whose apply gates build on the mode', () => {
     expect(plugin.name).toBe('pyric:sandbox');
-    expect(plugin.apply).toBe('serve'); // never reaches prod `vite build`
+    expect(typeof plugin.apply).toBe('function');
     expect(plugin.enforce).toBe('pre');
+  });
+
+  it('apply: always on for `vite dev`', () => {
+    expect(applies(plugin, 'serve', 'production')).toBe(true);
+    expect(applies(plugin, 'serve', 'development')).toBe(true);
+  });
+
+  it('apply: `vite build` swaps only for a NON-production mode (default)', () => {
+    expect(applies(plugin, 'build', 'production')).toBe(false); // plain prod build → real firebase
+    expect(applies(plugin, 'build', 'development')).toBe(true); // sandbox build
+    expect(applies(plugin, 'build', 'staging')).toBe(true); // any non-prod custom mode
+  });
+
+  it('apply: swapInBuild option overrides the mode default in both directions', () => {
+    const forcedOn = pyricSandbox({ swapInBuild: true });
+    expect(applies(forcedOn, 'build', 'production')).toBe(true); // forced sandbox even in prod mode
+    const forcedOff = pyricSandbox({ swapInBuild: false });
+    expect(applies(forcedOff, 'build', 'development')).toBe(false); // never swap in build
+    expect(applies(forcedOff, 'serve', 'production')).toBe(true); // dev still always on
+  });
+
+  it('sandbox build: transformIndexHtml stamps ONLY the marker (no init/@fs, no force-in-page)', () => {
+    const p = pyricSandbox();
+    // Flag the plugin as a build (apply already gated it upstream).
+    (p.config as (c: unknown, env: unknown) => unknown)({}, { command: 'build', mode: 'development' });
+    const out = (p.transformIndexHtml as (h: string) => string)('<html><head></head><body></body></html>');
+    expect(out).toContain('data-pyric-sandbox-build'); // the deploy-refusal / dev-trust marker
+    expect(out).not.toContain('/@fs/'); // pyric dev injects init at serve time, not the build
+    expect(out).not.toContain('__PYRIC_FORCE_INPAGE__');
+    // idempotent
+    expect((p.transformIndexHtml as (h: string) => string)(out)).toBe(out);
   });
 });
 

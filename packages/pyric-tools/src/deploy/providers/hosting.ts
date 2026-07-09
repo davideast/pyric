@@ -13,6 +13,7 @@ import { buildVersionConfig } from '../hosting/config.js';
 import type { HostingJsonConfig } from '../hosting/spec.js';
 import type { DeployProvider, ConfigSource, ResolveResult } from '../provider.js';
 import { SCOPES } from '../../credentials/core/scopes.js';
+import { hasSandboxBuildMarker } from '../../serve/sandbox-marker.js';
 
 /** The args `hosting_deploy` expects, one per (entry x site). */
 interface HostingArgs {
@@ -116,6 +117,21 @@ export const hostingProvider: DeployProvider<HostingArgs> = {
       const label = entry.site ?? entry.target ?? 'hosting';
       if (typeof entry.public !== 'string' || !entry.public) {
         return { ok: false, message: `hosting entry '${label}' has no \`public\` directory.` };
+      }
+      // Refuse a pyric SANDBOX build (`vite build --mode development`): that output
+      // bundles pyric's in-page adapters instead of the real firebase SDK, so
+      // deploying it would ship a fake backend to production. The marker in its
+      // index.html is the tell. This closes the reverse hole of the `pyric dev`
+      // refusal (which stops a REAL-SDK build from being sandboxed).
+      if (hasSandboxBuildMarker(resolvePath(src.cwd, entry.public))) {
+        return {
+          ok: false,
+          message:
+            `hosting entry '${label}' points at a pyric SANDBOX build (${entry.public} carries the ` +
+            `sandbox-build marker). That output bundles pyric's in-page adapters, NOT the real ` +
+            `firebase SDK, so it must never be deployed. Rebuild for production with \`vite build\` ` +
+            `(the default production mode) before deploying.`,
+        };
       }
       let siteIds: string[];
       if (entry.site) {
