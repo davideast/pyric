@@ -31,7 +31,7 @@
  * recently REQUESTED build, not the first one to finish.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   doc as inProcessDoc,
   collection as inProcessCollection,
@@ -74,6 +74,18 @@ export function useResourceIndex(): ResourceIndexState {
   const [entries, setEntries] = useState<ResourceEntry[] | null>(null);
   const [building, setBuilding] = useState(false);
   const inFlight = useRef(false);
+  // `data`'s identity changes on EVERY worker feed event (the shell's
+  // root-collection list refetches per event) — and a build's own list ops
+  // EMIT feed events. Callbacks that close over `data` directly therefore
+  // get a new identity per event, and any `useEffect(..., [ensure])`
+  // consumer re-fires per event: a self-sustaining rebuild loop (the
+  // "counts count up rapidly" bug's second half). The callbacks below read
+  // these refs instead and keep a STABLE identity for the hook's lifetime.
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const live = env.status === 'ready' ? env.env.live : undefined;
+  const liveRef = useRef(live);
+  liveRef.current = live;
   const pendingRebuild = useRef<{ rtdbLikely?: boolean } | null>(null);
   // Bumped per build; a build's batches are applied only while its token is
   // still current — an older, slower build can't clobber a newer one's
@@ -84,10 +96,9 @@ export function useResourceIndex(): ResourceIndexState {
   const rtdbKeys = useRef<string[] | null>(null);
   const rtdbKeysBuiltAt = useRef(0);
 
-  const live = env.status === 'ready' ? env.env.live : undefined;
-
   const runBuild = useCallback(
     (opts?: { rtdbLikely?: boolean }) => {
+      const data = dataRef.current;
       if (data.status !== 'ready') return;
       const token = ++buildToken.current;
       inFlight.current = true;
@@ -154,6 +165,7 @@ export function useResourceIndex(): ResourceIndexState {
         // user's input looks RTDB-directed (`ensure({ rtdbLikely: true })`),
         // which is the one signal worth paying a full-tree read for anyway.
         listRtdbTopLevelKeys: async () => {
+          const live = liveRef.current;
           if (!live) return [];
           const fresh = Date.now() - rtdbKeysBuiltAt.current < STALE_MS;
           if (rtdbKeys.current !== null && fresh && !opts?.rtdbLikely) return rtdbKeys.current;
@@ -196,12 +208,13 @@ export function useResourceIndex(): ResourceIndexState {
           }
         });
     },
-    [data, live],
+    // Stable for the hook's lifetime — reads dataRef/liveRef at call time.
+    [],
   );
 
   const ensure = useCallback(
     (opts?: { rtdbLikely?: boolean }) => {
-      if (data.status !== 'ready') return;
+      if (dataRef.current.status !== 'ready') return;
       if (inFlight.current) {
         // Don't drop this request on the floor: a build already running
         // means the CALLER's freshness need is still unmet, so queue one
@@ -210,13 +223,23 @@ export function useResourceIndex(): ResourceIndexState {
         pendingRebuild.current = { ...pendingRebuild.current, ...opts };
         return;
       }
-      // Fresh build starts from a clean slate — stale entries from a build
-      // several opens ago (a deleted collection, say) shouldn't linger.
-      setEntries(null);
+      // Entries are kept while the rebuild runs (stale-while-revalidate):
+      // the first batch of the new build REPLACES them (`foldIndexBatch`),
+      // which already evicts deleted resources — resetting to null here just
+      // flapped consumers back to "measuring…" on every rebuild.
       runBuild(opts);
     },
-    [data, runBuild],
+    [runBuild],
   );
+
+  // First build: `ensure` is identity-stable now, so a consumer's
+  // `useEffect(() => ensure(), [ensure])` fires ONCE — possibly before the
+  // data source is ready, where ensure() is a silent no-op. Kick the first
+  // build here when readiness arrives; the guard (unbuilt + idle) keeps this
+  // from re-firing on the per-event `data` identity churn.
+  useEffect(() => {
+    if (data.status === 'ready' && entries === null && !inFlight.current) runBuild();
+  }, [data, entries, runBuild]);
 
   return { entries, building, ensure };
 }
