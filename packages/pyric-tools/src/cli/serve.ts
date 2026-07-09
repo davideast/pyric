@@ -37,6 +37,7 @@ import {
   registerModuleUrl,
   resolveDevChild,
   spawnDevChild,
+  waitForSandboxPeer,
   type DevChildHandle,
 } from './dev-runner.js';
 
@@ -568,14 +569,13 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   // Auto-open the served page (best-effort) so the browser-resident sandbox is
   // actually running. Suppressed in non-interactive paths (--json, --no-open,
   // no TTY, CI) — see shouldAutoOpen. A failed open never fails serve.
-  if (
-    shouldAutoOpen({
-      json,
-      noOpen: Boolean(parsed.flags.get('no-open')),
-      isTTY: Boolean(process.stdout.isTTY),
-      env: process.env,
-    })
-  ) {
+  const opened = shouldAutoOpen({
+    json,
+    noOpen: Boolean(parsed.flags.get('no-open')),
+    isTTY: Boolean(process.stdout.isTTY),
+    env: process.env,
+  });
+  if (opened) {
     // With --ui, open Studio directly; the served page is still available.
     void openBrowser(runtime.uiUrl ?? runtime.handle.url);
   }
@@ -588,6 +588,20 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   let devChild: DevChildHandle | null = null;
   if (plan) {
     const info = json ? process.stderr : process.stdout;
+    // First-run race guard: we just opened the tab ourselves, so wait
+    // (bounded) for it to register as the sandbox peer before the child's
+    // first op can lose the race and die on the no-tab fail-fast. Skipped
+    // when nothing was opened (CI/--no-open/--json): no tab is coming, and
+    // stalling would only delay the honest failure.
+    if (opened) {
+      info.write('• run      waiting for the browser tab to connect the sandbox…\n');
+      const connected = await waitForSandboxPeer(runtime.handle.url);
+      if (!connected) {
+        info.write(
+          `  ⚠ no browser tab connected after 30s — starting your command anyway; sandbox ops will fail until ${runtime.handle.url} is open.\n`,
+        );
+      }
+    }
     info.write(
       `✔ run      \`${plan.label}\` — firebase-admin/firebase imports are routed to the sandbox at ${runtime.handle.url}\n`,
     );
