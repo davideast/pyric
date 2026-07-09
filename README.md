@@ -2,9 +2,11 @@
   <img src="https://raw.githubusercontent.com/davideast/pyric/main/docs/pyric-logo.png" alt="Pyric" width="180" />
 </p>
 
-<h1 align="center">Firebase that runs in your browser</h1>
+<h1 align="center">Firebase that runs in the browser</h1>
 
 <p align="center">Agentic coding without production consequences</p>
+
+<p align="center"><a href="https://pyric.dev">pyric.dev</a></p>
 
 <br />
 

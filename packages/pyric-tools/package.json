@@ -1,6 +1,7 @@
 {
   "name": "pyric-tools",
   "version": "0.1.0-alpha.8",
+  "homepage": "https://pyric.dev",
   "description": "Pyric CLI binary (`pyric`) + programmatic deploy / bridge / discover / auth-config helpers. Mirrors firebase-tools.",
   "type": "module",
   "exports": {

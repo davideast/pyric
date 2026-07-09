@@ -1,6 +1,7 @@
 {
   "name": "pyric-admin",
   "version": "0.1.0-alpha.8",
+  "homepage": "https://pyric.dev",
   "description": "Pyric admin-shape adapters (firestore, auth, database, storage) with swappable sandbox/prod backends. Mirrors firebase-admin.",
   "type": "module",
   "exports": {

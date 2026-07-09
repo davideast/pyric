@@ -1,7 +1,8 @@
 {
   "name": "pyric",
   "version": "0.1.0-alpha.8",
-  "description": "Firebase for agents — modular Web SDK adapters (firestore, auth, database, storage) with swappable sandbox/prod backends, plus rules tooling and in-process sandbox. Mirrors firebase.",
+  "homepage": "https://pyric.dev",
+  "description": "Firebase for agents \u2014 modular Web SDK adapters (firestore, auth, database, storage) with swappable sandbox/prod backends, plus rules tooling and in-process sandbox. Mirrors firebase.",
   "type": "module",
   "exports": {
     "./app": {
