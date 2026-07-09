@@ -32,14 +32,13 @@
   gap: var(--space-3);
 }
 
-/* ── Command input: one row `1fr auto` (input | hint), results below ───── */
+/* ── Command input: the input row, results below ────────────────────────── */
 .studio-home__command {
   display: grid;
   gap: var(--space-2);
 }
 .studio-home__command-row {
   display: grid;
-  grid-template-columns: 1fr auto;
   align-items: center;
   gap: var(--space-3);
   border: 1px solid var(--line);
@@ -61,13 +60,6 @@
 }
 .studio-home__command-input::placeholder {
   color: var(--faint);
-}
-.studio-home__command-hint {
-  color: var(--faint);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-micro);
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 .studio-home__command-results {
   margin: 0;

@@ -159,9 +159,6 @@ function CommandInput() {
             }
           }}
         />
-        <span className="studio-home__command-hint" aria-hidden="true">
-          navigation only
-        </span>
       </div>
       {open && groups.length ? (
         <div
