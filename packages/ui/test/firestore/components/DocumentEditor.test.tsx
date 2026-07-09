@@ -194,6 +194,73 @@ describe('<DocumentEditor>', () => {
     expect(queryAll(container, '[data-pyric-array-children] > li').length).toBe(3);
   });
 
+  it('field rows keep stable insertion order while a key is being renamed (no sort-by-key)', async () => {
+    // Regression for the "rows visibly reorder while typing a field name"
+    // bug: the tree was rendered in an order re-sorted by the (currently
+    // being typed) key on every render. Rows must stay in insertion order.
+    let latest: UseDocumentEditorResult | null = null;
+    const { container } = render(
+      <DocumentEditor.Root
+        initial={{ zeta: 1, alpha: 2 }}
+        onChange={(state) => {
+          latest = state;
+        }}
+      >
+        <DocumentEditor.Fields />
+      </DocumentEditor.Root>,
+    );
+    const orderBefore = queryAll(container, '[data-pyric-field-key-input]').map(
+      (el) => (el as HTMLInputElement).value,
+    );
+    expect(orderBefore).toEqual(['zeta', 'alpha']);
+
+    // Rename "zeta" -> "aaaa" (alphabetically it would now sort BEFORE
+    // "alpha" under a lexicographic sort) and confirm the DOM order is
+    // untouched — same two `<input>` elements, same position.
+    const zetaId = latest!.tree.childIds[latest!.tree.rootId].find(
+      (id) => latest!.tree.nodes[id].key === 'zeta',
+    )!;
+    await act(async () => {
+      latest!.setKey(zetaId, 'aaaa');
+    });
+    const orderAfter = queryAll(container, '[data-pyric-field-key-input]').map(
+      (el) => (el as HTMLInputElement).value,
+    );
+    expect(orderAfter).toEqual(['aaaa', 'alpha']);
+  });
+
+  it('a freshly-added field row shows no error until touched (blurred)', async () => {
+    let latest: UseDocumentEditorResult | null = null;
+    const { container } = render(
+      <DocumentEditor.Root
+        initial={{}}
+        onChange={(state) => {
+          latest = state;
+        }}
+      >
+        <DocumentEditor.Fields />
+      </DocumentEditor.Root>,
+    );
+    const addBtn = query(container, '[data-pyric-add-map-entry]') as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(addBtn);
+    });
+    // The tree itself is invalid (empty key) immediately — Save must stay
+    // disabled — but nothing in the DOM should be flagged as an error yet.
+    expect(latest!.isValid).toBe(false);
+    expect(container.querySelector('[data-pyric-error]')).toBeNull();
+    expect(container.querySelector('[aria-invalid="true"]')).toBeNull();
+
+    const keyInput = query(container, '[data-pyric-field-key-input]');
+    await act(async () => {
+      fireEvent.blur(keyInput);
+    });
+    // Now that the row has been touched, the same still-invalid state
+    // is visible.
+    expect(container.querySelector('[data-pyric-error]')).not.toBeNull();
+    expect(keyInput.getAttribute('aria-invalid')).toBe('true');
+  });
+
   it('Nested map field renders recursively', () => {
     const { container } = render(
       <DocumentEditor.Root initial={{ addr: { city: 'SF' } }}>

@@ -172,6 +172,50 @@ describe('documentEditor reducer', () => {
     expect(treeToData(state.tree)).toEqual({ name: 'Alice', score: 99 });
   });
 
+  it('touch marks a single node touched without changing its error/value', () => {
+    let state = initState({ a: 1 });
+    const a = findChild(state, 'a');
+    expect(a.touched).toBeUndefined();
+    state = reducer(state, { type: 'touch', nodeId: a.id });
+    expect(findChild(state, 'a').touched).toBe(true);
+    expect(findChild(state, 'a').value).toBe(1);
+  });
+
+  it('touch is a no-op (same state) when the node is already touched', () => {
+    let state = initState({ a: 1 });
+    const a = findChild(state, 'a');
+    state = reducer(state, { type: 'touch', nodeId: a.id });
+    const afterFirstTouch = state;
+    state = reducer(state, { type: 'touch', nodeId: a.id });
+    expect(state).toBe(afterFirstTouch);
+  });
+
+  it('touchAll marks every node touched in one dispatch', () => {
+    let state = initState({ a: 1, addr: { city: 'SF' } });
+    state = reducer(state, { type: 'touchAll' });
+    for (const node of Object.values(state.tree.nodes)) {
+      expect(node.touched).toBe(true);
+    }
+  });
+
+  it('a freshly-added empty map entry has a required-key error but starts untouched', () => {
+    let state = initState({});
+    state = reducer(state, {
+      type: 'addMapEntry',
+      parentId: state.tree.rootId,
+      key: '',
+      childType: 'string',
+    });
+    const newId = state.tree.childIds[state.tree.rootId][0];
+    const node = state.tree.nodes[newId];
+    expect(node.error).toBe('Field name is required');
+    expect(node.touched).toBeUndefined();
+    // errorCount reflects the error immediately (Save must stay disabled)
+    // even though nothing displays it yet — that's a rendering decision,
+    // not a validity decision.
+    expect(state.errorCount).toBeGreaterThan(0);
+  });
+
   it('round-trip: full flow load → edit → add → remove → serialize', () => {
     let state = initState({ name: 'Alice', tags: ['a', 'b'] });
 

@@ -26,9 +26,19 @@ export interface FieldNode {
   value: unknown;
   /**
    * Validation error message attached to the node by the reducer
-   * after every action. `undefined` when valid.
+   * after every action. `undefined` when valid. Computed on EVERY
+   * action regardless of {@link touched} — `errorCount` / `isValid`
+   * must reflect the true state so Save stays disabled. `touched`
+   * governs only whether a consumer chooses to DISPLAY the error.
    */
   error?: string;
+  /**
+   * Set once the field has been blurred (or a submit attempt swept
+   * the whole tree via `touchAll`). Consumers gate error display on
+   * `touched && error` so a freshly-added empty row doesn't show
+   * "Field name is required" before the user has interacted with it.
+   */
+  touched?: boolean;
 }
 
 /**
@@ -54,7 +64,13 @@ export type DocumentEditorAction =
   | { type: 'addMapEntry'; parentId: string; key: string; childType: FieldType }
   | { type: 'addArrayEntry'; parentId: string; childType: FieldType }
   | { type: 'remove'; nodeId: string }
-  | { type: 'reset' };
+  | { type: 'reset' }
+  /** Mark one node touched (dispatched on blur). Doesn't change any
+   *  value — only gates error display for consumers that check it. */
+  | { type: 'touch'; nodeId: string }
+  /** Mark every node touched (dispatched on a submit attempt), so
+   *  errors that were hidden pre-interaction all surface at once. */
+  | { type: 'touchAll' };
 
 /**
  * Reducer state. `tree` is the live document under edit; `initial`

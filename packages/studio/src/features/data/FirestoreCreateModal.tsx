@@ -100,12 +100,14 @@ export function FirestoreCreateModal({
   const collectionIdError =
     mode === 'collection' && collectionId ? validateCollectionId(collectionId) : undefined;
   const docIdError = docId ? validateDocumentId(docId) : undefined;
-  const canSubmit =
-    !(mode === 'collection' && (!collectionId || collectionIdError)) &&
-    !!docId &&
-    !docIdError &&
-    !!editor?.isValid &&
-    !busy;
+  // The id fields are disabled-gated directly (there's no per-field touch
+  // state for them — they're single inputs, not a tree). The field editor's
+  // OWN errors don't disable the button: a submit attempt instead sweeps
+  // `touchAll()` so hidden field errors reveal themselves, matching "errors
+  // appear after touch OR a submit attempt."
+  const idsValid =
+    !(mode === 'collection' && (!collectionId || collectionIdError)) && !!docId && !docIdError;
+  const canSubmit = idsValid && !busy;
 
   // Escape closes (unless a write is in flight).
   useEffect(() => {
@@ -118,6 +120,12 @@ export function FirestoreCreateModal({
 
   const submit = async () => {
     if (!canSubmit || !editor) return;
+    if (!editor.isValid) {
+      // Submit attempt while the field tree has hidden (untouched)
+      // errors: reveal them instead of silently doing nothing.
+      editor.touchAll();
+      return;
+    }
     setBusy(true);
     setSubmitError(null);
     try {
