@@ -1,322 +1,125 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useToast } from '@pyric/ui/primitives';
-import {
-  formatRtdbJson,
-  joinRtdbPath,
-  parentRtdbPath,
-  parseRtdbJson,
-  previewRtdbValue,
-  rtdbChildEntries,
-  rtdbPathSegments,
-  rtdbValueAt,
-  rtdbValueKind,
-} from '@pyric/ui/rtdb';
+/**
+ * Workspace `RTDB` tab — the Firebase console / firebase-tools-ui data
+ * viewer form, composed over `@pyric/ui/rtdb` (NOT reimplemented). Mirrors
+ * Pyric Studio's `RtdbSurface` (`packages/studio/src/features/rtdb`):
+ *
+ *   - PATH BAR → `RtdbPathBar`: the sandbox label + current path as
+ *     clickable crumbs; the pencil (or Enter/Escape in the input) edits the
+ *     path directly.
+ *   - TREE → `RtdbTree` over `useRtdbTree`: expandable nodes, `key: value`
+ *     leaves with click-to-edit, hover-revealed `+`/`x` per node with an
+ *     inline delete confirm (no modals), console-style paging at 50
+ *     children per level.
+ *
+ * Backend: the playground's existing sandbox runtime seam
+ * (`~/lib/sandbox/runtime`) — `readDatabaseState` / `adminSetDatabaseValue` /
+ * `adminDeleteDatabaseValue`, the same admin-lens ops the old hand-rolled
+ * RTDB tab used. This is an admin panel (Firebase Console-style), so writes
+ * bypass rules like the Firestore tab does. There is no push-subscription
+ * primitive on the runtime seam, so `RtdbApi.subscribeValue` is composed
+ * from the seam's existing pieces: an initial `readDatabaseState()` plus a
+ * live re-fetch on every `subscribeEvents` tick (the same event stream
+ * `useDenialCapture` rides for the Traffic panel) — realtime without
+ * inventing a new backend primitive.
+ *
+ * Styling lives in `global.css`'s `[data-rtdb-*]` block, targeting the
+ * headless contract `@pyric/ui/rtdb` emits (mirrors the Firestore/Auth tab
+ * skinning approach: zero `@pyric/ui` CSS overridden here).
+ */
+import { useMemo, useState, useSyncExternalStore } from 'react';
+import { RtdbPathBar, RtdbTree, rtdbValueAt, useRtdbTree, type RtdbApi } from '@pyric/ui/rtdb';
 import {
   adminDeleteDatabaseValue,
   adminSetDatabaseValue,
+  getPlaygroundRuntime,
+  getPlaygroundSandboxMode,
   readDatabaseState,
+  subscribePlaygroundSandboxMode,
 } from '~/lib/sandbox/runtime';
 
 export function RtdbTab() {
-  const { toast } = useToast();
   const [path, setPath] = useState('/');
-  const [snapshot, setSnapshot] = useState<unknown>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('null');
-  const [childKey, setChildKey] = useState('');
-  const [childDraft, setChildDraft] = useState('{}');
 
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, []);
+  // The playground has no per-instance slug the way Studio's shared
+  // sandbox does — the identity a session cares about here is which
+  // runtime it's on (shared Studio sandbox vs. this session's own
+  // isolated runtime), so the root crumb echoes that.
+  const sandboxMode = useSyncExternalStore(
+    subscribePlaygroundSandboxMode,
+    getPlaygroundSandboxMode,
+    getPlaygroundSandboxMode,
+  );
+  const instanceLabel = `${sandboxMode}-sandbox`;
 
-  useEffect(() => {
-    let disposed = false;
-    setLoading(true);
-    void readDatabaseState()
-      .then((next) => {
-        if (disposed) return;
-        setSnapshot(next ?? null);
-        setError(null);
-      })
-      .catch((e) => {
-        if (disposed) return;
-        setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (!disposed) setLoading(false);
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [tick]);
-
-  const selectedValue = useMemo(() => rtdbValueAt(snapshot, path), [path, snapshot]);
-  const children = useMemo(() => rtdbChildEntries(selectedValue), [selectedValue]);
-
-  useEffect(() => {
-    if (!editing) setDraft(formatRtdbJson(selectedValue));
-  }, [editing, selectedValue]);
-
-  const refresh = () => setTick((n) => n + 1);
-
-  const saveValue = async () => {
-    try {
-      await adminSetDatabaseValue(path, parseRtdbJson(draft));
-      toast({ title: `Saved ${path}`, kind: 'success' });
-      setEditing(false);
-      refresh();
-    } catch (e) {
-      toast({
-        title: 'Save failed',
-        body: e instanceof Error ? e.message : String(e),
-        kind: 'error',
-      });
-    }
-  };
-
-  const deleteValue = async () => {
-    if (path === '/') return;
-    try {
-      await adminDeleteDatabaseValue(path);
-      toast({ title: `Deleted ${path}`, kind: 'success' });
-      setPath(parentRtdbPath(path));
-      setEditing(false);
-      refresh();
-    } catch (e) {
-      toast({
-        title: 'Delete failed',
-        body: e instanceof Error ? e.message : String(e),
-        kind: 'error',
-      });
-    }
-  };
-
-  const addChild = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const key = childKey.trim();
-    if (!key) return;
-    try {
-      const nextPath = joinRtdbPath(path, key);
-      await adminSetDatabaseValue(nextPath, parseRtdbJson(childDraft));
-      toast({ title: `Added ${nextPath}`, kind: 'success' });
-      setChildKey('');
-      setChildDraft('{}');
-      setPath(nextPath);
-      refresh();
-    } catch (e) {
-      toast({
-        title: 'Add child failed',
-        body: e instanceof Error ? e.message : String(e),
-        kind: 'error',
-      });
-    }
-  };
+  const api = useMemo<RtdbApi>(() => buildRtdbApi(), []);
+  const tree = useRtdbTree(api, path);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-content-bg text-soft-white">
-      <RtdbBreadcrumb path={path} onNavigate={(next) => {
-        setPath(next);
-        setEditing(false);
-      }} />
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 min-h-0">
-        {error ? (
-          <div className="rounded-md border border-[#4a2f34] bg-[#241619] p-3 text-[12px] text-[#ffb4b4]">
-            {error}
-          </div>
-        ) : null}
-
-        <div className="grid gap-4 lg:grid-cols-[minmax(260px,1fr)_minmax(320px,0.9fr)]">
-          <section className="grid content-start gap-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-[13px] font-semibold">Children</h3>
-                <p className="text-[11px] text-slate-gray">
-                  {loading ? 'Loading...' : `${children.length} direct ${children.length === 1 ? 'child' : 'children'}`}
-                </p>
-              </div>
-              {path !== '/' ? (
-                <button
-                  type="button"
-                  onClick={() => setPath(parentRtdbPath(path))}
-                  className="rounded border border-[#2a2a35] px-2.5 py-1 text-[11px] text-slate-gray hover:text-soft-white hover:border-[#3a3a48]"
-                >
-                  Back
-                </button>
-              ) : null}
-            </div>
-
-            {children.length > 0 ? (
-              <div className="overflow-hidden rounded-md border border-[#2a2a35] bg-[#17171d]">
-                {children.map(([key, value]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => {
-                      setPath(joinRtdbPath(path, key));
-                      setEditing(false);
-                    }}
-                    className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-[#2a2a35] px-3 py-3 text-left last:border-b-0 hover:bg-[#20202c]"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-mono text-[13px] text-soft-white">
-                        {key}
-                      </span>
-                      <span className="block truncate text-[11px] text-slate-gray">
-                        {previewRtdbValue(value)}
-                      </span>
-                    </span>
-                    <span className="rounded-full border border-[#2a2a35] px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-slate-gray">
-                      {rtdbValueKind(value)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-md border border-dashed border-[#2a2a35] bg-[#17171d] p-4 text-[12px] text-slate-gray">
-                {path === '/' ? 'Database is empty. Add a child node to seed RTDB data.' : 'No child nodes at this path.'}
-              </div>
-            )}
-
-            <form onSubmit={addChild} className="grid gap-2 rounded-md border border-[#2a2a35] bg-[#17171d] p-3">
-              <div>
-                <label className="font-mono text-[10px] uppercase tracking-wide text-slate-gray" htmlFor="rtdb-child-key">
-                  Add child
-                </label>
-                <input
-                  id="rtdb-child-key"
-                  value={childKey}
-                  onChange={(event) => setChildKey(event.target.value)}
-                  placeholder="childKey"
-                  className="mt-1 w-full rounded border border-[#2a2a35] bg-content-bg px-2.5 py-1.5 font-mono text-[12px] text-soft-white placeholder:text-slate-gray/60 focus:outline-none focus:border-slate-gray"
-                />
-              </div>
-              <textarea
-                value={childDraft}
-                onChange={(event) => setChildDraft(event.target.value)}
-                rows={5}
-                spellCheck={false}
-                className="w-full resize-y rounded border border-[#2a2a35] bg-content-bg px-2.5 py-2 font-mono text-[12px] leading-relaxed text-soft-white focus:outline-none focus:border-slate-gray"
-              />
-              <button
-                type="submit"
-                disabled={childKey.trim().length === 0}
-                className="justify-self-start rounded border border-[#2a2a35] px-3 py-1.5 text-[11px] text-soft-white hover:border-[#3a3a48] disabled:cursor-not-allowed disabled:text-slate-gray/50"
-              >
-                Add child
-              </button>
-            </form>
-          </section>
-
-          <section className="grid content-start gap-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="truncate font-mono text-[13px] text-soft-white">{path}</h3>
-                <p className="text-[11px] text-slate-gray">{rtdbValueKind(selectedValue)}</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {editing ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditing(false);
-                        setDraft(formatRtdbJson(selectedValue));
-                      }}
-                      className="rounded border border-[#2a2a35] px-2.5 py-1 text-[11px] text-slate-gray hover:text-soft-white"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void saveValue()}
-                      className="rounded border border-[#a4d4a8]/50 bg-[#14201a] px-2.5 py-1 text-[11px] text-[#a4d4a8]"
-                    >
-                      Save
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setEditing(true)}
-                    className="rounded border border-[#2a2a35] px-2.5 py-1 text-[11px] text-soft-white hover:border-[#3a3a48]"
-                  >
-                    Edit
-                  </button>
-                )}
-                <button
-                  type="button"
-                  disabled={path === '/'}
-                  onClick={() => void deleteValue()}
-                  className="rounded border border-[#4a2f34] px-2.5 py-1 text-[11px] text-[#ff8f8f] hover:bg-[#241619] disabled:cursor-not-allowed disabled:text-slate-gray/40"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-
-            {editing ? (
-              <textarea
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                rows={18}
-                spellCheck={false}
-                className="min-h-[320px] w-full resize-y rounded-md border border-[#2a2a35] bg-[#111116] p-3 font-mono text-[12px] leading-relaxed text-soft-white focus:outline-none focus:border-slate-gray"
-              />
-            ) : (
-              <pre className="min-h-[320px] overflow-auto rounded-md border border-[#2a2a35] bg-[#111116] p-3 font-mono text-[12px] leading-relaxed text-soft-white custom-scrollbar">
-                {formatRtdbJson(selectedValue)}
-              </pre>
-            )}
-          </section>
-        </div>
+    <div className="flex h-full min-h-0 flex-col p-4">
+      <div className="rtdb flex min-h-0 flex-1 flex-col">
+        <RtdbPathBar
+          className="rtdb__pathbar"
+          path={path}
+          onNavigate={setPath}
+          rootLabel={instanceLabel}
+          inputPrefix={instanceLabel}
+        />
+        <RtdbTree
+          className="rtdb__tree"
+          tree={tree}
+          api={api}
+          onNavigate={setPath}
+          rootLabel={instanceLabel}
+        />
       </div>
     </div>
   );
 }
 
-function RtdbBreadcrumb({
-  path,
-  onNavigate,
-}: {
-  path: string;
-  onNavigate: (path: string) => void;
-}) {
-  const segments = rtdbPathSegments(path);
-  return (
-    <div className="shrink-0 border-b border-[#2a2a35] px-4 py-3 font-mono text-[12px]">
-      <button
-        type="button"
-        onClick={() => onNavigate('/')}
-        className="text-slate-gray hover:text-soft-white"
-      >
-        /
-      </button>
-      {segments.length === 0 ? (
-        <span className="ml-2 text-soft-white">root</span>
-      ) : (
-        segments.map((segment, index) => {
-          const nextPath = `/${segments.slice(0, index + 1).join('/')}`;
-          const active = index === segments.length - 1;
-          return (
-            <span key={nextPath} className="text-slate-gray">
-              <span className="mx-2">/</span>
-              <button
-                type="button"
-                disabled={active}
-                onClick={() => onNavigate(nextPath)}
-                className={active ? 'text-soft-white' : 'hover:text-soft-white'}
-              >
-                {segment}
-              </button>
-            </span>
-          );
-        })
-      )}
-    </div>
-  );
+/**
+ * Adapts the runtime seam into `RtdbApi`. `subscribeValue` fans a single
+ * `readDatabaseState()` (full-tree admin read — the seam has no shallow/path
+ * read) out to every path a mounted node cares about: one shared poll on
+ * subscribe + on every sandbox event, each subscriber re-derives its own
+ * path's value with `rtdbValueAt`. Keeps the seam single-flight regardless
+ * of how many tree nodes are subscribed.
+ */
+function buildRtdbApi(): RtdbApi {
+  type Listener = { path: string; next: (value: unknown) => void; error?: (err: unknown) => void };
+  const listeners = new Set<Listener>();
+  let unsubscribeEvents: (() => void) | null = null;
+
+  const refresh = () => {
+    void readDatabaseState()
+      .then((snapshot) => {
+        for (const listener of listeners) {
+          listener.next(rtdbValueAt(snapshot, listener.path));
+        }
+      })
+      .catch((err) => {
+        for (const listener of listeners) listener.error?.(err);
+      });
+  };
+
+  return {
+    set: (path, value) => adminSetDatabaseValue(path, value),
+    remove: (path) => adminDeleteDatabaseValue(path),
+    subscribeValue: (path, next, error) => {
+      const listener: Listener = { path, next, error };
+      listeners.add(listener);
+      if (!unsubscribeEvents) {
+        unsubscribeEvents = getPlaygroundRuntime().subscribeEvents(() => refresh());
+      }
+      void readDatabaseState()
+        .then((snapshot) => next(rtdbValueAt(snapshot, path)))
+        .catch((err) => error?.(err));
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0 && unsubscribeEvents) {
+          unsubscribeEvents();
+          unsubscribeEvents = null;
+        }
+      };
+    },
+  };
 }
