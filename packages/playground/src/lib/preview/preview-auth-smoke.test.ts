@@ -17,14 +17,21 @@ import {
   signInWithPopup,
   onAuthStateChanged,
   GoogleAuthProvider,
+  sandbox as authSandbox,
   type User,
 } from 'pyric/auth';
 import { AuthFlowController } from '@pyric/ui/auth';
 
 describe('preview sign-in helper smoke', () => {
   test('app Google button → helper add-account → app sees the user', async () => {
-    // ── AppPreview wiring: sandbox auth handle + installed helper ──
+    // ── AppPreview wiring: sandbox auth handle + installed helper.
+    // Enforcement is DELEGATED exactly as AppPreview does it: the helper is
+    // the federated provider, so the picker opens regardless of the
+    // sandbox's provider-config defaults (google.com is not enabled by
+    // default — without delegation this throws auth/operation-not-allowed
+    // before the modal exists). ──
     const auth = getAuth(initializeSandbox());
+    authSandbox.delegateProviderEnforcement(auth, true);
     const controller = new AuthFlowController(auth);
     controller.install();
 
