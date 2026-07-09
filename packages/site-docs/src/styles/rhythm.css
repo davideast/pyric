@@ -1,0 +1,91 @@
+/**
+ * Vertical rhythm — the single source of truth for every block margin
+ * in docs content. No page, component, or element sets its own
+ * vertical margin; everything below derives from four tokens.
+ *
+ * The model: proximity encodes structure.
+ *
+ *   --rhythm-para     within a logical group. A paragraph continuing
+ *                     a thought, a heading binding to its first block,
+ *                     a list hanging off its intro sentence.
+ *   --rhythm-group    between sibling blocks in the same section —
+ *                     the default beat.
+ *   --rhythm-subsection  before an h3/h4: a new sub-thought.
+ *   --rhythm-section  before an h2: a new section. Deliberately much
+ *                     larger than anything after a block, so the gap
+ *                     ABOVE a heading always dwarfs the gap BELOW the
+ *                     previous block — sections read as islands.
+ *
+ * Audit page: /docs/_rhythm stacks every adjacency this file styles.
+ */
+
+:root {
+  --rhythm-para: 0.875rem;
+  --rhythm-group: 1.5rem;
+  --rhythm-subsection: 2.25rem;
+  --rhythm-section: 3.25rem;
+}
+
+/* ── Reset: no block in the content column owns a margin ─────────── */
+
+.prose > *,
+.prose blockquote > *,
+.prose li > * {
+  margin-block: 0;
+}
+
+/* ── The beat: default gap between adjacent siblings ─────────────── */
+
+.prose > * + * {
+  margin-block-start: var(--rhythm-group);
+}
+
+/* ── Sections: space-before a heading >> space-after any block ───── */
+
+.prose > * + h2 {
+  margin-block-start: var(--rhythm-section);
+}
+
+.prose > * + h3,
+.prose > * + h4 {
+  margin-block-start: var(--rhythm-subsection);
+}
+
+/* ── Tight bindings: members of one logical group sit close ──────── */
+
+/* A heading is bound to whatever it introduces. */
+.prose > h1 + *,
+.prose > h2 + *,
+.prose > h3 + *,
+.prose > h4 + * {
+  margin-block-start: var(--rhythm-para);
+}
+
+/* A paragraph continuing a paragraph. */
+.prose > p + p {
+  margin-block-start: var(--rhythm-para);
+}
+
+/* A list or blockquote hanging off its intro sentence. */
+.prose > p + ul,
+.prose > p + ol,
+.prose > p + blockquote {
+  margin-block-start: var(--rhythm-para);
+}
+
+/* ── Inside lists: half a para beat between items ────────────────── */
+
+.prose li + li {
+  margin-block-start: calc(var(--rhythm-para) / 2);
+}
+
+.prose li > ul,
+.prose li > ol {
+  margin-block-start: calc(var(--rhythm-para) / 2);
+}
+
+/* Multi-paragraph list items and quotes keep the para beat. */
+.prose li > * + *,
+.prose blockquote > * + * {
+  margin-block-start: var(--rhythm-para);
+}

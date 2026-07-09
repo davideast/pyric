@@ -1,0 +1,20 @@
+{
+  "name": "@pyric/site-docs",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "verify": "bun scripts/verify-dist.ts",
+    "test": "bun run build && bun scripts/verify-dist.ts"
+  },
+  "dependencies": {
+    "astro": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,156 @@
+---
+import type { MarkdownHeading } from 'astro';
+import '../styles/site.css';
+import '../styles/rhythm.css';
+import { navSections, docPath, withBase, slugOf } from '../lib/docs';
+
+interface Props {
+  title: string;
+  description?: string;
+  headings: MarkdownHeading[];
+  currentSlug: string;
+}
+
+const { title, description, headings, currentSlug } = Astro.props;
+const sections = await navSections();
+const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title} · Pyric docs</title>
+    {description ? <meta name="description" content={description} /> : null}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="site-brand" href={withBase('/docs/get-started')}
+          ><span>▲</span> pyric</a
+        >
+        <span class="site-header-label">docs</span>
+      </div>
+    </header>
+
+    <div class="docs-shell">
+      {/* Mobile drawer duplicates the nav; CSS shows exactly one. */}
+      <details class="docs-nav-drawer">
+        <summary>Navigate</summary>
+        <nav class="docs-nav" aria-label="Documentation">
+          {
+            sections.map(({ section, entries }) => (
+              <div class="docs-nav-section">
+                <h2 class="docs-nav-heading">{section}</h2>
+                <ul>
+                  {entries.map((entry) => (
+                    <li>
+                      <a
+                        href={docPath(entry)}
+                        aria-current={
+                          slugOf(entry) === currentSlug ? 'page' : undefined
+                        }
+                      >
+                        {entry.data.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          }
+        </nav>
+      </details>
+
+      <nav class="docs-nav" aria-label="Documentation">
+        {
+          sections.map(({ section, entries }) => (
+            <div class="docs-nav-section">
+              <h2 class="docs-nav-heading">{section}</h2>
+              <ul>
+                {entries.map((entry) => (
+                  <li>
+                    <a
+                      href={docPath(entry)}
+                      aria-current={
+                        slugOf(entry) === currentSlug ? 'page' : undefined
+                      }
+                    >
+                      {entry.data.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
+        }
+      </nav>
+
+      <main class="doc-main">
+        <article class="prose">
+          <slot />
+        </article>
+      </main>
+
+      {
+        tocHeadings.length > 0 ? (
+          <aside class="doc-toc" aria-label="On this page">
+            <h2 class="doc-toc-heading">On this page</h2>
+            <ul>
+              {tocHeadings.map((h) => (
+                <li data-depth={h.depth}>
+                  <a href={`#${h.slug}`}>{h.text}</a>
+                </li>
+              ))}
+            </ul>
+          </aside>
+        ) : null
+      }
+    </div>
+
+    <script>
+      // Current-section highlight: watch the article's h2/h3s and mark
+      // the TOC link of the topmost visible one. Cheap on purpose —
+      // one observer, no scroll listeners.
+      const links = new Map<string, HTMLAnchorElement>();
+      document
+        .querySelectorAll<HTMLAnchorElement>('.doc-toc a[href^="#"]')
+        .forEach((a) => links.set(decodeURIComponent(a.hash.slice(1)), a));
+
+      if (links.size > 0) {
+        const visible = new Set<string>();
+        const setActive = () => {
+          let first: string | null = null;
+          for (const id of links.keys()) {
+            if (visible.has(id)) {
+              first = id;
+              break;
+            }
+          }
+          links.forEach((a, id) => a.classList.toggle('active', id === first));
+        };
+        const observer = new IntersectionObserver(
+          (entries) => {
+            for (const e of entries) {
+              if (e.isIntersecting) visible.add(e.target.id);
+              else visible.delete(e.target.id);
+            }
+            setActive();
+          },
+          { rootMargin: '-72px 0px -60% 0px' },
+        );
+        links.forEach((_a, id) => {
+          const el = document.getElementById(id);
+          if (el) observer.observe(el);
+        });
+      }
+    </script>
+  </body>
+</html>
