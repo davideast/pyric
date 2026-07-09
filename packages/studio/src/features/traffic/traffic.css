@@ -39,9 +39,23 @@
   font-weight: 600;
   color: var(--ink);
 }
+/* The denied count doubles as the deny-filter toggle (a discoverable entry
+   point to denial inspection without the palette). */
 .traffic__tl-deny {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
   color: var(--deny);
   font-weight: 600;
+  cursor: pointer;
+}
+.traffic__tl-deny:hover {
+  text-decoration: underline;
+}
+.traffic__tl-deny[aria-pressed='true'] {
+  text-decoration: underline;
 }
 .traffic__tl-live {
   margin-left: auto;
@@ -195,42 +209,51 @@
   color: var(--accent);
 }
 
-/* ── Deny disclosure (in place; no modal) ───────────────────────────── */
+/* ── Deny inspection (in place; no modal) ───────────────────────────── */
 [data-pyric-traffic-entry][data-verdict='deny'] {
   background: var(--deny-tint);
 }
-.traffic__deny-detail {
+.traffic__denial-inspector {
   display: grid;
   gap: var(--space-2);
   border-bottom: 1px solid var(--line);
   padding: 10px 14px 12px;
   background: color-mix(in srgb, var(--deny-tint) 60%, var(--panel));
 }
-.traffic__deny-facts {
-  margin: 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px var(--space-3);
-  font-size: var(--fs-caption);
+/* Standalone form (deep link with no visible row): its own bordered block. */
+.traffic > .traffic__denial-inspector {
+  border: 1px solid var(--line);
+  border-radius: 10px;
 }
-.traffic__deny-facts dt {
+.traffic__denial-bar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.traffic__denial-title {
   color: var(--faint);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   font-size: 10px;
+  font-weight: 600;
 }
-.traffic__deny-facts dd {
-  margin: 0;
-  color: var(--ink);
-  font-family: var(--font-mono);
-}
-.traffic__deny-reasons {
-  margin: 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 2px;
+.traffic__denial-close {
+  appearance: none;
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
   color: var(--muted);
   font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+.traffic__denial-close:hover {
+  color: var(--ink);
+}
+.traffic__denial-missing {
+  margin: 0;
+  color: var(--muted);
   font-size: var(--fs-caption);
 }
 
