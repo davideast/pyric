@@ -32,6 +32,18 @@
       "types": "./dist/storage/internal.d.ts",
       "import": "./dist/storage/internal.js"
     },
+    "./messaging": {
+      "types": "./dist/messaging/index.d.ts",
+      "import": "./dist/messaging/index.js"
+    },
+    "./messaging/sw": {
+      "types": "./dist/messaging/sw.d.ts",
+      "import": "./dist/messaging/sw.js"
+    },
+    "./messaging/internal": {
+      "types": "./dist/messaging/internal.d.ts",
+      "import": "./dist/messaging/internal.js"
+    },
     "./rules": {
       "types": "./dist/rules/index.d.ts",
       "import": "./dist/rules/index.js"
