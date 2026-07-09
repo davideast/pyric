@@ -175,7 +175,7 @@ function DenialList({
 // ─── Denial detail (right column) ──────────────────────────────────────────
 
 /**
- * The single-denial inspection detail: per-service rule explanation,
+ * The single-op rules-inspection detail: per-service rule explanation,
  * request.auth, the data the rule saw, and the two capability-gated re-runs.
  * Exported pure-props so other surfaces can mount ONE denial's inspection
  * without the list layout — the Traffic surface renders this as a deny row's
@@ -202,15 +202,24 @@ export function DenialDetail({
       data-pyric-ui="denial-detail"
       className="flex min-h-0 flex-col gap-4 overflow-auto rounded-lg border border-border bg-sidebar-bg p-5"
     >
-      {/* The denial headline + the rule that denied it. */}
+      {/* The verdict headline + the rule that decided it. */}
       <section>
         <div className="mb-2 flex items-center gap-2">
-          <Badge
-            kind="deny"
-            className="rounded bg-danger/15 px-2 py-0.5 text-xs font-semibold uppercase text-danger"
-          >
-            {denial.unsupported ? 'unsupported' : 'denied'}
-          </Badge>
+          {denial.result === 'allow' ? (
+            <Badge
+              kind="allow"
+              className="rounded bg-primary/15 px-2 py-0.5 text-xs font-semibold uppercase text-primary"
+            >
+              allowed
+            </Badge>
+          ) : (
+            <Badge
+              kind="deny"
+              className="rounded bg-danger/15 px-2 py-0.5 text-xs font-semibold uppercase text-danger"
+            >
+              {denial.unsupported ? 'unsupported' : 'denied'}
+            </Badge>
+          )}
           <span className="font-mono text-sm text-soft-white">
             {denial.service !== 'firestore' ? `${denial.service} · ` : ''}
             {denial.method} {denial.path}
@@ -219,26 +228,46 @@ export function DenialDetail({
         <p className="text-sm leading-relaxed text-soft-white">{exp.headline}</p>
       </section>
 
-      {/* Per-service rule detail, grounded in that service's mechanical trace.
-          For Firestore this includes the read-only "what happened" view of the
-          deployed ruleset with the denying line marked (✗). */}
-      <RuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />
+      {exp.noEvaluation ? (
+        /* Honesty guard: an "allow" with NO recorded rules evaluation (admin
+           bypass from a worker that didn't stamp its lens, or a mislabel).
+           The headline above says so; no matched-rule box, no ✓ marker, no
+           trace, no re-runs — they would contradict the facts. The request
+           context below is still shown: it's honest data. */
+        <p
+          data-pyric-ui="rules-debug-no-evaluation"
+          className="rounded-md border border-border bg-content-bg px-3 py-2 text-xs text-slate-gray"
+        >
+          No matched rule, evaluation trace, or re-run is shown because this
+          event carries no rules verdict to ground them in.
+        </p>
+      ) : (
+        <>
+          {/* Per-service rule detail, grounded in that service's mechanical
+              trace. For Firestore this includes the read-only "what happened"
+              view of the deployed ruleset with the deciding line marked. */}
+          <RuleDetail denial={denial} exp={exp} rulesSource={rulesSource} />
 
-      {/* Show the work: the denying rule's sub-expression evaluation. */}
-      <TraceWork denial={denial} />
+          {/* Show the work: the deciding rule's sub-expression evaluation. */}
+          <TraceWork denial={denial} />
+        </>
+      )}
 
       {/* What the rule saw: request/resource variables, inspectable + honest
           about anything not captured for this denial. */}
       <VariablesInspector denial={denial} />
 
-      {/* Re-run actions. */}
-      <RerunPanel
-        denial={denial}
-        editedRules={editedRules}
-        onEditedRulesChange={onEditedRulesChange}
-        onRerunAsUser={onRerunAsUser}
-        onRerunAgainstRules={onRerunAgainstRules}
-      />
+      {/* Re-run actions (omitted when there is no rules evaluation to
+          reproduce — a re-run verdict would contradict the row's claim). */}
+      {!exp.noEvaluation ? (
+        <RerunPanel
+          denial={denial}
+          editedRules={editedRules}
+          onEditedRulesChange={onEditedRulesChange}
+          onRerunAsUser={onRerunAsUser}
+          onRerunAgainstRules={onRerunAgainstRules}
+        />
+      ) : null}
     </div>
   );
 }
@@ -261,8 +290,9 @@ function RuleDetail({
 }
 
 /** Firestore: the matched `Rule #N (ops)` node, the deployed ruleset shown
- *  read-only with the denying line marked (✗ gutter + tinted line), and — when
- *  no sub-expression trace is available — the raw simulator trace lines. */
+ *  read-only with the DECIDING line marked (✗ + remove tint on a deny; ✓ + add
+ *  tint on an allow), and — when no source is available — the raw simulator
+ *  trace lines. */
 function FirestoreRuleDetail({
   denial,
   exp,
@@ -272,12 +302,13 @@ function FirestoreRuleDetail({
   exp: RuleExplanation;
   rulesSource?: string;
 }) {
-  const line = denial.denyingRule?.line;
+  const line = denial.evaluatedRule?.line;
+  const allowed = denial.result === 'allow';
   const showSource = !!rulesSource && rulesSource.trim().length > 0;
   return (
     <Field
       label={
-        exp.implicitDeny
+        exp.implicitDeny || !exp.ruleNode
           ? 'matched rule'
           : `matched rule — ${exp.ruleNode}${line ? ` · line ${line}` : ''}`
       }
@@ -286,9 +317,10 @@ function FirestoreRuleDetail({
         <LazyRulesCodeEditor
           value={rulesSource!}
           readOnly
-          denialLine={line}
+          markLine={line}
+          markKind={allowed ? 'allow' : 'deny'}
           minHeightRem={12}
-          ariaLabel="Deployed firestore.rules — the denying rule is marked"
+          ariaLabel={`Deployed firestore.rules — the ${allowed ? 'allowing' : 'denying'} rule is marked`}
         />
       ) : (
         <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs leading-relaxed text-slate-gray">
@@ -620,9 +652,10 @@ function RerunPanel({
           <LazyRulesCodeEditor
             value={editedRules ?? ''}
             onChange={onEditedRulesChange}
-            denialLine={denial.denyingRule?.line}
+            markLine={denial.evaluatedRule?.line}
+            markKind={denial.result === 'allow' ? 'allow' : 'deny'}
             minHeightRem={14}
-            ariaLabel="Edited firestore.rules to test the denied op against"
+            ariaLabel="Edited firestore.rules to test the op against"
           />
         ) : null}
         <RerunHint support={support.editedRuleset} haveCallback={!!onRerunAgainstRules} />
@@ -701,7 +734,7 @@ function ResultLine({ result }: { result: RerunResult }) {
         <Badge kind="allow" className="rounded bg-primary/15 px-2 py-0.5 font-semibold uppercase text-primary">
           allow
         </Badge>
-        <span className="text-slate-gray">The op is now permitted.</span>
+        <span className="text-slate-gray">The re-run is permitted under these rules.</span>
       </p>
     );
   }
@@ -711,7 +744,7 @@ function ResultLine({ result }: { result: RerunResult }) {
         <Badge kind="deny" className="rounded bg-danger/15 px-2 py-0.5 font-semibold uppercase text-danger">
           deny
         </Badge>
-        <span className="text-slate-gray">Still denied: {result.message}</span>
+        <span className="text-slate-gray">Denied under these rules: {result.message}</span>
       </p>
     );
   }

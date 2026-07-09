@@ -174,3 +174,21 @@ describe('pyric dev --persist', () => {
     expect((await post('tab-B')).status).toBe(204);
   }, 30_000);
 });
+
+describe('pyric dev --fresh guardrails', () => {
+  it('--fresh without --persist errors instead of silently no-opping', async () => {
+    const cwd = project();
+    await expect(
+      startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), fresh: true, logger: silentServeLogger() }),
+    ).rejects.toThrow(/--fresh requires --persist/);
+  });
+
+  it('--persist --fresh is fine (the escape hatch works)', async () => {
+    const cwd = project();
+    const r = await startServe({
+      cwd, port: 0, cacheRoot: join(cwd, '.cache'), persist: true, fresh: true, logger: silentServeLogger(),
+    });
+    stops.push(r);
+    expect(r.persist).toEqual({ restoredDocs: 0, restoredUsers: 0 });
+  }, 30_000);
+});

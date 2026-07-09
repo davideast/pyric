@@ -201,9 +201,14 @@ CORE FLAGS (dev)
                      restarts. Once a state file exists it wins; --seed
                      applies only on the first (state-less) run. Ephemeral
                      is the default.
-  --fresh            With --persist: discard the existing state file and
+  --fresh            Requires --persist: discard the existing state file and
                      re-seed from scratch (escape hatch when you've edited
-                     seed.json).
+                     seed.json). Without --persist, --fresh errors — there is
+                     no state file to discard. Half-reset warning: a browser
+                     tab that already has sandbox data in IndexedDB keeps it
+                     and writes it back to the new file; also clear the
+                     browser store (Studio → Settings → Reset, or an
+                     incognito window) for a full reset.
   -- <cmd>           Run <cmd> once the host is up, with PYRIC_SANDBOX set and
                      NODE_OPTIONS extended with --import pyric-tools/register
                      so firebase-admin/firebase resolve to the sandbox. When

@@ -287,41 +287,51 @@ export type TestFirestoreRulesResult =
  * consumers should read `result.trace` + `result.notes` directly.
  */
 /**
- * The denying rule's source position + sub-expression trace, projected from a
- * {@link TestResult}. Additive companion to {@link renderLegacyDebugMessages}:
- * that flattens the per-rule trace to strings (dropping `line` and
- * `expressionTrace`); this preserves the structured detail a UI needs to point
- * at the exact source line and step through the evaluation ("show the work").
- * All fields optional so a partial trace projects honestly.
+ * The DECIDING rule's source position + sub-expression trace, projected from a
+ * {@link TestResult} — for BOTH verdicts: the `allow` rule that granted an
+ * ALLOW, or the rule responsible for a DENY. Additive companion to
+ * {@link renderLegacyDebugMessages}: that flattens the per-rule trace to
+ * strings (dropping `line` and `expressionTrace`); this preserves the
+ * structured detail a UI needs to point at the exact source line and step
+ * through the evaluation ("show the work"). Position/trace fields are optional
+ * so a partial trace projects honestly.
  */
-export interface DeniedRuleInfo {
-  /** 1-indexed source line of the denying `allow` rule. */
+export interface EvaluatedRuleInfo {
+  /** The verdict the deciding rule produced for the op. */
+  verdict: 'allow' | 'deny';
+  /** 1-indexed source line of the deciding `allow` rule. */
   line?: number;
-  /** Pretty-printed condition text of the denying rule. */
+  /** Pretty-printed condition text of the deciding rule. */
   expression?: string;
-  /** Per-sub-expression evaluation trace of the denying rule. */
+  /** Per-sub-expression evaluation trace of the deciding rule. */
   expressionTrace?: ExprTraceEntry[];
 }
 
 /**
- * Project the denying rule from a simulated {@link TestResult}.
+ * Project the DECIDING rule from a simulated {@link TestResult}.
  *
- * Picks the rule the sandbox would report as responsible: the first `DENY`/
- * `ERROR` entry, falling back to the last evaluated rule. Returns `undefined`
- * when no rule was evaluated (implicit deny — no matching `allow`), or when the
- * result is not a denial. Never invents data: a missing line/trace stays absent.
+ * For an ALLOW, picks the `ALLOW` trace entry (evaluation short-circuits on the
+ * first allowing rule, so it's unique). For a DENY, picks the rule the sandbox
+ * would report as responsible: the first `DENY`/`ERROR` entry, falling back to
+ * the last evaluated rule. Returns `undefined` when no rule was evaluated
+ * (implicit deny — no matching `allow`) or the simulator abstained
+ * (`UNSUPPORTED`). Never invents data: a missing line/trace stays absent.
  */
-export function projectDenyingRule(result: TestResult): DeniedRuleInfo | undefined {
-  if (result.decision === 'ALLOW') return undefined;
-  const denied =
-    result.trace.find((t) => t.verdict === 'DENY' || t.verdict === 'ERROR') ??
-    result.trace[result.trace.length - 1];
-  if (!denied) return undefined;
-  const info: DeniedRuleInfo = {};
-  if (denied.line !== undefined) info.line = denied.line;
-  if (denied.conditionText !== undefined) info.expression = denied.conditionText;
-  if (denied.expressionTrace !== undefined) info.expressionTrace = denied.expressionTrace;
-  return Object.keys(info).length > 0 ? info : undefined;
+export function projectEvaluatedRule(result: TestResult): EvaluatedRuleInfo | undefined {
+  if (result.decision === 'UNSUPPORTED') return undefined;
+  const allowed = result.decision === 'ALLOW';
+  const deciding = allowed
+    ? result.trace.find((t) => t.verdict === 'ALLOW')
+    : (result.trace.find((t) => t.verdict === 'DENY' || t.verdict === 'ERROR') ??
+       result.trace[result.trace.length - 1]);
+  if (!deciding) return undefined;
+  const info: EvaluatedRuleInfo = { verdict: allowed ? 'allow' : 'deny' };
+  if (deciding.line !== undefined) info.line = deciding.line;
+  if (deciding.conditionText !== undefined) info.expression = deciding.conditionText;
+  if (deciding.expressionTrace !== undefined) info.expressionTrace = deciding.expressionTrace;
+  return info.line !== undefined || info.expression !== undefined || info.expressionTrace !== undefined
+    ? info
+    : undefined;
 }
 
 export function renderLegacyDebugMessages(result: TestResult): string[] {

@@ -236,7 +236,7 @@
   color: var(--ink);
 }
 /* The denied count doubles as the deny-filter toggle (a discoverable entry
-   point to denial inspection without the palette). */
+   point to the rules inspector without the palette). */
 .traffic__tl-deny {
   appearance: none;
   background: none;
@@ -360,6 +360,10 @@
   color: var(--muted);
   font: inherit;
   font-size: var(--fs-caption);
+  /* Pills are uppercase everywhere (ALLOW / DENY / ADMIN verdicts, the
+     service labels) — the filter pills match the standard. */
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   padding: 2px 10px;
   cursor: pointer;
 }
@@ -409,7 +413,7 @@
 [data-pyric-traffic-entry][data-verdict='deny'] {
   background: var(--deny-tint);
 }
-.traffic__denial-inspector {
+.traffic__inspector {
   display: grid;
   gap: var(--space-2);
   border-bottom: 1px solid var(--line);
@@ -417,23 +421,23 @@
   background: color-mix(in srgb, var(--deny-tint) 60%, var(--panel));
 }
 /* Standalone form (deep link with no visible row): its own bordered block. */
-.traffic > .traffic__denial-inspector {
+.traffic > .traffic__inspector {
   border: 1px solid var(--line);
   border-radius: 10px;
 }
-.traffic__denial-bar {
+.traffic__inspector-bar {
   display: flex;
   align-items: baseline;
   gap: var(--space-3);
 }
-.traffic__denial-title {
+.traffic__inspector-title {
   color: var(--faint);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   font-size: 10px;
   font-weight: 600;
 }
-.traffic__denial-close {
+.traffic__inspector-close {
   appearance: none;
   margin-left: auto;
   background: none;
@@ -444,10 +448,10 @@
   font-size: var(--fs-caption);
   cursor: pointer;
 }
-.traffic__denial-close:hover {
+.traffic__inspector-close:hover {
   color: var(--ink);
 }
-.traffic__denial-missing {
+.traffic__inspector-missing {
   margin: 0;
   color: var(--muted);
   font-size: var(--fs-caption);
@@ -506,13 +510,39 @@
   font-weight: 600;
 }
 
-/* The method badge (the only chip the library row still draws). */
+/* The service label — which backend the op hit (FIRESTORE / RTDB / STORAGE /
+   AUTH). Styled apart from the op chip (solid tint, no border) so the eye
+   catches the service split; FIXED width (fits "FIRESTORE") so every row's
+   op chip and path start at the same x regardless of label length. */
+.traffic__log [data-pyric-traffic-service] {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  width: 74px;
+  padding: 1px 0;
+  border-radius: 4px;
+  background: var(--elevated);
+  color: var(--faint);
+  text-align: center;
+  flex-shrink: 0;
+}
+/* Unknown service (pre-provenance events): keep the slot, drop the chrome —
+   the column stays aligned without a mystery empty pill. */
+.traffic__log [data-pyric-traffic-service=''] {
+  background: none;
+}
+
+/* The method badge — FIXED width (fits "LISTEN") for the same alignment
+   reason: a variable-width chip shifted every path after it. */
 .traffic__log [data-pyric-badge-kind] {
   font-family: var(--font-ui);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  padding: 1px 6px;
+  width: 58px;
+  padding: 1px 0;
+  text-align: center;
   border-radius: 4px;
   border: 1px solid var(--line-2);
   color: var(--muted);

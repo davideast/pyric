@@ -97,10 +97,12 @@ export interface NamespaceOptions {
   events?: ServeEventHub;
   /** `--persist`: mounts GET/POST /__pyric/state (the state channel). */
   state?: StateStore;
-  /** `--capture`: mounts POST /__pyric/capture — the page pushes its session
-   *  fixture here; the handler writes it verbatim to `.pyric/last-session.json`
-   *  for `pyric verify` to replay. */
-  capture?: { write(json: string): void };
+  /** `--capture`: mounts GET/POST /__pyric/capture. POST — the page/worker
+   *  pushes its session fixture here; the handler writes it verbatim to
+   *  `.pyric/last-session.json` for `pyric verify` to replay. GET — returns the
+   *  current fixture JSON (200) or 404 when nothing is captured yet, so the
+   *  served worker can re-hydrate its event history on boot after a death. */
+  capture?: { write(json: string): void; read(): string | null };
   /** `--ui` (Pyric Studio): mounts `/__pyric/workspace` + `/__pyric/projects`
    *  (disk-backed `WorkspaceStore`/`ProjectStore`, plus the SSE watch stream)
    *  that `@pyric/studio`'s `local` mode talks to. */
@@ -200,10 +202,14 @@ async function handleState(
  * The server writes it verbatim to `.pyric/last-session.json` so
  * `pyric verify` can pick it up without any extra arguments.
  *
- * Only POST is valid (there's nothing to GET — the file is meant for
- * `pyric verify`, not for the page to read back). Fails fast rather than
- * silently swallowing write errors so the developer knows the capture
- * is broken.
+ * GET returns the current fixture JSON verbatim (200), or 404 when nothing
+ * has been captured yet. The served SharedWorker fetches this on boot to
+ * re-hydrate its in-memory event history after a worker death (Traffic /
+ * activity / metrics survive the refresh even though the worker restarted).
+ * Cheap + read-only.
+ *
+ * POST fails fast rather than silently swallowing write errors so the
+ * developer knows the capture is broken.
  *
  * We collect the RAW request body as a string rather than using
  * `collectBody` (which parses JSON). The capture must be stored verbatim
@@ -212,12 +218,25 @@ async function handleState(
  * what the page intended to write.
  */
 async function handleCapture(
-  capture: { write(json: string): void },
+  capture: { write(json: string): void; read(): string | null },
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
+  if (req.method === 'GET') {
+    const body = capture.read();
+    if (body === null) {
+      res.writeHead(404, { 'content-type': 'application/json' }).end('null');
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(body);
+    return;
+  }
   if (req.method !== 'POST') {
-    res.writeHead(405, { allow: 'POST' }).end('method not allowed');
+    res.writeHead(405, { allow: 'GET, POST' }).end('method not allowed');
     return;
   }
   try {

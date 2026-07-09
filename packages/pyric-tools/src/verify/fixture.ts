@@ -17,6 +17,14 @@ export interface PyricVerifyFixture {
   schema: typeof VERIFY_FIXTURE_SCHEMA;
   description?: string;
   createdAt?: string;
+  /** Opaque id of the sandbox instance that produced this capture (the served
+   *  SharedWorker's `instanceId`). Purely additive: `pyric verify` ignores it.
+   *  Present only on captures written by the worker's capture flush; used by
+   *  boot-time event hydration to SKIP priming a capture that belongs to a
+   *  DIFFERENT instance (e.g. another browser profile sharing one `pyric dev`),
+   *  so someone else's session never shows up as yours. Absent on older /
+   *  standalone captures → hydration primes best-effort. */
+  capturedBy?: string;
   events: SandboxEvent[];
   services: {
     firestore?: {
@@ -54,6 +62,9 @@ export interface BuildVerifyFixtureInput {
     currentUser?: unknown;
   } | null;
   createdAt?: string;
+  /** Stamped into the fixture as `capturedBy` (identity for boot-time event
+   *  hydration). Omit for `pyric verify` builds — they have no instance. */
+  capturedBy?: string;
 }
 
 export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyFixture {
@@ -106,6 +117,7 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
     schema: VERIFY_FIXTURE_SCHEMA,
     ...(input.description ? { description: input.description } : {}),
     createdAt: input.createdAt ?? new Date().toISOString(),
+    ...(input.capturedBy ? { capturedBy: input.capturedBy } : {}),
     events,
     services,
   };

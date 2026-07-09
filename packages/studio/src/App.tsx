@@ -34,6 +34,35 @@ function docsHref(): string {
   return `${base.endsWith('/') ? base : `${base}/`}docs`;
 }
 
+/**
+ * Are docs actually composed alongside this Studio? Only the static-site
+ * build ships them; under `pyric dev` there is nothing at `<base>/docs`, the
+ * SPA fallback answers with the Studio shell, and the router bounces the
+ * user home — a dead tab. Probe `<base>/docs/index.json` (the docs search
+ * index) and require a JSON content-type: the serve mount's SPA fallback
+ * answers ANY miss — dotted paths included (deep links carry dots) — with
+ * the shell's `text/html`, so a bare 200 proves nothing; the content-type
+ * does. The tab renders only after the probe confirms.
+ */
+function useDocsAvailable(): boolean {
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    let on = true;
+    fetch(`${docsHref()}/index.json`, { method: 'HEAD' })
+      .then((res) => {
+        const type = res.headers.get('content-type') ?? '';
+        if (on && res.ok && type.includes('json')) setAvailable(true);
+      })
+      .catch(() => {
+        // unreachable → no docs; the tab stays hidden
+      });
+    return () => {
+      on = false;
+    };
+  }, []);
+  return available;
+}
+
 /** The labelled empty placeholder a route shows until its surface lands. */
 function RoutePlaceholder({ id }: { id: string }) {
   const route = findRoute(id);
@@ -99,6 +128,7 @@ function Shell() {
   const [active, navigateRoute] = useRoute(ROUTE_IDS, 'home');
   const navigate = (id: RouteId) => navigateRoute(id);
   const [commandOpen, setCommandOpen] = useState(false);
+  const docsAvailable = useDocsAvailable();
 
   // Global ⌘K (Ctrl+K non-mac): on Home it focuses the inline command input;
   // elsewhere it toggles the overlay below the bar. preventDefault ONLY when
@@ -150,10 +180,14 @@ function Shell() {
             {/* Docs is not a Studio surface: the static docs pages are
                 composed alongside Studio at <base>/docs/ and render the
                 same shell bar themselves, so a plain full-page link IS
-                the tab (their bar links back to these routes). */}
-            <a className="studio__nav-tab" href={docsHref()}>
-              Docs
-            </a>
+                the tab (their bar links back to these routes) — rendered
+                only when the probe confirms docs are actually composed
+                here (see useDocsAvailable). */}
+            {docsAvailable ? (
+              <a className="studio__nav-tab" href={docsHref()}>
+                Docs
+              </a>
+            ) : null}
           </nav>
           <StatusCluster />
         </div>

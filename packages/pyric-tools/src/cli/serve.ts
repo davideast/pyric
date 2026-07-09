@@ -139,6 +139,17 @@ export async function startServe(opts: {
 }): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
 
+  // --fresh only means anything against the state.json file `--persist`
+  // maintains — without `--persist` there is no file to discard, so
+  // `--fresh` alone was a silent no-op (nothing happened, nothing said so).
+  // Fail fast instead of pretending to reset something.
+  if (opts.fresh && !opts.persist) {
+    throw new Error(
+      'pyric dev: --fresh requires --persist (it discards .pyric/state/state.json). ' +
+        'Browser-stored data is cleared from Studio → Settings → Reset, or DevTools → Clear site data.',
+    );
+  }
+
   // firebase.json is optional for serving (firebase-serve parity: warn, then
   // serve the directory anyway).
   let config: FirebaseJson | null = null;
@@ -219,6 +230,19 @@ export async function startServe(opts: {
   if (state && opts.fresh) {
     for (const p of [state.path, state.backupPath]) if (existsSync(p)) rmSync(p);
     logger.note('  ⓘ --fresh: discarded the existing state file; re-seeding');
+    // Half-reset warning: --fresh only deletes the SERVER file. The worker's
+    // durable store is browser IndexedDB, and prime-once only fills an EMPTY
+    // IDB (createWorkerDurableBackend) — a browser that already holds sandbox
+    // data KEEPS it and its next flush repopulates the supposedly-fresh file.
+    // The reset handshake (making --fresh actually clear the browser store) is
+    // future work; until then, say so loudly rather than let the file quietly
+    // refill.
+    logger.note(
+      '  ⚠ --fresh only resets the server-side state file — a browser tab that already has ' +
+        'sandbox data in IndexedDB keeps it and will write it straight back on its next flush. ' +
+        'For a full reset, also clear the browser store: Studio → Settings → Reset, or open an ' +
+        'incognito/private window.',
+    );
   }
   let persistedEnvelope = state?.load() ?? null;
 
@@ -487,6 +511,14 @@ export async function startServe(opts: {
           'replaced by an empty one — e.g. a reset). Restore: mv it back over state.json.',
       );
     }
+  } else {
+    // Say the durability tier out loud: refresh behavior must never be a coin
+    // flip. Coverage detail (which services, worker vs in-page) lives in the
+    // persistence guide — this line names the tier and the upgrade path.
+    logger.note(
+      '  ⓘ persist  data lives in this browser (IndexedDB) — see docs/how-to/serve-persistence-and-multi-tab.md' +
+        '\n             for what survives refresh/restart; `--persist` adds a committable .pyric/state/state.json',
+    );
   }
   // (A fixture that primed the persist store is reported by the persist
   // line; a fixture ignored because lived state exists is intentionally

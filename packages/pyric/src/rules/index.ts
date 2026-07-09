@@ -95,9 +95,9 @@ export {
   TestCaseSchema,
   TestIdentitySchema,
   renderLegacyDebugMessages,
-  projectDenyingRule,
+  projectEvaluatedRule,
 } from './test/spec.js';
-export type { DeniedRuleInfo } from './test/spec.js';
+export type { EvaluatedRuleInfo } from './test/spec.js';
 
 // ─── Sentinel expression engine ──────────────────────────────────────
 export { resolveExpressionsInData, ExpressionWalkError } from './simulator/expression/walk-data.js';

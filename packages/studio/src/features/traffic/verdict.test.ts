@@ -6,6 +6,7 @@ import {
   filterByVerdict,
   filterStudioTraffic,
   isStudioTraffic,
+  opensRulesInspector,
   subjectTarget,
   verdictFor,
 } from './verdict.js';
@@ -109,6 +110,25 @@ describe('subjectTarget', () => {
     expect(subjectTarget({ service: 'rtdb', path: '(service)' })).toBeNull();
     expect(subjectTarget({ path: '' })).toBeNull();
     expect(subjectTarget({ service: 'firestore', path: '/' })).toBeNull();
+  });
+});
+
+describe('opensRulesInspector (row-click semantics)', () => {
+  it('rules-evaluated rows open the inspector: allow AND deny', () => {
+    expect(opensRulesInspector({ result: 'allow', origin: 'user' })).toBe(true);
+    expect(opensRulesInspector({ result: 'deny', origin: 'user' })).toBe(true);
+  });
+
+  it('admin-bypass rows keep subject navigation (rules never ran)', () => {
+    expect(
+      opensRulesInspector({ result: 'allow', origin: 'user', authLens: { mode: 'admin' } }),
+    ).toBe(false);
+    expect(opensRulesInspector({ result: 'allow', origin: 'admin' })).toBe(false);
+  });
+
+  it('blank-verdict rows keep subject navigation (no rules decision)', () => {
+    expect(opensRulesInspector({ result: 'not-applicable' as never, origin: 'user' })).toBe(false);
+    expect(opensRulesInspector({ result: 'error' as never, origin: 'user' })).toBe(false);
   });
 });
 

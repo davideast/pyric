@@ -61,6 +61,20 @@ describe('createCaptureStore', () => {
     }
   });
 
+  it('read returns null before any write, then the verbatim body after', () => {
+    const dir = tmp();
+    try {
+      const store = createCaptureStore(dir);
+      // Nothing captured yet → null (GET /__pyric/capture 404s → boot skips).
+      expect(store.read()).toBeNull();
+      const body = JSON.stringify({ schema: 'pyric.verify.fixture.v1', events: [{ id: 'e1' }], services: {} });
+      store.write(body);
+      expect(store.read()).toBe(body);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('overwrites on subsequent writes (last write wins)', () => {
     const dir = tmp();
     try {

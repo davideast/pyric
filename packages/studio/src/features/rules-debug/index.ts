@@ -11,6 +11,7 @@
 
 export {
   selectDenials,
+  selectRuleEvaluations,
   toDenial,
   explainDenial,
   denialSeverity,
