@@ -45,6 +45,7 @@ import {
   summarize,
 } from '~/lib/llm/inference/diagnostics';
 import { useLlmStore } from '~/lib/store/llm';
+import { IS_STATIC_PLAYGROUND_BUILD } from '~/lib/build-env';
 import { Modal } from './Modal';
 import {
   countEnabled,
@@ -251,14 +252,19 @@ export function SettingsModal({ open, onClose }: Props) {
           ) : null}
         </div>
 
-        <div className="space-y-1.5 pt-2">
-          <ToggleRow
-            checked={resumableServerMode}
-            onChange={() => setResumableServerMode(!resumableServerMode)}
-            title="Resumable server stream"
-            body="Routes inference through the server, which holds the provider connection and buffers it into a durable job store. The client reconnects with an offset after a backgrounding drop and the server replays from exactly there — live streaming that survives tab backgrounding, plus recovery of an interrupted reply after a reload. On by default for cloud providers (Gemini/OpenRouter); local providers run page-direct, which is also the automatic fallback when the server route is unavailable."
-          />
-        </div>
+        {/* Server-backed transport is meaningless on the static site: there is
+            no server relay, so inference is page-direct BYOK only. Hide the
+            toggle there entirely (it's forced OFF in the settings store). */}
+        {!IS_STATIC_PLAYGROUND_BUILD ? (
+          <div className="space-y-1.5 pt-2">
+            <ToggleRow
+              checked={resumableServerMode}
+              onChange={() => setResumableServerMode(!resumableServerMode)}
+              title="Resumable server stream"
+              body="Routes inference through the server, which holds the provider connection and buffers it into a durable job store. The client reconnects with an offset after a backgrounding drop and the server replays from exactly there — live streaming that survives tab backgrounding, plus recovery of an interrupted reply after a reload. On by default for cloud providers (Gemini/OpenRouter); local providers run page-direct, which is also the automatic fallback when the server route is unavailable."
+            />
+          </div>
+        ) : null}
 
         <div className="space-y-1.5 pt-2">
           <div className="flex items-center justify-between gap-3">

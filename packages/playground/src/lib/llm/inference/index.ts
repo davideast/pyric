@@ -41,6 +41,7 @@ import { createResumableClient, installBrowserLifecycle } from '@inbrowser/relay
 import { useSettingsStore } from '~/lib/store/settings';
 import { useLlmStore } from '~/lib/store/llm';
 import { logPage } from './diagnostics';
+import { IS_STATIC_PLAYGROUND_BUILD } from '~/lib/build-env';
 
 // Re-export the wire types so existing consumers' imports keep working.
 // `InferenceEvent` is the page-provider union — the flat page-direct
@@ -130,6 +131,13 @@ const fetchWithInferenceAuth = ((input: RequestInfo | URL, init?: RequestInit) =
 let apiBasePromise: Promise<string> | null = null;
 function resolveApiBase(): Promise<string> {
   if (apiBasePromise) return apiBasePromise;
+  // The composed static site has no server route: `/inference-endpoint.json`
+  // would resolve through the SPA rewrite to the HTML shell. Skip the probe
+  // entirely — inference is page-direct BYOK there (see selectMode).
+  if (IS_STATIC_PLAYGROUND_BUILD) {
+    apiBasePromise = Promise.resolve('');
+    return apiBasePromise;
+  }
   apiBasePromise = (async () => {
     try {
       const res = await fetch('/inference-endpoint.json', { cache: 'no-store' });
@@ -202,6 +210,9 @@ function isRouteMissing(msg: string): boolean {
 }
 
 function selectMode(provider: string): InferenceMode {
+  // Static site: no server relay exists. Always page-direct (BYOK), regardless
+  // of any persisted `resumableServerMode` — the toggle is hidden there too.
+  if (IS_STATIC_PLAYGROUND_BUILD) return 'fallback';
   if (
     typeof window !== 'undefined' &&
     Date.now() >= serverRouteMissingUntil &&

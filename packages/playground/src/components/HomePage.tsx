@@ -83,6 +83,7 @@ import {
   githubImportBlockReason,
   type GitHubReposState,
 } from './GitHubImportSetup';
+import { IS_STATIC_PLAYGROUND_BUILD } from '~/lib/build-env';
 import { Modal } from './Modal';
 import { ModelPicker } from './ModelPicker';
 import { PromptHighlightTextarea } from './PromptHighlightTextarea';
@@ -776,30 +777,38 @@ function PromptComposer({
       ) : null}
 
       <div className="border-t border-[#2a2a35] pt-3 grid gap-3">
-        <GitHubImportSetup
-          expanded={importRepo}
-          onExpandedChange={onImportRepoChange}
-          selectedCloneUrl={selectedCloneUrl}
-          onSelectedCloneUrlChange={onSelectedCloneUrlChange}
-          reposState={reposState}
-          onReloadRepos={onReloadRepos}
-          githubLogin={githubLogin}
-          patPresent={patPresent}
-          onOpenSettings={onOpenSettings}
-        />
+        {/* GitHub import/create needs a PAT and network calls to github.com;
+            the static site ships without BYOPAT (see issue #72 — "No GitHub
+            features in v1"), so hide both setups there. The compose flow falls
+            back to a plain local session, unaffected. */}
+        {!IS_STATIC_PLAYGROUND_BUILD ? (
+          <>
+            <GitHubImportSetup
+              expanded={importRepo}
+              onExpandedChange={onImportRepoChange}
+              selectedCloneUrl={selectedCloneUrl}
+              onSelectedCloneUrlChange={onSelectedCloneUrlChange}
+              reposState={reposState}
+              onReloadRepos={onReloadRepos}
+              githubLogin={githubLogin}
+              patPresent={patPresent}
+              onOpenSettings={onOpenSettings}
+            />
 
-        <GitHubRepoSetup
-          expanded={createRepo}
-          onExpandedChange={onCreateRepoChange}
-          name={repoName}
-          onNameChange={onRepoNameChange}
-          visibility={repoVisibility}
-          onVisibilityChange={onRepoVisibilityChange}
-          nameSuggestion={repoNameSuggestion}
-          githubLogin={githubLogin}
-          patPresent={patPresent}
-          onOpenSettings={onOpenSettings}
-        />
+            <GitHubRepoSetup
+              expanded={createRepo}
+              onExpandedChange={onCreateRepoChange}
+              name={repoName}
+              onNameChange={onRepoNameChange}
+              visibility={repoVisibility}
+              onVisibilityChange={onRepoVisibilityChange}
+              nameSuggestion={repoNameSuggestion}
+              githubLogin={githubLogin}
+              patPresent={patPresent}
+              onOpenSettings={onOpenSettings}
+            />
+          </>
+        ) : null}
 
         <div className="flex flex-wrap items-center justify-between gap-3">
         {enhanceStreaming ? (
