@@ -397,6 +397,47 @@ describe('sandbox.updateUser (A3)', () => {
     expect(user.uid).toBe(cred.user.uid);
   });
 
+  it('providerUserInfo replaces linked OAuth providers (multiple supported)', () => {
+    const auth = freshAuth();
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com' });
+    let r = authSandbox.updateUser(auth, 'u1', {
+      providerUserInfo: [{ providerId: 'google.com' }, { providerId: 'github.com' }],
+    });
+    expect(r.providerUserInfo).toEqual([
+      { providerId: 'google.com' },
+      { providerId: 'github.com' },
+    ]);
+    // Replacement semantics: dropping one drops it; dedupe by providerId.
+    r = authSandbox.updateUser(auth, 'u1', {
+      providerUserInfo: [{ providerId: 'github.com' }, { providerId: 'github.com' }],
+    });
+    expect(r.providerUserInfo).toEqual([{ providerId: 'github.com' }]);
+  });
+
+  it('providerUserInfo cannot forge password/anonymous; password survives replacement', () => {
+    const auth = freshAuth();
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    // Replacing providers keeps the credential-derived password entry.
+    let r = authSandbox.updateUser(auth, 'u1', {
+      providerUserInfo: [{ providerId: 'google.com' }],
+    });
+    expect(r.providerUserInfo).toEqual([
+      { providerId: 'password' },
+      { providerId: 'google.com' },
+    ]);
+    // A user WITHOUT a password can't gain one through the list.
+    authSandbox.createUser(auth, { uid: 'u2' });
+    r = authSandbox.updateUser(auth, 'u2', {
+      providerUserInfo: [{ providerId: 'password' }, { providerId: 'anonymous' }],
+    });
+    expect(r.providerUserInfo).toEqual([]);
+    // Empty providerId is an argument error.
+    expectAuthError(
+      () => authSandbox.updateUser(auth, 'u2', { providerUserInfo: [{ providerId: '  ' }] }),
+      'auth/argument-error',
+    );
+  });
+
   it('claims changes reach the next forced token refresh (live claims)', async () => {
     const auth = freshAuth();
     authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
