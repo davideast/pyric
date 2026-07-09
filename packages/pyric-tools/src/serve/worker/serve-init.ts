@@ -459,6 +459,16 @@ export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
   // all tabs (sessions are per-port; see host-auth.ts).
   getAuth(sandbox);
 
+  // Register RTDB with the persistence registry EAGERLY, same reasoning as
+  // auth above: `getDatabase(sandbox)` calls `registerPersistableService`,
+  // which makes the persisted tree ride the controller blob AND (via the
+  // controller's late-registration hook) applies the restored tree NOW. The
+  // worker otherwise creates RTDB handles lazily (`ctx.rtdb ??= ...`), so a
+  // Studio RTDB-tab read that arrives before any RTDB op would see an empty
+  // tree even though a prior session's data was persisted. Eager registration
+  // makes the restored tree queryable immediately.
+  getDatabase(sandbox);
+
   // Sandbox-live Firestore: `getFirestore(sandbox)` reads
   // `sandbox.currentUser` per operation, so auth changes propagate
   // to subsequent Firestore ops without rebuilding the handle.

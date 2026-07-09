@@ -1190,6 +1190,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
         const db = lensRtdb(ctx, msg.actAs, port);
         const value = resolveRtdbSentinels(msg.value);
         await rtdbSet(rtdbRef(db, msg.path), value as never);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -1199,6 +1200,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
       try {
         const db = lensRtdb(ctx, msg.actAs, port);
         await rtdbUpdate(rtdbRef(db, msg.path), resolveRtdbSentinels(msg.values) as Record<string, unknown>);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -1208,6 +1210,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
       try {
         const db = lensRtdb(ctx, msg.actAs, port);
         await rtdbRemove(rtdbRef(db, msg.path));
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -1222,6 +1225,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
             rtdbRef(db, childPath),
             resolveRtdbSentinels(msg.value) as never,
           );
+          await bestEffortFlush(ctx);
         }
         const normalizedPath = `/${childPath.split('/').filter(Boolean).join('/')}`;
         ok(port, msg.id, { key: msg.key, path: normalizedPath });

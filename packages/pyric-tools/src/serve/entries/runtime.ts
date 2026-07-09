@@ -209,6 +209,12 @@ if (!useWorker) try {
   if (!res.ok) throw new Error(`/__pyric/init.json → ${res.status}`);
   const payload = (await res.json()) as InitPayload;
   bridgeUrlFromPayload = payload.bridgeUrl;
+  // Register RTDB with the persistence registry BEFORE enablePersistence
+  // (below) so the restored tree rides the controller blob and is applied
+  // during restore-on-attach — same eager-registration reasoning as the
+  // worker path (serve-init.ts). `getDatabase(sandbox)` is idempotent
+  // (one backend per sandbox) so a later rules/op call reuses it.
+  getDatabase(sandbox);
   if (payload.rules) {
     const db = getFirestore(sandbox);
     const lint = sandboxOps.setRules(db, payload.rules);
