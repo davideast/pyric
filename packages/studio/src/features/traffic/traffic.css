@@ -163,23 +163,35 @@
   color: var(--ink);
 }
 
-/* ── Verdict cell ───────────────────────────────────────────────────── */
+/* ── Verdict pill: the row's ONE outcome marker ─────────────────────────
+   Uniform box for all three verdicts (same fixed width AND height, small
+   type) so the column reads as a column; only color varies. Non-rule ops
+   render nothing at all. */
 .traffic__verdict {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 18px;
+  border-radius: 5px;
+  align-self: center; /* the row baselines text; the pill centers itself */
+  flex-shrink: 0;
   font-family: var(--font-ui);
   font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  flex-shrink: 0;
-  color: var(--faint);
+  letter-spacing: 0.04em;
 }
 .traffic__verdict[data-verdict='allow'] {
+  background: var(--elevated);
   color: var(--muted);
 }
 .traffic__verdict[data-verdict='deny'] {
-  color: var(--deny);
-  font-weight: 600;
+  background: var(--deny);
+  color: var(--deny-ink);
 }
 .traffic__verdict[data-verdict='admin'] {
+  background: var(--accent-tint);
   color: var(--accent);
 }
 
@@ -263,7 +275,8 @@
   text-overflow: ellipsis;
 }
 
-/* Denials made clear: a dark filled badge + a row tint, matching the timeline. */
+/* Denials made clear: the deny verdict pill + a row tint, matching the
+   timeline. */
 .traffic__log [data-pyric-traffic-row][data-pyric-result="deny"] {
   background: var(--deny-tint);
 }
@@ -274,6 +287,7 @@
   font-weight: 600;
 }
 
+/* The method badge (the only chip the library row still draws). */
 .traffic__log [data-pyric-badge-kind] {
   font-family: var(--font-ui);
   font-size: 10px;
@@ -284,14 +298,6 @@
   border: 1px solid var(--line-2);
   color: var(--muted);
   flex-shrink: 0;
-}
-.traffic__log [data-pyric-badge-kind="deny"] {
-  background: var(--deny);
-  color: var(--deny-ink);
-  border-color: var(--deny);
-}
-.traffic__log [data-pyric-badge-kind="allow"] {
-  color: var(--muted);
 }
 
 /* Group rows (collapsed listener storms). */
