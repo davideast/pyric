@@ -70,8 +70,10 @@ import {
   isPlaygroundCommandMessage,
   isStudioEmbedSearch,
   playgroundHomeHref,
+  postPlaygroundBreadcrumb,
   type PlaygroundSandboxMode,
 } from '~/lib/studio-embed';
+import { buildPlaygroundBreadcrumbs } from '~/lib/breadcrumbs';
 import { listToolHandlersForProfile } from '~/lib/tools';
 import { completeRedirectSignIn } from '~/lib/firebase/auth';
 import { completeSignInIfPending } from '~/lib/llm/openrouter-oauth';
@@ -162,6 +164,26 @@ export function PlaygroundPage() {
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [embeddedInStudio, openAccount, openKeys, openSettings]);
+
+  // Publish the session breadcrumb to Studio so it renders in its Prototype
+  // controls bar (the embed hides the TopBar, and the in-workspace StatusBar
+  // slot reads as misplaced). Re-posts whenever the title / session changes.
+  useEffect(() => {
+    if (!embeddedInStudio) return;
+    const crumbs = buildPlaygroundBreadcrumbs({
+      base: playgroundBase,
+      embedded: true,
+      sessionTitle: sessionRouting.title,
+      sessionId: sessionRouting.sessionId ?? '',
+    });
+    const root = crumbs[0];
+    const current = crumbs[crumbs.length - 1];
+    postPlaygroundBreadcrumb({
+      rootLabel: root?.label ?? 'Prototype',
+      rootHref: root?.href ?? playgroundHomeHref({ base: playgroundBase, embedded: true }),
+      title: crumbs.length > 1 ? current?.label ?? null : null,
+    });
+  }, [embeddedInStudio, playgroundBase, sessionRouting.title, sessionRouting.sessionId]);
 
   // Complete the Google redirect flow on app load — only matters
   // when the user picked the redirect fallback (popup is the
@@ -983,12 +1005,18 @@ export function PlaygroundPage() {
               footer. Visual order matches importance per breakpoint. */}
           <StatusBar
             leading={
-              <SessionBreadcrumbs
-                base={playgroundBase}
-                embedded={embeddedInStudio}
-                sessionTitle={sessionRouting.title}
-                sessionId={sessionRouting.sessionId ?? ''}
-              />
+              // When embedded, Studio renders the breadcrumb in its own
+              // Prototype controls bar (via postPlaygroundBreadcrumb above), so
+              // the in-workspace copy is suppressed to avoid a duplicate in a
+              // spot that reads as misplaced. Standalone keeps it here.
+              embeddedInStudio ? null : (
+                <SessionBreadcrumbs
+                  base={playgroundBase}
+                  embedded={embeddedInStudio}
+                  sessionTitle={sessionRouting.title}
+                  sessionId={sessionRouting.sessionId ?? ''}
+                />
+              )
             }
             modelLabel={`${activeProvider.label}: ${activeModelLabel}`}
             sessionState={sessionState}
