@@ -518,6 +518,64 @@ function EditRow({
   const contract = registry[draftType];
   const EditComponent = contract?.Edit;
 
+  const valueEditor =
+    draftType !== 'map' && draftType !== 'array' && EditComponent ? (
+      <EditComponent
+        value={draftValue as never}
+        path={path}
+        error={touched ? valueError : undefined}
+        onChange={(v: unknown) => setDraftValue(v)}
+      />
+    ) : draftType === 'map' || draftType === 'array' ? (
+      <span className="fs-doctree__editnote">
+        Saves as an empty {draftType} — add its children afterward.
+      </span>
+    ) : null;
+
+  const actions = (
+    <span className="fs-doctree__editactions">
+      <button type="button" className="fs-doctree__editsave" onClick={save} aria-label="Save field">
+        ✓
+      </button>
+      <button
+        type="button"
+        className="fs-doctree__editcancel"
+        onClick={cancel}
+        aria-label="Cancel edit"
+      >
+        ✕
+      </button>
+    </span>
+  );
+
+  // Plain element (not a nested component) so the open <select> keeps its
+  // identity — and its focus — across re-renders while the user types.
+  const typeSelect = (
+    <select
+      className="fs-doctree__edittype"
+      value={draftType}
+      onChange={(e) => {
+        const t = e.target.value as FieldType;
+        setDraftType(t);
+        if (t !== 'map' && t !== 'array' && t !== draftType) {
+          setDraftValue(defaultValueForClientType(t));
+        }
+      }}
+      aria-label="Field type"
+    >
+      {(isNew ? NEW_ENTRY_TYPES : LEAF_TYPES).map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </select>
+  );
+
+  // Explicit stacked LINES (name/type, then value) rather than one
+  // flex-wrap row: each line is its own flex row starting at the same
+  // content edge, so the name and value inputs share a left x by
+  // construction — alignment no longer depends on where the wrap
+  // happens to break or on selector precedence between the two inputs.
   return (
     <div
       className="fs-doctree__editrow"
@@ -532,62 +590,27 @@ function EditRow({
       }}
     >
       {!isArrayChild ? (
-        <input
-          type="text"
-          className="fs-doctree__editkey"
-          value={draftKey}
-          placeholder="Field name"
-          autoFocus={isNew}
-          onChange={(e) => setDraftKey(e.target.value)}
-          onBlur={() => setTouched(true)}
-          aria-label="Field name"
-          aria-invalid={touched && keyError ? 'true' : undefined}
-        />
+        <div className="fs-doctree__editline">
+          <input
+            type="text"
+            className="fs-doctree__editkey"
+            value={draftKey}
+            placeholder="Field name"
+            autoFocus={isNew}
+            onChange={(e) => setDraftKey(e.target.value)}
+            onBlur={() => setTouched(true)}
+            aria-label="Field name"
+            aria-invalid={touched && keyError ? 'true' : undefined}
+          />
+          {typeSelect}
+        </div>
       ) : null}
-      <select
-        className="fs-doctree__edittype"
-        value={draftType}
-        onChange={(e) => {
-          const t = e.target.value as FieldType;
-          setDraftType(t);
-          if (t !== 'map' && t !== 'array' && t !== draftType) {
-            setDraftValue(defaultValueForClientType(t));
-          }
-        }}
-        aria-label="Field type"
-      >
-        {(isNew ? NEW_ENTRY_TYPES : LEAF_TYPES).map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
-      {draftType !== 'map' && draftType !== 'array' && EditComponent ? (
-        <EditComponent
-          value={draftValue as never}
-          path={path}
-          error={touched ? valueError : undefined}
-          onChange={(v: unknown) => setDraftValue(v)}
-        />
-      ) : draftType === 'map' || draftType === 'array' ? (
-        <span className="fs-doctree__editnote">
-          Saves as an empty {draftType} — add its children afterward.
-        </span>
-      ) : null}
+      <div className="fs-doctree__editline">
+        {isArrayChild ? typeSelect : null}
+        {valueEditor}
+        {actions}
+      </div>
       {touched && keyError ? <span className="fs-doctree__editerr">{keyError}</span> : null}
-      <span className="fs-doctree__editactions">
-        <button type="button" className="fs-doctree__editsave" onClick={save} aria-label="Save field">
-          ✓
-        </button>
-        <button
-          type="button"
-          className="fs-doctree__editcancel"
-          onClick={cancel}
-          aria-label="Cancel edit"
-        >
-          ✕
-        </button>
-      </span>
     </div>
   );
 }
