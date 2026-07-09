@@ -18,15 +18,15 @@
  * pending prefixes (`pendingPrefixReducer`), NOT placeholder objects — the
  * sandbox store stays clean; a pending folder materializes when the first
  * upload lands in it and disappears on reload if abandoned. The UI says so:
- * pending rows carry a "session" badge and the pending empty state explains
- * the lifecycle. (See `@pyric/ui/storage`'s `pendingPrefixes.ts` for the
+ * the pending empty state explains the lifecycle. (See
+ * `@pyric/ui/storage`'s `pendingPrefixes.ts` for the
  * full decision record; the placeholder-object alternative remains available
  * as `useObjectUpload.createFolder`.)
  *
  * UPLOADS: the Upload button (multi-select file input) and the dropzone
  * (files AND folder trees via `webkitGetAsEntry`) both feed
  * `useObjectUpload` — concurrent per-file tasks, one failure never aborts
- * the rest; progress renders in the transient tray under the action row.
+ * the rest; failures surface as a single inline error line (no tray UI).
  * Name collisions auto-rename with OS-copy semantics (`planBatchNames`):
  * `photo.png` → `photo (1).png`, `photo (1).png` → `photo (2).png`;
  * dropped folders rename at their root segment, keeping contents intact.
@@ -56,7 +56,6 @@ import {
   folderInputError,
   type DroppedFile,
   type StorageListEntry,
-  type UploadTask,
 } from '@pyric/ui/storage';
 import type { FirebaseStorage, FullMetadata, StorageReference } from 'pyric/storage';
 import { useDataNav } from './navigation.js';
@@ -136,24 +135,55 @@ function renderMetadata(metadata: FullMetadata): ReactNode {
   );
 }
 
-/** Row label slot: the 4-column cells inside each entry button. `pending`
- *  folders (created this session, no object yet) carry a "session" badge —
- *  the honesty contract of the pending-prefix mechanism. */
-function renderEntry(entry: StorageListEntry, pending: boolean): ReactNode {
+/** Inline line-style glyphs (stroke-only, current-color) for the name cell —
+ *  no icon library; drawn to match the product's line weight. */
+function FolderGlyph() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinejoin="round"
+    >
+      <path d="M1.75 4.25c0-.55.45-1 1-1h3.4l1.5 1.7h5.6c.55 0 1 .45 1 1v6.05c0 .55-.45 1-1 1H2.75c-.55 0-1-.45-1-1z" />
+    </svg>
+  );
+}
+
+function FileGlyph() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinejoin="round"
+    >
+      <path d="M4.25 1.75h5l3 3v9.5h-8z" />
+      <path d="M9.25 1.75v3h3" />
+    </svg>
+  );
+}
+
+/** Row label slot: the 4-column cells inside each entry button. Folder rows
+ *  get a folder glyph, file rows a file glyph. Pending (session-only) folders
+ *  render like any other folder — the mechanism stays; no badge. */
+function renderEntry(entry: StorageListEntry): ReactNode {
   const isFolder = entry.kind === 'folder';
   return (
     <>
       <span className="storage__cell-name">
-        {isFolder ? <span className="storage__ic">DIR</span> : null}
+        <span className="storage__ic" aria-hidden>
+          {isFolder ? <FolderGlyph /> : <FileGlyph />}
+        </span>
         <span className="storage__nm">{entry.name}</span>
-        {pending ? (
-          <span
-            className="storage__pending-badge"
-            title="Empty folder — session-only until a file is uploaded into it."
-          >
-            session
-          </span>
-        ) : null}
         {isFolder ? (
           <span aria-hidden className="storage__chev">
             ›
@@ -164,22 +194,6 @@ function renderEntry(entry: StorageListEntry, pending: boolean): ReactNode {
       <span className="storage__cell-size" />
       <span className="storage__cell-updated" />
     </>
-  );
-}
-
-/** One upload task's tray row: name + state (per-file, failures inline). */
-function trayRow(task: UploadTask): ReactNode {
-  const state =
-    task.status === 'running'
-      ? 'uploading…'
-      : task.status === 'success'
-        ? 'done'
-        : (task.error?.message ?? 'failed');
-  return (
-    <li key={task.id} className="storage__tray-row" data-status={task.status}>
-      <span className="storage__tray-name">{lastSegment(task.fullPath)}</span>
-      <span className="storage__tray-state">{state}</span>
-    </li>
   );
 }
 
@@ -295,7 +309,6 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusPath]);
 
-  const settled = uploader.tasks.filter((t) => t.status !== 'running');
   const failed = uploader.tasks.filter((t) => t.status === 'error');
   // Advisory pre-flight for the drop target (the gate's canonical wiring —
   // see UploadDropzone's `disabledReason` doc). Conservative: no size or
@@ -380,28 +393,23 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
         </form>
       ) : null}
 
-      {uploader.tasks.length > 0 ? (
-        <div className="storage__tray" role="status">
-          <div className="storage__tray-head">
-            <span>
-              {uploader.isUploading
-                ? `Uploading ${uploader.tasks.length - settled.length} of ${uploader.tasks.length}…`
-                : `${settled.length - failed.length}/${uploader.tasks.length} uploaded${
-                    failed.length > 0 ? `, ${failed.length} failed` : ''
-                  }`}
-            </span>
-            {uploader.isUploading ? null : (
-              <button
-                type="button"
-                className="storage__tray-clear"
-                onClick={uploader.clearCompleted}
-              >
-                Clear
-              </button>
-            )}
-          </div>
-          <ul className="storage__tray-list">{uploader.tasks.map(trayRow)}</ul>
-        </div>
+      {failed.length > 0 ? (
+        <p className="storage__upload-err" role="alert">
+          {failed.length === 1
+            ? `Upload failed: ${lastSegment(failed[0]!.fullPath)} — ${
+                failed[0]!.error?.message ?? 'error'
+              }`
+            : `${failed.length} uploads failed: ${failed
+                .map((t) => lastSegment(t.fullPath))
+                .join(', ')}`}
+          <button
+            type="button"
+            className="storage__upload-err-dismiss"
+            onClick={uploader.clearCompleted}
+          >
+            Dismiss
+          </button>
+        </p>
       ) : null}
 
       <div
@@ -426,9 +434,7 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
             error={list.error}
             gate={gate}
             selectedPath={selectedPath ?? undefined}
-            renderEntry={(entry) =>
-              renderEntry(entry, isPendingPrefix(pending, entry.fullPath))
-            }
+            renderEntry={renderEntry}
             onNavigate={(p) => {
               pathState.enter(p);
               selectObject(null);
