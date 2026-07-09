@@ -39,3 +39,6 @@ clones/
 
 # Design/process working documents — never repo content (see #29/#32 accident)
 docs/design/
+
+# Claude Code worktrees — never repo content
+.claude/worktrees/
