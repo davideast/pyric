@@ -1770,6 +1770,31 @@ export async function adminClearUsers(auth: ClientAuth): Promise<void> {
   await rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.adminClearUsers' });
 }
 
+// ─── Sign-in provider config (Pyric Studio S-AUTH) ────────────────────────
+// Mirror `pyric/auth`'s `sandbox.{getAuthProviderConfig,setAuthProviderConfig}`
+// over the port. No dedicated subscription: `setProviderConfig` fires a
+// `provider_config_update` sandbox event, so a caller re-reads via
+// `getProviderConfig` on the SAME event feed `listUsers` callers already
+// subscribe to (see `worker-live.ts`'s `subscribeUsers`).
+
+export async function getProviderConfig(
+  auth: ClientAuth,
+): Promise<Array<{ providerId: string; enabled: boolean }>> {
+  return (await rpc(auth.port, {
+    t: 'op', id: nextId(), method: 'auth.getProviderConfig',
+  })) as Array<{ providerId: string; enabled: boolean }>;
+}
+
+export async function setProviderConfig(
+  auth: ClientAuth,
+  providerId: string,
+  enabled: boolean,
+): Promise<void> {
+  await rpc(auth.port, {
+    t: 'op', id: nextId(), method: 'auth.setProviderConfig', providerId, enabled,
+  });
+}
+
 export async function signInWithEmailAndPassword(
   auth: ClientAuth,
   email: string,

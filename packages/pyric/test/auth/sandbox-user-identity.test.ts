@@ -56,6 +56,7 @@ function richResolver(uid: string): AuthFlowResolver {
 describe('rich User preservation (sandbox)', () => {
   it('signInWithPopup keeps email + displayName on currentUser', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.setAuthFlowResolver(auth, richResolver('google-123'));
     const cred = await signInWithPopup(auth, new GoogleAuthProvider());
     expect(cred.user.email).toBe('google-123@example.com');
@@ -67,6 +68,7 @@ describe('rich User preservation (sandbox)', () => {
 
   it('signInWithPopup: cred.user === auth.currentUser (reference identity)', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.setAuthFlowResolver(auth, richResolver('google-456'));
     const cred = await signInWithPopup(auth, new GoogleAuthProvider());
     expect(cred.user).toBe(auth.currentUser!);
@@ -74,6 +76,7 @@ describe('rich User preservation (sandbox)', () => {
 
   it('signInWithCredential keeps the rich user + reference identity', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.mockSignInResult(auth, {
       user: makeRichUser('cred-user'),
       providerId: 'google.com',
@@ -90,6 +93,7 @@ describe('rich User preservation (sandbox)', () => {
 
   it('signInWithRedirect keeps the rich user; getRedirectResult agrees', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.setAuthFlowResolver(auth, richResolver('redir-rich'));
     await signInWithRedirect(auth, new GoogleAuthProvider());
     expect(auth.currentUser?.email).toBe('redir-rich@example.com');

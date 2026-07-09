@@ -60,6 +60,8 @@ import {
   adminUpdateUser as workerAdminUpdateUser,
   adminDeleteUser as workerAdminDeleteUser,
   adminClearUsers as workerAdminClearUsers,
+  getProviderConfig as workerGetProviderConfig,
+  setProviderConfig as workerSetProviderConfig,
   adminReadRtdbState as workerAdminReadRtdbState,
   adminSetRtdbValue as workerAdminSetRtdbValue,
   adminUpdateRtdbValue as workerAdminUpdateRtdbValue,
@@ -323,6 +325,14 @@ export function connectWorkerLive(
         workerAdminUpdateUser(authHandle, uid, request as Parameters<typeof workerAdminUpdateUser>[2]),
       deleteUser: (_auth: unknown, uid: string) => workerAdminDeleteUser(authHandle, uid),
       clearUsers: () => workerAdminClearUsers(authHandle),
+      // Sign-in provider config: same event-feed re-list signal as
+      // `subscribeUsers` above — `setProviderConfig` fires a
+      // `provider_config_update` sandbox event, so one shared feed covers
+      // both the user DB and the provider toggles.
+      getAuthProviderConfig: () => workerGetProviderConfig(authHandle),
+      setAuthProviderConfig: (_auth: unknown, providerId: string, enabled: boolean) =>
+        workerSetProviderConfig(authHandle, providerId, enabled),
+      subscribeAuthProviderConfig: (_auth: unknown, cb: () => void) => feed.subscribe(() => cb()),
     } as unknown as AuthApi,
     storage: workerGetStorage(db) as unknown as FirebaseStorage,
     // The worker storage ops as a StorageApi bundle.

@@ -20,7 +20,21 @@ import { sandbox as authSandbox } from 'pyric/auth';
  */
 export type AuthApi = Pick<
   typeof authSandbox,
-  'listUsers' | 'subscribeUsers' | 'createUser' | 'updateUser' | 'deleteUser' | 'clearUsers'
+  | 'listUsers'
+  | 'subscribeUsers'
+  | 'createUser'
+  | 'updateUser'
+  | 'deleteUser'
+  | 'clearUsers'
+  // Sign-in provider config (S-AUTH "Sign-in providers" section). Same shape
+  // as the user-DB ops above: a getter/setter plus a coarse subscription that
+  // re-reads on any change. `setAuthProviderConfig` ALSO fires a
+  // `provider_config_update` sandbox event, so a worker-backed bundle can ride
+  // the SAME event feed `subscribeUsers` already rides instead of standing up
+  // a second live channel — see `worker-live.ts`.
+  | 'getAuthProviderConfig'
+  | 'setAuthProviderConfig'
+  | 'subscribeAuthProviderConfig'
 >;
 
 const inProcessAuthApi: AuthApi = {
@@ -30,6 +44,9 @@ const inProcessAuthApi: AuthApi = {
   updateUser: authSandbox.updateUser,
   deleteUser: authSandbox.deleteUser,
   clearUsers: authSandbox.clearUsers,
+  getAuthProviderConfig: authSandbox.getAuthProviderConfig,
+  setAuthProviderConfig: authSandbox.setAuthProviderConfig,
+  subscribeAuthProviderConfig: authSandbox.subscribeAuthProviderConfig,
 };
 
 const AuthApiContext = createContext<AuthApi>(inProcessAuthApi);
