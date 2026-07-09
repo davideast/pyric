@@ -73,6 +73,7 @@ import {
 } from '~/lib/studio-embed';
 import { listToolHandlersForProfile } from '~/lib/tools';
 import { completeRedirectSignIn } from '~/lib/firebase/auth';
+import { completeSignInIfPending } from '~/lib/llm/openrouter-oauth';
 import { installDiagnosticsGlobals, logPage } from '~/lib/llm/inference/diagnostics';
 import { installOpenRouterInspector } from '~/lib/llm/inference/openrouter-inspect';
 import { ModelPicker } from './ModelPicker';
@@ -248,6 +249,34 @@ export function PlaygroundPage() {
   const [externalCompose, setExternalCompose] = useState<{ text: string; nonce: number } | null>(null);
   // Tick so the modal re-reads `hasKey()` after a save.
   const [keysTick, setKeysTick] = useState(0);
+  // Surfaced from the OpenRouter OAuth callback exchange below —
+  // shown as the key modal's form-level error so a denied/expired
+  // `code` is visible rather than silently dropped.
+  const [openrouterSignInError, setOpenrouterSignInError] = useState<string | null>(null);
+
+  // Complete a pending OpenRouter OAuth (PKCE) round trip on load. A
+  // no-op unless the URL carries `?code=` (i.e. we were just
+  // redirected back from OpenRouter's authorize page — see
+  // `beginSignIn` in `lib/llm/openrouter-oauth.ts`). Static build, no
+  // server routes: the whole exchange runs here, client-side. Success
+  // or failure, the `code` param gets stripped from the URL inside
+  // `completeSignInIfPending` so a reload can't resubmit it (codes are
+  // single-use — retrying would just fail and could loop the user back
+  // into a broken redirect).
+  useEffect(() => {
+    void completeSignInIfPending().then((result) => {
+      if (result.status === 'not-pending') return;
+      setKeysTick((t) => t + 1);
+      if (result.status === 'error') {
+        setOpenrouterSignInError(result.message);
+        openKeys();
+      } else {
+        setOpenrouterSignInError(null);
+        openKeys();
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // `[` hotkey — fold all turns except the most recent. Same
   // primitive as the auto-fold-on-new-turn setting; this is the
@@ -664,6 +693,7 @@ export function PlaygroundPage() {
     if (ollamaUrlChanged) {
       void useOllamaModelsStore.getState().refresh();
     }
+    setOpenrouterSignInError(null);
     setKeysTick((t) => t + 1);
     setKeysOpen(false);
   }, []);
@@ -1021,10 +1051,17 @@ export function PlaygroundPage() {
           <ApiKeyForm
             title="API keys"
             subtitle="Bring your own keys. Stored in this browser only — never sent to a server we control."
-            fields={PROVIDER_LIST.map((def) => buildApiKeyField(def)).filter((f) => f !== null)}
+            fields={PROVIDER_LIST.map((def) =>
+              buildApiKeyField(def, {
+                onKeyChanged: () => setKeysTick((t) => t + 1),
+                openrouterSignInError,
+                onOpenrouterSignInRetry: () => setOpenrouterSignInError(null),
+              }),
+            ).filter((f) => f !== null)}
           onSubmit={handleSaveKeys}
           submitLabel="Save"
-          footerText="Update or remove anytime."
+          error={openrouterSignInError}
+          footerText="Update or remove anytime. Until preview isolation lands, code running in the preview can read stored keys."
         />
       </Modal>
     </ToastProvider>
