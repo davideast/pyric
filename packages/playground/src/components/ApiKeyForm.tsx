@@ -31,6 +31,13 @@ export interface ApiKeyField {
    * string when not. Surfaced under the input and blocks submit.
    */
   validate?: (value: string) => string | null;
+  /**
+   * Optional provider-specific UI rendered below the input — e.g.
+   * OpenRouter's "Sign in with OpenRouter" button and "remember on
+   * this device" checkbox. Free-form so the form stays agnostic to
+   * what any one provider needs.
+   */
+  extra?: React.ReactNode;
 }
 
 export interface ApiKeyFormProps {
@@ -139,6 +146,7 @@ export function ApiKeyForm({
               ) : f.hint ? (
                 <span className="text-[12px] text-slate-gray opacity-60">{f.hint}</span>
               ) : null}
+              {f.extra ?? null}
             </div>
           );
         })}

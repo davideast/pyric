@@ -1,5 +1,6 @@
 /**
- * BYOK — bring-your-own-key. localStorage-backed per-provider.
+ * BYOK — bring-your-own-key. localStorage-backed per-provider, with an
+ * optional session-scoped backend for `apiKey` slots.
  *
  * Why client-side: this is a static Astro site. No backend means no
  * shared key store; the only honest answer is "your browser, your
@@ -18,8 +19,25 @@
  * a `baseUrl` slot resets to the `defaultBaseUrl`, not to absent —
  * Ollama is useless without one and `http://localhost:11434` is the
  * upstream default.
+ *
+ * Session-backed keys (`apiKey` slots only). A key can live in
+ * `sessionStorage` instead of `localStorage` — used for OpenRouter's
+ * OAuth-provisioned keys, which default to the tab's lifetime rather
+ * than surviving indefinitely on disk. One storage key, one mechanism:
+ * `getKey()`/`hasKey()` check `sessionStorage` first, then fall back to
+ * `localStorage`, so callers that only care about "is there a usable
+ * key" never need to know which backend holds it. `setKey(key, {
+ * backend })` picks where a *new* value lands (default `'local'`,
+ * preserving the historical manually-pasted-key behavior).
+ * `promoteToLocal()` moves a session-backed key to `localStorage`
+ * ("remember on this device") without ever holding the secret in two
+ * places at once.
  */
 const PREFIX = 'pyric.playground.byok.';
+
+/** Where a key value is persisted. `'session'` clears when the tab
+ *  closes; `'local'` survives indefinitely (the historical default). */
+export type ByokBackend = 'local' | 'session';
 
 interface ByokSlotBase {
   /** Display label (e.g. "Gemini API key"). */
@@ -38,6 +56,20 @@ interface ByokSlotBase {
 
 export interface ApiKeyByokSlot extends ByokSlotBase {
   kind: 'apiKey';
+  /** True when a key is currently held in the session-scoped backend
+   *  specifically (as opposed to `localStorage`). Drives the "remember
+   *  on this device" affordance in the key UI — offering to promote a
+   *  key that's already local would be a no-op. */
+  hasSessionKey(): boolean;
+  /** Persist a key. `opts.backend` picks the storage backend for THIS
+   *  write (default `'local'`) — it does not touch a value already
+   *  sitting in the other backend, so callers that want a clean switch
+   *  should `clearKey()` first (see `promoteToLocal` for the one case
+   *  that needs it). */
+  setKey(key: string, opts?: { backend?: ByokBackend }): void;
+  /** Move a session-backed key to `localStorage` ("remember on this
+   *  device"). No-op when there is no session-backed key. */
+  promoteToLocal(): void;
 }
 
 export interface BaseUrlByokSlot extends ByokSlotBase {
@@ -61,6 +93,18 @@ function safeLocalStorage(): Storage | null {
   }
 }
 
+function safeSessionStorage(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeStorage(backend: ByokBackend): Storage | null {
+  return backend === 'session' ? safeSessionStorage() : safeLocalStorage();
+}
+
 function createApiKeySlot(id: string, label: string, helpUrl: string): ApiKeyByokSlot {
   const storageKey = `${PREFIX}${id}`;
   return {
@@ -68,22 +112,44 @@ function createApiKeySlot(id: string, label: string, helpUrl: string): ApiKeyByo
     label,
     helpUrl,
     hasKey() {
-      const ls = safeLocalStorage();
-      return ls ? !!ls.getItem(storageKey) : false;
+      return (
+        !!safeStorage('session')?.getItem(storageKey) ||
+        !!safeStorage('local')?.getItem(storageKey)
+      );
+    },
+    hasSessionKey() {
+      return !!safeStorage('session')?.getItem(storageKey);
     },
     getKey() {
-      const ls = safeLocalStorage();
-      return ls ? ls.getItem(storageKey) : null;
+      // Session-backed keys win over a stale localStorage value — a
+      // freshly-completed OAuth sign-in should take effect immediately
+      // even if an older manually-pasted key is still on disk.
+      return (
+        safeStorage('session')?.getItem(storageKey) ??
+        safeStorage('local')?.getItem(storageKey) ??
+        null
+      );
     },
-    setKey(key) {
-      const ls = safeLocalStorage();
-      if (!ls) return;
-      if (key.trim().length === 0) ls.removeItem(storageKey);
-      else ls.setItem(storageKey, key.trim());
+    setKey(key, opts) {
+      const backend = opts?.backend ?? 'local';
+      const store = safeStorage(backend);
+      if (!store) return;
+      const trimmed = key.trim();
+      if (trimmed.length === 0) store.removeItem(storageKey);
+      else store.setItem(storageKey, trimmed);
     },
     clearKey() {
-      const ls = safeLocalStorage();
-      ls?.removeItem(storageKey);
+      safeStorage('session')?.removeItem(storageKey);
+      safeStorage('local')?.removeItem(storageKey);
+    },
+    promoteToLocal() {
+      const session = safeStorage('session');
+      const value = session?.getItem(storageKey);
+      if (!value) return;
+      const local = safeStorage('local');
+      if (!local) return;
+      local.setItem(storageKey, value);
+      session?.removeItem(storageKey);
     },
   };
 }
