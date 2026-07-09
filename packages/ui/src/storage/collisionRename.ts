@@ -33,11 +33,17 @@ export function splitStorageName(name: string): { stem: string; ext: string } {
 }
 
 /** Trailing ` (n)` counter: `photo (3)` → base `photo`, counter 3.
- *  `counter: null` when the stem carries none. */
+ *  `counter: null` when the stem carries none. A counter beyond
+ *  `Number.MAX_SAFE_INTEGER` is treated as plain text (no counter):
+ *  incrementing it would be lossy — `n + 1 === n` in float land, which
+ *  turns {@link resolveCollision}'s probe loop into a hang — and the
+ *  candidate would render in scientific notation anyway. */
 export function parseCopyCounter(stem: string): { base: string; counter: number | null } {
   const m = /^(.*) \((\d+)\)$/.exec(stem);
   if (!m) return { base: stem, counter: null };
-  return { base: m[1], counter: Number(m[2]) };
+  const counter = Number(m[2]);
+  if (!Number.isSafeInteger(counter)) return { base: stem, counter: null };
+  return { base: m[1], counter };
 }
 
 /**

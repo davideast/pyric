@@ -105,3 +105,24 @@ describe('planBatchNames (drop batches)', () => {
     ]);
   });
 });
+
+describe('parseCopyCounter: unsafe-integer counters are plain text', () => {
+  const huge = '99999999999999999999999'; // > MAX_SAFE_INTEGER
+  it('a counter beyond MAX_SAFE_INTEGER parses as no counter', () => {
+    expect(parseCopyCounter(`photo (${huge})`)).toEqual({
+      base: `photo (${huge})`,
+      counter: null,
+    });
+  });
+
+  it('resolveCollision appends a fresh (1) instead of hanging/scientific notation', () => {
+    const name = `photo (${huge}).png`;
+    const resolved = resolveCollision(name, new Set([name]));
+    expect(resolved).toBe(`photo (${huge}) (1).png`);
+  });
+
+  it('a counter at MAX_SAFE_INTEGER still parses (the boundary is exclusive above)', () => {
+    const max = String(Number.MAX_SAFE_INTEGER);
+    expect(parseCopyCounter(`photo (${max})`)).toEqual({ base: 'photo', counter: Number.MAX_SAFE_INTEGER });
+  });
+});

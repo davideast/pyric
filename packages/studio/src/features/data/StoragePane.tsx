@@ -212,6 +212,19 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
       dispatchPending({ type: 'materialize', path: parentFolder(task.fullPath) }),
   });
 
+  // External evidence beats session state: when the real listing surfaces a
+  // folder we were still holding as pending (another tab/agent wrote into it,
+  // or a refresh raced our materialize dispatch), retire it — otherwise the
+  // row wears a false "session-only" badge over a server-truth folder.
+  useEffect(() => {
+    if (list.status !== 'success') return;
+    for (const entry of list.entries) {
+      if (entry.kind === 'folder' && isPendingPrefix(pending, entry.fullPath)) {
+        dispatchPending({ type: 'materialize', path: entry.fullPath });
+      }
+    }
+  }, [list.status, list.entries, pending]);
+
   // Create-folder disclosure (inline row, not a modal — C3).
   const [creating, setCreating] = useState(false);
   const [folderName, setFolderName] = useState('');
