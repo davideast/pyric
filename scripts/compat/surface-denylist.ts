@@ -118,6 +118,12 @@ const firestoreDenials: DenyEntry[] = [
   ...deny('firestore', 'Bundle-loading depends on server-side packaging not modeled in the sandbox (firestore deny-list: loadBundle / namedQuery).', [
     'loadBundle', 'namedQuery', 'LoadBundleTask',
   ]),
+  ...deny('firestore', 'SSR snapshot serialization surface (React hydration: snapshot.toJSON on the server, revive and resume on the client; firebase blog 2026-06). Deferred pending demand, tracked as a known gap - NOT plumbing. Tier-2 census must also cover the paired instance methods (QuerySnapshot.toJSON) that runtime export diffing cannot see.', [
+    'documentSnapshotFromJSON', 'querySnapshotFromJSON', 'onSnapshotResume',
+  ]),
+  ...deny('app', 'SSR app construct (initializeServerApp): upstream answer to running client-shaped code in a server context. Deferred; convergent with the pyric ambient-init/register architecture and worth reading as design input when mirrored.', [
+    'initializeServerApp',
+  ]),
   ...deny('firestore', 'No cache/server split in the sandbox (firestore deny-list: getDoc*FromCache / getDoc*FromServer).', [
     'getDocFromCache', 'getDocFromServer', 'getDocsFromCache', 'getDocsFromServer',
   ]),

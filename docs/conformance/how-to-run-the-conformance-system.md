@@ -153,6 +153,27 @@ the emulator — Pyric never uses the emulator). Note the stress packs
 currently *report* their `SIM_BUG` tallies rather than asserting on them;
 read the pack summaries, not just the exit code.
 
+## Bump the firebase dependency
+
+New upstream APIs arrive in exactly one way: a version bump in the
+lockfile. The bump ritual, in order:
+
+1. `bun run compat:oracle-versions` goes red: the pinned baseline no longer
+   vouches for the installed SDK. Re-capture (see above) before trusting any
+   conformance result.
+2. `bun run compat:census -- --report` diffs the export surface. Every new
+   UNMAPPED symbol gets triaged into exactly one of: mirror it, deny it with
+   an honest reason in `scripts/compat/surface-denylist.ts`, or file it as a
+   registry gap.
+3. Read the upstream changelog between the two versions
+   (`clones/firebase-js-sdk`, or the release notes) and annotate the census
+   diff with intent — the census sees symbols, not meaning. A symbol that
+   looks like plumbing may be a headline feature.
+
+Instance methods, option-object fields, and signature changes are invisible
+to the runtime census; those are the tier-2 assignability census's job once
+it exists.
+
 ## Run the full pre-release sequence
 
 From a clean tree, in order:
