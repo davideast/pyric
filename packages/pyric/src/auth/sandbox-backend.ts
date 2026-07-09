@@ -191,6 +191,12 @@ export interface CreateUserRequest {
   customClaims?: Record<string, unknown>;
   disabled?: boolean;
   emailVerified?: boolean;
+  /** Linked OAuth providers to create the user with (dedup by
+   *  providerId; multiple providers per user are supported). Same
+   *  rules as {@link UpdateUserRequest.providerUserInfo}: `password`
+   *  is credential-derived (send `password` to link it) and
+   *  `anonymous` is token-level — neither can be forged here. */
+  providerUserInfo?: ProviderUserInfo[];
 }
 
 /** `sandbox.updateUser` request — `undefined` fields are left
@@ -1196,6 +1202,35 @@ export class SandboxBackend {
     return [...this.usersByUid.values()].map((u) => this.toRecord(u));
   }
 
+  /** Sanitize an admin-supplied linked-provider list (create + update):
+   *  dedup by providerId, reject empty ids, and refuse the two ids that
+   *  are NOT linkable entries — `password` is credential-derived (a
+   *  password on the account links it; it leads the list when present)
+   *  and `anonymous` surfaces on the token, never on the record. */
+  private sanitizeLinkedProviders(
+    entries: readonly ProviderUserInfo[],
+    hasPassword: boolean,
+    op: string,
+  ): ProviderUserInfo[] {
+    const seen = new Set<string>();
+    const next: ProviderUserInfo[] = [];
+    for (const entry of entries) {
+      const providerId = entry?.providerId?.trim();
+      if (!providerId) {
+        throw makeAuthError(
+          'auth/argument-error',
+          `${op}: providerUserInfo entries need a non-empty providerId.`,
+        );
+      }
+      if (providerId === 'password' || providerId === 'anonymous') continue;
+      if (seen.has(providerId)) continue;
+      seen.add(providerId);
+      next.push({ providerId });
+    }
+    if (hasPassword) next.unshift({ providerId: 'password' });
+    return next;
+  }
+
   /** Admin user creation. Does NOT sign the user in (unlike
    *  `createUserWithEmailAndPassword`) — matches the emulator's
    *  add-user flow / admin SDK semantics. */
@@ -1235,8 +1270,11 @@ export class SandboxBackend {
       customClaims: req.customClaims ?? {},
       disabled: req.disabled ?? false,
       emailVerified: req.emailVerified ?? false,
-      providerUserInfo:
-        req.password !== undefined ? [{ providerId: 'password' }] : [],
+      providerUserInfo: this.sanitizeLinkedProviders(
+        req.providerUserInfo ?? [],
+        req.password !== undefined,
+        'createUser',
+      ),
     });
     this.usersByUid.set(uid, record);
     if (record.email) this.usersByEmail.set(record.email.toLowerCase(), record);
@@ -1281,25 +1319,11 @@ export class SandboxBackend {
       }
     }
     if (update.providerUserInfo !== undefined) {
-      const seen = new Set<string>();
-      const next: ProviderUserInfo[] = [];
-      for (const entry of update.providerUserInfo) {
-        const providerId = entry?.providerId?.trim();
-        if (!providerId) {
-          throw makeAuthError(
-            'auth/argument-error',
-            'updateUser: providerUserInfo entries need a non-empty providerId.',
-          );
-        }
-        // `password` is credential-derived (set a password to link it);
-        // `anonymous` surfaces on the token, never as a linked entry.
-        if (providerId === 'password' || providerId === 'anonymous') continue;
-        if (seen.has(providerId)) continue;
-        seen.add(providerId);
-        next.push({ providerId });
-      }
-      if (stored.password !== null) next.unshift({ providerId: 'password' });
-      stored.providerUserInfo = next;
+      stored.providerUserInfo = this.sanitizeLinkedProviders(
+        update.providerUserInfo,
+        stored.password !== null,
+        'updateUser',
+      );
     }
     if (update.displayName !== undefined) stored.displayName = update.displayName;
     if (update.customClaims !== undefined) {

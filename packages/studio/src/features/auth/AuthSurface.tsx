@@ -35,11 +35,11 @@ import {
   AuthUserList,
   AuthUserForm,
   AuthApiProvider,
-  DEFAULT_KNOWN_PROVIDER_IDS,
   providerLabel,
   useAuthUsers,
   type AuthUserFormSubmit,
 } from '@pyric/ui/auth';
+import { FEDERATED_PROVIDER_IDS } from 'pyric/auth';
 import type { Auth, AuthUserRecord, CreateUserRequest, ProviderUserInfo } from 'pyric/auth';
 import { useDevSeed } from '../../dev/DevSeedProvider.js';
 import { useDataNav } from '../data/navigation.js';
@@ -301,11 +301,10 @@ function CreateUserPanel({
   );
 }
 
-/** OAuth provider ids offered as toggles (the known set minus the
- *  credential-derived `password` and token-level `anonymous`). */
-const OAUTH_PROVIDER_IDS: string[] = DEFAULT_KNOWN_PROVIDER_IDS.filter(
-  (id) => id !== 'password' && id !== 'anonymous',
-);
+/** OAuth provider ids offered as toggles — the sandbox's canonical
+ *  federated set (`FEDERATED_PROVIDER_IDS` from `pyric/auth`), the same
+ *  list the create form's checklist enumerates. */
+const OAUTH_PROVIDER_IDS: string[] = [...FEDERATED_PROVIDER_IDS];
 
 /**
  * Per-user provider assignment: linked OAuth providers as toggles (multiple

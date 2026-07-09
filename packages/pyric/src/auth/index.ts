@@ -119,6 +119,8 @@ export {
   GithubAuthProvider,
   GoogleAuthProvider,
   OAuthProvider,
+  FEDERATED_PROVIDER_IDS,
+  type FederatedProviderId,
 } from './providers.js';
 
 // ─── Persistence markers ──────────────────────────────────────────────

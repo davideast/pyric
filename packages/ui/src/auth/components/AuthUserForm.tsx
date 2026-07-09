@@ -1,8 +1,43 @@
 import { Fragment } from 'react';
 import type { FormEvent, ReactNode } from 'react';
+import { FEDERATED_PROVIDER_IDS } from 'pyric/auth';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
 import { useAuthUserEditor } from '../hooks/useAuthUserEditor.js';
+import { providerLabel } from '../providers.js';
 import { ClaimsField } from './ClaimsField.js';
+
+/** Create-mode provider multi-select: one checkbox per federated provider
+ *  id the sandbox supports (the canonical `FEDERATED_PROVIDER_IDS` set from
+ *  `pyric/auth` — derived from the shipped provider classes, not a UI-side
+ *  copy). A user can link one or several. Headless: style
+ *  `[data-pyric-provider-checklist]` / `[data-pyric-provider-option]`. */
+function ProviderChecklist({
+  selected,
+  onChange,
+}: {
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  return (
+    <div data-pyric-provider-checklist>
+      {FEDERATED_PROVIDER_IDS.map((id) => (
+        <label key={id} data-pyric-provider-option={id}>
+          <input
+            type="checkbox"
+            checked={selected.includes(id)}
+            onChange={(e) =>
+              onChange(
+                e.target.checked ? [...selected, id] : selected.filter((p) => p !== id),
+              )
+            }
+          />
+          <span data-pyric-provider-option-label>{providerLabel(id)}</span>
+          <span data-pyric-provider-option-id>{id}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
 
 /** What `onSubmit` receives — discriminated on the form's mode. */
 export type AuthUserFormSubmit =
@@ -18,6 +53,7 @@ export type AuthUserFormFieldName =
   | 'display-name'
   | 'phone-number'
   | 'photo-url'
+  | 'providers'
   | 'email-verified'
   | 'disabled';
 
@@ -31,8 +67,10 @@ export interface AuthUserFormField {
   input: ReactNode;
   /** Current validation message for this field, or null. */
   error: string | null;
-  /** `'text' | 'checkbox'` — lets one slot impl branch on layout. */
-  kind: 'text' | 'checkbox';
+  /** `'text' | 'checkbox' | 'group'` — lets one slot impl branch on
+   *  layout (`group` = a multi-control block, e.g. the provider
+   *  checklist; create mode only). */
+  kind: 'text' | 'checkbox' | 'group';
   /** The default rendering (label wrapper + label text + input + error).
    *  Call it to keep the stock layout for fields you don't customize. */
   defaultRender: () => ReactNode;
@@ -73,6 +111,12 @@ export interface AuthUserFormProps {
  *   `[data-pyric-label-text]` and lean on the placeholders
  * - inputs `[data-pyric-field="email" | "password" | "display-name" |
  *   "phone-number" | "photo-url" | "email-verified" | "disabled"]`
+ * - CREATE mode only: a "Sign-in providers" group
+ *   (`fieldset[data-pyric-field-label="providers"]` wrapping
+ *   `[data-pyric-provider-checklist]`) — one checkbox per federated
+ *   provider the sandbox supports (`FEDERATED_PROVIDER_IDS` from
+ *   `pyric/auth`; multiple selectable, entries land on
+ *   `CreateUserRequest.providerUserInfo`)
  * - claims via the standalone `<ClaimsField>`
  * - per-field messages `[data-pyric-field-error="email" | "password"]`
  *   render INSIDE the field's label wrapper, after the input
@@ -101,7 +145,7 @@ export function AuthUserForm({
   const field = (
     name: AuthUserFormFieldName,
     label: string,
-    kind: 'text' | 'checkbox',
+    kind: 'text' | 'checkbox' | 'group',
     input: ReactNode,
     error: string | null = null,
   ): AuthUserFormField => ({
@@ -116,6 +160,11 @@ export function AuthUserForm({
           {input}
           <span data-pyric-label-text>{label}</span>
         </label>
+      ) : kind === 'group' ? (
+        <fieldset data-pyric-field-label={name} key={name}>
+          <legend data-pyric-label-text>{label}</legend>
+          {input}
+        </fieldset>
       ) : (
         <label data-pyric-field-label={name} key={name}>
           <span data-pyric-label-text>{label}</span>
@@ -192,6 +241,22 @@ export function AuthUserForm({
         onChange={(e) => editor.setField('photoUrl', e.target.value)}
       />,
     ),
+    // Provider selection is CREATE-only: in edit mode linked providers are
+    // managed by the consumer's own affordance over `updateUser` (Studio's
+    // per-user ProvidersEditor), not the delta form.
+    ...(mode === 'create'
+      ? [
+          field(
+            'providers',
+            'Sign-in providers',
+            'group',
+            <ProviderChecklist
+              selected={editor.fields.providerIds}
+              onChange={(ids) => editor.setField('providerIds', ids)}
+            />,
+          ),
+        ]
+      : []),
     field(
       'email-verified',
       'Verified email',

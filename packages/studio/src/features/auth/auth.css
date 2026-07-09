@@ -462,6 +462,45 @@
   accent-color: var(--accent);
 }
 
+/* Sign-in providers checklist (create mode): the group label (legend)
+   stacks ABOVE the option rows like every other field label; option rows
+   are checkbox + name + trailing mono id, gap-only. `display: block`
+   overrides the generic field-label flex — flex fieldsets mis-render
+   legends in some engines; the stacked layout lives on the checklist. */
+[data-pyric-ui='auth-user-form'] fieldset[data-pyric-field-label='providers'] {
+  display: block;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+[data-pyric-ui='auth-user-form'] fieldset[data-pyric-field-label='providers'] legend {
+  padding: 0;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-provider-checklist] {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-provider-option] {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-provider-option] input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-provider-option-label] {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+[data-pyric-ui='auth-user-form'] [data-pyric-provider-option-id] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+  margin-left: auto;
+}
+
 /* Per-field validation messages. */
 [data-pyric-ui='auth-user-form'] [data-pyric-field-error] {
   margin: 6px 0 0;

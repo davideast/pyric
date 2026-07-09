@@ -13,6 +13,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import {
   EmailAuthProvider,
   FacebookAuthProvider,
+  FEDERATED_PROVIDER_IDS,
   GithubAuthProvider,
   GoogleAuthProvider,
   OAuthProvider,
@@ -88,6 +89,30 @@ describe('provider markers', () => {
   it('EmailAuthProvider.credential returns a marker', () => {
     const cred = EmailAuthProvider.credential('a@b.com', 'pw');
     expect(cred.providerId).toBe('password');
+  });
+
+  it('FEDERATED_PROVIDER_IDS: every dedicated class id, no credential-derived ids', () => {
+    // The canonical set admin surfaces enumerate. Mechanically anchored to
+    // the shipped provider classes; the OAuthProvider-reachable IdPs ride
+    // along explicitly (Apple/Twitter/Microsoft/Yahoo).
+    expect(FEDERATED_PROVIDER_IDS).toContain(GoogleAuthProvider.PROVIDER_ID);
+    expect(FEDERATED_PROVIDER_IDS).toContain(FacebookAuthProvider.PROVIDER_ID);
+    expect(FEDERATED_PROVIDER_IDS).toContain(GithubAuthProvider.PROVIDER_ID);
+    expect(FEDERATED_PROVIDER_IDS).toEqual([
+      'google.com',
+      'apple.com',
+      'facebook.com',
+      'github.com',
+      'twitter.com',
+      'microsoft.com',
+      'yahoo.com',
+    ]);
+    // Credential-derived / token-level sign-in methods are NOT federated links.
+    expect(FEDERATED_PROVIDER_IDS).not.toContain(EmailAuthProvider.PROVIDER_ID);
+    expect(FEDERATED_PROVIDER_IDS).not.toContain('anonymous');
+    expect(FEDERATED_PROVIDER_IDS).not.toContain('phone');
+    // No duplicates.
+    expect(new Set(FEDERATED_PROVIDER_IDS).size).toBe(FEDERATED_PROVIDER_IDS.length);
   });
 });
 
