@@ -1,19 +1,47 @@
 # Pyric
 
-Pyric is a development-time layer for Firebase. It runs Firestore, Auth, Realtime Database, Storage, and security rules inside the application process, so Firebase apps and the agents that work on them can be developed without a live project, the emulator, or a network connection. Production builds do not include it: application code keeps its `firebase/*` imports, the sandbox backs them during development, and real Firebase backs them in production.
+Firebase that runs in the browser.
 
-## Starting a project
+Pyric is Firestore, Auth, Realtime Database, Storage, *Messaging soon*, and the Security Rules engine, implemented in TypeScript and running inside the application process. In the browser, that process is the page itself: the whole backend executes in the tab. In Node, it is the Node process, so tests and scripts get the same backend with no browser involved.
 
-Firebase development begins with an account, a project, enabled services, the emulator suite and its Java dependency, and hand-wired switching between emulator and production in the SDK. An agent working in that environment touches real infrastructure, so writes, deploys, and rules changes need supervision.
+## Built for dev, disappears in prod
+This is not the Firebase Emulator Suite behind a wrapper. There is no Java process, no localhost port, and no cloud Firebase project connected.
 
-Pyric starts from one command, in an existing Firebase app or a scaffolded one:
+Application code keeps using `firebase/*` imports which are mapped to the sandbox during development. When you ship to production, the map goes away, and the app talks to production services.
+
+Pyric's tooling maps one-to-one to standard Firebase tools.
 
 ```bash
-npx pyric init --template web   # scaffold, or run pyric dev in an existing app
+npm i pyric       === npm i firebase
+npm i pyric-admin === npm i firebase-admin
+npm i pyric-tools === npm i firebase-tools
+```
+
+The pyric CLI, `pyric-tools`, is for managing the pyric environment and not meant to overlap with the utility of the Firebase CLI, `firebase-tools`. The small overlap `pyric login`, `pyric deploy`, is an extreme subset of the Firebase CLI's functionality and offered for convenience.
+
+### Backed by conformance
+The services are an independent implementation of Firebase's observable behavior, and that claim is tested rather than assumed: probes run against production Firebase, their recorded behavior is committed as observations, and CI replays every observation against the sandbox on every change. The section [What matches Firebase and what doesn't](#what-matches-firebase-and-what-doesnt) has the numbers.
+
+Because the services live in the process, the backend becomes local state. Data, identities, security rules, and time-ordered events can be seeded, snapshotted, reset, and replayed the way source code is edited.
+
+## Where a coding agent runs Firebase code
+Agents already know the Firebase SDK. They don't need a new API to learn, they need somewhere to run the code they already write. Pyric is that target: the same `firebase/*` calls, executed against a local sandbox instead of production. On the map of an agent's tools it doesn't sit beside Firebase as an alternative, it sits under the code the agent already generates, as the thing that code runs against during development. Because the sandbox is fully local, there is no Firebase project and no account in the loop.
+
+Traditionally, Firebase development begins with an account, a project, enabled services, the Emulator Suite and its Java dependency, and hand-wired switching between emulator and production in the SDK. An agent working in that environment touches real infrastructure, so writes, deploys, and rules changes need supervision.
+
+A backend that runs inside the app removes the infrastructure from the loop. A developer gets a full Firebase stack in the first ten seconds of a project. An agent gets the whole backend as an inspectable, resettable tool surface it can exercise without supervision.
+
+## Getting Started
+
+Install the CLI in an existing Firebase app or a new one:
+
+```bash
+npm i -g pyric-tools            # installs the `pyric` command
+npx pyric init --template web   # scaffold, or just run pyric dev in an existing app
 npx pyric dev
 ```
 
-`pyric dev` serves the app against the in-process sandbox. During web development the sandbox runs in the page itself; in Node it runs in the process. It holds data, identities, and rules that can be seeded, snapshotted, and reset. Live demo: [pyric-playground.web.app](https://pyric-playground.web.app).
+`pyric dev` serves the app against the in-process sandbox. The app's own `firebase/*` imports resolve to the sandbox during development; nothing in the application source changes. The sandbox holds data, identities, and rules, and everything it does is observable through the mechanisms below.
 
 ## Security rules as a library
 
@@ -35,9 +63,9 @@ The sandbox emits a typed event for every operation it performs: reads, writes, 
 - Denial inspection: a rejected operation carries its verdict instead of a bare `permission-denied` error.
 - Capture and replay: `pyric snapshot` records state, and captured sessions replay through the same event stream, which is what `pyric verify` is built on.
 
-## Tools an agent can hold
+## Browser Sandbox connected to local MCP
 
-The sandbox and its services are exposed as 51 agent-callable tools, reachable over MCP through `pyric dev --bridge` (the included [Claude Code plugin](pyric-plugin/README.md) auto-wires this) or composed programmatically into any agent framework. The inventory is in [docs/agent-tools.md](docs/agent-tools.md); the ones with no equivalent elsewhere:
+Pyric provides a local MCP server with 51 tools. Yes, that's a lot. But the surface is wide because Firebase's is, and there's ongoing work to consolidate it into fewer, sharper tools. Pyric connects the browser sandbox to the server over a web socket bridge (the included [Claude Code plugin](pyric-plugin/README.md) auto-wires this) or composes programmatically into any agent framework. The inventory is in [docs/agent-tools.md](docs/agent-tools.md). The tools unique to its environment:
 
 - `firestore_simulate_rules` and `rtdb_simulate_access` evaluate a rules verdict for a hypothetical operation without performing it.
 - `firestore_simulator_*` runs a stateful Firestore session with seed, execute, batch, transaction, undo, redo, and an inspectable event log.
@@ -50,9 +78,11 @@ The sandbox and its services are exposed as 51 agent-callable tools, reachable o
 
 A sandbox session produces the artifacts a production deploy needs. Rules leave the sandbox already exercised against the app's actual behavior; `pyric deploy rules` ships them. Composite indexes come from `firestore_extract_indexes` instead of a hand-maintained `firestore.indexes.json`; `pyric deploy indexes` ships those. And `pyric verify` replays a captured session against a candidate ruleset and reports which operations change verdict before production finds out.
 
-## Holding the sandbox to Firebase's behavior
+## What matches Firebase and what doesn't
 
-A sandbox is only useful if it behaves like the real service, so that claim is tested rather than assumed. Probes run against production Firebase and their recorded behavior is committed to the repository as observations, currently 138 of them. CI replays every observation against the sandbox on every change. The public contract is a compatibility matrix of 610 rows, 539 conforming today, and known divergences are documented rather than hidden: [Firestore](packages/pyric/docs/firestore/COMPAT.md), [Auth](packages/pyric/docs/auth/COMPAT.md), [Realtime Database](packages/pyric/docs/database/COMPAT.md), [Storage](packages/pyric/docs/storage/COMPAT.md), and [how the conformance system runs](docs/conformance/how-to-run-the-conformance-system.md). An undocumented divergence is treated as a bug.
+A sandbox is only useful if it behaves like the real service. The evidence: 138 committed observations of production Firebase behavior, replayed against the sandbox in CI on every change, and a public compatibility matrix of 610 rows, 539 conforming today. Known divergences are documented rather than hidden, and an undocumented divergence is treated as a bug.
+
+Per service: [Firestore](packages/pyric/docs/firestore/COMPAT.md), [Auth](packages/pyric/docs/auth/COMPAT.md), [Realtime Database](packages/pyric/docs/database/COMPAT.md), [Storage](packages/pyric/docs/storage/COMPAT.md). How the system works: [running the conformance system](docs/conformance/how-to-run-the-conformance-system.md).
 
 ## Using the packages directly
 
