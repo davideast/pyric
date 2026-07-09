@@ -7,11 +7,53 @@
 
 .studio-home {
   display: grid;
-  grid-template-rows: auto auto 1fr; /* command | status | body */
+  grid-template-rows: auto auto auto 1fr; /* hero | command | status | body */
   gap: var(--space-5);
   /* readable measure without margin-centering: */
   grid-template-columns: minmax(0, 72rem);
   justify-content: center;
+}
+
+/* Product statement below the header — the logo + the one line that names what
+   Pyric is, as a left-aligned row. */
+.studio-home__hero {
+  --hero-size: 2.75rem;
+  margin: 0;
+  padding-block: var(--space-6);
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+/* Logo height tracks the heading's height (same --hero-size), so the two read
+   as one unit; square asset, so width follows. */
+.studio-home__hero-logo {
+  height: var(--hero-size);
+  width: auto;
+  flex-shrink: 0;
+}
+.studio-home__hero-title {
+  margin: 0;
+  font-size: var(--hero-size);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text-1);
+  text-wrap: balance;
+}
+/* Stack the logo above the heading on narrow viewports so the wrapping title
+   doesn't crowd a side-by-side mark. Matches the shell's mobile breakpoint.
+   Stacked, the mark grows and centers over the left-aligned heading. Placed
+   AFTER the base .studio-home__hero-logo rule so its height wins at the same
+   specificity. */
+@media (max-width: 760px) {
+  .studio-home__hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .studio-home__hero-logo {
+    height: 8rem;
+    align-self: center;
+  }
 }
 
 .studio-home__body {
