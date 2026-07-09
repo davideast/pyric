@@ -27,7 +27,7 @@ import {
   defaultFormatTime,
   type TimeWindow,
 } from '@pyric/ui/traffic';
-import { useStudioTraffic } from '../../shell/studio-data.js';
+import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-data.js';
 import {
   actingIdentity,
   denialReasons,
@@ -83,19 +83,31 @@ function DenyDisclosure({ event }: { event: StudioTrafficEvent }) {
   );
 }
 
+/** Rows rendered before the "Show more" disclosure. Pagination (not
+ *  virtualization) is the cheaper L6 fix here: the shell already caps the
+ *  stream at {@link STUDIO_EVENT_CAP} events, grouping compresses storms
+ *  further, and the rows are variable-height (deny disclosure expands in
+ *  place) — which is exactly where list virtualization gets expensive. */
+const PAGE_SIZE = 100;
+
 export function TrafficSurface() {
   const events = useStudioTraffic();
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const now = Date.now();
+  const [visibleRows, setVisibleRows] = useState(PAGE_SIZE);
 
   // The window spans from the earliest request (or 15m back) to just past now,
-  // so a fresh session's handful of ops still lands a few buckets from the edge.
+  // so a fresh session's handful of ops still lands a few buckets from the
+  // edge. `Date.now()` is read INSIDE the memo (recomputing when the stream
+  // changes) — a per-render read would defeat the memo entirely.
   const window = useMemo<TimeWindow>(() => {
+    const now = Date.now();
     if (events.length === 0) return { start: now - 15 * 60_000, end: now };
-    const earliest = Math.min(...events.map((e) => e.at));
+    let earliest = Infinity;
+    for (const e of events) if (e.at < earliest) earliest = e.at;
     return { start: Math.min(earliest, now - 60_000), end: now + 1_000 };
-  }, [events, now]);
+  }, [events]);
+  const now = window.end;
 
   // Newest-first stream; verdict filter first, then grouping (the volume
   // reducer: storms → one row).
@@ -104,6 +116,9 @@ export function TrafficSurface() {
     [events, verdictFilter],
   );
   const { items } = useTrafficGroups({ events: ordered });
+  const visibleItems = items.slice(0, visibleRows);
+  const hiddenCount = items.length - visibleItems.length;
+  const atCap = events.length >= STUDIO_EVENT_CAP;
 
   const denied = events.filter((e) => e.result === 'deny').length;
 
@@ -119,7 +134,10 @@ export function TrafficSurface() {
         className="traffic__timeline"
         header={
           <div className="traffic__tl-header">
-            <span className="traffic__tl-count">{events.length} requests</span>
+            <span className="traffic__tl-count">
+              {events.length} requests
+              {atCap ? ` (showing latest ${STUDIO_EVENT_CAP})` : ''}
+            </span>
             {denied > 0 ? (
               <span className="traffic__tl-deny">{denied} denied</span>
             ) : null}
@@ -163,7 +181,7 @@ export function TrafficSurface() {
       ) : (
         <div className="traffic__log" data-pyric-ui="traffic-log" data-pyric-grouped="">
           <ul data-pyric-traffic-log-items="">
-            {items.map((item) =>
+            {visibleItems.map((item) =>
               item.type === 'group' ? (
                 <li key={item.key} data-pyric-traffic-group-entry="">
                   <TrafficGroupRow
@@ -199,6 +217,15 @@ export function TrafficSurface() {
               ),
             )}
           </ul>
+          {hiddenCount > 0 ? (
+            <button
+              type="button"
+              className="traffic__show-more"
+              onClick={() => setVisibleRows((n) => n + PAGE_SIZE)}
+            >
+              Show {Math.min(hiddenCount, PAGE_SIZE)} more ({hiddenCount} hidden)
+            </button>
+          ) : null}
         </div>
       )}
     </section>

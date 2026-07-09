@@ -307,3 +307,21 @@
   color: var(--muted);
   background: var(--panel);
 }
+
+/* Pagination disclosure under the capped log (L6: bounded row count). */
+.traffic__show-more {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+.traffic__show-more:hover {
+  color: var(--ink);
+}

@@ -13,12 +13,14 @@ import {
   collection as inProcessCollection,
   query as inProcessQuery,
   getDocs as inProcessGetDocs,
+  limit as inProcessLimit,
 } from 'pyric/firestore';
 import { sandbox as authSandbox } from 'pyric/auth';
 import { ref as inProcessRef, listAll as inProcessListAll } from 'pyric/storage';
 import { useEnvironment } from '../../shell/environment.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
 import {
+  bfsStorageObjectPaths,
   buildResourceIndex,
   INDEX_CAPS,
   type ResourceEntry,
@@ -30,8 +32,11 @@ const STALE_MS = 30_000;
 export interface ResourceIndexState {
   /** Null until the first build resolves. */
   entries: ResourceEntry[] | null;
-  /** Kick a (re)build: first input focus, and refresh-on-demand thereafter. */
-  ensure: () => void;
+  /** Kick a (re)build: first input focus, and refresh-on-demand thereafter.
+   *  Pass `{ rtdbLikely: true }` when the user's input looks RTDB-directed —
+   *  that is the only signal that re-fetches the RTDB tree (see the source's
+   *  tradeoff note). */
+  ensure: (opts?: { rtdbLikely?: boolean }) => void;
 }
 
 export function useResourceIndex(): ResourceIndexState {
@@ -40,10 +45,13 @@ export function useResourceIndex(): ResourceIndexState {
   const [entries, setEntries] = useState<ResourceEntry[] | null>(null);
   const building = useRef(false);
   const builtAt = useRef(0);
+  // RTDB top-level keys, fetched AT MOST once per rtdbLikely signal — see the
+  // tradeoff note on `listRtdbTopLevelKeys` below.
+  const rtdbKeys = useRef<string[] | null>(null);
 
   const live = env.status === 'ready' ? env.env.live : undefined;
 
-  const ensure = useCallback(() => {
+  const ensure = useCallback((opts?: { rtdbLikely?: boolean }) => {
     if (data.status !== 'ready') return;
     if (building.current) return;
     if (entries !== null && Date.now() - builtAt.current < STALE_MS) return;
@@ -55,6 +63,7 @@ export function useResourceIndex(): ResourceIndexState {
       inProcessCollection) as typeof inProcessCollection;
     const queryFn = (data.firestoreApi?.query ?? inProcessQuery) as typeof inProcessQuery;
     const getDocsFn = (data.firestoreApi?.getDocs ?? inProcessGetDocs) as typeof inProcessGetDocs;
+    const limitFn = (data.firestoreApi?.limit ?? inProcessLimit) as typeof inProcessLimit;
     const refFn = (data.storageApi?.ref ?? inProcessRef) as typeof inProcessRef;
     const listAllFn = (data.storageApi?.listAll ?? inProcessListAll) as typeof inProcessListAll;
     const listUsersFn = data.authApi?.listUsers ?? authSandbox.listUsers;
@@ -63,11 +72,17 @@ export function useResourceIndex(): ResourceIndexState {
       listRootCollections: () => handles.listRootCollections(),
 
       listDocumentPaths: async (collectionId, cap) => {
-        const snap = await getDocsFn(queryFn(collectionFn(adminDb as never, collectionId)));
+        // Cap IN THE FETCH: limit() rides the query so the backend (worker or
+        // in-process) never materializes more than `cap` docs per collection.
+        const snap = await getDocsFn(
+          queryFn(collectionFn(adminDb as never, collectionId), limitFn(cap)),
+        );
         return snap.docs.slice(0, cap).map((d) => `${collectionId}/${d.id}`);
       },
 
       listUsers: async (cap) => {
+        // `auth.listUsers` has no server-side max today (checked: the worker
+        // op takes no arguments), so the cap is a client-side slice.
         const users = await Promise.resolve(
           listUsersFn(handles.auth as Parameters<typeof authSandbox.listUsers>[0]),
         );
@@ -76,32 +91,32 @@ export function useResourceIndex(): ResourceIndexState {
           .map((u) => ({ uid: u.uid, email: (u as { email?: string | null }).email ?? null }));
       },
 
-      listStorageObjectPaths: async (cap) => {
-        // Breadth-first over listAll prefixes, capped: object stores are flat
-        // key spaces surfaced as folders, so BFS finds shallow refs first.
-        const paths: string[] = [];
-        const queue: unknown[] = [refFn(handles.storage as never, '')];
-        while (queue.length && paths.length < cap) {
-          const res = await listAllFn(queue.shift() as never);
-          for (const item of res.items) {
-            if (paths.length >= cap) break;
-            paths.push(item.fullPath);
-          }
-          queue.push(...res.prefixes);
-        }
-        return paths;
-      },
+      listStorageObjectPaths: (cap) =>
+        bfsStorageObjectPaths(refFn(handles.storage as never, ''), listAllFn as never, {
+          maxObjects: cap,
+          maxListCalls: INDEX_CAPS.storageListCalls,
+        }),
 
       // RTDB keys come from the live worker plane only — the RTDB surface
       // itself is live-only, and the in-process `pyric/database` admin entry
       // would drag firebase-admin into the browser bundle.
+      //
+      // TRADEOFF: there is no shallow-list RTDB op (readRtdbState reads the
+      // WHOLE tree), and we deliberately add no new worker ops. So the tree
+      // is fetched ONCE, the top-level keys cached, and a TTL rebuild reuses
+      // the cache — the keys can go stale until the user types something
+      // RTDB-directed (`ensure({ rtdbLikely: true })`), which is the one
+      // signal worth paying a full-tree read for.
       listRtdbTopLevelKeys: async () => {
         if (!live) return [];
+        if (rtdbKeys.current !== null && !opts?.rtdbLikely) return rtdbKeys.current;
         const snapshot = await live.readRtdbState();
-        if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
-          return [];
-        }
-        return Object.keys(snapshot as Record<string, unknown>);
+        const keys =
+          snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)
+            ? []
+            : Object.keys(snapshot as Record<string, unknown>);
+        rtdbKeys.current = keys;
+        return keys;
       },
     };
 

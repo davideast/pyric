@@ -211,6 +211,19 @@ export function useStudioEventFeed(): EventFeed {
  * `history()` reads empty at subscribe time: hence we seed from `history()` AND
  * accumulate via `subscribe`, which folds each event exactly once.
  */
+/**
+ * Hard cap on the events any Studio surface accumulates (L6): a long-running
+ * session must not grow render/memory cost without bound. Newest-retained;
+ * `TrafficSurface` surfaces an explicit "showing latest N" line when hit.
+ */
+export const STUDIO_EVENT_CAP = 500;
+
+/** Newest-retained cap. Returns the SAME reference when under the cap, so
+ *  memo consumers don't churn on every render. */
+function capNewest(events: readonly SandboxEvent[]): readonly SandboxEvent[] {
+  return events.length > STUDIO_EVENT_CAP ? events.slice(-STUDIO_EVENT_CAP) : events;
+}
+
 export function useStudioEvents(): readonly SandboxEvent[] {
   const seed = useDevSeed();
   const env = useEnvironment();
@@ -223,14 +236,21 @@ export function useStudioEvents(): readonly SandboxEvent[] {
       setLiveEvents([]);
       return;
     }
-    setLiveEvents(liveFeed.history());
+    // Cap BOTH accumulation paths (the history seed and the live appends).
+    setLiveEvents(capNewest(liveFeed.history()));
     const unsub = liveFeed.subscribe((event) =>
-      setLiveEvents((prev) => [...prev, event]),
+      setLiveEvents((prev) => capNewest([...prev, event])),
     );
     return unsub;
   }, [seedReady, liveFeed]);
 
-  return seedReady ? seed.events : liveEvents;
+  // The dev-seed path reads the sandbox's own reactive array — cap at the
+  // read (same-reference under the cap, so no memo churn).
+  const cappedSeedEvents = useMemo(
+    () => (seedReady ? capNewest(seed.events) : []),
+    [seedReady, seed],
+  );
+  return seedReady ? cappedSeedEvents : liveEvents;
 }
 
 function isTrafficEvent(

@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'bun:test';
 import { ROUTES } from '../../shell/routes.js';
 import {
+  bfsStorageObjectPaths,
   buildResourceIndex,
   collectionEntry,
   documentEntry,
@@ -168,5 +169,62 @@ describe('buildResourceIndex', () => {
       listRtdbTopLevelKeys: async () => ['ok'],
     });
     expect(entries.map((e) => e.kind)).toEqual(['collection', 'rtdb-key']);
+  });
+});
+
+describe('buildResourceIndex: fetch caps (fan-out bounds)', () => {
+  it('queries docs for at most `collectionsScanned` collections (all still get collection entries)', async () => {
+    const queried: string[] = [];
+    const entries = await buildResourceIndex(
+      {
+        listRootCollections: () => ['a', 'b', 'c', 'd', 'e'],
+        listDocumentPaths: async (id) => {
+          queried.push(id);
+          return [`${id}/x`];
+        },
+      },
+      { collectionsScanned: 2 },
+    );
+    expect(queried).toEqual(['a', 'b']);
+    expect(entries.filter((e) => e.kind === 'collection').length).toBe(5);
+    expect(entries.filter((e) => e.kind === 'document').length).toBe(2);
+  });
+});
+
+describe('bfsStorageObjectPaths', () => {
+  type FakeRef = { name: string };
+  /** A prefix tree where every folder has one item and two subfolders —
+   *  unbounded without the RPC cap. */
+  const listAll = async (ref: FakeRef) => ({
+    items: [{ fullPath: `${ref.name}/obj` }],
+    prefixes: [{ name: `${ref.name}/p1` }, { name: `${ref.name}/p2` }],
+  });
+
+  it('stops at maxObjects', async () => {
+    let calls = 0;
+    const paths = await bfsStorageObjectPaths(
+      { name: '' },
+      async (r: FakeRef) => {
+        calls++;
+        return listAll(r);
+      },
+      { maxObjects: 3, maxListCalls: 100 },
+    );
+    expect(paths.length).toBe(3);
+    expect(calls).toBe(3);
+  });
+
+  it('stops at maxListCalls even when few objects matched (deep/wide trees cannot fan out)', async () => {
+    let calls = 0;
+    const paths = await bfsStorageObjectPaths(
+      { name: '' },
+      async (r: FakeRef) => {
+        calls++;
+        return { items: [], prefixes: (await listAll(r)).prefixes };
+      },
+      { maxObjects: 100, maxListCalls: 5 },
+    );
+    expect(calls).toBe(5);
+    expect(paths).toEqual([]);
   });
 });

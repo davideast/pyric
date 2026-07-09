@@ -39,12 +39,56 @@ export interface SuggestionGroup {
   results: CommandResult[];
 }
 
-/** Build-time caps (the index is a suggestion source, not a mirror). */
-export const INDEX_CAPS = {
+/** Build-time caps (the index is a suggestion source, not a mirror). The caps
+ *  bound the FETCHES, not just the kept entries: doc queries carry a limit(),
+ *  only the first `collectionsScanned` collections get a doc query at all, and
+ *  the storage BFS is bounded in listAll RPC count (`storageListCalls`) as
+ *  well as objects. `users` is a client-side slice — the worker's
+ *  `auth.listUsers` op has no server-side max today. */
+export interface IndexCaps {
+  docsPerCollection: number;
+  /** Max collections that get a shallow doc-listing query per build. */
+  collectionsScanned: number;
+  users: number;
+  objects: number;
+  /** Max `listAll` RPCs per build (the BFS cost, independent of hit count). */
+  storageListCalls: number;
+}
+
+export const INDEX_CAPS: IndexCaps = {
   docsPerCollection: 50,
-  users: 200,
+  collectionsScanned: 20,
+  users: 100,
   objects: 200,
-} as const;
+  storageListCalls: 20,
+};
+
+/**
+ * Bounded breadth-first walk over a storage folder tree via injected
+ * `listAll`. Object stores are flat key spaces surfaced as folders, so BFS
+ * finds shallow refs first. DOUBLY capped: stops at `maxObjects` collected
+ * paths AND at `maxListCalls` listAll RPCs — a deep/wide prefix tree cannot
+ * fan out into unbounded round-trips just because few objects matched.
+ */
+export async function bfsStorageObjectPaths<Ref>(
+  root: Ref,
+  listAll: (ref: Ref) => Promise<{ items: ReadonlyArray<{ fullPath: string }>; prefixes: readonly Ref[] }>,
+  { maxObjects, maxListCalls }: { maxObjects: number; maxListCalls: number },
+): Promise<string[]> {
+  const paths: string[] = [];
+  const queue: Ref[] = [root];
+  let calls = 0;
+  while (queue.length && paths.length < maxObjects && calls < maxListCalls) {
+    calls++;
+    const res = await listAll(queue.shift() as Ref);
+    for (const item of res.items) {
+      if (paths.length >= maxObjects) break;
+      paths.push(item.fullPath);
+    }
+    queue.push(...res.prefixes);
+  }
+  return paths;
+}
 
 const PER_GROUP_CAP = 5;
 
@@ -209,8 +253,9 @@ export interface ResourceIndexSources {
  */
 export async function buildResourceIndex(
   sources: ResourceIndexSources,
-  caps: { docsPerCollection: number; users: number; objects: number } = INDEX_CAPS,
+  capOverrides: Partial<IndexCaps> = {},
 ): Promise<ResourceEntry[]> {
+  const caps: IndexCaps = { ...INDEX_CAPS, ...capOverrides };
   const entries: ResourceEntry[] = [];
 
   let collections: readonly string[] = [];
@@ -222,7 +267,11 @@ export async function buildResourceIndex(
   for (const id of collections) entries.push(collectionEntry(id));
 
   if (sources.listDocumentPaths) {
-    for (const id of collections) {
+    // Fetch cap, not just a keep cap: one shallow doc query per collection is
+    // a per-collection RPC in served mode, so only the first
+    // `collectionsScanned` collections are queried (all still get a
+    // collection entry above — those are free).
+    for (const id of collections.slice(0, caps.collectionsScanned)) {
       try {
         const paths = await sources.listDocumentPaths(id, caps.docsPerCollection);
         for (const p of paths.slice(0, caps.docsPerCollection)) entries.push(documentEntry(p));
