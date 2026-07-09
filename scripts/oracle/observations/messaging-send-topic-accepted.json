@@ -1,0 +1,22 @@
+{
+  "name": "messaging-send-topic-accepted",
+  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
+  "rowIds": [],
+  "description": "firebase-admin/messaging send() to a topic: FCM accepts and returns the message resource name projects/<projectId>/messages/<numeric id>. dryRun=true returns a name in the SAME format (fake id), so callers cannot distinguish validation from acceptance by shape alone.",
+  "observedAt": "2026-07-09T03:14:59.141Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "realSend": {
+      "matchesProjectsMessagesFormat": true,
+      "projectSegmentMatchesProject": true,
+      "messageIdIsNumericString": true
+    },
+    "dryRunSend": {
+      "matchesProjectsMessagesFormat": true,
+      "projectSegmentMatchesProject": true,
+      "messageIdIsNumericString": true
+    },
+    "dryRunSameShapeAsReal": true
+  }
+}
