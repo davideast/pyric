@@ -160,33 +160,28 @@ describe('skill framework invariants', () => {
     expect(intent.defaultFilePath).toBe('/workspace/firestore.rules');
   });
 
-  test('shipped Firebase Auth and query/index skills have tooling defaults', () => {
+  test('shipped registry lists niche skills only — general tooling retired', () => {
     __setSkillsForTest(null);
     const ids = listSkills().map((skill) => skill.id);
-    expect(ids).toContain('playground-firebase-auth-model');
-    expect(ids).toContain('playground-firestore-query-indexes');
+    expect(ids).toEqual(['game-rules']);
 
-    const authSkill = skillById('playground-firebase-auth-model');
-    expect(authSkill).toBeDefined();
-    expect(authSkill?.manBody).toContain('seed_auth_users');
-    expect(authSkill?.manBody).not.toContain('Firebase Emulator');
-    expect(resolveWorkbenchIntent([authSkill!])).toMatchObject({
-      promptProfile: 'firebase',
-      primarySurface: 'firebase',
-      defaultFirebaseSubtab: 'auth',
-      toolProfilePreference: 'diagnostic',
-    });
+    // The broad firebase-tooling skills live in the always-on system
+    // prompt (and as external-agent skills under .agents/skills), not
+    // as chips. Their ids must stay unresolvable...
+    const retired = [
+      'firebase-audit',
+      'firestore-rules-audit',
+      'playground-firebase-auth-model',
+      'playground-firestore-query-indexes',
+      'rtdb-security-rules',
+      'rtdb-data-model',
+    ];
+    for (const id of retired) expect(skillById(id)).toBeUndefined();
 
-    const querySkill = skillById('playground-firestore-query-indexes');
-    expect(querySkill).toBeDefined();
-    expect(querySkill?.manBody).toContain('firestore_extract_indexes');
-    expect(querySkill?.manBody).toContain('zero shapes');
-    expect(querySkill?.manBody).not.toContain('Firebase Emulator');
-    expect(resolveWorkbenchIntent([querySkill!])).toMatchObject({
-      promptProfile: 'firebase',
-      primarySurface: 'firebase',
-      defaultFirebaseSubtab: 'data',
-      toolProfilePreference: 'diagnostic',
-    });
+    // ...and sessions saved with them must still load (dropped, not
+    // crashed).
+    expect(resolveActiveSkills(['firebase-audit', 'game-rules']).map((s) => s.id)).toEqual([
+      'game-rules',
+    ]);
   });
 });

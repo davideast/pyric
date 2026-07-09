@@ -15,10 +15,7 @@
 import { useRef, useState, useEffect, useMemo } from 'react';
 import { ContextWindowMeter } from './ContextWindowMeter';
 import { PromptHighlightTextarea } from './PromptHighlightTextarea';
-import { useSlashCommands } from './SlashCommandMenu';
 import { detectContextSignalMatches } from '~/lib/agent/context';
-import { listSkills } from '~/lib/skills/registry';
-import { useSkillsStore } from '~/lib/store/skills';
 import type { ContextWindowSnapshot } from '~/lib/agent/context-window';
 
 export interface ComposeBarProps {
@@ -79,28 +76,10 @@ export function ComposeBar({
     onSubmit(text);
   };
 
-  // `/` command menu — items are the session's skills. Selection
-  // toggles the skills store; AgentModeControl reflects the state.
-  // One pragmatic store read in an otherwise presentational component:
-  // threading toggle props through PlaygroundPage buys nothing here.
-  const activeSkillIds = useSkillsStore((s) => s.activeSkillIds);
-  const toggleSkill = useSkillsStore((s) => s.toggleSkill);
-  const slash = useSlashCommands({
-    value,
-    onChange: setValue,
-    textareaRef: taRef,
-    items: listSkills().map((s) => ({
-      id: s.id,
-      icon: s.icon,
-      label: s.label,
-      description: s.description,
-      active: activeSkillIds.includes(s.id),
-    })),
-    onSelect: (item) => toggleSkill(item.id),
-  });
-
+  // Skills are viewed/toggled via the Skills chip (AgentModeControl)
+  // — the single skills UI. The `/` slash-command menu that used to
+  // duplicate it here is retired (see SlashCommandMenu.tsx).
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (slash.onKeyDown(e)) return;
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && canSubmit) {
       e.preventDefault();
       submit();
@@ -149,7 +128,6 @@ export function ComposeBar({
       ) : null}
 
       <div className="relative">
-        {slash.menu}
         <PromptHighlightTextarea
           textareaRef={taRef}
           value={value}
@@ -169,7 +147,7 @@ export function ComposeBar({
       <div className="flex items-center justify-between gap-3">
         <span className="text-[11px] text-slate-gray">
           ⌘ / Ctrl + Enter to send
-          <span className="hidden sm:inline"> · type / for shortcuts</span>
+          <span className="hidden sm:inline"> · skills via the Skills chip</span>
         </span>
         <div className="flex items-center gap-2 shrink-0">
           {contextWindow ? (

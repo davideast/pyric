@@ -203,7 +203,7 @@ export function AgentModeControl({
           </div>
 
           <div className="flex items-center justify-between gap-3 border-t border-[#2a2a35] p-2.5">
-            <span className="text-[11px] text-slate-gray">Type / in the composer for shortcuts.</span>
+            <span className="text-[11px] text-slate-gray">Skills stay active for this session.</span>
             <button
               type="button"
               onClick={onClearSkills}
