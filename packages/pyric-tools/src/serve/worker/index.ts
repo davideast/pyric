@@ -165,6 +165,7 @@ export {
   adminSetRtdbValue,
   adminUpdateRtdbValue,
   adminDeleteRtdbValue,
+  adminSubscribeRtdbValue,
   type ClientRtdb,
   type RtdbRefHandle,
   type RtdbDataSnapshot,

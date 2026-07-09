@@ -67,6 +67,7 @@ import {
   adminSetRtdbValue as workerAdminSetRtdbValue,
   adminUpdateRtdbValue as workerAdminUpdateRtdbValue,
   adminDeleteRtdbValue as workerAdminDeleteRtdbValue,
+  adminSubscribeRtdbValue as workerAdminSubscribeRtdbValue,
   collection as workerCollection,
   doc as workerDoc,
   getDoc as workerGetDoc,
@@ -130,6 +131,14 @@ export interface WorkerLivePlane {
   updateRtdbValue(path: string, values: Record<string, unknown>): Promise<void>;
   /** RTDB browse: delete a node with the admin lens. */
   deleteRtdbValue(path: string): Promise<void>;
+  /** RTDB viewer: live value subscription at a path with the admin lens —
+   *  `next` fires with the subtree's plain JSON value on subscribe and after
+   *  every write. Returns the unsubscribe. */
+  subscribeRtdbValue(
+    path: string,
+    next: (value: unknown) => void,
+    error?: (err: unknown) => void,
+  ): () => void;
   /**
    * F2 data browse: the worker client's modular Firestore fns as an injectable
    * {@link FirestoreApi} bundle. Studio feeds this to `@pyric/ui`'s
@@ -298,6 +307,8 @@ export function connectWorkerLive(
     setRtdbValue: (path, value) => workerAdminSetRtdbValue(db, path, value),
     updateRtdbValue: (path, values) => workerAdminUpdateRtdbValue(db, path, values),
     deleteRtdbValue: (path) => workerAdminDeleteRtdbValue(db, path),
+    subscribeRtdbValue: (path, next, error) =>
+      workerAdminSubscribeRtdbValue(db, path, next, error),
     // The worker client's modular fns, cast to the in-process FirestoreApi
     // signatures (`@pyric/ui` is typed against `pyric/firestore`; the worker
     // handles + snapshots are runtime-compatible at the grid's surface).

@@ -1416,6 +1416,39 @@ export async function adminDeleteRtdbValue(
   });
 }
 
+/**
+ * Subscribe to the raw value at an RTDB path with the ADMIN lens (Pyric Studio
+ * data viewer). Rides the same `{service:'rtdb'}` value-subscription channel as
+ * `rtdbOnValue`, but pins `actAs: {mode:'admin'}` per-sub instead of following
+ * the module default lens, so Studio's viewer stays admin (PRINCIPLES M3) while
+ * the page's own listeners keep their session semantics.
+ *
+ * `next` receives the plain JSON value at `path` (`null` when absent) on
+ * subscribe and again after every write that changes the subtree.
+ */
+export function adminSubscribeRtdbValue(
+  db: ClientDb | ClientRtdb,
+  path: string,
+  next: (value: unknown) => void,
+  error?: (err: unknown) => void,
+): Unsubscribe {
+  const subId = nextSubId();
+  _snapSubs.set(subId, {
+    next: (wire) => next((wire as { value?: unknown } | null)?.value ?? null),
+    error,
+  });
+  db.port.postMessage({
+    t: 'sub',
+    subId,
+    target: { service: 'rtdb', path: normalizeRtdbPath(path) },
+    actAs: { mode: 'admin' },
+  } satisfies InboundMessage);
+  return () => {
+    _snapSubs.delete(subId);
+    db.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+  };
+}
+
 export async function rtdbSet(r: RtdbRefHandle, value: unknown): Promise<void> {
   await dataRpc(r.port, { t: 'op', id: nextId(), method: 'rtdb.set', path: r.path, value });
 }
