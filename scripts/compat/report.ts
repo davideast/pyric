@@ -6,11 +6,35 @@ const ledger = buildCompatibilityLedger();
 const summary = summarizeLedger(ledger);
 const highRiskUnverified = highRiskUnverifiedRows(ledger);
 
+// Climb section (cdd.md Step 7): per climb-marked surface, derived from
+// registry row statuses ALONE. This informs; it never fails the run — the only
+// climb-related exit-code behavior in the system is the lane's regression rule.
+const CLIMB_STATUS_ORDER = ['unverified', 'diverged-documented', 'bug', 'unsupported', 'conforms'] as const;
+const climbSurfaces = surfaceDescriptors
+  .filter((descriptor) => descriptor.climb)
+  .map((descriptor) => {
+    const rows = ledger.entries.filter((entry) => entry.surface === descriptor.surface);
+    const total = rows.length;
+    const conforming = rows.filter((entry) => entry.status === 'conforms').length;
+    const byStatus = Object.fromEntries(
+      CLIMB_STATUS_ORDER.map((status) => [status, rows.filter((entry) => entry.status === status).length]).filter(
+        ([, count]) => (count as number) > 0,
+      ),
+    );
+    return {
+      surface: descriptor.surface,
+      total,
+      conforming,
+      climbPercent: total === 0 ? 0 : Math.round((conforming / total) * 1000) / 10,
+      byStatus,
+    };
+  });
+
 const wantJson = process.argv.includes('--json');
 const strict = process.argv.includes('--strict');
 
 if (wantJson) {
-  console.log(JSON.stringify({ summary, highRiskUnverified, orphanObservations: ledger.orphanObservations }, null, 2));
+  console.log(JSON.stringify({ summary, climb: climbSurfaces, highRiskUnverified, orphanObservations: ledger.orphanObservations }, null, 2));
   process.exit(strict && (highRiskUnverified.length > 0 || ledger.orphanObservations.length > 0) ? 1 : 0);
 }
 
@@ -28,6 +52,17 @@ console.log(`High-risk unverified rows: ${summary.highRiskUnverifiedRows}`);
 console.log(`Observations: ${summary.observations}`);
 console.log(`Orphan observations: ${summary.orphanObservations}`);
 console.log(`Registry conformance checks: ${summary.conformanceChecks}`);
+
+if (climbSurfaces.length > 0) {
+  console.log('\n## Climb\n');
+  console.log('Surfaces climbing under CDD (registry statuses only; live suite results live in the climb lane):\n');
+  for (const s of climbSurfaces) {
+    const breakdown = Object.entries(s.byStatus)
+      .map(([status, count]) => `${count} ${status}`)
+      .join(', ');
+    console.log(`- ${s.surface}: ${s.conforming}/${s.total} conforming (${s.climbPercent}%)${breakdown ? ` — ${breakdown}` : ''}`);
+  }
+}
 
 if (highRiskUnverified.length > 0) {
   console.log('\n## High-risk unverified rows\n');

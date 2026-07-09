@@ -1,8 +1,10 @@
 {
   "name": "messaging-web-deletetoken-unregistered",
-  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
-  "rowIds": [],
-  "description": "deleteToken(messaging) then a server send to the now-deleted token. STABLE facts (pinned): the v1 messages:send plane eventually returns the UNREGISTERED/404-class google.rpc envelope (HTTP 404, status NOT_FOUND, details carry google.firebase.fcm.v1.FcmError with errorCode UNREGISTERED); firebase-admin send() re-wraps that as errorCode messaging/registration-token-not-registered; and NO delivery reaches the client on either route. Closes the send/receive loop. TIMING NUANCE (observed, NOT pinned — environment-dependent): unregistration propagates asynchronously; across runs the FIRST send after deleteToken returned 200 (accepted) on one run and 404 on another, while delivery had already stopped both times (the local push subscription is gone the instant deleteToken resolves). Cross-plane: client deleteToken (fbSdkVersion) + admin send (adminSdkVersion). Token value is prod noise, dropped. rowIds:[]; rows land with the registry-admission ticket (surface admitted born-unverified under the CDD map).",
+  "matrixRow": "messaging#3",
+  "rowIds": [
+    "messaging#3"
+  ],
+  "description": "deleteToken(messaging) then a server send to the now-deleted token. STABLE facts (pinned): the v1 messages:send plane eventually returns the UNREGISTERED/404-class google.rpc envelope (HTTP 404, status NOT_FOUND, details carry google.firebase.fcm.v1.FcmError with errorCode UNREGISTERED); firebase-admin send() re-wraps that as errorCode messaging/registration-token-not-registered; and NO delivery reaches the client on either route. Closes the send/receive loop. TIMING NUANCE (observed, NOT pinned — environment-dependent): unregistration propagates asynchronously; across runs the FIRST send after deleteToken returned 200 (accepted) on one run and 404 on another, while delivery had already stopped both times (the local push subscription is gone the instant deleteToken resolves). Cross-plane: client deleteToken (fbSdkVersion) + admin send (adminSdkVersion). Token value is prod noise, dropped. Cited by messaging#3 (surface climbing under CDD; cited, not yet replayed).",
   "observedAt": "2026-07-09T05:16:38.755Z",
   "fbSdkVersion": "12.13.0",
   "adminSdkVersion": "13.10.0",

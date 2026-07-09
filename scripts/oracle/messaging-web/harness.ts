@@ -565,10 +565,13 @@ function payloadFacts(payload: Record<string, unknown>, tag: string) {
   };
 }
 
-const ROWS_NOTE = 'rowIds:[]; rows land with the registry-admission ticket (surface admitted born-unverified under the CDD map).';
-
+// The messaging surface has been admitted under CDD: each capture cites the
+// born-unverified `messaging#*` receive-plane rows it evidences (see
+// scripts/compat/registry/messaging.ts) via `rowIds`. Citation is not replay —
+// the rows stay `unverified` until the conformance suite replays them.
 function writeObservation(
   name: string,
+  rowIds: string[],
   description: string,
   behavior: Record<string, unknown>,
   versions: Record<string, string> = { fbSdkVersion },
@@ -578,9 +581,9 @@ function writeObservation(
     JSON.stringify(
       {
         name,
-        matrixRow: 'messaging (no rows yet; surface admitted born-unverified under the CDD map)',
-        rowIds: [] as string[],
-        description,
+        matrixRow: rowIds.join(', '),
+        rowIds,
+        description: `${description} Cited by ${rowIds.join(', ')} (surface climbing under CDD; cited, not yet replayed).`,
         observedAt: new Date().toISOString(),
         ...versions,
         projectId,
@@ -596,7 +599,8 @@ function writeObservation(
 // token-shape — always available once a token minted.
 writeObservation(
   'messaging-web-token-shape',
-  `getToken(messaging, { vapidKey, serviceWorkerRegistration }) against production FCM: token format facts. Probe: real Chromium, localhost secure context, permission granted, real registration API. ${ROWS_NOTE}`,
+  ['messaging#2'],
+  `getToken(messaging, { vapidKey, serviceWorkerRegistration }) against production FCM: token format facts. Probe: real Chromium, localhost secure context, permission granted, real registration API.`,
   {
     minted: true,
     length: token.length,
@@ -609,7 +613,8 @@ writeObservation(
 if (results.fg) {
   writeObservation(
     'messaging-web-onmessage-foreground',
-    `A notification+data message sent to a token while the page is FOCUSED is delivered to onMessage (not the SW). Payload structural facts; prod noise (ids, token) reduced to shape. ${ROWS_NOTE}`,
+    ['messaging#4', 'messaging#8', 'messaging#9'],
+    `A notification+data message sent to a token while the page is FOCUSED is delivered to onMessage (not the SW). Payload structural facts; prod noise (ids, token) reduced to shape.`,
     { deliveredTo: 'onMessage', ...payloadFacts(payloadOf(results.fg as Capture), 'foreground') },
   );
 }
@@ -617,7 +622,8 @@ if (results.fg) {
 if (results.tokenStable) {
   writeObservation(
     'messaging-web-token-stability',
-    `getToken(messaging, { vapidKey, serviceWorkerRegistration }) called a second time on the SAME service-worker registration returns the SAME token — no per-call rotation. Token value is prod noise; only the equality/shape facts are kept. ${ROWS_NOTE}`,
+    ['messaging#2'],
+    `getToken(messaging, { vapidKey, serviceWorkerRegistration }) called a second time on the SAME service-worker registration returns the SAME token — no per-call rotation. Token value is prod noise; only the equality/shape facts are kept.`,
     results.tokenStable as Record<string, unknown>,
   );
 }
@@ -626,7 +632,8 @@ if (results.vuf && results.bg) {
   const vufMeta = metaOf(results.vuf as Capture);
   writeObservation(
     'messaging-web-visibility-routing',
-    `FCM receive routing keys on page VISIBILITY, not focus: the firebase/messaging service worker decides foreground vs background solely by whether a window client reports visibilityState 'visible' (it never inspects focus). A page that is visibilityState 'visible' receives onMessage; a page with NO visible client (navigated away) routes to the service-worker onBackgroundMessage instead — both captured here. AUTOMATION LIMITATION (pinned, not forced): the visible-but-UNFOCUSED half could not be demonstrated — under Playwright/CDP-driven Chromium the page reports document.hasFocus()===true even after a real OS app-activation (osascript 'Finder' activate; app-control is itself gated by macOS Automation permissions). Because routing does not depend on focus, this does not weaken the contract, only the empirical focus=false sample. ${ROWS_NOTE}`,
+    ['messaging#4', 'messaging#14'],
+    `FCM receive routing keys on page VISIBILITY, not focus: the firebase/messaging service worker decides foreground vs background solely by whether a window client reports visibilityState 'visible' (it never inspects focus). A page that is visibilityState 'visible' receives onMessage; a page with NO visible client (navigated away) routes to the service-worker onBackgroundMessage instead — both captured here. AUTOMATION LIMITATION (pinned, not forced): the visible-but-UNFOCUSED half could not be demonstrated — under Playwright/CDP-driven Chromium the page reports document.hasFocus()===true even after a real OS app-activation (osascript 'Finder' activate; app-control is itself gated by macOS Automation permissions). Because routing does not depend on focus, this does not weaken the contract, only the empirical focus=false sample.`,
     {
       routesOnVisibilityNotFocus: true,
       visibleClient: {
@@ -643,7 +650,8 @@ if (results.vuf && results.bg) {
 if (results.bg) {
   writeObservation(
     'messaging-web-onbackgroundmessage',
-    `A notification+data message sent while the page has NO visible client is delivered to the service worker onBackgroundMessage handler instead of onMessage. Payload structural facts. ${ROWS_NOTE}`,
+    ['messaging#8', 'messaging#14'],
+    `A notification+data message sent while the page has NO visible client is delivered to the service worker onBackgroundMessage handler instead of onMessage. Payload structural facts.`,
     { deliveredTo: 'onBackgroundMessage', ...payloadFacts(payloadOf(results.bg as Capture), 'bg') },
   );
 }
@@ -654,7 +662,8 @@ if (results.dataOnly) {
   const meta = metaOf(cap);
   writeObservation(
     'messaging-web-data-only-background',
-    `A DATA-ONLY message (no notification field) sent while the page has no visible client: onBackgroundMessage FIRES, delivering a payload with data/from/messageId and NO notification key. Auto-display probe: this is the FIRST background send of the run against a freshly-activated worker (its activate handler cleared all notifications), and the handler displays nothing, so registration.getNotifications() afterwards is attributable to this message alone — value pinned as notificationsAfterHandler. NOTE: Chrome's own userVisibleOnly "site updated in the background" fallback is a browser-level notification and may or may not surface in getNotifications(); the pinned count is the honest, directly-observed number. ${ROWS_NOTE}`,
+    ['messaging#14'],
+    `A DATA-ONLY message (no notification field) sent while the page has no visible client: onBackgroundMessage FIRES, delivering a payload with data/from/messageId and NO notification key. Auto-display probe: this is the FIRST background send of the run against a freshly-activated worker (its activate handler cleared all notifications), and the handler displays nothing, so registration.getNotifications() afterwards is attributable to this message alone — value pinned as notificationsAfterHandler. NOTE: Chrome's own userVisibleOnly "site updated in the background" fallback is a browser-level notification and may or may not surface in getNotifications(); the pinned count is the honest, directly-observed number.`,
     {
       onBackgroundMessageFired: true,
       topLevelKeys: Object.keys(payload).sort(),
@@ -684,7 +693,8 @@ if (results.deleteToken) {
   const fcmDetail = details.find((x) => String(x['@type']).includes('FcmError'));
   writeObservation(
     'messaging-web-deletetoken-unregistered',
-    `deleteToken(messaging) then a server send to the now-deleted token. STABLE facts (pinned): the v1 messages:send plane eventually returns the UNREGISTERED/404-class google.rpc envelope (HTTP 404, status NOT_FOUND, details carry google.firebase.fcm.v1.FcmError with errorCode UNREGISTERED); firebase-admin send() re-wraps that as errorCode messaging/registration-token-not-registered; and NO delivery reaches the client on either route. Closes the send/receive loop. TIMING NUANCE (observed, NOT pinned — environment-dependent): unregistration propagates asynchronously; across runs the FIRST send after deleteToken returned 200 (accepted) on one run and 404 on another, while delivery had already stopped both times (the local push subscription is gone the instant deleteToken resolves). Cross-plane: client deleteToken (fbSdkVersion) + admin send (adminSdkVersion). Token value is prod noise, dropped. ${ROWS_NOTE}`,
+    ['messaging#3'],
+    `deleteToken(messaging) then a server send to the now-deleted token. STABLE facts (pinned): the v1 messages:send plane eventually returns the UNREGISTERED/404-class google.rpc envelope (HTTP 404, status NOT_FOUND, details carry google.firebase.fcm.v1.FcmError with errorCode UNREGISTERED); firebase-admin send() re-wraps that as errorCode messaging/registration-token-not-registered; and NO delivery reaches the client on either route. Closes the send/receive loop. TIMING NUANCE (observed, NOT pinned — environment-dependent): unregistration propagates asynchronously; across runs the FIRST send after deleteToken returned 200 (accepted) on one run and 404 on another, while delivery had already stopped both times (the local push subscription is gone the instant deleteToken resolves). Cross-plane: client deleteToken (fbSdkVersion) + admin send (adminSdkVersion). Token value is prod noise, dropped.`,
     {
       deleteTokenResolvedTruthy: d.deleteResolvedTruthy,
       sendPlaneEventuallyUnregistered: d.unregistered !== null,

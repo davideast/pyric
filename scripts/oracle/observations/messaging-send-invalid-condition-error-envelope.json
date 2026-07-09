@@ -1,8 +1,11 @@
 {
   "name": "messaging-send-invalid-condition-error-envelope",
-  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
-  "rowIds": [],
-  "description": "v1 messages:send with a syntactically malformed condition (\"'a' in topics &&\", dangling operator): the error envelope FCM returns (HTTP status + google.rpc envelope). realSendEnvelopeIdentical records whether validate_only=false returns the byte-identical envelope. rowIds land with the registry-admission ticket.",
+  "matrixRow": "messaging-admin#4, messaging-admin#14",
+  "rowIds": [
+    "messaging-admin#4",
+    "messaging-admin#14"
+  ],
+  "description": "v1 messages:send with a syntactically malformed condition (\"'a' in topics &&\", dangling operator): the error envelope FCM returns (HTTP status + google.rpc envelope). realSendEnvelopeIdentical records whether validate_only=false returns the byte-identical envelope. Cited by messaging-admin#4, messaging-admin#14 (surface climbing under CDD; cited, not yet replayed).",
   "observedAt": "2026-07-09T05:00:44.835Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "genkit-idx",
