@@ -13,6 +13,7 @@
 
 import type { AuthLens } from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
+import type { CommandTarget } from '../home/command.js';
 
 /** A traffic event as Studio's adapter emits it: the library shape plus the
  *  provenance lens every `SandboxEvent` may carry (additive, optional). */
@@ -78,4 +79,38 @@ export function actingIdentity(event: {
  *  lines (the same lines `denialContext.reasons` carries over the wire). */
 export function denialReasons(event: { reasons?: readonly string[] }): string[] {
   return (event.reasons ?? []).filter((r) => r.trim() !== '');
+}
+
+/**
+ * The route of the record a traffic row touched — the row's navigation
+ * semantic (C3 drill-in: detail belongs to the owning surface). Null when
+ * nothing addressable exists (service-level ops, the `(service)` path
+ * placeholder the operation adapter writes when an op has no path).
+ *
+ *   firestore → /firestore/<path>     (doc or collection)
+ *   rtdb      → /rtdb                 (the viewer's path is component state —
+ *                                      N4 gap: no path deep-link yet)
+ *   storage   → /storage/<path>       (object path)
+ *   auth      → /auth/<uid>           (`path` carries the uid; `*` = clear-all,
+ *                                      not addressable)
+ */
+export function subjectTarget(event: {
+  service?: StudioTrafficEvent['service'];
+  path: string;
+}): CommandTarget | null {
+  const path = event.path;
+  if (!path || path === '(service)') return null;
+  const rest = path.split('/').filter(Boolean);
+  switch (event.service ?? 'firestore') {
+    case 'firestore':
+      return rest.length ? { tab: 'firestore', rest } : null;
+    case 'rtdb':
+      return { tab: 'rtdb' };
+    case 'storage':
+      return rest.length ? { tab: 'storage', rest } : null;
+    case 'auth':
+      return path !== '*' ? { tab: 'auth', rest: [path] } : null;
+    default:
+      return null;
+  }
 }

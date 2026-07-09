@@ -8,11 +8,12 @@
  *   2. A compact filter row (verdict), single row per the spec's filter
  *      contract.
  *   3. The request stream (grouped via `useTrafficGroups`), each row carrying a
- *      VERDICT cell — allow | deny | admin (rules bypassed) | blank for
+ *      VERDICT pill — allow | deny | admin (rules bypassed) | blank for
  *      non-rule ops — derived from fields the events already carry
- *      (`verdict.ts`). Deny rows tint subtly and EXPAND IN PLACE (disclosure,
- *      no modal) with operation, path, acting identity, and the denial
- *      reasons when present.
+ *      (`verdict.ts`). Clicking a row navigates to the record the op touched
+ *      (`subjectTarget` → the route codec), EXCEPT deny rows, which tint
+ *      subtly and EXPAND IN PLACE (disclosure, no modal) with operation,
+ *      path, acting identity, and the denial reasons when present.
  *
  * Data is the request/operation slice of the unified event stream (the
  * dev-seed drives real allow/deny ops; `dev --ui` streams live).
@@ -28,10 +29,12 @@ import {
   type TimeWindow,
 } from '@pyric/ui/traffic';
 import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-data.js';
+import { pushPath } from '../../shell/router.js';
 import {
   actingIdentity,
   denialReasons,
   filterByVerdict,
+  subjectTarget,
   verdictFor,
   VERDICT_FILTERS,
   type StudioTrafficEvent,
@@ -124,6 +127,18 @@ export function TrafficSurface() {
 
   const verdictBadge = (event: StudioTrafficEvent) => <VerdictCell event={event} />;
 
+  // The row's navigation semantic: click goes to the record the op touched
+  // (C3 drill-in). Denials instead keep their expand-in-place disclosure —
+  // the denial's detail IS Traffic's; its subject link would hide the why.
+  const onRowSelect = (e: StudioTrafficEvent) => {
+    if (verdictFor(e) === 'deny') {
+      setExpandedId((cur) => (cur === e.id ? null : e.id));
+      return;
+    }
+    const target = subjectTarget(e);
+    if (target) pushPath(target);
+  };
+
   return (
     <section data-pyric-ui="traffic-surface" className="traffic">
       <TrafficTimeline
@@ -186,6 +201,15 @@ export function TrafficSurface() {
                 <li key={item.key} data-pyric-traffic-group-entry="">
                   <TrafficGroupRow
                     group={item}
+                    // Group MEMBERS navigate to their subject too; member deny
+                    // rows stay inert (the in-place disclosure renders only on
+                    // top-level entries — the library owns member markup).
+                    onSelect={(e) => {
+                      const ev = e as StudioTrafficEvent;
+                      if (verdictFor(ev) === 'deny') return;
+                      const target = subjectTarget(ev);
+                      if (target) pushPath(target);
+                    }}
                     renderClassification={verdictBadge}
                     formatTime={defaultFormatTime}
                   />
@@ -200,12 +224,7 @@ export function TrafficSurface() {
                   <TrafficRow
                     event={item.event}
                     selected={item.event.id === expandedId}
-                    onSelect={(e) => {
-                      // Disclosure is the deny row's derived action (C3):
-                      // click toggles the in-place detail; other rows are inert.
-                      if (verdictFor(e as StudioTrafficEvent) !== 'deny') return;
-                      setExpandedId((cur) => (cur === e.id ? null : e.id));
-                    }}
+                    onSelect={(e) => onRowSelect(e as StudioTrafficEvent)}
                     renderClassification={verdictBadge}
                     formatTime={defaultFormatTime}
                   />

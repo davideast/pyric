@@ -4,6 +4,7 @@ import {
   actingIdentity,
   denialReasons,
   filterByVerdict,
+  subjectTarget,
   verdictFor,
 } from './verdict.js';
 
@@ -71,6 +72,41 @@ describe('actingIdentity', () => {
     ).toBe('bob');
     expect(actingIdentity({ auth: { uid: 'bob' } })).toBe('bob');
     expect(actingIdentity({ auth: null })).toBe('anonymous');
+  });
+});
+
+describe('subjectTarget', () => {
+  it('routes a Firestore op (default service) to its path', () => {
+    expect(subjectTarget({ path: 'users/alice' })).toEqual({
+      tab: 'firestore',
+      rest: ['users', 'alice'],
+    });
+    expect(subjectTarget({ service: 'firestore', path: 'notes' })).toEqual({
+      tab: 'firestore',
+      rest: ['notes'],
+    });
+  });
+
+  it('routes an RTDB op to the viewer tab (path is component state — N4 gap)', () => {
+    expect(subjectTarget({ service: 'rtdb', path: '/rooms/r1' })).toEqual({ tab: 'rtdb' });
+  });
+
+  it('routes storage to the object path and auth to the uid', () => {
+    expect(subjectTarget({ service: 'storage', path: 'uploads/logo.png' })).toEqual({
+      tab: 'storage',
+      rest: ['uploads', 'logo.png'],
+    });
+    expect(subjectTarget({ service: 'auth', path: 'u-1' })).toEqual({
+      tab: 'auth',
+      rest: ['u-1'],
+    });
+  });
+
+  it('yields nothing for non-addressable subjects', () => {
+    expect(subjectTarget({ service: 'auth', path: '*' })).toBeNull();
+    expect(subjectTarget({ service: 'rtdb', path: '(service)' })).toBeNull();
+    expect(subjectTarget({ path: '' })).toBeNull();
+    expect(subjectTarget({ service: 'firestore', path: '/' })).toBeNull();
   });
 });
 
