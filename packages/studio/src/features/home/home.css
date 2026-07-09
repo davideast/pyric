@@ -18,7 +18,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
   gap: var(--space-5);
-  align-items: start;
+  /* Default (stretch) row alignment: cards sharing a row — the onboarding
+     trio — get EQUAL heights from the grid track, titles on one line (L1). */
   /* feed spans available columns first; tiles flow after */
 }
 .studio-home__feed {

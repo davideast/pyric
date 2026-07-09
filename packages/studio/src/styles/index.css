@@ -476,6 +476,11 @@ a.studio-chip:hover {
   appearance: none;
   display: grid;
   gap: 10px;
+  /* Content stacks from the top: grid stretches cards in a row to EQUAL
+     height (the default), and packing rows at the start keeps every card's
+     title on the same first grid line instead of distributing the surplus
+     between rows (L1: alignment from the grid, not from nudging). */
+  align-content: start;
   min-height: 132px;
   padding: 16px;
   color: inherit;
@@ -539,9 +544,13 @@ button.studio-card:hover {
 }
 
 .studio-home__tile-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  /* Title row as its own grid line (label | count pill). Baseline alignment
+     keeps the label's baseline identical across tiles WITH and WITHOUT a
+     pill: the pill's box is shorter than the label's line box, so it hangs
+     off the shared baseline instead of re-centering (and growing) the row. */
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
   gap: 10px;
 }
 .studio-home__tile-label {
