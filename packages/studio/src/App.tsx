@@ -39,8 +39,10 @@ function docsHref(): string {
  * build ships them; under `pyric dev` there is nothing at `<base>/docs`, the
  * SPA fallback answers with the Studio shell, and the router bounces the
  * user home — a dead tab. Probe `<base>/docs/index.json` (the docs search
- * index): it has an extension, so the serve fallback (extensionless-only)
- * can't fake a 200 for it. The tab renders only after the probe confirms.
+ * index) and require a JSON content-type: the serve mount's SPA fallback
+ * answers ANY miss — dotted paths included (deep links carry dots) — with
+ * the shell's `text/html`, so a bare 200 proves nothing; the content-type
+ * does. The tab renders only after the probe confirms.
  */
 function useDocsAvailable(): boolean {
   const [available, setAvailable] = useState(false);
@@ -48,7 +50,8 @@ function useDocsAvailable(): boolean {
     let on = true;
     fetch(`${docsHref()}/index.json`, { method: 'HEAD' })
       .then((res) => {
-        if (on && res.ok) setAvailable(true);
+        const type = res.headers.get('content-type') ?? '';
+        if (on && res.ok && type.includes('json')) setAvailable(true);
       })
       .catch(() => {
         // unreachable → no docs; the tab stays hidden
