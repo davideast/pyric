@@ -455,17 +455,19 @@ describe('worker relay — peer replacement and reconnect', () => {
     expect(snaps).toHaveLength(1); // initial via tab A
 
     // Tab "refresh": a NEW tab registers (last-connection-wins). The bridge
-    // re-issues the sub registry to tab B; tab A's still-live deliveries are
+    // re-issues the sub registry to tab B; tab B's fresh initial snapshot is
+    // byte-identical to what the consumer already holds (nothing changed) so
+    // it is suppressed, and tab A's still-live deliveries are
     // stale-generation and must not reach the consumer.
     connectTab(bridge, ctx);
     await tick();
-    expect(snaps).toHaveLength(2); // exactly ONE extra initial snap (tab B); tab A delivers nothing
+    expect(snaps).toHaveLength(1); // NO delivery: listeners fire on change, not on peer churn
 
     await node.rtdb.set('game/state', { round: 2 });
     await tick();
     // Both tabs' worker ports fire; only tab B's (current generation) lands.
-    expect(snaps).toHaveLength(3);
-    expect(snaps[2]!.value).toEqual({ round: 2 });
+    expect(snaps).toHaveLength(2);
+    expect(snaps[1]!.value).toEqual({ round: 2 });
   });
 
   it('replacement tears the old peer down: onReplaced fires and its relayed worker subs unsubscribe', async () => {
@@ -524,15 +526,103 @@ describe('worker relay — peer replacement and reconnect', () => {
     // Ops while no peer is connected fail fast with the same guidance.
     await expect(node.rtdb.get('doc')).rejects.toThrow(/open http:\/\/localhost:5000/);
 
-    // A new tab connects: the bridge re-issues the sub; ops work again.
+    // A new tab connects: the bridge re-issues the sub (ops work again), but
+    // the re-established listener's initial snapshot matches what the
+    // consumer already holds — suppressed, not re-delivered.
     connectTab(bridge, ctx);
     await tick();
-    expect(snaps).toHaveLength(2); // fresh initial snapshot from the new peer
+    expect(snaps).toHaveLength(1); // unchanged across the gap ⇒ no re-fire
 
     await node.rtdb.set('doc', { alive: true });
     await tick();
+    expect(snaps).toHaveLength(2);
     expect(snaps[snaps.length - 1]!.value).toEqual({ alive: true });
     expect(await node.rtdb.get('doc')).toEqual({ alive: true });
+  });
+
+  it('repeated peer churn re-fires NOTHING while state is unchanged (doc + query listener)', async () => {
+    // The live "snapshot spam" bug: two tabs (app + Studio) cycling through
+    // last-wins registration re-issued every sub once per registration, and
+    // each re-issued listener's initial snapshot reached the consumer — a
+    // remote onSnapshot fired ~1/sec with byte-identical data, forever. A
+    // consumer whose callback writes anything becomes an infinite write loop.
+    const bridge = makeRelayBridge();
+    const ctx = await makeWorkerCtx();
+    connectTab(bridge, ctx);
+    const node = connectNode(bridge);
+    await node.core.ready;
+
+    await node.channel.op({
+      method: 'setDoc', path: 'live/check', data: { n: 1, at: 'fixed' }, actAs: { mode: 'admin' },
+    });
+
+    const docSnaps: unknown[] = [];
+    const querySnaps: unknown[] = [];
+    node.channel.subscribe(
+      { target: { __ref: 'doc', path: 'live/check' }, actAs: { mode: 'admin' } },
+      (v) => docSnaps.push(v),
+    );
+    node.channel.subscribe(
+      { target: { __ref: 'collection', path: 'live' }, actAs: { mode: 'admin' } },
+      (v) => querySnaps.push(v),
+    );
+    await tick();
+    expect(docSnaps).toHaveLength(1); // initial snapshots only
+    expect(querySnaps).toHaveLength(1);
+
+    // Five churn cycles — pre-fix each one delivered a duplicate per sub.
+    for (let i = 0; i < 5; i++) {
+      connectTab(bridge, ctx);
+      await tick();
+    }
+    expect(docSnaps).toHaveLength(1); // zero extra emissions
+    expect(querySnaps).toHaveLength(1);
+
+    // Legitimate changes still deliver 1:1 — including rapid consecutive
+    // writes (two real changes = two emissions, never collapsed).
+    await node.channel.op({
+      method: 'setDoc', path: 'live/check', data: { n: 2, at: 'fixed' }, actAs: { mode: 'admin' },
+    });
+    await node.channel.op({
+      method: 'setDoc', path: 'live/check', data: { n: 3, at: 'fixed' }, actAs: { mode: 'admin' },
+    });
+    await tick();
+    expect(docSnaps).toHaveLength(3);
+    expect(querySnaps).toHaveLength(3);
+  });
+
+  it('re-issue DELIVERS when state changed while no peer was attached', async () => {
+    const bridge = makeRelayBridge();
+    const ctx = await makeWorkerCtx();
+    const tabA = connectTab(bridge, ctx);
+    const node = connectNode(bridge);
+    await node.core.ready;
+
+    await node.channel.op({
+      method: 'setDoc', path: 'gap/doc', data: { v: 1 }, actAs: { mode: 'admin' },
+    });
+    const snaps: Array<{ data?: { json?: string } }> = [];
+    node.channel.subscribe(
+      { target: { __ref: 'doc', path: 'gap/doc' }, actAs: { mode: 'admin' } },
+      (v) => snaps.push(v as { data?: { json?: string } }),
+    );
+    await tick();
+    expect(snaps).toHaveLength(1);
+
+    // Peer drops; the doc changes while nobody is attached (another client of
+    // the same worker — modelled as a direct port write to the shared ctx).
+    tabA.disconnect();
+    await handleMessage(ctx, { postMessage() {} }, {
+      t: 'op', id: 'gap-1', method: 'setDoc', path: 'gap/doc',
+      data: { v: 2 }, actAs: { mode: 'admin' },
+    } as InboundMessage);
+
+    // New peer: the re-issued listener's initial snapshot DIFFERS from the
+    // dedup baseline — it must deliver (suppression is duplicate-only).
+    connectTab(bridge, ctx);
+    await tick();
+    expect(snaps).toHaveLength(2);
+    expect(JSON.parse(snaps[1]!.data!.json!)).toEqual({ v: 2 });
   });
 
   it('attachPeer closes the replaced peer\'s socket (onReplaced → ws.close)', async () => {
