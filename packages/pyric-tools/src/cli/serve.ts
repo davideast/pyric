@@ -471,6 +471,14 @@ export async function startServe(opts: {
           'replaced by an empty one — e.g. a reset). Restore: mv it back over state.json.',
       );
     }
+  } else {
+    // Say the durability tier out loud: refresh behavior must never be a coin
+    // flip. Coverage detail (which services, worker vs in-page) lives in the
+    // persistence guide — this line names the tier and the upgrade path.
+    logger.note(
+      '  ⓘ persist  data lives in this browser (IndexedDB) — see docs/how-to/serve-persistence-and-multi-tab.md' +
+        '\n             for what survives refresh/restart; `--persist` adds a committable .pyric/state/state.json',
+    );
   }
   // (A fixture that primed the persist store is reported by the persist
   // line; a fixture ignored because lived state exists is intentionally
