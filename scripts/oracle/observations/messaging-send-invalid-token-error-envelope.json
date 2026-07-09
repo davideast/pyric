@@ -3,7 +3,7 @@
   "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
   "rowIds": [],
   "description": "v1 messages:send with a syntactically invalid registration token: HTTP 400 INVALID_ARGUMENT; fieldViolations names message.token; FcmError errorCode INVALID_ARGUMENT. Note details array order differs from the no-target case.",
-  "observedAt": "2026-07-09T03:14:59.253Z",
+  "observedAt": "2026-07-09T05:00:43.912Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "genkit-idx",
   "behavior": {

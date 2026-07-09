@@ -1,24 +1,24 @@
 {
-  "name": "messaging-send-no-target-error-envelope",
+  "name": "messaging-send-webpush-invalid-ttl-error-envelope",
   "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
   "rowIds": [],
-  "description": "v1 messages:send with no recipient: HTTP 400, google.rpc envelope with status INVALID_ARGUMENT, details carrying BOTH google.rpc.BadRequest (fieldViolations naming the field) and google.firebase.fcm.v1.FcmError (errorCode). Detail ORDER differs across error cases and is not a contract.",
-  "observedAt": "2026-07-09T05:00:43.837Z",
+  "description": "v1 messages:send with webpush.headers.TTL set to a non-numeric value (\"not-a-number\"): the error envelope FCM returns. realSendEnvelopeIdentical records validate_only=false parity. rowIds land with the registry-admission ticket.",
+  "observedAt": "2026-07-09T05:00:46.630Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "genkit-idx",
   "behavior": {
     "status": 400,
     "error": {
       "code": 400,
-      "message": "Recipient of the message is not set.",
+      "message": "TTL must be a non-negative integer.",
       "status": "INVALID_ARGUMENT",
       "details": [
         {
           "@type": "type.googleapis.com/google.rpc.BadRequest",
           "fieldViolations": [
             {
-              "field": "message",
-              "description": "Recipient of the message is not set."
+              "field": "message.webpush.headers.TTL",
+              "description": "TTL must be a non-negative integer."
             }
           ]
         },
@@ -27,6 +27,8 @@
           "errorCode": "INVALID_ARGUMENT"
         }
       ]
-    }
+    },
+    "realStatus": 400,
+    "realSendEnvelopeIdentical": true
   }
 }

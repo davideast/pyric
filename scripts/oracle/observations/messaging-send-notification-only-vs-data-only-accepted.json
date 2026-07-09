@@ -1,0 +1,22 @@
+{
+  "name": "messaging-send-notification-only-vs-data-only-accepted",
+  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
+  "rowIds": [],
+  "description": "firebase-admin/messaging send() to a topic with ONLY a notification block, and separately with ONLY a data block: FCM accepts both and returns the same projects/<projectId>/messages/<numeric id> resource-name shape; neither a data nor a notification block is individually required. rowIds land with the registry-admission ticket.",
+  "observedAt": "2026-07-09T05:00:46.258Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "notificationOnly": {
+      "matchesProjectsMessagesFormat": true,
+      "projectSegmentMatchesProject": true,
+      "messageIdIsNumericString": true
+    },
+    "dataOnly": {
+      "matchesProjectsMessagesFormat": true,
+      "projectSegmentMatchesProject": true,
+      "messageIdIsNumericString": true
+    },
+    "bothAccepted": true
+  }
+}
