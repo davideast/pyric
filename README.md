@@ -1,6 +1,12 @@
-# Pyric
+<p align="center">
+  <img src="docs/pyric-logo.png" alt="Pyric" width="180" />
+</p>
 
-Firebase that runs in the browser.
+<h1 align="center">Firebase that runs in your browser</h1>
+
+<p align="center">Agentic coding without production consequences</p>
+
+<br />
 
 Pyric is Firestore, Auth, Realtime Database, Storage, *Messaging soon*, and the Security Rules engine, implemented in TypeScript and running inside the application process. In the browser, that process is the page itself: the whole backend executes in the tab. In Node, it is the Node process, so tests and scripts get the same backend with no browser involved.
 
