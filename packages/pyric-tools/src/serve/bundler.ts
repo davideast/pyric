@@ -104,6 +104,26 @@ export function resolvePlaygroundUiDir(): string | null {
   return null;
 }
 
+/**
+ * Resolve the built docs site dir (site-docs). `pyric dev --ui` embeds it so
+ * the Studio Docs tab has local docs without the hosted site. Built with base
+ * `/__pyric/ui/` (see scripts/build.sh) so every page/asset/twin URL resolves
+ * under the CLI mount: pages at `/__pyric/ui/docs/<slug>/`, assets at
+ * `/__pyric/ui/_astro/*`, the search index at `/__pyric/ui/docs/index.json`,
+ * and the shell chrome's tab links back at `/__pyric/ui/<tab>`. The dir holds
+ * the site-docs `dist/` verbatim: `docs/`, `_astro/`, `index.html`, `llms.txt`.
+ */
+export function resolveDocsUiDir(): string | null {
+  const candidates = [
+    new URL('./docs-ui/', import.meta.url),
+  ];
+  for (const candidate of candidates) {
+    const dir = fileURLToPath(candidate);
+    if (existsSync(dir)) return dir;
+  }
+  return null;
+}
+
 // ─── pyric dist discovery ─────────────────────────────────────────────
 
 /** Locate the installed pyric package root (works in the workspace and when

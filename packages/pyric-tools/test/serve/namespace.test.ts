@@ -184,6 +184,67 @@ describe('namespace over the real server', () => {
     expect((await fetch(h.url + '/__pyric/playground/_astro/app.js')).status).toBe(200);
   });
 
+it('serves the embedded docs site (dir index, .md twin, index.json, assets) and 404s misses — never Studio shell', async () => {
+    const { site, sdk } = fixture();
+    // Mirror the site-docs `dist/` built with base /__pyric/ui/: pages under
+    // `docs/`, shared assets at `_astro/` (base root, NOT under docs/).
+    const studioRoot = join(site, 'apps', 'studio');
+    const docsRoot = join(site, 'apps', 'docs');
+    mkdirSync(join(studioRoot, 'assets'), { recursive: true });
+    writeFileSync(join(studioRoot, 'index.html'), '<!doctype html>STUDIO-SHELL');
+    mkdirSync(join(docsRoot, 'docs', 'pyric-tools'), { recursive: true });
+    mkdirSync(join(docsRoot, '_astro'), { recursive: true });
+    writeFileSync(join(docsRoot, 'docs', 'pyric-tools', 'index.html'), '<!doctype html>DOC PAGE');
+    writeFileSync(join(docsRoot, 'docs', 'pyric-tools.md'), '# raw markdown twin');
+    writeFileSync(join(docsRoot, 'docs', 'index.json'), '{"shape":"x","pages":[]}');
+    writeFileSync(join(docsRoot, '_astro', 'doc.css'), 'body{}');
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      studioUiDir: studioRoot,
+      docsUiDir: docsRoot,
+    });
+    const h = await startStaticServer({
+      publicDir: site,
+      port: 0,
+      host: '127.0.0.1',
+      portScanLimit: 200,
+      logger: silentServeLogger(),
+      namespaceHandler: ns,
+    });
+    handles.push(h);
+
+    // Directory-format page: trailing slash resolves to <slug>/index.html.
+    const page = await fetch(h.url + '/__pyric/ui/docs/pyric-tools/');
+    expect(page.status).toBe(200);
+    expect(page.headers.get('content-type')).toContain('text/html');
+    expect(await page.text()).toContain('DOC PAGE');
+
+    // Extensionless directory without slash → 301 to the trailing-slash form.
+    const noSlash = await fetch(h.url + '/__pyric/ui/docs/pyric-tools', { redirect: 'manual' });
+    expect(noSlash.status).toBe(301);
+    expect(noSlash.headers.get('location')).toBe('/__pyric/ui/docs/pyric-tools/');
+
+    // The .md agent twin (flat) serves 200.
+    const twin = await fetch(h.url + '/__pyric/ui/docs/pyric-tools.md');
+    expect(twin.status).toBe(200);
+    expect(await twin.text()).toContain('raw markdown twin');
+
+    // index.json — the Studio Docs-tab probe requires application/json.
+    const idx = await fetch(h.url + '/__pyric/ui/docs/index.json');
+    expect(idx.status).toBe(200);
+    expect(idx.headers.get('content-type')).toContain('application/json');
+
+    // Shared assets live at /__pyric/ui/_astro/ (base root), served from docs.
+    expect((await fetch(h.url + '/__pyric/ui/_astro/doc.css')).status).toBe(200);
+
+    // A genuinely missing docs page 404s — it must NOT fall through to Studio's
+    // index.html (no SPA fallback inside the docs mount).
+    const miss = await fetch(h.url + '/__pyric/ui/docs/does-not-exist');
+    expect(miss.status).toBe(404);
+    expect(await miss.text()).not.toContain('STUDIO-SHELL');
+  });
+
   it('GET /__pyric/capture returns the fixture (200) or 404 when absent; POST writes it', async () => {
     const { site, sdk } = fixture();
     let stored: string | null = null;

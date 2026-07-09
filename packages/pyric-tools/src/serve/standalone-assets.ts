@@ -34,6 +34,10 @@ export interface EmbeddedAssets {
   /** Lazy: Playground UI relpath (posix) -> base64 bytes. Optional for older
    *  compiled binaries; missing means `/__pyric/playground/` is unavailable. */
   playground?: () => Promise<Record<string, string>>;
+  /** Lazy: docs site relpath (posix) -> base64 bytes (the site-docs `dist/`
+   *  tree: `docs/*`, `_astro/*`, `index.html`, `llms.txt`). Optional for older
+   *  compiled binaries; missing means the Studio Docs tab 404s in standalone. */
+  docs?: () => Promise<Record<string, string>>;
   /** Lazy: packed npm tarballs of the unpublished workspace packages
    *  (`pyric.tgz`, `pyric-tools.tgz`) -> base64. Used by `pyric init` to vendor
    *  them into a scaffolded project so `bun install` resolves them offline
@@ -163,5 +167,18 @@ export async function materializePlaygroundUi(): Promise<string | null> {
   const dir = join(tmpdir(), `pyric-serve-${e.version}`, 'playground-ui');
   materialize(dir, await e.playground(), e.version);
   playgroundDirOnce = dir;
+  return dir;
+}
+
+let docsDirOnce: string | null = null;
+
+/** Materialize the embedded docs site tree to a temp dir for `dev --ui`. */
+export async function materializeDocsUi(): Promise<string | null> {
+  if (docsDirOnce) return docsDirOnce;
+  const e = embedded();
+  if (!e.docs) return null;
+  const dir = join(tmpdir(), `pyric-serve-${e.version}`, 'docs-ui');
+  materialize(dir, await e.docs(), e.version);
+  docsDirOnce = dir;
   return dir;
 }

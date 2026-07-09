@@ -164,6 +164,7 @@ const CONTENT_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
   '.wasm': 'application/wasm',
   '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
   '.woff2': 'font/woff2',
   '.woff': 'font/woff',
 };

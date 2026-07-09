@@ -14,9 +14,10 @@ import { dirname, join, resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, resolvePlaygroundUiDir, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
+import { bundleSdk, bundleWorker, defaultSdkEntries, resolveDocsUiDir, resolvePlaygroundUiDir, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
 import {
   isStandalone,
+  materializeDocsUi,
   materializePlaygroundUi,
   materializeServeAssets,
   materializeStudioUi,
@@ -363,10 +364,12 @@ export async function startServe(opts: {
   // warning rather than a crash; the data routes still mount.
   let studioUiDir: string | undefined;
   let playgroundUiDir: string | undefined;
+  let docsUiDir: string | undefined;
   if (opts.ui) {
     // Standalone: the Studio app was embedded at compile time; materialize it.
     const dir = isStandalone() ? await materializeStudioUi() : resolveStudioUiDir();
     const playgroundDir = isStandalone() ? await materializePlaygroundUi() : resolvePlaygroundUiDir();
+    const docsDir = isStandalone() ? await materializeDocsUi() : resolveDocsUiDir();
     if (dir) {
       studioUiDir = dir;
     } else {
@@ -383,6 +386,14 @@ export async function startServe(opts: {
           'The Studio data routes are mounted, but /__pyric/playground/ will 404.',
       );
     }
+    if (docsDir) {
+      docsUiDir = docsDir;
+    } else {
+      logger.note(
+        '  ⚠ --ui: built docs site not found (run the full build first). ' +
+          'Studio is mounted, but /__pyric/ui/docs/ will 404.',
+      );
+    }
   }
   const sdkNamespace = createPyricNamespace({
     sdkDir: bundle.outDir,
@@ -393,6 +404,7 @@ export async function startServe(opts: {
     studio,
     studioUiDir,
     playgroundUiDir,
+    docsUiDir,
   });
   const handle = await startStaticServer({
     publicDir,
@@ -414,6 +426,7 @@ export async function startServe(opts: {
   // whichever loopback family the page resolved (localhost binds both now).
   if (mount) for (const s of handle.servers) mount.attachUpgrade(s);
   const uiUrl = studioUiDir ? `${handle.url}/__pyric/ui/` : null;
+  const docsUrl = docsUiDir ? `${handle.url}/__pyric/ui/docs/` : null;
 
   // Discovery pointer (the Claude Code plugin's stdio proxy reads this so it
   // never has to guess the dynamic port). Written next to the project state
@@ -473,6 +486,9 @@ export async function startServe(opts: {
   );
   if (uiUrl) {
     logger.info(`✔ studio   Pyric Studio: ${uiUrl}`);
+  }
+  if (docsUrl) {
+    logger.info(`✔ docs     Pyric docs: ${docsUrl}`);
   }
   if (mount) {
     logger.info(`✔ bridge   MCP endpoint: ${mount.mcpUrl(origin)} (sandbox peers over ws at /__pyric/sandbox)`);
