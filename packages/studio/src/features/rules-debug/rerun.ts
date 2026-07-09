@@ -2,7 +2,8 @@
  * Rules-failure debugging: the two re-run paths (Pyric Studio F4).
  *
  * A denied op is only half the story; the point of F4 is to let you *re-run* it
- * and watch the decision flip. Two paths:
+ * and watch the decision flip. Two paths (Firestore only today — see `SPEC.md`
+ * for RTDB/Storage's `pending`/`absent` gating):
  *
  *   1. RE-RUN AS THE ATTEMPTING USER ("impersonate"): issue the same op under
  *      the impersonation lens (`{ mode: 'as', uid }`) so security rules evaluate
@@ -10,8 +11,9 @@
  *      the live worker via the client's `setLens` seam (the impersonation lens
  *      already merged: T2). See {@link rerunAsUser}.
  *
- *   2. RE-RUN AGAINST AN EDITED RULESET ("what if"): `fork(snapshot, editedRules)`
- *      gives an isolated sandbox seeded with the SAME data but the EDITED rules;
+ *   2. RE-RUN AGAINST AN EDITED RULESET ("what if"): lint the candidate ruleset
+ *      first (`firestore_lint_rules`), then `fork(snapshot, editedRules)` gives
+ *      an isolated sandbox seeded with the SAME data but the EDITED rules;
  *      re-issue the op there (as the attempting user) and report the result plus
  *      a structural `diff` of what the (now-allowed) write changed vs live. This
  *      is fully self-contained (no worker, no live mutation), so it's pure and
@@ -40,6 +42,7 @@ import {
   getDoc,
   SandboxError,
 } from 'pyric/firestore';
+import { lintFirestoreRules, type LintWarning } from 'pyric/rules';
 import type { Denial } from './model.js';
 
 /** Outcome of a single re-run: did the rule allow it this time, or deny again? */
@@ -48,22 +51,77 @@ export type RerunResult =
   | { outcome: 'deny'; code: string; message: string; reasons?: string[] }
   | { outcome: 'error'; code: string; message: string };
 
+/** One lint finding, flattened for display (drops AST-position internals). */
+export interface RulesetLintFinding {
+  rule: string;
+  severity: LintWarning['severity'];
+  message: string;
+  fix?: string;
+}
+
+/**
+ * The result of linting a candidate ruleset before an edited-ruleset re-run,
+ * grounded in `firestore_lint_rules` (`lintFirestoreRules`).
+ *
+ * `parseError` is the ONLY hard blocker: an unparseable ruleset cannot be
+ * forked/simulated, so the re-run short-circuits and reports it. `findings`
+ * (including security-level `severity:'error'` lints such as
+ * `RECURSIVE_WILDCARD_OPEN`) are SURFACED but do NOT block — the whole point of
+ * the edited-ruleset re-run is to try loose candidate rules and watch the
+ * decision flip, so we run and let the user see both the flip and the lint.
+ */
+export interface RulesetLint {
+  /** True when the ruleset parses (the re-run may proceed). */
+  parseable: boolean;
+  /** Human-readable parse failure, when `parseable` is false. */
+  parseError?: string;
+  /** All lint findings (both `warning` and `error` severities). */
+  findings: RulesetLintFinding[];
+}
+
+/**
+ * Lint a candidate ruleset the way `firestore_lint_rules` does. Pure — safe to
+ * call from the UI to annotate the editor live, and called by
+ * {@link rerunAgainstRules} before it forks.
+ */
+export function lintEditedRuleset(rules: string): RulesetLint {
+  const result = lintFirestoreRules(rules);
+  const findings: RulesetLintFinding[] = result.warnings.map((w) => ({
+    rule: w.rule,
+    severity: w.severity,
+    message: w.message,
+    ...(w.fix ? { fix: w.fix } : {}),
+  }));
+  if (result.parseError) {
+    return {
+      parseable: false,
+      parseError: result.parseError.message,
+      findings,
+    };
+  }
+  return { parseable: true, findings };
+}
+
 /** A re-run against an edited ruleset, with the structural delta it produced. */
 export interface EditedRulesetRerun {
   result: RerunResult;
   /** Doc-level + field-level differences the re-issued op produced vs `live`.
    *  Empty when the op denied again (nothing changed) or was a read. */
   diff: Divergence[];
+  /** Lint findings for the candidate ruleset (surfaced, not blocking unless the
+   *  ruleset failed to parse). Always present so the UI can render the lint pass. */
+  lint: RulesetLint;
 }
 
 /**
  * Re-issue a denied op against an EDITED ruleset, in an isolated branch.
  *
- * Forks a sandbox from `snapshot` seeded with `editedRules`, re-issues the
- * denial's op AS the user who attempted it (so `request.auth.uid` matches what
- * the original eval saw), and returns whether the edited rules now allow it,
- * plus a `diff` of the branch vs `live` (what the op changed). The branch is
- * always discarded: this is a read-only "what if", never a live mutation.
+ * Lints the candidate ruleset first (`firestore_lint_rules`), forks a sandbox
+ * from `snapshot` seeded with `editedRules`, re-issues the denial's op AS the
+ * user who attempted it (so `request.auth.uid` matches what the original eval
+ * saw), and returns whether the edited rules now allow it, plus a `diff` of the
+ * branch vs `live` (what the op changed). The branch is always discarded: this
+ * is a read-only "what if", never a live mutation.
  *
  * Pure + synchronous-in-spirit (the firestore ops are async but operate entirely
  * on the in-memory fork). Safe to call from a test with no browser.
@@ -79,13 +137,30 @@ export async function rerunAgainstRules(
   editedRules: string,
   live: Sandbox | SandboxSnapshot,
 ): Promise<EditedRulesetRerun> {
+  // Lint first (firestore_lint_rules). A parse failure is the only hard blocker
+  // — an unparseable ruleset can't be forked/simulated — so short-circuit and
+  // report it rather than throwing an opaque fork error. Non-parse findings
+  // (including security-level lints) are surfaced but do not block the run.
+  const lint = lintEditedRuleset(editedRules);
+  if (!lint.parseable) {
+    return {
+      result: {
+        outcome: 'error',
+        code: 'lint-parse-error',
+        message: lint.parseError ?? 'The edited ruleset did not parse.',
+      },
+      diff: [],
+      lint,
+    };
+  }
+
   const branch = fork(snapshot, editedRules);
   try {
     const result = await issueOp(branch.sandbox, denial);
     // Only a mutation that actually landed can diverge; a denied/read op leaves
     // the branch identical to its base, so `diff` is naturally empty there.
     const divergences = result.outcome === 'allow' ? diff(branch, live) : [];
-    return { result, diff: divergences };
+    return { result, diff: divergences, lint };
   } finally {
     discard(branch);
   }
