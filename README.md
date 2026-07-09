@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/pyric-logo.png" alt="Pyric" width="180" />
+  <img src="https://raw.githubusercontent.com/davideast/pyric/main/docs/pyric-logo.png" alt="Pyric" width="180" />
 </p>
 
 <h1 align="center">Firebase that runs in your browser</h1>
