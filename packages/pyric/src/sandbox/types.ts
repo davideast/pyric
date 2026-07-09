@@ -1005,6 +1005,33 @@ export interface Sandbox {
   onEvent(cb: (event: SandboxEvent) => void): () => void;
 
   /**
+   * Run `fn` with ambient {@link EventProvenance} defaults: every event
+   * emitted SYNCHRONOUSLY during `fn` that doesn't already carry a
+   * provenance field (on the event itself or via an explicit per-emit
+   * override) is stamped with these values instead of the global
+   * defaults. This is the mechanical "who issued this op" seam the
+   * serve worker uses to tag Studio-issued ops (`actor: { kind:
+   * 'studio' }`) and to stamp the auth lens an op ran under
+   * (`authLens`) — declared by the caller that issues the op, never
+   * inferred from the op's shape.
+   *
+   * SYNCHRONOUS WINDOW: the ambient values apply only until `fn`
+   * returns (for an async `fn`, its synchronous prefix — which covers
+   * the local environment's rules eval + event emission, since those
+   * run before the op's promise is handed back). Work an op DEFERS
+   * (snapshot-listener deliveries and re-evals drain on a microtask,
+   * off-stack) is intentionally OUTSIDE the window: a listener re-eval
+   * belongs to the listener's owner, not to whoever's write triggered
+   * it. Nested calls stack — the innermost window wins per field, and
+   * each window restores the previous one on exit (including on throw).
+   *
+   * OPTIONAL because remote sandbox proxies can't provide an ambient
+   * emit window (events are emitted in the worker they front). Callers
+   * spell `sandbox.runWithProvenance?.(prov, fn) ?? fn()`.
+   */
+  runWithProvenance?<T>(provenance: EventProvenance, fn: () => T): T;
+
+  /**
    * Every {@link SandboxEvent} this sandbox has emitted since init or
    * the last `reset()`. Returns a defensive copy.
    *

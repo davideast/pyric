@@ -317,13 +317,54 @@ export function getLens(): AuthLens | undefined {
   return _defaultLens;
 }
 
-/** Send an op and return a promise for its result. */
-function rpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
+/**
+ * Module-level op-source declaration (Pyric Studio traffic attribution).
+ * When set, every op/sub message THIS CLIENT MODULE CONSTRUCTS is stamped
+ * `source: 'studio'` on the wire; the host maps that onto the unified
+ * event stream's `actor` field so Traffic can filter Studio's own
+ * viewer/editor ops out of the app's stream.
+ *
+ * Studio's live plane sets this once at connect (`connectWorkerLive`);
+ * the served APP page never calls it (its module instance stays
+ * untagged), and RELAYED frames bypass stamping entirely — the bridge
+ * relay ({@link relayWorkerOp} / {@link relayWorkerSub}) forwards remote
+ * frames verbatim through {@link rawRpc} / a direct postMessage, so a
+ * user's own admin-SDK traffic through the remote bridge is never
+ * mislabeled as Studio's even though it rides the same port.
+ */
+let _opSource: 'studio' | undefined;
+
+/** Declare who issues the ops this client module constructs. See {@link _opSource}. */
+export function setOpSource(source: 'studio' | undefined): void {
+  _opSource = source;
+}
+
+/** Stamp the declared op source onto a client-constructed message. Ops and
+ *  subscriptions only — control frames (`tool`, `unsub`) never carry it
+ *  (agent tool-calls dispatched through this port must not inherit
+ *  Studio's source; their inner ops are attributed by the host). */
+function stampSource<T extends { t?: string }>(msg: T): T {
+  return _opSource && (msg.t === 'op' || msg.t === 'sub')
+    ? { ...msg, source: _opSource }
+    : msg;
+}
+
+/**
+ * Send an already-final message and return a promise for its result — no
+ * stamping. The RELAY path ({@link relayWorkerOp}) sends through this so
+ * remote frames pass verbatim.
+ */
+function rawRpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
   return new Promise<unknown>((resolve, reject) => {
     const opMsg = msg as { id: string };
     _pending.set(opMsg.id, { resolve, reject: reject as (e: Error & { code: string }) => void });
     port.postMessage(msg);
   });
+}
+
+/** Send a CLIENT-CONSTRUCTED message: stamps the declared op source, then sends. */
+function rpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
+  return rawRpc(port, stampSource(msg));
 }
 
 /**
@@ -462,7 +503,10 @@ export async function callTool(
  * the worker's `res.value`, rejects with an Error carrying `.code`.
  */
 export function relayWorkerOp(db: ClientDb, op: WorkerOpPayload): Promise<unknown> {
-  return rpc(db.port, { ...op, t: 'op', id: nextId() } as InboundMessage);
+  // rawRpc, NOT rpc: relayed frames must pass verbatim — the declared op
+  // source (`setOpSource`) covers only ops THIS client constructs, so
+  // bridge-relayed admin/agent traffic is never mislabeled as Studio's.
+  return rawRpc(db.port, { ...op, t: 'op', id: nextId() } as InboundMessage);
 }
 
 /**
@@ -972,11 +1016,15 @@ export function onSnapshot(
   // Stamp the active default lens onto the sub (Pyric Studio "watch as user")
   // exactly as `dataRpc` does for ops, so a `setLens({mode:'as',uid})` choice
   // makes listeners impersonate too. Omitted when no lens is set → byte-identical
-  // wire message, preserving the additive contract.
+  // wire message, preserving the additive contract. The declared op source
+  // rides along the same way (client-constructed subs only — the relay's
+  // subs post verbatim).
   port.postMessage(
-    (_defaultLens
-      ? { t: 'sub', subId, target: descriptor, actAs: _defaultLens }
-      : { t: 'sub', subId, target: descriptor }) satisfies InboundMessage,
+    stampSource(
+      (_defaultLens
+        ? { t: 'sub', subId, target: descriptor, actAs: _defaultLens }
+        : { t: 'sub', subId, target: descriptor }) satisfies InboundMessage,
+    ),
   );
 
   return () => {
@@ -1437,12 +1485,14 @@ export function adminSubscribeRtdbValue(
     next: (wire) => next((wire as { value?: unknown } | null)?.value ?? null),
     error,
   });
-  db.port.postMessage({
-    t: 'sub',
-    subId,
-    target: { service: 'rtdb', path: normalizeRtdbPath(path) },
-    actAs: { mode: 'admin' },
-  } satisfies InboundMessage);
+  db.port.postMessage(
+    stampSource({
+      t: 'sub',
+      subId,
+      target: { service: 'rtdb', path: normalizeRtdbPath(path) },
+      actAs: { mode: 'admin' },
+    } satisfies InboundMessage),
+  );
   return () => {
     _snapSubs.delete(subId);
     db.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
@@ -1486,7 +1536,7 @@ export function rtdbOnValue(
   const msg: InboundMessage = _defaultLens
     ? { t: 'sub', subId, target: { service: 'rtdb', path: r.path }, actAs: _defaultLens }
     : { t: 'sub', subId, target: { service: 'rtdb', path: r.path } };
-  r.port.postMessage(msg);
+  r.port.postMessage(stampSource(msg));
   return () => {
     _snapSubs.delete(subId);
     r.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
