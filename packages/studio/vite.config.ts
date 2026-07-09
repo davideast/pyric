@@ -11,6 +11,15 @@ import { NODE_BUILTIN_RE, NODE_BUILTIN_SHIMS } from 'pyric-tools/vite';
  * `base` is configurable so the packaged build (embedded in pyric-tools and
  * served under `/__pyric/ui/`) can set `STUDIO_BASE=/__pyric/ui/`. The default
  * `/` keeps the dev server and the in-repo review build rooted at `/`.
+ *
+ * `STUDIO_STATIC=1` (the composed static-site build, `scripts/build-site.sh`)
+ * bakes `import.meta.env.STUDIO_STATIC = true` into the bundle via `define` —
+ * `env.ts` reads it to skip the HTTP project/persistence clients (no pyric
+ * devr exists under static hosting). `define` performs a literal text
+ * substitution, so this only affects `import.meta.env.STUDIO_STATIC`
+ * expressions bundled into THIS app; the `dist/env.js` library export (built
+ * by plain `tsc`, consumed under Node/Bun) is untouched and reads `undefined`
+ * there — see `env.ts`'s `typeof import.meta.env !== 'undefined'` guard.
  */
 
 /**
@@ -39,6 +48,9 @@ function nodeBuiltinShims(): Plugin {
 export default defineConfig({
   base: process.env.STUDIO_BASE ?? '/',
   plugins: [nodeBuiltinShims(), react(), tailwindcss()],
+  define: {
+    'import.meta.env.STUDIO_STATIC': JSON.stringify(process.env.STUDIO_STATIC === '1'),
+  },
   build: {
     outDir: 'dist/app',
     emptyOutDir: true,
