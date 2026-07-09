@@ -1,0 +1,30 @@
+{
+  "name": "messaging-web-onbackgroundmessage",
+  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
+  "rowIds": [],
+  "description": "The same message shape sent while the page is HIDDEN (another tab focused) is delivered to the service worker onBackgroundMessage handler instead. Payload structural facts.",
+  "observedAt": "2026-07-09T03:41:12.376Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "deliveredTo": "onBackgroundMessage",
+    "topLevelKeys": [
+      "data",
+      "from",
+      "messageId",
+      "notification"
+    ],
+    "notificationKeys": [
+      "body",
+      "title"
+    ],
+    "notificationTitleDelivered": true,
+    "dataKeys": [
+      "source",
+      "tag"
+    ],
+    "dataEchoedExactly": true,
+    "fromEqualsSenderId": true,
+    "messageIdPresent": true
+  }
+}
