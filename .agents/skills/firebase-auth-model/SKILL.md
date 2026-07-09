@@ -1,68 +1,91 @@
 ---
 name: firebase-auth-model
-description: Design or audit Firebase Authentication flows, user identity models, provider/linking behavior, auth state, custom claims, seeded users, and how authenticated identities connect to Firebase Security Rules.
+description: Design or audit Firebase Authentication identity models — provider flows, auth state, custom claims, UID-to-data mapping, and how identities connect to Security Rules. Use when the user needs an auth model, asks who-can-do-what across identities, or wants claims/roles designed or reviewed.
 ---
 
 # Firebase Auth Model
 
-Use this skill when the user needs an authentication and identity model, not just SDK call names. The output should connect sign-in flows, users, claims, profile data, and security-rule behavior.
+Authentication answers who the user is; Security Rules answer what that
+identity may do. Deliver a model that connects sign-in flows, users, claims,
+profile data, and rule behavior — not just SDK call names.
 
-## Operating Posture
+## Steps
 
-- Treat authentication as identity: who the user is.
-- Treat authorization as rules: what that identity can do.
-- Prefer Pyric for local Firebase-compatible verification.
-- Separate trusted admin/server actions from client user actions.
-- Keep production operations explicit; do not imply that local evidence proves production safety.
+1. **Map identities.** Name anonymous users, signed-in users, owners, members,
+   admins/claim-holders, disabled users, deleted users, linked-provider users,
+   and any service/admin actors. Complete when every access boundary has a
+   named identity.
 
-## Core Loop
+2. **Choose provider flows.** Check what is enabled with `auth_get_config`;
+   enable or adjust providers with `auth_configure_provider` and authorized
+   domains with `auth_manage_domains`. Complete when every provider in the
+   model has a creation, sign-in, and error path.
 
-1. **Map identities.**
-   Identify anonymous users, signed-in users, owners, members, admins, disabled users, deleted users, linked-provider users, and any service/admin actors. Completion criterion: every access boundary has a named identity.
+3. **Design auth state.** Auth-state observation is the source of truth;
+   synchronous current-user access is a nullable convenience (null while auth
+   initializes and after sign-out). Complete when the model covers signed-out,
+   pending, signed-in, sign-out, and stale-session states.
 
-2. **Choose provider flows.**
-   Decide which providers are needed: email/password, anonymous, OAuth popup/redirect, email link, custom auth, or platform providers. Completion criterion: every provider has a creation/sign-in/error path.
+4. **Connect UID to data.** `uid` is the stable bridge from Authentication to
+   Firestore, RTDB, and Storage. Decide where profile docs live, which
+   document IDs use `uid`, which profile fields are public vs private, and
+   which display fields are duplicated. Complete when every rule that reads
+   `request.auth.uid` or a claim has a matching data shape.
 
-3. **Design auth state.**
-   Use auth-state observation as the source of truth. Treat synchronous current-user access as nullable convenience. Completion criterion: the model explains signed-out, pending, signed-in, sign-out, and stale-session states.
+5. **Plan claims and roles.** Custom claims carry coarse global roles;
+   document data carries membership, ownership, and resource-specific roles.
+   Rules read claims through `request.auth.token.<name>`. Complete when
+   claims and document roles neither duplicate nor contradict each other.
 
-4. **Connect UID to data.**
-   Decide where profile docs live, which document IDs use `uid`, what profile fields are public/private, and which data duplicates identity fields. Completion criterion: every rule that uses `request.auth.uid` or claims has matching data shape.
+6. **Plan fixtures.** Define test users — UIDs, providers, claims, disabled
+   state — and the profile/membership docs each rule branch needs. Seed the
+   documents with `firestore_add_document` / `firestore_batch_write` (or
+   `rtdb_set`). Complete when each rule branch has a matching identity
+   fixture.
 
-5. **Plan claims and roles.**
-   Use custom claims for coarse global roles only. Use document data for membership, ownership, and resource-specific roles. Completion criterion: claims and document roles do not duplicate or contradict each other.
+7. **Verify auth-dependent rules.** Exercise signed-out, owner, other-user,
+   member, claim-holder, invalid-claim, missing-profile, and disabled cases
+   with `firestore_simulate_rules` (set the auth context per case) and a
+   `firestore_test_rules` suite — `pyric_derive_rules_test_cases` generates
+   the case list; use `rtdb_simulate_access` for RTDB paths. Complete when
+   the answer names verified behavior and remaining unverified assumptions.
 
-6. **Plan seed users and fixtures.**
-   Define local test users with UIDs, provider info, disabled state, and claims. Completion criterion: each rule branch has a matching identity fixture.
+## Reference — auth design rules
 
-7. **Verify auth-dependent rules.**
-   Test signed-out, owner, other user, member, admin/custom-claim, disabled/deleted, and missing-profile cases. Completion criterion: the final answer names verified behavior and remaining unverified assumptions.
+- Account creation and sign-in are different flows; handle creation errors
+  where they occur.
+- OAuth redirect flows need redirect-result handling; ongoing state still
+  comes from auth-state observation.
+- Account linking resolves multiple providers into one user; design collision
+  and recovery paths.
+- Users must never grant themselves roles or claims through writable profile
+  fields — rules must protect profile create/update shape.
+- Client SDK actions are scoped to the current user; Admin/server SDK actions
+  manage all users and bypass Security Rules. Keep admin credentials pointed
+  at a sandbox unless production is explicitly intended.
 
-## Auth Design Rules
+## Rule connections
 
-- `uid` is the stable bridge from Authentication to Firestore, RTDB, and Storage data.
-- Account creation and sign-in are different flows; creation errors must be handled immediately.
-- OAuth redirect flows need redirect-result handling, but ongoing auth state still comes from auth-state observation.
-- `currentUser` can be null while auth initializes or after sign-out.
-- Account linking resolves provider choice into one Firebase user; design collision and recovery paths.
-- Client SDK actions are scoped to the current user. Admin/server SDK actions manage all users and bypass Security Rules.
-- Service accounts and admin credentials affect production unless explicitly pointed at a local sandbox or controlled test environment.
+- `request.auth == null` — signed-out behavior.
+- `request.auth.uid` — owner and path-identity checks.
+- `request.auth.token.<name>` — custom claims; keep resource-specific or
+  fast-changing membership out of claims.
 
-## Security Rules Connections
+## Scope honesty
 
-- Use `request.auth == null` for signed-out behavior.
-- Use `request.auth.uid` for owner/path identity checks.
-- Use `request.auth.token.<name>` for custom claims.
-- Do not put resource membership into custom claims when it changes often or is resource-specific.
-- Rules must protect profile creation/update shape; users should not grant themselves roles or claims through writable document fields.
+The pyric tool surface simulates identities as rule-evaluation auth contexts;
+it does not yet create or list actual Auth user records (that exists only in
+the Pyric Playground sandbox today). When a finding depends on real user
+records — disabled flags, provider linkage — verify with the Admin SDK or
+console and say which evidence was used.
 
-## Output Shape
+## Output shape
 
-Return:
-
-1. Identity model: actors, providers, account states, claims, and disabled/deleted behavior.
-2. Data mapping: UID-based paths, profile docs, public/private fields, duplicated identity fields.
-3. Access matrix: identity x operation x resource.
-4. Fixture plan: local users, claims, provider states, and profile docs.
-5. Verification plan/results.
-6. Risks, assumptions, and next steps.
+1. Identity model: actors, providers, account states, claims, disabled/deleted
+   behavior.
+2. Data mapping: UID-based paths, profile docs, public/private fields,
+   duplicated identity fields.
+3. Access matrix: identity × operation × resource.
+4. Fixture plan: users, claims, provider states, profile docs.
+5. Verification results.
+6. Risks, assumptions, next steps.

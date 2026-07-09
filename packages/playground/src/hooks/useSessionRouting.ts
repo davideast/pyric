@@ -83,6 +83,10 @@ export interface SessionRoutingState {
   takeOver: () => Promise<void>;
   /** GitHub repo linked at session creation (home page). */
   githubRepo: SessionMeta['githubRepo'] | null;
+  /** `SessionMeta.title` — short label derived from the opening
+   *  prompt (or 'Untitled session'). Null until hydration completes;
+   *  the breadcrumb rail falls back to a short id form until then. */
+  title: string | null;
   sandboxMode: PlaygroundSandboxMode;
   setSandboxMode: (mode: PlaygroundSandboxMode) => Promise<void>;
 }
@@ -93,6 +97,7 @@ export function useSessionRouting(): SessionRoutingState {
   const [error, setError] = useState<string | null>(null);
   const [isWriter, setIsWriter] = useState(true);
   const [githubRepo, setGithubRepo] = useState<SessionMeta['githubRepo'] | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
   const [sandboxMode, setSandboxModeState] = useState<PlaygroundSandboxMode>(() =>
     typeof window === 'undefined' ? 'isolated' : readPlaygroundSandboxMode(window.location.search),
   );
@@ -159,6 +164,7 @@ export function useSessionRouting(): SessionRoutingState {
     setSessionId(id);
     if (hydratedSessionRef.current && hydratedSessionRef.current !== id) {
       applyGithubRepo(null);
+      setTitle(null);
     }
 
     let cancelled = false;
@@ -201,6 +207,7 @@ export function useSessionRouting(): SessionRoutingState {
         if (cancelled) return;
         applyGithubRepo(meta.githubRepo ?? null);
         applySandboxMode(meta.sandboxMode ?? fallbackMode);
+        setTitle(meta.title ?? null);
         hydratedSessionRef.current = id;
         applyPayload(payload);
         hydratingRef.current = false;
@@ -259,6 +266,7 @@ export function useSessionRouting(): SessionRoutingState {
       hydratingRef.current = true;
       applyGithubRepo(meta.githubRepo ?? null);
       applySandboxMode(meta.sandboxMode ?? sandboxModeRef.current);
+      setTitle(meta.title ?? null);
       applyPayload(payload);
     } catch (e) {
       console.warn('[playground] take-over re-sync failed:', e);
@@ -397,6 +405,7 @@ export function useSessionRouting(): SessionRoutingState {
     isWriter,
     takeOver,
     githubRepo,
+    title,
     sandboxMode,
     setSandboxMode,
   };

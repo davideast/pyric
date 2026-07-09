@@ -23,6 +23,17 @@ import { RtdbSurface } from './features/rtdb/RtdbSurface.js';
 import { PlaygroundSurface } from './features/playground/PlaygroundSurface.js';
 import { SettingsSurface } from './features/settings/SettingsSurface.js';
 
+/**
+ * The docs site is static pages composed alongside Studio under the same
+ * base (`<base>/docs`), not a Studio surface — so its "tab" is a plain
+ * full-page link. The docs pages render the same shell bar with the tab
+ * set linking back here, so navigation round-trips.
+ */
+function docsHref(): string {
+  const base = (import.meta.env?.BASE_URL as string | undefined) ?? '/';
+  return `${base.endsWith('/') ? base : `${base}/`}docs`;
+}
+
 /** The labelled empty placeholder a route shows until its surface lands. */
 function RoutePlaceholder({ id }: { id: string }) {
   const route = findRoute(id);
@@ -136,6 +147,13 @@ function Shell() {
                 {r.label}
               </button>
             ))}
+            {/* Docs is not a Studio surface: the static docs pages are
+                composed alongside Studio at <base>/docs/ and render the
+                same shell bar themselves, so a plain full-page link IS
+                the tab (their bar links back to these routes). */}
+            <a className="studio__nav-tab" href={docsHref()}>
+              Docs
+            </a>
           </nav>
           <StatusCluster />
         </div>

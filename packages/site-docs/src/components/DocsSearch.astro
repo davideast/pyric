@@ -1,0 +1,157 @@
+---
+/**
+ * Docs search: filters the already-generated /docs/index.json
+ * client-side (title + headings + excerpt) and renders a dropdown of
+ * page links. Vanilla JS, same idiom as the TOC IntersectionObserver
+ * script in DocsLayout.astro — no framework, no build-time index.
+ *
+ * Rendered inside DocsNav, so it appears once in the sticky sidebar and
+ * once in the mobile drawer duplicate. Both instances are wired by the
+ * single deduped page script below (Astro hoists/dedupes identical
+ * inline module scripts once per page).
+ */
+import { withBase } from '../lib/docs';
+---
+
+<div class="docs-search" data-index-url={withBase('/docs/index.json')}>
+  <div class="docs-search-field">
+    <svg
+      class="docs-search-icon"
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      aria-hidden="true"
+    >
+      <path
+        d="M11.5 11.5 15 15M13 7A6 6 0 1 1 1 7a6 6 0 0 1 12 0Z"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.4"
+        stroke-linecap="round"
+      />
+    </svg>
+    <input
+      type="text"
+      class="docs-search-input"
+      placeholder="Search docs"
+      aria-label="Search docs"
+      autocomplete="off"
+      spellcheck="false"
+    />
+    <kbd class="docs-search-kbd">⌘K</kbd>
+  </div>
+  <ul class="docs-search-results" hidden></ul>
+</div>
+
+<script>
+  interface Heading {
+    depth: number;
+    slug: string;
+    text: string;
+  }
+  interface Page {
+    slug: string;
+    path: string;
+    title: string;
+    group: string;
+    section: string;
+    headings: Heading[];
+    excerpt: string;
+  }
+  interface DocsIndex {
+    pages: Page[];
+  }
+
+  let indexPromise: Promise<DocsIndex> | null = null;
+  function loadIndex(url: string): Promise<DocsIndex> {
+    if (!indexPromise) indexPromise = fetch(url).then((r) => r.json());
+    return indexPromise;
+  }
+
+  function matches(page: Page, needle: string): boolean {
+    if (page.title.toLowerCase().includes(needle)) return true;
+    if (page.excerpt.toLowerCase().includes(needle)) return true;
+    return page.headings.some((h) => h.text.toLowerCase().includes(needle));
+  }
+
+  function renderResults(results: Page[], list: HTMLUListElement, hadQuery: boolean) {
+    list.innerHTML = '';
+    if (results.length === 0) {
+      list.hidden = !hadQuery;
+      if (hadQuery) {
+        const li = document.createElement('li');
+        li.className = 'docs-search-empty';
+        li.textContent = 'No matches';
+        list.appendChild(li);
+      }
+      return;
+    }
+    list.hidden = false;
+    for (const page of results.slice(0, 8)) {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = page.path;
+      const title = document.createElement('span');
+      title.className = 'docs-search-result-title';
+      title.textContent = page.title;
+      const meta = document.createElement('span');
+      meta.className = 'docs-search-result-meta';
+      meta.textContent = [page.group, page.section].filter(Boolean).join(' / ');
+      a.append(title, meta);
+      li.appendChild(a);
+      list.appendChild(li);
+    }
+  }
+
+  document.querySelectorAll<HTMLDivElement>('.docs-search').forEach((root) => {
+    const url = root.dataset.indexUrl!;
+    const input = root.querySelector<HTMLInputElement>('.docs-search-input')!;
+    const list = root.querySelector<HTMLUListElement>('.docs-search-results')!;
+
+    input.addEventListener('input', async () => {
+      const q = input.value.trim().toLowerCase();
+      if (!q) {
+        list.hidden = true;
+        list.innerHTML = '';
+        return;
+      }
+      const { pages } = await loadIndex(url);
+      // A slower keystroke could resolve after a newer, shorter one —
+      // drop stale responses.
+      if (input.value.trim().toLowerCase() !== q) return;
+      renderResults(pages.filter((p) => matches(p, q)), list, true);
+    });
+
+    input.addEventListener('focus', () => {
+      loadIndex(url);
+      if (list.childElementCount > 0) list.hidden = false;
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        input.value = '';
+        list.hidden = true;
+        list.innerHTML = '';
+        input.blur();
+      }
+    });
+
+    input.addEventListener('blur', () => {
+      // Deferred so a click on a result registers before the list hides.
+      window.setTimeout(() => {
+        list.hidden = true;
+      }, 150);
+    });
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k') return;
+    const visible = [
+      ...document.querySelectorAll<HTMLInputElement>('.docs-search-input'),
+    ].find((el) => el.offsetParent !== null);
+    if (!visible) return;
+    e.preventDefault();
+    visible.focus();
+    visible.select();
+  });
+</script>

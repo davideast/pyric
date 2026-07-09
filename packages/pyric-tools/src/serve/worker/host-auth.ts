@@ -18,7 +18,7 @@
  * imports).
  */
 
-import { type HostCtx, type PortLike, post, ok, fail } from './host-context.js';
+import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from './host-context.js';
 import {
   getAuth,
   sandbox as authSandboxOps,
@@ -133,6 +133,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           kind: 'createPassword', email: msg.email, password: msg.password,
         });
         setPortSession(ctx, port, session);
+        await bestEffortFlush(ctx); // new user record must be durable at ack
         ok(port, msg.id, credReply(session, null));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -162,6 +163,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         }
         const session = authSandboxOps.mintSession(auth, { kind: 'anonymous' });
         setPortSession(ctx, port, session);
+        await bestEffortFlush(ctx); // anonymous sign-in creates a user record
         ok(port, msg.id, credReply(session, null));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -243,6 +245,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const profile = { displayName: msg.displayName, photoURL: msg.photoURL };
         authSandboxOps.updateProfile(auth, session.user.uid, profile);
         applyProfileToUser(session.user, profile);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, serializeUser(session.user));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -271,6 +274,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         }]);
         const session = authSandboxOps.mintSession(auth, { kind: 'uid', uid });
         setPortSession(ctx, port, session);
+        await bestEffortFlush(ctx); // seeded provider identity must be durable
         ok(port, msg.id, credReply(session, providerId));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -286,21 +290,25 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.adminCreateUser': {
       try {
-        ok(port, msg.id, authSandboxOps.createUser(
+        const created = authSandboxOps.createUser(
           auth,
           msg.request as Parameters<typeof authSandboxOps.createUser>[1],
-        ));
+        );
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, created);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
     case 'auth.adminUpdateUser': {
       try {
-        ok(port, msg.id, authSandboxOps.updateUser(
+        const updated = authSandboxOps.updateUser(
           auth,
           msg.uid,
           msg.request as Parameters<typeof authSandboxOps.updateUser>[2],
-        ));
+        );
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, updated);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -308,6 +316,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.adminDeleteUser': {
       try {
         authSandboxOps.deleteUser(auth, msg.uid);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -316,6 +325,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.adminClearUsers': {
       try {
         authSandboxOps.clearUsers(auth);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;

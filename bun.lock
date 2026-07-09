@@ -177,6 +177,19 @@
         "vite",
       ],
     },
+    "packages/site-docs": {
+      "name": "@pyric/site-docs",
+      "version": "0.0.1",
+      "dependencies": {
+        "astro": "^5.0.0",
+      },
+      "devDependencies": {
+        "@types/node": "^22.0.0",
+        "github-slugger": "^2.0.0",
+        "playwright": "^1.60.0",
+        "typescript": "^5.7.0",
+      },
+    },
     "packages/studio": {
       "name": "@pyric/studio",
       "version": "0.0.0",
@@ -837,6 +850,8 @@
     "@publint/pack": ["@publint/pack@0.1.5", "", { "dependencies": { "tinyexec": "^1.2.4" } }, "sha512-edgyN2pP07uXiP4tJs0s8KVmU8M8i60YPbbI0/WDeok1mIJHRXz+CgD8I0nelwDkoCh3EWL/G5kGfbuHjsdbvw=="],
 
     "@pyric/playground": ["@pyric/playground@workspace:packages/playground"],
+
+    "@pyric/site-docs": ["@pyric/site-docs@workspace:packages/site-docs"],
 
     "@pyric/studio": ["@pyric/studio@workspace:packages/studio"],
 

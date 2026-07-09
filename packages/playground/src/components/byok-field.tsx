@@ -12,13 +12,26 @@
  * inline CORS warning for Ollama specifically.
  */
 import type { ApiKeyField } from './ApiKeyForm';
+import { OpenRouterSignIn } from './OpenRouterSignIn';
 import { validateBaseUrl } from '~/lib/llm/byok';
 import type { ProviderDef } from '~/lib/llm/registry';
 
 const OLLAMA_FAQ_URL =
   'https://github.com/ollama/ollama/blob/main/docs/faq.md#how-do-i-configure-ollama-server';
 
-export function buildApiKeyField(def: ProviderDef): ApiKeyField | null {
+export interface BuildApiKeyFieldOpts {
+  /** Only used by the `openrouter` row — see `OpenRouterSignIn`. */
+  onKeyChanged?: () => void;
+  /** Only used by the `openrouter` row — see `OpenRouterSignIn`. */
+  openrouterSignInError?: string | null;
+  /** Only used by the `openrouter` row — see `OpenRouterSignIn`. */
+  onOpenrouterSignInRetry?: () => void;
+}
+
+export function buildApiKeyField(
+  def: ProviderDef,
+  opts: BuildApiKeyFieldOpts = {},
+): ApiKeyField | null {
   // `none` slots (Claude local CLI) have no credential to collect —
   // auth is the CLI's own subscription login on the dev server. The
   // modal simply omits the row.
@@ -66,6 +79,7 @@ export function buildApiKeyField(def: ProviderDef): ApiKeyField | null {
     };
   }
   const has = def.byok.hasKey();
+  const isOpenRouter = def.id === 'openrouter';
   return {
     id: def.id,
     label: def.byok.label,
@@ -73,5 +87,16 @@ export function buildApiKeyField(def: ProviderDef): ApiKeyField | null {
     hint: has
       ? 'Key is set. Type to replace.'
       : `Get one at ${def.byok.helpUrl.replace(/^https?:\/\//, '')}`,
+    ...(isOpenRouter && opts.onKeyChanged
+      ? {
+          extra: (
+            <OpenRouterSignIn
+              onKeyChanged={opts.onKeyChanged}
+              signInError={opts.openrouterSignInError}
+              onRetry={opts.onOpenrouterSignInRetry}
+            />
+          ),
+        }
+      : {}),
   };
 }

@@ -6,6 +6,10 @@
 import { formatCostUsd } from '~/lib/llm/pricing';
 
 export interface StatusBarProps {
+  /** Rendered at the very left edge of the rail, before the model
+   *  label / error text. Used for the session breadcrumb — see
+   *  `SessionBreadcrumbs` and `lib/breadcrumbs.ts`. */
+  leading?: React.ReactNode;
   modelLabel?: string | null;
   sessionState: 'idle' | 'streaming' | 'failed';
   error?: string | null;
@@ -21,6 +25,7 @@ export interface StatusBarProps {
 }
 
 export function StatusBar({
+  leading,
   modelLabel,
   sessionState,
   error,
@@ -31,33 +36,39 @@ export function StatusBar({
   costEstimated = false,
 }: StatusBarProps) {
   return (
-    <footer className="h-[28px] bg-sidebar-bg border-t border-[#2a2a32] shrink-0 flex items-center justify-between px-3 relative">
-      {error ? (
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="material-symbols-outlined text-[14px] text-red-500 shrink-0">
-            error
-          </span>
-          <span className="text-[11px] text-red-400 truncate">{error}</span>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 min-w-0">
-          {modelLabel ? (
-            <span className="text-[11px] font-mono text-slate-gray truncate">
-              {modelLabel}
+    <footer className="h-[28px] bg-sidebar-bg border-t border-[#2a2a32] shrink-0 flex items-center justify-between gap-2 px-3 relative">
+      <div className="flex items-center gap-2 min-w-0">
+        {leading}
+        {leading ? (
+          <span className="w-px h-3 bg-[#2a2a32] shrink-0" aria-hidden />
+        ) : null}
+        {error ? (
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="material-symbols-outlined text-[14px] text-red-500 shrink-0">
+              error
             </span>
-          ) : null}
-          {/* Streaming has its own per-message indicator on the
-              timeline row — surfacing it here too duplicates the
-              signal. Only show a state pill on failed; idle is
-              implied by the absence of any pill. */}
-          {sessionState === 'failed' ? (
-            <>
-              <span className="hidden sm:inline text-[11px] text-slate-gray shrink-0">·</span>
-              <span className="text-[11px] text-red-400 shrink-0">failed</span>
-            </>
-          ) : null}
-        </div>
-      )}
+            <span className="text-[11px] text-red-400 truncate">{error}</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 min-w-0">
+            {modelLabel ? (
+              <span className="text-[11px] font-mono text-slate-gray truncate">
+                {modelLabel}
+              </span>
+            ) : null}
+            {/* Streaming has its own per-message indicator on the
+                timeline row — surfacing it here too duplicates the
+                signal. Only show a state pill on failed; idle is
+                implied by the absence of any pill. */}
+            {sessionState === 'failed' ? (
+              <>
+                <span className="hidden sm:inline text-[11px] text-slate-gray shrink-0">·</span>
+                <span className="text-[11px] text-red-400 shrink-0">failed</span>
+              </>
+            ) : null}
+          </div>
+        )}
+      </div>
 
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         {/* Session cost leads the stat cluster — the primary metric of a

@@ -160,7 +160,7 @@ import {
 // of a separate in-page sandbox.
 import { buildSandboxDispatcher } from '../../bridge/client/dispatch.js';
 
-import { type HostCtx, type PortLike, post, ok, fail } from './host-context.js';
+import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from './host-context.js';
 import {
   authSubsFor,
   isAuthOp,
@@ -700,15 +700,6 @@ function ensureRtdb(ctx: HostCtx): Database {
   return (ctx.rtdb ??= pyricGetDatabase(ctx.sandbox));
 }
 
-async function bestEffortFlush(ctx: HostCtx): Promise<void> {
-  try {
-    await ctx.sandbox.flush?.();
-  } catch {
-    // Admin playground writes should report the mutation result. Persistence
-    // flush failures are lifecycle/diagnostic events, not write denials.
-  }
-}
-
 function rtdbSnapToWire(snap: DataSnapshot): unknown {
   return {
     key: snap.key,
@@ -792,6 +783,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
         const ref = pyricDoc(db, msg.path);
         const data = prepareWriteData(msg.data) as Record<string, unknown>;
         await setDoc(ref, data, msg.options as SetOptions | undefined);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -802,6 +794,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
         const ref = pyricDoc(db, msg.path);
         const data = prepareWriteData(msg.data) as Record<string, unknown>;
         await updateDoc(ref, data);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -811,6 +804,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
       try {
         const ref = pyricDoc(db, msg.path);
         await deleteDoc(ref);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -821,6 +815,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
         const coll = pyricCollection(db, msg.collectionPath);
         const data = prepareWriteData(msg.data) as Record<string, unknown>;
         const ref = await addDoc(coll, data);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, { id: ref.id, path: ref.path });
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -877,6 +872,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
           applyWriteToBatch(db, batch, w);
         }
         await (batch as { commit(): Promise<void> }).commit();
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -1067,6 +1063,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
             }
           }
         });
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) {
         if (e === TXN_ABORT) {

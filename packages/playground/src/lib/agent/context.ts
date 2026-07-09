@@ -93,14 +93,15 @@ const SIGNAL_PATTERNS: Array<[ContextLensId, RegExp]> = [
   ['audit', /\b(audit|review|inspect|assess|analyze|find gaps|vulnerabilities|security review)\b/gi],
 ];
 
-const GENERAL_FIREBASE_SKILL_TO_LENSES: Record<string, ContextLensId[]> = {
-  'firebase-audit': ['audit'],
-  'playground-firebase-auth-model': ['auth'],
-  'firestore-rules-audit': ['firestore', 'rules', 'audit'],
-  'playground-firestore-query-indexes': ['firestore', 'queries-indexes'],
-  'rtdb-security-rules': ['rtdb', 'rules'],
-  'rtdb-data-model': ['rtdb', 'data-modeling'],
-};
+/**
+ * General-Firebase skills map into context lenses instead of adding
+ * specialist overlays. Currently EMPTY: the general firebase-tooling
+ * skills were retired from the registry (their knowledge is embedded
+ * in the always-on system prompt; lenses are detected from prompt
+ * text). The seam stays for any future registered skill that should
+ * resolve to lenses rather than act as a specialist.
+ */
+const GENERAL_FIREBASE_SKILL_TO_LENSES: Record<string, ContextLensId[]> = {};
 
 function addLens(out: ContextLensId[], id: ContextLensId, dismissed: ReadonlySet<ContextLensId>) {
   if (dismissed.has(id)) return;

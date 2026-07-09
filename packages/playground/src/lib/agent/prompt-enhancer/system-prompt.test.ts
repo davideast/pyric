@@ -10,11 +10,6 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { buildEnhancerPrompt, ENHANCER_SYSTEM_PROMPT } from './system-prompt';
-import {
-  firebaseAuditSkill,
-  playgroundFirebaseAuthModelSkill,
-  playgroundFirestoreQueryIndexesSkill,
-} from '~/lib/skills/firebase-tooling';
 import { firestoreGameRulesSkill } from '~/lib/skills/firestore-game-rules';
 
 describe('ENHANCER_SYSTEM_PROMPT domain purity', () => {
@@ -82,29 +77,26 @@ describe('buildEnhancerPrompt — skill-aware shapes (P4)', () => {
     expect(p).not.toContain('Auth tab');
   });
 
-  test('legacy general Firebase audit skill resolves into lenses, not replacement blocks', () => {
-    const p = buildEnhancerPrompt([firebaseAuditSkill]);
+  test('audit prompts resolve into the rules-audit lens shape, no skill required', () => {
+    const p = buildEnhancerPrompt([], 'Audit my security posture for gaps');
     expect(p).toContain('FIREBASE EXPERT IS ALWAYS ON');
     expect(p).toContain('Shape this as a rules audit request');
-    expect(p).not.toContain('The user activated');
     expect(p).not.toContain('Active specialist skill');
     expect(p).not.toContain('two collections');
     expect(p).not.toContain('If the idea is a GAME');
   });
 
-  test('legacy Firebase Auth model skill shapes auth/rules requests through lenses', () => {
-    const p = buildEnhancerPrompt([playgroundFirebaseAuthModelSkill]);
+  test('auth prompts shape auth/rules requests through lenses', () => {
+    const p = buildEnhancerPrompt([], 'Design sign-in with custom claims for admins');
     expect(p).toContain('Shape this as a Firebase Auth modeling request');
     expect(p).toContain('custom claims');
-    expect(p).not.toContain('The user activated');
     expect(p).not.toContain('two collections');
   });
 
-  test('legacy Firestore query/index skill shapes query proof requests through lenses', () => {
-    const p = buildEnhancerPrompt([playgroundFirestoreQueryIndexesSkill]);
+  test('query/index prompts shape query proof requests through lenses', () => {
+    const p = buildEnhancerPrompt([], 'Plan pagination with a cursor and composite indexes');
     expect(p).toContain('Shape this as a Firestore query/index design request');
     expect(p).toContain('index extraction');
-    expect(p).not.toContain('The user activated');
     expect(p).not.toContain('two collections');
   });
 

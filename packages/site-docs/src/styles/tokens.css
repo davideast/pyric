@@ -1,0 +1,156 @@
+/**
+ * Pyric Studio swappable semantic theme tokens (F-THEME).
+ *
+ * DOCS COPY — mirrors packages/studio/src/styles/tokens.css (studio/stack)
+ * so the docs pages wear the exact Studio skin: same surfaces, same single
+ * violet accent, same type scale. If Studio's tokens move, re-copy this file.
+ * The docs' own CSS references roles only (`var(--bg)`, `var(--accent)`, …).
+ *
+ * Colour + fonts are driven by SEMANTIC CSS custom properties using the role
+ * NAMES the mocks use, so the mock CSS ports unchanged. Components reference
+ * roles only (`var(--bg)`, `var(--ink)`, `var(--accent)`, ...), never raw hexes.
+ *
+ * DARK is the DEFAULT (the product's resting state): `:root` carries the dark
+ * palette. Light is opt-in.
+ *   1. `:root`                          -> DARK (default; minimal neutral).
+ *   2. `@media (prefers-color-scheme: light)` (scoped to `:root:not([data-theme])`)
+ *                                       -> LIGHT, only when the OS asks for light
+ *                                          AND the user made no explicit choice.
+ *   3. `[data-theme="light"]`           -> LIGHT, explicit user override.
+ *   4. `[data-theme="dark"]`            -> DARK, explicit override (= `:root`).
+ *
+ * `shell/theme.tsx` writes `data-theme` on `<html>`; its default choice is dark.
+ *
+ * ── Design intent (the visual standard) ─────────────────────────────────
+ * MINIMAL + NEUTRAL. A few calm surface steps with low contrast between them;
+ * hairlines used sparingly; ONE accent used rarely. No blue cast. Hierarchy is
+ * carried by type (ink / muted / faint) and whitespace, not by fills and boxes.
+ *
+ * Type is a token too: one tight scale (`--fs-*`) so sizes stay consistent and
+ * deliberate instead of an ad-hoc sprawl.
+ */
+
+/* ── Type + fonts (theme-independent) ──────────────────────────────────── */
+:root {
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, monospace;
+  --font-display: var(--font-ui);
+
+  /* One tight type scale. Title for surface heads, body for prose, label for
+     UI controls, data for mono identifiers/values, micro for uppercase
+     eyebrows + column heads, caption for the quietest meta. */
+  --fs-title: 17px;
+  --fs-body: 13px;
+  --fs-label: 12px;
+  --fs-data: 12.5px;
+  --fs-caption: 11.5px;
+  --fs-micro: 10.5px;
+
+  /* The micro/eyebrow letter-spacing, used consistently. */
+  --tracking-micro: 0.06em;
+
+  /* One spacing scale, used for every sibling gap (PRINCIPLES L2; the
+     specs/*.md layout contracts reference these directly). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+}
+
+/* ── DARK (default) ─ minimal neutral ──────────────────────────────────── */
+:root {
+  /* Surfaces: calm, low-contrast neutral steps. */
+  --bg: #16161a; /* app canvas */
+  --panel: #1e1e24; /* sunken rows / cards / code */
+  --elevated: #24242c; /* raised controls */
+
+  /* Text hierarchy carries the design; near-white -> muted -> faint. */
+  --ink: #fbfbfe;
+  --muted: #72728a;
+  --faint: #72728a;
+
+  /* Lines: sparing hairlines. */
+  --line: #2a2a35;
+  --line-2: #3a3a48;
+
+  /* The ONE accent, used rarely: muted violet (the emerging brand purple).
+     Tune the hue HERE — tint/ink derive from it visually. */
+  --accent: #8f7fe8;
+  --accent-tint: #1e1b2e; /* subtle accent wash */
+  --accent-ink: #14102a;
+
+  /* Deny inverts to a light fill in dark (the mock's filled-deny chip). */
+  --deny: #ededee;
+  --deny-ink: #0c0c0d;
+  --deny-tint: #161618; /* quiet deny band */
+
+  /* Diff. */
+  --diff-add: #57b985;
+  --diff-add-bg: #111d16;
+  --diff-remove: #e2607a;
+  --diff-remove-bg: #221318;
+}
+
+/* ── SYSTEM LIGHT: OS asks for light AND no explicit choice ─────────────── */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #ffffff;
+    --panel: #fafafa;
+    --elevated: #ffffff;
+
+    --ink: #16181d;
+    --muted: #646b78;
+    --faint: #9aa1ad;
+
+    --line: #e7e8ec;
+    --line-2: #d9dbe0;
+
+    --accent: #6b57d6;
+    --accent-tint: #f4f2fd;
+    --accent-ink: #ffffff;
+
+    --deny: #16181d;
+    --deny-ink: #ffffff;
+    --deny-tint: #f4f4f6;
+
+    --diff-add: #1f8f4e;
+    --diff-add-bg: #eef8f1;
+    --diff-remove: #c2374b;
+    --diff-remove-bg: #fceef0;
+  }
+}
+
+/* ── EXPLICIT LIGHT (forces light even under an OS dark pref) ───────────── */
+[data-theme="light"] {
+  --bg: #ffffff;
+  --panel: #fafafa;
+  --elevated: #ffffff;
+
+  --ink: #16181d;
+  --muted: #646b78;
+  --faint: #9aa1ad;
+
+  --line: #e7e8ec;
+  --line-2: #d9dbe0;
+
+  --accent: #6b57d6;
+  --accent-tint: #f4f2fd;
+  --accent-ink: #ffffff;
+
+  --deny: #16181d;
+  --deny-ink: #ffffff;
+  --deny-tint: #f4f4f6;
+
+  --diff-add: #1f8f4e;
+  --diff-add-bg: #eef8f1;
+  --diff-remove: #c2374b;
+  --diff-remove-bg: #fceef0;
+}
+
+/* `[data-theme="dark"]` needs no block: `:root` already carries dark, and the
+   system-light media query is excluded by `:not([data-theme])`, so an explicit
+   dark choice falls through to the `:root` dark values. */
