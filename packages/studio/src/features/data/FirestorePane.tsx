@@ -11,7 +11,7 @@
  * mode (App = rules apply / Admin = rules bypass, edit anything).
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CollectionList,
   DocumentList,
@@ -27,8 +27,9 @@ import type {
   QueryDocumentSnapshot,
 } from 'pyric/firestore';
 import { useDocumentList } from '@pyric/ui/firestore/hooks';
-import { ConfirmProvider, useConfirm } from '@pyric/ui/primitives';
+import { ConfirmProvider, useConfirm, useContainerSize } from '@pyric/ui/primitives';
 import { useDataNav, parseDocPath, type NavigationPathSegment } from './navigation.js';
+import { PANEL_BREAKPOINTS, panelWindow } from './panelLayout.js';
 import type { StudioDataHandles } from './sandbox.js';
 import { ImportJsonPanel } from './FirestoreImportPanel.js';
 import { FirestoreCreateModal, type FirestoreCreateSubmit } from './FirestoreCreateModal.js';
@@ -177,15 +178,25 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
     ),
   ];
 
-  // Firebase-console behavior: always a 3-panel window that SHIFTS as you drill
-  // (show the deepest 3 levels), not an ever-growing strip. The breadcrumb keeps
-  // the full path for jumping back. Stable keys mean only the new column mounts
-  // (and slides in via CSS); the retained two don't remount.
-  const SLOTS = 3;
-  const realVisible = columns.length <= SLOTS ? columns : columns.slice(-SLOTS);
-  // Zero-state: always render a stable SLOTS-wide frame. Pad the trailing slots
-  // with placeholder columns so the layout is present from load instead of
-  // growing in as you drill. The first empty slot hints what to pick next.
+  // Firebase-console behavior: a panel window that SHIFTS as you drill (show
+  // the deepest levels), not an ever-growing strip. The breadcrumb keeps the
+  // full path for jumping back. Stable keys mean only the new column mounts
+  // (and slides in via CSS); retained columns don't remount.
+  //
+  // HOW MANY panels show is a function of the surface's own width — a
+  // CONTAINER measure via `useContainerSize` (house rule: intrinsic, no
+  // viewport media queries): 3 at `wide` (unchanged), 2 at `medium`, and at
+  // `narrow` ONLY the current level renders full-width with the breadcrumb
+  // as the way back up (the Console's phone behavior). Breakpoint rationale
+  // lives in `panelLayout.ts`. Hidden panels UNMOUNT (not display:none) so
+  // narrow mode doesn't fetch three levels of data to show one.
+  const { ref: browserRef, size } = useContainerSize<HTMLDivElement>(PANEL_BREAKPOINTS);
+  const { startIndex, visibleCount, emptySlots } = panelWindow(columns.length, size);
+  const realVisible = columns.slice(startIndex, startIndex + visibleCount);
+  // Zero-state: pad trailing slots with placeholder columns so the frame is
+  // present from load instead of growing in as you drill. The first empty
+  // slot hints what to pick next. Narrow mode never pads (emptySlots = 0) —
+  // the single panel owns the full width.
   const nextHint =
     path.length === 0
       ? 'Select a collection'
@@ -194,10 +205,30 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
         : null;
   const visible = [
     ...realVisible,
-    ...Array.from({ length: Math.max(0, SLOTS - realVisible.length) }, (_, k) => (
+    ...Array.from({ length: emptySlots }, (_, k) => (
       <EmptyColumn key={`__empty_${k}__`} hint={k === 0 ? nextHint : null} />
     )),
   ];
+
+  // Focus follows navigation when panels unmount (narrow/medium): after a
+  // drill-in or back-out the previously-focused row is often inside a column
+  // that no longer exists, dropping focus to <body>. Land it on the deepest
+  // visible panel instead so keyboard users continue from the level they
+  // navigated to. Wide mode is untouched — nothing unmounts on selection.
+  useEffect(() => {
+    if (size === 'wide') return;
+    const root = browserRef.current;
+    if (!root) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && root.contains(active)) return;
+    const deepest = root.querySelector<HTMLElement>('.fs-columns > .fs-col:last-child');
+    if (deepest) {
+      deepest.tabIndex = -1;
+      deepest.focus({ preventScroll: true });
+    }
+    // Re-run on drill changes only; `size` here just gates the behavior.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path.length, size]);
 
   return (
     // Field/document/collection delete confirmations (the tree's per-field
@@ -205,7 +236,7 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
     // `useConfirm()` — scope the provider to this pane rather than mounting
     // it globally, since nothing else in Studio uses it yet.
     <ConfirmProvider>
-      <div data-pyric-ui="fs-browser" data-fs-depth={path.length}>
+      <div ref={browserRef} data-pyric-ui="fs-browser" data-fs-depth={path.length} data-size={size}>
         <Breadcrumb path={path} onHome={() => setPath([])} onJump={(i) => setPath((p) => p.slice(0, i + 1))} />
         <div className="fs-columns">{visible}</div>
         {collectionTarget ? (
