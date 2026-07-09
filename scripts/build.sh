@@ -85,4 +85,19 @@ mkdir -p packages/pyric-tools/dist/serve/playground-ui
 cp -R packages/playground/dist/client/. packages/pyric-tools/dist/serve/playground-ui/
 
 echo ""
+echo "━━━ Phase 5: Docs site ━━━"
+# Built with base /__pyric/ui/ so every doc page, asset, .md twin, index.json,
+# and shell-chrome tab link resolves under the CLI mount: pages at
+# /__pyric/ui/docs/<slug>/, assets at /__pyric/ui/_astro/*, the search index at
+# /__pyric/ui/docs/index.json, and tabs back at /__pyric/ui/<tab>. The default
+# (no DOCS_BASE) build the hosted site uses is unaffected — base stays `/`.
+echo "▸ Building packages/site-docs (base /__pyric/ui/)"
+rm -rf packages/site-docs/dist
+DOCS_BASE=/__pyric/ui/ bun run --cwd packages/site-docs build
+echo "▸ Embedding docs site → packages/pyric-tools/dist/serve/docs-ui/"
+rm -rf packages/pyric-tools/dist/serve/docs-ui
+mkdir -p packages/pyric-tools/dist/serve/docs-ui
+cp -R packages/site-docs/dist/. packages/pyric-tools/dist/serve/docs-ui/
+
+echo ""
 echo "✅ All packages built successfully"

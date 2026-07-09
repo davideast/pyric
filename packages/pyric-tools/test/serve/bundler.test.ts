@@ -11,6 +11,7 @@ import {
   collectFirebaseBindings,
   pyricPackageRoot,
   pyricVersion,
+  resolveDocsUiDir,
   stubModuleSource,
   workerEntryPath,
 } from '../../src/serve/bundler.js';
@@ -20,6 +21,16 @@ describe('pyric dist discovery', () => {
     const root = pyricPackageRoot();
     expect(root.endsWith('/pyric') || root.includes('/pyric')).toBe(true);
     expect(pyricVersion(root)).toMatch(/^\d+\.\d+\.\d+/);
+  });
+});
+
+describe('resolveDocsUiDir (embed fallback)', () => {
+  it('returns null when the built docs-ui dir is absent (drives the CLI soft-warn)', () => {
+    // Running from src/serve, there is no sibling `docs-ui/` (that only exists
+    // in the built dist after scripts/build.sh Phase 5), so the resolver must
+    // return null rather than throw — the `--ui` path then soft-warns and
+    // leaves /__pyric/ui/docs/ un-mounted instead of crashing.
+    expect(resolveDocsUiDir()).toBeNull();
   });
 });
 

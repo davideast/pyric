@@ -9,7 +9,7 @@
  *
  * Bridge routes (`/__pyric/mcp`, `/__pyric/sandbox`) mount here in P2.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { collectBody } from '../bridge/server/peer.js';
@@ -113,6 +113,13 @@ export interface NamespaceOptions {
   /** `--ui` (Pyric Studio): the built playground app, mounted under
    *  `/__pyric/playground/` for Studio's Playground tab. */
   playgroundUiDir?: string;
+  /** `--ui` (Pyric Studio): the built docs site (site-docs), served so the
+   *  Studio Docs tab has local docs without the hosted site. Built with base
+   *  `/__pyric/ui/`, so its output straddles two subtrees under the mount:
+   *  the pages/twins/index.json live under `/__pyric/ui/docs/`, but the shared
+   *  assets live at `/__pyric/ui/_astro/` (Astro's asset dir, at the base
+   *  root — NOT under `docs/`). Both are served from this one dir. */
+  docsUiDir?: string;
 }
 
 /** The page's persistence backend speaks this route:
@@ -277,6 +284,46 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       const rel = url.pathname.slice('/__pyric/playground'.length) || '/';
       let file = resolveStaticFile(opts.playgroundUiDir, rel);
       if (!file && !extname(rel)) file = resolveStaticFile(opts.playgroundUiDir, '/index.html');
+      if (!file) {
+        res.writeHead(404).end('not found');
+        return true;
+      }
+      res.writeHead(200, { 'content-type': contentTypeFor(file), 'cache-control': 'no-store' });
+      pipeFileToResponse(file, res);
+      return true;
+    }
+    // Embedded docs site (site-docs). MUST run BEFORE the general
+    // `/__pyric/ui/` studio handler below: that handler's SPA fallback answers
+    // every miss with Studio's index.html, which would swallow docs pages and
+    // (worse) return HTML for a missing docs asset. Built with base
+    // `/__pyric/ui/`, the docs output lives in TWO subtrees under the mount —
+    // pages/twins/index.json under `/__pyric/ui/docs/`, and shared assets at
+    // `/__pyric/ui/_astro/` (Astro's asset dir sits at the base root, not under
+    // `docs/`). We claim both; `_astro` is Astro-specific and never collides
+    // with Studio (Vite emits `/__pyric/ui/assets/`). No SPA fallback here — a
+    // genuinely missing docs page 404s (a broken doc link must fail loudly, not
+    // masquerade as another page). Directory-format pages (`<slug>/index.html`)
+    // and `bunx serve`-style extensionless→trailing-slash redirects are handled
+    // by resolveStaticFile + the directory redirect below.
+    if (
+      opts.docsUiDir &&
+      (url.pathname === '/__pyric/ui/docs' ||
+        url.pathname.startsWith('/__pyric/ui/docs/') ||
+        url.pathname.startsWith('/__pyric/ui/_astro/'))
+    ) {
+      const rel = url.pathname.slice('/__pyric/ui'.length) || '/';
+      // `bunx serve` parity: an extensionless path that names a real directory
+      // (e.g. `/__pyric/ui/docs` or `/__pyric/ui/docs/<slug>`) redirects to the
+      // trailing-slash form so the directory's index.html loads with correct
+      // relative-URL resolution.
+      if (!rel.endsWith('/') && !extname(rel)) {
+        const dir = join(opts.docsUiDir, decodeURIComponent(rel));
+        if (existsSync(dir) && statSync(dir).isDirectory()) {
+          res.writeHead(301, { location: `${url.pathname}/` }).end();
+          return true;
+        }
+      }
+      const file = resolveStaticFile(opts.docsUiDir, rel);
       if (!file) {
         res.writeHead(404).end('not found');
         return true;
