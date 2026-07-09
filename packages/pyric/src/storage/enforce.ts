@@ -20,14 +20,18 @@
  * configured the check is a no-op (open-by-default), so the
  * session-archive demo is unaffected.
  */
-import type { StorageService } from './service.js';
+import type { StorageService, Target } from './service.js';
 import { evaluateStorageRules, type EvaluationInput } from './rules.js';
 import { unauthorized } from './errors.js';
 
 export function enforceRules(
   service: StorageService,
   input: EvaluationInput,
+  target?: Target,
 ): void {
+  // Admin plane (internal `getAdminStorageSandbox` handles): rules are
+  // bypassed entirely — firebase-admin semantics. See `SandboxTarget.admin`.
+  if (target?.kind === 'sandbox' && target.admin === true) return;
   if (!service.rules) return;
   const result = evaluateStorageRules(service.rules, input);
   if (result.allowed) return;

@@ -12,6 +12,13 @@
  *     production `Storage`, so every method on `Storage` / `Bucket` /
  *     `File` (from `@google-cloud/storage`) is present unchanged.
  *
+ *   - **Remote sandbox path** — a handle branded by `pyric-tools`'
+ *     `connectRemoteSandbox()`/`remoteSandbox()` relays every data
+ *     operation over the bridge to the browser-hosted SharedWorker's
+ *     object store (admin lens pinned — rules bypass). Single bucket;
+ *     8 MiB per-op byte cap; `getSignedUrl` stays the local stub. See
+ *     the remote arm section below.
+ *
  *   - **Sandbox path** — returns an in-process {@link Storage} backed
  *     by an in-memory `Map<bucketName, Map<path, FileEntry>>`. State
  *     lives on the {@link Sandbox} via a `WeakMap`, so `sandbox.reset()`
@@ -40,7 +47,12 @@ import type { App as AdminApp } from 'firebase-admin/app';
 import type { Storage as ProdStorage } from 'firebase-admin/storage';
 import { getStorage as getProdStorage } from 'firebase-admin/storage';
 
-import { isRemoteSandbox, type Sandbox } from 'pyric/sandbox';
+import {
+  isRemoteSandbox,
+  type RemoteSandbox,
+  type RemoteSandboxChannel,
+  type Sandbox,
+} from 'pyric/sandbox';
 
 import {
   ADMIN_APP_TARGET,
@@ -195,12 +207,13 @@ export function getStorage(app?: StorageApp): Storage {
   // `app/no-app` FirebaseAppError (see pyric-admin/app getApp).
   const resolved: PyricAdminApp = app === undefined ? getApp() : (app as PyricAdminApp);
   if (resolved[ADMIN_APP_TARGET] === 'sandbox') {
+    // Remote brand checked BEFORE the local arm (same dispatch order as
+    // auth/database): the local arm's WeakMap state + `onEvent` reset hook
+    // must never touch a remote handle — local state keyed off a remote
+    // handle would be a private server-side store the browser never sees,
+    // and `onEvent` throws on remote handles by design.
     if (isRemoteSandbox(resolved.sandbox)) {
-      throw new Error(
-        'pyric-admin/storage: Storage is not yet supported on a remote ' +
-          'sandbox — the bridge currently carries Realtime Database and Auth. ' +
-          'Use pyric/storage in the browser (or Studio) until remote Storage lands.',
-      );
+      return getRemoteStorage(resolved.sandbox);
     }
     return getSandboxStorage(resolved);
   }
@@ -373,9 +386,7 @@ class SandboxFile implements File {
   }
 
   async getSignedUrl(options: GetSignedUrlOptions): Promise<[string]> {
-    const expiresMs = normalizeExpires(options.expires);
-    const url = `pyric-sandbox-storage://${this.bucket.name}/${this.name}?expires=${expiresMs}&action=${options.action}`;
-    return [url];
+    return [stubSignedUrl(this.bucket.name, this.name, options)];
   }
 
   // ─── Deferred surface (declared so TS callers see a clear error) ────
@@ -395,7 +406,224 @@ class SandboxFile implements File {
   }
 }
 
+// ─── Remote sandbox arm (remote sandbox, slice 2) ───────────────────────
+//
+// The app's `Sandbox` is a Node-side handle onto the browser-hosted
+// SharedWorker sandbox. Every data operation relays over the handle's
+// worker channel with `actAs: { mode: 'admin' }` pinned — firebase-admin's
+// rules-bypass semantics against the ONE object store the app + Studio +
+// agents share (the host resolves the lens to `pyric/storage/internal`'s
+// admin plane). There is deliberately NO local state here: a `WeakMap`
+// bucket map keyed off a remote handle would be private server-side data
+// the browser never sees, and the local arm's `onEvent` reset hook throws
+// on remote handles by design.
+//
+// Divergences from the local arm, all LOUD:
+//   - single bucket: the worker's `pyric/storage` store is single-bucket
+//     ("the data store is shared" — bucket names only round-trip in
+//     metadata), so `bucket('non-default')` throws instead of silently
+//     merging buckets. The default bucket name matches the local arm.
+//   - byte payloads are capped at 8 MiB per op (whole-object buffering
+//     over four relay hops; streaming stays unsupported on both arms).
+// `getSignedUrl` does NOT relay: it stays the byte-identical local stub.
+
+/** firebase-admin's rules-bypass lens, pinned on every relayed operation. */
+const STORAGE_REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
+
+/**
+ * Raw per-op byte cap for relayed storage payloads. MUST mirror
+ * `pyric-tools`' `MAX_STORAGE_OP_BYTES` (serve/worker/protocol.ts) — the
+ * worker host enforces the same cap on its end. Inlined (like the RTDB
+ * push-id generator) because `pyric-admin` deliberately does not depend on
+ * `pyric-tools`.
+ */
+const MAX_REMOTE_STORAGE_OP_BYTES = 8 * 1024 * 1024;
+
+/** One remote `Storage` per remote handle (handles only — never data). */
+const remoteStorageBySandbox = new WeakMap<Sandbox, Storage>();
+
+function getRemoteStorage(sandbox: RemoteSandbox): Storage {
+  let storage = remoteStorageBySandbox.get(sandbox);
+  if (!storage) {
+    storage = new RemoteStorage(sandbox.channel);
+    remoteStorageBySandbox.set(sandbox, storage);
+  }
+  return storage;
+}
+
+/** Wire shape of the worker's `storage.getBytes` result. */
+interface RemoteGetBytesResult {
+  dataB64: string;
+  contentType?: string;
+  size: number;
+}
+
+class RemoteStorage implements Storage {
+  constructor(private readonly channel: RemoteSandboxChannel) {}
+
+  bucket(name?: string): Bucket {
+    // The worker's object store is single-bucket. A non-default name can't
+    // be faithfully relayed — throw loudly instead of silently merging
+    // buckets (the local arm has REAL multi-bucket isolation; this is the
+    // sharpest local/remote divergence, so it must be explicit).
+    if (name !== undefined && name !== DEFAULT_SANDBOX_BUCKET) {
+      throw new Error(
+        `pyric-admin/storage: the remote (browser) sandbox has a single bucket — ` +
+          `bucket('${name}') cannot be isolated. Use bucket() (the default ` +
+          `'${DEFAULT_SANDBOX_BUCKET}' bucket) instead.`,
+      );
+    }
+    return new RemoteBucket(DEFAULT_SANDBOX_BUCKET, this.channel);
+  }
+}
+
+class RemoteBucket implements Bucket {
+  constructor(
+    readonly name: string,
+    private readonly channel: RemoteSandboxChannel,
+  ) {}
+
+  file(path: string): File {
+    return new RemoteFile(path, this, this.channel);
+  }
+}
+
+class RemoteFile implements File {
+  constructor(
+    readonly name: string,
+    readonly bucket: Bucket,
+    private readonly channel: RemoteSandboxChannel,
+  ) {}
+
+  async save(
+    data: Buffer | string | Uint8Array,
+    options: SaveOptions = {},
+  ): Promise<void> {
+    if (options.resumable === true) {
+      throw new Error(
+        'not implemented in pyric-admin/storage remote sandbox backend: resumable uploads',
+      );
+    }
+    const bytes = toBytes(data);
+    if (bytes.byteLength > MAX_REMOTE_STORAGE_OP_BYTES) {
+      throw payloadTooLarge(bytes.byteLength, `save() payload for '${this.name}'`);
+    }
+    await this.channel.op({
+      method: 'storage.putBytes',
+      path: this.name,
+      dataB64: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64'),
+      ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
+      ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    });
+  }
+
+  async download(_options: DownloadOptions = {}): Promise<[Buffer]> {
+    let wire: RemoteGetBytesResult;
+    try {
+      wire = (await this.channel.op({
+        method: 'storage.getBytes',
+        path: this.name,
+        actAs: STORAGE_REMOTE_ADMIN_LENS,
+      })) as RemoteGetBytesResult;
+    } catch (err) {
+      if (isObjectNotFound(err)) {
+        // Mirror the gcs/firebase-admin (and local arm) message shape so
+        // consumer catch-blocks that string-match `No such object` work
+        // identically across arms.
+        throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
+      }
+      throw err;
+    }
+    return [Buffer.from(wire.dataB64, 'base64')];
+  }
+
+  async delete(): Promise<void> {
+    try {
+      await this.channel.op({
+        method: 'storage.deleteObject',
+        path: this.name,
+        actAs: STORAGE_REMOTE_ADMIN_LENS,
+      });
+    } catch (err) {
+      // The worker store's delete is already idempotent, but swallow a
+      // not-found defensively so the local arm's idempotent-delete contract
+      // holds even if `pyric/storage` adopts the strict prod throw later.
+      if (isObjectNotFound(err)) return;
+      throw err;
+    }
+  }
+
+  async exists(): Promise<[boolean]> {
+    try {
+      await this.channel.op({
+        method: 'storage.getMetadata',
+        path: this.name,
+        actAs: STORAGE_REMOTE_ADMIN_LENS,
+      });
+      return [true];
+    } catch (err) {
+      if (isObjectNotFound(err)) return [false];
+      throw err;
+    }
+  }
+
+  /** Local stub — byte-identical to the local arm's (no data needed, so it
+   *  never relays). The sandbox does NOT serve the URL. */
+  async getSignedUrl(options: GetSignedUrlOptions): Promise<[string]> {
+    return [stubSignedUrl(this.bucket.name, this.name, options)];
+  }
+
+  // ─── Deferred surface (remediating throws, remote-flavored) ─────────
+
+  createWriteStream(): never {
+    throw new Error(
+      'not implemented in pyric-admin/storage remote sandbox backend: createWriteStream — ' +
+        'streams cannot span the bridge relay; use file.save(buffer) (≤ 8 MiB) instead.',
+    );
+  }
+
+  createReadStream(): never {
+    throw new Error(
+      'not implemented in pyric-admin/storage remote sandbox backend: createReadStream — ' +
+        'streams cannot span the bridge relay; use file.download() (≤ 8 MiB) instead.',
+    );
+  }
+}
+
+/** Is this relayed error the worker's `storage/object-not-found`? */
+function isObjectNotFound(err: unknown): boolean {
+  return (err as { code?: unknown })?.code === 'storage/object-not-found';
+}
+
+/** Over-cap rejection (code `payload-too-large`) — mirrors the worker host's
+ *  message shape and names the streaming gap. */
+function payloadTooLarge(sizeBytes: number, what: string): Error & { code: string } {
+  const err = new Error(
+    `pyric-admin/storage: ${what} is ${sizeBytes} bytes — over the ` +
+      `${MAX_REMOTE_STORAGE_OP_BYTES / (1024 * 1024)} MiB remote storage op cap. ` +
+      'Streaming/resumable transfers are not supported on the sandbox backend; ' +
+      'split the object or keep it under the cap.',
+  ) as Error & { code: string };
+  err.code = 'payload-too-large';
+  return err;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────
+
+/**
+ * The deterministic sandbox signed-URL stub, shared by the local and remote
+ * arms so their output is byte-identical (the URL is never served — it's a
+ * stable placeholder for logs/fixtures/replay).
+ */
+function stubSignedUrl(
+  bucketName: string,
+  path: string,
+  options: GetSignedUrlOptions,
+): string {
+  const expiresMs = normalizeExpires(options.expires);
+  return `pyric-sandbox-storage://${bucketName}/${path}?expires=${expiresMs}&action=${options.action}`;
+}
 
 /**
  * Normalize `Buffer | string | Uint8Array` into a fresh `Uint8Array`.

@@ -28,6 +28,7 @@ import type {
 } from '../protocol.js';
 import {
   isBridgeMessage,
+  assertJsonSafeRelayValue,
   DEFAULT_BRIDGE_PORT,
   DEFAULT_SANDBOX_PATH,
   WORKER_RELAY_CAPABILITY,
@@ -283,6 +284,10 @@ export function connectBridge(
     if (!workerRelay) return; // capability not advertised — drop (wire drift)
     try {
       const value = await workerRelay.op(req.op);
+      // Anti-corruption guard: a Blob/ArrayBuffer/TypedArray result would be
+      // SILENTLY mangled by the JSON WS legs ({} / index-keyed object) — turn
+      // it into a loud error naming the base64 storage ops instead.
+      assertJsonSafeRelayValue(`op '${req.op.method}'`, value);
       send({ type: 'worker-res', id: req.id, ok: true, value });
     } catch (err) {
       send({
@@ -302,6 +307,25 @@ export function connectBridge(
     if (relaySubs.has(req.subId)) return; // idempotent
     try {
       const unsubscribe = workerRelay.subscribe(req.sub, (value) => {
+        // Same anti-corruption guard as handleWorkerOp: a binary snap value
+        // would be silently mangled by the JSON WS legs — fail the sub with
+        // the snap-error convention (routes to onError on the Node side)
+        // instead of delivering garbage.
+        try {
+          assertJsonSafeRelayValue(`subscription '${req.subId}'`, value);
+        } catch (err) {
+          send({
+            type: 'worker-snap',
+            subId: req.subId,
+            value: {
+              __error: {
+                code: (err as { code?: string }).code ?? 'invalid-argument',
+                message: err instanceof Error ? err.message : String(err),
+              },
+            },
+          });
+          return;
+        }
         send({ type: 'worker-snap', subId: req.subId, value });
       });
       relaySubs.set(req.subId, unsubscribe);

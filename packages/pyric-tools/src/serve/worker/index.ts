@@ -123,8 +123,13 @@ export {
   listAll,
   getMetadata,
   getBlob,
+  // Storage byte ops (worker-mode uploads/reads via the base64 protocol)
+  uploadBytes,
+  getBytes,
+  deleteObject,
   type ClientFirebaseStorage,
   type ClientStorageReference,
+  type ClientSettableMetadata,
   // Event stream (Pyric Studio keystone — onEvent/history over the port)
   subscribeEvents,
   eventHistory,

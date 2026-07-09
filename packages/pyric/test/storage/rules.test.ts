@@ -445,3 +445,48 @@ describe('no-rules mode is open', () => {
     expect(await (await getBlob(r)).text()).toBe('ok');
   });
 });
+
+// ─── Late rules config is loud (silent-rules-wipe guard) ──────────
+
+describe('late rules configuration throws instead of silently discarding', () => {
+  const DENY_ALL = `
+service firebase.storage {
+  match /{allPaths=**} {
+    allow read, write: if false;
+  }
+}`;
+
+  it('optionless first call, rules later → throws (service opened without rules)', () => {
+    const sandbox = initializeSandbox({});
+    getStorageSandbox(sandbox, { dbName: uniqueDbName('late-rules-open') });
+    expect(() =>
+      getStorageSandbox(sandbox, { rules: DENY_ALL }),
+    ).toThrow(/first storage call/);
+  });
+
+  it('admin plane first, rules later → throws (getAdminStorageSandbox opened the service)', async () => {
+    const { getAdminStorageSandbox } = await import('../../src/storage/internal.js');
+    const sandbox = initializeSandbox({});
+    getAdminStorageSandbox(sandbox, { dbName: uniqueDbName('late-rules-admin') });
+    expect(() =>
+      getStorageSandbox(sandbox, { rules: DENY_ALL }),
+    ).toThrow(/already open without rules/);
+  });
+
+  it('a DIFFERENT rules source after a rules-configured open → throws', () => {
+    const sandbox = initializeSandbox({});
+    getStorageSandbox(sandbox, { dbName: uniqueDbName('late-rules-diff'), rules: DENY_ALL });
+    expect(() =>
+      getStorageSandbox(sandbox, { rules: SESSION_ARCHIVE_RULES }),
+    ).toThrow(/different rules source/);
+  });
+
+  it('re-supplying the IDENTICAL rules source stays allowed (idempotent per-user handles)', () => {
+    const sandbox = initializeSandbox({});
+    const dbName = uniqueDbName('late-rules-same');
+    getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), { dbName, rules: DENY_ALL });
+    expect(() =>
+      getStorageSandbox(sandbox.withAuth({ uid: 'bob' }), { dbName, rules: DENY_ALL }),
+    ).not.toThrow();
+  });
+});

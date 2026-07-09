@@ -28,6 +28,10 @@
       "types": "./dist/storage/index.d.ts",
       "import": "./dist/storage/index.js"
     },
+    "./storage/internal": {
+      "types": "./dist/storage/internal.d.ts",
+      "import": "./dist/storage/internal.js"
+    },
     "./rules": {
       "types": "./dist/rules/index.d.ts",
       "import": "./dist/rules/index.js"

@@ -38,7 +38,7 @@ function adminAppToContext(app: PyricAdminApp): SandboxContext {
     if (isRemoteSandbox(app.sandbox)) {
       throw new Error(
         'pyric-admin/firestore: Firestore is not yet supported on a remote ' +
-          'sandbox — the bridge currently carries Realtime Database and Auth. ' +
+          'sandbox — the bridge currently carries Realtime Database, Auth, and Storage. ' +
           'Use pyric/firestore in the browser (or the MCP Firestore tools) ' +
           'until remote Firestore lands.',
       );

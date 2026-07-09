@@ -83,7 +83,14 @@ import type {
   ResolvedIdentity,
 } from './protocol.js';
 import type { PolicyRequest } from './protocol.js';
-import { deserializeDocData, isSentinelMarker } from './protocol.js';
+import {
+  deserializeDocData,
+  isSentinelMarker,
+  bytesToBase64,
+  base64ToBytes,
+  storagePayloadTooLarge,
+  MAX_STORAGE_OP_BYTES,
+} from './protocol.js';
 // TYPE-ONLY — the generic worker-relay wire payloads (op/sub messages minus
 // the port-level ids this module re-mints). Erased at build; `bridge/
 // protocol.ts` itself has no runtime imports, so no engine code is pulled in.
@@ -1980,9 +1987,91 @@ export async function getMetadata(reference: ClientStorageReference): Promise<Fu
   })) as FullMetadata;
 }
 
-/** Read an object's bytes as a Blob (Pyric Studio inspector preview). */
+/** Read an object's bytes as a Blob (Pyric Studio inspector preview).
+ *  MessagePort-only — a Blob cannot cross the JSON bridge relay. */
 export async function getBlob(reference: ClientStorageReference): Promise<Blob> {
   return (await rpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.getBlob', path: reference.fullPath,
   })) as Blob;
+}
+
+// ─── Storage mutations + JSON-safe reads (worker-mode byte ops) ───────────
+// Backed by the base64 `storage.putBytes` / `storage.getBytes` /
+// `storage.deleteObject` ops (remote sandbox, slice 2). No `actAs` lens is
+// attached: page callers run under the worker's page storage handle (same
+// model as `listAll`/`getMetadata` above). Storage rules apply only when the
+// HOST configured them on the sandbox's storage service — the served worker
+// currently configures none, so worker-mode storage is effectively open
+// today; the admin lens matters for embedding/test hosts that pre-open the
+// service with rules. Raw payloads are capped at 8 MiB
+// (`MAX_STORAGE_OP_BYTES`) — same cap the host enforces.
+
+/** Mirror of `pyric/storage`'s `SettableMetadata` (plain JSON on the wire). */
+export interface ClientSettableMetadata {
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
+  customMetadata?: { [key: string]: string };
+}
+
+/** Upload bytes at the reference's path (replaces existing content).
+ *  Mirrors `pyric/storage`'s `uploadBytes` result shape. */
+export async function uploadBytes(
+  reference: ClientStorageReference,
+  data: Blob | Uint8Array | ArrayBuffer,
+  metadata?: ClientSettableMetadata,
+): Promise<{ ref: ClientStorageReference; metadata: FullMetadata }> {
+  const bytes =
+    data instanceof Blob
+      ? new Uint8Array(await data.arrayBuffer())
+      : data instanceof ArrayBuffer
+        ? new Uint8Array(data)
+        : data;
+  if (bytes.byteLength > MAX_STORAGE_OP_BYTES) {
+    throw storagePayloadTooLarge(bytes.byteLength, `uploadBytes payload for '${reference.fullPath}'`);
+  }
+  // contentType precedence mirrors pyric/storage: caller metadata → Blob.type.
+  const contentType =
+    metadata?.contentType ?? (data instanceof Blob && data.type ? data.type : undefined);
+  const stored = (await rpc(reference.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'storage.putBytes',
+    path: reference.fullPath,
+    dataB64: bytesToBase64(bytes),
+    ...(contentType !== undefined ? { contentType } : {}),
+    ...(metadata !== undefined ? { metadata: metadata as Record<string, unknown> } : {}),
+  })) as FullMetadata;
+  return { ref: reference, metadata: stored };
+}
+
+/** Read an object's bytes (JSON-safe base64 op → `ArrayBuffer`). Mirrors
+ *  `pyric/storage`'s `getBytes`, including the optional client-side cap. */
+export async function getBytes(
+  reference: ClientStorageReference,
+  maxDownloadSizeBytes?: number,
+): Promise<ArrayBuffer> {
+  const res = (await rpc(reference.port, {
+    t: 'op', id: nextId(), method: 'storage.getBytes', path: reference.fullPath,
+  })) as { dataB64: string; size: number };
+  if (typeof maxDownloadSizeBytes === 'number' && res.size > maxDownloadSizeBytes) {
+    const err = new Error(
+      `storage/quota-exceeded: object at '${reference.fullPath}' is ${res.size} bytes — ` +
+        `over the requested maxDownloadSizeBytes (${maxDownloadSizeBytes}).`,
+    ) as Error & { code: string };
+    err.code = 'storage/quota-exceeded';
+    throw err;
+  }
+  const bytes = base64ToBytes(res.dataB64);
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+/** Delete the object at the reference's path (idempotent — missing = no-op,
+ *  matching the sandbox backend's delete semantics). */
+export async function deleteObject(reference: ClientStorageReference): Promise<void> {
+  await rpc(reference.port, {
+    t: 'op', id: nextId(), method: 'storage.deleteObject', path: reference.fullPath,
+  });
 }

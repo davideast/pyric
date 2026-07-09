@@ -59,6 +59,17 @@ export interface SandboxTarget {
   readonly context: SandboxContext;
   readonly bucket: string;
   readonly servicePromise: Promise<StorageService>;
+  /**
+   * Rules-bypass admin plane. `true` only on handles minted by the
+   * INTERNAL {@link getAdminStorageSandbox} factory (exported via
+   * `pyric/storage/internal`, never the public surface): operations
+   * on an admin handle skip rule evaluation entirely — the storage
+   * mirror of `getAdminFirestore` / `getAdminDatabase`. The public
+   * modular surface stays rules-honest; this exists so hosts (the
+   * SharedWorker's `actAs: { mode: 'admin' }` lens) can serve
+   * firebase-admin semantics against the same shared store.
+   */
+  readonly admin?: boolean;
 }
 
 /**
@@ -150,6 +161,50 @@ const SANDBOX_HANDLES = new WeakMap<SandboxContext, FirebaseStorage>();
 const BARE_SANDBOX_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
 
 /**
+ * The rules SOURCE each sandbox's service was opened with (`null` when
+ * opened without rules). Late-config detection: rules are honored only on
+ * the FIRST storage call per `Sandbox`, so silently discarding a LATER,
+ * DIFFERENT `rules` option would be a silent rules wipe — {@link
+ * ensureService} throws instead. Re-supplying the IDENTICAL source stays
+ * fine (idempotent multi-handle construction, e.g. per-user contexts).
+ */
+const SERVICE_RULES_SOURCE = new WeakMap<Sandbox, string | null>();
+
+/**
+ * Get (or open) the ONE per-sandbox `StorageService`. Loud on the
+ * silent-rules-wipe hazard: when the service is already open and the
+ * caller supplies a `rules` source differing from the one it was opened
+ * with (including "opened without rules"), this throws — configure rules
+ * on the first storage call for the sandbox instead.
+ */
+function ensureService(
+  sandbox: Sandbox,
+  options: StorageOptions,
+  caller: string,
+): Promise<StorageService> {
+  const existing = SERVICES.get(sandbox);
+  if (existing) {
+    const openedWith = SERVICE_RULES_SOURCE.get(sandbox) ?? null;
+    if (options.rules !== undefined && options.rules !== openedWith) {
+      throw new Error(
+        `pyric/storage: ${caller} received a rules source, but this sandbox's storage ` +
+          `service is already open ${openedWith === null ? 'without rules' : 'with a different rules source'} ` +
+          '— rules are honored only on the FIRST storage call per Sandbox, so these rules ' +
+          'would be silently discarded. Configure rules on the first storage call for this sandbox.',
+      );
+    }
+    return existing;
+  }
+  const rules = options.rules ? parseStorageRules(options.rules) : null;
+  const servicePromise = openStorageBackend(options.dbName).then(
+    (backend) => new StorageService(backend, rules),
+  );
+  SERVICES.set(sandbox, servicePromise);
+  SERVICE_RULES_SOURCE.set(sandbox, options.rules ?? null);
+  return servicePromise;
+}
+
+/**
  * Type predicate distinguishing `SandboxContext` from `Sandbox`. We
  * use the class-identity test (every real `SandboxContext` is a
  * `SandboxContextImpl`) so the TS narrowing works downstream.
@@ -171,11 +226,16 @@ export function getStorageSandbox(
   const fromBareSandbox = !isContext(target);
   const sandbox: Sandbox = isContext(target) ? target.sandbox : target;
 
+  // Open (or fetch) the ONE per-sandbox service FIRST — before any handle
+  // cache fast-path — so a late, differing `rules` option throws instead of
+  // being silently discarded (see ensureService).
+  const servicePromise = ensureService(sandbox, options, 'getStorageSandbox');
+
   // Fast path: a repeat bare-`Sandbox` call returns the cached
   // anonymous handle (the per-context cache below can't catch it
   // because `withAuth(null)` mints a fresh context each time). Like
-  // the per-context path, bucket/dbName/rules options are honored
-  // only on the FIRST call per Sandbox.
+  // the per-context path, bucket/dbName options are honored only on
+  // the FIRST call per Sandbox.
   if (fromBareSandbox) {
     const cachedBare = BARE_SANDBOX_HANDLES.get(sandbox);
     if (cachedBare) return cachedBare;
@@ -183,15 +243,6 @@ export function getStorageSandbox(
 
   const ctx = isContext(target) ? target : target.withAuth(null);
   const bucket = options.bucket ?? DEFAULT_BUCKET;
-
-  let servicePromise = SERVICES.get(sandbox);
-  if (!servicePromise) {
-    const rules = options.rules ? parseStorageRules(options.rules) : null;
-    servicePromise = openStorageBackend(options.dbName).then(
-      (backend) => new StorageService(backend, rules),
-    );
-    SERVICES.set(sandbox, servicePromise);
-  }
 
   const cached = SANDBOX_HANDLES.get(ctx);
   if (cached) return cached;
@@ -206,6 +257,50 @@ export function getStorageSandbox(
   const handle: FirebaseStorage = Object.freeze({ [TARGET_SYMBOL]: sandboxTarget });
   SANDBOX_HANDLES.set(ctx, handle);
   if (fromBareSandbox) BARE_SANDBOX_HANDLES.set(sandbox, handle);
+  return handle;
+}
+
+/** One rules-bypass admin handle per `Sandbox` (internal admin plane). */
+const ADMIN_SANDBOX_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
+
+/**
+ * INTERNAL (exported via `pyric/storage/internal` only) — construct
+ * (or return cached) the rules-BYPASS admin `FirebaseStorage` handle
+ * for a sandbox. Shares the SAME `StorageService` (one IDB store, one
+ * ruleset) as every rules-honest handle on that sandbox; only rule
+ * evaluation is skipped (see {@link SandboxTarget.admin}). Bucket /
+ * dbName / rules options follow the same first-call-per-`Sandbox`
+ * semantics as {@link getStorageSandbox}.
+ *
+ * This is the storage mirror of `getAdminFirestore` /
+ * `getAdminDatabase` — the handle the SharedWorker host resolves for
+ * `actAs: { mode: 'admin' }` storage ops (firebase-admin semantics
+ * over the bridge). Deliberately NOT on the public `pyric/storage`
+ * surface so the modular API stays rules-honest.
+ */
+export function getAdminStorageSandbox(
+  sandbox: Sandbox,
+  options: StorageOptions = {},
+): FirebaseStorage {
+  // Service first (late differing `rules` must throw, even on a cache hit).
+  const servicePromise = ensureService(sandbox, options, 'getAdminStorageSandbox');
+
+  const cached = ADMIN_SANDBOX_HANDLES.get(sandbox);
+  if (cached) return cached;
+
+  const sandboxTarget: SandboxTarget = {
+    kind: 'sandbox',
+    sandbox,
+    // Anonymous context: the admin plane has no acting user. Rules are
+    // bypassed, so the context identity only feeds event provenance
+    // (`auth: null` — same as an anonymous caller).
+    context: sandbox.withAuth(null),
+    bucket: options.bucket ?? DEFAULT_BUCKET,
+    servicePromise,
+    admin: true,
+  };
+  const handle: FirebaseStorage = Object.freeze({ [TARGET_SYMBOL]: sandboxTarget });
+  ADMIN_SANDBOX_HANDLES.set(sandbox, handle);
   return handle;
 }
 

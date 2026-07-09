@@ -44,6 +44,13 @@ export interface HostCtx {
   rtdb?: Database;
   /** Cached admin (rules-bypass) RTDB handle for Studio/Playground data inspection. */
   adminRtdb?: Database;
+  /** Cached admin (rules-bypass) Storage handle for the `{ mode: 'admin' }`
+   *  lens — `pyric/storage/internal`'s `getAdminStorageSandbox`, the handle
+   *  the pyric-admin remote arm's storage ops resolve to. */
+  adminStorage?: FirebaseStorage;
+  /** Per-uid/token Storage handles for the impersonation lens (rules evaluate
+   *  as that user). Mirrors {@link HostCtx.lensRtdbs}. */
+  lensStorages?: Map<string, FirebaseStorage>;
   /** Per-uid RTDB handles carrying a port session's real identity. */
   sessionRtdbs?: Map<string, Database>;
   /** Per-uid/token RTDB handles for the Studio impersonation lens. */
