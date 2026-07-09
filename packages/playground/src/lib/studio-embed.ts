@@ -6,6 +6,10 @@ export const PLAYGROUND_OPEN_KEYS_MESSAGE = 'pyric:playground:open-keys';
 export const PLAYGROUND_OPEN_SETTINGS_MESSAGE = 'pyric:playground:open-settings';
 export const PLAYGROUND_OPEN_ACCOUNT_MESSAGE = 'pyric:playground:open-account';
 export const PLAYGROUND_SET_MODEL_MESSAGE = 'pyric:playground:set-model';
+/** playground → Studio: the current session breadcrumb, so Studio can render
+ *  it in its own Prototype controls bar (the embed-hidden TopBar has no home
+ *  for it, and the in-workspace StatusBar spot reads as misplaced). */
+export const PLAYGROUND_BREADCRUMB_MESSAGE = 'pyric:playground:breadcrumb';
 
 export type StudioSettingsSection = 'ai' | 'playground' | 'diagnostics';
 
@@ -133,4 +137,26 @@ export function postStudioSettingsNavigation(section?: StudioSettingsSection): v
     ...(section ? { section } : {}),
   };
   window.parent.postMessage(message, window.location.origin);
+}
+
+export interface PlaygroundBreadcrumbMessage {
+  type: typeof PLAYGROUND_BREADCRUMB_MESSAGE;
+  /** Root crumb label — "Prototype" when embedded. */
+  rootLabel: string;
+  /** Root crumb target (the session composer / home). Studio navigates its
+   *  iframe here on a root-crumb click. */
+  rootHref: string;
+  /** Current session title, or null before it hydrates (Studio falls back to
+   *  a short id form, same as the in-app rail did). */
+  title: string | null;
+}
+
+/** playground → Studio: publish the current breadcrumb. No-op outside an
+ *  embed (no parent frame). */
+export function postPlaygroundBreadcrumb(payload: Omit<PlaygroundBreadcrumbMessage, 'type'>): void {
+  if (typeof window === 'undefined' || window.parent === window) return;
+  window.parent.postMessage(
+    { type: PLAYGROUND_BREADCRUMB_MESSAGE, ...payload },
+    window.location.origin,
+  );
 }

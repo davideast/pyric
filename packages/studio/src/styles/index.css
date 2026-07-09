@@ -600,12 +600,52 @@ button.studio-card:hover {
 .studio-playground__controls {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: var(--space-2);
   padding: var(--space-2) var(--gutter);
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
   scrollbar-width: none;
+}
+/* Breadcrumb on the left; the model + key/settings/account controls pushed to
+   the right (margin-left:auto works whether or not a breadcrumb is present). */
+.studio-playground__controls-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+.studio-playground__crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.studio-playground__crumb-root {
+  color: var(--text-2);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+.studio-playground__crumb-root:hover {
+  color: var(--text-1);
+}
+.studio-playground__crumb-sep {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.studio-playground__crumb-current {
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
 }
 .studio-playground__frame {
   width: 100%;
