@@ -72,10 +72,11 @@
   --line: #2a2a35;
   --line-2: #3a3a48;
 
-  /* The ONE accent, used rarely. */
-  --accent: #19cc61;
-  --accent-tint: #15251c; /* subtle accent wash */
-  --accent-ink: #06120a;
+  /* The ONE accent, used rarely: muted violet (the emerging brand purple).
+     Tune the hue HERE — tint/ink derive from it visually. */
+  --accent: #8f7fe8;
+  --accent-tint: #1e1b2e; /* subtle accent wash */
+  --accent-ink: #14102a;
 
   /* Deny inverts to a light fill in dark (the mock's filled-deny chip). */
   --deny: #ededee;
@@ -103,8 +104,8 @@
     --line: #e7e8ec;
     --line-2: #d9dbe0;
 
-    --accent: #2f6df0;
-    --accent-tint: #f1f5ff;
+    --accent: #6b57d6;
+    --accent-tint: #f4f2fd;
     --accent-ink: #ffffff;
 
     --deny: #16181d;
@@ -131,8 +132,8 @@
   --line: #e7e8ec;
   --line-2: #d9dbe0;
 
-  --accent: #2f6df0;
-  --accent-tint: #f1f5ff;
+  --accent: #6b57d6;
+  --accent-tint: #f4f2fd;
   --accent-ink: #ffffff;
 
   --deny: #16181d;
