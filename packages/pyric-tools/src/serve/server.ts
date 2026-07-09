@@ -13,6 +13,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
+import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 
 export interface ServeLogger {
@@ -199,18 +200,24 @@ export function pipeFileToResponse(
   onError?: (err: Error) => void,
 ): void {
   const stream = createReadStream(file);
+  // Read-side failures keep the old contract: log via onError and, when
+  // headers haven't gone out yet, answer 500. (Attached BEFORE pipeline so
+  // it runs ahead of pipeline's own teardown of `res`.)
   stream.on('error', (err: Error) => {
     onError?.(err);
     if (!res.headersSent) {
       res.writeHead(500, { 'content-type': 'text/plain' }).end('read error');
-      return;
     }
-    res.destroy();
   });
-  // The response can error too (client vanished mid-stream) — swallow it so
-  // an aborted download can't surface as an unhandled 'error' event.
-  res.on('error', () => stream.destroy());
-  stream.pipe(res);
+  // stream.pipeline (not a bare .pipe) so a failure on EITHER side tears both
+  // streams down: a client abort mid-download now destroys the read stream
+  // (closing its fd — the hole .pipe left open), and a mid-stream read
+  // failure destroys the response (the client sees a truncated body), all
+  // without an event-loop-level 'error' escaping.
+  pipeline(stream, res, () => {
+    // Errors on both sides are consumed by the handler above / the teardown
+    // itself; the callback's existence is what keeps the process alive.
+  });
 }
 
 async function handleRequest(
