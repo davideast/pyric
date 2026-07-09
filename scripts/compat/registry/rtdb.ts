@@ -2597,7 +2597,7 @@ export const rtdbRegistry = {
           "riskScore": 2,
           "riskReasons": ["asserts transaction/batch atomicity"],
           "automation": "oracle-backed",
-          "oracleObservations": ["rtdb-modular-runtransaction-success"],
+          "oracleObservations": ["rtdb-modular-runtransaction-success", "rtdb-modular-runtransaction-warm-client-speculation"],
           "conformanceTests": ["packages/pyric/test/database/modular/transaction.test.ts"]
         },
         {
@@ -4159,12 +4159,12 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface",
           "behavior": "`onChildMoved` under an ordered query. Prod: fires when a child's `orderByChild`/`orderByValue` priority changes — emitted only on ordered queries. Sandbox: **never fires on reorder** — `onChildMoved` supports the plain-ref (no-fire) case only; the ordered-query overload is unimplemented",
           "status": "diverged-documented",
-          "evidence": "divergence, oracle-locked by `scripts/oracle/observations/rtdb-modular-onchildmoved-with-orderby.json`: prod observed `firedOnMove: 1` under `query(ref, orderByChild('priority'))` after bumping a child's priority to a new sort position; the sandbox fires 0 on reorder. Partial alignment landed: all `onChild*` now ACCEPT a `Query` (previously threw a misleading `unrecognized reference` TypeError) with window-aware `child_added`/`child_changed`/`child_removed` diffs (`src/database/sandbox/backend.ts`); `child_moved` reorder semantics and `previousChildName` ordering remain held pending two new oracle captures. Both sides pinned in `modular/oracle-conformance.test.ts` and `modular/sandbox-child-events.test.ts`. Sandbox Tier 2 locks the plain-ref no-fire case (M46).",
+          "evidence": "divergence, oracle-locked by `scripts/oracle/observations/rtdb-modular-onchildmoved-with-orderby.json`: prod observed `firedOnMove: 1` under `query(ref, orderByChild('priority'))` after bumping a child's priority to a new sort position; the sandbox fires 0 on reorder. Partial alignment landed: all `onChild*` now ACCEPT a `Query` (previously threw a misleading `unrecognized reference` TypeError) with window-aware `child_added`/`child_changed`/`child_removed` diffs (`src/database/sandbox/backend.ts`); the two hold-lifting captures now exist: `rtdb-modular-onchildmoved-previouschildname-sequencing` pins prev-name sequencing (end/middle/front reorders yield prev k3/k2/null, no initial replay) and `rtdb-modular-childchanged-cofire-with-childmoved` pins co-fire semantics (a reorder fires BOTH `child_changed` and `child_moved`; a non-ordered-field change fires neither moved; prod fires `child_moved` on an ordered-field value change EVEN WHEN RANK IS UNCHANGED). Implementation of ordered `child_moved` is unblocked. Both sides pinned in `modular/oracle-conformance.test.ts` and `modular/sandbox-child-events.test.ts`. Sandbox Tier 2 locks the plain-ref no-fire case (M46).",
           "risk": ["specific-field", "listener"],
           "riskScore": 3,
           "riskReasons": ["asserts a specific field/property value", "asserts listener semantics"],
           "automation": "oracle-backed",
-          "oracleObservations": ["rtdb-modular-onchildmoved-with-orderby"],
+          "oracleObservations": ["rtdb-modular-onchildmoved-with-orderby", "rtdb-modular-onchildmoved-previouschildname-sequencing", "rtdb-modular-childchanged-cofire-with-childmoved"],
           "conformanceTests": ["packages/pyric/test/database/modular/oracle-conformance.test.ts"]
         },
       ],
@@ -4608,7 +4608,7 @@ export const rtdbRegistry = {
           "api": "Modular SDK surface",
           "behavior": "The update fn is called with the CURRENT server value (may be `null` if the ref is empty); the fn's return value is the proposed new value",
           "status": "conforms",
-          "evidence": "oracle: `scripts/oracle/observations/rtdb-modular-runtransaction-success.json` — observed `seenCurrentValues: [null]` on first invocation against an empty ref (a single call, no speculative re-runs against `undefined`). NOTE — adjacent divergence pinned in `modular/oracle-conformance.test.ts`: for a SEEDED path, prod speculatively invokes the update fn twice (first with `null`, then the real value; `rtdb-modular-runtransaction-current-value-arg.json` `seededArgs.length: 2`) while the sandbox invokes once with the actual value. The argument-semantics claim of this row holds for the effective invocation on both sides. WARNING for update-fn authors: prod may invoke your fn first with `null` even when data exists — the pattern `if (current === null) return;` (abort-on-empty) silently loses writes on prod while working on the sandbox, and side effects inside the fn can run twice on prod. Held (not mimicked) deliberately: the speculative call is a cold-cache artifact, and sandbox determinism + replay depend on single invocation; re-evaluate when a warm-client capture exists.",
+          "evidence": "oracle: `scripts/oracle/observations/rtdb-modular-runtransaction-success.json` — observed `seenCurrentValues: [null]` on first invocation against an empty ref (a single call, no speculative re-runs against `undefined`). NOTE — adjacent divergence pinned in `modular/oracle-conformance.test.ts`: for a SEEDED path, prod speculatively invokes the update fn twice (first with `null`, then the real value; `rtdb-modular-runtransaction-current-value-arg.json` `seededArgs.length: 2`) while the sandbox invokes once with the actual value. The argument-semantics claim of this row holds for the effective invocation on both sides. WARNING for update-fn authors: prod may invoke your fn first with `null` even when data exists — the pattern `if (current === null) return;` (abort-on-empty) silently loses writes on prod while working on the sandbox, and side effects inside the fn can run twice on prod. RESOLVED by the warm-client capture `rtdb-modular-runtransaction-warm-client-speculation`: a warm prod client (active listener + prior get) receives a SINGLE invocation with the cached value, exactly matching the sandbox. The cold-cache speculative double-call is an artifact of an empty client cache, which the always-warm in-process sandbox structurally never has; the sandbox behavior IS the warm-client contract.",
           "risk": ["atomicity"],
           "riskScore": 2,
           "riskReasons": ["asserts transaction/batch atomicity"],
