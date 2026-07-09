@@ -31,7 +31,6 @@ import {
   toPageOriginWsUrl,
   type ConnectBridgeOptions,
   type ConnectedBridge,
-  type ConnectedBridgeState,
 } from 'pyric-tools/bridge/client';
 import {
   callTool,
@@ -56,10 +55,6 @@ export interface StudioBridgePeerOptions {
   /** Reconnect tuning passed through to `connectBridge` (tests). */
   initialReconnectDelayMs?: number;
   maxReconnectDelayMs?: number;
-  /** Connection-state observer passed through to `connectBridge` — the shell's
-   *  presence chip reads it. Also invoked with `disconnected` when discovery
-   *  concludes there is no serve/bridge to register with. */
-  onStateChange?: (state: ConnectedBridgeState) => void;
 }
 
 /**
@@ -92,12 +87,7 @@ export async function connectStudioBridgePeer(
 ): Promise<ConnectedBridge | null> {
   const baseUrl = options.baseUrl ?? '';
   const doFetch = options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : null);
-  const settleOff = (reason: string) =>
-    options.onStateChange?.({ kind: 'disconnected', reason });
-  if (!doFetch) {
-    settleOff('no fetch available');
-    return null;
-  }
+  if (!doFetch) return null;
 
   // Serve discovery: only a pyric serve answers /__pyric/init.json with JSON.
   // Anything else (no server, a dev-seed Vite host SPA-falling-back to HTML,
@@ -105,19 +95,12 @@ export async function connectStudioBridgePeer(
   let bridgeUrl: string | null;
   try {
     const res = await doFetch(`${baseUrl}/__pyric/init.json`);
-    if (!res.ok) {
-      settleOff('not served');
-      return null;
-    }
+    if (!res.ok) return null;
     bridgeUrl = ((await res.json()) as InitPayloadLite).bridgeUrl ?? null;
   } catch {
-    settleOff('not served');
     return null;
   }
-  if (!bridgeUrl) {
-    settleOff('bridge off'); // served, but the bridge is off
-    return null;
-  }
+  if (!bridgeUrl) return null; // served, but the bridge is off
 
   // Re-anchor the WS to THIS page's origin (Tailscale / LAN / https) — the
   // same re-anchoring the app page does before connecting.
@@ -132,7 +115,6 @@ export async function connectStudioBridgePeer(
     null as never,
     {
       ...studioBridgePeerOptions(db, url),
-      ...(options.onStateChange ? { onStateChange: options.onStateChange } : {}),
       ...(options.initialReconnectDelayMs !== undefined
         ? { initialReconnectDelayMs: options.initialReconnectDelayMs }
         : {}),

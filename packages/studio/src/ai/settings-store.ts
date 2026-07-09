@@ -4,7 +4,6 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { pushPath } from '../shell/router.js';
 
 let open = false;
 const listeners = new Set<() => void>();
@@ -14,7 +13,7 @@ function emit(): void {
 }
 
 export function openSettings(): void {
-  pushPath({ tab: 'settings' });
+  if (typeof window !== 'undefined') window.location.hash = 'settings';
   if (open) return;
   open = true;
   emit();

@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { IconKey, IconSettings, IconUser } from '../../shell/icons.js';
-import { PlaygroundModelControl } from './PlaygroundModelControl.js';
+import { useEffect, useMemo, type RefObject } from 'react';
 
 interface StudioSettingsMessage {
   type: 'pyric:studio:navigate-settings';
@@ -52,21 +50,14 @@ export function postPlaygroundCommand(
   frame?.contentWindow?.postMessage(message, window.location.origin);
 }
 
-/**
- * The Prototype surface: the embedded playground plus ITS contextual controls
- * (model/provider selection, keys, playground settings, account). The controls
- * live here — in the surface they act on — never in the shell bar (N2).
- */
 export function PlaygroundSurface({
+  frameRef,
   onNavigateSettings,
 }: {
+  frameRef?: RefObject<HTMLIFrameElement | null>;
   onNavigateSettings: (section?: StudioSettingsMessage['section']) => void;
 }) {
   const src = useMemo(() => playgroundSrc(), []);
-  const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const sendCommand = useCallback((message: PlaygroundCommandMessage) => {
-    postPlaygroundCommand(frameRef.current, message);
-  }, []);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -79,37 +70,7 @@ export function PlaygroundSurface({
   }, [onNavigateSettings]);
 
   return (
-    <section className="studio-playground" aria-label="Prototype">
-      <div className="studio-playground__controls" aria-label="Prototype controls">
-        <PlaygroundModelControl onCommand={sendCommand} />
-        <button
-          type="button"
-          className="studio-icon-button"
-          aria-label="Prototype API keys"
-          title="API keys"
-          onClick={() => sendCommand({ type: 'pyric:playground:open-keys' })}
-        >
-          <IconKey />
-        </button>
-        <button
-          type="button"
-          className="studio-icon-button"
-          aria-label="Prototype settings"
-          title="Prototype settings"
-          onClick={() => sendCommand({ type: 'pyric:playground:open-settings' })}
-        >
-          <IconSettings />
-        </button>
-        <button
-          type="button"
-          className="studio-icon-button"
-          aria-label="Prototype account"
-          title="Account"
-          onClick={() => sendCommand({ type: 'pyric:playground:open-account' })}
-        >
-          <IconUser />
-        </button>
-      </div>
+    <section className="studio-playground" aria-label="Playground">
       <iframe
         ref={frameRef}
         className="studio-playground__frame"

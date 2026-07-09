@@ -4,30 +4,22 @@
  * The three Data sub-views (Firestore / Auth / Storage) each live behind their
  * own shell tab, and a clickable cross-reference jumps *between* them (a uid →
  * the Auth user, a `gs://` path → the Storage object, a doc path → the Firestore
- * document). Navigation state is encoded in the URL pathname under the app base
- * (see `shell/path.ts`), so the active view, the in-service location, and the
- * lens are deep-linkable, survive reload and per-tab remounts, and follow
- * browser back/forward:
+ * document). Navigation state is encoded in the URL hash (see `shell/hash.ts`),
+ * so the active view, the in-service location, and the lens are deep-linkable,
+ * survive reload and per-tab remounts, and follow browser back/forward:
  *
- *   /firestore/<collection>/<doc>/...   the drill path
- *   /auth/<uid>                         the focused user
- *   /storage/<object/path>              the focused object
+ *   #firestore/<collection>/<doc>/...   the drill path
+ *   #auth/<uid>                         the focused user
+ *   #storage/<object/path>              the focused object
  *   ?lens=app                           app-session lens (admin is the default, omitted)
- *   /traffic?denial=<id>                traffic drill-in for a denied request
+ *   #traffic?denial=<id>                traffic drill-in for a denied request
  *
- * `useDataNav()` reads the location via `useSyncExternalStore`; `navigate(...)`
- * / `setLens(...)` / `navigateDenial(...)` push through the shell's one history
- * facade (`shell/router.ts`).
+ * `useDataNav()` reads the hash via `useSyncExternalStore`; `navigate(...)` /
+ * `setLens(...)` / `navigateDenial(...)` write it.
  */
 
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
-import {
-  currentPath,
-  locationKey,
-  pushPath,
-  subscribeToLocation,
-} from '../../shell/router.js';
-import { parsePath } from '../../shell/path.js';
+import { parseHash, serializeHash } from '../../shell/hash.js';
 import type { CrossRef } from './refs.js';
 import type { DataLens } from './sandbox.js';
 
@@ -65,18 +57,14 @@ interface NavState {
   selectedDenialId: string | null;
 }
 
-// ─── URL-derived store ──────────────────────────────────────────────────────
+// ─── Hash-derived store ─────────────────────────────────────────────────────
 //
-// The URL IS the store. `getSnapshot` must return a STABLE reference while the
-// location is unchanged (else `useSyncExternalStore` re-renders forever), so we
-// memoize the derived state on the raw `pathname + search` key.
+// The URL hash IS the store. `getSnapshot` must return a STABLE reference while
+// the hash is unchanged (else `useSyncExternalStore` re-renders forever), so we
+// memoize the derived state on the raw hash string.
 
 function deriveNav(raw: string): NavState {
-  const qIdx = raw.indexOf('?');
-  const { tab, rest, query } = parsePath(
-    qIdx === -1 ? raw : raw.slice(0, qIdx),
-    qIdx === -1 ? '' : raw.slice(qIdx),
-  );
+  const { tab, rest, query } = parseHash(raw);
   // Admin lens by default (rules bypassed); `?lens=app` selects app-session.
   const lens: DataLens = query.lens === 'app' ? 'app-session' : 'admin';
   let target: DataTarget | null = null;
@@ -95,7 +83,7 @@ let cachedRaw: string | null = null;
 let cachedSnap: NavState = deriveNav('');
 
 function getSnapshot(): NavState {
-  const raw = locationKey();
+  const raw = typeof window !== 'undefined' ? window.location.hash : '';
   if (raw !== cachedRaw) {
     cachedRaw = raw;
     cachedSnap = deriveNav(raw);
@@ -105,6 +93,16 @@ function getSnapshot(): NavState {
 
 function getServerSnapshot(): NavState {
   return cachedSnap;
+}
+
+function subscribe(cb: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  window.addEventListener('hashchange', cb);
+  return () => window.removeEventListener('hashchange', cb);
+}
+
+function writeHash(next: string): void {
+  if (typeof window !== 'undefined') window.location.hash = next;
 }
 
 /** The in-service `rest` segments for a target. */
@@ -123,26 +121,26 @@ function restForTarget(target: DataTarget): string[] {
 
 /** Switch sub-view (shell tab) + focus a target, preserving the lens. */
 function navigateTo(target: DataTarget): void {
-  const cur = currentPath();
-  pushPath({
-    tab: target.view,
-    rest: restForTarget(target),
-    query: { lens: cur.query.lens },
-  });
+  const cur = parseHash();
+  writeHash(
+    serializeHash({ tab: target.view, rest: restForTarget(target), query: { lens: cur.query.lens } }),
+  );
 }
 
-function setLensUrl(lens: DataLens): void {
-  const cur = currentPath();
-  pushPath({
-    tab: cur.tab,
-    rest: cur.rest,
-    query: { ...cur.query, lens: lens === 'app-session' ? 'app' : undefined },
-  });
+function setLensHash(lens: DataLens): void {
+  const cur = parseHash();
+  writeHash(
+    serializeHash({
+      tab: cur.tab,
+      rest: cur.rest,
+      query: { ...cur.query, lens: lens === 'app-session' ? 'app' : undefined },
+    }),
+  );
 }
 
-function navigateDenialUrl(id: string): void {
-  const cur = currentPath();
-  pushPath({ tab: 'traffic', query: { denial: id, lens: cur.query.lens } });
+function navigateDenialHash(id: string): void {
+  const cur = parseHash();
+  writeHash(serializeHash({ tab: 'traffic', query: { denial: id, lens: cur.query.lens } }));
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
@@ -164,7 +162,7 @@ export interface DataNavValue {
 }
 
 export function useDataNav(): DataNavValue {
-  const snap = useSyncExternalStore(subscribeToLocation, getSnapshot, getServerSnapshot);
+  const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const navigate = useCallback((next: DataTarget) => navigateTo(next), []);
 
@@ -184,8 +182,8 @@ export function useDataNav(): DataNavValue {
     }
   }, []);
 
-  const setLens = useCallback((lens: DataLens) => setLensUrl(lens), []);
-  const navigateDenial = useCallback((id: string) => navigateDenialUrl(id), []);
+  const setLens = useCallback((lens: DataLens) => setLensHash(lens), []);
+  const navigateDenial = useCallback((id: string) => navigateDenialHash(id), []);
 
   return useMemo<DataNavValue>(
     () => ({

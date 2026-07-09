@@ -281,20 +281,15 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     ) {
       // The built Pyric Studio app. Served verbatim (NOT through
       // injectServeTags: that import-map/init injection is for sandbox pages,
-      // not Studio). Studio uses History-API routing under this mount, so any
-      // path that doesn't resolve to a real file falls back to index.html —
-      // INCLUDING paths with dots (deep links like /storage/uploads/logo.png).
-      // Only misses under Vite's content-hashed asset dir stay hard 404s, so a
-      // broken script/style URL fails loudly instead of returning HTML.
+      // not Studio). Studio uses hash routing, so any extension-less path under
+      // the mount falls back to index.html.
       if (url.pathname === '/__pyric/ui') {
         res.writeHead(301, { location: '/__pyric/ui/' }).end();
         return true;
       }
       const rel = url.pathname.slice('/__pyric/ui'.length) || '/';
       let file = resolveStaticFile(opts.studioUiDir, rel);
-      if (!file && !rel.startsWith('/assets/')) {
-        file = resolveStaticFile(opts.studioUiDir, '/index.html');
-      }
+      if (!file && !extname(rel)) file = resolveStaticFile(opts.studioUiDir, '/index.html');
       if (!file) {
         res.writeHead(404).end('not found');
         return true;
