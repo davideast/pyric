@@ -1,0 +1,15 @@
+{
+  "name": "messaging-web-token-stability",
+  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
+  "rowIds": [],
+  "description": "getToken(messaging, { vapidKey, serviceWorkerRegistration }) called a second time on the SAME service-worker registration returns the SAME token — no per-call rotation. Token value is prod noise; only the equality/shape facts are kept. rowIds:[]; rows land with the registry-admission ticket (surface admitted born-unverified under the CDD map).",
+  "observedAt": "2026-07-09T05:16:38.754Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "firstMinted": true,
+    "secondMinted": true,
+    "tokensEqual": true,
+    "sameLength": true
+  }
+}

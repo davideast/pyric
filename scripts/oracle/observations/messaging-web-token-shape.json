@@ -2,8 +2,8 @@
   "name": "messaging-web-token-shape",
   "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
   "rowIds": [],
-  "description": "getToken(messaging, { vapidKey, serviceWorkerRegistration }) against production FCM: token format facts. Probe: real Chromium, localhost secure context, permission granted, real registration API.",
-  "observedAt": "2026-07-09T03:41:12.375Z",
+  "description": "getToken(messaging, { vapidKey, serviceWorkerRegistration }) against production FCM: token format facts. Probe: real Chromium, localhost secure context, permission granted, real registration API. rowIds:[]; rows land with the registry-admission ticket (surface admitted born-unverified under the CDD map).",
+  "observedAt": "2026-07-09T05:16:38.754Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "behavior": {
