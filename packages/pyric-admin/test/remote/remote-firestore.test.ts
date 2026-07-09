@@ -803,6 +803,68 @@ describe('pyric-admin remote Firestore — onSnapshot', () => {
     unsub();
   });
 
+  it('spurious-emission matrix: unrelated activity and peer churn re-fire NOTHING', async () => {
+    // Live bug: with a browser tab + a Studio tab open, the two pages cycled
+    // through the bridge's last-wins peer registration (each reconnecting
+    // after ~500ms), and every registration re-issued the sub registry — the
+    // re-established worker listener's initial snapshot reached the consumer,
+    // so a remote doc listener fired ~1/sec with byte-identical data and no
+    // document change. Real Firestore listeners fire on change only; a
+    // callback that writes anything becomes an infinite write loop.
+    const { bridge, ctx, remote } = makeStack();
+    const db = getAdminFirestore(remote);
+    await db.doc('live/check').set({ n: 1, at: 'fixed' });
+
+    const docFires: string[] = [];
+    const queryFires: string[] = [];
+    onSnapshot(db.doc('live/check'), (snap) => {
+      docFires.push(JSON.stringify(snap.data()));
+    });
+    (
+      db.collection('live') as unknown as {
+        onSnapshot(cb: (snap: { docs: Array<{ id: string }> }) => void): () => void;
+      }
+    ).onSnapshot((snap) => {
+      queryFires.push(JSON.stringify(snap.docs.map((d) => d.id)));
+    });
+    await tick();
+    expect(docFires).toHaveLength(1); // initial snapshots only
+    expect(queryFires).toHaveLength(1);
+
+    // Unrelated activity on the shared worker sandbox — none of it touches
+    // live/*, so neither listener may fire.
+    await workerOp(ctx, {
+      method: 'setDoc', path: 'other/doc', data: { x: 1 }, actAs: { mode: 'admin' },
+    });
+    await workerOp(ctx, { method: 'rtdb.set', path: 'presence/x', value: { on: true } });
+    await workerOp(ctx, {
+      method: 'auth.createUser', email: 'ambient@example.com', password: 'pw-123456',
+    });
+    await workerOp(ctx, { method: 'exportState' }); // the persistence-flush read path
+    await workerOp(ctx, { method: 'admin.readState' });
+    await workerOp(ctx, { method: 'getDoc', path: 'live/check', actAs: { mode: 'admin' } }); // Studio-like reads
+    await workerOp(ctx, {
+      method: 'getDocs', source: { __ref: 'collection', path: 'other' }, actAs: { mode: 'admin' },
+    });
+    // Peer churn — the trigger the live cadence came from.
+    for (let i = 0; i < 3; i++) {
+      connectTab(bridge, ctx);
+      await tick();
+    }
+    await tick(50);
+    expect(docFires).toHaveLength(1); // zero spurious emissions
+    expect(queryFires).toHaveLength(1);
+
+    // Legitimate changes still deliver — rapid consecutive writes are two
+    // distinct emissions, and a change made right after churn delivers too.
+    await db.doc('live/check').set({ n: 2, at: 'fixed' });
+    await db.doc('live/check').set({ n: 3, at: 'fixed' });
+    await tick();
+    expect(docFires).toHaveLength(3);
+    expect(docFires[2]).toBe(JSON.stringify({ n: 3, at: 'fixed' }));
+    expect(queryFires).toHaveLength(3);
+  });
+
   it('a denied listener routes to onError with the local arm error shape', async () => {
     const { remote } = makeStack({ rules: MATRIX_RULES });
     const db = getFirestore(remote.withAuth({ uid: 'bob' }));
