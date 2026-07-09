@@ -717,13 +717,16 @@ export interface ServiceMutationEvent {
    * redundantly here so a consumer matching purely on `kind` still gets the
    * discriminator without reaching into provenance.)
    */
-  service: 'auth' | 'storage' | 'rtdb';
+  service: 'auth' | 'storage' | 'rtdb' | 'messaging';
   /**
    * Service-scoped operation name. Stable, lowercase, snake/kebab-free:
-   *   - auth:    `user_create` | `user_update` | `user_delete` |
-   *              `users_clear` | `sign_in` | `sign_out`
-   *   - storage: `object_put` | `object_delete` | `metadata_update`
-   *   - rtdb:    `set` | `update` | `remove` | `transaction`
+   *   - auth:      `user_create` | `user_update` | `user_delete` |
+   *                `users_clear` | `sign_in` | `sign_out`
+   *   - storage:   `object_put` | `object_delete` | `metadata_update`
+   *   - rtdb:      `set` | `update` | `remove` | `transaction`
+   *   - messaging: `message_accepted` | `message_rejected` |
+   *                `delivery_routed` | `message_delivered` |
+   *                `token_minted` | `token_deleted` | `subscription_changed`
    * New ops can be added without a breaking change (consumers switch with a
    * default branch).
    */
@@ -899,7 +902,7 @@ export interface SandboxRuntimeErrorEvent {
  * omit `service`, read as `'firestore'`); Pyric Studio's keystone track makes
  * Auth/Storage/RTDB emit into this same stream. See the design rationale.
  */
-export type EventService = 'firestore' | 'auth' | 'storage' | 'rtdb';
+export type EventService = 'firestore' | 'auth' | 'storage' | 'rtdb' | 'messaging';
 
 /** Who initiated the operation behind an event (Studio attributes activity to
  *  the human, the app, or a specific agent). Absent ⇒ the served app. */
