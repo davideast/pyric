@@ -161,31 +161,25 @@
   margin-left: 0;
 }
 
-/* ── create-collection / create-document / import-JSON inline panes ───────
-   Disclosed under the pane header in place of the list (C3: inline
-   disclosure, not a modal). Gap-based vertical rhythm (L2); no self-margins
-   on the root (L3) — the parent `.fs-pane` supplies the padding rhythm via
-   this block's own padding. */
+/* ── import-JSON inline pane ──────────────────────────────────────────────
+   Disclosed under the pane header in place of the list (bulk paste wants
+   room, not a dialog). FORM LAW: labels stacked ABOVE controls in smaller
+   text, tight (6px) to their group; groups spaced further (16px) by the
+   root's gap; errors small and tight. Alignment comes from the layout
+   column — no per-element nudges. */
 [data-pyric-ui='fs-browser'] .fs-create {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   padding: 12px 18px 24px;
 }
-[data-pyric-ui='fs-browser'] .fs-create__label {
-  font-size: var(--fs-label);
-  color: var(--color-slate-gray);
-}
-[data-pyric-ui='fs-browser'] .fs-create__collid {
+[data-pyric-ui='fs-browser'] .fs-create__group {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-[data-pyric-ui='fs-browser'] .fs-create__hint {
-  margin: 0;
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-micro);
-  text-transform: uppercase;
+[data-pyric-ui='fs-browser'] .fs-create__label {
+  font-size: var(--fs-label);
   color: var(--color-slate-gray);
 }
 [data-pyric-ui='fs-browser'] .fs-create input[type='text'],
@@ -203,24 +197,99 @@
   outline: none;
   border-color: var(--color-primary);
 }
-[data-pyric-ui='fs-create-id'] {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-[data-pyric-ui='fs-browser'] .fs-create__idmode {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--fs-label);
-  color: var(--color-slate-gray);
-}
 [data-pyric-ui='fs-browser'] .fs-create__err {
   color: var(--color-danger);
   font-size: var(--fs-caption);
 }
 [data-pyric-ui='fs-browser'] .fs-create__actions {
   display: flex;
+  gap: 10px;
+}
+
+/* ── create-collection / create-document MODAL ────────────────────────────
+   The emulator-ui composable dialog flow (FirestoreCreateModal). Same form
+   law as above: the modal body is one layout column; each group stacks its
+   small label tight over the control, errors/hints tight under it; groups
+   are spaced further by the column gap. */
+.fs-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: color-mix(in srgb, var(--color-content-bg) 55%, transparent);
+  backdrop-filter: blur(1.5px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 9vh 16px 16px;
+}
+.fs-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(560px, 100%);
+  max-height: 82vh;
+  overflow: auto;
+  background: var(--color-content-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  padding: 18px 20px 20px;
+  box-shadow: 0 18px 48px color-mix(in srgb, #000 35%, transparent);
+}
+.fs-modal__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-soft-white);
+}
+.fs-modal__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fs-modal__label {
+  font-size: var(--fs-label);
+  color: var(--color-slate-gray);
+}
+.fs-modal__path {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--color-slate-gray);
+  overflow-wrap: anywhere;
+}
+.fs-modal__group input[type='text'] {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--color-soft-white);
+  background: var(--color-content-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.fs-modal__group input[type='text']:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+.fs-modal__err {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--fs-caption);
+}
+.fs-modal__hint {
+  color: var(--color-slate-gray);
+  font-size: var(--fs-caption);
+}
+/* The field editor sits on the modal's layout column: its rows and the
+   "+ Add field" affordance share the same left edge (the grid enforces
+   alignment; see the field-entry padding note below). */
+.fs-modal__fields {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 4px 12px 10px;
+}
+.fs-modal__actions {
+  display: flex;
+  justify-content: flex-end;
   gap: 10px;
 }
 
@@ -672,12 +741,16 @@
   display: flex;
   flex-direction: column;
 }
+/* Field rows carry NO horizontal self-padding: the parent container
+   (.fs-editor / .fs-create / .fs-modal__fields) owns the gutter, so field
+   rows and the "+ Add field" affordance sit on the SAME grid edge — no
+   per-element nudges. */
 [data-pyric-ui='document-editor'] [data-pyric-field-entry] {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px 10px;
-  padding: 8px 18px;
+  padding: 8px 0;
   border-top: 1px solid var(--color-border);
 }
 [data-pyric-ui='document-editor'] [data-pyric-field-entry]:first-child {

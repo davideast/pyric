@@ -32,11 +32,34 @@ import type {
 import { useDocumentList } from '@pyric/ui/firestore/hooks';
 import { useDataNav, parseDocPath, type NavigationPathSegment } from './navigation.js';
 import type { StudioDataHandles } from './sandbox.js';
-import { NewCollectionForm, NewDocumentForm, ImportJsonPanel } from './FirestoreCreatePanels.js';
+import { ImportJsonPanel } from './FirestoreImportPanel.js';
+import { FirestoreCreateModal, type FirestoreCreateSubmit } from './FirestoreCreateModal.js';
 import './firestore.css';
 
 /** The editor state shape `DocumentEditor.Root`'s `onChange` emits. */
 type EditorState = Parameters<NonNullable<DocumentEditorRootProps['onChange']>>[0];
+
+/** CREATE semantics without a create primitive on `FirestoreApi`: probe the
+ *  backend with `getDoc`, refuse to overwrite, then `setDoc` (the same probe
+ *  `useDocumentList().createDocument` uses — see that hook's decision note). */
+async function createDocWithProbe(
+  api: FirestoreApi,
+  coll: CollectionReference,
+  docId: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const ref = api.doc(coll, docId);
+  const existing = await api.getDoc(ref);
+  // `exists` is a method on modular snapshots, a boolean on compat shapes.
+  const exists =
+    typeof existing.exists === 'function'
+      ? existing.exists()
+      : Boolean(existing.exists as unknown);
+  if (exists) {
+    throw new Error(`Document "${docId}" already exists here — choose a different ID.`);
+  }
+  await api.setDoc(ref, data);
+}
 
 /**
  * Build a `CollectionReference` for a (possibly nested) collection path,
@@ -86,6 +109,28 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
   const selectAt = (i: number, seg: NavigationPathSegment) =>
     setPath((p) => [...p.slice(0, i + 1), seg]);
 
+  // "Start a collection" modal (root, or a subcollection under a document).
+  // `parentDocPath === null` means a root collection. Document creation in an
+  // EXISTING collection is the same modal at the document step, owned by the
+  // DocumentColumn (it holds the list hook that refreshes).
+  const [collectionTarget, setCollectionTarget] = useState<{ parentDocPath: string | null } | null>(
+    null,
+  );
+  const createCollection = useCallback(
+    async ({ collectionId, docId, data }: FirestoreCreateSubmit) => {
+      if (!collectionTarget || !collectionId) return;
+      const parent = collectionTarget.parentDocPath;
+      const coll = parent
+        ? api.collection(api.doc(firestore, parent), collectionId)
+        : api.collection(firestore, collectionId);
+      await createDocWithProbe(api, coll, docId, data);
+      const collPath = parent ? `${parent}/${collectionId}` : collectionId;
+      // Land inside the new document (also refreshes the root collection list).
+      navigate({ view: 'firestore', path: parseDocPath(`${collPath}/${docId}`) });
+    },
+    [api, firestore, collectionTarget, navigate],
+  );
+
   // The full column stack: root collections + one column per path segment.
   const columns = [
     <CollectionColumn
@@ -94,12 +139,7 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
       firestore={firestore}
       collectionIds={handles.listRootCollections()}
       onSelect={(id) => setPath([{ kind: 'collection', id, path: id }])}
-      onCreated={(collId, docId) =>
-        setPath([
-          { kind: 'collection', id: collId, path: collId },
-          { kind: 'document', id: docId, path: `${collId}/${docId}` },
-        ])
-      }
+      onStartCollection={() => setCollectionTarget({ parentDocPath: null })}
     />,
     ...path.map((seg, i) =>
       seg.kind === 'collection' ? (
@@ -120,6 +160,7 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
           docPath={seg.path}
           onOpenSubcollection={(coll) => selectAt(i, { kind: 'collection', id: coll.id, path: coll.path })}
           onReferenceClick={(r) => navigate({ view: 'firestore', path: parseDocPath(r.path) })}
+          onStartCollection={() => setCollectionTarget({ parentDocPath: seg.path })}
         />
       ),
     ),
@@ -151,6 +192,14 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
     <div data-pyric-ui="fs-browser" data-fs-depth={path.length}>
       <Breadcrumb path={path} onHome={() => setPath([])} onJump={(i) => setPath((p) => p.slice(0, i + 1))} />
       <div className="fs-columns">{visible}</div>
+      {collectionTarget ? (
+        <FirestoreCreateModal
+          mode="collection"
+          parentPath={collectionTarget.parentDocPath ? `/${collectionTarget.parentDocPath}` : '/'}
+          onCreate={createCollection}
+          onClose={() => setCollectionTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -203,55 +252,40 @@ function EmptyColumn({ hint }: { hint: string | null }) {
   );
 }
 
-/** Root collections column. A "+ New" toggle in the header discloses an
- *  inline `<NewCollectionForm>` (C3/C4: inline disclosure, one primary
- *  action) — Firestore collections only exist once they have a document, so
- *  creating one is really "collection id + first document". */
+/** Root collections column. "+ New" opens the create-collection MODAL
+ *  (the emulator-ui composable dialog flow — see `FirestoreCreateModal`);
+ *  Firestore collections only exist once they have a document, so creating
+ *  one is really "collection id + first document" in one modal. */
 function CollectionColumn({
   api,
   firestore,
   collectionIds,
   onSelect,
-  onCreated,
+  onStartCollection,
 }: {
   api: FirestoreApi;
   firestore: Firestore;
   collectionIds: string[];
   onSelect: (id: string) => void;
-  onCreated: (collectionId: string, docId: string) => void;
+  onStartCollection: () => void;
 }) {
   const collections = useMemo(
     () => collectionIds.map((id) => api.collection(firestore, id)),
     [api, firestore, collectionIds],
   );
-  const [creating, setCreating] = useState(false);
   return (
     <section data-pyric-ui="fs-collections" className="fs-pane fs-col">
       <div className="fs-phead">
         <span className="fs-phead-title">Collections</span>
-        {!creating ? (
-          <button type="button" className="fs-add" onClick={() => setCreating(true)}>
-            + New
-          </button>
-        ) : null}
+        <button type="button" className="fs-add" onClick={onStartCollection}>
+          + New
+        </button>
       </div>
-      {creating ? (
-        <NewCollectionForm
-          api={api}
-          firestore={firestore}
-          onCreated={(collId, docId) => {
-            setCreating(false);
-            onCreated(collId, docId);
-          }}
-          onCancel={() => setCreating(false)}
-        />
-      ) : (
-        <CollectionList
-          collections={collections}
-          onSelect={(coll) => onSelect(coll.id)}
-          emptyState={<p className="fs-empty">No collections yet. App or agent writes show up here.</p>}
-        />
-      )}
+      <CollectionList
+        collections={collections}
+        onSelect={(coll) => onSelect(coll.id)}
+        emptyState={<p className="fs-empty">No collections yet. App or agent writes show up here.</p>}
+      />
     </section>
   );
 }
@@ -281,10 +315,11 @@ function DocumentColumn({
   // immediately (rapid bulk delete). Only one row arms at a time.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<Error | null>(null);
-  // At most one create/import disclosure open at a time (C4: one primary
-  // action per surface) — "New document" and "Import JSON" are two SEPARATE
-  // secondary affordances, not crammed into one form.
-  const [disclosure, setDisclosure] = useState<'none' | 'new' | 'import'>('none');
+  // "+ New" opens the create-document MODAL (the same composable modal the
+  // collection flow uses, opened at the document step — the collection is
+  // fixed). Import JSON stays an inline disclosure: bulk paste wants room.
+  const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const doDelete = useCallback(
     async (r: DocumentReference) => {
       setDeleteError(null);
@@ -301,35 +336,42 @@ function DocumentColumn({
     <section data-pyric-ui="fs-documents" className="fs-pane fs-col">
       <div className="fs-phead">
         <span className="fs-phead-title">{collId}</span>
-        {disclosure === 'none' ? (
+        {!importing ? (
           <span className="fs-phead-actions">
-            <button type="button" className="fs-add" onClick={() => setDisclosure('new')}>
+            <button type="button" className="fs-add" onClick={() => setCreating(true)}>
               + New
             </button>
-            <button type="button" className="fs-add" onClick={() => setDisclosure('import')}>
+            <button type="button" className="fs-add" onClick={() => setImporting(true)}>
               Import JSON
             </button>
           </span>
         ) : null}
       </div>
 
-      {disclosure === 'new' ? (
-        <NewDocumentForm
-          createDocument={createDocument}
-          onCreated={() => setDisclosure('none')}
-          onCancel={() => setDisclosure('none')}
+      {creating ? (
+        <FirestoreCreateModal
+          mode="document"
+          parentPath={`/${collectionPath}`}
+          onCreate={async ({ docId, data }) => {
+            // CREATE semantics (the hook's getDoc probe): never overwrite.
+            const ref = (await createDocument(docId, data, {
+              onExisting: 'fail',
+            })) as DocumentReference;
+            onSelect(ref);
+          }}
+          onClose={() => setCreating(false)}
         />
       ) : null}
-      {disclosure === 'import' ? (
+      {importing ? (
         <ImportJsonPanel
           existingIds={documents.map((d) => d.id)}
           createDocument={createDocument}
-          onDone={() => setDisclosure('none')}
-          onCancel={() => setDisclosure('none')}
+          onDone={() => setImporting(false)}
+          onCancel={() => setImporting(false)}
         />
       ) : null}
 
-      {disclosure === 'none' ? (
+      {!importing ? (
         <DocumentList
         documents={documents}
         isLoading={isLoading}
@@ -402,8 +444,10 @@ function DocumentColumn({
 }
 
 /** One document's detail: fields (read) or the typed editor, plus its
- *  subcollections (drillable). The breadcrumb carries the path, so no
- *  in-column path label. */
+ *  subcollections (drillable) and a "+ Collection" affordance that spawns a
+ *  SUBCOLLECTION through the same create modal (collection step seeded with
+ *  this document's path — it's the tree, composable). The breadcrumb carries
+ *  the path, so no in-column path label. */
 function DocumentDetailColumn({
   api,
   firestore,
@@ -411,6 +455,7 @@ function DocumentDetailColumn({
   docPath,
   onOpenSubcollection,
   onReferenceClick,
+  onStartCollection,
 }: {
   api: FirestoreApi;
   firestore: Firestore;
@@ -418,6 +463,7 @@ function DocumentDetailColumn({
   docPath: string;
   onOpenSubcollection: (coll: CollectionReference) => void;
   onReferenceClick: (ref: DocumentReference) => void;
+  onStartCollection: () => void;
 }) {
   const ref = useMemo(() => api.doc(firestore, docPath), [api, firestore, docPath]);
   const [snapshot, setSnapshot] = useState<DocumentSnapshot | null>(null);
@@ -456,9 +502,14 @@ function DocumentDetailColumn({
       <div className="fs-phead">
         <span className="fs-phead-title">{docId}</span>
         {!editing ? (
-          <button type="button" onClick={() => setEditing(true)} className="fs-docact">
-            Edit
-          </button>
+          <span className="fs-phead-actions">
+            <button type="button" className="fs-add" onClick={onStartCollection}>
+              + Collection
+            </button>
+            <button type="button" onClick={() => setEditing(true)} className="fs-docact">
+              Edit
+            </button>
+          </span>
         ) : null}
       </div>
 
