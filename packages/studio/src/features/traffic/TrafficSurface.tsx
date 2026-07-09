@@ -12,14 +12,21 @@
  *      non-rule ops — derived from fields the events already carry
  *      (`verdict.ts`). Clicking a row navigates to the record the op touched
  *      (`subjectTarget` → the route codec), EXCEPT deny rows, which tint
- *      subtly and EXPAND IN PLACE (disclosure, no modal) with operation,
- *      path, acting identity, and the denial reasons when present.
+ *      subtly and EXPAND IN PLACE (disclosure, no modal) into the DENIAL
+ *      INSPECTION detail (features/rules-debug): the denying rule per service,
+ *      request.auth, the data the rule saw, and the capability-gated re-runs.
+ *
+ * The open denial lives in the URL (`?denial=<id>`, the key `shell/path.ts`
+ * documents and the command palette already targets), so a denial view is
+ * linkable and back/forward work. Esc (or the close control, or re-clicking
+ * the row) returns to the log. A deep-linked id that isn't in the current
+ * buffer renders a calm "not in this session's traffic" state.
  *
  * Data is the request/operation slice of the unified event stream (the
  * dev-seed drives real allow/deny ops; `dev --ui` streams live).
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   TrafficGroupRow,
   TrafficRow,
@@ -29,10 +36,8 @@ import {
   type TimeWindow,
 } from '@pyric/ui/traffic';
 import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-data.js';
-import { pushPath } from '../../shell/router.js';
+import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
 import {
-  actingIdentity,
-  denialReasons,
   filterByVerdict,
   subjectTarget,
   verdictFor,
@@ -40,6 +45,8 @@ import {
   type StudioTrafficEvent,
   type VerdictFilter,
 } from './verdict.js';
+import { queryWithDenial, selectedDenialId, toggleDenial } from './denial-selection.js';
+import { TrafficDenialInspector } from './TrafficDenialInspector.js';
 import './traffic.css';
 
 /** A coarse "Nm ago" for the timeline's left axis tick. */
@@ -62,27 +69,13 @@ function VerdictCell({ event }: { event: StudioTrafficEvent }) {
   );
 }
 
-/** In-place deny disclosure: operation, path, acting identity, reasons. */
-function DenyDisclosure({ event }: { event: StudioTrafficEvent }) {
-  const reasons = denialReasons(event);
-  return (
-    <div className="traffic__deny-detail" data-pyric-ui="traffic-deny-detail">
-      <dl className="traffic__deny-facts">
-        <dt>operation</dt>
-        <dd>{event.method}</dd>
-        <dt>path</dt>
-        <dd>{event.path}</dd>
-        <dt>acting identity</dt>
-        <dd>{actingIdentity(event)}</dd>
-      </dl>
-      {reasons.length ? (
-        <ol className="traffic__deny-reasons">
-          {reasons.map((r, i) => (
-            <li key={i}>{r}</li>
-          ))}
-        </ol>
-      ) : null}
-    </div>
+/** The URL-driven denial focus (`?denial=<id>`): the open denial's id, or
+ *  null. Read reactively so back/forward and palette deep links drive it. */
+function useDenialParam(): string | null {
+  return useSyncExternalStore(
+    subscribeToLocation,
+    () => selectedDenialId(currentPath().query),
+    () => null,
   );
 }
 
@@ -96,8 +89,30 @@ const PAGE_SIZE = 100;
 export function TrafficSurface() {
   const events = useStudioTraffic();
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const expandedId = useDenialParam();
   const [visibleRows, setVisibleRows] = useState(PAGE_SIZE);
+
+  // Selecting/closing a denial NAVIGATES (pushPath) so the view is linkable
+  // and back/forward step through inspections; other query keys survive.
+  const openDenial = (id: string) => {
+    pushPath({ tab: 'traffic', query: toggleDenial(currentPath().query, id) });
+  };
+  const closeDenial = () => {
+    pushPath({ tab: 'traffic', query: queryWithDenial(currentPath().query, null) });
+  };
+
+  // Esc returns to the log while a denial is open. (`globalThis`: the local
+  // `window` name below is the timeline's TimeWindow.)
+  useEffect(() => {
+    if (!expandedId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeDenial();
+    };
+    globalThis.addEventListener('keydown', onKey);
+    return () => globalThis.removeEventListener('keydown', onKey);
+    // closeDenial reads the URL at call time; no reactive deps beyond the flag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedId]);
 
   // The window spans from the earliest request (or 15m back) to just past now,
   // so a fresh session's handful of ops still lands a few buckets from the
@@ -132,12 +147,20 @@ export function TrafficSurface() {
   // the denial's detail IS Traffic's; its subject link would hide the why.
   const onRowSelect = (e: StudioTrafficEvent) => {
     if (verdictFor(e) === 'deny') {
-      setExpandedId((cur) => (cur === e.id ? null : e.id));
+      openDenial(e.id);
       return;
     }
     const target = subjectTarget(e);
     if (target) pushPath(target);
   };
+
+  // A deep-linked / filtered-out denial has no visible row to expand under:
+  // detect it so the inspector can render standalone above the log (this also
+  // covers an id that isn't in the buffer at all — the inspector shows the
+  // calm "not in this session's traffic" state).
+  const expandedRowVisible =
+    expandedId != null &&
+    visibleItems.some((item) => item.type !== 'group' && item.event.id === expandedId);
 
   return (
     <section data-pyric-ui="traffic-surface" className="traffic">
@@ -154,7 +177,17 @@ export function TrafficSurface() {
               {atCap ? ` (showing latest ${STUDIO_EVENT_CAP})` : ''}
             </span>
             {denied > 0 ? (
-              <span className="traffic__tl-deny">{denied} denied</span>
+              <button
+                type="button"
+                className="traffic__tl-deny"
+                aria-pressed={verdictFilter === 'deny'}
+                onClick={() =>
+                  setVerdictFilter((f) => (f === 'deny' ? 'all' : 'deny'))
+                }
+                title="Filter the stream to denied requests"
+              >
+                {denied} denied
+              </button>
             ) : null}
             <span className="traffic__tl-live">live</span>
           </div>
@@ -186,6 +219,17 @@ export function TrafficSurface() {
           </button>
         ))}
       </div>
+
+      {/* Deep-linked denial with no visible row (filtered out, beyond the
+          pagination fold, folded into a group, or absent from the buffer):
+          the inspector renders standalone above the log. */}
+      {expandedId && !expandedRowVisible ? (
+        <TrafficDenialInspector
+          key={expandedId}
+          denialId={expandedId}
+          onClose={closeDenial}
+        />
+      ) : null}
 
       {items.length === 0 ? (
         <p className="traffic__empty">
@@ -230,7 +274,11 @@ export function TrafficSurface() {
                   />
                   {item.event.id === expandedId &&
                   verdictFor(item.event as StudioTrafficEvent) === 'deny' ? (
-                    <DenyDisclosure event={item.event as StudioTrafficEvent} />
+                    <TrafficDenialInspector
+                      key={expandedId}
+                      denialId={expandedId}
+                      onClose={closeDenial}
+                    />
                   ) : null}
                 </li>
               ),

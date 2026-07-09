@@ -162,7 +162,14 @@ function DenialList({
 
 // ─── Denial detail (right column) ──────────────────────────────────────────
 
-function DenialDetail({
+/**
+ * The single-denial inspection detail: per-service rule explanation,
+ * request.auth, the data the rule saw, and the two capability-gated re-runs.
+ * Exported pure-props so other surfaces can mount ONE denial's inspection
+ * without the list layout — the Traffic surface renders this as a deny row's
+ * expanded detail (`features/traffic/TrafficDenialInspector.tsx`).
+ */
+export function DenialDetail({
   denial,
   editedRules,
   onEditedRulesChange,

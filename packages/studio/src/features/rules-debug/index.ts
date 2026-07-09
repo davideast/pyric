@@ -35,5 +35,5 @@ export {
   type RulesetLintFinding,
   type ImpersonationClient,
 } from './rerun.js';
-export { RulesDebug, type RulesDebugProps } from './RulesDebug.js';
+export { RulesDebug, DenialDetail, type RulesDebugProps } from './RulesDebug.js';
 export { RulesDebugPane } from './RulesDebugPane.js';
