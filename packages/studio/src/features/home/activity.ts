@@ -3,7 +3,8 @@
  *
  * PURE. Projects the unified `SandboxEvent` stream onto the capped,
  * provenance-stamped rows Home's feed renders: committed writes, denials,
- * service mutations (auth/storage/rtdb), and session boundaries. Reads,
+ * service mutations (auth/storage/rtdb), admin-plane RTDB commits (which
+ * emit no service_mutation), and session boundaries. Reads,
  * listener lifecycle, and snapshot deliveries are Traffic's domain and are
  * skipped here. Each row carries the route of its SUBJECT (the doc, user,
  * object, or denial it references) — detail belongs to the owning surface,
@@ -98,6 +99,20 @@ export function toActivityRow(event: SandboxEvent): ActivityRow | null {
         denied: false,
         summary: `${event.service} ${event.op}${path}`,
         target,
+      };
+    }
+    case 'commit': {
+      // RTDB admin-plane writes (Studio's viewer edits, agent admin ops)
+      // emit NO service_mutation — this commit is their only committed-write
+      // signal (verified empirically in activity.rtdb.test.ts). Rule-gated
+      // RTDB writes DO emit a service_mutation and are covered above, so
+      // only the admin-flagged commits project here (no double rows).
+      if (event.service !== 'rtdb' || event.detail?.admin !== true) return null;
+      return {
+        ...base,
+        denied: false,
+        summary: `rtdb ${event.method}${event.path ? ` ${event.path}` : ''}`,
+        target: { tab: 'rtdb' },
       };
     }
     case 'session_boundary':
