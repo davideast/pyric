@@ -17,8 +17,10 @@ export interface UseAuthProviderConfigResult {
   error: Error | undefined;
   /** Convenience lookup: `false` for a provider that's never been toggled. */
   isEnabled: (providerId: string) => boolean;
-  /** Toggle a provider on/off. Throws sandbox-only errors to the caller,
-   *  same policy as `useAuthUsers`'s mutation callbacks. */
+  /** Toggle a provider on/off. Sync (in-process) failures throw to the
+   *  caller, same policy as `useAuthUsers`'s mutation callbacks; an ASYNC
+   *  (worker-RPC) failure can't reach a sync caller, so it surfaces on the
+   *  hook's `error` state instead — never an unhandled rejection. */
   setEnabled: (providerId: string, enabled: boolean) => void;
   /** Re-read manually. Rarely needed — every mutation (this hook's own
    *  `setEnabled`, another handle, the agent) already triggers the
@@ -96,19 +98,40 @@ export function useAuthProviderConfig(auth: Auth): UseAuthProviderConfigResult {
     [config],
   );
 
+  const toError = (e: unknown) => (e instanceof Error ? e : new Error(String(e)));
+
   const setEnabled = useCallback(
-    (providerId: string, enabled: boolean) => apiSetAuthProviderConfig(auth, providerId, enabled),
+    (providerId: string, enabled: boolean) => {
+      // Over the worker this is an RPC promise — a fire-and-forget caller
+      // would otherwise leave a rejection unhandled and the toggle silently
+      // dead. Route async failures into the hook's error state; sync throws
+      // still propagate (in-process policy, matching useAuthUsers).
+      const r = apiSetAuthProviderConfig(auth, providerId, enabled) as void | Promise<void>;
+      if (r && typeof (r as Promise<void>).then === 'function') {
+        (r as Promise<void>).catch((e) => setError(toError(e)));
+      }
+    },
     [auth, apiSetAuthProviderConfig],
   );
 
   const refresh = useCallback(() => {
-    const r = getAuthProviderConfig(auth) as
-      | AuthProviderConfigEntry[]
-      | Promise<AuthProviderConfigEntry[]>;
-    if (r && typeof (r as Promise<AuthProviderConfigEntry[]>).then === 'function') {
-      void (r as Promise<AuthProviderConfigEntry[]>).then(setConfig).catch(() => {});
-    } else {
-      setConfig(r as AuthProviderConfigEntry[]);
+    try {
+      const r = getAuthProviderConfig(auth) as
+        | AuthProviderConfigEntry[]
+        | Promise<AuthProviderConfigEntry[]>;
+      if (r && typeof (r as Promise<AuthProviderConfigEntry[]>).then === 'function') {
+        void (r as Promise<AuthProviderConfigEntry[]>)
+          .then((c) => {
+            setConfig(c);
+            setError(undefined);
+          })
+          .catch((e) => setError(toError(e)));
+      } else {
+        setConfig(r as AuthProviderConfigEntry[]);
+        setError(undefined);
+      }
+    } catch (e) {
+      setError(toError(e));
     }
   }, [auth, getAuthProviderConfig]);
 

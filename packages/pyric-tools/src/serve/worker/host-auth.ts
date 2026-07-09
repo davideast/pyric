@@ -250,12 +250,17 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.acceptIdentity': {
       // Provider sign-in bridge: the page resolved a popup/redirect identity
-      // in-page (ServeAuthHelper) and hands it here. Seed it into the user DB
-      // (so rules `request.auth.token.*` claims resolve AND it shows in the
-      // picker next time), then mint THIS PORT's session for it — provider
-      // users have no password. Mirrors ServeAuthHelper.add's seeding.
+      // in-page (ServeAuthHelper) and hands it here. GATE FIRST: the page
+      // sandbox delegates provider enforcement to this worker (its picker
+      // opens unconditionally), so THIS is where Studio's provider toggles
+      // bite — a disabled provider throws `auth/operation-not-allowed`
+      // before any user-DB write. Then seed it into the user DB (so rules
+      // `request.auth.token.*` claims resolve AND it shows in the picker
+      // next time), and mint THIS PORT's session for it — provider users
+      // have no password. Mirrors ServeAuthHelper.add's seeding.
       try {
         const { uid, email, displayName, customClaims, providerId } = msg.identity;
+        authSandboxOps.assertAuthProviderEnabled(auth, providerId);
         authSandboxOps.seedUsers(auth, [{
           uid,
           email: email ?? '',

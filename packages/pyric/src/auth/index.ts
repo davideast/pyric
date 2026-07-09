@@ -846,17 +846,48 @@ export const sandbox = {
   },
 
   /**
-   * Enable/disable a sign-in provider. Gated at EVERY provider entry
-   * point (`signInWithPopup`/`signInWithRedirect`, `signInWithCredential`,
-   * `createUserWithEmailAndPassword`/`signInWithEmailAndPassword` for
-   * `'password'`, `signInAnonymously` for `'anonymous'`) — disabling a
-   * provider makes the matching sign-in call throw real Firebase's
-   * `auth/operation-not-allowed`, exactly like flipping the toggle off
-   * in the real console. Survives `enablePersistence` round-trips
-   * (rides the `auth` service's snapshot alongside the user DB).
+   * Enable/disable a sign-in provider. Gated at every provider entry
+   * point of the ENFORCING backend (`signInWithPopup`/`signInWithRedirect`,
+   * `signInWithCredential`, `createUserWithEmailAndPassword`/
+   * `signInWithEmailAndPassword` for `'password'`, `signInAnonymously`
+   * for `'anonymous'`) — disabling a provider makes the matching sign-in
+   * call throw real Firebase's `auth/operation-not-allowed`, exactly
+   * like flipping the toggle off in the real console. Survives
+   * `enablePersistence` round-trips (rides the `auth` service's
+   * snapshot alongside the user DB). A backend whose enforcement is
+   * delegated ({@link sandbox.delegateProviderEnforcement}) does NOT
+   * gate locally — the remote authority it fronts does.
    */
   setAuthProviderConfig(auth: Auth, providerId: string, enabled: boolean): void {
     requireSandbox(auth, 'sandbox.setAuthProviderConfig').backend.setProviderConfig(providerId, enabled);
+  },
+
+  /**
+   * Assert a provider is enabled — throws `auth/operation-not-allowed`
+   * (the exact gate every provider entry point uses) when it is off.
+   * For hosts that ARE the enforcement authority for identities
+   * resolved elsewhere: the served SharedWorker calls this before
+   * accepting a page-resolved popup/redirect identity
+   * (`auth.acceptIdentity`), so Studio's provider toggles gate served
+   * OAuth sign-in at the shared backend, not at each page's UI shim.
+   */
+  assertAuthProviderEnabled(auth: Auth, providerId: string): void {
+    requireSandbox(auth, 'sandbox.assertAuthProviderEnabled').backend.assertProviderEnabled(providerId);
+  },
+
+  /**
+   * Delegate (or reclaim) THIS handle's provider-enablement gate to a
+   * remote authority. Serve-layer wiring: in SharedWorker mode the
+   * page-local sandbox is only the UI vehicle for popup/redirect
+   * resolution — the worker's `auth.acceptIdentity` gate (against the
+   * worker's own, undelegated config) is the real toggle enforcement —
+   * so the served `firebase/auth` entry sets `true` on the in-page
+   * handle to let the picker open regardless of local defaults. Do NOT
+   * set this on a backend that is itself the authority.
+   */
+  delegateProviderEnforcement(auth: Auth, delegated: boolean): void {
+    requireSandbox(auth, 'sandbox.delegateProviderEnforcement')
+      .backend.setProviderEnforcementDelegated(delegated);
   },
 
   /**

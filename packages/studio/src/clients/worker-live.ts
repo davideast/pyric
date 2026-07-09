@@ -315,25 +315,31 @@ export function connectWorkerLive(
     } as unknown as FirestoreApi,
     auth: authHandle as unknown as Auth,
     // The worker auth admin ops as an AuthApi bundle (cast to the in-process
-    // signatures). `subscribeUsers` rides the event feed: any sandbox event
-    // (incl. an auth mutation) re-lists, matching the coarse in-process contract.
+    // signatures). `subscribeUsers` rides the event feed, FILTERED to auth
+    // service mutations (user create/update/delete/clear, sign-ins, provider
+    // links) — a Firestore write must not fire a `listUsers` RPC.
     authApi: {
       listUsers: () => workerListUsers(authHandle),
-      subscribeUsers: (_auth: unknown, cb: () => void) => feed.subscribe(() => cb()),
+      subscribeUsers: (_auth: unknown, cb: () => void) =>
+        feed.subscribe((event) => {
+          if (event.kind === 'service_mutation' && event.service === 'auth') cb();
+        }),
       createUser: (_auth: unknown, request: unknown) =>
         workerAdminCreateUser(authHandle, request as Parameters<typeof workerAdminCreateUser>[1]),
       updateUser: (_auth: unknown, uid: string, request: unknown) =>
         workerAdminUpdateUser(authHandle, uid, request as Parameters<typeof workerAdminUpdateUser>[2]),
       deleteUser: (_auth: unknown, uid: string) => workerAdminDeleteUser(authHandle, uid),
       clearUsers: () => workerAdminClearUsers(authHandle),
-      // Sign-in provider config: same event-feed re-list signal as
-      // `subscribeUsers` above — `setProviderConfig` fires a
-      // `provider_config_update` sandbox event, so one shared feed covers
-      // both the user DB and the provider toggles.
+      // Sign-in provider config: rides the same shared event feed, filtered
+      // to the ONE op that can change it (`provider_config_update`) — an
+      // unrelated sandbox event must not fire a `getProviderConfig` RPC.
       getAuthProviderConfig: () => workerGetProviderConfig(authHandle),
       setAuthProviderConfig: (_auth: unknown, providerId: string, enabled: boolean) =>
         workerSetProviderConfig(authHandle, providerId, enabled),
-      subscribeAuthProviderConfig: (_auth: unknown, cb: () => void) => feed.subscribe(() => cb()),
+      subscribeAuthProviderConfig: (_auth: unknown, cb: () => void) =>
+        feed.subscribe((event) => {
+          if (event.kind === 'service_mutation' && event.op === 'provider_config_update') cb();
+        }),
     } as unknown as AuthApi,
     storage: workerGetStorage(db) as unknown as FirebaseStorage,
     // The worker storage ops as a StorageApi bundle. `uploadBytes` is the

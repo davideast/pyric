@@ -15,10 +15,11 @@ import { useAuthFlowHelper } from '../../../src/auth/hooks/index.js';
 
 function freshAuth(): Auth {
   const auth = getAuth(initializeSandbox());
-  // These tests exercise the popup flow via GoogleAuthProvider — enable it
-  // up front (the sandbox default is OFF for every provider except
-  // password/anonymous — see sandbox.setAuthProviderConfig).
-  authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+  // Mirror the served worker-mode wiring these hooks run under: the
+  // page-local sandbox's provider gate is DELEGATED to the worker authority
+  // (entries/auth.ts), so the popup helper opens without pre-enabling
+  // google.com locally. Enforcement lives at the worker's acceptIdentity.
+  authSandbox.delegateProviderEnforcement(auth, true);
   return auth;
 }
 

@@ -272,3 +272,42 @@ describe('gating matrix: sandbox.mintSession (the served-worker per-port session
     expect(session.user.uid).toBe('u1');
   });
 });
+
+describe('provider-enforcement delegation (the served-worker page-sandbox seam)', () => {
+  it('delegateProviderEnforcement(true) bypasses the LOCAL gate (popup proceeds to the resolver tier)', async () => {
+    const auth = getAuth(initializeSandbox());
+    authSandbox.delegateProviderEnforcement(auth, true);
+    // google.com stays OFF locally; with delegation the gate is a no-op and
+    // the flow falls through to "no resolver/mock" — argument-error, NOT
+    // operation-not-allowed.
+    await expectCode(signInWithPopup(auth, new GoogleAuthProvider()), 'auth/argument-error');
+  });
+
+  it('delegation is a no-op for the mock path too — a staged mock resolves despite a disabled provider', async () => {
+    const auth = getAuth(initializeSandbox());
+    authSandbox.delegateProviderEnforcement(auth, true);
+    authSandbox.mockSignInResult(auth, {
+      user: makeFakeUser('g1', 'g1@example.com'),
+      providerId: 'google.com',
+      operationType: 'signIn',
+    });
+    const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+    expect(cred.user.uid).toBe('g1');
+  });
+
+  it('reclaiming enforcement (false) restores the default gate', async () => {
+    const auth = getAuth(initializeSandbox());
+    authSandbox.delegateProviderEnforcement(auth, true);
+    authSandbox.delegateProviderEnforcement(auth, false);
+    await expectCode(signInWithPopup(auth, new GoogleAuthProvider()), 'auth/operation-not-allowed');
+  });
+
+  it('assertAuthProviderEnabled: the authority-side gate throws for disabled, passes for enabled', () => {
+    const auth = getAuth(initializeSandbox());
+    expect(() => authSandbox.assertAuthProviderEnabled(auth, 'google.com')).toThrow(
+      expect.objectContaining({ code: 'auth/operation-not-allowed' }),
+    );
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+    expect(() => authSandbox.assertAuthProviderEnabled(auth, 'google.com')).not.toThrow();
+  });
+});

@@ -315,14 +315,23 @@ export class SandboxBackend {
   /**
    * Sign-in provider enablement — mirrors a real Firebase project's
    * Authentication → Sign-in method toggles. GATED at every provider
-   * entry point (owner decision — full fidelity): `resolveFlow`
-   * (`signInWithPopup`/`signInWithRedirect`), `signInWithCredential`,
-   * `createUserWithEmailAndPassword`/`signInWithEmailAndPassword` (the
-   * `'password'` provider), and `signInAnonymously` (the `'anonymous'`
-   * provider). A disabled provider throws the same
-   * `auth/operation-not-allowed` prod throws — a code deliberately
-   * distinct from `auth/argument-error` (which keeps meaning "no
-   * resolver/mock wired" for an ENABLED-but-unmocked OAuth provider).
+   * entry point OF THE ENFORCING BACKEND (owner decision — full
+   * fidelity): `resolveFlow` (`signInWithPopup`/`signInWithRedirect`),
+   * `signInWithCredential`, `createUserWithEmailAndPassword`/
+   * `signInWithEmailAndPassword` (the `'password'` provider), and
+   * `signInAnonymously` (the `'anonymous'` provider). A disabled
+   * provider throws the same `auth/operation-not-allowed` prod throws
+   * — a code deliberately distinct from `auth/argument-error` (which
+   * keeps meaning "no resolver/mock wired" for an ENABLED-but-unmocked
+   * OAuth provider).
+   *
+   * DELEGATION ESCAPE HATCH ({@link providerEnforcementDelegated}): a
+   * backend that is merely a UI vehicle for a REMOTE authority — the
+   * served worker path's page-local sandbox, whose popup picker
+   * resolves identities that a SharedWorker then gates + signs in —
+   * can delegate enforcement to that authority. With delegation on,
+   * {@link assertProviderEnabled} is a no-op HERE and the authority's
+   * own (undelegated) backend gate is the one that decides.
    *
    * DEFAULTS DIVERGE FROM A FRESH REAL PROJECT (owner decision,
    * documented): prod ships every provider OFF until an admin flips it
@@ -343,6 +352,12 @@ export class SandboxBackend {
    *  {@link userDbSubs}. Same coarse contract: no payload, re-read via
    *  {@link listProviderConfig} on each callback. */
   private readonly providerConfigSubs = new Set<() => void>();
+
+  /** When true, THIS backend's provider gate is delegated to a remote
+   *  authority (see the {@link providerConfig} docstring's delegation
+   *  section) — {@link assertProviderEnabled} becomes a no-op. Not
+   *  persisted: a runtime wiring decision, not project config. */
+  private providerEnforcementDelegated = false;
 
   constructor(sandbox: Sandbox) {
     this.sandbox = sandbox;
@@ -625,14 +640,28 @@ export class SandboxBackend {
   }
 
   /**
+   * Mark this backend's provider gate as delegated to (or reclaimed
+   * from) a remote authority. See the {@link providerConfig} docstring:
+   * the served worker path sets this on the PAGE-LOCAL sandbox so the
+   * popup picker opens regardless of local toggles — the SharedWorker's
+   * `auth.acceptIdentity` gate (against the worker's own, undelegated
+   * backend) is the enforcement point.
+   */
+  setProviderEnforcementDelegated(delegated: boolean): void {
+    this.providerEnforcementDelegated = delegated;
+  }
+
+  /**
    * Gate a provider entry point. Throws real Firebase's
    * `auth/operation-not-allowed` (exactly the code/shape prod throws
    * for a disabled sign-in method) when `providerId` is off. Called by
    * every provider-flow entry point in `index.ts` BEFORE any other
    * work, so a disabled provider never touches the user DB / mock
-   * registry / resolver.
+   * registry / resolver. A no-op when enforcement is delegated to a
+   * remote authority ({@link setProviderEnforcementDelegated}).
    */
   assertProviderEnabled(providerId: string): void {
+    if (this.providerEnforcementDelegated) return;
     if (!this.isProviderEnabled(providerId)) {
       throw makeAuthError(
         'auth/operation-not-allowed',
