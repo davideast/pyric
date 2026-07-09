@@ -216,6 +216,27 @@ interface PendingWorkerOp {
 interface WorkerSubEntry {
   sub: WorkerSubPayload;
   onSnap: (value: unknown) => void;
+  /**
+   * JSON of the last snap value delivered to `onSnap` — the re-issue dedup
+   * baseline. Lives on the bridge-side entry because this registry is the
+   * only state that SURVIVES peer churn (the browser tab and the worker
+   * listener are both rebuilt per peer).
+   */
+  lastDeliveredJson?: string;
+  /**
+   * Set when this sub was just (re-)issued to a newly registered peer and
+   * the next inbound snap is the fresh listener's INITIAL snapshot. When
+   * that snapshot is byte-identical to `lastDeliveredJson`, nothing changed
+   * while the peer churned and the frame is suppressed — real Firestore /
+   * RTDB listeners fire on CHANGE, not on transport reconnection. Live,
+   * two tabs fighting over last-wins registration (each reconnecting after
+   * ~500ms) re-issued every sub once per registration, so a consumer's
+   * doc listener fired ~1/sec with identical data forever. A snapshot that
+   * DIFFERS from the baseline (state changed while no peer was attached)
+   * still delivers. Scoped to the one-frame re-issue window so steady-state
+   * delivery is untouched.
+   */
+  awaitingReissueSnap?: boolean;
 }
 
 /** Build the typed Error worker-op rejections carry. `denialContext` (spike
@@ -307,12 +328,16 @@ export function createBridge(opts: BridgeOptions): Bridge {
       onReplaced,
     };
     peer = myPeer;
-    // Re-issue every registered worker subscription to the new peer. RTDB
-    // value / auth-state semantics make this safe and cursor-free: each
-    // (re)subscribe delivers a fresh initial snapshot and consumers are
-    // last-value-wins, so the Node side just sees one extra snapshot.
+    // Re-issue every registered worker subscription to the new peer — the
+    // replay is cursor-free because each (re)subscribe delivers a fresh
+    // initial snapshot. That snapshot is a DUPLICATE whenever nothing
+    // changed while the peer churned, so `awaitingReissueSnap` arms the
+    // per-sub dedup (see WorkerSubEntry) — without it, tabs cycling through
+    // last-wins registration re-fire every consumer listener with
+    // byte-identical data on every registration.
     if (myPeer.capabilities.has(WORKER_RELAY_CAPABILITY)) {
       for (const [subId, entry] of workerSubs) {
+        entry.awaitingReissueSnap = true;
         try {
           myPeer.send({ type: 'worker-sub', subId, sub: entry.sub });
         } catch {
@@ -527,6 +552,18 @@ export function createBridge(opts: BridgeOptions): Bridge {
         const snap = msg as WorkerSnapFrame;
         const entry = workerSubs.get(snap.subId);
         if (!entry) return; // unsubscribed or unknown — drop silently
+        // Re-issue dedup (see WorkerSubEntry.awaitingReissueSnap): the first
+        // snap after a peer (re)registration is the re-established listener's
+        // initial snapshot — suppress it when byte-identical to what the
+        // consumer already holds. Values are JSON-clean (they crossed the WS
+        // legs) and produced by the same serializer each time, so string
+        // equality is exact. One-frame window: the flag clears on the first
+        // snap either way, keeping steady-state delivery 1:1.
+        const json = JSON.stringify(snap.value);
+        const duplicate = entry.awaitingReissueSnap === true && json === entry.lastDeliveredJson;
+        entry.awaitingReissueSnap = false;
+        entry.lastDeliveredJson = json;
+        if (duplicate) return;
         try {
           entry.onSnap(snap.value);
         } catch {
