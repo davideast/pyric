@@ -1020,14 +1020,11 @@
   margin: 0;
   padding: 0;
 }
-.fs-doctree__row {
-  border-top: 1px solid var(--color-border);
-}
-.fs-doctree__rows > .fs-doctree__row:first-child,
-.fs-doctree__rows > .fs-doctree__action-row:first-child {
-  border-top: none;
-}
-.fs-doctree__action-row {
+/* Console parity: separators live ONLY under the panel header (see
+   .fs-doctree__head) and between the two leading action rows. Field rows
+   are separated by their row rhythm (padding + min-height) alone — no
+   per-row borders. */
+.fs-doctree__action-row + .fs-doctree__action-row {
   border-top: 1px solid var(--color-border);
 }
 .fs-doctree__action {
@@ -1049,9 +1046,6 @@
 .fs-doctree__action:focus-visible {
   background: var(--color-sidebar-bg);
   outline: none;
-}
-.fs-doctree__action-row--nested {
-  border-top: none;
 }
 .fs-doctree__action-row--nested .fs-doctree__action {
   padding: 6px 0 6px calc(18px + (var(--fs-depth, 0) + 1) * 18px);
@@ -1181,20 +1175,32 @@
   padding: 0;
 }
 
-/* ── inline single-field editor row (pencil / "+ Add field") ──────────────
-   FORM LAW: label (the key input) sits INLINE with the row (this is a
-   compact single-row editor, not a stacked form), but the error line still
-   stacks BELOW the whole editor group, tight to it, never beside a control. */
+/* ── inline single-field editor (pencil / "+ Add field") ──────────────────
+   NOT a popover: the editor is plain inline rows of the tree — panel
+   background (transparent, nothing painted), no container border/radius/
+   shadow. Only the inputs themselves carry the repo's normal inline input
+   chrome. Explicit stacked LINES (name/type, then value) instead of one
+   wrapping flex row: every `__editline` is its own flex row starting at
+   the same content edge, so the name and value inputs share a left x by
+   construction at any width — alignment doesn't depend on where a wrap
+   breaks. FORM LAW: the error line stacks BELOW the group, tight to it. */
 .fs-doctree__editrow {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  background: transparent;
   padding: 7px 18px 7px calc(18px + var(--fs-depth, 0) * 18px);
 }
+.fs-doctree__editline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .fs-doctree__editkey {
-  flex: 0 0 auto;
-  width: 140px;
+  flex: 0 1 220px;
+  min-width: 0;
 }
 .fs-doctree__editkey,
 .fs-doctree__edittype {
@@ -1215,11 +1221,16 @@
 .fs-doctree__editkey[aria-invalid='true'] {
   border-color: var(--color-danger);
 }
-.fs-doctree__editrow > [data-pyric-field-type] {
-  flex: 1 1 220px;
+.fs-doctree__editline > [data-pyric-field-type] {
+  flex: 1 1 auto;
   min-width: 0;
 }
-.fs-doctree__editrow input {
+/* Value inputs only (scoped inside the field-type wrapper — the name
+   input has its own class above; an unscoped `input` selector here
+   previously out-specified `.fs-doctree__editkey` and blew its width
+   out to this rule's cap). Sized to match the name input's 220px flex
+   basis so the two lines read as one aligned column. */
+.fs-doctree__editline [data-pyric-field-type] input {
   font: inherit;
   font-family: var(--font-mono);
   font-size: var(--fs-data);
@@ -1229,16 +1240,19 @@
   border-radius: 6px;
   padding: 5px 7px;
   width: 100%;
-  max-width: 320px;
+  max-width: 220px;
+}
+.fs-doctree__editline [data-pyric-field-type] input:focus {
+  outline: none;
+  border-color: var(--color-primary);
 }
 .fs-doctree__editnote {
   color: var(--color-slate-gray);
   font-size: var(--fs-caption);
 }
-/* the error line: full-row basis so it always drops BELOW the controls,
-   grouped tightly under them (form law — never beside). */
+/* the error line: its own row in the editor's column, tight below the
+   controls (form law — never beside). */
 .fs-doctree__editerr {
-  flex-basis: 100%;
   color: var(--color-danger);
   font-size: var(--fs-caption);
 }
