@@ -72,7 +72,7 @@
   "scripts": {
     "build": "tsc",
     "test": "bun run test:no-dom && bun run test:dom",
-    "test:no-dom": "bun test test/auth/claims test/auth/controller test/auth/hooks test/firestore/hooks test/firestore/inference test/firestore/reducers test/storage/hooks test/traffic/hooks test/rules/hooks test/rules/logic test/events/hooks test/rtdb",
+    "test:no-dom": "bun test test/auth/claims test/auth/controller test/auth/hooks test/firestore/hooks test/firestore/inference test/firestore/reducers test/firestore/validation test/firestore/import test/storage/hooks test/traffic/hooks test/rules/hooks test/rules/logic test/events/hooks test/rtdb",
     "test:dom": "bun test test/auth/components test/firestore/components test/primitives test/storage/components test/traffic/components test/rules/components test/events/components test/agents",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit"
   },

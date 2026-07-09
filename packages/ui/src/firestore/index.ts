@@ -70,3 +70,15 @@ export {
   QueryBuilder,
   type QueryBuilderProps,
 } from './components/QueryBuilder.js';
+
+// M7: create-collection / create-document / JSON-import — pure, tested logic.
+// Presentational wiring lives in the consumer (Pyric Studio's FirestorePane)
+// over these + the existing DocumentEditor/hooks, per the disclosure-over-
+// modals design principles.
+export { validateCollectionId, validateDocumentId } from './validation/ids.js';
+export {
+  parseImport,
+  detectCollisions,
+  type ParsedImportDoc,
+  type ParseImportResult,
+} from './import/parseImport.js';
