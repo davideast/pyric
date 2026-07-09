@@ -18,7 +18,6 @@ import { sandbox as authSandbox } from 'pyric/auth';
 import { ref as inProcessRef, listAll as inProcessListAll } from 'pyric/storage';
 import { useEnvironment } from '../../shell/environment.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
-import { useDevSeed } from '../../dev/DevSeedProvider.js';
 import {
   buildResourceIndex,
   INDEX_CAPS,
@@ -38,13 +37,11 @@ export interface ResourceIndexState {
 export function useResourceIndex(): ResourceIndexState {
   const data = useStudioDataSource();
   const env = useEnvironment();
-  const seed = useDevSeed();
   const [entries, setEntries] = useState<ResourceEntry[] | null>(null);
   const building = useRef(false);
   const builtAt = useRef(0);
 
   const live = env.status === 'ready' ? env.env.live : undefined;
-  const seedSandbox = seed.status === 'ready' ? seed.handles.sandbox : null;
 
   const ensure = useCallback(() => {
     if (data.status !== 'ready') return;
@@ -95,14 +92,12 @@ export function useResourceIndex(): ResourceIndexState {
         return paths;
       },
 
+      // RTDB keys come from the live worker plane only — the RTDB surface
+      // itself is live-only, and the in-process `pyric/database` admin entry
+      // would drag firebase-admin into the browser bundle.
       listRtdbTopLevelKeys: async () => {
-        let snapshot: unknown = null;
-        if (live) {
-          snapshot = await live.readRtdbState();
-        } else if (seedSandbox) {
-          const { getAdminDatabase, sandbox: rtdbSandbox } = await import('pyric/database');
-          snapshot = rtdbSandbox.snapshotState(getAdminDatabase(seedSandbox as never));
-        }
+        if (!live) return [];
+        const snapshot = await live.readRtdbState();
         if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
           return [];
         }
@@ -121,7 +116,7 @@ export function useResourceIndex(): ResourceIndexState {
       .finally(() => {
         building.current = false;
       });
-  }, [data, live, seedSandbox, entries]);
+  }, [data, live, entries]);
 
   return { entries, ensure };
 }
