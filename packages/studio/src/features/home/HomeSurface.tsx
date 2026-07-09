@@ -313,7 +313,10 @@ function ActivityFeed() {
           No activity yet — writes, denials, and seeds show up here live.
         </p>
       ) : (
-        <ol className="studio-home__feed-list">
+        // The scroll owner (L5): the LIST scrolls past ~10 rows; the header
+        // (with "view all in Traffic") stays pinned outside the scroll region.
+        <div className="studio-home__feed-scroll">
+          <ol className="studio-home__feed-list">
           {rows.map((row) => {
             const cells = (
               <>
@@ -347,7 +350,8 @@ function ActivityFeed() {
               </li>
             );
           })}
-        </ol>
+          </ol>
+        </div>
       )}
     </section>
   );

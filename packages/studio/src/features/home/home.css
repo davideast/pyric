@@ -150,6 +150,15 @@
 .studio-home__feed-all:hover {
   color: var(--ink);
 }
+/* The feed's ONE scroll owner (L5): capped at ~10 rows (row ≈ 32px incl.
+   list gap), scrolling internally past that. The data bound stays at the
+   projection cap (20 rows); the header's "view all in Traffic" link sits
+   outside this region so it is always visible. */
+.studio-home__feed-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+  min-height: 0;
+}
 .studio-home__feed-empty {
   margin: 0;
   padding-top: var(--space-2);
