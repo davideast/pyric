@@ -5,7 +5,9 @@
  * localStorage + Firebase Storage save/load).
  */
 import { create } from 'zustand';
-import type { CompactionMarker } from '@inbrowser/agent/usage';
+// 0.4.1 moved CompactionMarker off the ./usage subpath; the root export
+// carries it (re-exported from usage/context-management).
+import type { CompactionMarker } from '@inbrowser/agent';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 import { APP_ENTRY_PATH, DATABASE_RULES_PATH, RULES_PATH } from '~/lib/store/files';
 
