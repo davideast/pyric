@@ -4,7 +4,7 @@
  * PURE. Matches free text against navigation targets only: the shell tabs
  * (fuzzy) and the deep-link patterns the URL codec already understands
  * (Firestore doc/collection paths, `gs://`/object paths, auth uids, traffic
- * denial ids). Results contain actions and ROUTES only — never settings or
+ * event ids). Results contain actions and ROUTES only — never settings or
  * configuration (M4). No AI here; when a key exists, NL rides a separate
  * layer over the same targets (M5) — out of scope for Home v1.
  */
@@ -96,9 +96,9 @@ export function matchCommands(
       } else if (r.id === 'traffic') {
         deep.push({
           id: `deep:traffic:${tail}`,
-          label: `Focus denial ${tail} in Traffic`,
-          hint: 'Traffic denial id',
-          target: { tab: 'traffic', query: { denial: tail } },
+          label: `Open ${tail} in the rules inspector`,
+          hint: 'Traffic event id',
+          target: { tab: 'traffic', query: { inspect: tail } },
         });
       }
     }

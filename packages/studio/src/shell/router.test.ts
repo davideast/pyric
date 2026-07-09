@@ -7,7 +7,7 @@ describe('studio router hrefs', () => {
   });
 
   it('serializes other tabs under the base', () => {
-    expect(hrefFor({ tab: 'traffic', query: { denial: 'e1' } })).toBe('/traffic?denial=e1');
+    expect(hrefFor({ tab: 'traffic', query: { inspect: 'e1' } })).toBe('/traffic?inspect=e1');
     expect(hrefFor({ tab: 'firestore', rest: ['users', 'abc'] })).toBe('/firestore/users/abc');
   });
 });

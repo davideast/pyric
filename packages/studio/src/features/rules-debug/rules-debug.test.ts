@@ -30,6 +30,7 @@ import { getFirestore as getSandboxFirestore, doc, setDoc, collection, query, ge
 import { getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
 import {
   selectDenials,
+  selectRuleEvaluations,
   explainDenial,
   denialSeverity,
   rerunSupport,
@@ -123,6 +124,7 @@ describe('rules-debug model: Firestore denial → rule → context', () => {
   it('flags an implicit deny (no matching allow) distinctly', () => {
     // Hand-built denial with no matchedRule → implicit deny.
     const d: Denial = {
+      result: 'deny',
       id: 'r1', at: Date.now(), method: 'get', path: 'secret/x',
       service: 'firestore',
       auth: { uid: 'bob' }, reasons: ['no allow rule matched'], origin: 'user', unsupported: false,
@@ -218,6 +220,7 @@ describe('rules-debug model: RTDB denial → rule node → bindings', () => {
 
   it('flags RTDB implicit deny (no matching rule) distinctly', () => {
     const d: Denial = {
+      result: 'deny',
       id: 'r2', at: Date.now(), method: 'set', path: 'unmatched/x',
       service: 'rtdb',
       rules: { engine: 'rtdb', errorCode: 'NO_MATCHING_RULE' },
@@ -233,6 +236,7 @@ describe('rules-debug model: RTDB denial → rule node → bindings', () => {
 describe('rules-debug re-run: capability grading per service (rerunSupport)', () => {
   it('Firestore: both re-run paths are live', () => {
     const d: Denial = {
+      result: 'deny',
       id: 'f1', at: 0, method: 'get', path: 'notes/n1', service: 'firestore',
       auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
     };
@@ -243,6 +247,7 @@ describe('rules-debug re-run: capability grading per service (rerunSupport)', ()
 
   it('RTDB: both re-run paths are pending, naming rtdb_simulate_access', () => {
     const d: Denial = {
+      result: 'deny',
       id: 'r1', at: 0, method: 'set', path: 'rooms/r1', service: 'rtdb',
       rules: { engine: 'rtdb' },
       auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
@@ -257,6 +262,7 @@ describe('rules-debug re-run: capability grading per service (rerunSupport)', ()
 
   it('Storage: both re-run paths are absent, naming storage_simulate_rules', () => {
     const d: Denial = {
+      result: 'deny',
       id: 's1', at: 0, method: 'write', path: 'sessions/x', service: 'storage',
       auth: { uid: 'bob' }, reasons: ['match /sessions/{id} write: condition false'],
       origin: 'user', unsupported: false,
@@ -279,6 +285,7 @@ describe('rules-debug re-run: capability grading per service (rerunSupport)', ()
 
   it('Storage: an implicit deny (no `match` line) is flagged distinctly', () => {
     const d: Denial = {
+      result: 'deny',
       id: 's2', at: 0, method: 'write', path: 'unmatched/x', service: 'storage',
       auth: null, reasons: ['no rule matches write /unmatched/x'],
       origin: 'user', unsupported: false,
@@ -376,6 +383,7 @@ describe('rules-debug re-run: as the attempting user (impersonation client)', ()
   }
 
   const denial: Denial = {
+    result: 'deny',
     id: 'r1', at: 0, method: 'get', path: 'notes/n1',
     service: 'firestore',
     auth: { uid: 'alice' }, reasons: [], origin: 'user', unsupported: false,
@@ -422,11 +430,11 @@ describe('rules-debug: line + expression trace threading (Firestore simulator)',
 
     const d = selectDenials(events)[0];
     // OWNER_RULES declares the denying `allow read, write` on source line 5.
-    expect(d.denyingRule?.line).toBe(5);
-    expect(Array.isArray(d.denyingRule?.expressionTrace)).toBe(true);
-    expect(d.denyingRule!.expressionTrace!.length).toBeGreaterThan(0);
+    expect(d.evaluatedRule?.line).toBe(5);
+    expect(Array.isArray(d.evaluatedRule?.expressionTrace)).toBe(true);
+    expect(d.evaluatedRule!.expressionTrace!.length).toBeGreaterThan(0);
     // The condition text is carried too.
-    expect(d.denyingRule?.expression).toContain('request.auth');
+    expect(d.evaluatedRule?.expression).toContain('request.auth');
   });
 
   it('projects the trace into an evaluated step tree (pure, false branch marked)', async () => {
@@ -453,6 +461,7 @@ describe('rules-debug: line + expression trace threading (Firestore simulator)',
 
   it('projectTraceSteps is empty for a denial with no trace (RTDB / implicit)', () => {
     const d: Denial = {
+      result: 'deny',
       id: 'x', at: 0, method: 'get', path: 'a/b', service: 'firestore',
       auth: null, reasons: [], origin: 'user', unsupported: false,
     };
@@ -461,9 +470,11 @@ describe('rules-debug: line + expression trace threading (Firestore simulator)',
 
   it('builds a nested tree from a synthetic flat trace', () => {
     const d: Denial = {
+      result: 'deny',
       id: 'y', at: 0, method: 'get', path: 'a/b', service: 'firestore',
       auth: null, reasons: [], origin: 'user', unsupported: false,
-      denyingRule: {
+      evaluatedRule: {
+        verdict: 'deny',
         line: 3,
         expression: 'a && b',
         expressionTrace: [
@@ -485,6 +496,7 @@ describe('rules-debug: line + expression trace threading (Firestore simulator)',
 describe('rules-debug: what the rule saw (ruleVariables)', () => {
   it('reports request.auth as absent-and-honest for an unauthenticated denial', () => {
     const d: Denial = {
+      result: 'deny',
       id: 'z', at: 0, method: 'get', path: 'posts', service: 'firestore',
       auth: null, reasons: [], origin: 'user', unsupported: false,
     };
@@ -499,6 +511,7 @@ describe('rules-debug: what the rule saw (ruleVariables)', () => {
 
   it('surfaces the proposed write + existing resource when captured', () => {
     const d: Denial = {
+      result: 'deny',
       id: 'w', at: 0, method: 'update', path: 'notes/n1', service: 'firestore',
       auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
       resourceData: { text: 'x' },
@@ -513,6 +526,7 @@ describe('rules-debug: what the rule saw (ruleVariables)', () => {
 describe('rules-debug: impersonation row gating (item 6)', () => {
   it('offers impersonation for an authenticated denial', () => {
     const d: Denial = {
+      result: 'deny',
       id: 'a', at: 0, method: 'get', path: 'notes/n1', service: 'firestore',
       auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
     };
@@ -520,10 +534,55 @@ describe('rules-debug: impersonation row gating (item 6)', () => {
   });
   it('drops the impersonation row for an unauthenticated denial', () => {
     const d: Denial = {
+      result: 'deny',
       id: 'b', at: 0, method: 'create', path: 'posts/p1', service: 'firestore',
       auth: null, reasons: [], origin: 'user', unsupported: false,
     };
     expect(shouldOfferImpersonation(d)).toBe(false);
+  });
+});
+
+describe('rules inspector: ALLOWED ops project + explain with the allowing rule', () => {
+  it('selectRuleEvaluations includes allows; toDenial carries result + the allowing rule', async () => {
+    const sandbox = denyingSandbox();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+
+    // Alice writes her OWN note → the owner rule ALLOWS (line 5 of OWNER_RULES).
+    const dbAlice = getSandboxFirestore(sandbox.withAuth({ uid: 'alice' }));
+    await setDoc(doc(dbAlice, 'notes/a1'), { text: 'mine', owner: 'alice' });
+
+    const all = selectRuleEvaluations(events);
+    const allowed = all.find((d) => d.result === 'allow')!;
+    expect(allowed).toBeDefined();
+    expect(allowed.path).toBe('notes/a1');
+    // The allowing rule's line + trace are threaded (evaluatedRule, verdict allow).
+    expect(allowed.evaluatedRule?.verdict).toBe('allow');
+    expect(allowed.evaluatedRule?.line).toBe(5);
+    expect(allowed.evaluatedRule!.expressionTrace!.length).toBeGreaterThan(0);
+
+    // But selectDenials still filters allows out.
+    expect(selectDenials(events).some((d) => d.result === 'allow')).toBe(false);
+
+    // The explanation names the allowing rule; not an implicit deny.
+    const exp = explainDenial(allowed);
+    expect(exp.headline).toContain('allowed');
+    expect(exp.ruleNode).toContain('Rule #');
+    expect(exp.implicitDeny).toBe(false);
+
+    // Show-the-work projects for the allow too, with a passing root.
+    const steps = projectTraceSteps(allowed);
+    expect(steps.length).toBeGreaterThan(0);
+    expect(steps[0].outcome).toBe('true');
+  });
+
+  it('allow severity is low (calm row, not a failure)', () => {
+    const d: Denial = {
+      result: 'allow',
+      id: 'ok1', at: 0, method: 'get', path: 'posts/p1', service: 'firestore',
+      auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
+    };
+    expect(denialSeverity(d)).toBe('low');
   });
 });
 

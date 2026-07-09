@@ -107,6 +107,21 @@ export function denialReasons(event: { reasons?: readonly string[] }): string[] 
 }
 
 /**
+ * Row-click semantics: does this row open the RULES INSPECTOR in place?
+ * True for rules-EVALUATED ops only (verdict allow or deny — there is a rules
+ * decision to inspect). Admin-bypass rows (rules never ran) and blank-verdict
+ * rows (non-rule ops) keep their subject navigation instead.
+ */
+export function opensRulesInspector(event: {
+  result: StudioTrafficEvent['result'];
+  origin?: StudioTrafficEvent['origin'];
+  authLens?: AuthLens;
+}): boolean {
+  const v = verdictFor(event);
+  return v === 'allow' || v === 'deny';
+}
+
+/**
  * The route of the record a traffic row touched — the row's navigation
  * semantic (C3 drill-in: detail belongs to the owning surface). Null when
  * nothing addressable exists (service-level ops, the `(service)` path

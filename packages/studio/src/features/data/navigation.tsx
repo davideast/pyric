@@ -12,11 +12,11 @@
  *   /firestore/<collection>/<doc>/...   the drill path
  *   /auth/<uid>                         the focused user
  *   /storage/<object/path>              the focused object
- *   /traffic?denial=<id>                traffic drill-in for a denied request
+ *   /traffic?inspect=<id>               traffic drill-in to the rules inspector
  *
  * Data views are ALWAYS admin (PRINCIPLES M2/M3) — there is no lens param.
  * `useDataNav()` reads the location via `useSyncExternalStore`; `navigate(...)`
- * / `navigateDenial(...)` push through the shell's one history facade
+ * / `navigateInspect(...)` push through the shell's one history facade
  * (`shell/router.ts`).
  */
 
@@ -58,8 +58,8 @@ export type DataTarget =
 
 interface NavState {
   target: DataTarget | null;
-  /** The denial to focus in the Traffic surface. */
-  selectedDenialId: string | null;
+  /** The op to focus in the Traffic rules inspector. */
+  selectedInspectId: string | null;
 }
 
 // ─── URL-derived store ──────────────────────────────────────────────────────
@@ -82,8 +82,8 @@ function deriveNav(raw: string): NavState {
   } else if (tab === 'storage') {
     target = { view: 'storage', objectPath: rest.length ? rest.join('/') : null };
   }
-  const selectedDenialId = tab === 'traffic' ? query.denial ?? null : null;
-  return { target, selectedDenialId };
+  const selectedInspectId = tab === 'traffic' ? query.inspect ?? null : null;
+  return { target, selectedInspectId };
 }
 
 let cachedRaw: string | null = null;
@@ -124,8 +124,8 @@ function navigateTo(target: DataTarget): void {
   });
 }
 
-function navigateDenialUrl(id: string): void {
-  pushPath({ tab: 'traffic', query: { denial: id } });
+function navigateInspectUrl(id: string): void {
+  pushPath({ tab: 'traffic', query: { inspect: id } });
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
@@ -137,10 +137,10 @@ export interface DataNavValue {
   navigate: (target: DataTarget) => void;
   /** Route a detected cross-ref to the right sub-view + target. */
   navigateRef: (ref: CrossRef) => void;
-  /** The denial the Traffic surface should focus. */
-  selectedDenialId: string | null;
-  /** Jump to Traffic and focus a specific denial by event id. */
-  navigateDenial: (id: string) => void;
+  /** The op the Traffic rules inspector should focus. */
+  selectedInspectId: string | null;
+  /** Jump to Traffic and open the rules inspector on an event id. */
+  navigateInspect: (id: string) => void;
 }
 
 export function useDataNav(): DataNavValue {
@@ -164,16 +164,16 @@ export function useDataNav(): DataNavValue {
     }
   }, []);
 
-  const navigateDenial = useCallback((id: string) => navigateDenialUrl(id), []);
+  const navigateInspect = useCallback((id: string) => navigateInspectUrl(id), []);
 
   return useMemo<DataNavValue>(
     () => ({
       target: snap.target,
       navigate,
       navigateRef,
-      selectedDenialId: snap.selectedDenialId,
-      navigateDenial,
+      selectedInspectId: snap.selectedInspectId,
+      navigateInspect,
     }),
-    [snap, navigate, navigateRef, navigateDenial],
+    [snap, navigate, navigateRef, navigateInspect],
   );
 }

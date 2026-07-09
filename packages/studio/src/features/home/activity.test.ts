@@ -44,7 +44,7 @@ describe('home activity projection', () => {
     const row = toActivityRow(denial());
     expect(row).toMatchObject({
       denied: true,
-      target: { tab: 'traffic', query: { denial: 'r1' } },
+      target: { tab: 'traffic', query: { inspect: 'r1' } },
     });
     expect(row?.identity).toBe('bob');
   });

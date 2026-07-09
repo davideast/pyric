@@ -13,7 +13,7 @@
  * made.
  *
  * The rules-debug addition on top of the playground editor is DENIAL LINE
- * EMPHASIS: given the denying rule's 1-indexed `denialLine` (threaded from the
+ * EMPHASIS: given the deciding rule's 1-indexed `markLine` (threaded from the
  * simulator via `RequestEvent.deniedRule.line`), it tints that line's
  * background and drops a ✗ marker in the gutter, in BOTH views, so the eye
  * lands on the rule that denied. Implemented with the real CodeMirror
@@ -51,10 +51,13 @@ export interface RulesCodeEditorProps {
   onChange?: (next: string) => void;
   /** When true (or when no `onChange` is given), the buffer is read-only. */
   readOnly?: boolean;
-  /** 1-indexed source line of the denying rule to emphasise (✗ gutter + tinted
-   *  line). Absent ⇒ no emphasis (implicit deny, or the sim didn't thread a
-   *  line). */
-  denialLine?: number;
+  /** 1-indexed source line of the DECIDING rule to emphasise (gutter marker +
+   *  tinted line). Absent ⇒ no emphasis (implicit deny, or the sim didn't
+   *  thread a line). */
+  markLine?: number;
+  /** Which verdict the marked line produced: `deny` renders ✗ with the
+   *  remove tint; `allow` renders ✓ with the add tint. Default `deny`. */
+  markKind?: 'allow' | 'deny';
   /** Approximate visible height. Defaults to a comfortable multi-line box. */
   minHeightRem?: number;
   ariaLabel?: string;
@@ -98,32 +101,45 @@ const editorTheme = EditorView.theme({
   '.cm-activeLine': { backgroundColor: 'rgba(143,127,232,0.06)' },
   '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--ink)' },
   '.cm-cursor': { borderLeftColor: 'var(--ink)' },
-  // Denial emphasis.
+  // Deciding-line emphasis: deny (✗, remove tint) / allow (✓, add tint).
   '.cm-denyLine': { backgroundColor: 'var(--diff-remove-bg)' },
-  '.cm-denyGutter': { width: '1.1em' },
-  '.cm-denyGutter .cm-gutterElement': {
-    color: 'var(--diff-remove)',
+  '.cm-allowLine': { backgroundColor: 'var(--diff-add-bg)' },
+  '.cm-markGutter': { width: '1.1em' },
+  '.cm-markGutter .cm-gutterElement': {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontWeight: '700',
   },
+  '.cm-markGutter .cm-gutterElement.cm-mark-deny': { color: 'var(--diff-remove)' },
+  '.cm-markGutter .cm-gutterElement.cm-mark-allow': { color: 'var(--diff-add)' },
 });
 
-class DenyGutterMarker extends GutterMarker {
+class VerdictGutterMarker extends GutterMarker {
+  override elementClass: string;
+  constructor(private readonly kind: 'allow' | 'deny') {
+    super();
+    this.elementClass = `cm-mark-${kind}`;
+  }
   toDOM(): Text {
-    return document.createTextNode('✗'); // ✗
+    return document.createTextNode(this.kind === 'allow' ? '✓' : '✗');
   }
 }
-const denyMarker = new DenyGutterMarker();
+const MARKERS = {
+  allow: new VerdictGutterMarker('allow'),
+  deny: new VerdictGutterMarker('deny'),
+} as const;
 
-/** Build the line-background + gutter-✗ extensions for a fixed 1-indexed line.
- *  Both are driven off the line's start position (mapped through doc changes)
- *  so the background tint and the ✗ marker always land on the SAME line, and
- *  stay put as the buffer is edited. */
-function denialEmphasis(line: number): Extension {
+/** Build the line-background + gutter-marker extensions for a fixed 1-indexed
+ *  line. Both are driven off the line's start position (recomputed on doc
+ *  changes) so the background tint and the ✓/✗ marker always land on the SAME
+ *  line, and stay put as the buffer is edited. */
+function lineEmphasis(line: number, kind: 'allow' | 'deny'): Extension {
+  const marker = MARKERS[kind];
   const inRange = (state: EditorState) => line >= 1 && line <= state.doc.lines;
-  const lineDeco = Decoration.line({ attributes: { class: 'cm-denyLine' } });
+  const lineDeco = Decoration.line({
+    attributes: { class: kind === 'allow' ? 'cm-allowLine' : 'cm-denyLine' },
+  });
   const decoFor = (state: EditorState): DecorationSet =>
     inRange(state) ? Decoration.set([lineDeco.range(state.doc.line(line).from)]) : Decoration.none;
   const decoField = StateField.define<DecorationSet>({
@@ -133,23 +149,24 @@ function denialEmphasis(line: number): Extension {
   });
 
   const markerFor = (state: EditorState): RangeSet<GutterMarker> =>
-    inRange(state) ? RangeSet.of([denyMarker.range(state.doc.line(line).from)]) : RangeSet.empty;
+    inRange(state) ? RangeSet.of([marker.range(state.doc.line(line).from)]) : RangeSet.empty;
   const markerField = StateField.define<RangeSet<GutterMarker>>({
     create: markerFor,
     update: (v, tr) => (tr.docChanged ? markerFor(tr.state) : v),
   });
-  const denyGutter = gutter({
-    class: 'cm-denyGutter',
+  const markGutter = gutter({
+    class: 'cm-markGutter',
     markers: (view) => view.state.field(markerField),
   });
-  return [markerField, decoField, denyGutter];
+  return [markerField, decoField, markGutter];
 }
 
 export function RulesCodeEditor({
   value,
   onChange,
   readOnly,
-  denialLine,
+  markLine,
+  markKind = 'deny',
   minHeightRem = 14,
   ariaLabel,
 }: RulesCodeEditorProps) {
@@ -178,7 +195,7 @@ export function RulesCodeEditor({
         highlightSelectionMatches(),
         syntaxHighlighting(rulesHighlight, { fallback: true }),
         javascript(), // close-enough rules highlighting (same as the playground)
-        emphasisComp.current.of(denialLine ? denialEmphasis(denialLine) : []),
+        emphasisComp.current.of(markLine ? lineEmphasis(markLine, markKind) : []),
         editorTheme,
         EditorView.lineWrapping,
         EditorView.editable.of(!isReadOnly),
@@ -205,9 +222,9 @@ export function RulesCodeEditor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: emphasisComp.current.reconfigure(denialLine ? denialEmphasis(denialLine) : []),
+      effects: emphasisComp.current.reconfigure(markLine ? lineEmphasis(markLine, markKind) : []),
     });
-  }, [denialLine]);
+  }, [markLine, markKind]);
 
   // Sync external value changes in (without clobbering the cursor on keystrokes).
   useEffect(() => {

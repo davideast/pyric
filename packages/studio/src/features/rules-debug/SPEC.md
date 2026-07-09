@@ -26,10 +26,10 @@ Deeper still, `RuleEvaluation.expressionTrace: ExprTraceEntry[]`
 (`evaluator.ts:139-258`) carries a full sub-expression trace with short-circuit
 `skipped` placeholders, let-bindings, and function inlining, and
 `RuleEvaluation.line` is the 1-indexed source line. These are NOW threaded to
-the event stream (additive `RequestEvent.deniedRule`, see "Threading the line +
-sub-expression trace" below) and drive the ✗ line marker and the "show the
-work" step-through. `DenialContext.failedFields` remains undefined (unused by
-this page).
+the event stream (additive `RequestEvent.evaluatedRule`, see "Threading the
+line + sub-expression trace" below) and drive the ✓/✗ line marker and the
+"show the work" step-through. `DenialContext.failedFields` remains undefined
+(unused by this page).
 
 **Explains**: headline, matched rule `Rule #N (ops)` or implicit deny, full
 `Rule #N (ops) → deny` trace lines, `request.auth`, path/method, proposed
@@ -40,7 +40,38 @@ this page).
 `fork(snapshot, editedRules)` + `lintFirestoreRules` + re-issue + diff
 (`rerunAgainstRules`).
 
-#### The rules editor + denial line emphasis
+#### The rules inspector opens ALLOWED ops too
+
+The Traffic surface's mount of this detail is the **RULES INSPECTOR**
+(`features/traffic/TrafficRulesInspector.tsx`, `?inspect=<id>` — renamed from
+"denial inspection" / `?denial` when it generalized; nothing external depended
+on the old URL). Clicking ANY rules-evaluated row — allow or deny
+(`opensRulesInspector` in `traffic/verdict.ts`) — opens it in place;
+admin-bypass and blank-verdict rows keep their subject navigation, since rules
+never ran for them and there is no decision to inspect.
+
+For an ALLOWED op the inspector renders the same anatomy, honestly re-grounded:
+an ALLOWED badge (the existing allow color language — violet accent, never
+green outside diff-add), the headline naming the rule that GRANTED access
+(`Rule #N (ops) allowed …`, from the same `matchedRule` parse — the simulator's
+`parseMatchedRule` picks the `→ ALLOW` line for allows), the same
+reasons/trace lines, the same inspectable request/resource/auth variables, and
+the rules source view with the MATCHED line emphasized — a ✓ gutter marker on
+an add-tinted line (`--diff-add`/`--diff-add-bg`) instead of ✗/remove-tint.
+The show-the-work step-through renders for allows too (the simulator's
+`expressionTrace` rides the same `TestResult`), with ✓ on the passing branch.
+
+Re-runs on an allow: the edited-ruleset re-run stays — it answers "would my
+edit BREAK this allowed op?" (the divergence diff reports flips both ways).
+The impersonation row keeps the same gating as denials: shown only when the op
+ran as an authenticated user.
+
+The projection: `selectRuleEvaluations(events)` (model.ts) includes allow AND
+deny/unsupported; `selectDenials` remains the deny-only filter for
+denial-centric surfaces. `Denial.result` says which verdict an op carries (the
+type name is historical; the doc comment owns that honestly).
+
+#### The rules editor + deciding-line emphasis
 
 Both rules views use a real CodeMirror 6 editor (`RulesCodeEditor.tsx`), reusing
 the SAME CodeMirror package set the playground's `CmEditor` uses
@@ -52,18 +83,19 @@ muted custom `HighlightStyle`. The editor is code-split behind
 `React.lazy` (`LazyRulesCodeEditor.tsx`): CodeMirror stays out of the Studio
 main bundle and loads only when a denial is actually inspected.
 
-Two views, both marking the denying line:
+Two views, both marking the deciding line:
 
 - the READ-ONLY "what happened" view shows the DEPLOYED ruleset
   (`useStudioRulesSource()`), read-only, and
 - the EDITABLE "re-run against an edited ruleset" buffer replaces the old plain
   `<textarea>`.
 
-DENIAL LINE EMPHASIS: the simulator's `RuleEvaluation.line` (1-indexed source
-line of the denying `allow`) is threaded to the event stream (below) and
-rendered as a ✗ gutter marker plus a tinted line background
-(`--diff-remove-bg`) on that line, in BOTH views, so the eye lands on the rule
-that denied. Implemented with the real CodeMirror `Decoration.line` +
+DECIDING-LINE EMPHASIS: the simulator's `RuleEvaluation.line` (1-indexed source
+line of the deciding `allow` rule) is threaded to the event stream (below) and
+rendered as a gutter marker plus a tinted line background on that line, in BOTH
+views — ✗ on `--diff-remove-bg` for a deny, ✓ on `--diff-add-bg` for an allow
+(`markLine`/`markKind` on `RulesCodeEditor`) — so the eye lands on the rule
+that decided. Implemented with the real CodeMirror `Decoration.line` +
 `gutter`/`GutterMarker` APIs (the playground only used the lint gutter, which
 can't tint a whole line). Absent when the simulator didn't thread a line
 (implicit deny, simulator-error deny, or RTDB/Storage).
@@ -75,16 +107,22 @@ Previously `renderLegacyDebugMessages` flattened the simulator's structured
 `expressionTrace`. Two additive, internal-only changes carry them through (no
 mirrored Firebase API touched):
 
-- `packages/pyric/src/rules/test/spec.ts` gains `projectDenyingRule(result)` →
-  `DeniedRuleInfo { line?, expression?, expressionTrace? }`, picking the first
-  `DENY`/`ERROR` rule (fallback: last evaluated). It returns `undefined` for an
-  allow or an implicit deny — never invents data.
-- `RequestEvent` (`sandbox/types.ts`) gains an optional `deniedRule:
-  DeniedRuleInfo`, populated in `buildRequestEvent` (from the emit sites that
-  already hold the `TestResult`) ONLY on `result: 'deny'`.
+- `packages/pyric/src/rules/test/spec.ts` gains `projectEvaluatedRule(result)`
+  → `EvaluatedRuleInfo { verdict, line?, expression?, expressionTrace? }`. For
+  an ALLOW it picks the `→ ALLOW` trace entry (evaluation short-circuits on the
+  first allowing rule); for a DENY the first `DENY`/`ERROR` entry (fallback:
+  last evaluated). It returns `undefined` for an implicit deny or an
+  `UNSUPPORTED` abstention — never invents data. (This began as the deny-only
+  `projectDenyingRule`/`RequestEvent.deniedRule`; it generalized — and all
+  readers migrated — when the rules inspector started opening allowed ops.
+  Nothing was published on the old names.)
+- `RequestEvent` (`sandbox/types.ts`) gains an optional `evaluatedRule:
+  EvaluatedRuleInfo`, populated in `buildRequestEvent` (from the emit sites
+  that already hold the `TestResult`) on `result: 'allow' | 'deny'`, never on
+  `unsupported`.
 
-Studio's `toDenial` copies `deniedRule` onto `Denial.denyingRule`. Everything
-downstream is a pure projection over that.
+Studio's `toDenial` copies `evaluatedRule` onto `Denial.evaluatedRule` (and
+stamps `Denial.result`). Everything downstream is a pure projection over that.
 
 #### Show the work — the sub-expression step-through
 

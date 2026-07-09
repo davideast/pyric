@@ -15,10 +15,10 @@ describe('studio path codec (History-API, N4)', () => {
   });
 
   it('parses the query string', () => {
-    expect(parsePath('/firestore/users/abc', '?denial=evt-1', '/')).toEqual({
+    expect(parsePath('/firestore/users/abc', '?inspect=evt-1', '/')).toEqual({
       tab: 'firestore',
       rest: ['users', 'abc'],
-      query: { denial: 'evt-1' },
+      query: { inspect: 'evt-1' },
     });
   });
 
@@ -28,10 +28,10 @@ describe('studio path codec (History-API, N4)', () => {
   });
 
   it('strips the packaged app base (/__pyric/ui/)', () => {
-    expect(parsePath('/__pyric/ui/firestore/users/abc', '?denial=evt-1', '/__pyric/ui/')).toEqual({
+    expect(parsePath('/__pyric/ui/firestore/users/abc', '?inspect=evt-1', '/__pyric/ui/')).toEqual({
       tab: 'firestore',
       rest: ['users', 'abc'],
-      query: { denial: 'evt-1' },
+      query: { inspect: 'evt-1' },
     });
     expect(parsePath('/__pyric/ui/', '', '/__pyric/ui/')).toEqual({ tab: '', rest: [], query: {} });
     expect(parsePath('/__pyric/ui', '', '/__pyric/ui/')).toEqual({ tab: '', rest: [], query: {} });
@@ -39,25 +39,25 @@ describe('studio path codec (History-API, N4)', () => {
 
   it('serializes tab + rest + query', () => {
     expect(
-      serializePath({ tab: 'firestore', rest: ['users', 'abc'], query: { denial: 'evt-1' } }, '/'),
-    ).toBe('/firestore/users/abc?denial=evt-1');
+      serializePath({ tab: 'firestore', rest: ['users', 'abc'], query: { inspect: 'evt-1' } }, '/'),
+    ).toBe('/firestore/users/abc?inspect=evt-1');
   });
 
   it('serializes under the packaged app base', () => {
-    expect(serializePath({ tab: 'traffic', query: { denial: 'e1' } }, '/__pyric/ui/')).toBe(
-      '/__pyric/ui/traffic?denial=e1',
+    expect(serializePath({ tab: 'traffic', query: { inspect: 'e1' } }, '/__pyric/ui/')).toBe(
+      '/__pyric/ui/traffic?inspect=e1',
     );
   });
 
   it('drops empty / undefined query values', () => {
-    expect(serializePath({ tab: 'auth', rest: ['uid1'], query: { denial: undefined } }, '/')).toBe(
+    expect(serializePath({ tab: 'auth', rest: ['uid1'], query: { inspect: undefined } }, '/')).toBe(
       '/auth/uid1',
     );
   });
 
   it('round-trips a storage object path', () => {
-    const url = '/storage/uploads/logo.png?denial=evt-1';
-    const p = parsePath('/storage/uploads/logo.png', '?denial=evt-1', '/');
+    const url = '/storage/uploads/logo.png?inspect=evt-1';
+    const p = parsePath('/storage/uploads/logo.png', '?inspect=evt-1', '/');
     expect(serializePath({ tab: p.tab, rest: p.rest, query: p.query }, '/')).toBe(url);
   });
 

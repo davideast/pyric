@@ -10,14 +10,16 @@
  *   3. The request stream (grouped via `useTrafficGroups`), each row carrying a
  *      VERDICT pill — allow | deny | admin (rules bypassed) | blank for
  *      non-rule ops — derived from fields the events already carry
- *      (`verdict.ts`). Clicking a row navigates to the record the op touched
- *      (`subjectTarget` → the route codec), EXCEPT deny rows, which tint
- *      subtly and EXPAND IN PLACE (disclosure, no modal) into the DENIAL
- *      INSPECTION detail (features/rules-debug): the denying rule per service,
- *      request.auth, the data the rule saw, and the capability-gated re-runs.
+ *      (`verdict.ts`). Clicking a RULES-EVALUATED row (allow or deny —
+ *      `opensRulesInspector`) EXPANDS IN PLACE (disclosure, no modal) into the
+ *      RULES INSPECTOR detail (features/rules-debug): the deciding rule per
+ *      service, request.auth, the data the rule saw, and the capability-gated
+ *      re-runs. Admin-bypass and blank-verdict rows (no rules decision to
+ *      inspect) navigate to the record the op touched (`subjectTarget` → the
+ *      route codec) instead.
  *
- * The open denial lives in the URL (`?denial=<id>`, the key `shell/path.ts`
- * documents and the command palette already targets), so a denial view is
+ * The inspected op lives in the URL (`?inspect=<id>`, the key `shell/path.ts`
+ * documents and the command palette targets), so an inspection view is
  * linkable and back/forward work. Esc (or the close control, or re-clicking
  * the row) returns to the log. A deep-linked id that isn't in the current
  * buffer renders a calm "not in this session's traffic" state.
@@ -40,20 +42,21 @@ import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.j
 import {
   filterByVerdict,
   filterStudioTraffic,
+  opensRulesInspector,
   subjectTarget,
   verdictFor,
   VERDICT_FILTERS,
   type StudioTrafficEvent,
   type VerdictFilter,
 } from './verdict.js';
-import { queryWithDenial, selectedDenialId, toggleDenial } from './denial-selection.js';
-import { TrafficDenialInspector } from './TrafficDenialInspector.js';
+import { queryWithInspect, selectedInspectId, toggleInspect } from './inspect-selection.js';
+import { TrafficRulesInspector } from './TrafficRulesInspector.js';
 import { BillableMetricsView, SubscriptionsRulesView } from './TrafficMetricsViews.js';
 import './traffic.css';
 
 /** The Traffic tab strip's three views (Firebase Console "Usage" reference:
  *  Timeline / Billable metrics / Subscriptions & Rules), deep-linkable via
- *  `?view=` (omitted for the default `timeline`, matching the `denial`
+ *  `?view=` (omitted for the default `timeline`, matching the `inspect`
  *  param's drop-when-empty precedent in `shell/path.ts`). */
 export type TrafficTab = 'timeline' | 'billable' | 'subscriptions';
 const TRAFFIC_TABS: ReadonlyArray<{ id: TrafficTab; label: string }> = [
@@ -79,9 +82,9 @@ function useTrafficTab(): readonly [TrafficTab, (tab: TrafficTab) => void] {
   );
   const setActive = useCallback((tab: TrafficTab) => {
     // Preserve unrelated query keys (`?hide=studio` must survive a view
-    // switch); `?denial` intentionally drops with the rest replaced only
+    // switch); `?inspect` intentionally drops with the rest replaced only
     // when absent from the merge — spread keeps it too, and that's right:
-    // an open denial belongs to the timeline view the user returns to.
+    // an open inspection belongs to the timeline view the user returns to.
     const query = { ...currentPath().query, view: tab === 'timeline' ? undefined : tab };
     if (query.view === undefined) delete query.view;
     pushPath({ tab: 'traffic', query });
@@ -126,12 +129,12 @@ function VerdictCell({ event }: { event: StudioTrafficEvent }) {
   );
 }
 
-/** The URL-driven denial focus (`?denial=<id>`): the open denial's id, or
+/** The URL-driven inspector focus (`?inspect=<id>`): the inspected op's id, or
  *  null. Read reactively so back/forward and palette deep links drive it. */
-function useDenialParam(): string | null {
+function useInspectParam(): string | null {
   return useSyncExternalStore(
     subscribeToLocation,
-    () => selectedDenialId(currentPath().query),
+    () => selectedInspectId(currentPath().query),
     () => null,
   );
 }
@@ -156,28 +159,29 @@ export function TrafficSurface() {
   );
   const hiddenStudioCount = allEvents.length - events.length;
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all');
-  const expandedId = useDenialParam();
+  const expandedId = useInspectParam();
   const [visibleRows, setVisibleRows] = useState(PAGE_SIZE);
 
-  // Selecting/closing a denial NAVIGATES (pushPath) so the view is linkable
-  // and back/forward step through inspections; other query keys survive.
-  const openDenial = (id: string) => {
-    pushPath({ tab: 'traffic', query: toggleDenial(currentPath().query, id) });
+  // Selecting/closing an inspection NAVIGATES (pushPath) so the view is
+  // linkable and back/forward step through inspections; other query keys
+  // survive.
+  const openInspect = (id: string) => {
+    pushPath({ tab: 'traffic', query: toggleInspect(currentPath().query, id) });
   };
-  const closeDenial = () => {
-    pushPath({ tab: 'traffic', query: queryWithDenial(currentPath().query, null) });
+  const closeInspect = () => {
+    pushPath({ tab: 'traffic', query: queryWithInspect(currentPath().query, null) });
   };
 
-  // Esc returns to the log while a denial is open. (`globalThis`: the local
-  // `window` name below is the timeline's TimeWindow.)
+  // Esc returns to the log while the inspector is open. (`globalThis`: the
+  // local `window` name below is the timeline's TimeWindow.)
   useEffect(() => {
     if (!expandedId) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeDenial();
+      if (e.key === 'Escape') closeInspect();
     };
     globalThis.addEventListener('keydown', onKey);
     return () => globalThis.removeEventListener('keydown', onKey);
-    // closeDenial reads the URL at call time; no reactive deps beyond the flag.
+    // closeInspect reads the URL at call time; no reactive deps beyond the flag.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedId]);
 
@@ -209,19 +213,21 @@ export function TrafficSurface() {
 
   const verdictBadge = (event: StudioTrafficEvent) => <VerdictCell event={event} />;
 
-  // The row's navigation semantic: click goes to the record the op touched
-  // (C3 drill-in). Denials instead keep their expand-in-place disclosure —
-  // the denial's detail IS Traffic's; its subject link would hide the why.
+  // The row's navigation semantic: a RULES-EVALUATED row (allow or deny)
+  // expands in place into the rules inspector — the rules decision IS
+  // Traffic's detail; its subject link would hide the why. Admin-bypass and
+  // blank-verdict rows have no rules decision to inspect, so they keep the
+  // C3 drill-in to the record the op touched.
   const onRowSelect = (e: StudioTrafficEvent) => {
-    if (verdictFor(e) === 'deny') {
-      openDenial(e.id);
+    if (opensRulesInspector(e)) {
+      openInspect(e.id);
       return;
     }
     const target = subjectTarget(e);
     if (target) pushPath(target);
   };
 
-  // A deep-linked / filtered-out denial has no visible row to expand under:
+  // A deep-linked / filtered-out op has no visible row to expand under:
   // detect it so the inspector can render standalone above the log (this also
   // covers an id that isn't in the buffer at all — the inspector shows the
   // calm "not in this session's traffic" state).
@@ -318,14 +324,14 @@ export function TrafficSurface() {
             ))}
           </div>
 
-          {/* Deep-linked denial with no visible row (filtered out, beyond the
+          {/* Deep-linked op with no visible row (filtered out, beyond the
               pagination fold, folded into a group, or absent from the buffer):
               the inspector renders standalone above the log. */}
           {expandedId && !expandedRowVisible ? (
-            <TrafficDenialInspector
+            <TrafficRulesInspector
               key={expandedId}
-              denialId={expandedId}
-              onClose={closeDenial}
+              eventId={expandedId}
+              onClose={closeInspect}
             />
           ) : null}
 
@@ -343,12 +349,18 @@ export function TrafficSurface() {
                     <li key={item.key} data-pyric-traffic-group-entry="">
                       <TrafficGroupRow
                         group={item}
-                        // Group MEMBERS navigate to their subject too; member deny
-                        // rows stay inert (the in-place disclosure renders only on
-                        // top-level entries — the library owns member markup).
+                        // Group MEMBERS: rules-evaluated members open the
+                        // inspector too — they have no top-level row, so it
+                        // renders standalone above the log (the in-place
+                        // disclosure renders only on top-level entries — the
+                        // library owns member markup). Others navigate to
+                        // their subject.
                         onSelect={(e) => {
                           const ev = e as StudioTrafficEvent;
-                          if (verdictFor(ev) === 'deny') return;
+                          if (opensRulesInspector(ev)) {
+                            openInspect(ev.id);
+                            return;
+                          }
                           const target = subjectTarget(ev);
                           if (target) pushPath(target);
                         }}
@@ -371,11 +383,11 @@ export function TrafficSurface() {
                         formatTime={defaultFormatTime}
                       />
                       {item.event.id === expandedId &&
-                      verdictFor(item.event as StudioTrafficEvent) === 'deny' ? (
-                        <TrafficDenialInspector
+                      opensRulesInspector(item.event as StudioTrafficEvent) ? (
+                        <TrafficRulesInspector
                           key={expandedId}
-                          denialId={expandedId}
-                          onClose={closeDenial}
+                          eventId={expandedId}
+                          onClose={closeInspect}
                         />
                       ) : null}
                     </li>

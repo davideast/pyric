@@ -1,16 +1,22 @@
 /**
- * The Traffic surface's denial inspection mount (rules-debug F4, wired in).
+ * The Traffic surface's RULES INSPECTOR mount (rules-debug F4, wired in).
+ * Opens for ANY rules-evaluated op — an allowed row shows the rule that
+ * granted access (✓ line marker, matched rule, trace); a denied row shows the
+ * rule that rejected it (✗) — same anatomy either way.
  *
  * Composition: `DenialDetail` (features/rules-debug) stays pure-props; THIS
  * component is the Traffic-side adapter that resolves its dependencies from
  * the shell data seam and hands them down:
- *   - the selected {@link Denial} — found by id in `useStudioDenials()` (the
- *     `selectDenials` projection over the live event stream);
+ *   - the selected op — found by id in `useStudioRuleEvaluations()` (the
+ *     `selectRuleEvaluations` projection over the live event stream: allow AND
+ *     deny/unsupported);
  *   - re-run deps — `useStudioSnapshot()` (fork source) + `useStudioRulesSource()`
  *     (the deployed ruleset), the SAME wiring the de-mounted RulesSurface used:
- *     both re-runs happen on a THROWAWAY fork, never a live mutation;
+ *     both re-runs happen on a THROWAWAY fork, never a live mutation. For an
+ *     ALLOWED op the edited-ruleset re-run answers "would my edit BREAK this?"
+ *     — the same divergence diff reports flips both ways;
  *   - the edited-ruleset text buffer (local, prefilled with the live rules the
- *     first time the inspector opens for a denial).
+ *     first time the inspector opens for an op).
  *
  * When the id isn't in the current event buffer (a stale deep link, or the
  * event aged past the STUDIO_EVENT_CAP window), it renders a calm
@@ -28,40 +34,41 @@ import {
   type RerunResult,
 } from '../rules-debug/index.js';
 import {
-  useStudioDenials,
+  useStudioRuleEvaluations,
   useStudioSnapshot,
   useStudioRulesSource,
 } from '../../shell/studio-data.js';
 
-export function TrafficDenialInspector({
-  denialId,
+export function TrafficRulesInspector({
+  eventId,
   onClose,
 }: {
-  denialId: string;
+  /** The inspected op's request-event id (`?inspect=<id>`). */
+  eventId: string;
   onClose: () => void;
 }) {
-  const denials = useStudioDenials();
+  const ops = useStudioRuleEvaluations();
   const getSnapshot = useStudioSnapshot();
   const rulesSource = useStudioRulesSource();
-  const denial = denials.find((d) => d.id === denialId);
+  const op = ops.find((d) => d.id === eventId);
 
-  // The "what if" buffer. Keyed per denial by the parent (`key={denialId}`),
-  // so switching denials resets it; prefilled from the live rules once they
-  // resolve (served mode loads them async).
+  // The "what if" buffer. Keyed per op by the parent (`key={eventId}`), so
+  // switching ops resets it; prefilled from the live rules once they resolve
+  // (served mode loads them async).
   const [editedRules, setEditedRules] = useState('');
   const effectiveEditedRules = editedRules || rulesSource;
 
-  if (!denial) {
+  if (!op) {
     return (
       <div
-        data-pyric-ui="traffic-denial-missing"
-        className="traffic__denial-inspector"
+        data-pyric-ui="traffic-inspect-missing"
+        className="traffic__inspector"
       >
-        <p className="traffic__denial-missing">
-          This denial isn't in this session's traffic. It may be from an
+        <p className="traffic__inspector-missing">
+          This operation isn't in this session's traffic. It may be from an
           earlier session, or the event has aged out of the buffer.
         </p>
-        <button type="button" className="traffic__denial-close" onClick={onClose}>
+        <button type="button" className="traffic__inspector-close" onClick={onClose}>
           Back to the log
         </button>
       </div>
@@ -111,22 +118,22 @@ export function TrafficDenialInspector({
 
   return (
     <div
-      data-pyric-ui="traffic-denial-inspector"
-      className="traffic__denial-inspector"
+      data-pyric-ui="traffic-rules-inspector"
+      className="traffic__inspector"
     >
-      <div className="traffic__denial-bar">
-        <span className="traffic__denial-title">denial inspection</span>
+      <div className="traffic__inspector-bar">
+        <span className="traffic__inspector-title">rules inspector</span>
         <button
           type="button"
-          className="traffic__denial-close"
+          className="traffic__inspector-close"
           onClick={onClose}
-          aria-label="Close denial inspection (Esc)"
+          aria-label="Close rules inspector (Esc)"
         >
           close (esc)
         </button>
       </div>
       <DenialDetail
-        denial={denial}
+        denial={op}
         editedRules={effectiveEditedRules}
         rulesSource={rulesSource}
         onEditedRulesChange={setEditedRules}
