@@ -1,0 +1,79 @@
+---
+import {
+  navGroups,
+  docPath,
+  navLabel,
+  slugOf,
+  groupAnchorId,
+  sectionAnchorId,
+} from '../lib/docs';
+import DocsSearch from './DocsSearch.astro';
+
+interface Props {
+  currentSlug: string;
+  /** 'primary' (the real sticky sidebar) owns the group/section anchor
+   *  ids the breadcrumb fallback jumps to; 'drawer' (the mobile
+   *  duplicate — hidden on wide screens) must not repeat them, or the
+   *  ids collide and the browser resolves fragment links to whichever
+   *  copy is first in the DOM, which on desktop is the hidden one. */
+  variant?: 'primary' | 'drawer';
+}
+
+const { currentSlug, variant = 'primary' } = Astro.props;
+const groups = await navGroups();
+
+/** Only the group holding the current page starts open — everything
+ *  else is tertiary and stays behind its disclosure. */
+function holdsCurrent(group: (typeof groups)[number]): boolean {
+  return group.sections.some((s) =>
+    s.entries.some((e) => slugOf(e) === currentSlug),
+  );
+}
+---
+
+<nav class="docs-nav" aria-label="Documentation">
+  <DocsSearch />
+  {
+    groups.map((group) => (
+      <details
+        class="docs-nav-group"
+        id={variant === 'primary' ? groupAnchorId(group.group) : undefined}
+        open={holdsCurrent(group)}
+      >
+        <summary>{group.group}</summary>
+        <div class="docs-nav-group-body">
+          {group.sections.map(({ section, entries }) => (
+            <div class="docs-nav-section">
+              {section ? (
+                <h2
+                  class="docs-nav-heading"
+                  id={
+                    variant === 'primary'
+                      ? sectionAnchorId(group.group, section)
+                      : undefined
+                  }
+                >
+                  {section}
+                </h2>
+              ) : null}
+              <ul>
+                {entries.map((entry) => (
+                  <li>
+                    <a
+                      href={docPath(entry)}
+                      aria-current={
+                        slugOf(entry) === currentSlug ? 'page' : undefined
+                      }
+                    >
+                      {navLabel(entry)}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </details>
+    ))
+  }
+</nav>
