@@ -1,0 +1,27 @@
+{
+  "name": "messaging-web-data-only-background",
+  "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
+  "rowIds": [],
+  "description": "A DATA-ONLY message (no notification field) sent while the page has no visible client: onBackgroundMessage FIRES, delivering a payload with data/from/messageId and NO notification key. Auto-display probe: this is the FIRST background send of the run against a freshly-activated worker (its activate handler cleared all notifications), and the handler displays nothing, so registration.getNotifications() afterwards is attributable to this message alone — value pinned as notificationsAfterHandler. NOTE: Chrome's own userVisibleOnly \"site updated in the background\" fallback is a browser-level notification and may or may not surface in getNotifications(); the pinned count is the honest, directly-observed number. rowIds:[]; rows land with the registry-admission ticket (surface admitted born-unverified under the CDD map).",
+  "observedAt": "2026-07-09T05:16:38.754Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "onBackgroundMessageFired": true,
+    "topLevelKeys": [
+      "data",
+      "from",
+      "messageId"
+    ],
+    "hasNotificationKey": false,
+    "dataKeys": [
+      "demo",
+      "source",
+      "tag"
+    ],
+    "dataEchoedExactly": true,
+    "fromEqualsSenderId": true,
+    "messageIdPresent": true,
+    "notificationsAfterHandler": 0
+  }
+}

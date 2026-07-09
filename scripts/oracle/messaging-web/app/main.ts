@@ -8,7 +8,7 @@
  * __CONFIG__ and __VAPID__ are injected at build time by the harness.
  */
 import { initializeApp } from 'firebase/app';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { getMessaging, getToken, onMessage, deleteToken } from 'firebase/messaging';
 
 declare const __CONFIG__: Record<string, string>;
 declare const __VAPID__: string;
@@ -48,16 +48,32 @@ async function main(): Promise<void> {
     return;
   }
 
-  const token = await getToken(messaging, {
-    vapidKey: __VAPID__,
-    serviceWorkerRegistration: reg,
-  });
+  const mint = () => getToken(messaging, { vapidKey: __VAPID__, serviceWorkerRegistration: reg });
+  const token = await mint();
   post('token', { token });
   el('status').textContent = 'token minted — listening';
   el('token').textContent = token;
 
+  // Driver-facing command channel. The harness drives these over
+  // page.evaluate to keep every SDK call inside the real page context (the
+  // only place firebase/messaging behaves like a user's app):
+  //   __getTokenAgain  re-calls getToken on the same registration (token
+  //                    stability probe)
+  //   __deleteToken    deletes the current token (deleteToken/UNREGISTERED
+  //                    probe); resolves true on success
+  const w = window as unknown as {
+    __getTokenAgain: () => Promise<string>;
+    __deleteToken: () => Promise<boolean>;
+  };
+  w.__getTokenAgain = () => mint();
+  w.__deleteToken = () => deleteToken(messaging);
+
   onMessage(messaging, (payload) => {
-    post('onMessage', payload);
+    // Capture visibility+focus AT delivery: the routing contract keys on
+    // document.visibilityState (not focus), so recording both proves a
+    // visible-but-unfocused page still gets onMessage.
+    const meta = { visibilityState: document.visibilityState, hasFocus: document.hasFocus() };
+    post('onMessage', { payload, meta });
     logMessage('onMessage (foreground — the page handles it; no OS notification)', payload);
   });
 
