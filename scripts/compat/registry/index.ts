@@ -16,6 +16,12 @@ export const surfaceDescriptors: SurfaceDescriptor[] = [
   { surface: 'rtdb', registry: rtdbRegistry, observationPrefix: 'rtdb-' },
   { surface: 'rtdb-modular', registry: rtdbRegistry, observationPrefix: 'rtdb-modular-' },
   { surface: 'storage', registry: storageRegistry, observationPrefix: 'storage-' },
+  // `messaging-` observations are send-plane captures of production FCM
+  // (wayfinder map #43: the surface is being admitted born-unverified under
+  // Conformance Driven Development; rows land with the registry-admission
+  // ticket). Same descriptor mechanics as `admin-app-`: recognized prefix,
+  // no COMPAT doc, no matrix rows yet; reuses the auth registry as a host.
+  { surface: 'auth', registry: authRegistry, observationPrefix: 'messaging-' },
   // `admin-app-` observations are Phase-A bootstrap captures of firebase-admin's
   // in-process app registry (initializeApp / getApp / accessors). They have no
   // matrix rows yet (those land post-publish) and are individually listed in
@@ -54,6 +60,12 @@ export const surfaceDescriptors: SurfaceDescriptor[] = [
 export const surfaceRegistries: CompatibilitySurfaceRegistry[] = [...new Set(surfaceDescriptors.map((d) => d.registry))];
 
 export const observationExceptions: Record<string, string> = {
+  "messaging-web-token-shape": "FCM web receive-plane capture under the CDD map (#43); messaging matrix rows land with the registry-admission ticket",
+  "messaging-web-onmessage-foreground": "FCM web receive-plane capture under the CDD map (#43); messaging matrix rows land with the registry-admission ticket",
+  "messaging-web-onbackgroundmessage": "FCM web receive-plane capture under the CDD map (#43); messaging matrix rows land with the registry-admission ticket",
+  "messaging-send-topic-accepted": "FCM send-plane capture under the CDD map (#43); messaging matrix rows land with the registry-admission ticket",
+  "messaging-send-no-target-error-envelope": "FCM send-plane capture under the CDD map (#43); messaging matrix rows land with the registry-admission ticket",
+  "messaging-send-invalid-token-error-envelope": "FCM send-plane capture under the CDD map (#43); messaging matrix rows land with the registry-admission ticket",
   "admin-app-initializeapp-noarg-default": "admin bootstrap capture; admin matrix rows land post-publish",
   "admin-app-initializeapp-named": "admin bootstrap capture; admin matrix rows land post-publish",
   "admin-app-initializeapp-reinit-idempotent": "admin bootstrap capture; admin matrix rows land post-publish",
