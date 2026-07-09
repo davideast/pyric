@@ -1,0 +1,51 @@
+{
+  "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read: if true;\n      allow write: if request.auth != null;\n    }\n  }\n}\n",
+  "authUsers": [
+    {
+      "uid": "demo-ada",
+      "email": "ada@example.com",
+      "password": "pyric-demo",
+      "displayName": "Ada Lovelace"
+    },
+    {
+      "uid": "demo-grace",
+      "email": "grace@example.com",
+      "password": "pyric-demo",
+      "displayName": "Grace Hopper"
+    }
+  ],
+  "seed": {
+    "notes/welcome": {
+      "title": "Welcome to Pyric Studio",
+      "body": "This is a seeded document — edit it, delete it, or add your own.",
+      "ownerUid": "demo-ada",
+      "pinned": true
+    },
+    "notes/second-note": {
+      "title": "A second note",
+      "body": "Studio's data viewer works against the SAME sandbox the demo app talks to.",
+      "ownerUid": "demo-grace",
+      "pinned": false
+    },
+    "todos/ship-the-site": {
+      "text": "Ship the static Pyric Studio site",
+      "done": true,
+      "ownerUid": "demo-ada"
+    },
+    "todos/write-more-docs": {
+      "text": "Write more docs",
+      "done": false,
+      "ownerUid": "demo-grace"
+    },
+    "profiles/demo-ada": {
+      "displayName": "Ada Lovelace",
+      "bio": "Wrote the first algorithm.",
+      "handle": "@ada"
+    },
+    "profiles/demo-grace": {
+      "displayName": "Grace Hopper",
+      "bio": "Found the first bug.",
+      "handle": "@grace"
+    }
+  }
+}

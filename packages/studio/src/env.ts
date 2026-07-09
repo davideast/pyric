@@ -26,11 +26,38 @@ import type {
   RemoteLifecycle,
 } from './ports.js';
 import { httpProjectStore, httpPersistence } from './clients/index.js';
+import { createMemoryProjectStore } from './clients/memory-project-store.js';
 import {
   connectWorkerLive,
   type WorkerLivePlane,
 } from './clients/worker-live.js';
 import { connectStudioBridgePeer } from './clients/bridge-peer.js';
+
+/**
+ * `STUDIO_STATIC` — the composed static-site build flag (`scripts/build-site.sh`).
+ * Set at build time via the app bundler's `define` (Vite, `vite.config.ts`);
+ * absent for the normal `pyric dev --ui` build AND for the `dist/env.js`
+ * library export consumed outside Vite (Node/Bun, where `import.meta.env`
+ * itself doesn't exist — hence the `typeof` guard rather than a bare access).
+ *
+ * When true, `createStudioEnvironment('local')` never constructs
+ * `httpProjectStore`/`httpPersistence` (no pyric devr exists to answer
+ * `/__pyric/workspace|projects|state` under static hosting) — it wires the
+ * in-memory, single-project store + backend instead. The SharedWorker's own
+ * IDB-backed durable state (rules/docs/auth users) is unaffected either way;
+ * this flag only concerns Studio's OWN ports.
+ */
+function isStudioStatic(): boolean {
+  if (typeof import.meta.env === 'undefined') return false;
+  // `as unknown as Record<...>`: a pure compile-time assertion (erased by
+  // `tsc`, emits no runtime code), so the ACTUAL expression Vite's `define`
+  // matches (`import.meta.env.STUDIO_STATIC`) survives untouched in the
+  // compiled output. The cast only sidesteps `bun-types`' `ImportMetaEnv`
+  // (merged globally via this package's `tsconfig.json` "types"), which
+  // models unknown keys as `string | undefined` (it shapes `import.meta.env`
+  // on `process.env`) — conflicting with the boolean `define` bakes in here.
+  return (import.meta.env as unknown as Record<string, unknown>).STUDIO_STATIC === true;
+}
 
 /** Where Studio's storage lives. Only `local` is wired in v1. */
 export type StudioMode = 'local' | 'browser' | 'hosted';
@@ -128,8 +155,9 @@ export function createStudioEnvironment(
     // Default to same-origin: `pyric dev --ui` serves Studio AND the routes
     // from one server, so an empty base resolves `/__pyric/*` against it.
     const baseUrl = options.baseUrl ?? '';
+    const staticBuild = isStudioStatic();
     const persistence: PersistenceBackend =
-      options.persistence === 'memory'
+      options.persistence === 'memory' || staticBuild
         ? createMemoryBackend()
         : httpPersistence(baseUrl);
 
@@ -159,7 +187,7 @@ export function createStudioEnvironment(
 
     return {
       mode,
-      projects: httpProjectStore(baseUrl),
+      projects: staticBuild ? createMemoryProjectStore() : httpProjectStore(baseUrl),
       persistence,
       ...(live ? { live } : {}),
       ...(bridge ? { bridge } : {}),
