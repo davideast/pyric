@@ -9,33 +9,28 @@
  *    the live SharedWorker plane is unreachable — the surfaces are then
  *    mirrors, not the live sandbox. Links to Settings (diagnostics), the
  *    surface that resolves it.
- *  - MCP PRESENCE — rendered only while Studio's own bridge-peer registration
- *    is CONNECTED: the honest, cheap signal that the MCP relay into this
- *    sandbox is live. (The bridge does not surface the remote client's name
- *    to browser peers, so the chip names the bridge, not the agent —
- *    deviation from specs/shell.md noted there.)
+ *  - MCP PRESENCE — rendered while the bridge is AVAILABLE: the bridge
+ *    endpoint answers `/__pyric/health` and a sandbox peer (ANY tab) is
+ *    connected. Deliberately NOT Studio's own peer registration — the peer
+ *    slot is last-connection-wins, so another tab holding it must not hide
+ *    the chip while MCP remains fully reachable (see bridge-availability.ts).
+ *    (The bridge does not surface the remote client's name to browser peers,
+ *    so the chip names the bridge, not the agent — deviation from
+ *    specs/shell.md noted there.)
  *
  * Container-agnostic (L4): a flex row of chips, gap-spaced, no external
  * geometry.
  */
 
-import { useSyncExternalStore } from 'react';
 import { useEnvironment } from './environment.js';
 import { useServeInit } from './serve-init.js';
+import { useBridgeAvailability } from './bridge-availability.js';
 import { hrefFor, pushPath } from './router.js';
-
-const NONE = () => () => {};
 
 export function StatusCluster() {
   const env = useEnvironment();
   const serve = useServeInit();
-
-  const bridge = env.status === 'ready' ? env.env.bridge : undefined;
-  const bridgeState = useSyncExternalStore(
-    bridge ? bridge.subscribe : NONE,
-    bridge ? bridge.get : () => null,
-    () => null,
-  );
+  const bridgeAvailability = useBridgeAvailability();
 
   const served = serve.status === 'ready';
   const workerDown = served && env.status === 'ready' && !env.env.live;
@@ -46,7 +41,7 @@ export function StatusCluster() {
       ? 'worker unreachable'
       : null;
 
-  const connected = bridgeState?.kind === 'connected';
+  const connected = bridgeAvailability === 'available';
 
   return (
     <div className="studio__status" aria-label="Studio status">
@@ -71,9 +66,7 @@ export function StatusCluster() {
       {connected ? (
         <span
           className="studio-chip studio-chip--live"
-          title={`MCP bridge connected (bridge v${
-            bridgeState.kind === 'connected' ? bridgeState.bridgeVersion : ''
-          }) — external agents can reach this sandbox.`}
+          title="MCP bridge available — a sandbox peer is connected; external agents can reach this sandbox."
         >
           <span className="studio-chip__dot" aria-hidden="true" />
           MCP bridge
