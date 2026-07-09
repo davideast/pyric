@@ -216,8 +216,11 @@ them.
 ### The sandbox build (`vite build --mode development`)
 
 `vite build --mode development` produces a **self-contained bundle** whose
-`firebase/*` imports are already swapped to pyric's in-page adapters — nothing
-to intercept at load time, so you can preview a bundled build under `pyric dev`:
+`firebase/*` imports are already swapped to pyric's in-page adapters, plus a
+sandbox init chunk (the runtime bootstrap and the sign-in helper) that shares
+one runtime with your app — nothing to intercept or inject at load time, so you
+can preview a bundled build under `pyric dev` (which sees the marker and skips
+its own runtime injection for these pages):
 
 ```bash
 vite build --mode development   # or the scaffolded `build:sandbox` script

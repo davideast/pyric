@@ -62,6 +62,21 @@ describe('injectServeTags', () => {
     expect(injectServeTags('<html><head></head></html>')).not.toContain('__PYRIC_FORCE_INPAGE__');
   });
 
+  it('SKIPS injection for a marked sandbox build page (the bundle owns the sandbox)', () => {
+    const marked =
+      '<html><head><meta name="pyric-sandbox-build" content="1" data-pyric-sandbox-build></head><body></body></html>';
+    const out = injectServeTags(marked, undefined, 'abc123');
+    // no second runtime: neither the import map nor the injected init module
+    expect(out).not.toContain('importmap');
+    expect(out).not.toContain('/__pyric/sdk/init.js');
+    // the ONE serve-time contribution: the worker staleness stamp
+    expect(out).toContain('<meta name="pyric-worker-v" content="abc123"');
+    // idempotent
+    expect(injectServeTags(out, undefined, 'abc123')).toBe(out);
+    // without a worker version, the marked page passes through untouched
+    expect(injectServeTags(marked)).toBe(marked);
+  });
+
   it('sdkImportMap covers the served modules', () => {
     expect(Object.keys(sdkImportMap()).sort()).toEqual([
       'firebase/app',

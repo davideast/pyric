@@ -253,6 +253,19 @@ async function handleRequest(
   if (!file && opts.spaRewrite && !extname(url.pathname)) {
     file = resolveStaticFile(opts.publicDir, '/index.html');
   }
+  if (!file && url.pathname === '/favicon.ico') {
+    // The browser requests /favicon.ico on every load; without this an app
+    // that ships no favicon logs a 404 in every console. Serve a tiny inline
+    // SVG (the pyric flame) so consoles stay clean. An on-disk favicon.ico
+    // was already resolved above and wins.
+    res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'max-age=3600' });
+    res.end(
+      req.method === 'HEAD'
+        ? undefined
+        : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><text y="13" font-size="13">🔥</text></svg>',
+    );
+    return;
+  }
   if (!file) {
     logger.note(`  ✖ 404 ${req.method} ${url.pathname}`);
     res.writeHead(404, { 'content-type': 'text/plain' }).end('not found');

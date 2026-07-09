@@ -258,6 +258,16 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
   // sandbox trigger), so `command === 'build'` is sufficient to know we are
   // producing marker-stamped, non-production output.
   let sandboxBuild = false;
+  // Sandbox build: the serve init entry (runtime bootstrap + the ServeAuthHelper
+  // popup picker) is emitted as its OWN chunk and script-tagged into index.html.
+  // Rollup dedupes the shared runtime module between this chunk and the app
+  // chunk (both import the same absolute file), so the page runs exactly ONE
+  // sandbox runtime — unlike serve-time injection of /__pyric/sdk/init.js,
+  // which is a separately-bundled second runtime copy (the double-init bug:
+  // two banners, two bridge registrations). `pyric dev` sees the marker and
+  // skips its injection for these pages (see injectServeTags).
+  let initChunkRef: string | undefined;
+  let initChunkFile: string | undefined;
 
   // M3 bridge fold: normalize `bridge` once (true ⇒ `{}`, falsy ⇒ null). When
   // on, the MCP mount is composed into the /__pyric middleware (createBridgeMount,
@@ -690,22 +700,45 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       }
     },
 
+    // Sandbox build only: emit the serve init entry as its own chunk. Emitted in
+    // buildStart (module graph time); its final filename is resolved in
+    // generateBundle. Our plugin is `enforce: 'pre'`, so our generateBundle runs
+    // BEFORE Vite's build-html plugin applies transformIndexHtml — the filename
+    // is always available when the script tag is injected below.
+    buildStart() {
+      if (sandboxBuild) {
+        initChunkRef = this.emitFile({
+          type: 'chunk',
+          id: entries.init,
+          name: 'pyric-sandbox-init',
+        });
+      }
+    },
+    generateBundle() {
+      if (initChunkRef) initChunkFile = this.getFileName(initChunkRef);
+    },
+
     transformIndexHtml(html) {
       // Sandbox BUILD: the app's own `firebase/*` imports were already swapped
       // (resolveId, above) to pyric's in-page adapters and BUNDLED into the app
-      // chunk, so the output is self-contained. We do NOT inject the init/@fs
-      // module or force in-page here: `pyric dev` serves the dist and injects
-      // ITS serve tags (import map + /__pyric/sdk/init.js + the SharedWorker
-      // meta) at request time, and the bundled adapters share that one worker
-      // backend with the injected init. All we stamp is the marker — the signal
-      // that makes `pyric dev` trust this dist and `pyric deploy hosting` refuse
-      // it. transformIndexHtml runs BEFORE Vite writes index.html, so the marker
-      // lands in the emitted asset.
+      // chunk, and the emitted init chunk (script-tagged here) carries the
+      // runtime bootstrap + the ServeAuthHelper popup picker — rollup shares
+      // ONE runtime module between the two, so the output is fully
+      // self-contained. `pyric dev` sees the marker below and skips its own
+      // serve-time injection for this page (a second injected runtime would
+      // double-init: two banners, two bridge peers). The marker is also the
+      // signal that makes `pyric dev` trust this dist (skip the inlined-SDK
+      // scan) and `pyric deploy hosting` refuse it. transformIndexHtml runs
+      // BEFORE Vite writes index.html, so both land in the emitted asset.
       if (sandboxBuild) {
         if (html.includes(SANDBOX_BUILD_META)) return html;
+        const initTag = initChunkFile
+          ? `<script type="module" crossorigin src="/${initChunkFile}" data-pyric-sandbox-init></script>`
+          : '';
+        const tags = SANDBOX_BUILD_META + initTag;
         return html.includes('</head>')
-          ? html.replace('</head>', `${SANDBOX_BUILD_META}</head>`)
-          : SANDBOX_BUILD_META + html;
+          ? html.replace('</head>', `${tags}</head>`)
+          : tags + html;
       }
       const MARKER = 'data-pyric-sandbox';
       if (html.includes(MARKER)) return html;

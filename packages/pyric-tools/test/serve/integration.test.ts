@@ -181,6 +181,26 @@ describe('pyric dev end-to-end (HTTP)', () => {
     const runtime = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() });
     stops.push(runtime);
     expect(runtime.handle.url).toContain('http://');
+
+    // The marked page is served WITHOUT the serve-time injection — the bundle
+    // owns the sandbox (a second injected runtime double-inits: two banners,
+    // two bridge peers). Only the worker staleness meta is added.
+    const html = await (await fetch(runtime.handle.url + '/')).text();
+    expect(html).not.toContain('importmap');
+    expect(html).not.toContain('/__pyric/sdk/init.js');
+    expect(html).toContain('pyric-worker-v');
+    // The init-payload path the bundled runtime/worker uses stays live.
+    const init = await fetch(runtime.handle.url + '/__pyric/init.json');
+    expect(init.status).toBe(200);
+  }, 30_000);
+
+  it('serves a default favicon instead of 404ing every page load', async () => {
+    const cwd = fixtureProject();
+    const runtime = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() });
+    stops.push(runtime);
+    const res = await fetch(runtime.handle.url + '/favicon.ico');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('svg');
   }, 30_000);
 });
 

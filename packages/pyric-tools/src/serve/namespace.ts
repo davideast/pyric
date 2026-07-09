@@ -17,6 +17,7 @@ import { StateFileError, type StateSection, type StateStore } from './state-stor
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
 import { contentTypeFor, pipeFileToResponse, resolveStaticFile } from './server.js';
+import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
 
 /** Mirrors the runtime entry's `InitPayload` — keep in lockstep with
  *  `entries/runtime.ts`. */
@@ -344,6 +345,26 @@ export function injectServeTags(
 ): string {
   const MARKER = 'data-pyric-serve';
   if (html.includes(MARKER)) return html;
+  // A pyric SANDBOX BUILD (`vite build` under the pyricSandbox plugin's sandbox
+  // mode) already BUNDLES its own runtime + init chunk — injecting the import
+  // map + /__pyric/sdk/init.js on top would boot a SECOND runtime instance on
+  // the page (two banners, two bridge peer registrations, races between them).
+  // The bundle owns the sandbox for a marked page: it fetches
+  // /__pyric/init.json itself (worker path: the SharedWorker does; in-page
+  // path: the runtime does) and owns rules hot-reload the same way. The ONLY
+  // serve-time contribution left is the worker-version staleness stamp, which
+  // the bundled runtime reads from this meta to warn about a stale
+  // still-running SharedWorker.
+  if (html.includes(SANDBOX_BUILD_MARKER)) {
+    if (!workerVersion || html.includes('pyric-worker-v')) return html;
+    const meta = `<meta name="pyric-worker-v" content="${workerVersion}" ${MARKER}>`;
+    const headTag = html.match(/<head[^>]*>/i);
+    if (headTag && headTag.index !== undefined) {
+      const at = headTag.index + headTag[0].length;
+      return html.slice(0, at) + meta + html.slice(at);
+    }
+    return meta + html;
+  }
   // Stamp the worker's content hash so the page can DETECT staleness: a live
   // SharedWorker survives serve restarts + reloads and can't hot-update, so it
   // keeps running old code until every tab of the origin closes. The worker
