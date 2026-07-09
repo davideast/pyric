@@ -36,3 +36,6 @@ tmp/
 
 # Reference SDK clones used by oracle/parity research.
 clones/
+
+# Design/process working documents — never repo content (see #29/#32 accident)
+docs/design/
