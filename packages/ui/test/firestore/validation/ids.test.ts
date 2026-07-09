@@ -62,3 +62,18 @@ describe('validateDocumentId', () => {
     expect(validateDocumentId(tooManyEmoji)).toBe('Cannot exceed 1500 bytes');
   });
 });
+
+describe('validateCollectionId: 1500-byte cap (matches Firestore "Maximum size for a collection ID")', () => {
+  test('rejects an id over 1500 bytes', () => {
+    expect(validateCollectionId('a'.repeat(1501))).toBe('Cannot exceed 1500 bytes');
+  });
+
+  test('accepts an id right at the 1500-byte boundary', () => {
+    expect(validateCollectionId('a'.repeat(1500))).toBeUndefined();
+  });
+
+  test('measures multi-byte characters by UTF-8 bytes, not code units', () => {
+    // '€' is 3 UTF-8 bytes: 501 of them = 1503 bytes but only 501 code units.
+    expect(validateCollectionId('€'.repeat(501))).toBe('Cannot exceed 1500 bytes');
+  });
+});

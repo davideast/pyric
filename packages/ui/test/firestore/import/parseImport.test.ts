@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { detectCollisions, parseImport } from '../../../src/firestore/import/parseImport.js';
+import { detectCollisions, firestoreAutoId, parseImport } from '../../../src/firestore/import/parseImport.js';
 
 describe('parseImport: map shape', () => {
   test('parses a docId -> fields map', () => {
@@ -80,5 +80,24 @@ describe('detectCollisions', () => {
   test('array-shape (auto-id) docs never collide', () => {
     const { docs } = parseImport('[{"a": 1}, {"b": 2}]');
     expect(detectCollisions(['alice'], docs)).toEqual([]);
+  });
+});
+
+describe('parseImport: generateId option (retry-idempotent auto ids)', () => {
+  test('array-shape entries get ids from the generator instead of null', () => {
+    let n = 0;
+    const r = parseImport('[{"a":1},{"b":2}]', { generateId: () => `gen-${++n}` });
+    expect(r.docs.map((d) => d.id)).toEqual(['gen-1', 'gen-2']);
+  });
+
+  test('map-shape ids are untouched by the generator', () => {
+    const r = parseImport('{"alice":{"a":1}}', { generateId: () => 'gen' });
+    expect(r.docs).toEqual([{ id: 'alice', data: { a: 1 } }]);
+  });
+
+  test('firestoreAutoId: 20 chars from the Firestore alphabet, non-colliding in practice', () => {
+    const ids = new Set(Array.from({ length: 200 }, () => firestoreAutoId()));
+    for (const id of ids) expect(id).toMatch(/^[A-Za-z0-9]{20}$/);
+    expect(ids.size).toBe(200);
   });
 });

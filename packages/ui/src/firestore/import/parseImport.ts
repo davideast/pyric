@@ -19,10 +19,31 @@
 import { validateDocumentId } from '../validation/ids.js';
 
 /** One document to create. `id === null` means "let Firestore auto-id it"
- *  (only produced by the array shape — a map key is always a chosen id). */
+ *  (only produced by the array shape when no `generateId` option is given —
+ *  a map key is always a chosen id). */
 export interface ParsedImportDoc {
   id: string | null;
   data: Record<string, unknown>;
+}
+
+export interface ParseImportOptions {
+  /** When provided, array-shape entries get their auto-id GENERATED AT PARSE
+   *  TIME (instead of `id: null` / addDoc-at-write-time). Fixing ids at parse
+   *  makes a retry after a partial failure idempotent: the same parse's ids
+   *  are reused, so re-running the import cannot duplicate already-written
+   *  docs. Use {@link firestoreAutoId} for prod-parity ids. */
+  generateId?: () => string;
+}
+
+const AUTO_ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+/** A Firestore-style 20-char auto id (same alphabet/length the SDK uses). */
+export function firestoreAutoId(): string {
+  let id = '';
+  for (let i = 0; i < 20; i++) {
+    id += AUTO_ID_ALPHABET.charAt(Math.floor(Math.random() * AUTO_ID_ALPHABET.length));
+  }
+  return id;
 }
 
 export interface ParseImportResult {
@@ -43,7 +64,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * a JSON syntax error or a wrong top-level shape becomes an entry in
  * `errors` with an empty `docs` array.
  */
-export function parseImport(input: string): ParseImportResult {
+export function parseImport(input: string, options?: ParseImportOptions): ParseImportResult {
   const trimmed = input.trim();
   if (trimmed === '') {
     return { docs: [], errors: ['Input is empty'] };
@@ -65,7 +86,7 @@ export function parseImport(input: string): ParseImportResult {
         errors.push(`Item ${i}: expected an object, got ${describeType(item)}`);
         return;
       }
-      docs.push({ id: null, data: item });
+      docs.push({ id: options?.generateId ? options.generateId() : null, data: item });
     });
     return { docs, errors };
   }

@@ -25,10 +25,16 @@ export interface UseDocumentListResult {
   /** Fetch the next page and append. */
   loadMore: () => void;
   /** Create a document. If `id` is null, Firestore generates one
-   *  via `addDoc`. */
+   *  via `addDoc`. With `onExisting: 'fail'` (CREATE semantics, the
+   *  admin `create()` analog) an id that already exists rejects with
+   *  `code: 'already-exists'` instead of silently overwriting —
+   *  checked against the BACKEND (a `getDoc` probe), not any loaded
+   *  page, so it is honest beyond pagination. Default: 'overwrite'
+   *  (plain `setDoc`, the historical behavior). */
   createDocument: (
     id: string | null,
     data: Record<string, unknown>,
+    opts?: { onExisting?: 'overwrite' | 'fail' },
   ) => Promise<DocumentReference>;
   deleteDocument: (ref: DocumentReference) => Promise<void>;
   /** Reset pagination and re-fetch from the first page. Useful after
@@ -65,6 +71,7 @@ export function useDocumentList({
     addDoc,
     deleteDoc,
     doc: docFn,
+    getDoc,
     getDocs,
     limit: limitFn,
     query: queryFn,
@@ -117,13 +124,29 @@ export function useDocumentList({
   }, [collection, query, pageSize, documents, hasMore, isLoading]);
 
   const createDocument = useCallback<UseDocumentListResult['createDocument']>(
-    async (id, data) => {
+    async (id, data, opts) => {
       if (id == null) {
         const ref = await addDoc(collection, data);
         setTick((n) => n + 1);
         return ref;
       }
       const ref = docFn(collection, id);
+      if (opts?.onExisting === 'fail') {
+        // CREATE semantics without a batch/create primitive on FirestoreApi:
+        // probe the backend, then write. The probe is authoritative for the
+        // whole collection (not just a loaded page); the tiny read-then-write
+        // window is acceptable for the dev-sandbox surfaces this backs.
+        const existing = await getDoc(ref);
+        // `exists` is a method on the modular SDK snapshot but a boolean on
+        // some compat-shaped snapshots this bundle may be adapted over.
+        const exists =
+          typeof existing.exists === 'function' ? existing.exists() : Boolean(existing.exists);
+        if (exists) {
+          const err = new Error(`Document "${id}" already exists.`) as Error & { code: string };
+          err.code = 'already-exists';
+          throw err;
+        }
+      }
       await setDoc(ref, data);
       setTick((n) => n + 1);
       return ref;

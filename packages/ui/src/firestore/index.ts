@@ -79,6 +79,8 @@ export { validateCollectionId, validateDocumentId } from './validation/ids.js';
 export {
   parseImport,
   detectCollisions,
+  firestoreAutoId,
   type ParsedImportDoc,
   type ParseImportResult,
+  type ParseImportOptions,
 } from './import/parseImport.js';

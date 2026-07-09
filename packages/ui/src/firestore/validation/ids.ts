@@ -12,7 +12,9 @@
  *   - no `/` (that's a path separator, not part of an id)
  *   - not solely `.` or `..`
  *   - doesn't match `__.*__` (reserved for internal use)
- * Document ids additionally cap at 1500 bytes (UTF-8) — Firestore's limit.
+ *   - at most 1500 bytes (UTF-8) — Firestore caps BOTH collection ids and
+ *     document ids at 1500 bytes ("Rules and limits": "Maximum size for a
+ *     collection ID" / "Maximum size for a document ID", both 1,500 bytes).
  */
 
 const RESERVED_DUNDER = /^__.*__$/;
@@ -23,6 +25,7 @@ function structuralError(id: string): string | undefined {
   if (id.includes('/')) return 'Cannot contain "/"';
   if (id === '.' || id === '..') return 'Cannot be "." or ".."';
   if (RESERVED_DUNDER.test(id)) return 'Cannot match __.*__ (reserved)';
+  if (utf8ByteLength(id) > 1500) return 'Cannot exceed 1500 bytes';
   return undefined;
 }
 
@@ -31,15 +34,12 @@ export function validateCollectionId(id: string): string | undefined {
   return structuralError(id);
 }
 
-/** UTF-8 byte length of a string (Firestore's 1500-byte document-id cap). */
+/** UTF-8 byte length of a string (Firestore's 1500-byte id cap). */
 function utf8ByteLength(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
 /** Validate a document id. Returns an error message, or `undefined` when valid. */
 export function validateDocumentId(id: string): string | undefined {
-  const structural = structuralError(id);
-  if (structural) return structural;
-  if (utf8ByteLength(id) > 1500) return 'Cannot exceed 1500 bytes';
-  return undefined;
+  return structuralError(id);
 }

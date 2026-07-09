@@ -22,7 +22,7 @@
  * `FirestoreApi` today — see `packages/ui/src/firestore/firestoreApi.ts`).
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DocumentEditor,
   treeToData,
@@ -30,6 +30,7 @@ import {
   validateDocumentId,
   parseImport,
   detectCollisions,
+  firestoreAutoId,
   type DocumentEditorRootProps,
 } from '@pyric/ui/firestore';
 import type { FirestoreApi } from '@pyric/ui/firestore';
@@ -247,22 +248,49 @@ export function NewDocumentForm({ createDocument, onCreated, onCancel }: NewDocu
 // ─── JSON import ────────────────────────────────────────────────────────────
 
 export interface ImportJsonPanelProps {
-  /** Existing document ids in the target collection (collision detection). */
+  /** Document ids LOADED in the pane (one page) — used only for the advisory
+   *  collision preview. The skip guarantee itself is enforced at write time
+   *  via create semantics, so unloaded pages are covered too. */
   existingIds: string[];
-  createDocument: (id: string | null, data: Record<string, unknown>) => Promise<unknown>;
+  createDocument: (
+    id: string | null,
+    data: Record<string, unknown>,
+    opts?: { onExisting?: 'overwrite' | 'fail' },
+  ) => Promise<unknown>;
   onDone: () => void;
   onCancel: () => void;
 }
 
 type CollisionPolicy = 'skip' | 'overwrite';
 
+/** Don't parse pastes beyond this (the sequential per-doc write path isn't a
+ *  bulk loader; a bigger import belongs in a seed script). */
+const MAX_IMPORT_CHARS = 1_000_000;
+/** Cap rendered error/collision enumerations (M-honesty without a DOM flood). */
+const MAX_LISTED_ERRORS = 20;
+const MAX_LISTED_COLLISIONS = 10;
+
+/** First N items + an "… and N more" line. */
+function capList(items: readonly string[], max: number): { shown: string[]; more: number } {
+  return { shown: items.slice(0, max), more: Math.max(0, items.length - max) };
+}
+
 /**
  * Paste-or-file JSON import. Parsing/preview/collision-detection is the pure
  * `parseImport`/`detectCollisions` logic in `@pyric/ui/firestore` — this
- * component only renders the preview and drives the (sequential, per point
- * 10 of the task — no batch-write primitive exists yet) writes. The
- * skip-or-overwrite choice is disclosed ONLY when `detectCollisions` finds an
- * overlap (never preemptively), matching the pane's inline-disclosure rule.
+ * component only renders the preview and drives the (sequential — no
+ * batch-write primitive exists yet) writes.
+ *
+ * Skip vs overwrite: "skip existing" is enforced with CREATE semantics at
+ * write time (`onExisting: 'fail'`, counted as skipped) — authoritative for
+ * the whole collection, not just the loaded page. `detectCollisions` against
+ * the loaded ids remains as an ADVISORY preview only, and is labeled as such.
+ * The choice is disclosed ONLY when the preview finds an overlap.
+ *
+ * Retry safety: the parse is memoized off the (debounced) text and array-shape
+ * docs get their auto-ids FIXED at parse time, so re-running after a partial
+ * failure reuses the same ids — skip mode then skips what already landed
+ * instead of duplicating it.
  */
 export function ImportJsonPanel({ existingIds, createDocument, onDone, onCancel }: ImportJsonPanelProps) {
   const [text, setText] = useState('');
@@ -272,9 +300,27 @@ export function ImportJsonPanel({ existingIds, createDocument, onDone, onCancel 
   );
   const [busy, setBusy] = useState(false);
 
-  const parsed = parseImport(text);
-  const collisions = detectCollisions(existingIds, parsed.docs);
-  const hasInput = text.trim() !== '';
+  // Debounce the parse input so `parseImport` runs off the keystroke path
+  // (M9), then memoize the parse itself — the memo also pins the generated
+  // auto-ids for the retry-idempotency guarantee above.
+  const [parseText, setParseText] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setParseText(text), 150);
+    return () => clearTimeout(t);
+  }, [text]);
+  const tooLarge = parseText.length > MAX_IMPORT_CHARS;
+  const parsed = useMemo(
+    () =>
+      tooLarge
+        ? { docs: [], errors: [] as string[] }
+        : parseImport(parseText, { generateId: firestoreAutoId }),
+    [parseText, tooLarge],
+  );
+  const collisions = useMemo(
+    () => detectCollisions(existingIds, parsed.docs),
+    [existingIds, parsed],
+  );
+  const hasInput = parseText.trim() !== '';
 
   const onFile = (file: File) => {
     file.text().then(setText).catch(() => {});
@@ -283,19 +329,24 @@ export function ImportJsonPanel({ existingIds, createDocument, onDone, onCancel 
   const run = async () => {
     if (!parsed.docs.length || busy) return;
     setBusy(true);
+    setResult(null);
     let created = 0;
     let skipped = 0;
     const errors: string[] = [];
     for (const doc of parsed.docs) {
-      if (doc.id !== null && collisions.includes(doc.id) && policy === 'skip') {
-        skipped++;
-        continue;
-      }
       try {
-        await createDocument(doc.id, doc.data);
+        // Skip mode = create semantics: the backend (not the loaded page)
+        // decides what already exists; already-exists counts as skipped.
+        await createDocument(doc.id, doc.data, {
+          onExisting: policy === 'skip' ? 'fail' : 'overwrite',
+        });
         created++;
       } catch (e) {
-        errors.push(`${doc.id ?? '(auto)'}: ${e instanceof Error ? e.message : String(e)}`);
+        if (policy === 'skip' && (e as { code?: string }).code === 'already-exists') {
+          skipped++;
+        } else {
+          errors.push(`${doc.id ?? '(auto)'}: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     }
     setBusy(false);
@@ -332,7 +383,14 @@ export function ImportJsonPanel({ existingIds, createDocument, onDone, onCancel 
         }}
       />
 
-      {hasInput ? (
+      {tooLarge ? (
+        <p className="fs-import__count" data-pyric-ui="fs-import-too-large">
+          Input is too large to import here ({Math.round(parseText.length / 1000)}k characters;
+          the limit is {MAX_IMPORT_CHARS / 1000}k). Use a seed script for bulk data.
+        </p>
+      ) : null}
+
+      {hasInput && !tooLarge ? (
         <div className="fs-import__preview" data-pyric-ui="fs-import-preview">
           <p className="fs-import__count">
             {parsed.errors.length && parsed.docs.length === 0
@@ -341,15 +399,25 @@ export function ImportJsonPanel({ existingIds, createDocument, onDone, onCancel 
           </p>
           {parsed.errors.length ? (
             <ul className="fs-import__errs">
-              {parsed.errors.map((e, i) => (
+              {capList(parsed.errors, MAX_LISTED_ERRORS).shown.map((e, i) => (
                 <li key={i}>{e}</li>
               ))}
+              {capList(parsed.errors, MAX_LISTED_ERRORS).more ? (
+                <li>… and {capList(parsed.errors, MAX_LISTED_ERRORS).more} more</li>
+              ) : null}
             </ul>
           ) : null}
           {collisions.length ? (
             <div className="fs-import__collisions" data-pyric-ui="fs-import-collisions">
               <p>
-                {collisions.length} id(s) already exist: <code>{collisions.join(', ')}</code>
+                {collisions.length} id(s) collide among the loaded documents (more pages may
+                exist — "Skip existing" checks every document at write time):{' '}
+                <code>
+                  {capList(collisions, MAX_LISTED_COLLISIONS).shown.join(', ')}
+                  {capList(collisions, MAX_LISTED_COLLISIONS).more
+                    ? `, … and ${capList(collisions, MAX_LISTED_COLLISIONS).more} more`
+                    : ''}
+                </code>
               </p>
               <label>
                 <input
@@ -375,11 +443,23 @@ export function ImportJsonPanel({ existingIds, createDocument, onDone, onCancel 
       ) : null}
 
       {result ? (
-        <p className="fs-import__result">
-          Created {result.created}
-          {result.skipped ? `, skipped ${result.skipped}` : ''}
-          {result.errors.length ? `, ${result.errors.length} failed` : ''}.
-        </p>
+        <div className="fs-import__result" data-pyric-ui="fs-import-result">
+          <p>
+            Created {result.created}
+            {result.skipped ? `, skipped ${result.skipped}` : ''}
+            {result.errors.length ? `, ${result.errors.length} failed` : ''}.
+          </p>
+          {result.errors.length ? (
+            <ul className="fs-import__errs">
+              {capList(result.errors, MAX_LISTED_ERRORS).shown.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+              {capList(result.errors, MAX_LISTED_ERRORS).more ? (
+                <li>… and {capList(result.errors, MAX_LISTED_ERRORS).more} more</li>
+              ) : null}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="fs-create__actions">
