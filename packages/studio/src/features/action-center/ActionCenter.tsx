@@ -35,6 +35,8 @@ function serviceColor(service: DigestItem['service']): string {
       return 'text-warning';
     case 'rtdb':
       return 'text-soft-white';
+    case 'messaging':
+      return 'text-info';
   }
 }
 
