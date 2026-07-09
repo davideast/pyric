@@ -1,5 +1,6 @@
 ---
 title: "How to use sandbox-only operations"
+navLabel: "Use sandbox-only ops"
 group: "pyric / firestore"
 section: "How-to"
 order: 50
@@ -59,7 +60,7 @@ Alias on import to keep the local-variable name (`sandbox`) free for the result 
 
 The `Firestore` handle from `pyric/firestore` is opaque — `interface Firestore { readonly [TARGET_SYMBOL]: Target }`. Adding methods to it would deviate from the upstream `firebase/firestore`'s `Firestore` shape and break the swap-in contract.
 
-The namespace export keeps the handle shape pure while still providing sandbox-only operations. See [Sandbox-only operations](pyric-firestore-reference-sandbox-ops#why-setrules-lives-here-not-on-the-handle) for the longer rationale.
+The namespace export keeps the handle shape pure while still providing sandbox-only operations. See [Sandbox-only operations](../pyric-firestore-reference-sandbox-ops/#why-setrules-lives-here-not-on-the-handle) for the longer rationale.
 
 ## What throws on a prod handle
 
@@ -75,5 +76,5 @@ On prod, import `firestore` from `pyric-tools/deploy` and call `firestore.rules.
 
 ## Where to look next
 
-- For the reference page covering all three operations, see [Sandbox-only operations](pyric-firestore-reference-sandbox-ops).
-- For prod rule deploys, see [`pyric-tools/deploy`'s firestore namespace](pyric-tools-deploy-reference-firestore-namespace).
+- For the reference page covering all three operations, see [Sandbox-only operations](../pyric-firestore-reference-sandbox-ops/).
+- For prod rule deploys, see [`pyric-tools/deploy`'s firestore namespace](../pyric-tools-deploy-reference-firestore-namespace/).

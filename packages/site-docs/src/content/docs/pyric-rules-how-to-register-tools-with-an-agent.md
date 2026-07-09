@@ -1,5 +1,6 @@
 ---
 title: "How to register rules tools with an agent"
+navLabel: "Register rules tools"
 group: "pyric / rules"
 section: "How-to"
 order: 68
@@ -80,5 +81,5 @@ The `resolveSandbox` resolver fires per dispatch — hosts that reset or swap th
 
 ## Where to look next
 
-- For the public tool names, parameters, and the result shape, see [Public API reference — Tool factories](pyric-rules-reference-api#tool-factories).
+- For the public tool names, parameters, and the result shape, see [Public API reference — Tool factories](../pyric-rules-reference-api/#tool-factories).
 - For `ToolHandler`, `createToolRegistry`, and `createDispatch`, see the `@inbrowser/agent` package.

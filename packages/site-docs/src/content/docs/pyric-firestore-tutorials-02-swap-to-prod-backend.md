@@ -1,12 +1,13 @@
 ---
 title: "Swap the demo to the prod backend"
+navLabel: "Swap to prod backend"
 group: "pyric / firestore"
 section: "Tutorials"
 order: 44
 ---
 # Swap the demo to the prod backend
 
-In this tutorial you will take the demo from [Write a sandbox-backed demo](pyric-firestore-tutorials-01-write-a-sandbox-demo) and swap it to talk to a real Firebase project. The only code change is one line.
+In this tutorial you will take the demo from [Write a sandbox-backed demo](../pyric-firestore-tutorials-01-write-a-sandbox-demo/) and swap it to talk to a real Firebase project. The only code change is one line.
 
 This tutorial assumes you have a Firebase project with Firestore enabled and a config object handy.
 
@@ -123,6 +124,6 @@ There's no proxy, no wrapper, no overhead. The package is mostly the dispatch la
 
 ## Where to go next
 
-- For deploying rules to prod, see [`pyric-tools/deploy`'s firestore namespace](pyric-tools-deploy-reference-firestore-namespace).
-- For why the two-backend story works, see [Why two backends behind one surface](pyric-firestore-explanation-two-backends-one-surface).
-- For a real migration from `firebase/firestore`, see [Migrate from `firebase/firestore`](pyric-firestore-how-to-migrate-from-firebase-firestore).
+- For deploying rules to prod, see [`pyric-tools/deploy`'s firestore namespace](../pyric-tools-deploy-reference-firestore-namespace/).
+- For why the two-backend story works, see [Why two backends behind one surface](../pyric-firestore-explanation-two-backends-one-surface/).
+- For a real migration from `firebase/firestore`, see [Migrate from `firebase/firestore`](../pyric-firestore-how-to-migrate-from-firebase-firestore/).

@@ -1,5 +1,6 @@
 ---
 title: "How to deploy to a Hosting preview channel"
+navLabel: "Deploy to a preview channel"
 group: "pyric-tools / deploy"
 section: "How-to"
 order: 24

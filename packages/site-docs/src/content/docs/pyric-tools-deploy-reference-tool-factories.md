@@ -107,4 +107,4 @@ for (const h of createRtdbDeployTools(deps)) registry.register(h);
 for (const h of createHostingDeployTools(deps)) registry.register(h);
 for (const h of createFunctionsDeployTools(deps)) registry.register(h);
 ```
-See [Register deploy tools with an agent](pyric-tools-deploy-how-to-register-tools-with-an-agent) for the full agent wiring.
+See [Register deploy tools with an agent](../pyric-tools-deploy-how-to-register-tools-with-an-agent/) for the full agent wiring.

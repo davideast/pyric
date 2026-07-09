@@ -79,4 +79,4 @@ The same `setDoc` call routes to the simulator's `set` on sandbox and to Firebas
 - **Network failures**. Only prod can throw `'unavailable'` or `'failed-precondition'` from contention. Sandbox is synchronous.
 - **Rule changes**. Sandbox re-evaluates listeners immediately after `sandbox.setRules`; prod's `firebase deploy --only firestore:rules` propagates over seconds to minutes and does not affect already-attached listeners.
 
-These divergences are documented and intentional — see [Why two backends behind one surface](pyric-firestore-explanation-two-backends-one-surface).
+These divergences are documented and intentional — see [Why two backends behind one surface](../pyric-firestore-explanation-two-backends-one-surface/).

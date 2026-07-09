@@ -104,7 +104,7 @@ layer are the same evaluator, so verdicts there are exact.
 
 ## See also
 
-- [Rules-aware affordances](ui-storage-rules-aware-affordances) — the concept
+- [Rules-aware affordances](../ui-storage-rules-aware-affordances/) — the concept
   note: which component consumes which verdict.
 - the design rationale — the
   request/denial *stream* (traffic panel) spec, blocked on a

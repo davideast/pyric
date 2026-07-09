@@ -1,5 +1,6 @@
 ---
 title: "How to deploy Realtime Database rules"
+navLabel: "Deploy RTDB rules"
 group: "pyric-tools / deploy"
 section: "How-to"
 order: 23
@@ -166,6 +167,6 @@ The RTDB deploy factory exposes `rtdb_get_rules` and `rtdb_deploy_rules`.
 
 ## Where to look next
 
-- For exact function signatures, see [`rtdb` namespace](pyric-tools-deploy-reference-rtdb-namespace).
-- For deploy tool schemas, see [Tool factories](pyric-tools-deploy-reference-tool-factories).
-- For building a `ProjectScope`, see [Build a `ProjectScope` from a service account](pyric-tools-deploy-how-to-build-projectscope-from-service-account).
+- For exact function signatures, see [`rtdb` namespace](../pyric-tools-deploy-reference-rtdb-namespace/).
+- For deploy tool schemas, see [Tool factories](../pyric-tools-deploy-reference-tool-factories/).
+- For building a `ProjectScope`, see [Build a `ProjectScope` from a service account](../pyric-tools-deploy-how-to-build-projectscope-from-service-account/).

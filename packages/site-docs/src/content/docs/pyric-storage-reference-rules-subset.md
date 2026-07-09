@@ -55,7 +55,7 @@ The granular forms (`get`, `list`, `create`, `update`, `delete`) are deferred. T
 - `request.method` — `'get'` / `'create'` / `'update'` / `'delete'`.
 - `request.path` — full path of the object.
 
-For deletes, `request.resource == null` — the carve-out lets delete rules accept `null` without confusing the parser. See [Enforce Storage rules](pyric-storage-how-to-enforce-rules) for the pattern.
+For deletes, `request.resource == null` — the carve-out lets delete rules accept `null` without confusing the parser. See [Enforce Storage rules](../pyric-storage-how-to-enforce-rules/) for the pattern.
 
 ## Resource bindings
 
@@ -88,9 +88,9 @@ These produce parse errors:
 - Deep dotted access into `customMetadata.<field>` — use the bracket form.
 - Granular verbs (`get`, `list`, `create`, `update`, `delete`).
 
-See [Implementation scope and deferred features](pyric-storage-explanation-implementation-scope) for the reasoning.
+See [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) for the reasoning.
 
 ## Where to look next
 
-- For testing rule expressions independently, see [Test rule expressions independently](pyric-storage-how-to-test-rule-expressions).
-- For the engine's evaluation contract (`evaluateStorageRules`), see [Public API](pyric-storage-reference-api#rules).
+- For testing rule expressions independently, see [Test rule expressions independently](../pyric-storage-how-to-test-rule-expressions/).
+- For the engine's evaluation contract (`evaluateStorageRules`), see [Public API](../pyric-storage-reference-api/#rules).

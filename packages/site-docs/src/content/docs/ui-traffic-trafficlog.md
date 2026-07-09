@@ -1,5 +1,6 @@
 ---
 title: "<TrafficLog> · <TrafficRow> · <TrafficGroupRow>"
+navLabel: "TrafficLog components"
 group: "@pyric/ui"
 section: "Traffic"
 order: 180
@@ -59,7 +60,7 @@ their own list — see their source JSDoc for props.
 [data-pyric-traffic-group][data-pyric-expanded]
 [data-pyric-traffic-group-members]
 ```
-Method + result render as [`<Badge>`](ui-primitives-badge) — style via
+Method + result render as [`<Badge>`](../ui-primitives-badge/) — style via
 `[data-pyric-badge-kind="…"]`.
 
 ## Notes

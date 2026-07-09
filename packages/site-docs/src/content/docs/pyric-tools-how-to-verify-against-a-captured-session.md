@@ -1,5 +1,6 @@
 ---
 title: "How to verify your rules against a captured session"
+navLabel: "Verify rules against prod"
 group: "pyric-tools"
 section: "How-to"
 order: 11
@@ -176,4 +177,4 @@ const result = await verifyFixture(fixture, {
   },
 });
 ```
-For the full flag list, see the [`pyric verify` reference](pyric-tools-reference-cli).
+For the full flag list, see the [`pyric verify` reference](../pyric-tools-reference-cli/).

@@ -13,7 +13,7 @@ Use them by setting `rules_version = '2+modules'` and adding import statements:
 import { isAuthenticated, isOwner } from 'auth';
 import { hasOnly } from 'validation';
 ```
-Then run `resolveModules(source)` to inline the exports into a standard `'2'` source. See [How to resolve `2+modules` imports](pyric-rules-how-to-resolve-module-imports).
+Then run `resolveModules(source)` to inline the exports into a standard `'2'` source. See [How to resolve `2+modules` imports](../pyric-rules-how-to-resolve-module-imports/).
 
 Convention: modules either operate against `request` / `resource` / `request.auth` only (self-contained) or take explicit parameters (no implicit lookups).
 

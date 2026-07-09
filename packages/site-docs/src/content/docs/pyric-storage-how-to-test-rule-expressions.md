@@ -1,5 +1,6 @@
 ---
 title: "How to test rule expressions independently"
+navLabel: "Test rule expressions"
 group: "pyric / storage"
 section: "How-to"
 order: 121
@@ -84,5 +85,5 @@ For a full test, run both. Most tests need only one or the other.
 
 ## Where to look next
 
-- For the input shape and the rule engine details, see [Public API — Rules](pyric-storage-reference-api#rules).
-- For the grammar these functions parse, see [Storage rules subset](pyric-storage-reference-rules-subset).
+- For the input shape and the rule engine details, see [Public API — Rules](../pyric-storage-reference-api/#rules).
+- For the grammar these functions parse, see [Storage rules subset](../pyric-storage-reference-rules-subset/).

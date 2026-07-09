@@ -46,7 +46,7 @@ Two contexts, one sandbox, shared data. The rules engine evaluates `aliceDb`'s w
 
 ## Where to go next
 
-Documentation is organised under [`docs/`](pyric-sandbox) following the [Diataxis](https://diataxis.fr/) framework:
+Documentation is organised under [`docs/`](../pyric-sandbox/) following the [Diataxis](https://diataxis.fr/) framework:
 
 | If you want to | Read |
 |---|---|
@@ -57,13 +57,13 @@ Documentation is organised under [`docs/`](pyric-sandbox) following the [Diataxi
 
 ### Starting points by role
 
-- **First time here?** Run [Your first sandbox session](pyric-sandbox-tutorials-01-your-first-sandbox-session).
-- **Writing tests?** Read [Use the sandbox in a test harness](pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness).
-- **Building an adapter?** See [The `/internal` adapter protocol](pyric-sandbox-explanation-internal-adapter-protocol).
+- **First time here?** Run [Your first sandbox session](../pyric-sandbox-tutorials-01-your-first-sandbox-session/).
+- **Writing tests?** Read [Use the sandbox in a test harness](../pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness/).
+- **Building an adapter?** See [The `/internal` adapter protocol](../pyric-sandbox-explanation-internal-adapter-protocol/).
 
 ## Position in the Pyric stack
 
-`pyric/sandbox` is the **runtime substrate**. It does not depend on `pyric-admin`, `pyric/firestore`, or any other adapter — they depend on it. Rules tooling lives in `pyric/rules` (imported by the sandbox for `SimulateFirestoreRulesHandler`). Control-plane operations live in `pyric-tools/deploy`. See [Why this package exists](pyric-sandbox-explanation-why-this-package-exists).
+`pyric/sandbox` is the **runtime substrate**. It does not depend on `pyric-admin`, `pyric/firestore`, or any other adapter — they depend on it. Rules tooling lives in `pyric/rules` (imported by the sandbox for `SimulateFirestoreRulesHandler`). Control-plane operations live in `pyric-tools/deploy`. See [Why this package exists](../pyric-sandbox-explanation-why-this-package-exists/).
 
 ## Licence
 

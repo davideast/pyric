@@ -64,7 +64,7 @@ The deliberately-minimal surface covers everything an `appSource` likely needs:
 - Provider classes: `GoogleAuthProvider`, `EmailAuthProvider`, `FacebookAuthProvider`, `GithubAuthProvider`, `OAuthProvider`
 - Sandbox-only test driver: `sandbox.setUser`, `sandbox.mockSignInResult`, `sandbox.seedUsers`
 
-See [`docs/reference/feature-matrix.md`](pyric-auth-reference-feature-matrix) for the full feature matrix and the explicit v0 deny-list.
+See [`docs/reference/feature-matrix.md`](../pyric-auth-reference-feature-matrix/) for the full feature matrix and the explicit v0 deny-list.
 
 ## What's out (v0)
 

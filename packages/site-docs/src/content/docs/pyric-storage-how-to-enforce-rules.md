@@ -1,5 +1,6 @@
 ---
 title: "How to enforce Storage rules"
+navLabel: "Enforce Storage rules"
 group: "pyric / storage"
 section: "How-to"
 order: 117
@@ -51,7 +52,7 @@ The pattern is standard in production Storage rules. Match it.
 |---|---|
 | `getBytes`, `getBlob`, `getMetadata` | `read` |
 | `uploadBytes`, `uploadString`, `updateMetadata`, `deleteObject` | `write` |
-| `listAll` | (not currently gated — see [implementation scope](pyric-storage-explanation-implementation-scope)) |
+| `listAll` | (not currently gated — see [implementation scope](../pyric-storage-explanation-implementation-scope/)) |
 
 The granular verbs (`get`, `list`, `create`, `update`, `delete`) are deferred. Currently the parser rejects them.
 
@@ -92,7 +93,7 @@ try {
   }
 }
 ```
-See [Error codes](pyric-storage-reference-error-codes) for every code the sandbox can emit.
+See [Error codes](../pyric-storage-reference-error-codes/) for every code the sandbox can emit.
 
 ## Testing rule expressions without uploading
 
@@ -109,9 +110,9 @@ const decision = evaluateStorageRules(parsed, {
 });
 console.log(decision);  // { allowed: true }
 ```
-Useful when iterating on rule logic. See [Test rule expressions independently](pyric-storage-how-to-test-rule-expressions).
+Useful when iterating on rule logic. See [Test rule expressions independently](../pyric-storage-how-to-test-rule-expressions/).
 
 ## Where to look next
 
-- For the supported rule grammar, see [Storage rules subset](pyric-storage-reference-rules-subset).
-- For the carve-out and other production patterns, see the [Implementation scope and deferred features](pyric-storage-explanation-implementation-scope) page.
+- For the supported rule grammar, see [Storage rules subset](../pyric-storage-reference-rules-subset/).
+- For the carve-out and other production patterns, see the [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) page.

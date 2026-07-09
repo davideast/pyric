@@ -18,7 +18,7 @@ Requires a `SandboxContext`, not a bare `Sandbox`. For anonymous, pass `sandbox.
 
 ### `onSnapshot(refOrQuery, observerOrNext, errorOrOptions?, options?): Unsubscribe`
 
-Web-SDK-shaped streaming reads. Four overload groups mirror `firebase/firestore`'s `onSnapshot`. See [`onSnapshot` overloads](pyric-admin-firestore-reference-onsnapshot).
+Web-SDK-shaped streaming reads. Four overload groups mirror `firebase/firestore`'s `onSnapshot`. See [`onSnapshot` overloads](../pyric-admin-firestore-reference-onsnapshot/).
 
 ## Types
 
@@ -30,7 +30,7 @@ The handle returned from `getFirestore`. Adds three sandbox-only methods:
 - `seed(options?: { documents?: Record<string, DocumentData> }): LintResult`
 - `snapshot(): Record<string, DocumentData>`
 
-See [`SandboxFirestore` surface](pyric-admin-firestore-reference-sandbox-firestore).
+See [`SandboxFirestore` surface](../pyric-admin-firestore-reference-sandbox-firestore/).
 
 ### `SnapshotObserver<T>`
 ```ts
@@ -55,7 +55,7 @@ Type alias for `SnapshotListenerOptions`. Mirrors `firebase/firestore`'s shape; 
 - `AuthState`, `Sandbox`, `SandboxContext` — foundation types.
 - `SandboxError` — typed error family.
 
-See the [`pyric/sandbox` API reference](pyric-sandbox-reference-api).
+See the [`pyric/sandbox` API reference](../pyric-sandbox-reference-api/).
 
 ## Re-exported from `pyric/sandbox/admin-firestore`
 
@@ -76,4 +76,4 @@ The production-shaped Firestore types:
 - `FieldValue` — `serverTimestamp`, `increment`, `arrayUnion`, `arrayRemove`, `delete`.
 - `Timestamp` — wrapper class for Firestore timestamps.
 
-See [Re-exported types](pyric-admin-firestore-reference-re-exported-types) for why the admin shape and the Web shape both appear here.
+See [Re-exported types](../pyric-admin-firestore-reference-re-exported-types/) for why the admin shape and the Web shape both appear here.

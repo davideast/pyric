@@ -1,5 +1,6 @@
 ---
 title: "Your first admin-shaped Firestore session"
+navLabel: "First admin session"
 group: "pyric-admin / firestore"
 section: "Tutorials"
 order: 141
@@ -147,6 +148,6 @@ Every document, every path. Use this for forensic dumps when a test fails.
 
 ## What to do next
 
-- Pick between this package and `pyric/firestore` — see [Pick between `pyric-admin` and `pyric/firestore`](pyric-sandbox-how-to-pick-an-adapter).
-- Wire denials into a UI — see [Translate denials with `denialContext`](pyric-admin-firestore-how-to-translate-denials).
-- Use the sandbox in a real test suite — see [Use the sandbox in a test harness](pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness).
+- Pick between this package and `pyric/firestore` — see [Pick between `pyric-admin` and `pyric/firestore`](../pyric-sandbox-how-to-pick-an-adapter/).
+- Wire denials into a UI — see [Translate denials with `denialContext`](../pyric-admin-firestore-how-to-translate-denials/).
+- Use the sandbox in a real test suite — see [Use the sandbox in a test harness](../pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness/).

@@ -1,0 +1,34 @@
+---
+/**
+ * Package / Section / Page breadcrumb above the h1. Built from
+ * `breadcrumbsFor()` (src/lib/docs.ts) — see that function's doc
+ * comment for the ancestor-link decision (landing page when the group
+ * has one, a same-page nav anchor fallback otherwise). Spacing to the
+ * article below is a single rhythm token, matching every other
+ * block-to-block gap on the page.
+ */
+import type { Breadcrumb } from '../lib/docs';
+
+interface Props {
+  crumbs: Breadcrumb[];
+}
+
+const { crumbs } = Astro.props;
+---
+
+<nav class="docs-breadcrumbs" aria-label="Breadcrumb">
+  <ol>
+    {
+      crumbs.map((crumb, i) => (
+        <li>
+          {i > 0 ? <span class="docs-breadcrumbs-sep" aria-hidden="true">/</span> : null}
+          {i === crumbs.length - 1 ? (
+            <span aria-current="page">{crumb.label}</span>
+          ) : (
+            <a href={crumb.href ?? `#${crumb.anchorId}`}>{crumb.label}</a>
+          )}
+        </li>
+      ))
+    }
+  </ol>
+</nav>

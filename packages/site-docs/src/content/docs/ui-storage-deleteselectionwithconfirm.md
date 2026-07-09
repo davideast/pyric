@@ -42,7 +42,7 @@ function Toolbar({ storage, path }) {
 | `entries` | `StorageSelectionEntry[]` | `{kind, fullPath}` rows — `useStorageSelection().selected` or any `StorageListEntry`s. Folders delete recursively. |
 | `impl` | `StorageRecursiveDeleteImpl` | Folder-walk override (e.g. a server-driven delete). Default: `createListAllDeleteImpl()`. |
 | `list` | `{ insertItem, removeItem }` | `useStorageList`'s optimistic seam. |
-| `gate` | `Pick<UseStorageRulesGateResult, 'verdictFor'>` | Pass `useStorageRulesGate(storage)` — when ANY selected entry's DELETE verdict denies, the trigger disables with the reason. See [rules-aware affordances](ui-storage-rules-aware-affordances). |
+| `gate` | `Pick<UseStorageRulesGateResult, 'verdictFor'>` | Pass `useStorageRulesGate(storage)` — when ANY selected entry's DELETE verdict denies, the trigger disables with the reason. See [rules-aware affordances](../ui-storage-rules-aware-affordances/). |
 | `title` / `body` | `string` / `ReactNode` | Dialog copy. Defaults: count-derived title, path list body. |
 | `confirmLabel` | `string` | Default `'Delete'`. |
 | `onDeleted` | `(outcome) => void` | Fired after a run with NO failures. |
@@ -85,5 +85,5 @@ function Toolbar({ storage, path }) {
 ## See also
 
 - `useStorageSelection`, `useStorageDelete` — the hooks underneath.
-- [`<ConfirmDialog>`](ui-primitives-confirmdialog),
-  [`<Toast>`](ui-primitives-toast) — the primitives.
+- [`<ConfirmDialog>`](../ui-primitives-confirmdialog/),
+  [`<Toast>`](../ui-primitives-toast/) — the primitives.

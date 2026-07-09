@@ -1,5 +1,6 @@
 ---
 title: "How to reset between tests"
+navLabel: "Reset between tests"
 group: "pyric / sandbox"
 section: "How-to"
 order: 97
@@ -88,5 +89,5 @@ Where parallel tests *do* need care:
 
 ## Where to look next
 
-- For seeding data and rules after reset, see [Seed initial data and rules](pyric-sandbox-how-to-seed-data-and-rules).
-- For why `dispose` and `reset` are separate, see [Listener re-evaluation on `deployRules`](pyric-sandbox-explanation-listener-re-evaluation).
+- For seeding data and rules after reset, see [Seed initial data and rules](../pyric-sandbox-how-to-seed-data-and-rules/).
+- For why `dispose` and `reset` are separate, see [Listener re-evaluation on `deployRules`](../pyric-sandbox-explanation-listener-re-evaluation/).

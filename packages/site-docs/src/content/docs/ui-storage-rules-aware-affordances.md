@@ -7,7 +7,7 @@ order: 175
 # Rules-aware affordances
 
 The M7 differentiator: the storage UI knows what the rules will say
-**before the click**. One hook — [`useStorageRulesGate`](ui-storage-usestoragerulesgate)
+**before the click**. One hook — [`useStorageRulesGate`](../ui-storage-usestoragerulesgate/)
 — evaluates the current identity against paths with the same evaluator the
 sandbox enforces with; the components annotate themselves from its
 verdicts. No emulator-UI equivalent exists.

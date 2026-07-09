@@ -1,5 +1,6 @@
 ---
 title: "How to build a ProjectScope from a service account"
+navLabel: "Scope from service account"
 group: "pyric-tools / deploy"
 section: "How-to"
 order: 18
@@ -54,5 +55,5 @@ The scope is `Object.freeze`d, so accidental mutation of `projectId` fails at ru
 
 ## Where to look next
 
-- Don't have a service account? Use [Build a `ProjectScope` from Firebase Auth (browser)](pyric-tools-deploy-how-to-build-projectscope-from-firebase-auth).
-- Want to understand why the resolver is memoised at 90% TTL? See [Token caching and `memoizeTtl`](pyric-tools-deploy-explanation-token-caching).
+- Don't have a service account? Use [Build a `ProjectScope` from Firebase Auth (browser)](../pyric-tools-deploy-how-to-build-projectscope-from-firebase-auth/).
+- Want to understand why the resolver is memoised at 90% TTL? See [Token caching and `memoizeTtl`](../pyric-tools-deploy-explanation-token-caching/).

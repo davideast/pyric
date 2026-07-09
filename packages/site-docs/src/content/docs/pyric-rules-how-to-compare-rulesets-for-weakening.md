@@ -1,5 +1,6 @@
 ---
 title: "How to compare two rulesets for weakening"
+navLabel: "Compare rulesets"
 group: "pyric / rules"
 section: "How-to"
 order: 64
@@ -71,5 +72,5 @@ If `previousSource` fails to parse, the linter silently skips the diff and the r
 
 ## Where to look next
 
-- For why this check exists, see [Agent failure modes](pyric-rules-explanation-agent-failure-modes#silently-removing-predicates).
-- For the conjunct-extraction algorithm, see [Lint rules reference — `RULES_WEAKENED`](pyric-rules-reference-lint-rules#rules_weakened).
+- For why this check exists, see [Agent failure modes](../pyric-rules-explanation-agent-failure-modes/#silently-removing-predicates).
+- For the conjunct-extraction algorithm, see [Lint rules reference — `RULES_WEAKENED`](../pyric-rules-reference-lint-rules/#rules_weakened).

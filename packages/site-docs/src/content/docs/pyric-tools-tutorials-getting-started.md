@@ -67,7 +67,7 @@ npx pyric dev --persist   # also writes .pyric/state/state.json
 `--fresh` discards the on-disk state; `--seed <file>` loads a fixture set on
 boot (the scaffold ships one). Full details — running ephemerally, clearing
 data, and SharedWorker gotchas — are in
-[persistence and multi-tab](pyric-tools-how-to-serve-persistence-and-multi-tab).
+[persistence and multi-tab](../pyric-tools-how-to-serve-persistence-and-multi-tab/).
 
 ## Step 4 — Connect Claude Code (the plugin)
 
@@ -108,17 +108,17 @@ of it — and the same app code deploys unchanged against real Firebase
 
 ## Where next
 
-- **Every command + flag:** the [CLI reference](pyric-tools-reference-cli), and the
-  full [docs index](pyric-tools) (guides for verify, snapshot, discover, auth
+- **Every command + flag:** the [CLI reference](../pyric-tools-reference-cli/), and the
+  full [docs index](../pyric-tools/) (guides for verify, snapshot, discover, auth
   config, persistence/multi-tab).
 - **Existing Firebase app instead of a scaffold?** `pyric dev` works in
   any directory with a `firebase.json` — start at Step 2 in your app.
 - **Manual MCP wiring (no plugin), or connecting a sandbox embedded in
-  your own dev server:** [wire-claude-code.md](pyric-tools-tutorials-wire-claude-code).
+  your own dev server:** [wire-claude-code.md](../pyric-tools-tutorials-wire-claude-code/).
 - **Deploying for real** (rules, indexes, hosting incl. preview
-  channels, functions): [`../deploy/`](pyric-tools-deploy), and
-  [`deploy-to-a-preview-channel`](pyric-tools-deploy-how-to-deploy-to-a-preview-channel).
+  channels, functions): [`../deploy/`](../pyric-tools-deploy/), and
+  [`deploy-to-a-preview-channel`](../pyric-tools-deploy-how-to-deploy-to-a-preview-channel/).
 - **Agent-facing CLI I/O** (`--schema` / `--json` on deploy commands):
-  [`../deploy/reference/cli-agent-io.md`](pyric-tools-deploy-reference-cli-agent-io).
+  [`../deploy/reference/cli-agent-io.md`](../pyric-tools-deploy-reference-cli-agent-io/).
 - **Why an in-browser sandbox at all:** the explanation docs under
-  [`packages/pyric/docs/sandbox/`](pyric-sandbox).
+  [`packages/pyric/docs/sandbox/`](../pyric-sandbox/).

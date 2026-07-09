@@ -1,5 +1,6 @@
 ---
 title: "How to pin request.time for deterministic tests"
+navLabel: "Pin request.time"
 group: "pyric / rules"
 section: "How-to"
 order: 67
@@ -60,5 +61,5 @@ The linter only flags a case if its `path` actually matches a rule that reads `r
 
 ## Where to look next
 
-- For the timestamp value model, see [Value wrappers reference — `Timestamp`](pyric-rules-reference-value-wrappers#timestamp).
-- For the `TestCase` schema field, see [`TestCase` schema — `requestTime`](pyric-rules-reference-test-case-schema).
+- For the timestamp value model, see [Value wrappers reference — `Timestamp`](../pyric-rules-reference-value-wrappers/#timestamp).
+- For the `TestCase` schema field, see [`TestCase` schema — `requestTime`](../pyric-rules-reference-test-case-schema/).

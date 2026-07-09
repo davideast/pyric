@@ -122,4 +122,4 @@ Fix the entry point and re-run. Five for five.
 
 ## What to do next
 
-The function is reachable at its Cloud Run URL. To route it through Firebase Hosting (so it appears as `/api/hello` on your domain), follow [How to deploy Hosting rewrites](pyric-tools-deploy-how-to-deploy-hosting-rewrites). To expose the deploy through an agent, see [Register deploy tools with an agent](pyric-tools-deploy-how-to-register-tools-with-an-agent).
+The function is reachable at its Cloud Run URL. To route it through Firebase Hosting (so it appears as `/api/hello` on your domain), follow [How to deploy Hosting rewrites](../pyric-tools-deploy-how-to-deploy-hosting-rewrites/). To expose the deploy through an agent, see [Register deploy tools with an agent](../pyric-tools-deploy-how-to-register-tools-with-an-agent/).

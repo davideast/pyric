@@ -73,13 +73,19 @@ pyric rules:lint firestore.rules
 
 ## Blockquote
 
-This paragraph introduces a quote, so it binds at the para beat:
+This paragraph introduces a quote, so it binds at the para beat. Quotes
+left-align with the body column (no content indent) and carry a
+hairline rail in the left gutter, not inline with the text:
 
-> A quoted line. Quotes are muted and marked with the accent bar.
+> A quoted line. Quotes are muted, left-aligned, and marked by a rail
+> pushed into the gutter — never by indenting the text.
 >
 > A second quoted paragraph, one para beat inside the quote.
 
-A paragraph after the quote, back at the group beat.
+A paragraph after the quote, back at the group beat (`blockquote + p`).
+
+> A quote can also lead straight into a new section (`blockquote + h2`
+> below) — the section beat still dwarfs it, same as any other block.
 
 ## Table
 

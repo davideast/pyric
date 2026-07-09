@@ -116,7 +116,7 @@ These flag patterns that *compile* but are almost always wrong.
 - **Detection**: for each rule that transitively reads `request.time`, emit one warning per `TestCase` whose `path` matches the rule's match path and which does not set `requestTime`.
 - **Fix**: set `requestTime` on the test case to an ISO-8601 string.
 
-See [Pin `request.time` for deterministic tests](pyric-rules-how-to-pin-request-time).
+See [Pin `request.time` for deterministic tests](../pyric-rules-how-to-pin-request-time/).
 
 ## Hallucination and syntax-hint rules
 

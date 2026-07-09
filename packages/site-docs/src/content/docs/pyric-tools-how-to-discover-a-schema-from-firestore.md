@@ -1,5 +1,6 @@
 ---
 title: "How to infer a schema from an existing Firestore"
+navLabel: "Infer a schema"
 group: "pyric-tools"
 section: "How-to"
 order: 7
@@ -78,7 +79,7 @@ The argument matches the **root collection id** exactly (for example
 `users`), not a full path.
 
 For the complete flag list, see the
-[`pyric firestore:discover` reference](pyric-tools-reference-cli).
+[`pyric firestore:discover` reference](../pyric-tools-reference-cli/).
 
 ## Read and use the output
 

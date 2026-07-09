@@ -1,5 +1,6 @@
 ---
 title: "How to build a ProjectScope from Firebase Auth (browser)"
+navLabel: "Scope from Firebase Auth"
 group: "pyric-tools / deploy"
 section: "How-to"
 order: 17
@@ -70,5 +71,5 @@ Firebase ID tokens already carry the right OAuth scopes for these operations *wh
 
 ## Where to look next
 
-- Working in Node with a service account instead? See [Build a `ProjectScope` from a service account](pyric-tools-deploy-how-to-build-projectscope-from-service-account).
-- Want to understand the resolver pattern (why `resolveToken` is a function, not a value)? See [Token caching and `memoizeTtl`](pyric-tools-deploy-explanation-token-caching).
+- Working in Node with a service account instead? See [Build a `ProjectScope` from a service account](../pyric-tools-deploy-how-to-build-projectscope-from-service-account/).
+- Want to understand the resolver pattern (why `resolveToken` is a function, not a value)? See [Token caching and `memoizeTtl`](../pyric-tools-deploy-explanation-token-caching/).

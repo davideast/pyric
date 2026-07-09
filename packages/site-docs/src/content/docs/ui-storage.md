@@ -81,26 +81,26 @@ function StorageAdmin({ storage }) {
 ```
 ## Components
 
-- [ObjectBrowser](ui-storage-objectbrowser) — the folder/object row list;
+- [ObjectBrowser](../ui-storage-objectbrowser/) — the folder/object row list;
   virtualized above 100 rows.
-- [PathBreadcrumb](ui-storage-pathbreadcrumb) — clickable ancestor trail.
-- [UploadDropzone](ui-storage-uploaddropzone) — slot-based file + folder drop
+- [PathBreadcrumb](../ui-storage-pathbreadcrumb/) — clickable ancestor trail.
+- [UploadDropzone](../ui-storage-uploaddropzone/) — slot-based file + folder drop
   target.
-- [ObjectInspector](ui-storage-objectinspector) — metadata + content-type-driven
+- [ObjectInspector](../ui-storage-objectinspector/) — metadata + content-type-driven
   previews (image/text/json built in, consumer-extensible).
-- [DeleteSelectionWithConfirm](ui-storage-deleteselectionwithconfirm) — bulk +
+- [DeleteSelectionWithConfirm](../ui-storage-deleteselectionwithconfirm/) — bulk +
   recursive delete behind the confirm dialog, toasts on outcome.
 
 ## Concepts
 
-- [Rules-aware affordances](ui-storage-rules-aware-affordances) — how the gate's
+- [Rules-aware affordances](../ui-storage-rules-aware-affordances/) — how the gate's
   verdicts flow into `data-pyric-denied` rows and disabled-with-reason
   states, and the advisory-on-prod caveat.
 
 ## Hooks
 
 Hook docs live in the source JSDoc — every hook has an options/return
-interface commented per field ([`useStorageRulesGate`](ui-storage-usestoragerulesgate)
+interface commented per field ([`useStorageRulesGate`](../ui-storage-usestoragerulesgate/)
 also has a full page). Summary:
 
 - **`useStorageList(storage, path)`** — `listAll` + the prefix→folder
@@ -143,7 +143,7 @@ also has a full page). Summary:
   pure evaluator. Sandbox handles need zero config (rules + identity come
   off the handle); prod callers pass both explicitly and verdicts are
   **advisory** — the server is authoritative. Fails open. Full page:
-  [useStorageRulesGate](ui-storage-usestoragerulesgate).
+  [useStorageRulesGate](../ui-storage-usestoragerulesgate/).
 
 ## Constraints worth knowing (from the storage COMPAT)
 
@@ -166,6 +166,6 @@ also has a full page). Summary:
   milestone roadmap (the playground consumer, M8, is next; M7's traffic
   panel is STOP-documented in
   the design rationale).
-- [`<VirtualList>`](ui-primitives-virtuallist),
-  [`<ConfirmDialog>`](ui-primitives-confirmdialog),
-  [`<Toast>`](ui-primitives-toast) — the primitives this half composes.
+- [`<VirtualList>`](../ui-primitives-virtuallist/),
+  [`<ConfirmDialog>`](../ui-primitives-confirmdialog/),
+  [`<Toast>`](../ui-primitives-toast/) — the primitives this half composes.

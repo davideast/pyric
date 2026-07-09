@@ -1,12 +1,13 @@
 ---
 title: "How to observe sandbox events"
+navLabel: "Observe sandbox events"
 group: "pyric / sandbox"
 section: "How-to"
 order: 94
 ---
 # How to observe sandbox events
 
-One subscription covers everything observable. `sandbox.onEvent(cb)` fires a [`SandboxEvent`](pyric-sandbox-reference-sandbox-event) for every rule evaluation, every committed write, every snapshot delivered to a listener callback, every suppressed re-eval, every listener attach / detach / errored, and every reset / dispose boundary. Filter on `event.kind` to recover whichever slice your code cares about.
+One subscription covers everything observable. `sandbox.onEvent(cb)` fires a [`SandboxEvent`](../pyric-sandbox-reference-sandbox-event/) for every rule evaluation, every committed write, every snapshot delivered to a listener callback, every suppressed re-eval, every listener attach / detach / errored, and every reset / dispose boundary. Filter on `event.kind` to recover whichever slice your code cares about.
 
 ## When to use which kind
 
@@ -129,7 +130,7 @@ sandbox.onEvent((event) => {
 ```
 `write` events fire only for writes that the rule engine allowed AND the keyspace successfully applied. Denied or rolled-back writes surface as `kind: 'request' && result: 'deny'` with no companion `write` event.
 
-The `sentinels`, `autoId`, and `requestTime` fields on `WriteSandboxEvent` are populated so a captured stream can be replayed — see [Replay a captured event stream](pyric-sandbox-how-to-replay-events). For live observation you can ignore them.
+The `sentinels`, `autoId`, and `requestTime` fields on `WriteSandboxEvent` are populated so a captured stream can be replayed — see [Replay a captured event stream](../pyric-sandbox-how-to-replay-events/). For live observation you can ignore them.
 
 ## Segment around reset()
 ```ts
@@ -155,6 +156,6 @@ The sandbox calls your callback **synchronously**, inline with the op that produ
 
 ## See also
 
-- [`SandboxEvent` reference](pyric-sandbox-reference-sandbox-event) — field-by-field for every kind.
-- [Listener re-evaluation on `deployRules`](pyric-sandbox-explanation-listener-re-evaluation) — why deploy-rules-driven re-evals carry no `triggeredBy`.
+- [`SandboxEvent` reference](../pyric-sandbox-reference-sandbox-event/) — field-by-field for every kind.
+- [Listener re-evaluation on `deployRules`](../pyric-sandbox-explanation-listener-re-evaluation/) — why deploy-rules-driven re-evals carry no `triggeredBy`.
 - design rationale — the rationale for replacing the three-channel surface with one.

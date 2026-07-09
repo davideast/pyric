@@ -1,5 +1,6 @@
 ---
 title: "Upload and download a session archive"
+navLabel: "Upload and download"
 group: "pyric / storage"
 section: "Tutorials"
 order: 116
@@ -142,6 +143,6 @@ The delete works under the `request.resource == null` carve-out: the rule's writ
 
 ## Where to go next
 
-- Swap the backend to real Firebase Storage — see [Switch between sandbox and prod backends](pyric-storage-how-to-switch-backends).
-- Round-trip custom metadata — see [Round-trip metadata](pyric-storage-how-to-round-trip-metadata).
-- Read about what's deferred from this v1 scope — see [Implementation scope and deferred features](pyric-storage-explanation-implementation-scope).
+- Swap the backend to real Firebase Storage — see [Switch between sandbox and prod backends](../pyric-storage-how-to-switch-backends/).
+- Round-trip custom metadata — see [Round-trip metadata](../pyric-storage-how-to-round-trip-metadata/).
+- Read about what's deferred from this v1 scope — see [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/).

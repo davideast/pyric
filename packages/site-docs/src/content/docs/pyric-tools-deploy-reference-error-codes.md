@@ -105,4 +105,4 @@ Tool factories return `ToolHandler[]` that adapt these outcomes to the `@inbrows
 ```ts
 type ToolResult = { ok: boolean; summary: string; data?: unknown };
 ```
-The handler's `data` field carries the underlying `Outcome` so consumers can re-narrow when they need the structured code. See [Tool factories](pyric-tools-deploy-reference-tool-factories) for the `DeployToolData` map.
+The handler's `data` field carries the underlying `Outcome` so consumers can re-narrow when they need the structured code. See [Tool factories](../pyric-tools-deploy-reference-tool-factories/) for the `DeployToolData` map.

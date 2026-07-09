@@ -10,7 +10,7 @@ Firestore rules, indexes, and database provisioning primitives.
 ```ts
 import { firestore } from 'pyric-tools/deploy';
 ```
-Primitives throw `AdminApiError` on non-2xx; orchestrators return `Outcome`-shaped objects. JSDoc on each function marks which it is. See [Primitives throw, orchestrators return](pyric-tools-deploy-explanation-primitives-vs-orchestrators).
+Primitives throw `AdminApiError` on non-2xx; orchestrators return `Outcome`-shaped objects. JSDoc on each function marks which it is. See [Primitives throw, orchestrators return](../pyric-tools-deploy-explanation-primitives-vs-orchestrators/).
 
 ## `firestore.rules`
 

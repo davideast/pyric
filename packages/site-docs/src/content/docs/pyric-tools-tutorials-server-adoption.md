@@ -230,7 +230,7 @@ real Firebase. Set `PYRIC_SANDBOX_FORCE=1` to override (dev/CI only).
   worker, survives tab reloads, and stops being served the moment no page
   is open. `pyric dev --persist` additionally writes a committable
   `.pyric/state/state.json` (Firestore docs + auth users) restored on the
-  next run — see the [CLI reference](pyric-tools-reference-cli).
+  next run — see the [CLI reference](../pyric-tools-reference-cli/).
 - **`this Node version lacks module.registerHooks (needs >= 22.15)`** —
   on older Nodes ESM imports are still rewritten but CJS
   `require('firebase-admin')` is not, so a CJS app half-connects. Upgrade
@@ -239,8 +239,8 @@ real Firebase. Set `PYRIC_SANDBOX_FORCE=1` to override (dev/CI only).
 ## Where next
 
 - **Every `pyric dev` flag** (`--persist`, `--seed`, `--ui`, `--json`, …):
-  the [CLI reference](pyric-tools-reference-cli).
+  the [CLI reference](../pyric-tools-reference-cli/).
 - **New app instead of an existing one:**
-  [getting started](pyric-tools-tutorials-getting-started).
+  [getting started](../pyric-tools-tutorials-getting-started/).
 - **Let an agent drive the same sandbox** over MCP:
-  [wire-claude-code.md](pyric-tools-tutorials-wire-claude-code).
+  [wire-claude-code.md](../pyric-tools-tutorials-wire-claude-code/).

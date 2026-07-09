@@ -1,5 +1,6 @@
 ---
 title: "Lint vs validate vs simulate vs test"
+navLabel: "Lint vs validate vs test"
 group: "pyric / rules"
 section: "Explanation"
 order: 82
@@ -14,7 +15,7 @@ The package offers four distinct ways to look at a rules source. Their names sug
 
 The linter walks the AST counting things — chain depths, let bindings, function-call depths, `get()` counts, expression tree sizes — and compares those numbers to thresholds it learned from production. Some thresholds are exact (256 KB source size; 98 chain depth; 11 lets per function). Others are bands derived from observing the runtime budget's behaviour in the flaky zone (40 / 60 / 100 nodes depending on call count).
 
-The linter also catches a small but high-value set of *known agent failure modes* — `PERMISSIVE_RULE`, `RECURSIVE_WILDCARD_OPEN`, `RULES_WEAKENED`, `HALLUCINATED_METHOD`, `INVALID_OPERATOR`. These were not in the original linter spec; they were added after watching agents repeatedly ship the same broken patterns. See [Agent failure modes](pyric-rules-explanation-agent-failure-modes) for the stories behind them.
+The linter also catches a small but high-value set of *known agent failure modes* — `PERMISSIVE_RULE`, `RECURSIVE_WILDCARD_OPEN`, `RULES_WEAKENED`, `HALLUCINATED_METHOD`, `INVALID_OPERATOR`. These were not in the original linter spec; they were added after watching agents repeatedly ship the same broken patterns. See [Agent failure modes](../pyric-rules-explanation-agent-failure-modes/) for the stories behind them.
 
 What linting does **not** tell you: whether your rules behave the way you intend. A rule that compiles, fits the budget, and avoids every agent footgun can still permit something it shouldn't. That question is for the simulator and the test API.
 

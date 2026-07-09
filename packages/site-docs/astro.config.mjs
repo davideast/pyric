@@ -27,11 +27,14 @@ import { defineConfig } from 'astro/config';
 export default defineConfig({
   output: 'static',
   base: process.env.DOCS_BASE ?? '/',
-  // `file` format keeps every doc page a sibling of its .md twin
-  // (/docs/x.html next to /docs/x.md), so in-content links can be
-  // sibling-relative (`[CLI reference](cli)`) — they resolve from both
-  // the HTML page and the raw twin, under any base path.
-  build: { format: 'file' },
+  // `directory` format emits every doc page as `<slug>/index.html`, so
+  // the page is reachable at the host-agnostic `/docs/<slug>/` on any
+  // dumb static host (no server-side extension/rewrite rules needed —
+  // `file` format's `/docs/<slug>.html` requires either a host that
+  // serves extensionless paths or a rewrite). The .md agent twin stays
+  // FLAT at `/docs/<slug>.md` (it's an API route, not a content page —
+  // llms.txt links point at the flat form) — see [slug].md.ts.
+  build: { format: 'directory' },
   markdown: {
     shikiConfig: {
       theme: 'one-dark-pro',

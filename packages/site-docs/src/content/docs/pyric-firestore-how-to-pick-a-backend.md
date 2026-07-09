@@ -1,5 +1,6 @@
 ---
 title: "How to pick a backend at init time"
+navLabel: "Pick a backend"
 group: "pyric / firestore"
 section: "How-to"
 order: 47
@@ -102,5 +103,5 @@ You can't change a handle's backend after construction. If you need to switch mi
 
 ## Where to look next
 
-- For why the two backends share one surface, see [Why two backends behind one surface](pyric-firestore-explanation-two-backends-one-surface).
-- For the divergence list in detail, see [`getFirestore` overloads](pyric-firestore-reference-getfirestore).
+- For why the two backends share one surface, see [Why two backends behind one surface](../pyric-firestore-explanation-two-backends-one-surface/).
+- For the divergence list in detail, see [`getFirestore` overloads](../pyric-firestore-reference-getfirestore/).

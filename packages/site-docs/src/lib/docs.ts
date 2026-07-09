@@ -7,9 +7,25 @@ export function slugOf(entry: DocEntry): string {
   return entry.data.slug ?? entry.id;
 }
 
-/** Path-absolute URL of a doc page, base-aware. `/docs/pyric-tools`. */
+/**
+ * Path-absolute URL of a doc page, base-aware. `/docs/pyric-tools/`.
+ * Trailing slash matters: `build.format: 'directory'` (astro.config.mjs)
+ * emits every doc page as `<slug>/index.html`, so the URL must name the
+ * directory explicitly — dumb static hosts don't rewrite an
+ * extensionless `/docs/pyric-tools` to its `index.html`.
+ */
 export function docPath(entry: DocEntry): string {
-  return withBase(`/docs/${slugOf(entry)}`);
+  return withBase(`/docs/${slugOf(entry)}/`);
+}
+
+/**
+ * Path-absolute URL of a doc page's raw-markdown agent twin — always
+ * FLAT (`/docs/pyric-tools.md`), never the directory form `docPath`
+ * returns. The twin is an API route ([slug].md.ts), not a content
+ * page, so `build.format: 'directory'` doesn't touch it.
+ */
+export function docMdPath(entry: DocEntry): string {
+  return withBase(`/docs/${slugOf(entry)}.md`);
 }
 
 /** Nav label: the short label if the port set one, else the title. */
@@ -88,6 +104,73 @@ export async function navGroups(): Promise<NavGroup[]> {
     else group.sections.push({ section: entry.data.section, entries: [entry] });
   }
   return groups;
+}
+
+/** id-safe slug of an arbitrary nav label ("pyric-tools / deploy" -> "pyric-tools-deploy"). */
+function slugifyId(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Anchor id of a group's `<details>` in the left nav (every page renders it). */
+export function groupAnchorId(group: string): string {
+  return `nav-group-${slugifyId(group)}`;
+}
+
+/** Anchor id of a section heading (`<h2>`) inside a group's nav body. */
+export function sectionAnchorId(group: string, section: string): string {
+  return `nav-section-${slugifyId(group)}-${slugifyId(section)}`;
+}
+
+export interface Breadcrumb {
+  label: string;
+  /** Set when this ancestor has a real landing page. */
+  href: string | null;
+  /** Set when there's no landing page: a same-page fallback that jumps
+   *  to (and, via the browser's native details-fragment behavior,
+   *  auto-opens) the matching spot in the left nav. */
+  anchorId: string | null;
+}
+
+/**
+ * Breadcrumb trail for a doc entry: Package / Section / Page.
+ *
+ * Decision (owner review, item 4): the Package crumb links to its
+ * group's overview/README page when the group has one (`section: ''`
+ * in the port plan); groups without one (and every Section crumb —
+ * there is never a page for a bare Diataxis section) fall back to a
+ * same-page anchor into the left nav instead of a dead link. The
+ * current page is always plain text (`href: null`, `anchorId: null`).
+ */
+export async function breadcrumbsFor(entry: DocEntry): Promise<Breadcrumb[]> {
+  // Internal pages (the /docs/_rhythm audit page) aren't in navGroups()
+  // (publicDocs() filters them out) — no ancestor to point at, and
+  // they're already excluded from nav/llms.txt/index.json, so skip the
+  // breadcrumb entirely rather than emit a dead nav-anchor fallback.
+  if (entry.data.internal) return [];
+  const groups = await navGroups();
+  const group = groups.find((g) => g.group === entry.data.group);
+  const landing = group?.sections.find((s) => s.section === '')?.entries[0];
+  const crumbs: Breadcrumb[] = [
+    landing
+      ? { label: entry.data.group, href: docPath(landing), anchorId: null }
+      : {
+          label: entry.data.group,
+          href: null,
+          anchorId: groupAnchorId(entry.data.group),
+        },
+  ];
+  if (entry.data.section) {
+    crumbs.push({
+      label: entry.data.section,
+      href: null,
+      anchorId: sectionAnchorId(entry.data.group, entry.data.section),
+    });
+  }
+  crumbs.push({ label: navLabel(entry), href: null, anchorId: null });
+  return crumbs;
 }
 
 /**

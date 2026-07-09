@@ -1,5 +1,6 @@
 ---
 title: "How to promote sandbox state to a committable fixture"
+navLabel: "Promote sandbox state"
 group: "pyric-tools"
 section: "How-to"
 order: 8
@@ -16,7 +17,7 @@ The flow is: build state in `dev` → run `pyric snapshot` → commit the file �
 re-seed with `pyric dev --seed <file>`.
 
 For the full flag list, see the [`pyric snapshot`
-reference](pyric-tools-reference-cli).
+reference](../pyric-tools-reference-cli/).
 
 ## Build up the state
 
@@ -77,7 +78,7 @@ Anyone with the committed file can start from exactly the same state:
 ```sh
 pyric dev --seed fixtures/onboarding.json
 ```
-See [serve persistence and multi-tab](pyric-tools-how-to-serve-persistence-and-multi-tab) for
+See [serve persistence and multi-tab](../pyric-tools-how-to-serve-persistence-and-multi-tab/) for
 more on `--seed` and how seeded state interacts with `--persist`.
 
 ## Machine-readable output

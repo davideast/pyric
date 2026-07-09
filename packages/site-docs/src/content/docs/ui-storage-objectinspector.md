@@ -89,5 +89,5 @@ function Inspector({ storage, selectedPath }) {
 ## See also
 
 - `useStorageObject` — the hook underneath (metadata + lazy blob).
-- [`<DeleteSelectionWithConfirm>`](ui-storage-deleteselectionwithconfirm) — the
+- [`<DeleteSelectionWithConfirm>`](../ui-storage-deleteselectionwithconfirm/) — the
   usual neighbor in an admin sidebar.

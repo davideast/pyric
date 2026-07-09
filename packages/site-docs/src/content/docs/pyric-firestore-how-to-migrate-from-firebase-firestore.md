@@ -1,5 +1,6 @@
 ---
 title: "How to migrate from firebase/firestore"
+navLabel: "Migrate from Firestore"
 group: "pyric / firestore"
 section: "How-to"
 order: 46
@@ -95,5 +96,5 @@ For browser bundles where size matters, the bundler will tree-shake the sandbox-
 
 ## Where to look next
 
-- For the choice between sandbox and prod at runtime, see [Pick a backend at init time](pyric-firestore-how-to-pick-a-backend).
-- For the two-backend design rationale, see [Why two backends behind one surface](pyric-firestore-explanation-two-backends-one-surface).
+- For the choice between sandbox and prod at runtime, see [Pick a backend at init time](../pyric-firestore-how-to-pick-a-backend/).
+- For the two-backend design rationale, see [Why two backends behind one surface](../pyric-firestore-explanation-two-backends-one-surface/).

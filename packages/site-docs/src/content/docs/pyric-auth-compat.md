@@ -1,5 +1,6 @@
 ---
 title: "pyric/auth compatibility matrix"
+navLabel: "Compatibility matrix"
 group: "pyric / auth"
 section: "Compat"
 order: 134

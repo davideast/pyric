@@ -1,5 +1,6 @@
 ---
 title: "How to lint a rules source"
+navLabel: "Lint a rules source"
 group: "pyric / rules"
 section: "How-to"
 order: 66
@@ -58,7 +59,7 @@ If your rules read `request.time`, the simulator's verdict depends on wallclock 
 const result = lintFirestoreRules(source, { testCases });
 const unpinned = result.warnings.filter((w) => w.rule === 'REQUEST_TIME_NOT_PINNED');
 ```
-See [Pin `request.time` for deterministic tests](pyric-rules-how-to-pin-request-time) for the fix.
+See [Pin `request.time` for deterministic tests](../pyric-rules-how-to-pin-request-time/) for the fix.
 
 ## Inspect structural metrics
 
@@ -75,5 +76,5 @@ Use these to plot trends across PRs or to assert on growth in CI.
 
 ## Where to look next
 
-- Want the exact thresholds and detection algorithms? See [Lint rules reference](pyric-rules-reference-lint-rules).
-- Want to know *why* these particular rules exist? See [Runtime budget and shared gates](pyric-rules-explanation-runtime-budget-and-shared-gates) and [Agent failure modes](pyric-rules-explanation-agent-failure-modes).
+- Want the exact thresholds and detection algorithms? See [Lint rules reference](../pyric-rules-reference-lint-rules/).
+- Want to know *why* these particular rules exist? See [Runtime budget and shared gates](../pyric-rules-explanation-runtime-budget-and-shared-gates/) and [Agent failure modes](../pyric-rules-explanation-agent-failure-modes/).

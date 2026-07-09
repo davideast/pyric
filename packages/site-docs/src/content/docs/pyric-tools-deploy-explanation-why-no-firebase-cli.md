@@ -1,5 +1,6 @@
 ---
 title: "Why no firebase CLI dependency"
+navLabel: "Why no Firebase CLI"
 group: "pyric-tools / deploy"
 section: "Explanation"
 order: 40

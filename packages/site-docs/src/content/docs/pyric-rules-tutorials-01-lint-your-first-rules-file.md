@@ -145,4 +145,4 @@ Revert the file to the working version when you're done.
 
 ## What to do next
 
-You have rules and you have lint feedback. The next thing most people want is to verify the rules behave the way they think — without deploying. That is what the [Write a test suite for your rules](pyric-rules-tutorials-02-write-a-test-suite-for-your-rules) tutorial covers.
+You have rules and you have lint feedback. The next thing most people want is to verify the rules behave the way they think — without deploying. That is what the [Write a test suite for your rules](../pyric-rules-tutorials-02-write-a-test-suite-for-your-rules/) tutorial covers.

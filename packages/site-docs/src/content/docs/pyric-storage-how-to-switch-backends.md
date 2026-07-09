@@ -1,5 +1,6 @@
 ---
 title: "How to switch between sandbox and prod backends"
+navLabel: "Switch backends"
 group: "pyric / storage"
 section: "How-to"
 order: 120
@@ -80,9 +81,9 @@ If you're swapping a real project from `firebase/storage` to `pyric/storage`, th
 ```
 Application code that calls `getStorage(app)` keeps working. Tests can import `getStorageSandbox` separately.
 
-Note that not every `firebase/storage` symbol is re-exported — see [Implementation scope and deferred features](pyric-storage-explanation-implementation-scope) for what's missing.
+Note that not every `firebase/storage` symbol is re-exported — see [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) for what's missing.
 
 ## Where to look next
 
-- For the data and rules wiring, see [Enforce Storage rules](pyric-storage-how-to-enforce-rules).
-- For why the prod entry has fewer options, see [`StorageOptions`](pyric-storage-reference-storage-options).
+- For the data and rules wiring, see [Enforce Storage rules](../pyric-storage-how-to-enforce-rules/).
+- For why the prod entry has fewer options, see [`StorageOptions`](../pyric-storage-reference-storage-options/).

@@ -1,5 +1,6 @@
 ---
 title: "The /internal adapter protocol"
+navLabel: "The /internal protocol"
 group: "pyric / sandbox"
 section: "Reference"
 order: 104

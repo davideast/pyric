@@ -37,7 +37,7 @@ import { TrafficDetail } from '@pyric/ui/traffic';
 `AUTH` always renders. `REQUEST · resource.data`, `RESOURCE BEFORE`, and
 `RESOURCE AFTER` render only when the event carries them (writes, not reads).
 `REASONS`, `TRIGGERED BY`, and `GROUP` render when present. JSON renders via
-[`<JsonView>`](ui-primitives-jsonview).
+[`<JsonView>`](../ui-primitives-jsonview/).
 
 ## Styling hooks
 ```

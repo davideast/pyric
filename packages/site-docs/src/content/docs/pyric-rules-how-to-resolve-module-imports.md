@@ -1,5 +1,6 @@
 ---
 title: "How to resolve 2+modules imports"
+navLabel: "Resolve 2+modules imports"
 group: "pyric / rules"
 section: "How-to"
 order: 69
@@ -50,7 +51,7 @@ The output uses `rules_version = '2'` and has the imported functions inlined at 
 
 Fifteen modules ship with the package — `auth`, `validation`, `lobby`, `turns`, `state`, `membership`, `lifecycle`, `transitions`, `geometry`, `counters`, `timing`, `content`, `spaces`, `joining`, `atomic`. They resolve automatically; you don't need to configure anything.
 
-For the full list of exports, see [Standard library modules](pyric-rules-reference-stdlib-modules).
+For the full list of exports, see [Standard library modules](../pyric-rules-reference-stdlib-modules/).
 
 ## Use your own `.rules` files
 
@@ -95,5 +96,5 @@ The `modules` map takes priority over both `basePath` lookups and the stdlib, so
 
 ## Where to look next
 
-- For all stdlib modules and their exports, see [Standard library modules](pyric-rules-reference-stdlib-modules).
-- For the design rationale, see [The `2+modules` extension](pyric-rules-explanation-the-2-plus-modules-extension).
+- For all stdlib modules and their exports, see [Standard library modules](../pyric-rules-reference-stdlib-modules/).
+- For the design rationale, see [The `2+modules` extension](../pyric-rules-explanation-the-2-plus-modules-extension/).

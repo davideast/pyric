@@ -1,5 +1,6 @@
 ---
 title: "Build a standalone pyric binary"
+navLabel: "Build a standalone binary"
 group: "pyric-tools"
 section: "How-to"
 order: 5

@@ -1,5 +1,6 @@
 ---
 title: "Write a sandbox-backed demo"
+navLabel: "Sandbox-backed demo"
 group: "pyric / firestore"
 section: "Tutorials"
 order: 43
@@ -160,4 +161,4 @@ Every stored document, including Alice's writes and excluding Bob's denied one.
 
 ## What to do next
 
-The same code runs against the prod backend with one line changed. Follow [Swap the demo to the prod backend](pyric-firestore-tutorials-02-swap-to-prod-backend) to see how.
+The same code runs against the prod backend with one line changed. Follow [Swap the demo to the prod backend](../pyric-firestore-tutorials-02-swap-to-prod-backend/) to see how.

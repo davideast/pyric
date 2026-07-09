@@ -1,5 +1,6 @@
 ---
 title: "How to list and delete objects"
+navLabel: "List and delete objects"
 group: "pyric / storage"
 section: "How-to"
 order: 118
@@ -78,5 +79,5 @@ This mirrors production Firebase. With no rules configured, `listAll` is open-by
 
 ## Where to look next
 
-- For the `StorageReference` shape and the `ref(...)` overloads, see [Public API](pyric-storage-reference-api#reference-construction).
-- For the `ListResult` shape, see [Public API](pyric-storage-reference-api#listing).
+- For the `StorageReference` shape and the `ref(...)` overloads, see [Public API](../pyric-storage-reference-api/#reference-construction).
+- For the `ListResult` shape, see [Public API](../pyric-storage-reference-api/#listing).

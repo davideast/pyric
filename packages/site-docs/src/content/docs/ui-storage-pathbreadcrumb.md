@@ -53,5 +53,5 @@ function Crumbs() {
 
 ## See also
 
-- [`<ObjectBrowser>`](ui-storage-objectbrowser) — the row list below the trail.
+- [`<ObjectBrowser>`](../ui-storage-objectbrowser/) — the row list below the trail.
 - `usePathState` — the navigation state source.

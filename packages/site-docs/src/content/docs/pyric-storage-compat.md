@@ -1,5 +1,6 @@
 ---
 title: "pyric/storage compatibility matrix"
+navLabel: "Compatibility matrix"
 group: "pyric / storage"
 section: "Compat"
 order: 129

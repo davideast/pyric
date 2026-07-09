@@ -19,7 +19,7 @@ Pyric's Realtime Database surface has two parts:
 
 | If you want to | Read |
 |---|---|
-| Learn the constraints authoring workflow | [Author your first RTDB rules with constraints](pyric-database-tutorials-01-author-rtdb-rules-with-constraints) |
-| Look up the RTDB rules tooling API | [RTDB rules tooling reference](pyric-database-reference-rules-tooling) |
-| Understand package boundaries for authoring and deploy | [Why RTDB rules authoring and deploy are separate](pyric-database-explanation-rules-authoring-and-deploy-are-separate) |
-| Check Firebase Database compatibility status | [Compatibility matrix](pyric-database-compat) |
+| Learn the constraints authoring workflow | [Author your first RTDB rules with constraints](../pyric-database-tutorials-01-author-rtdb-rules-with-constraints/) |
+| Look up the RTDB rules tooling API | [RTDB rules tooling reference](../pyric-database-reference-rules-tooling/) |
+| Understand package boundaries for authoring and deploy | [Why RTDB rules authoring and deploy are separate](../pyric-database-explanation-rules-authoring-and-deploy-are-separate/) |
+| Check Firebase Database compatibility status | [Compatibility matrix](../pyric-database-compat/) |

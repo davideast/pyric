@@ -9,7 +9,7 @@ order: 131
 
 Exact signatures of every public export, grouped by purpose. Sandbox-only behavior is called out per function.
 
-For coverage against `firebase/auth`'s full surface, see [feature-matrix.md](pyric-auth-reference-feature-matrix).
+For coverage against `firebase/auth`'s full surface, see [feature-matrix.md](../pyric-auth-reference-feature-matrix/).
 
 ---
 
@@ -133,4 +133,4 @@ Each (except `OAuthProvider`) exposes `credentialFromResult(result)` and `creden
 
 ## Sandbox-only test driver
 
-See [sandbox-test-driver.md](pyric-auth-reference-sandbox-test-driver).
+See [sandbox-test-driver.md](../pyric-auth-reference-sandbox-test-driver/).

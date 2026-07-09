@@ -73,7 +73,7 @@ function Inner() {
 ```
 ## Field types supported
 
-`string`, `number`, `boolean`, `null`, `timestamp`, `geopoint`, `reference`, `bytes`, `map`, `array`. See [`DocumentPreview.md`](ui-firestore-documentpreview) for the read-mode rendering of each; edit-mode widgets:
+`string`, `number`, `boolean`, `null`, `timestamp`, `geopoint`, `reference`, `bytes`, `map`, `array`. See [`DocumentPreview.md`](../ui-firestore-documentpreview/) for the read-mode rendering of each; edit-mode widgets:
 
 | Type | Widget |
 |---|---|
@@ -83,7 +83,7 @@ function Inner() {
 | `null` | inert placeholder |
 | `timestamp` | `<input type="datetime-local">` |
 | `geopoint` | two `<input type="number">` for lat/lng |
-| `reference` | text input for path; [`<ReferencePicker>`](ui-firestore-referencepicker) is a richer alternative |
+| `reference` | text input for path; [`<ReferencePicker>`](../ui-firestore-referencepicker/) is a richer alternative |
 | `bytes` | base64 `<textarea>` |
 | `map` | recursive |
 | `array` | recursive; nested arrays rejected at the reducer |

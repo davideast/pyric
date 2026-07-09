@@ -70,7 +70,7 @@ import {
 ```
 ## Where to go next
 
-Documentation is organised under [`docs/`](pyric-rules) following the [Diataxis](https://diataxis.fr/) framework:
+Documentation is organised under [`docs/`](../pyric-rules/) following the [Diataxis](https://diataxis.fr/) framework:
 
 | If you want to | Read |
 |---|---|
@@ -81,14 +81,14 @@ Documentation is organised under [`docs/`](pyric-rules) following the [Diataxis]
 
 ### Starting points by role
 
-- **First time here?** Work through [Lint your first rules file](pyric-rules-tutorials-01-lint-your-first-rules-file), then [Write a test suite for your rules](pyric-rules-tutorials-02-write-a-test-suite-for-your-rules).
-- **Building an agent or CLI?** See [Register rules tools with an agent](pyric-rules-how-to-register-tools-with-an-agent) and the [API reference](pyric-rules-reference-api).
-- **Triaging a lint warning?** Jump to [Lint rules reference](pyric-rules-reference-lint-rules).
-- **Debugging an `UNSUPPORTED` test result?** Read [Simulator vs Rules Test API](pyric-rules-explanation-simulator-vs-rules-test-api).
+- **First time here?** Work through [Lint your first rules file](../pyric-rules-tutorials-01-lint-your-first-rules-file/), then [Write a test suite for your rules](../pyric-rules-tutorials-02-write-a-test-suite-for-your-rules/).
+- **Building an agent or CLI?** See [Register rules tools with an agent](../pyric-rules-how-to-register-tools-with-an-agent/) and the [API reference](../pyric-rules-reference-api/).
+- **Triaging a lint warning?** Jump to [Lint rules reference](../pyric-rules-reference-lint-rules/).
+- **Debugging an `UNSUPPORTED` test result?** Read [Simulator vs Rules Test API](../pyric-rules-explanation-simulator-vs-rules-test-api/).
 
 ## Position in the Pyric stack
 
-`pyric/rules` is the **rules-tooling** sibling of `pyric/firestore` (the modular Web-SDK swap-in). The split is deliberate: the data-plane swap-in must mirror the production Firestore surface and nothing more. Anything that is *about* rules — parsing them, linting them, simulating them — lives here. See [Why this package exists](pyric-rules-explanation-why-this-package-exists) for the longer story.
+`pyric/rules` is the **rules-tooling** sibling of `pyric/firestore` (the modular Web-SDK swap-in). The split is deliberate: the data-plane swap-in must mirror the production Firestore surface and nothing more. Anything that is *about* rules — parsing them, linting them, simulating them — lives here. See [Why this package exists](../pyric-rules-explanation-why-this-package-exists/) for the longer story.
 
 ## Licence
 

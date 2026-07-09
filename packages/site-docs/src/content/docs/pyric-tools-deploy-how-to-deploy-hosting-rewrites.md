@@ -1,5 +1,6 @@
 ---
 title: "How to deploy Hosting rewrites that route to Cloud Functions"
+navLabel: "Deploy Hosting rewrites"
 group: "pyric-tools / deploy"
 section: "How-to"
 order: 22
@@ -40,7 +41,7 @@ if (result.success) {
   console.error(`[${result.error.code}] ${result.error.message}`);
 }
 ```
-`config` is the firebase.json hosting block — rewrites shown here; redirects, headers, `cleanUrls`, `trailingSlash`, `appAssociation`, and `i18n` ride along the same way (see [firebase.json hosting config](pyric-tools-deploy-reference-hosting-config)). `localDir` walks the directory and uploads everything not matched by the `ignore` globs (defaults: `firebase.json`, `**/.*`, `**/node_modules/**`). Server-side dedup via content hashes means re-deploys that haven't changed content upload nothing — `data.uploadedCount` will be less than `data.fileCount`.
+`config` is the firebase.json hosting block — rewrites shown here; redirects, headers, `cleanUrls`, `trailingSlash`, `appAssociation`, and `i18n` ride along the same way (see [firebase.json hosting config](../pyric-tools-deploy-reference-hosting-config/)). `localDir` walks the directory and uploads everything not matched by the `ignore` globs (defaults: `firebase.json`, `**/.*`, `**/node_modules/**`). Server-side dedup via content hashes means re-deploys that haven't changed content upload nothing — `data.uploadedCount` will be less than `data.fileCount`.
 
 ## From a browser host
 
@@ -93,6 +94,6 @@ For function targets, the `**` recursive form is the most common — you typical
 
 ## Where to look next
 
-- For all Hosting error codes, see [Error codes by operation — Hosting](pyric-tools-deploy-reference-error-codes#hosting).
-- For deploying the function before the rewrite, see [Bundle and deploy a Cloud Function](pyric-tools-deploy-how-to-bundle-and-deploy-a-function).
-- For the config shape, see [`hosting` namespace — `HostingJsonConfig`](pyric-tools-deploy-reference-hosting-namespace#hostingjsonconfig) and the full [supported-config table](pyric-tools-deploy-reference-hosting-config).
+- For all Hosting error codes, see [Error codes by operation — Hosting](../pyric-tools-deploy-reference-error-codes/#hosting).
+- For deploying the function before the rewrite, see [Bundle and deploy a Cloud Function](../pyric-tools-deploy-how-to-bundle-and-deploy-a-function/).
+- For the config shape, see [`hosting` namespace — `HostingJsonConfig`](../pyric-tools-deploy-reference-hosting-namespace/#hostingjsonconfig) and the full [supported-config table](../pyric-tools-deploy-reference-hosting-config/).

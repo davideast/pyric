@@ -1,5 +1,6 @@
 ---
 title: "Persistence and multi-tab with pyric dev"
+navLabel: "Persistence & multi-tab"
 group: "pyric-tools"
 section: "How-to"
 order: 9
@@ -131,10 +132,10 @@ the in-page fallback.
 
 The complete `pyric dev` flag set (`--port`, `--host`, `--bridge`,
 `--no-watch`, `--no-open`, `--no-cache`, `--allowed-host`, `--json`, …) lives in
-the [CLI reference](pyric-tools-reference-cli).
+the [CLI reference](../pyric-tools-reference-cli/).
 
 ## See also
 
-- [Why an in-browser backend is *not* Firestore offline persistence](pyric-sandbox-explanation-local-backend-vs-firestore-offline)
+- [Why an in-browser backend is *not* Firestore offline persistence](../pyric-sandbox-explanation-local-backend-vs-firestore-offline/)
   — why multi-tab + persistence here avoid the distributed-systems complexity.
-- [Getting started](pyric-tools-tutorials-getting-started) — scaffold → serve → agent.
+- [Getting started](../pyric-tools-tutorials-getting-started/) — scaffold → serve → agent.

@@ -1,5 +1,6 @@
 ---
 title: "How to use onSnapshot to watch a doc or query"
+navLabel: "Use onSnapshot"
 group: "pyric-admin / firestore"
 section: "How-to"
 order: 145
@@ -80,5 +81,5 @@ If your production code branches on these flags, the sandbox's behaviour is cons
 
 ## Where to look next
 
-- For the full overload list, see [`onSnapshot` overloads](pyric-admin-firestore-reference-onsnapshot).
-- For listener re-evaluation when rules change, see [Listener re-evaluation on `deployRules`](pyric-sandbox-explanation-listener-re-evaluation).
+- For the full overload list, see [`onSnapshot` overloads](../pyric-admin-firestore-reference-onsnapshot/).
+- For listener re-evaluation when rules change, see [Listener re-evaluation on `deployRules`](../pyric-sandbox-explanation-listener-re-evaluation/).

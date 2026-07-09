@@ -1,5 +1,6 @@
 ---
 title: "How to switch users with withAuth"
+navLabel: "Switch users"
 group: "pyric / sandbox"
 section: "How-to"
 order: 99
@@ -72,5 +73,5 @@ The reason is composability: a service handle (`FirestoreHandle` from `pyric-adm
 
 ## Where to look next
 
-- For the `AuthState` shape, see [`Sandbox`, `SandboxContext`, `AuthState`](pyric-sandbox-reference-sandbox-and-context#authstate).
-- For why identity lives on contexts, see [Identity is a context, not a sandbox](pyric-sandbox-explanation-identity-is-a-context).
+- For the `AuthState` shape, see [`Sandbox`, `SandboxContext`, `AuthState`](../pyric-sandbox-reference-sandbox-and-context/#authstate).
+- For why identity lives on contexts, see [Identity is a context, not a sandbox](../pyric-sandbox-explanation-identity-is-a-context/).

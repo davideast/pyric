@@ -1,5 +1,6 @@
 ---
 title: "Implementation scope and deferred features"
+navLabel: "Implementation scope"
 group: "pyric / storage"
 section: "Explanation"
 order: 126
@@ -98,7 +99,7 @@ Not modelled. Production-only.
 Three questions:
 
 1. **Is your operation in the in-scope list above?** If yes, it works.
-2. **Does your rule use only the subset in [`Storage rules subset`](pyric-storage-reference-rules-subset)?** If yes, it'll parse and enforce correctly.
+2. **Does your rule use only the subset in [`Storage rules subset`](../pyric-storage-reference-rules-subset/)?** If yes, it'll parse and enforce correctly.
 3. **Are you on a sandbox handle (IndexedDB), or a prod handle (real Cloud Storage)?** The sandbox-only options affect only the sandbox path.
 
 If your answer to any is "no", check the deferred list. Often there's a workaround (e.g. `URL.createObjectURL` for `getDownloadURL`) or a different backend (prod for unbounded features).

@@ -1,5 +1,6 @@
 ---
 title: "Use the sandbox in a test harness"
+navLabel: "Sandbox in a test harness"
 group: "pyric / sandbox"
 section: "Tutorials"
 order: 91
@@ -13,7 +14,7 @@ In this tutorial you will wire `pyric/sandbox` into a real test suite. By the en
 3. Helpers that seed the sandbox before each case.
 4. Assertions that mix user-shaped reads with admin reads.
 
-This tutorial assumes you completed [Your first sandbox session](pyric-sandbox-tutorials-01-your-first-sandbox-session) and you have `pyric/sandbox` and `pyric-admin` installed. It uses Bun's test runner; the structure is identical with Vitest or Jest.
+This tutorial assumes you completed [Your first sandbox session](../pyric-sandbox-tutorials-01-your-first-sandbox-session/) and you have `pyric/sandbox` and `pyric-admin` installed. It uses Bun's test runner; the structure is identical with Vitest or Jest.
 
 ## What you will build
 
@@ -64,7 +65,7 @@ beforeEach(async () => {
   await adminDb.collection('notes').doc('system').set({ ownerId: 'system', title: 'pinned' });
 });
 ```
-Admin context writes evaluate against the same rules as anyone else. If your rules reject `admin`-authed writes for fixture docs, use `/internal` seeding instead — see [Seed initial data and rules](pyric-sandbox-how-to-seed-data-and-rules).
+Admin context writes evaluate against the same rules as anyone else. If your rules reject `admin`-authed writes for fixture docs, use `/internal` seeding instead — see [Seed initial data and rules](../pyric-sandbox-how-to-seed-data-and-rules/).
 
 ## Step 3 — First test: a successful write
 ```ts
@@ -223,6 +224,6 @@ Run `bun test` — four passing tests.
 
 ## What to do next
 
-- For more on the test patterns, see [Reset between tests](pyric-sandbox-how-to-reset-between-tests).
-- For when admin reads are necessary, see [Use admin reads to assert in tests](pyric-sandbox-how-to-use-admin-reads).
-- For multi-tenant test setups, see [Run multiple isolated sandboxes in parallel](pyric-sandbox-how-to-multiple-isolated-sandboxes).
+- For more on the test patterns, see [Reset between tests](../pyric-sandbox-how-to-reset-between-tests/).
+- For when admin reads are necessary, see [Use admin reads to assert in tests](../pyric-sandbox-how-to-use-admin-reads/).
+- For multi-tenant test setups, see [Run multiple isolated sandboxes in parallel](../pyric-sandbox-how-to-multiple-isolated-sandboxes/).

@@ -13,7 +13,7 @@ Built for the agent-session-archive use case. The scope is bounded; the architec
 
 ## V1 scope status
 
-This package implements a deliberate subset of Firebase Storage. See [Implementation scope and deferred features](pyric-storage-explanation-implementation-scope) before adopting in production-style code.
+This package implements a deliberate subset of Firebase Storage. See [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) before adopting in production-style code.
 
 ## Install
 ```bash
@@ -55,9 +55,9 @@ This documentation follows the [Diataxis](https://diataxis.fr/) framework:
 
 ### Starting points
 
-- **Upload + download flow**: [Upload and download a session archive](pyric-storage-tutorials-01-upload-and-download).
-- **Enforcing rules**: [Enforce Storage rules](pyric-storage-how-to-enforce-rules).
-- **Knowing what's deferred**: [Implementation scope and deferred features](pyric-storage-explanation-implementation-scope).
+- **Upload + download flow**: [Upload and download a session archive](../pyric-storage-tutorials-01-upload-and-download/).
+- **Enforcing rules**: [Enforce Storage rules](../pyric-storage-how-to-enforce-rules/).
+- **Knowing what's deferred**: [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/).
 
 ## Position in the Pyric stack
 

@@ -1,5 +1,6 @@
 ---
 title: "Use the Vite plugin (pyric-tools/vite)"
+navLabel: "Use the Vite plugin"
 group: "pyric-tools"
 section: "How-to"
 order: 10
@@ -26,7 +27,7 @@ points in your toolchain. Pick by how your app is built:
 
 They are **not** competing. If you already build with Vite, the plugin keeps you
 in one toolchain (`vite dev` for the sandbox, `vite build` for prod). If you have
-a pre-built or no-build app, reach for [`pyric dev`](pyric-tools-how-to-serve-persistence-and-multi-tab).
+a pre-built or no-build app, reach for [`pyric dev`](../pyric-tools-how-to-serve-persistence-and-multi-tab/).
 
 > **What the plugin covers.** It swaps `firebase/*`, deploys/hot-reloads your
 > rules, runs the sandbox in a **SharedWorker** (one backend shared across tabs,
@@ -141,7 +142,7 @@ pyricSandbox({ seed: 'seed.json' });
 ```
 The persistence model — the `.pyric/state` file, `persist` vs `fresh`, and how
 seed precedence works — is identical to `pyric dev` and documented in depth in
-[Persistence and multi-tab](pyric-tools-how-to-serve-persistence-and-multi-tab).
+[Persistence and multi-tab](../pyric-tools-how-to-serve-persistence-and-multi-tab/).
 
 ## Drive the sandbox from an agent (`bridge`)
 
@@ -163,7 +164,7 @@ This adds three routes on your dev server's port (no sidecar process):
 
 Connect from Claude Code with the **pyric Claude Code plugin** — it runs a bundled
 stdio proxy that auto-discovers the running bridge from `.pyric/serve.json` (no
-fixed port, no `claude mcp add`). The [Wire Claude Code](pyric-tools-tutorials-wire-claude-code)
+fixed port, no `claude mcp add`). The [Wire Claude Code](../pyric-tools-tutorials-wire-claude-code/)
 tutorial walks the agent-side setup end to end.
 
 Open your app in a browser tab; the page connects to the bridge automatically (the
@@ -176,8 +177,8 @@ then seed, query, undo/redo, and audit the sandbox the page is running on.
 > is no separate agent sandbox. The agent still reaches the worker through an open
 > page, so keep a tab open while it works.
 
-The bridge is the same machinery as [`pyric dev --bridge`](pyric-tools-how-to-serve-persistence-and-multi-tab);
-the [Wire Claude Code](pyric-tools-tutorials-wire-claude-code) tutorial walks the
+The bridge is the same machinery as [`pyric dev --bridge`](../pyric-tools-how-to-serve-persistence-and-multi-tab/);
+the [Wire Claude Code](../pyric-tools-tutorials-wire-claude-code/) tutorial walks the
 agent-side setup end to end.
 
 ## Production (`vite build`)
@@ -243,8 +244,8 @@ package in this release.
 
 ## See also
 
-- [Persistence and multi-tab with `pyric dev`](pyric-tools-how-to-serve-persistence-and-multi-tab)
+- [Persistence and multi-tab with `pyric dev`](../pyric-tools-how-to-serve-persistence-and-multi-tab/)
   — the static-app analog; the worker/persist/seed model is identical to the plugin's.
-- [Getting started](pyric-tools-tutorials-getting-started) — the end-to-end scaffold →
+- [Getting started](../pyric-tools-tutorials-getting-started/) — the end-to-end scaffold →
   serve → agent loop.
-- [Why an in-browser backend is *not* Firestore offline persistence](pyric-sandbox-explanation-local-backend-vs-firestore-offline).
+- [Why an in-browser backend is *not* Firestore offline persistence](../pyric-sandbox-explanation-local-backend-vs-firestore-offline/).

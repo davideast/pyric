@@ -3,7 +3,8 @@ import type { MarkdownHeading } from 'astro';
 import '../styles/site.css';
 import '../styles/rhythm.css';
 import DocsNav from '../components/DocsNav.astro';
-import { withBase, STUDIO_TABS } from '../lib/docs';
+import DocsBreadcrumbs from '../components/DocsBreadcrumbs.astro';
+import { withBase, STUDIO_TABS, breadcrumbsFor, allDocs, slugOf } from '../lib/docs';
 
 interface Props {
   title: string;
@@ -14,6 +15,8 @@ interface Props {
 
 const { title, description, headings, currentSlug } = Astro.props;
 const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
+const currentEntry = (await allDocs()).find((e) => slugOf(e) === currentSlug);
+const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
 ---
 
 <!doctype html>
@@ -60,12 +63,13 @@ const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
       {/* Mobile drawer duplicates the nav; CSS shows exactly one. */}
       <details class="docs-nav-drawer">
         <summary>Navigate</summary>
-        <DocsNav currentSlug={currentSlug} />
+        <DocsNav currentSlug={currentSlug} variant="drawer" />
       </details>
 
       <DocsNav currentSlug={currentSlug} />
 
       <main class="doc-main">
+        {breadcrumbs.length > 0 ? <DocsBreadcrumbs crumbs={breadcrumbs} /> : null}
         <article class="prose">
           <slot />
         </article>

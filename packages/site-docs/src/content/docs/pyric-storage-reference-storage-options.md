@@ -52,7 +52,7 @@ Only takes effect on the **first** call per `Sandbox`. Subsequent calls return t
 
 If `rules` is omitted, the storage handle accepts every operation (anonymous and authenticated alike). Useful for non-rule-related tests but explicitly insecure — set rules whenever the test is about access control.
 
-See [Storage rules subset](pyric-storage-reference-rules-subset) for the supported grammar.
+See [Storage rules subset](../pyric-storage-reference-rules-subset/) for the supported grammar.
 
 ## What is *not* a `StorageOptions` field
 

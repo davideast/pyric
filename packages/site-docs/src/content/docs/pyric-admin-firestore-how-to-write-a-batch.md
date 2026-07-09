@@ -1,5 +1,6 @@
 ---
 title: "How to write a batch"
+navLabel: "Write a batch"
 group: "pyric-admin / firestore"
 section: "How-to"
 order: 146
@@ -69,5 +70,5 @@ The `WriteBatch` instance is single-use. Calling `.commit()` a second time throw
 
 ## Where to look next
 
-- For multi-doc writes that need to read first, see [Run a transaction](pyric-admin-firestore-how-to-run-a-transaction).
+- For multi-doc writes that need to read first, see [Run a transaction](../pyric-admin-firestore-how-to-run-a-transaction/).
 - For the production-shaped `WriteBatch` API, see the [Firebase admin SDK docs](https://firebase.google.com/docs/reference/admin/node/firebase-admin.firestore.writebatch).

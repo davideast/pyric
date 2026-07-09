@@ -1,5 +1,6 @@
 ---
 title: "How to pick between pyric-admin and pyric/firestore"
+navLabel: "Pick an adapter"
 group: "pyric / sandbox"
 section: "How-to"
 order: 95
@@ -71,5 +72,5 @@ The only thing to remember: `setRules` exists only on `pyric-admin`'s handle (it
 
 ## Where to look next
 
-- For a hands-on intro that uses `pyric-admin`, see [Your first sandbox session](pyric-sandbox-tutorials-01-your-first-sandbox-session).
-- For the rationale behind the two-adapter design, see [Why service adapters live in sibling packages](pyric-sandbox-explanation-why-adapters-are-siblings).
+- For a hands-on intro that uses `pyric-admin`, see [Your first sandbox session](../pyric-sandbox-tutorials-01-your-first-sandbox-session/).
+- For the rationale behind the two-adapter design, see [Why service adapters live in sibling packages](../pyric-sandbox-explanation-why-adapters-are-siblings/).

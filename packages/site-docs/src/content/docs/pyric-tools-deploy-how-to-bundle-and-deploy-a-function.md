@@ -1,5 +1,6 @@
 ---
 title: "How to bundle and deploy a Cloud Function"
+navLabel: "Bundle & deploy a function"
 group: "pyric-tools / deploy"
 section: "How-to"
 order: 19
@@ -99,6 +100,6 @@ The simplest grant is **Firebase Admin** + **Service Account User**.
 
 ## Where to look next
 
-- For the full `FunctionDeployConfig` field list, see [`functions` namespace — `FunctionDeployConfig`](pyric-tools-deploy-reference-functions-namespace#functiondeployconfig).
-- For routing URLs to the deployed function, see [Deploy Hosting rewrites](pyric-tools-deploy-how-to-deploy-hosting-rewrites).
-- For the matching error codes, see [Error codes by operation — Cloud Functions](pyric-tools-deploy-reference-error-codes#cloud-functions).
+- For the full `FunctionDeployConfig` field list, see [`functions` namespace — `FunctionDeployConfig`](../pyric-tools-deploy-reference-functions-namespace/#functiondeployconfig).
+- For routing URLs to the deployed function, see [Deploy Hosting rewrites](../pyric-tools-deploy-how-to-deploy-hosting-rewrites/).
+- For the matching error codes, see [Error codes by operation — Cloud Functions](../pyric-tools-deploy-reference-error-codes/#cloud-functions).

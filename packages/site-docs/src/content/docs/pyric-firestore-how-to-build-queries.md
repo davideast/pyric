@@ -1,5 +1,6 @@
 ---
 title: "How to build queries with where, orderBy, limit"
+navLabel: "Build queries"
 group: "pyric / firestore"
 section: "How-to"
 order: 45
@@ -140,5 +141,5 @@ console.log(`${snap.data().count} unarchived notes`);
 ```
 ## Where to look next
 
-- For all constraint constructors, see [Query constraints](pyric-firestore-reference-query-constraints).
-- For watching queries instead of one-shot reading, see [Use `onSnapshot`](pyric-firestore-how-to-use-onsnapshot).
+- For all constraint constructors, see [Query constraints](../pyric-firestore-reference-query-constraints/).
+- For watching queries instead of one-shot reading, see [Use `onSnapshot`](../pyric-firestore-how-to-use-onsnapshot/).

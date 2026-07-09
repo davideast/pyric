@@ -47,7 +47,7 @@ The substrate is shared between `pyric-admin` (Admin-SDK-shaped) and `pyric/fire
 
 The split also makes the surface boundary explicit. `pyric/sandbox`'s public API is `Sandbox`, `SandboxContext`, `SandboxError`, and the listener channels — nothing else. The data-plane operations (`getDoc`, `setDoc`, `collection`, etc.) belong to the adapters. The adapters reach into `pyric/sandbox/internal` for the substrate; consumers don't.
 
-See [Why service adapters live in sibling packages](pyric-sandbox-explanation-why-adapters-are-siblings) for the longer version.
+See [Why service adapters live in sibling packages](../pyric-sandbox-explanation-why-adapters-are-siblings/) for the longer version.
 
 ## When to reach for which
 

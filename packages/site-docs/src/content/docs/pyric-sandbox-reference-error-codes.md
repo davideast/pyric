@@ -43,7 +43,7 @@ Rules denied the operation. The `denialContext` field is populated with:
 - `resource` — the eval-time `resource.*` (existing doc, exists flag).
 - `rule` (best-effort) — line and expression source.
 
-See the [`SandboxEvent` reference](pyric-sandbox-reference-sandbox-event) — `DenialContext` mirrors the `kind: 'request' && result: 'deny'` event shape.
+See the [`SandboxEvent` reference](../pyric-sandbox-reference-sandbox-event/) — `DenialContext` mirrors the `kind: 'request' && result: 'deny'` event shape.
 
 ### `'not-found'`
 
@@ -77,7 +77,7 @@ These don't have a production analog. They exist so callers can distinguish "the
 
 ### `'unimplemented'`
 
-The sandbox doesn't yet model a feature your rule uses. Returned from the simulator's `UnsupportedError` channel surfaced through this code. For most agent workflows the right response is to route the offending case to the live Firebase Rules Test API — see [`pyric/rules`](pyric-rules-explanation-simulator-vs-rules-test-api).
+The sandbox doesn't yet model a feature your rule uses. Returned from the simulator's `UnsupportedError` channel surfaced through this code. For most agent workflows the right response is to route the offending case to the live Firebase Rules Test API — see [`pyric/rules`](../pyric-rules-explanation-simulator-vs-rules-test-api/).
 
 ### `'not-seeded'`
 

@@ -1,5 +1,6 @@
 ---
 title: "Why mirror the admin SDK shape"
+navLabel: "Why mirror the admin SDK"
 group: "pyric-admin / firestore"
 section: "Explanation"
 order: 153
@@ -77,7 +78,7 @@ These have no production analog. We picked sandbox-flavoured verbs (`setRules`, 
 
 ## What we don't add
 
-- No per-call `auth` override. Identity is per-context; the handle is bound at construction. See [Identity is a context, not a sandbox](pyric-sandbox-explanation-identity-is-a-context).
+- No per-call `auth` override. Identity is per-context; the handle is bound at construction. See [Identity is a context, not a sandbox](../pyric-sandbox-explanation-identity-is-a-context/).
 - No alternative APIs that change semantics. The shape exists to mirror production; second-guessing it would defeat the point.
 - No "test helpers" embedded in the handle. The `WriteBatch` is a `WriteBatch`, not a `WriteBatch & TestUtilities`. If you need test affordances, build them as a wrapper around the handle.
 

@@ -1,12 +1,13 @@
 ---
 title: "Write a test suite for your rules"
+navLabel: "Write a rules test suite"
 group: "pyric / rules"
 section: "Tutorials"
 order: 63
 ---
 # Write a test suite for your rules
 
-In this tutorial you will pick up where [Lint your first rules file](pyric-rules-tutorials-01-lint-your-first-rules-file) left off and add a suite of test cases. You will use the in-process simulator — `SimulateFirestoreRulesHandler` — so the whole loop stays local. No Firebase project, no network, no deployment.
+In this tutorial you will pick up where [Lint your first rules file](../pyric-rules-tutorials-01-lint-your-first-rules-file/) left off and add a suite of test cases. You will use the in-process simulator — `SimulateFirestoreRulesHandler` — so the whole loop stays local. No Firebase project, no network, no deployment.
 
 By the end you will have a script that:
 
@@ -181,7 +182,7 @@ Flip the expectation back to `ALLOW` when you're done.
 
 The local simulator implements most of the rules language, but not everything. When it hits a feature it doesn't yet handle (some namespace methods, certain wrappers), it returns `state: 'UNSUPPORTED'` instead of pretending to decide. That distinction matters: an `UNSUPPORTED` result is the simulator abstaining, not your rule failing.
 
-If you ever see `UNSUPPORTED` cases in your suite and you need a verdict, route those cases to the real Firebase Rules Test API — see [Test rules against the Firebase Rules Test API](pyric-rules-how-to-test-rules-against-firebase). For most agent-authored rules, the simulator is enough.
+If you ever see `UNSUPPORTED` cases in your suite and you need a verdict, route those cases to the real Firebase Rules Test API — see [Test rules against the Firebase Rules Test API](../pyric-rules-how-to-test-rules-against-firebase/). For most agent-authored rules, the simulator is enough.
 
 ## What you have learned
 
@@ -194,7 +195,7 @@ If you ever see `UNSUPPORTED` cases in your suite and you need a verdict, route 
 
 You now have rules and tests for them, all running locally. To take this further:
 
-- Run the same tests against the real Firebase Rules Test API — see [Test rules against the Firebase Rules Test API](pyric-rules-how-to-test-rules-against-firebase).
-- Pin `request.time` so date-gated rules aren't flaky in CI — see [Pin `request.time` for deterministic tests](pyric-rules-how-to-pin-request-time).
-- Use the stdlib of pre-built rule helpers — see [Resolve `2+modules` imports](pyric-rules-how-to-resolve-module-imports).
-- Understand the difference between linting, validating, simulating, and testing — see [Lint vs validate vs simulate vs test](pyric-rules-explanation-lint-vs-validate-vs-simulate-vs-test).
+- Run the same tests against the real Firebase Rules Test API — see [Test rules against the Firebase Rules Test API](../pyric-rules-how-to-test-rules-against-firebase/).
+- Pin `request.time` so date-gated rules aren't flaky in CI — see [Pin `request.time` for deterministic tests](../pyric-rules-how-to-pin-request-time/).
+- Use the stdlib of pre-built rule helpers — see [Resolve `2+modules` imports](../pyric-rules-how-to-resolve-module-imports/).
+- Understand the difference between linting, validating, simulating, and testing — see [Lint vs validate vs simulate vs test](../pyric-rules-explanation-lint-vs-validate-vs-simulate-vs-test/).

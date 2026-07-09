@@ -7,8 +7,11 @@
  * 0. Every markdown file under every packages/<pkg>/docs tree (pyric,
  *    pyric-admin, pyric-tools, ui) is ported into the collection and
  *    built — the full multi-package port, nothing silently dropped.
- * 1. Every content page has an HTML route and a .md twin, and the twin
- *    is byte-identical to the source file minus its front-matter block.
+ * 1. Every content page has an HTML route (`build.format: 'directory'`
+ *    → `/docs/<slug>/index.html`) and a FLAT `.md` twin
+ *    (`/docs/<slug>.md`, an API route — not affected by the directory
+ *    format), and the twin is byte-identical to the source file minus
+ *    its front-matter block.
  * 2. llms.txt lists exactly the public pages (internal pages excluded)
  *    and every linked .md target exists in dist.
  * 3. /docs/index.json has the documented shape, covers exactly the
@@ -98,7 +101,7 @@ for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {
     const slug = [pkg, ...segs].join('-').toLowerCase();
     const ok =
       slugSet.has(slug) &&
-      existsSync(join(dist, 'docs', `${slug}.html`)) &&
+      existsSync(join(dist, 'docs', slug, 'index.html')) &&
       existsSync(join(dist, 'docs', `${slug}.md`));
     if (!ok) {
       missing++;
@@ -114,7 +117,7 @@ for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {
 // ── 1. Routes + twins ────────────────────────────────────────────────
 console.log('\nroutes and .md twins');
 for (const page of sources) {
-  const html = join(dist, 'docs', `${page.slug}.html`);
+  const html = join(dist, 'docs', page.slug, 'index.html');
   const twin = join(dist, 'docs', `${page.slug}.md`);
   check(existsSync(html), `/docs/${page.slug} built`);
   check(existsSync(twin), `/docs/${page.slug}.md twin exists`);
@@ -184,7 +187,9 @@ if (existsSync(indexPath)) {
           typeof h.text === 'string',
       );
     check(okShape, `index.json entry shape: ${p.slug}`);
-    const htmlPath = join(dist, `${stripBase(p.path).replace(/^\//, '')}.html`);
+    // `p.path` is `/docs/<slug>/` (trailing slash — directory format);
+    // resolve it the same way a static host would: as a directory.
+    const htmlPath = join(dist, stripBase(p.path).replace(/^\//, ''), 'index.html');
     check(existsSync(htmlPath), `index.json path resolves: ${p.path}`);
     if (existsSync(htmlPath) && p.headings.length > 0) {
       const html = readFileSync(htmlPath, 'utf8');

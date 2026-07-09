@@ -6,7 +6,7 @@ order: 163
 ---
 # `<DeleteWithConfirm>`
 
-Composition of [`useConfirm`](ui-primitives-confirmdialog) + `useRecursiveDelete` for safe deletion of a document or collection with progress tracking.
+Composition of [`useConfirm`](../ui-primitives-confirmdialog/) + `useRecursiveDelete` for safe deletion of a document or collection with progress tracking.
 ```ts
 import { DeleteWithConfirm } from '@pyric/ui/firestore';
 ```
@@ -86,7 +86,7 @@ Use the hook directly for richer UIs (a progress bar, a Cancel button, etc.).
 [data-pyric-ui="delete-with-confirm"][data-pyric-destructive]
 [data-pyric-ui="delete-with-confirm"][data-pyric-running]
 ```
-(Plus the [`<ConfirmDialog>` selectors](ui-primitives-confirmdialog#styling-hooks).)
+(Plus the [`<ConfirmDialog>` selectors](../ui-primitives-confirmdialog/#styling-hooks).)
 
 ## Notes
 
@@ -96,5 +96,5 @@ Use the hook directly for richer UIs (a progress bar, a Cancel button, etc.).
 
 ## See also
 
-- [`ConfirmDialog`](ui-primitives-confirmdialog) — the confirm primitive.
+- [`ConfirmDialog`](../ui-primitives-confirmdialog/) — the confirm primitive.
 - `useRecursiveDelete`, `useConfirm` — the hooks this composes.

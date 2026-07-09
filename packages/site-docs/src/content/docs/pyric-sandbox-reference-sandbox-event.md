@@ -189,6 +189,6 @@ const isLiveDelivery = (e: SandboxEvent): e is SnapshotDeliveryEvent =>
 ```
 ## See also
 
-- [Observe sandbox events — how-to](pyric-sandbox-how-to-observe-events) — usage patterns + subscriber contract.
-- [`Sandbox.onEvent`](pyric-sandbox-reference-sandbox-and-context) — the method docs.
+- [Observe sandbox events — how-to](../pyric-sandbox-how-to-observe-events/) — usage patterns + subscriber contract.
+- [`Sandbox.onEvent`](../pyric-sandbox-reference-sandbox-and-context/) — the method docs.
 - design rationale — the rationale for replacing the three-channel surface with one.

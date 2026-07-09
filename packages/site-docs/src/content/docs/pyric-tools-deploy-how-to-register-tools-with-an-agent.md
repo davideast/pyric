@@ -1,5 +1,6 @@
 ---
 title: "How to register deploy tools with an agent"
+navLabel: "Register deploy tools"
 group: "pyric-tools / deploy"
 section: "How-to"
 order: 27
@@ -84,5 +85,5 @@ Every handler checks `ctx.signal.aborted` before starting work. This prevents a 
 
 ## Where to look next
 
-- For each handler's name, args, and `data` shape, see [Tool factories](pyric-tools-deploy-reference-tool-factories).
+- For each handler's name, args, and `data` shape, see [Tool factories](../pyric-tools-deploy-reference-tool-factories/).
 - For the registry and dispatch primitives, see the `@inbrowser/agent` package.

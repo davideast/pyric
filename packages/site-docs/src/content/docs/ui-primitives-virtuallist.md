@@ -51,4 +51,4 @@ import { VirtualList } from '@pyric/ui/primitives';
 
 ## See also
 
-- [`<DocumentList>`](ui-firestore-documentlist) — virtualizes above a threshold using this primitive.
+- [`<DocumentList>`](../ui-firestore-documentlist/) — virtualizes above a threshold using this primitive.

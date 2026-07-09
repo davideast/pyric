@@ -1,5 +1,6 @@
 ---
 title: "How to use onSnapshot"
+navLabel: "Use onSnapshot"
 group: "pyric / firestore"
 section: "How-to"
 order: 49
@@ -86,4 +87,4 @@ If you wrap snapshots in a generic UI component that branches on `metadata.fromC
 ## Where to look next
 
 - For the full `onSnapshot` overload list, see the [Firebase Web SDK reference](https://firebase.google.com/docs/reference/js/firestore_#onsnapshot). The `pyric/firestore` signature matches.
-- For the sandbox-side listener semantics, see [Listener re-evaluation on `deployRules`](pyric-sandbox-explanation-listener-re-evaluation).
+- For the sandbox-side listener semantics, see [Listener re-evaluation on `deployRules`](../pyric-sandbox-explanation-listener-re-evaluation/).

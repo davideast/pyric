@@ -80,11 +80,11 @@ function Browser({ storage }) {
 - **`listAll` has no pagination** — a big prefix arrives as one flat result; virtualization is the defense, which is why the threshold mechanics mirror `<DocumentList>`.
 - **Folder rows never fire `onSelect`** and object rows never fire `onNavigate` — the kind decides the verb. A folder "selection" concept (e.g. for bulk delete) arrives with the selection hook in a later milestone.
 - **`renderEntry` runs per row** — keep it cheap.
-- **Denied rows stay clickable** — the gate stamp is an early warning, not a block; clicking a denied folder surfaces the real `storage/unauthorized` through the `error` prop path. On prod handles verdicts are advisory (see [rules-aware affordances](ui-storage-rules-aware-affordances)).
+- **Denied rows stay clickable** — the gate stamp is an early warning, not a block; clicking a denied folder surfaces the real `storage/unauthorized` through the `error` prop path. On prod handles verdicts are advisory (see [rules-aware affordances](../ui-storage-rules-aware-affordances/)).
 
 ## See also
 
-- [`<PathBreadcrumb>`](ui-storage-pathbreadcrumb) — the ancestor trail above the browser.
-- [`<VirtualList>`](ui-primitives-virtuallist) — the underlying virtualizer.
-- [Rules-aware affordances](ui-storage-rules-aware-affordances) + [`useStorageRulesGate`](ui-storage-usestoragerulesgate) — the `gate` prop's source.
+- [`<PathBreadcrumb>`](../ui-storage-pathbreadcrumb/) — the ancestor trail above the browser.
+- [`<VirtualList>`](../ui-primitives-virtuallist/) — the underlying virtualizer.
+- [Rules-aware affordances](../ui-storage-rules-aware-affordances/) + [`useStorageRulesGate`](../ui-storage-usestoragerulesgate/) — the `gate` prop's source.
 - `useStorageList`, `usePathState` — data + navigation sources.

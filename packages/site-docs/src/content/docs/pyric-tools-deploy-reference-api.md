@@ -19,7 +19,7 @@ interface ProjectScope {
   resolveToken(): Promise<string>;
 }
 ```
-See [`ProjectScope`, `Outcome`, `AdminApiError`](pyric-tools-deploy-reference-scope-and-outcome).
+See [`ProjectScope`, `Outcome`, `AdminApiError`](../pyric-tools-deploy-reference-scope-and-outcome/).
 
 ### `type Outcome<TData, TErrCode>`
 
@@ -60,7 +60,7 @@ TTL memoiser for resolver functions. Two overloads:
 - **Plain string resolver** — `() => Promise<string>` plus `opts.ttlMs` (required).
 - **Structured token resolver** — `() => Promise<{ token, expiresIn? }>`. Parses `expiresIn` (seconds) and refreshes at 90% of TTL by default.
 
-See [Token caching and `memoizeTtl`](pyric-tools-deploy-explanation-token-caching).
+See [Token caching and `memoizeTtl`](../pyric-tools-deploy-explanation-token-caching/).
 
 ### `MemoizeTtlOptions`
 ```ts
@@ -84,7 +84,7 @@ Other thrown errors (network, DNS) bucket as `'unknown'` — not `'permission-de
 
 ### `const hosting`
 
-Hosting deploy primitives. See [`hosting` namespace](pyric-tools-deploy-reference-hosting-namespace):
+Hosting deploy primitives. See [`hosting` namespace](../pyric-tools-deploy-reference-hosting-namespace/):
 
 - `hosting.deployFiles(scope, options)`
 - `hosting.sites.create(scope, input)`
@@ -92,7 +92,7 @@ Hosting deploy primitives. See [`hosting` namespace](pyric-tools-deploy-referenc
 
 ### `const functions`
 
-Cloud Functions Gen 2 deploy primitives. See [`functions` namespace](pyric-tools-deploy-reference-functions-namespace):
+Cloud Functions Gen 2 deploy primitives. See [`functions` namespace](../pyric-tools-deploy-reference-functions-namespace/):
 
 - `functions.deployLocal(scope, options)`
 - `functions.deploy(scope, input)`
@@ -102,7 +102,7 @@ Cloud Functions Gen 2 deploy primitives. See [`functions` namespace](pyric-tools
 
 ### `const firestore`
 
-Firestore rules, indexes, and database primitives. See [`firestore` namespace](pyric-tools-deploy-reference-firestore-namespace):
+Firestore rules, indexes, and database primitives. See [`firestore` namespace](../pyric-tools-deploy-reference-firestore-namespace/):
 
 - `firestore.rules.{ fetch, deploy, inject, check, ensure }`
 - `firestore.indexes.{ create, deployAll, getStatus }`
@@ -110,7 +110,7 @@ Firestore rules, indexes, and database primitives. See [`firestore` namespace](p
 
 ### `const rtdb`
 
-Realtime Database rules primitives. See [`rtdb` namespace](pyric-tools-deploy-reference-rtdb-namespace):
+Realtime Database rules primitives. See [`rtdb` namespace](../pyric-tools-deploy-reference-rtdb-namespace/):
 
 - `rtdb.rules.{ fetch, deploy, discoverDefaultDatabaseUrl, resolveDatabaseUrl }`
 
@@ -159,7 +159,7 @@ Returns one handler:
 - `ProjectScopedDeps` — `{ scope: ProjectScope }`.
 - `DeployToolData` — keyed map from tool name to the concrete `data` shape its `execute` returns.
 
-See [Tool factories](pyric-tools-deploy-reference-tool-factories).
+See [Tool factories](../pyric-tools-deploy-reference-tool-factories/).
 
 ## Wire-shape types
 
@@ -193,4 +193,4 @@ Re-exported from the relevant submodule:
 
 - `RtdbDeployRulesInput`, `RtdbFetchRulesInput`, `RtdbRulesDiscoveryResult`.
 
-See [Error codes by operation](pyric-tools-deploy-reference-error-codes) for the values each error union can take.
+See [Error codes by operation](../pyric-tools-deploy-reference-error-codes/) for the values each error union can take.

@@ -1,5 +1,6 @@
 ---
 title: "How to deploy Firestore indexes"
+navLabel: "Deploy Firestore indexes"
 group: "pyric-tools / deploy"
 section: "How-to"
 order: 20
@@ -93,5 +94,5 @@ The service account / signed-in user needs `datastore.indexes.create` and `datas
 
 ## Where to look next
 
-- For the index wire shape, see [`firestore` namespace — index wire shapes](pyric-tools-deploy-reference-firestore-namespace#index-wire-shapes).
-- For all the error codes the outcomes can return, see [Error codes by operation — Firestore indexes](pyric-tools-deploy-reference-error-codes#firestore-indexes).
+- For the index wire shape, see [`firestore` namespace — index wire shapes](../pyric-tools-deploy-reference-firestore-namespace/#index-wire-shapes).
+- For all the error codes the outcomes can return, see [Error codes by operation — Firestore indexes](../pyric-tools-deploy-reference-error-codes/#firestore-indexes).

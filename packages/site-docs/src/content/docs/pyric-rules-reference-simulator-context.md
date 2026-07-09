@@ -1,5 +1,6 @@
 ---
 title: "Simulator context and result states"
+navLabel: "Simulator context"
 group: "pyric / rules"
 section: "Reference"
 order: 76
@@ -83,7 +84,7 @@ When you see `UNSUPPORTED`, you have three options:
 
 1. Trust the rule and skip the case in local CI.
 2. Reformulate the rule to avoid the unsupported feature.
-3. Route just the unsupported cases to the Firebase Rules Test API — see [How to test rules against the Firebase Rules Test API](pyric-rules-how-to-test-rules-against-firebase).
+3. Route just the unsupported cases to the Firebase Rules Test API — see [How to test rules against the Firebase Rules Test API](../pyric-rules-how-to-test-rules-against-firebase/).
 
 The live Rules Test API never returns `UNSUPPORTED` — it uses the production engine and decides every case.
 

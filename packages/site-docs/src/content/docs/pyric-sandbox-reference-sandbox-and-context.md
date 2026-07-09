@@ -1,5 +1,6 @@
 ---
 title: "Sandbox, SandboxContext, AuthState"
+navLabel: "Sandbox and context"
 group: "pyric / sandbox"
 section: "Reference"
 order: 105
@@ -38,11 +39,11 @@ const aliceCtx = sandbox.withAuth({ uid: 'alice' });
 const adminCtx = sandbox.withAuth({ uid: 'admin', token: { role: 'admin' } });
 const anonCtx  = sandbox.withAuth(null);
 ```
-`undefined` is rejected — say `withAuth(null)` for anonymous explicitly so the call site is unambiguous. Empty UIDs are rejected. Non-object `token` is rejected. See the [error-handling notes](pyric-sandbox-reference-error-codes#invalid-argument) for the exact rules.
+`undefined` is rejected — say `withAuth(null)` for anonymous explicitly so the call site is unambiguous. Empty UIDs are rejected. Non-object `token` is rejected. See the [error-handling notes](../pyric-sandbox-reference-error-codes/#invalid-argument) for the exact rules.
 
 ### `onEvent(cb)`
 
-Subscribe to every observable event the sandbox emits — see [`SandboxEvent`](pyric-sandbox-reference-sandbox-event) for the discriminated-union shape. One subscription covers requests, committed writes, snapshot deliveries, suppressed re-evals, listener lifecycle, and reset / dispose boundaries. Filter on `event.kind` to recover individual streams; see the [filter cookbook](pyric-sandbox-reference-sandbox-event#filter-cookbook).
+Subscribe to every observable event the sandbox emits — see [`SandboxEvent`](../pyric-sandbox-reference-sandbox-event/) for the discriminated-union shape. One subscription covers requests, committed writes, snapshot deliveries, suppressed re-evals, listener lifecycle, and reset / dispose boundaries. Filter on `event.kind` to recover individual streams; see the [filter cookbook](../pyric-sandbox-reference-sandbox-event/#filter-cookbook).
 
 Survives `sandbox.reset()` — the registry lives on the sandbox, not on the underlying environment, so the env swap doesn't invalidate live subscribers. A `session_boundary` event with `phase: 'reset'` fires immediately before the swap so consumers can segment a persisted stream.
 
@@ -50,11 +51,11 @@ Returns an unsubscribe function. Listener throws (sync) and async-promise reject
 
 ### `history()`
 
-Every [`SandboxEvent`](pyric-sandbox-reference-sandbox-event) this sandbox has emitted since init or the last `reset()`. Returns a defensive copy — mutating the result doesn't affect future calls.
+Every [`SandboxEvent`](../pyric-sandbox-reference-sandbox-event/) this sandbox has emitted since init or the last `reset()`. Returns a defensive copy — mutating the result doesn't affect future calls.
 
 Unlike `onEvent`, which is a live stream from the moment of subscribe, `history()` returns *every* event the sandbox has seen. Use it for:
 
-- **Replay**: hand the array to `replay(events, rules)` from `pyric/sandbox` and the engine re-issues every captured write against a fresh sandbox. See [Replay a captured event stream](pyric-sandbox-how-to-replay-events).
+- **Replay**: hand the array to `replay(events, rules)` from `pyric/sandbox` and the engine re-issues every captured write against a fresh sandbox. See [Replay a captured event stream](../pyric-sandbox-how-to-replay-events/).
 - **Late subscribers**: consumers that load a saved session before subscribing read the full pre-subscribe history.
 - **Snapshot-at-moment persistence**: capture the array, persist it, hand it back to `replay()` later.
 
@@ -64,7 +65,7 @@ v1 doesn't cap the history. Long-running sandboxes accumulate; snapshot + `reset
 
 ### `admin`
 
-Rule-bypass reads for test assertions. See [`SandboxSnapshot` and admin reads](pyric-sandbox-reference-snapshot-and-admin). Surfaced only on the root sandbox — admin reads are identity-agnostic, so presenting them on a context (which exists to carry identity) is conceptually muddled.
+Rule-bypass reads for test assertions. See [`SandboxSnapshot` and admin reads](../pyric-sandbox-reference-snapshot-and-admin/). Surfaced only on the root sandbox — admin reads are identity-agnostic, so presenting them on a context (which exists to carry identity) is conceptually muddled.
 
 ### `reset()`
 

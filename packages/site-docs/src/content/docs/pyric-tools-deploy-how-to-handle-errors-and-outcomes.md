@@ -1,5 +1,6 @@
 ---
 title: "How to handle AdminApiError and Outcome failures"
+navLabel: "Handle errors and outcomes"
 group: "pyric-tools / deploy"
 section: "How-to"
 order: 25
@@ -56,7 +57,7 @@ if (outcome.ok) {
   }
 }
 ```
-Each orchestrator widens the union with its own coded values (see [Error codes by operation](pyric-tools-deploy-reference-error-codes)). The two universal codes — `'permission-denied'` and `'unknown'` — always appear.
+Each orchestrator widens the union with its own coded values (see [Error codes by operation](../pyric-tools-deploy-reference-error-codes/)). The two universal codes — `'permission-denied'` and `'unknown'` — always appear.
 
 ## Handle `partial` from batch orchestrators
 
@@ -96,5 +97,5 @@ The result is an `Outcome<{ source: string }, 'not-found'>` — `AdminApiError` 
 
 ## Where to look next
 
-- For the complete list of orchestrator codes, see [Error codes by operation](pyric-tools-deploy-reference-error-codes).
-- For why primitives throw and orchestrators return, see [Primitives throw, orchestrators return](pyric-tools-deploy-explanation-primitives-vs-orchestrators).
+- For the complete list of orchestrator codes, see [Error codes by operation](../pyric-tools-deploy-reference-error-codes/).
+- For why primitives throw and orchestrators return, see [Primitives throw, orchestrators return](../pyric-tools-deploy-explanation-primitives-vs-orchestrators/).

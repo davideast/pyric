@@ -17,7 +17,7 @@ Two overloads:
 - `getFirestore(ctx: SandboxContext)` — sandbox backend via `pyric-admin`.
 - `getFirestore(app: FirebaseApp)` — prod backend via `firebase/firestore`.
 
-The returned `Firestore` is opaque — it carries the target via `TARGET_SYMBOL` and is consumed only by other functions in this package. See [`getFirestore` overloads](pyric-firestore-reference-getfirestore).
+The returned `Firestore` is opaque — it carries the target via `TARGET_SYMBOL` and is consumed only by other functions in this package. See [`getFirestore` overloads](../pyric-firestore-reference-getfirestore/).
 
 ### `connectFirestoreEmulator(db, host, port)`
 
@@ -95,7 +95,7 @@ Constraint constructors:
 - `limit(n)`, `limitToLast(n)`
 - `startAt(...)`, `startAfter(...)`, `endAt(...)`, `endBefore(...)`
 
-See [Query constraints](pyric-firestore-reference-query-constraints).
+See [Query constraints](../pyric-firestore-reference-query-constraints/).
 
 ## Aggregations
 
@@ -150,7 +150,7 @@ sandbox.snapshotState(db)
 ```
 Only callable against a sandbox-backed `Firestore`. Throws `SandboxError('failed-precondition')` if called against a prod-backed handle.
 
-See [Sandbox-only operations](pyric-firestore-reference-sandbox-ops).
+See [Sandbox-only operations](../pyric-firestore-reference-sandbox-ops/).
 
 ## Re-exported from `pyric/sandbox`
 
@@ -163,4 +163,4 @@ See [Sandbox-only operations](pyric-firestore-reference-sandbox-ops).
 - `FirestoreDataToolDeps` — `{ resolveDb }` resolver.
 - `UserAuth` — `{ uid, claims? }` shape the tool layer accepts.
 
-See [Tool factories](pyric-firestore-reference-tool-factories).
+See [Tool factories](../pyric-firestore-reference-tool-factories/).

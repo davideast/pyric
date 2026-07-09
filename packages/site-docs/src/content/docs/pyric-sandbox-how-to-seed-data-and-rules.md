@@ -1,5 +1,6 @@
 ---
 title: "How to seed initial data and rules"
+navLabel: "Seed data and rules"
 group: "pyric / sandbox"
 section: "How-to"
 order: 98
@@ -114,5 +115,5 @@ Rules first, then documents. If you write documents before rules, the writes eva
 
 ## Where to look next
 
-- For rules linting and the lint result shape, see [`pyric/rules`](pyric-rules-reference-lint-rules).
-- For resetting between tests, see [Reset between tests](pyric-sandbox-how-to-reset-between-tests).
+- For rules linting and the lint result shape, see [`pyric/rules`](../pyric-rules-reference-lint-rules/).
+- For resetting between tests, see [Reset between tests](../pyric-sandbox-how-to-reset-between-tests/).

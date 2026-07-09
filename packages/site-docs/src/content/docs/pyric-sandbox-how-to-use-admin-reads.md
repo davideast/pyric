@@ -1,5 +1,6 @@
 ---
 title: "How to use admin reads to assert in tests"
+navLabel: "Use admin reads"
 group: "pyric / sandbox"
 section: "How-to"
 order: 100
@@ -75,5 +76,5 @@ Useful for round-tripping (capture before, restore after a destructive operation
 
 ## Where to look next
 
-- For the full `SandboxAdmin` surface, see [`SandboxSnapshot` and admin reads](pyric-sandbox-reference-snapshot-and-admin).
-- For why admin reads live on `Sandbox` and not `SandboxContext`, see [Identity is a context, not a sandbox](pyric-sandbox-explanation-identity-is-a-context).
+- For the full `SandboxAdmin` surface, see [`SandboxSnapshot` and admin reads](../pyric-sandbox-reference-snapshot-and-admin/).
+- For why admin reads live on `Sandbox` and not `SandboxContext`, see [Identity is a context, not a sandbox](../pyric-sandbox-explanation-identity-is-a-context/).

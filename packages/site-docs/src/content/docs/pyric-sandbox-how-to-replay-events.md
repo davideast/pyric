@@ -1,5 +1,6 @@
 ---
 title: "How to replay a captured event stream"
+navLabel: "Replay events"
 group: "pyric / sandbox"
 section: "How-to"
 order: 96
@@ -59,7 +60,7 @@ The `divergences` array is a discriminated union — filter on `kind` and handle
 const real = divergences.filter((d) => d.kind === 'real-divergence');
 expect(real).toHaveLength(0);    // typical CI assertion
 ```
-See the [`Divergence` reference](pyric-sandbox-reference-divergences) for the full union shape, per-kind semantics, and field-path syntax.
+See the [`Divergence` reference](../pyric-sandbox-reference-divergences/) for the full union shape, per-kind semantics, and field-path syntax.
 
 ## `pinRequestTime` — the default that prevents flake
 
@@ -87,7 +88,7 @@ Consumers that index by path (a UI showing "doc X exists") should consult `pathA
 
 ## See also
 
-- [`Divergence` reference](pyric-sandbox-reference-divergences) — the union shape and per-kind semantics.
-- [`SandboxEvent` reference](pyric-sandbox-reference-sandbox-event) — field-by-field for each event kind.
-- [Observe sandbox events — how-to](pyric-sandbox-how-to-observe-events) — the live channel (`onEvent`) that feeds into `history()`.
+- [`Divergence` reference](../pyric-sandbox-reference-divergences/) — the union shape and per-kind semantics.
+- [`SandboxEvent` reference](../pyric-sandbox-reference-sandbox-event/) — field-by-field for each event kind.
+- [Observe sandbox events — how-to](../pyric-sandbox-how-to-observe-events/) — the live channel (`onEvent`) that feeds into `history()`.
 - design rationale — the rationale.

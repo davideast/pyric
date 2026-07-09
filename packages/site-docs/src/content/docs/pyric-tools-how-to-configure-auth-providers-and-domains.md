@@ -1,5 +1,6 @@
 ---
 title: "How to configure auth providers and authorised domains"
+navLabel: "Configure auth providers"
 group: "pyric-tools"
 section: "How-to"
 order: 6
@@ -128,5 +129,5 @@ arguments.
 
 For the full flag list and exit codes, see the CLI reference:
 
-- [`pyric auth:configure-provider`](pyric-tools-reference-cli)
-- [`pyric auth:manage-domains`](pyric-tools-reference-cli)
+- [`pyric auth:configure-provider`](../pyric-tools-reference-cli/)
+- [`pyric auth:manage-domains`](../pyric-tools-reference-cli/)

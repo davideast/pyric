@@ -75,7 +75,7 @@ The plugin mounts the bridge on Vite's own dev server at `/__pyric/mcp`,
 `/__pyric/health`, and `/__pyric/sandbox` (WS), so the bridge shares Vite's port
 instead of running as a sidecar. The agent's tool-calls route through the
 SharedWorker, so the app, Pyric Studio, and the agent all share one sandbox. See
-[Use the Vite plugin](pyric-tools-how-to-use-the-vite-plugin#drive-the-sandbox-from-an-agent-bridge).
+[Use the Vite plugin](../pyric-tools-how-to-use-the-vite-plugin/#drive-the-sandbox-from-an-agent-bridge).
 
 ## Browser side
 ```ts
@@ -93,4 +93,4 @@ if (import.meta.env.DEV) {
 ## See also
 
 - `pyric` — the parent package that ships the `pyric` CLI.
-- [`pyric-tools` docs](pyric-tools) — CLI and library entry points.
+- [`pyric-tools` docs](../pyric-tools/) — CLI and library entry points.

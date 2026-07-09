@@ -1,5 +1,6 @@
 ---
 title: "Build a traffic monitor"
+navLabel: "Traffic monitor"
 group: "pyric / sandbox"
 section: "Tutorials"
 order: 92
@@ -8,7 +9,7 @@ order: 92
 
 In this tutorial you will build a tiny event monitor over the sandbox. You'll subscribe to `sandbox.onEvent`, see allowed and denied operations stream through, watch listener attaches and snapshot deliveries fire on the same channel, then filter the stream by `kind`. By the end you'll have run a working monitor against a real sandbox and felt the unified event shape through your fingers.
 
-This tutorial assumes you've completed [Your first sandbox session](pyric-sandbox-tutorials-01-your-first-sandbox-session) and have `pyric/sandbox` + `pyric-admin` installed.
+This tutorial assumes you've completed [Your first sandbox session](../pyric-sandbox-tutorials-01-your-first-sandbox-session/) and have `pyric/sandbox` + `pyric-admin` installed.
 
 ## What you will build
 
@@ -193,6 +194,6 @@ The `session_boundary` event fires before the underlying env swaps. Consumers pe
 
 ## Next steps
 
-- The [`SandboxEvent` reference](pyric-sandbox-reference-sandbox-event) for the full field list per kind.
-- The [Observe sandbox events how-to](pyric-sandbox-how-to-observe-events) for the subscriber contract, hot-path discipline, and the filter cookbook.
-- The [design explanation](pyric-sandbox-explanation-every-op-is-a-request) for why this channel collapsed three predecessor channels into one.
+- The [`SandboxEvent` reference](../pyric-sandbox-reference-sandbox-event/) for the full field list per kind.
+- The [Observe sandbox events how-to](../pyric-sandbox-how-to-observe-events/) for the subscriber contract, hot-path discipline, and the filter cookbook.
+- The [design explanation](../pyric-sandbox-explanation-every-op-is-a-request/) for why this channel collapsed three predecessor channels into one.

@@ -138,6 +138,6 @@ This matches the `field` shape on captured `WriteSandboxEvent.sentinels[]`, so s
 
 ## See also
 
-- [How-to: Replay a captured event stream](pyric-sandbox-how-to-replay-events) — capture / replay / classify workflow.
-- [`SandboxEvent` reference](pyric-sandbox-reference-sandbox-event) — the events `sandbox.history()` returns, including `WriteSandboxEvent.sentinels`.
+- [How-to: Replay a captured event stream](../pyric-sandbox-how-to-replay-events/) — capture / replay / classify workflow.
+- [`SandboxEvent` reference](../pyric-sandbox-reference-sandbox-event/) — the events `sandbox.history()` returns, including `WriteSandboxEvent.sentinels`.
 - `packages/pyric/src/sandbox/replay/index.ts` — the classifier source; file header documents the contract.

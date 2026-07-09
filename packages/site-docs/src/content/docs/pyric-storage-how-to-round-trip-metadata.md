@@ -1,5 +1,6 @@
 ---
 title: "How to round-trip metadata"
+navLabel: "Round-trip metadata"
 group: "pyric / storage"
 section: "How-to"
 order: 119
@@ -98,9 +99,9 @@ This matches the upstream contract. The strings round-trip exactly.
 
 ## When metadata is denied
 
-A rule that gates `write` (matching `updateMetadata` calls) can deny the patch. The package throws `FirebaseError('storage/unauthorized')` or `'storage/unauthenticated'`. Catch and branch as in [Error codes](pyric-storage-reference-error-codes).
+A rule that gates `write` (matching `updateMetadata` calls) can deny the patch. The package throws `FirebaseError('storage/unauthorized')` or `'storage/unauthenticated'`. Catch and branch as in [Error codes](../pyric-storage-reference-error-codes/).
 
 ## Where to look next
 
-- For the field-by-field metadata shapes, see [Public API — Metadata](pyric-storage-reference-api#metadata).
-- For metadata in rules, see [Storage rules subset — Resource bindings](pyric-storage-reference-rules-subset#resource-bindings).
+- For the field-by-field metadata shapes, see [Public API — Metadata](../pyric-storage-reference-api/#metadata).
+- For metadata in rules, see [Storage rules subset — Resource bindings](../pyric-storage-reference-rules-subset/#resource-bindings).

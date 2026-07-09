@@ -1,5 +1,6 @@
 ---
 title: "Why two backends behind one surface"
+navLabel: "Two backends, one surface"
 group: "pyric / firestore"
 section: "Explanation"
 order: 59
@@ -58,7 +59,7 @@ The handle exposes one property: `[TARGET_SYMBOL]: Target`. No methods, no publi
 
 By contrast, the chainable `pyric-admin` handle exposes methods (`db.collection`, `db.doc`, etc.) because that's how the admin SDK shapes its surface. The two packages match their respective upstream conventions.
 
-See [The `TARGET_SYMBOL` opacity contract](pyric-firestore-explanation-target-symbol-opacity).
+See [The `TARGET_SYMBOL` opacity contract](../pyric-firestore-explanation-target-symbol-opacity/).
 
 ## The cost of the dispatch
 

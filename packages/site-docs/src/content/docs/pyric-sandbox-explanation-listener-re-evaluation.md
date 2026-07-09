@@ -1,5 +1,6 @@
 ---
 title: "Listener re-evaluation on deployRules"
+navLabel: "Listener re-evaluation"
 group: "pyric / sandbox"
 section: "Explanation"
 order: 111

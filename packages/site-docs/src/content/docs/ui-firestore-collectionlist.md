@@ -73,5 +73,5 @@ See `packages/playground/src/components/FirestoreTab.tsx` for a sandbox-introspe
 ```
 ## See also
 
-- [`<DocumentList>`](ui-firestore-documentlist) — the docs-in-collection counterpart.
+- [`<DocumentList>`](../ui-firestore-documentlist/) — the docs-in-collection counterpart.
 - `useCollectionList` — fetches + exposes `createCollection`.

@@ -6,7 +6,7 @@ order: 108
 ---
 # Every operation is a request
 
-The sandbox started with one observation channel — `onDenial` — and it surfaced the wrong subset of the truth. We expanded the surface to `onRequest`, then to a per-channel triplet (`onRequest` / `onDenial` / `onSnapshotError`), and finally collapsed them into one unified [`onEvent`](pyric-sandbox-how-to-observe-events). This page explains the conceptual arc, what it implies about how to think about sandbox traffic, and the trade-offs we made along the way.
+The sandbox started with one observation channel — `onDenial` — and it surfaced the wrong subset of the truth. We expanded the surface to `onRequest`, then to a per-channel triplet (`onRequest` / `onDenial` / `onSnapshotError`), and finally collapsed them into one unified [`onEvent`](../pyric-sandbox-how-to-observe-events/). This page explains the conceptual arc, what it implies about how to think about sandbox traffic, and the trade-offs we made along the way.
 
 ## The original framing was too narrow
 

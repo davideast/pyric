@@ -87,6 +87,6 @@ This is **read-via-get, not realtime.** For realtime, use `useFirestoreCollectio
 
 ## See also
 
-- [`<CollectionList>`](ui-firestore-collectionlist) — the collections-under-parent counterpart.
-- [`<VirtualList>`](ui-primitives-virtuallist) — the underlying virtualizer.
+- [`<CollectionList>`](../ui-firestore-collectionlist/) — the collections-under-parent counterpart.
+- [`<VirtualList>`](../ui-primitives-virtuallist/) — the underlying virtualizer.
 - `useDocumentList`, `useFirestoreCollection` — data sources.

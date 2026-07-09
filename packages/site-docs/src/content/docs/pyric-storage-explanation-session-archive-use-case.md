@@ -77,7 +77,7 @@ A few things we explicitly didn't build because the session archive doesn't need
 - **Cloud Functions triggers on upload.** No server-side logic to invoke.
 - **Granular allow verbs.** Read vs write is the only distinction sessions need.
 
-Each is a real Storage feature; each is deferred. The deferral list lives in [Implementation scope and deferred features](pyric-storage-explanation-implementation-scope).
+Each is a real Storage feature; each is deferred. The deferral list lives in [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/).
 
 ## Why this matters
 

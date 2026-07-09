@@ -118,4 +118,4 @@ The order of constraints in the argument list doesn't change semantics — the e
 ## Where to look next
 
 - For the upstream-SDK reference on query semantics (composite indexes, query restrictions), see the [Firebase Web SDK docs](https://firebase.google.com/docs/reference/js/firestore_).
-- For listener routing on chained queries in the sandbox, see [The `TARGET_SYMBOL` opacity contract](pyric-firestore-explanation-target-symbol-opacity).
+- For listener routing on chained queries in the sandbox, see [The `TARGET_SYMBOL` opacity contract](../pyric-firestore-explanation-target-symbol-opacity/).

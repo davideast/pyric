@@ -1,5 +1,6 @@
 ---
 title: "The runtime budget and shared gates"
+navLabel: "Runtime budget and gates"
 group: "pyric / rules"
 section: "Explanation"
 order: 83

@@ -79,6 +79,6 @@ const customString: FieldEditorContract<string> = {
 ```
 ## See also
 
-- [`<DocumentEditor>`](ui-firestore-documenteditor) — the editable counterpart.
+- [`<DocumentEditor>`](../ui-firestore-documenteditor/) — the editable counterpart.
 - `useFirestoreDoc(ref)` — fetches the snapshot via `onSnapshot`.
 - `inferType(value)` — the type discriminator used internally.

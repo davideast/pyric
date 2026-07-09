@@ -32,7 +32,7 @@ interface DeployHostingScopedOptions {
 `ignore` takes firebase.json hosting `ignore` globs; omitted, it
 applies the firebase-tools scaffold defaults (`firebase.json`,
 `**/.*`, `**/node_modules/**`). See
-[firebase.json hosting config](pyric-tools-deploy-reference-hosting-config#ignore-globs) for
+[firebase.json hosting config](../pyric-tools-deploy-reference-hosting-config/#ignore-globs) for
 the glob subset and semantics.
 
 You must supply exactly one of `localDir` (Node-only) or `files` (browser-friendly). Files share a content-hash dedup with Hosting's `uploadRequiredHashes`, so re-deploys that haven't changed content upload nothing.
@@ -58,7 +58,7 @@ interface DeployHostingSuccess {
   configWarnings?: string[];  // non-fatal config notes (unknown keys, …)
 }
 ```
-When `channelId` is set the deploy releases onto that preview channel instead of live — see [Deploy to a preview channel](pyric-tools-deploy-how-to-deploy-to-a-preview-channel) for the channel lifecycle.
+When `channelId` is set the deploy releases onto that preview channel instead of live — see [Deploy to a preview channel](../pyric-tools-deploy-how-to-deploy-to-a-preview-channel/) for the channel lifecycle.
 
 ### `DeployHostingError`
 ```ts
@@ -129,4 +129,4 @@ is created or uploaded; non-serving keys come back as
 `configWarnings`.
 
 For the full supported/deferred/rejected table and the exact REST
-translation, see [firebase.json hosting config](pyric-tools-deploy-reference-hosting-config).
+translation, see [firebase.json hosting config](../pyric-tools-deploy-reference-hosting-config/).

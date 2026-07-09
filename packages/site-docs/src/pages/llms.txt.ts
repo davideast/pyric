@@ -9,7 +9,7 @@
  * excluded.
  */
 import type { APIRoute } from 'astro';
-import { publicDocs, docPath, firstParagraph } from '../lib/docs';
+import { publicDocs, docMdPath, firstParagraph } from '../lib/docs';
 
 export const GET: APIRoute = async () => {
   const entries = await publicDocs();
@@ -26,7 +26,7 @@ export const GET: APIRoute = async () => {
     }
     const desc = entry.data.description ?? firstParagraph(entry.body ?? '');
     lines.push(
-      `- [${entry.data.title}](${docPath(entry)}.md)${desc ? `: ${desc}` : ''}`,
+      `- [${entry.data.title}](${docMdPath(entry)})${desc ? `: ${desc}` : ''}`,
     );
   }
 

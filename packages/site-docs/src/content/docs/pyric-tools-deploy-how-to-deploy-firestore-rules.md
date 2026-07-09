@@ -1,5 +1,6 @@
 ---
 title: "How to deploy Firestore rules"
+navLabel: "Deploy Firestore rules"
 group: "pyric-tools / deploy"
 section: "How-to"
 order: 21
@@ -106,6 +107,6 @@ Returns `null` for greenfield projects.
 
 ## Where to look next
 
-- For the `EnsureRuleOutcome` and `RuleCheckResult` shapes, see [`firestore` namespace](pyric-tools-deploy-reference-firestore-namespace#firestorerules).
-- For why `ensure` is an orchestrator (returns `Outcome`) while `deploy` is a primitive (throws), see [Primitives throw, orchestrators return](pyric-tools-deploy-explanation-primitives-vs-orchestrators).
-- For linting rules before deploying them, see [`pyric/rules`](pyric-rules).
+- For the `EnsureRuleOutcome` and `RuleCheckResult` shapes, see [`firestore` namespace](../pyric-tools-deploy-reference-firestore-namespace/#firestorerules).
+- For why `ensure` is an orchestrator (returns `Outcome`) while `deploy` is a primitive (throws), see [Primitives throw, orchestrators return](../pyric-tools-deploy-explanation-primitives-vs-orchestrators/).
+- For linting rules before deploying them, see [`pyric/rules`](../pyric-rules/).

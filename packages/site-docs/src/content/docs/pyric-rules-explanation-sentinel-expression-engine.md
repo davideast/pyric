@@ -1,5 +1,6 @@
 ---
 title: "The sentinel expression engine ($expr)"
+navLabel: "Sentinel expression engine"
 group: "pyric / rules"
 section: "Explanation"
 order: 84

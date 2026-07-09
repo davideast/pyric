@@ -28,7 +28,7 @@ Serialise an AST back to a rules source string. Used internally by the modules r
 
 ### `validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]`
 
-Run the structural validator over a parsed AST. See [Validator findings](pyric-rules-reference-validator-findings) for every code.
+Run the structural validator over a parsed AST. See [Validator findings](../pyric-rules-reference-validator-findings/) for every code.
 
 ### Types
 
@@ -36,7 +36,7 @@ Run the structural validator over a parsed AST. See [Validator findings](pyric-r
 - `MatchBlock` — `{ path, functions, allows, children }`.
 - `AllowRule` — `{ operations, condition }`.
 - `FunctionDef` — `{ name, parameters, exported, lets, body }`.
-- `Expression` — discriminated union of every expression node. See [AST reference](pyric-rules-reference-ast).
+- `Expression` — discriminated union of every expression node. See [AST reference](../pyric-rules-reference-ast/).
 - `PathSegment` — `{ type: 'literal' | 'wildcard' | 'recursive', ... }`.
 - `ParseError` — `{ line, column, offset, expected, actual, message }`.
 - `ParseResult` — `{ valid, errors, parseError? }`.
@@ -53,7 +53,7 @@ Run the linter. `LintResult` has `warnings`, `metrics`, and optional `parseError
 - `testCases?: TestCase[]` — activates `REQUEST_TIME_NOT_PINNED`.
 - `previousSource?: string` — activates `RULES_WEAKENED`.
 
-See [Lint rules](pyric-rules-reference-lint-rules) for every rule code, threshold, and severity.
+See [Lint rules](../pyric-rules-reference-lint-rules/) for every rule code, threshold, and severity.
 
 ### Types
 
@@ -107,7 +107,7 @@ Thrown by the evaluator when it hits a feature it doesn't yet implement. Caught 
 
 ### Types
 
-- `SimulationContext` — `{ request, resource, mockDocuments, pathVariables, functions, database, afterStatePath, afterState, existsAfter }`. See [Simulator context](pyric-rules-reference-simulator-context).
+- `SimulationContext` — `{ request, resource, mockDocuments, pathVariables, functions, database, afterStatePath, afterState, existsAfter }`. See [Simulator context](../pyric-rules-reference-simulator-context/).
 
 ### `class MapDiff` and `class FirestoreSet`
 
@@ -123,7 +123,7 @@ Helpers used by `request.resource.data.diff(resource.data)` and the `keys()` fam
 ### `class ExpressionLexError`
 ### `class ExpressionParseError`
 
-The sentinel expression engine — used by `pyric/sandbox` to resolve `{ $expr: '...' }` wrappers in declarative writes. See [The sentinel expression engine](pyric-rules-explanation-sentinel-expression-engine).
+The sentinel expression engine — used by `pyric/sandbox` to resolve `{ $expr: '...' }` wrappers in declarative writes. See [The sentinel expression engine](../pyric-rules-explanation-sentinel-expression-engine/).
 
 ## Value wrappers
 
@@ -138,7 +138,7 @@ Re-exported classes for the runtime types Firestore rules expose. All extend `Ru
 - `class LatLng`
 - `class RulesValue` (base class) and `const NO_OP` (method-dispatch sentinel)
 
-See [Value wrappers](pyric-rules-reference-value-wrappers).
+See [Value wrappers](../pyric-rules-reference-value-wrappers/).
 
 ## Rules Test API client
 
@@ -152,7 +152,7 @@ Calls Google's Firebase Rules Test API.
 
 ### Types
 
-- `TestCase` — see [`TestCase` schema](pyric-rules-reference-test-case-schema).
+- `TestCase` — see [`TestCase` schema](../pyric-rules-reference-test-case-schema/).
 - `TestResult` — `{ description, expectation, state, debugMessages }`.
 - `TestFirestoreRulesResult` — `{ success: true; data: { passed, failed, unsupported, results } } | { success: false; error }`.
 - `FunctionMock` — `{ function: 'get' | 'exists', path, result }`.

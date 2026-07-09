@@ -9,7 +9,7 @@ order: 140
 
 Admin-SDK-shaped Firestore adapter for the Pyric sandbox. Mirrors `firebase-admin/firestore` — `db.collection(p).doc(p).get()`, `db.batch()`, `db.runTransaction()` — over `pyric/sandbox`'s in-process substrate. Streaming reads are covered too: a production-shaped `onSnapshot` ships as both a free function and a chainable `.onSnapshot(...)` method on refs and queries.
 
-Use this package when your production code uses `firebase-admin/firestore` (Node services, Cloud Functions). For the modular Web SDK shape, use [`pyric/firestore`](pyric-admin-firestore) instead.
+Use this package when your production code uses `firebase-admin/firestore` (Node services, Cloud Functions). For the modular Web SDK shape, use [`pyric/firestore`](../pyric-admin-firestore/) instead.
 
 ## Install
 ```bash

@@ -1,5 +1,6 @@
 ---
 title: "pyric/firestore compatibility matrix"
+navLabel: "Compatibility matrix"
 group: "pyric / firestore"
 section: "Compat"
 order: 60

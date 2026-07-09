@@ -1,5 +1,6 @@
 ---
 title: "Why RTDB rules authoring and deploy are separate"
+navLabel: "Authoring vs. deploy"
 group: "pyric / database"
 section: "Explanation"
 order: 138

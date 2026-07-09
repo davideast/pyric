@@ -17,6 +17,37 @@
  *                     previous block — sections read as islands.
  *
  * Audit page: /docs/_rhythm stacks every adjacency this file styles.
+ * Mechanically verified: `bun scripts/audit-rhythm.ts` (wired into
+ * `bun run test`) renders /docs/_rhythm plus a sample of real pages,
+ * measures the actual pixel gap between every direct-child pair in
+ * `.prose`, and fails the build if any gap drifts more than 1px from
+ * the token its adjacency maps to.
+ *
+ * ── Cascade / specificity scheme (single source of truth) ──────────
+ * Every rule below is `.prose > X` or `.prose > X + Y` — one class plus
+ * type selectors, so every rule in this file has EQUAL specificity.
+ * That is deliberate: with specificity tied, the cascade is decided by
+ * SOURCE ORDER alone, so this file reads top-to-bottom as "later rule
+ * wins, on purpose":
+ *   1. Reset (`.prose > *`)              — margin-block: 0 for everyone.
+ *   2. Default beat (`.prose > * + *`)   — the group gap, applies to
+ *      every sibling pair unless a later, equally-specific rule below
+ *      re-targets the same pair.
+ *   3. Section / subsection starts (`* + h2`, `* + h3/h4`) — override
+ *      the default beat when the FOLLOWING element is a heading.
+ *   4. Tight bindings (`h1 + *`, `p + p`, `p + ul/ol/blockquote`) —
+ *      override #2 AND #3 for a heading's own intro block or a
+ *      continuing paragraph. This is why `h2` directly followed by
+ *      `h3` gets the para beat, not the subsection beat: `h2 + *`
+ *      (rule 4) is declared after `* + h3` (rule 3), same specificity,
+ *      later wins. The /docs/_rhythm "heading directly after heading"
+ *      section exists to keep this visible.
+ * No rule anywhere in this file (or its content) sets an inline style
+ * or a margin outside this cascade — Shiki's `<pre>` only ever carries
+ * `background-color`/`color`/`overflow-x` (never `margin`), and rule 1
+ * zeroes every direct child's margin-block regardless of tag, so a
+ * stray UA-stylesheet default (e.g. `<pre>`'s default `1em 0`) can
+ * never leak through and compound with these tokens.
  */
 
 :root {

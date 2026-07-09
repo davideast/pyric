@@ -155,6 +155,6 @@ Alice context still works: true
 
 ## What to do next
 
-- Run the same pattern across a test suite — see [Use the sandbox in a test harness](pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness).
-- Render denials in a UI without try/catch — see [Observe sandbox events](pyric-sandbox-how-to-observe-events).
-- Pick between the two adapter shapes — see [Pick between `pyric-admin` and `pyric/firestore`](pyric-sandbox-how-to-pick-an-adapter).
+- Run the same pattern across a test suite — see [Use the sandbox in a test harness](../pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness/).
+- Render denials in a UI without try/catch — see [Observe sandbox events](../pyric-sandbox-how-to-observe-events/).
+- Pick between the two adapter shapes — see [Pick between `pyric-admin` and `pyric/firestore`](../pyric-sandbox-how-to-pick-an-adapter/).

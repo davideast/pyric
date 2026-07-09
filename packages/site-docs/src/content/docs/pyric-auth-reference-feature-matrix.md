@@ -180,7 +180,7 @@ These have no `firebase/auth` equivalent. They live under the `sandbox.*` namesp
 | `sandbox.subscribeUsers(auth, cb)` | ✅ | Sandbox-only: coarse user-DB-changed callback (no payload, no initial fire; re-list in the callback) | **No** — host wiring |
 | `TARGET_SYMBOL` | ✅ | Internal brand; agents should not read it | No |
 
-See [sandbox-test-driver.md](pyric-auth-reference-sandbox-test-driver) for the full driver API.
+See [sandbox-test-driver.md](../pyric-auth-reference-sandbox-test-driver/) for the full driver API.
 
 ---
 

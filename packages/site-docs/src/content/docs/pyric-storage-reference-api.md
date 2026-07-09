@@ -147,7 +147,7 @@ interface StorageOptions {
   rules?: string;
 }
 ```
-See [`StorageOptions`](pyric-storage-reference-storage-options).
+See [`StorageOptions`](../pyric-storage-reference-storage-options/).
 
 ### `ProdStorageOptions`
 

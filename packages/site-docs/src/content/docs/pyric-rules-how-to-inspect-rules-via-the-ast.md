@@ -1,5 +1,6 @@
 ---
 title: "How to inspect rules through the AST"
+navLabel: "Inspect rules via the AST"
 group: "pyric / rules"
 section: "How-to"
 order: 65
@@ -84,7 +85,7 @@ function walkExpr(expr: Expression, visit: (e: Expression) => void): void {
   }
 }
 ```
-See [AST reference](pyric-rules-reference-ast) for every node shape.
+See [AST reference](../pyric-rules-reference-ast/) for every node shape.
 
 ## Run the validator
 
@@ -97,7 +98,7 @@ for (const f of findings) {
   console.log(`[${f.severity}] ${f.code} at ${f.path}: ${f.message}`);
 }
 ```
-The validator covers public-write detection, default-deny audit, duplicate function names, overlapping paths, and other structural issues. See [Validator findings reference](pyric-rules-reference-validator-findings) for the full code list.
+The validator covers public-write detection, default-deny audit, duplicate function names, overlapping paths, and other structural issues. See [Validator findings reference](../pyric-rules-reference-validator-findings/) for the full code list.
 
 ## Parse just a function body
 
@@ -114,6 +115,6 @@ if (fns) console.log(fns[0].name); // 'isAdmin'
 
 ## Where to look next
 
-- For every AST node shape, see [AST reference](pyric-rules-reference-ast).
-- For the validator codes, see [Validator findings reference](pyric-rules-reference-validator-findings).
-- For `parseToASTOrError`'s `ParseError` shape, see [Errors reference](pyric-rules-reference-errors#parseerror).
+- For every AST node shape, see [AST reference](../pyric-rules-reference-ast/).
+- For the validator codes, see [Validator findings reference](../pyric-rules-reference-validator-findings/).
+- For `parseToASTOrError`'s `ParseError` shape, see [Errors reference](../pyric-rules-reference-errors/#parseerror).

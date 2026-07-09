@@ -1,5 +1,6 @@
 ---
 title: "ProjectScope, Outcome, AdminApiError"
+navLabel: "Scope and Outcome"
 group: "pyric-tools / deploy"
 section: "Reference"
 order: 36
@@ -50,7 +51,7 @@ Returned by orchestrators. Two universal error codes:
 - **`'permission-denied'`** — auth or IAM failure. Returned when the upstream API responds 401 or 403, or when the resolver itself rejects with an `AdminApiError` of that status.
 - **`'unknown'`** — anything else, including network failures, DNS errors, and any non-`AdminApiError` exception. Deliberately *not* bucketed as `'permission-denied'` — that would mis-label transport failures as IAM issues.
 
-Each orchestrator widens the union with its own coded error values (`'not-found'`, `'invalid-config'`, `'create-failed'`, `'merge-failed'`, etc.). See [Error codes by operation](pyric-tools-deploy-reference-error-codes).
+Each orchestrator widens the union with its own coded error values (`'not-found'`, `'invalid-config'`, `'create-failed'`, `'merge-failed'`, etc.). See [Error codes by operation](../pyric-tools-deploy-reference-error-codes/).
 
 ### `partial`
 
@@ -91,4 +92,4 @@ try {
 
 Primitives are intentionally low-level — they map one REST call to one TypeScript function. Throwing lets callers reach for finer-grained error handling than an `Outcome` union allows (an HTTP status, the full body). Orchestrators wrap primitives in `withResolvedScope` to translate thrown errors into `Outcome` shapes for callers that want one shape across all operations.
 
-See [Primitives throw, orchestrators return](pyric-tools-deploy-explanation-primitives-vs-orchestrators) for the design rationale.
+See [Primitives throw, orchestrators return](../pyric-tools-deploy-explanation-primitives-vs-orchestrators/) for the design rationale.

@@ -1,5 +1,6 @@
 ---
 title: "How to translate denials with denialContext"
+navLabel: "Translate denials"
 group: "pyric-admin / firestore"
 section: "How-to"
 order: 144
@@ -95,4 +96,4 @@ This means one denial-UI component can render denials from anywhere — try/catc
 ## Where to look next
 
 - For the `DenialContext` field-by-field reference, see Denial shapes in `pyric/sandbox`.
-- For the difference between `SandboxError` codes, see [`SandboxError` codes](pyric-sandbox-reference-error-codes).
+- For the difference between `SandboxError` codes, see [`SandboxError` codes](../pyric-sandbox-reference-error-codes/).

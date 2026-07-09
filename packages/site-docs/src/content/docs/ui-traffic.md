@@ -39,11 +39,11 @@ but the library owns its own copy so it never imports `pyric/sandbox`.
 
 ## Components
 
-- [TrafficLog](ui-traffic-trafficlog) — the event stream; virtualized flat list,
+- [TrafficLog](../ui-traffic-trafficlog/) — the event stream; virtualized flat list,
   or singles + collapsible groups in grouped mode.
-- [TrafficDetail](ui-traffic-trafficdetail) — drill-in panel for one event.
-- [RuleHeatmap](ui-traffic-ruleheatmap) — per-rule fire / deny rollup.
-- [TrafficStats](ui-traffic-trafficstats) — totals + breakdowns.
+- [TrafficDetail](../ui-traffic-trafficdetail/) — drill-in panel for one event.
+- [RuleHeatmap](../ui-traffic-ruleheatmap/) — per-rule fire / deny rollup.
+- [TrafficStats](../ui-traffic-trafficstats/) — totals + breakdowns.
 
 ## Hooks
 

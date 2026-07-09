@@ -1,5 +1,6 @@
 ---
 title: "How to seed and set rules"
+navLabel: "Seed and set rules"
 group: "pyric-admin / firestore"
 section: "How-to"
 order: 143
@@ -88,5 +89,5 @@ adminDb.seed({ documents: before });
 
 ## Where to look next
 
-- For lint warning shapes, see [`pyric/rules` lint rules](pyric-rules-reference-lint-rules).
-- For why these methods live on the data-plane handle rather than the sandbox itself, see [Why mirror the admin SDK shape](pyric-admin-firestore-explanation-why-mirror-admin-shape).
+- For lint warning shapes, see [`pyric/rules` lint rules](../pyric-rules-reference-lint-rules/).
+- For why these methods live on the data-plane handle rather than the sandbox itself, see [Why mirror the admin SDK shape](../pyric-admin-firestore-explanation-why-mirror-admin-shape/).

@@ -68,7 +68,7 @@ is unavailable). `firestore.rules` is deployed and hot-reloaded over SSE.
 | `--json` | off | One machine line on stdout (`{url, port, mcpUrl, rulesHash, persist, restoredDocs, restoredUsers}`); banner → stderr. Readiness probe: `GET <url>/__pyric/init.json` → 200. |
 
 Persistence, multi-tab, and SharedWorker behaviour are covered in
-[persistence and multi-tab](pyric-tools-how-to-serve-persistence-and-multi-tab).
+[persistence and multi-tab](../pyric-tools-how-to-serve-persistence-and-multi-tab/).
 
 ### `pyric init [dir] [flags]`
 
@@ -96,7 +96,7 @@ re-serves (docs + auth users).
 | `--include-passwords` | redacted | Keep auth-user passwords in the fixture (default: redacted). Trusted/local fixtures only. |
 | `--json` | off | Machine output on stdout. |
 
-See [promote sandbox state to a fixture](pyric-tools-how-to-promote-sandbox-state-to-a-fixture).
+See [promote sandbox state to a fixture](../pyric-tools-how-to-promote-sandbox-state-to-a-fixture/).
 
 <a id="pyric-verify"></a>
 ### `pyric verify [fixture|dir] [flags]`
@@ -131,7 +131,7 @@ pyric verify journeys/checkout.json --engine both --project demo-app
 pyric verify --service rtdb --rules rtdb=database.rules.json
 pyric verify --rules firestore=firestore.rules --rules rtdb=database.rules.json
 ```
-See [verify against a captured session](pyric-tools-how-to-verify-against-a-captured-session).
+See [verify against a captured session](../pyric-tools-how-to-verify-against-a-captured-session/).
 
 ### `pyric verify cases [fixture] [flags]`
 
@@ -149,13 +149,13 @@ pyric verify cases journeys/checkout.json --service firestore --out journeys/che
 
 Stdio MCP server that relays to a running `pyric dev --bridge`, discovering the
 port via `.pyric/serve.json` (then a port scan). Used by the Claude Code plugin;
-not run by hand. See [wire Claude Code](pyric-tools-tutorials-wire-claude-code).
+not run by hand. See [wire Claude Code](../pyric-tools-tutorials-wire-claude-code/).
 
 ### `pyric bridge [flags]`
 
 Stand up the HTTP+WebSocket bridge external MCP clients connect to. In `sandbox`
 mode it relays to a connected in-browser sandbox; in `prod` mode it operates on a
-real Firebase project (guarded). See [bridge](pyric-tools-bridge).
+real Firebase project (guarded). See [bridge](../pyric-tools-bridge/).
 
 | Flag | Default | Description |
 |---|---|---|
@@ -176,8 +176,8 @@ real Firebase project (guarded). See [bridge](pyric-tools-bridge).
 
 Deploy to a real Firebase project. Each target has its own surface (selectors,
 agent I/O via `--schema` / `--json`, preview channels for hosting). The full
-deploy documentation lives in [`../deploy/`](pyric-tools-deploy) — including the
-[CLI agent I/O reference](pyric-tools-deploy-reference-cli-agent-io).
+deploy documentation lives in [`../deploy/`](../pyric-tools-deploy/) — including the
+[CLI agent I/O reference](../pyric-tools-deploy-reference-cli-agent-io/).
 
 `pyric deploy database` reads `firebase.json.database.rules` as a Realtime
 Database rules JSON file. The database URL is resolved in this order:
@@ -187,14 +187,14 @@ single default instance discovery via the RTDB management API.
 ### `pyric hosting:channel:deploy <channelId> [--expires <ttl>]`
 
 Mirror of `deploy hosting --channel <channelId>` (firebase-tools spelling) —
-identical behaviour. See [deploy to a preview channel](pyric-tools-deploy-how-to-deploy-to-a-preview-channel).
+identical behaviour. See [deploy to a preview channel](../pyric-tools-deploy-how-to-deploy-to-a-preview-channel/).
 
 ---
 
 ## Rules
 
 These wrap the rules toolchain documented in
-[`pyric/docs/rules/`](pyric-rules).
+[`pyric/docs/rules/`](../pyric-rules/).
 
 ### `pyric rules:lint <path>`
 
@@ -241,7 +241,7 @@ These operate on a real project and need credentials (see
 Identity Toolkit: enable or disable an auth provider. `<provider>` is one of
 `anonymous`, `email`, `phone`, `google`. `--project` selects the project.
 
-See [configure auth providers and domains](pyric-tools-how-to-configure-auth-providers-and-domains).
+See [configure auth providers and domains](../pyric-tools-how-to-configure-auth-providers-and-domains/).
 
 <a id="pyric-authmanage-domains"></a>
 ### `pyric auth:manage-domains <add|remove|list> [domain]`
@@ -255,4 +255,4 @@ Identity Toolkit: manage the authorised-domain allowlist. `add`/`remove` take a
 Crawl a real Firestore to infer its schema. An optional `[collection]` narrows
 the crawl. `--project` selects the project.
 
-See [infer a schema from an existing Firestore](pyric-tools-how-to-discover-a-schema-from-firestore).
+See [infer a schema from an existing Firestore](../pyric-tools-how-to-discover-a-schema-from-firestore/).

@@ -1,5 +1,6 @@
 ---
 title: "Primitives throw, orchestrators return"
+navLabel: "Primitives vs. orchestrators"
 group: "pyric-tools / deploy"
 section: "Explanation"
 order: 38
@@ -86,4 +87,4 @@ Tool factories produce a third surface: `ToolHandler.execute` returns `{ ok, sum
 - For handlers backed by orchestrators: `ToolResult.ok` mirrors `Outcome.ok`; `summary` is a one-line message; `data` is the full `Outcome` for narrowing.
 - For handlers backed by primitives: the factory wraps the throw in try/catch and surfaces `{ ok: false, summary: e.message }`.
 
-This means a tool handler is essentially "an orchestrator with an `Outcome` widened by one more layer for agent consumption". See [Tool factories](pyric-tools-deploy-reference-tool-factories).
+This means a tool handler is essentially "an orchestrator with an `Outcome` widened by one more layer for agent consumption". See [Tool factories](../pyric-tools-deploy-reference-tool-factories/).

@@ -1,5 +1,6 @@
 ---
 title: "How to simulate rules locally"
+navLabel: "Simulate rules locally"
 group: "pyric / rules"
 section: "How-to"
 order: 70
@@ -55,7 +56,7 @@ By default, `tc.data` IS the after-state — fine for shallow `create`. For `upd
   writeMode: { kind: 'update' },  // ← merges data into resource
 },
 ```
-Without `writeMode`, `request.resource.data.archived` would read as `null`. With it, the simulator runs the same merge logic the admin SDK does. See [`TestCase` schema](pyric-rules-reference-test-case-schema#writemode) for all four modes.
+Without `writeMode`, `request.resource.data.archived` would read as `null`. With it, the simulator runs the same merge logic the admin SDK does. See [`TestCase` schema](../pyric-rules-reference-test-case-schema/#writemode) for all four modes.
 
 ## Pin `request.time` for date-gated rules
 
@@ -97,7 +98,7 @@ if (unsupported.length > 0) {
   // Run these against the Rules Test API — see the test-rules-against-firebase guide.
 }
 ```
-See [Simulator vs Rules Test API](pyric-rules-explanation-simulator-vs-rules-test-api) for the full discussion.
+See [Simulator vs Rules Test API](../pyric-rules-explanation-simulator-vs-rules-test-api/) for the full discussion.
 
 ## Read the debug trace
 
@@ -118,6 +119,6 @@ Simulated: ALLOW
 ```
 ## Where to look next
 
-- For the field-by-field schema of `TestCase`, see [`TestCase` schema](pyric-rules-reference-test-case-schema).
-- For the shape of `SimulationContext` (what your rule actually sees), see [Simulator context](pyric-rules-reference-simulator-context).
-- For why some features return `UNSUPPORTED`, see [Simulator vs Rules Test API](pyric-rules-explanation-simulator-vs-rules-test-api).
+- For the field-by-field schema of `TestCase`, see [`TestCase` schema](../pyric-rules-reference-test-case-schema/).
+- For the shape of `SimulationContext` (what your rule actually sees), see [Simulator context](../pyric-rules-reference-simulator-context/).
+- For why some features return `UNSUPPORTED`, see [Simulator vs Rules Test API](../pyric-rules-explanation-simulator-vs-rules-test-api/).

@@ -1,5 +1,6 @@
 ---
 title: "How to run a transaction"
+navLabel: "Run a transaction"
 group: "pyric-admin / firestore"
 section: "How-to"
 order: 142
@@ -68,9 +69,9 @@ For single-doc operations with no read dependency, plain `set` / `update` / `del
 - You need to write across multiple documents that depend on each other's values.
 - You want production-shaped read tracking in your event log.
 
-For multi-doc writes that don't need read-then-write semantics, use a `WriteBatch` instead — see [Write a batch](pyric-admin-firestore-how-to-write-a-batch).
+For multi-doc writes that don't need read-then-write semantics, use a `WriteBatch` instead — see [Write a batch](../pyric-admin-firestore-how-to-write-a-batch/).
 
 ## Where to look next
 
 - For the production-shaped `Transaction` API, see the [Firebase admin SDK docs](https://firebase.google.com/docs/reference/admin/node/firebase-admin.firestore.transaction).
-- For the substrate's read-tracking behaviour, see [`pyric/sandbox`'s internal protocol](pyric-sandbox-reference-internal-protocol).
+- For the substrate's read-tracking behaviour, see [`pyric/sandbox`'s internal protocol](../pyric-sandbox-reference-internal-protocol/).

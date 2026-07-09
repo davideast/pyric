@@ -1,5 +1,6 @@
 ---
 title: "How to run multiple isolated sandboxes in parallel"
+navLabel: "Run isolated sandboxes"
 group: "pyric / sandbox"
 section: "How-to"
 order: 93
@@ -85,5 +86,5 @@ If your scenario needs cross-sandbox state transfer, do it explicitly: `sbA.snap
 
 ## Where to look next
 
-- For the cost-model rationale, see [Why this package exists](pyric-sandbox-explanation-why-this-package-exists).
-- For multi-tenant test patterns, see [Use the sandbox in a test harness](pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness).
+- For the cost-model rationale, see [Why this package exists](../pyric-sandbox-explanation-why-this-package-exists/).
+- For multi-tenant test patterns, see [Use the sandbox in a test harness](../pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness/).

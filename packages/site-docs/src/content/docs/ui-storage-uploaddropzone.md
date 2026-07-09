@@ -46,7 +46,7 @@ function Uploader({ storage }) {
 | `onFiles` | `(files: DroppedFile[]) => void` | Fired once per drop with the flattened list. `relativePath` keeps dropped-folder structure (`photos/cat.png`). Not fired for empty drops. |
 | `children` | `ReactNode` | The chrome slot (copy, browse input, task list, …). |
 | `disabled` | `boolean` | Ignore drops + suppress the dragging state. |
-| `disabledReason` | `string` | Why — stamped on `data-disabled-reason` (only while `disabled`, alongside `aria-disabled`). Canonical source is the rules gate: `disabled={!gate.verdictFor(path).upload}` + `disabledReason={verdict.reasons.write.join('; ')}` — see [rules-aware affordances](ui-storage-rules-aware-affordances). |
+| `disabledReason` | `string` | Why — stamped on `data-disabled-reason` (only while `disabled`, alongside `aria-disabled`). Canonical source is the rules gate: `disabled={!gate.verdictFor(path).upload}` + `disabledReason={verdict.reasons.write.join('; ')}` — see [rules-aware affordances](../ui-storage-rules-aware-affordances/). |
 | `className` | `string` | Forwarded to the root. |
 
 ## Styling hooks
@@ -74,5 +74,5 @@ function Uploader({ storage }) {
 ## See also
 
 - `useObjectUpload` — the task-shaped upload hook this feeds.
-- [`<ObjectBrowser>`](ui-storage-objectbrowser) — typically rendered inside the
+- [`<ObjectBrowser>`](../ui-storage-objectbrowser/) — typically rendered inside the
   dropzone so the whole table is a drop target.

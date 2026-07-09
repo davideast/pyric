@@ -42,7 +42,7 @@ These have no production analog and use sandbox-specific verbs so they can't be 
 
 Replace the active ruleset. Returns the lint result from `pyric/rules` — surface the warnings if any. If the source has parse-level errors, the rules are not swapped (consistent with `LocalEnvironment.deployRules`).
 
-After a successful `setRules`, every active snapshot listener is re-evaluated under the new rules. See [Listener re-evaluation on `deployRules`](pyric-sandbox-explanation-listener-re-evaluation) in `pyric/sandbox`.
+After a successful `setRules`, every active snapshot listener is re-evaluated under the new rules. See [Listener re-evaluation on `deployRules`](../pyric-sandbox-explanation-listener-re-evaluation/) in `pyric/sandbox`.
 
 ### `seed(options?): LintResult`
 
@@ -72,8 +72,8 @@ The returned object is a structural clone. Mutating it does not affect the sandb
 
 The handle accepts but does not act on the production `OperationOptions.auth` field. Auth is captured at handle construction from `ctx.auth` — it cannot be overridden per call. To act as a different user, derive a new context via `sandbox.withAuth(...)` and call `getFirestore` again.
 
-This is per the [identity-is-a-context](pyric-sandbox-explanation-identity-is-a-context) design: identity lives on the context, not on individual operations.
+This is per the [identity-is-a-context](../pyric-sandbox-explanation-identity-is-a-context/) design: identity lives on the context, not on individual operations.
 
 ## Per-call delegate construction
 
-Every production-shaped method constructs a fresh `Firestore` delegate per call. This is intentional — see [Per-call delegate construction](pyric-admin-firestore-explanation-per-call-delegate). The cost is one class instance per operation, which is dominated by the cost of the operation itself.
+Every production-shaped method constructs a fresh `Firestore` delegate per call. This is intentional — see [Per-call delegate construction](../pyric-admin-firestore-explanation-per-call-delegate/). The cost is one class instance per operation, which is dominated by the cost of the operation itself.
