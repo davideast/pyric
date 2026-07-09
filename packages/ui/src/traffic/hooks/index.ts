@@ -41,3 +41,20 @@ export {
   type TrafficBucket,
   type TimeWindow,
 } from './useTrafficBuckets.js';
+export {
+  useBillableMetrics,
+  useRulesMetrics,
+  bucketBillableMetrics,
+  bucketRulesMetrics,
+  classifyBillable,
+  classifyRules,
+  isAdminEvent,
+  BILLABLE_SERIES_DEFS,
+  RULES_SERIES_DEFS,
+  type UseTrafficMetricsOptions,
+  type TrafficMetricsResult,
+  type MetricPoint,
+  type MetricSeries,
+  type BillableSeriesKey,
+  type RulesSeriesKey,
+} from './useTrafficMetrics.js';
