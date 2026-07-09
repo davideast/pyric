@@ -84,6 +84,7 @@
   "scripts": {
     "build": "tsc && bun run scripts/postbuild.ts",
     "test": "bun test",
+    "test:soak": "playwright test --config test/e2e/soak/playwright.config.ts",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit",
     "compile": "bun scripts/compile.ts",
     "release": "bun scripts/release.ts",
