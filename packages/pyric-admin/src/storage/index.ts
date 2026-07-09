@@ -40,7 +40,7 @@ import type { App as AdminApp } from 'firebase-admin/app';
 import type { Storage as ProdStorage } from 'firebase-admin/storage';
 import { getStorage as getProdStorage } from 'firebase-admin/storage';
 
-import type { Sandbox } from 'pyric/sandbox';
+import { isRemoteSandbox, type Sandbox } from 'pyric/sandbox';
 
 import {
   ADMIN_APP_TARGET,
@@ -195,6 +195,13 @@ export function getStorage(app?: StorageApp): Storage {
   // `app/no-app` FirebaseAppError (see pyric-admin/app getApp).
   const resolved: PyricAdminApp = app === undefined ? getApp() : (app as PyricAdminApp);
   if (resolved[ADMIN_APP_TARGET] === 'sandbox') {
+    if (isRemoteSandbox(resolved.sandbox)) {
+      throw new Error(
+        'pyric-admin/storage: Storage is not yet supported on a remote ' +
+          'sandbox — the bridge currently carries Realtime Database and Auth. ' +
+          'Use pyric/storage in the browser (or Studio) until remote Storage lands.',
+      );
+    }
     return getSandboxStorage(resolved);
   }
   if (resolved[ADMIN_APP_TARGET] === 'prod') {

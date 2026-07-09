@@ -132,6 +132,11 @@ function activate(): void {
   );
 }
 
+/** Whether this process's firebase-admin/firebase imports are being rewritten
+ *  to the pyric sandbox — true only when `PYRIC_SANDBOX` was set (and not
+ *  refused by the production guard) at the moment this module loaded. */
+export let active = false;
+
 if (process.env.PYRIC_SANDBOX) {
   if (process.env.NODE_ENV === 'production' && process.env.PYRIC_SANDBOX_FORCE !== '1') {
     process.stderr.write(
@@ -141,6 +146,7 @@ if (process.env.PYRIC_SANDBOX) {
     );
   } else {
     activate();
+    active = true;
   }
 }
-// No PYRIC_SANDBOX → inert by design: importing this module does nothing.
+// No PYRIC_SANDBOX → inert by design: importing this module rewrites nothing.
