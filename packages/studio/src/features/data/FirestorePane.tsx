@@ -32,6 +32,7 @@ import type {
 import { useDocumentList } from '@pyric/ui/firestore/hooks';
 import { useDataNav, parseDocPath, type NavigationPathSegment } from './navigation.js';
 import type { StudioDataHandles } from './sandbox.js';
+import { NewCollectionForm, NewDocumentForm, ImportJsonPanel } from './FirestoreCreatePanels.js';
 import './firestore.css';
 
 /** The editor state shape `DocumentEditor.Root`'s `onChange` emits. */
@@ -93,6 +94,12 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
       firestore={firestore}
       collectionIds={handles.listRootCollections()}
       onSelect={(id) => setPath([{ kind: 'collection', id, path: id }])}
+      onCreated={(collId, docId) =>
+        setPath([
+          { kind: 'collection', id: collId, path: collId },
+          { kind: 'document', id: docId, path: `${collId}/${docId}` },
+        ])
+      }
     />,
     ...path.map((seg, i) =>
       seg.kind === 'collection' ? (
@@ -196,30 +203,55 @@ function EmptyColumn({ hint }: { hint: string | null }) {
   );
 }
 
-/** Root collections column. */
+/** Root collections column. A "+ New" toggle in the header discloses an
+ *  inline `<NewCollectionForm>` (C3/C4: inline disclosure, one primary
+ *  action) — Firestore collections only exist once they have a document, so
+ *  creating one is really "collection id + first document". */
 function CollectionColumn({
   api,
   firestore,
   collectionIds,
   onSelect,
+  onCreated,
 }: {
   api: FirestoreApi;
   firestore: Firestore;
   collectionIds: string[];
   onSelect: (id: string) => void;
+  onCreated: (collectionId: string, docId: string) => void;
 }) {
   const collections = useMemo(
     () => collectionIds.map((id) => api.collection(firestore, id)),
     [api, firestore, collectionIds],
   );
+  const [creating, setCreating] = useState(false);
   return (
     <section data-pyric-ui="fs-collections" className="fs-pane fs-col">
-      <div className="fs-phead">Collections</div>
-      <CollectionList
-        collections={collections}
-        onSelect={(coll) => onSelect(coll.id)}
-        emptyState={<p className="fs-empty">No collections yet. App or agent writes show up here.</p>}
-      />
+      <div className="fs-phead">
+        <span className="fs-phead-title">Collections</span>
+        {!creating ? (
+          <button type="button" className="fs-add" onClick={() => setCreating(true)}>
+            + New
+          </button>
+        ) : null}
+      </div>
+      {creating ? (
+        <NewCollectionForm
+          api={api}
+          firestore={firestore}
+          onCreated={(collId, docId) => {
+            setCreating(false);
+            onCreated(collId, docId);
+          }}
+          onCancel={() => setCreating(false)}
+        />
+      ) : (
+        <CollectionList
+          collections={collections}
+          onSelect={(coll) => onSelect(coll.id)}
+          emptyState={<p className="fs-empty">No collections yet. App or agent writes show up here.</p>}
+        />
+      )}
     </section>
   );
 }
@@ -242,12 +274,17 @@ function DocumentColumn({
     () => collectionAtPath(api, firestore, collectionPath),
     [api, firestore, collectionPath],
   );
-  const { documents, isLoading, error, hasMore, loadMore, deleteDocument } = useDocumentList({ collection });
+  const { documents, isLoading, error, hasMore, loadMore, createDocument, deleteDocument } =
+    useDocumentList({ collection });
   const collId = collectionPath.split('/').pop() ?? collectionPath;
   // Per-row delete: plain click arms an inline confirm; shift-click deletes
   // immediately (rapid bulk delete). Only one row arms at a time.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<Error | null>(null);
+  // At most one create/import disclosure open at a time (C4: one primary
+  // action per surface) — "New document" and "Import JSON" are two SEPARATE
+  // secondary affordances, not crammed into one form.
+  const [disclosure, setDisclosure] = useState<'none' | 'new' | 'import'>('none');
   const doDelete = useCallback(
     async (r: DocumentReference) => {
       setDeleteError(null);
@@ -264,8 +301,36 @@ function DocumentColumn({
     <section data-pyric-ui="fs-documents" className="fs-pane fs-col">
       <div className="fs-phead">
         <span className="fs-phead-title">{collId}</span>
+        {disclosure === 'none' ? (
+          <span className="fs-phead-actions">
+            <button type="button" className="fs-add" onClick={() => setDisclosure('new')}>
+              + New
+            </button>
+            <button type="button" className="fs-add" onClick={() => setDisclosure('import')}>
+              Import JSON
+            </button>
+          </span>
+        ) : null}
       </div>
-      <DocumentList
+
+      {disclosure === 'new' ? (
+        <NewDocumentForm
+          createDocument={createDocument}
+          onCreated={() => setDisclosure('none')}
+          onCancel={() => setDisclosure('none')}
+        />
+      ) : null}
+      {disclosure === 'import' ? (
+        <ImportJsonPanel
+          existingIds={documents.map((d) => d.id)}
+          createDocument={createDocument}
+          onDone={() => setDisclosure('none')}
+          onCancel={() => setDisclosure('none')}
+        />
+      ) : null}
+
+      {disclosure === 'none' ? (
+        <DocumentList
         documents={documents}
         isLoading={isLoading}
         error={error}
@@ -329,7 +394,8 @@ function DocumentColumn({
           );
         }}
         emptyState={<p className="fs-empty">No documents.</p>}
-      />
+        />
+      ) : null}
       {deleteError ? <p className="fs-empty fs-doc-del-err">{deleteError.message}</p> : null}
     </section>
   );

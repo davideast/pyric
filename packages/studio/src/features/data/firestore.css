@@ -142,6 +142,133 @@
   letter-spacing: 0;
   text-transform: none;
   font-size: 12px;
+  background: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* multiple secondary header actions (e.g. "+ New" + "Import JSON") sit as a
+   gap-separated row pinned to the trailing edge — gap, not margin, between
+   the buttons themselves (L2). */
+[data-pyric-ui='fs-browser'] .fs-phead-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-left: auto;
+}
+[data-pyric-ui='fs-browser'] .fs-phead-actions .fs-add {
+  margin-left: 0;
+}
+
+/* ── create-collection / create-document / import-JSON inline panes ───────
+   Disclosed under the pane header in place of the list (C3: inline
+   disclosure, not a modal). Gap-based vertical rhythm (L2); no self-margins
+   on the root (L3) — the parent `.fs-pane` supplies the padding rhythm via
+   this block's own padding. */
+[data-pyric-ui='fs-browser'] .fs-create {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 18px 24px;
+}
+[data-pyric-ui='fs-browser'] .fs-create__label {
+  font-size: var(--fs-label);
+  color: var(--color-slate-gray);
+}
+[data-pyric-ui='fs-browser'] .fs-create__collid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+[data-pyric-ui='fs-browser'] .fs-create__hint {
+  margin: 0;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--color-slate-gray);
+}
+[data-pyric-ui='fs-browser'] .fs-create input[type='text'],
+[data-pyric-ui='fs-browser'] .fs-create input[type='file'] {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--color-soft-white);
+  background: var(--color-content-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+[data-pyric-ui='fs-browser'] .fs-create input[type='text']:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+[data-pyric-ui='fs-create-id'] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+[data-pyric-ui='fs-browser'] .fs-create__idmode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-label);
+  color: var(--color-slate-gray);
+}
+[data-pyric-ui='fs-browser'] .fs-create__err {
+  color: var(--color-danger);
+  font-size: var(--fs-caption);
+}
+[data-pyric-ui='fs-browser'] .fs-create__actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* JSON import: textarea + preview + skip/overwrite policy (shown only when
+   collisions exist). */
+[data-pyric-ui='fs-browser'] .fs-import__textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--color-soft-white);
+  background: var(--color-content-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 8px;
+}
+[data-pyric-ui='fs-browser'] .fs-import__preview,
+[data-pyric-ui='fs-browser'] .fs-import__result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--fs-label);
+  color: var(--color-slate-gray);
+}
+[data-pyric-ui='fs-browser'] .fs-import__count {
+  margin: 0;
+  color: var(--color-soft-white);
+}
+[data-pyric-ui='fs-browser'] .fs-import__errs {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--color-danger);
+  font-size: var(--fs-caption);
+}
+[data-pyric-ui='fs-browser'] .fs-import__collisions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  border-radius: 7px;
+}
+[data-pyric-ui='fs-browser'] .fs-import__collisions label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-label);
 }
 
 /* ── list rows (collections + documents) ──────────────────────────────────
