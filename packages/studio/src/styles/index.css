@@ -716,6 +716,129 @@ button.studio-card:hover {
   gap: 8px;
   padding-top: 4px;
 }
+
+/* ── Sandbox card: live substance + consequence-captioned actions ─────── */
+/* Row 1 — instance · inventory · persistence. The teaching line: the
+   sandbox IS this data; everything below operates on it. */
+.studio-sandbox__live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  padding: 10px 12px;
+}
+.studio-sandbox__instance {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--fs-body);
+}
+.studio-sandbox__inventory {
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+.studio-sandbox__persist {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+/* Action tiles: name row (glyph + label) stacked over the consequence
+   caption. The glyph is the direction: state→file, file→state, fork,
+   loop-back. */
+.studio-sandbox__actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 8px;
+}
+.studio-sandbox__action {
+  appearance: none;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  padding: 10px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+.studio-sandbox__action:hover {
+  border-color: var(--line-2);
+}
+.studio-sandbox__action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.studio-sandbox__action-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+}
+.studio-sandbox__action[data-danger='true'] .studio-sandbox__action-top {
+  color: var(--diff-remove);
+}
+.studio-sandbox__action-name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.studio-sandbox__action-caption {
+  color: var(--muted);
+  font-size: var(--fs-caption);
+  line-height: 1.45;
+}
+
+/* Transient rows: inline branch naming, inline reset confirm (no modals). */
+.studio-sandbox__name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.studio-sandbox__name-input {
+  flex: 1;
+  min-width: 140px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--elevated);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-body);
+  padding: 6px 10px;
+  outline: none;
+}
+.studio-sandbox__name-input:focus {
+  border-color: var(--line-2);
+}
+.studio-sandbox__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--diff-remove) 45%, var(--line));
+  border-radius: 8px;
+  background: var(--deny-tint);
+  padding: 10px 12px;
+}
+.studio-sandbox__confirm-copy {
+  color: var(--ink);
+  font-size: var(--fs-label);
+}
+.studio-sandbox__confirm-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+.studio-sandbox__branches-empty {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--fs-label);
+}
 .studio__content[data-surface='firestore'] > *,
 .studio__content[data-surface='auth'] > *,
 .studio__content[data-surface='storage'] > * {
