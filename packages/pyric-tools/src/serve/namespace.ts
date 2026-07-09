@@ -42,6 +42,13 @@ export interface InitPayload {
   /** `--capture`: the page pushes its session fixture to /__pyric/capture
    *  so `pyric verify` can replay it. Default-on; suppressed by --no-capture. */
   capture?: boolean;
+  /** Messaging climb gate (CDD isolation decision): the SharedWorker host
+   *  enables its flag-gated `messaging.*` ops only when this is true. The
+   *  serve producers emit it from `PYRIC_CLIMB=1` — messaging is in
+   *  `pyric dev` ONLY when explicitly enabled; absent/false ⇒ the ops
+   *  answer `messaging/disabled`. Consumed by the WORKER (serve-init), not
+   *  the page runtime. */
+  messaging?: boolean;
 }
 
 /**

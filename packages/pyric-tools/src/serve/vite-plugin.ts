@@ -432,6 +432,9 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         authUsers: state
           ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
           : seedUsers,
+        // Messaging climb gate (CDD isolation decision): explicit opt-in via
+        // PYRIC_CLIMB=1, mirroring `pyric dev` — never default-on.
+        messaging: process.env.PYRIC_CLIMB === '1',
       });
       // Pyric Studio: mount the disk-backed workspace/project routes that
       // Studio's `local` mode talks to + serve the built Studio app at

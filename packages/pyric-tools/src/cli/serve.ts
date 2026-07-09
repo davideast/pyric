@@ -295,6 +295,10 @@ export async function startServe(opts: {
     authUsers: state
       ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
       : seedUsers,
+    // Messaging climb gate (CDD isolation decision): the worker enables its
+    // flag-gated messaging.* ops only under PYRIC_CLIMB=1 — the same flag
+    // that gates the in-process mirrors. Explicit opt-in, never default.
+    messaging: process.env.PYRIC_CLIMB === '1',
   });
 
   const events = createEventHub();
