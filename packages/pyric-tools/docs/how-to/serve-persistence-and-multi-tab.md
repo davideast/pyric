@@ -32,6 +32,34 @@ session come back.
 > default. The SharedWorker makes **durability the default** so a refresh never
 > loses your work.
 
+## What survives what — the coverage matrix
+
+Durability is per service in this release. "Worker death" means the last tab
+of the origin closed (or the browser tore the SharedWorker down between a
+refresh of your only tab); with two tabs open — Studio plus your app — the
+worker stays alive and everything in this table trivially survives a refresh.
+
+| | refresh<br>(worker alive) | worker death /<br>browser restart | `--persist`<br>(state.json) | `pyric snapshot` |
+| --- | --- | --- | --- | --- |
+| Firestore documents | ✓ | ✓ IndexedDB | ✓ | ✓ |
+| Auth users + session | ✓ | ✓ IndexedDB | ✓ | ✓ |
+| Storage objects | ✓ | ✓ IndexedDB (its own store) | ✗ | ✗ |
+| RTDB data | ✓ | ✗ session-only | ✗ | ✗ |
+| Traffic / event history | ✓ | ✗ session-only | ✗ | ✗ |
+| Sandbox branches | ✓ | ✓ IndexedDB | ✗ deliberately local | ✗ |
+
+Notes, honestly stated:
+
+- **RTDB is session-scoped in this release.** It has no persistence hooks yet;
+  worker death loses the tree. Treat RTDB data as a fixture you can re-seed.
+- **Storage persists in this browser but does not ride `--persist`** — objects
+  live in their own IndexedDB store, so they survive restarts on your machine
+  but are not part of the committable state file or `pyric snapshot`.
+- **Branches never reach `state.json` on purpose**: they are local working
+  state, like a stash, not part of the fixture you'd commit.
+- IndexedDB is **per browser profile, per origin (host:port)** — a different
+  port, profile, or incognito window is a fresh sandbox.
+
 ## Persist to a committable file — `--persist`
 
 ```bash
