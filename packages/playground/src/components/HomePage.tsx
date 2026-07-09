@@ -47,8 +47,6 @@ import { stashPendingPrompt } from '~/lib/sessions/pending-prompt';
 import {
   detectContextSignalMatches,
 } from '~/lib/agent/context';
-import { listSkills } from '~/lib/skills/registry';
-import { useSlashCommands } from './SlashCommandMenu';
 import { useHomeSessions } from '~/hooks/useHomeSessions';
 import { enhancePrompt, countWords } from '~/lib/agent/prompt-enhancer/enhance';
 import { createRepository, getAuthenticatedUser, listAccessibleRepos } from '~/lib/git/github-api';
@@ -94,7 +92,7 @@ import { TopBar } from './TopBar';
 ensureBufferPolyfill();
 
 const PROMPT_PLACEHOLDER =
-  'Ask about Firestore rules, data models, Auth, RTDB, or building an app… (type / for shortcuts)';
+  'Ask about Firestore rules, data models, Auth, RTDB, or building an app… (add skills with the Skills chip below)';
 
 type EnhanceState =
   | { kind: 'idle' }
@@ -730,20 +728,10 @@ function PromptComposer({
 
   const matches = useMemo(() => detectContextSignalMatches(prompt), [prompt]);
 
-  // `/` command menu — pick skills for the session about to be created.
-  const slash = useSlashCommands({
-    value: prompt,
-    onChange: onPromptChange,
-    textareaRef: taRef,
-    items: listSkills().map((s) => ({
-      id: s.id,
-      icon: s.icon,
-      label: s.label,
-      description: s.description,
-      active: selectedSkills.includes(s.id),
-    })),
-    onSelect: (item) => onToggleSkill(item.id),
-  });
+  // Skills for the session about to be created are picked via the
+  // Skills chip (AgentModeControl below) — the single skills UI. The
+  // `/` slash-command menu that used to duplicate it here is retired
+  // (see SlashCommandMenu.tsx).
 
   return (
     <form
@@ -755,16 +743,12 @@ function PromptComposer({
       ].join(' ')}
     >
       <div className="relative">
-        {slash.menu}
         <PromptHighlightTextarea
           textareaRef={taRef}
           value={prompt}
           onValueChange={onPromptChange}
           matches={matches}
-          onKeyDown={(e) => {
-            if (slash.onKeyDown(e)) return;
-            onKeyDown(e);
-          }}
+          onKeyDown={onKeyDown}
           placeholder={PROMPT_PLACEHOLDER}
           rows={4}
           disabled={starting}

@@ -2,14 +2,16 @@
  * Slash-command menu — type `/` in a composer to pick from a filterable
  * option list (arrow keys + Enter/Tab, Esc dismisses; click works too).
  *
- * GENERIC on purpose: items are `{ id, icon, label, description,
- * active? }` and the parent owns what selection means — today the items
- * are skills (selection toggles the skill and strips the `/token` from
- * the text); future commands (seed, enhance, …) slot in as more items.
+ * RETIRED — PENDING REUSE. No composer currently wires this up: the
+ * Skills chip (AgentModeControl) is the single skills UI, and a second
+ * toggle surface here fragmented it. The component and its tests are
+ * kept because the mechanism is sound and generic — if the playground
+ * ever grows true composer COMMANDS (seed, enhance, …) rather than
+ * skill toggles, re-wire this hook for those.
  *
- * Used by BOTH composers: the home new-session box (selection collects
- * skills for the session about to be created) and the playground
- * ComposeBar (selection toggles the live session's skills store).
+ * GENERIC on purpose: items are `{ id, icon, label, description,
+ * active? }` and the parent owns what selection means; selection
+ * strips the `/token` from the text.
  *
  * The hook owns trigger detection + keyboard state; the caller renders
  * `menu` inside a `relative` wrapper around its textarea and runs
@@ -76,6 +78,7 @@ export function stripSlashToken(value: string, token: SlashToken): string {
   return before + after;
 }
 
+/** @public retired pending reuse — see the file docblock. */
 export type SlashMenuPlacement = 'below' | 'above';
 
 export interface SlashMenuLayout {
@@ -119,6 +122,7 @@ interface UseSlashCommandsOpts {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
+/** @public retired pending reuse — see the file docblock. */
 export function useSlashCommands({ value, onChange, items, onSelect, textareaRef }: UseSlashCommandsOpts) {
   const [highlight, setHighlight] = useState(0);
   const [layout, setLayout] = useState<SlashMenuLayout>({
