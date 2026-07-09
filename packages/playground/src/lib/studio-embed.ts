@@ -81,6 +81,17 @@ export function normalizePlaygroundBase(base: string): string {
   return withLeading.endsWith('/') ? withLeading : `${withLeading}/`;
 }
 
+/**
+ * Root-crumb label for the playground breadcrumb rail. Mirrors the
+ * embed flag so the crumb reads like the surface it actually is:
+ * "Prototype" is Studio's name for the embedded playground iframe
+ * (see plans/studio-embed), "Playground" is the standalone app's own
+ * name. Both point at the same href — `playgroundHomeHref`.
+ */
+export function playgroundRootCrumbLabel(embedded: boolean): string {
+  return embedded ? 'Prototype' : 'Playground';
+}
+
 export function playgroundHomeHref({
   base = '/',
   embedded = false,
