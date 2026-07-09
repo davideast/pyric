@@ -51,7 +51,7 @@ export function CommandTypeahead({
   const [active, setActive] = useState(0);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { entries, ensure } = useResourceIndex();
+  const { entries, building, ensure } = useResourceIndex();
 
   useEffect(() => {
     if (!exposeFocus) return;
@@ -149,6 +149,17 @@ export function CommandTypeahead({
           }}
         />
       </div>
+      {open && !groups.length && building && entries === null ? (
+        // No matches YET because the first-ever build hasn't landed a single
+        // batch (entries is still null) — a cheap, non-interactive signal so
+        // a fast typer doesn't see dead air while the index is still
+        // resolving (see `useResourceIndex`'s progressive publication).
+        // Once any batch lands, `entries` flips off null and the real
+        // results box below takes over.
+        <div className="studio-home__command-results" role="status" aria-live="polite">
+          <span className="studio-home__command-group-title">Indexing sandbox…</span>
+        </div>
+      ) : null}
       {open && groups.length ? (
         <div
           className="studio-home__command-results"

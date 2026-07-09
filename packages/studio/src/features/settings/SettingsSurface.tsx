@@ -134,8 +134,11 @@ export function SettingsSurface() {
   const [namingBranch, setNamingBranch] = useState(false);
   const [branchName, setBranchName] = useState('');
 
-  // The live inventory — the same index the Home typeahead builds (30s TTL,
-  // no new backend ops). One build on mount is enough for a settings visit.
+  // The live inventory — the same index the Home typeahead builds (no new
+  // backend ops). One build on mount is enough for a settings visit; `ensure`
+  // rebuilds every call now (see `useResourceIndex`), but its identity is
+  // stable across a build's lifetime, so this effect fires once on mount and
+  // not again per keystroke or rebuild elsewhere.
   const index = useResourceIndex();
   const { ensure } = index;
   useEffect(() => ensure(), [ensure]);
