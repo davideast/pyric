@@ -127,6 +127,62 @@ describe('<AuthUserForm>', () => {
     });
   });
 
+  it('create mode: provider checklist enumerates the sandbox federated set', () => {
+    const { container } = render(<AuthUserForm onSubmit={() => {}} />);
+    const group = container.querySelector('fieldset[data-pyric-field-label="providers"]');
+    expect(group).not.toBeNull();
+    const options = Array.from(
+      group!.querySelectorAll('[data-pyric-provider-option]'),
+    ).map((el) => el.getAttribute('data-pyric-provider-option'));
+    // Mechanically derived from pyric/auth's FEDERATED_PROVIDER_IDS.
+    expect(options).toEqual([
+      'google.com',
+      'apple.com',
+      'facebook.com',
+      'github.com',
+      'twitter.com',
+      'microsoft.com',
+      'yahoo.com',
+    ]);
+  });
+
+  it('create mode: checked providers land on the create payload as providerUserInfo', () => {
+    const onSubmit = mock(() => {});
+    const { container } = render(<AuthUserForm onSubmit={onSubmit} />);
+    const check = (id: string) =>
+      fireEvent.click(
+        container.querySelector(
+          `[data-pyric-provider-option="${id}"] input`,
+        ) as HTMLInputElement,
+      );
+    check('google.com');
+    check('github.com');
+    const form = container.querySelector('[data-pyric-ui="auth-user-form"]') as HTMLElement;
+    fireEvent.submit(form);
+    expect(onSubmit).toHaveBeenCalledWith({
+      mode: 'create',
+      request: {
+        emailVerified: false,
+        disabled: false,
+        providerUserInfo: [{ providerId: 'google.com' }, { providerId: 'github.com' }],
+      },
+    });
+    // Unchecking removes the entry (and an empty selection omits the field).
+    check('google.com');
+    check('github.com');
+    fireEvent.submit(form);
+    expect(onSubmit).toHaveBeenLastCalledWith({
+      mode: 'create',
+      request: { emailVerified: false, disabled: false },
+    });
+  });
+
+  it('edit mode: no provider checklist (linked providers are a consumer affordance)', () => {
+    const { container } = render(<AuthUserForm initial={record()} onSubmit={() => {}} />);
+    expect(container.querySelector('[data-pyric-field-label="providers"]')).toBeNull();
+    expect(container.querySelector('[data-pyric-provider-checklist]')).toBeNull();
+  });
+
   it('edit mode: hydrates fields, submit disabled while pristine', () => {
     const { container } = render(<AuthUserForm initial={record()} onSubmit={() => {}} />);
     const form = container.querySelector('[data-pyric-ui="auth-user-form"]') as HTMLElement;
