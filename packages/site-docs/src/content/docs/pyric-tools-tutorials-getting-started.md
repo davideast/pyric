@@ -1,10 +1,10 @@
 ---
-title: Get started
-section: Tutorials
-order: 1
-description: Scaffold a Firebase-shaped app, run pyric dev against the in-browser sandbox, and connect Claude Code.
+title: "Getting started — scaffold, run pyric dev, and let an agent drive"
+navLabel: "Getting started"
+group: "pyric-tools"
+section: "Tutorials"
+order: 2
 ---
-
 # Getting started — scaffold, run pyric dev, and let an agent drive
 
 By the end of this tutorial you will have:
@@ -24,27 +24,21 @@ Takes about five minutes. You do not need a Firebase account.
 - For step 4: Claude Code installed (`claude --version` works).
 
 ## Step 1 — Scaffold an app
-
 ```bash
 mkdir hello-pyric && cd hello-pyric
 npx pyric init --template web
 ```
-
 `init` writes a small app with **canonical Firebase imports**
 (`firebase/app`, `firebase/auth`, `firebase/firestore` — no pyric imports
 in app code), a `firestore.rules` file, a `firebase.json`, a seed file,
 and adds `pyric-tools` as a devDependency. Then install:
-
 ```bash
 npm install
 ```
-
 ## Step 2 — Serve it on the sandbox
-
 ```bash
 npx pyric dev
 ```
-
 Open <http://localhost:3473>. You'll see the scaffold app with two seeded
 posts ("Welcome to pyric"). Everything you're looking at is running
 against an **in-page Firestore sandbox**: `pyric dev` serves an import
@@ -67,32 +61,26 @@ On a modern browser `pyric dev` runs the sandbox in a **SharedWorker**: every
 tab shares one backend (writes sync live across tabs), and the data is kept in
 the browser — so it **survives a refresh by default**. Add `--persist` for a
 committable, git-trackable copy on disk:
-
 ```bash
 npx pyric dev --persist   # also writes .pyric/state/state.json
 ```
-
 `--fresh` discards the on-disk state; `--seed <file>` loads a fixture set on
-boot (the scaffold ships one). The full flag surface — running ephemerally,
-clearing data, and SharedWorker gotchas — is in the
-[CLI reference](cli#pyric-dev).
+boot (the scaffold ships one). Full details — running ephemerally, clearing
+data, and SharedWorker gotchas — are in
+[persistence and multi-tab](pyric-tools-how-to-serve-persistence-and-multi-tab).
 
 ## Step 4 — Connect Claude Code (the plugin)
 
 Install the pyric plugin:
-
 ```bash
 claude plugin install https://github.com/davideast/pyric
 # (plugin path: pyric-plugin/) — or for a local checkout:
 claude --plugin-dir ./pyric-plugin
 ```
-
 Then, in Claude Code inside your app's directory, run:
-
 ```
 /pyric:pyric-start
 ```
-
 The skill starts `pyric dev --bridge --persist` and opens the app.
 `--bridge` exposes an MCP endpoint inside the dev server; the plugin's stdio
 proxy (`pyric mcp-proxy`) finds the running dev server automatically via the
@@ -108,14 +96,9 @@ Ask Claude Code:
 Watch the page: documents appear as the agent writes them through the
 bridge into the *same sandbox* you're looking at, and the rules
 edit deploys live. You can inspect what it did with:
-
 ```bash
 npx pyric snapshot        # dump sandbox state to a file
 ```
-
-Before that rules edit ships, pyric can lint it for the failure modes
-agents are prone to — see the [lint rules reference](rules-lint).
-
 ## You now have
 
 A local Firebase-shaped dev loop where the backend lives in your browser
@@ -125,8 +108,17 @@ of it — and the same app code deploys unchanged against real Firebase
 
 ## Where next
 
-- **Every command + flag:** the [CLI reference](cli).
+- **Every command + flag:** the [CLI reference](pyric-tools-reference-cli), and the
+  full [docs index](pyric-tools) (guides for verify, snapshot, discover, auth
+  config, persistence/multi-tab).
 - **Existing Firebase app instead of a scaffold?** `pyric dev` works in
   any directory with a `firebase.json` — start at Step 2 in your app.
-- **Rules quality gates** (what blocks a deploy and why): the
-  [lint rules reference](rules-lint).
+- **Manual MCP wiring (no plugin), or connecting a sandbox embedded in
+  your own dev server:** [wire-claude-code.md](pyric-tools-tutorials-wire-claude-code).
+- **Deploying for real** (rules, indexes, hosting incl. preview
+  channels, functions): [`../deploy/`](pyric-tools-deploy), and
+  [`deploy-to-a-preview-channel`](pyric-tools-deploy-how-to-deploy-to-a-preview-channel).
+- **Agent-facing CLI I/O** (`--schema` / `--json` on deploy commands):
+  [`../deploy/reference/cli-agent-io.md`](pyric-tools-deploy-reference-cli-agent-io).
+- **Why an in-browser sandbox at all:** the explanation docs under
+  [`packages/pyric/docs/sandbox/`](pyric-sandbox).

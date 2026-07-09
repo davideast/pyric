@@ -14,10 +14,21 @@ import { publicDocs, docPath, firstParagraph } from '../lib/docs';
 export const GET: APIRoute = async () => {
   const entries = await publicDocs();
 
-  const lines = entries.map((entry) => {
+  // One `##` section per nav group (source package/subtree), one line
+  // per page — same order as the sidebar.
+  const lines: string[] = [];
+  let group = '';
+  for (const entry of entries) {
+    if (entry.data.group !== group) {
+      group = entry.data.group;
+      if (lines.length > 0) lines.push('');
+      lines.push(`## ${group}`, '');
+    }
     const desc = entry.data.description ?? firstParagraph(entry.body ?? '');
-    return `- [${entry.data.title}](${docPath(entry)}.md)${desc ? `: ${desc}` : ''}`;
-  });
+    lines.push(
+      `- [${entry.data.title}](${docPath(entry)}.md)${desc ? `: ${desc}` : ''}`,
+    );
+  }
 
   const body = [
     '# Pyric',
@@ -28,8 +39,6 @@ export const GET: APIRoute = async () => {
     '> without touching a live project.',
     '',
     'Every page below is also served as raw markdown at the linked `.md` URL.',
-    '',
-    '## Docs',
     '',
     ...lines,
     '',

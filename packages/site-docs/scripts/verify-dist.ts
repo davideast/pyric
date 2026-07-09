@@ -4,6 +4,9 @@
  *   bun scripts/verify-dist.ts
  *
  * Checks, against dist/ and the content source:
+ * 0. Every markdown file under every packages/<pkg>/docs tree (pyric,
+ *    pyric-admin, pyric-tools, ui) is ported into the collection and
+ *    built — the full multi-package port, nothing silently dropped.
  * 1. Every content page has an HTML route and a .md twin, and the twin
  *    is byte-identical to the source file minus its front-matter block.
  * 2. llms.txt lists exactly the public pages (internal pages excluded)
@@ -14,7 +17,7 @@
  *    file in dist, and fragment links point at real element ids.
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { join, dirname, resolve, posix } from 'node:path';
+import { join, dirname, resolve, relative, posix, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -64,8 +67,49 @@ const sources: SourcePage[] = readdirSync(contentDir)
 
 const publicPages = sources.filter((s) => !s.internal);
 const internalPages = sources.filter((s) => s.internal);
-check(publicPages.length >= 3, `content: ${publicPages.length} public pages`);
+check(publicPages.length >= 150, `content: ${publicPages.length} public pages`);
 check(internalPages.length >= 1, 'content: has an internal rhythm page');
+
+// ── 0. Multi-package coverage: every packages/<pkg>/docs markdown file
+//       is ported (same slug mapping as scripts/port-content.ts) and
+//       built with its twin. ─────────────────────────────────────────
+console.log('\npackage docs coverage');
+const repoRoot = resolve(root, '..', '..');
+function* walkMd(dir: string): Generator<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) yield* walkMd(full);
+    else if (entry.name.endsWith('.md')) yield full;
+  }
+}
+const slugSet = new Set(sources.map((s) => s.slug));
+for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {
+  const docsRoot = join(repoRoot, 'packages', pkg, 'docs');
+  let count = 0;
+  let missing = 0;
+  for (const file of walkMd(docsRoot)) {
+    count++;
+    const segs = relative(docsRoot, file)
+      .split(sep)
+      .join('/')
+      .replace(/\.md$/, '')
+      .split('/');
+    if (segs[segs.length - 1] === 'README') segs.pop();
+    const slug = [pkg, ...segs].join('-').toLowerCase();
+    const ok =
+      slugSet.has(slug) &&
+      existsSync(join(dist, 'docs', `${slug}.html`)) &&
+      existsSync(join(dist, 'docs', `${slug}.md`));
+    if (!ok) {
+      missing++;
+      check(false, `ported + built: packages/${pkg}/docs → /docs/${slug}`);
+    }
+  }
+  check(
+    count > 0 && missing === 0,
+    `packages/${pkg}/docs fully ported (${count} pages)`,
+  );
+}
 
 // ── 1. Routes + twins ────────────────────────────────────────────────
 console.log('\nroutes and .md twins');
@@ -129,6 +173,7 @@ if (existsSync(indexPath)) {
       typeof p.slug === 'string' &&
       typeof p.path === 'string' &&
       typeof p.title === 'string' &&
+      typeof p.group === 'string' &&
       typeof p.section === 'string' &&
       typeof p.excerpt === 'string' &&
       Array.isArray(p.headings) &&
@@ -176,8 +221,22 @@ for (const file of htmlFiles) {
   const html = readFileSync(file, 'utf8');
   const pageUrl = '/' + posix.relative(dist, file).replace(/\.html$/, '');
   const hrefs = [...html.matchAll(/(?:href|src)="([^"]+)"/g)].map((m) => m[1]);
+  // Composition-level links: the Studio shell bar's tabs point at
+  // Studio's real routes, which exist once dist/ is merged with the
+  // Studio build (the /docs/ seam). They are not in this dist.
+  const studioRoutes = new Set([
+    '/',
+    '/firestore',
+    '/auth',
+    '/rtdb',
+    '/storage',
+    '/traffic',
+    '/prototype',
+    '/settings',
+  ]);
   for (const href of hrefs) {
     if (/^(https?:|mailto:|data:)/.test(href)) continue;
+    if (studioRoutes.has(stripBase(href) || '/')) continue;
     const [pathPart, fragment] = href.split('#');
     let target: string;
     if (pathPart === '') {

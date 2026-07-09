@@ -17,6 +17,7 @@ export const GET: APIRoute = async () => {
       slug: slugOf(entry),
       path: docPath(entry),
       title: entry.data.title,
+      group: entry.data.group,
       section: entry.data.section,
       headings: headings
         .filter((h) => h.depth >= 2 && h.depth <= 3)
@@ -27,7 +28,8 @@ export const GET: APIRoute = async () => {
 
   const index = {
     shape:
-      'pages[]: { slug, path, title, section, headings[]: { depth, slug, text }, excerpt }. ' +
+      'pages[]: { slug, path, title, group, section, headings[]: { depth, slug, text }, excerpt }. ' +
+      'group is the source package/subtree; section is its subdir (Tutorials/How-to/Reference/…). ' +
       'path is path-absolute and base-aware; a raw-markdown twin lives at `${path}.md`.',
     pages,
   };

@@ -1,7 +1,8 @@
 ---
 title: Rhythm audit
-section: Internal
-order: 99
+group: Internal
+section: ""
+order: 9999
 internal: true
 slug: _rhythm
 description: Internal spacing audit page — every block adjacency in one column.

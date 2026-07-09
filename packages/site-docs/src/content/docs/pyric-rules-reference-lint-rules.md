@@ -1,13 +1,12 @@
 ---
-title: Lint rules
-section: Reference
-order: 11
-description: Every lint rule emitted by lintFirestoreRules — code, severity, what it detects, and the suggested fix.
+title: "Lint rules"
+group: "pyric / rules"
+section: "Reference"
+order: 75
 ---
-
 # Lint rules
 
-This page lists every lint rule emitted by `lintFirestoreRules`. Each entry gives the rule code, default severity, what it detects, and the suggested fix. Run the linter from the command line with [`pyric rules:lint`](cli#rules).
+This page lists every lint rule emitted by `lintFirestoreRules`. Each entry gives the rule code, default severity, what it detects, and the suggested fix.
 
 Severities have two values:
 
@@ -116,6 +115,8 @@ These flag patterns that *compile* but are almost always wrong.
 - **Activation**: only fires when `options.testCases` is passed.
 - **Detection**: for each rule that transitively reads `request.time`, emit one warning per `TestCase` whose `path` matches the rule's match path and which does not set `requestTime`.
 - **Fix**: set `requestTime` on the test case to an ISO-8601 string.
+
+See [Pin `request.time` for deterministic tests](pyric-rules-how-to-pin-request-time).
 
 ## Hallucination and syntax-hint rules
 

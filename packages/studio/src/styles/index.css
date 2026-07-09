@@ -208,6 +208,13 @@
   white-space: nowrap;
   transition: color 0.12s, border-color 0.12s;
 }
+/* The Docs tab is an <a> (a full-page link to the composed /docs pages),
+   not a routed <button>; align the anchor box with the button tabs. */
+a.studio__nav-tab {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
 .studio__nav-tab:hover {
   color: color-mix(in srgb, var(--ink) 80%, transparent);
 }

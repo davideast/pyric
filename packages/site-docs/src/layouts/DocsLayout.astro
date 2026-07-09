@@ -2,7 +2,8 @@
 import type { MarkdownHeading } from 'astro';
 import '../styles/site.css';
 import '../styles/rhythm.css';
-import { navSections, docPath, withBase, slugOf } from '../lib/docs';
+import DocsNav from '../components/DocsNav.astro';
+import { withBase, STUDIO_TABS } from '../lib/docs';
 
 interface Props {
   title: string;
@@ -12,16 +13,15 @@ interface Props {
 }
 
 const { title, description, headings, currentSlug } = Astro.props;
-const sections = await navSections();
 const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
 ---
 
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{title} · Pyric docs</title>
+    <title>{title} · Pyric Studio</title>
     {description ? <meta name="description" content={description} /> : null}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -31,12 +31,28 @@ const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
     />
   </head>
   <body>
-    <header class="site-header">
-      <div class="site-header-inner">
-        <a class="site-brand" href={withBase('/docs/get-started')}
-          ><span>▲</span> pyric</a
+    {/* The Pyric Studio shell bar — docs are a tab OF Studio, so the
+        bar IS Studio's bar: brand, then the full tab set with Docs
+        active. Every other tab is a plain full-page link back to
+        Studio's real route, so navigation round-trips. */}
+    <header class="studio__bar">
+      <div class="studio__bar-inner">
+        <a class="studio__brand" href={withBase('/')} aria-label="Pyric Studio"
+          >Pyric</a
         >
-        <span class="site-header-label">docs</span>
+        <nav class="studio__nav" aria-label="Studio tabs">
+          {
+            STUDIO_TABS.map((tab) => (
+              <a
+                class="studio__nav-tab"
+                href={withBase(tab.path)}
+                aria-current={tab.id === 'docs' ? 'page' : undefined}
+              >
+                {tab.label}
+              </a>
+            ))
+          }
+        </nav>
       </div>
     </header>
 
@@ -44,54 +60,10 @@ const tocHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
       {/* Mobile drawer duplicates the nav; CSS shows exactly one. */}
       <details class="docs-nav-drawer">
         <summary>Navigate</summary>
-        <nav class="docs-nav" aria-label="Documentation">
-          {
-            sections.map(({ section, entries }) => (
-              <div class="docs-nav-section">
-                <h2 class="docs-nav-heading">{section}</h2>
-                <ul>
-                  {entries.map((entry) => (
-                    <li>
-                      <a
-                        href={docPath(entry)}
-                        aria-current={
-                          slugOf(entry) === currentSlug ? 'page' : undefined
-                        }
-                      >
-                        {entry.data.title}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))
-          }
-        </nav>
+        <DocsNav currentSlug={currentSlug} />
       </details>
 
-      <nav class="docs-nav" aria-label="Documentation">
-        {
-          sections.map(({ section, entries }) => (
-            <div class="docs-nav-section">
-              <h2 class="docs-nav-heading">{section}</h2>
-              <ul>
-                {entries.map((entry) => (
-                  <li>
-                    <a
-                      href={docPath(entry)}
-                      aria-current={
-                        slugOf(entry) === currentSlug ? 'page' : undefined
-                      }
-                    >
-                      {entry.data.title}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))
-        }
-      </nav>
+      <DocsNav currentSlug={currentSlug} />
 
       <main class="doc-main">
         <article class="prose">

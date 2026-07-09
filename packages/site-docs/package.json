@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "port": "bun scripts/port-content.ts",
+    "build": "bun scripts/port-content.ts && astro build",
     "preview": "astro preview",
     "verify": "bun scripts/verify-dist.ts",
     "test": "bun run build && bun scripts/verify-dist.ts"
@@ -15,6 +16,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "github-slugger": "^2.0.0",
     "typescript": "^5.7.0"
   }
 }

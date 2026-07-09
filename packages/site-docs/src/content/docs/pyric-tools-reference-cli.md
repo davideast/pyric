@@ -1,10 +1,9 @@
 ---
-title: CLI reference
-section: Reference
-order: 10
-description: The complete command and flag surface of the pyric binary — defaults, environment variables, and exit codes.
+title: "pyric CLI reference"
+group: "pyric-tools"
+section: "Reference"
+order: 12
 ---
-
 # `pyric` CLI reference
 
 The complete command + flag surface of the `pyric` binary. This is the
@@ -44,7 +43,6 @@ Commands that touch a **real Firebase project** (`deploy`, `auth:*`,
 ## Local development
 
 <a id="pyric-dev"></a>
-
 ### `pyric dev [flags]`
 
 Serve the app locally with the pyric sandbox standing in for Firebase. Unmodified
@@ -69,6 +67,9 @@ is unavailable). `firestore.rules` is deployed and hot-reloaded over SSE.
 | `--only hosting` | — | Accepted for firebase-serve parity (hosting is all v1 serves). |
 | `--json` | off | One machine line on stdout (`{url, port, mcpUrl, rulesHash, persist, restoredDocs, restoredUsers}`); banner → stderr. Readiness probe: `GET <url>/__pyric/init.json` → 200. |
 
+Persistence, multi-tab, and SharedWorker behaviour are covered in
+[persistence and multi-tab](pyric-tools-how-to-serve-persistence-and-multi-tab).
+
 ### `pyric init [dir] [flags]`
 
 Scaffold a pyric project. Never prompts; rerunning is safe (idempotent).
@@ -81,7 +82,6 @@ Scaffold a pyric project. Never prompts; rerunning is safe (idempotent).
 | `--json` | off | Machine result on stdout: `{template, dir, created, merged, skipped, conflicts, nextSteps}`. |
 
 <a id="pyric-snapshot"></a>
-
 ### `pyric snapshot [flags]`
 
 Promote lived sandbox state (a live `dev --persist`, else
@@ -96,8 +96,9 @@ re-serves (docs + auth users).
 | `--include-passwords` | redacted | Keep auth-user passwords in the fixture (default: redacted). Trusted/local fixtures only. |
 | `--json` | off | Machine output on stdout. |
 
-<a id="pyric-verify"></a>
+See [promote sandbox state to a fixture](pyric-tools-how-to-promote-sandbox-state-to-a-fixture).
 
+<a id="pyric-verify"></a>
 ### `pyric verify [fixture|dir] [flags]`
 
 Replay a captured sandbox session against candidate rules. Captures can contain
@@ -122,7 +123,6 @@ missing candidate rules exits `2`. Firestore auto-id aliases, time drift, and
 sentinel drift are informational and do not fail.
 
 Examples:
-
 ```sh
 pyric verify
 pyric verify journeys/ --rules firestore=firestore.rules
@@ -131,6 +131,7 @@ pyric verify journeys/checkout.json --engine both --project demo-app
 pyric verify --service rtdb --rules rtdb=database.rules.json
 pyric verify --rules firestore=firestore.rules --rules rtdb=database.rules.json
 ```
+See [verify against a captured session](pyric-tools-how-to-verify-against-a-captured-session).
 
 ### `pyric verify cases [fixture] [flags]`
 
@@ -141,22 +142,20 @@ verification.
 |---|---|---|
 | `--service firestore` | `firestore` | The service to derive cases for. Only Firestore is supported. |
 | `--out <path>` | stdout | Write the derived case JSON to a file. |
-
 ```sh
 pyric verify cases journeys/checkout.json --service firestore --out journeys/checkout.cases.json
 ```
-
 ### `pyric mcp-proxy`
 
 Stdio MCP server that relays to a running `pyric dev --bridge`, discovering the
 port via `.pyric/serve.json` (then a port scan). Used by the Claude Code plugin;
-not run by hand. See [getting started, step 4](get-started#step-4--connect-claude-code-the-plugin).
+not run by hand. See [wire Claude Code](pyric-tools-tutorials-wire-claude-code).
 
 ### `pyric bridge [flags]`
 
 Stand up the HTTP+WebSocket bridge external MCP clients connect to. In `sandbox`
 mode it relays to a connected in-browser sandbox; in `prod` mode it operates on a
-real Firebase project (guarded).
+real Firebase project (guarded). See [bridge](pyric-tools-bridge).
 
 | Flag | Default | Description |
 |---|---|---|
@@ -176,7 +175,9 @@ real Firebase project (guarded).
 ### `pyric deploy <rules|indexes|database|hosting|functions>`
 
 Deploy to a real Firebase project. Each target has its own surface (selectors,
-agent I/O via `--schema` / `--json`, preview channels for hosting).
+agent I/O via `--schema` / `--json`, preview channels for hosting). The full
+deploy documentation lives in [`../deploy/`](pyric-tools-deploy) — including the
+[CLI agent I/O reference](pyric-tools-deploy-reference-cli-agent-io).
 
 `pyric deploy database` reads `firebase.json.database.rules` as a Realtime
 Database rules JSON file. The database URL is resolved in this order:
@@ -186,14 +187,14 @@ single default instance discovery via the RTDB management API.
 ### `pyric hosting:channel:deploy <channelId> [--expires <ttl>]`
 
 Mirror of `deploy hosting --channel <channelId>` (firebase-tools spelling) —
-identical behaviour.
+identical behaviour. See [deploy to a preview channel](pyric-tools-deploy-how-to-deploy-to-a-preview-channel).
 
 ---
 
 ## Rules
 
-These wrap the pyric rules toolchain. The lint surface is documented in the
-[lint rules reference](rules-lint).
+These wrap the rules toolchain documented in
+[`pyric/docs/rules/`](pyric-rules).
 
 ### `pyric rules:lint <path>`
 
@@ -235,22 +236,23 @@ These operate on a real project and need credentials (see
 [Environment variables](#environment-variables)).
 
 <a id="pyric-authconfigure-provider"></a>
-
 ### `pyric auth:configure-provider <provider> <true|false>`
 
 Identity Toolkit: enable or disable an auth provider. `<provider>` is one of
 `anonymous`, `email`, `phone`, `google`. `--project` selects the project.
 
-<a id="pyric-authmanage-domains"></a>
+See [configure auth providers and domains](pyric-tools-how-to-configure-auth-providers-and-domains).
 
+<a id="pyric-authmanage-domains"></a>
 ### `pyric auth:manage-domains <add|remove|list> [domain]`
 
 Identity Toolkit: manage the authorised-domain allowlist. `add`/`remove` take a
 `<domain>`; `list` takes none. `--project` selects the project.
 
 <a id="pyric-firestore-discover"></a>
-
 ### `pyric firestore:discover [collection]`
 
 Crawl a real Firestore to infer its schema. An optional `[collection]` narrows
 the crawl. `--project` selects the project.
+
+See [infer a schema from an existing Firestore](pyric-tools-how-to-discover-a-schema-from-firestore).
