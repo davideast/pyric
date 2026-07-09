@@ -26,7 +26,7 @@
  * dev-seed drives real allow/deny ops; `dev --ui` streams live).
  */
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   TrafficGroupRow,
   TrafficRow,
@@ -47,7 +47,40 @@ import {
 } from './verdict.js';
 import { queryWithDenial, selectedDenialId, toggleDenial } from './denial-selection.js';
 import { TrafficDenialInspector } from './TrafficDenialInspector.js';
+import { BillableMetricsView, SubscriptionsRulesView } from './TrafficMetricsViews.js';
 import './traffic.css';
+
+/** The Traffic tab strip's three views (Firebase Console "Usage" reference:
+ *  Timeline / Billable metrics / Subscriptions & Rules), deep-linkable via
+ *  `?view=` (omitted for the default `timeline`, matching the `denial`
+ *  param's drop-when-empty precedent in `shell/path.ts`). */
+export type TrafficTab = 'timeline' | 'billable' | 'subscriptions';
+const TRAFFIC_TABS: ReadonlyArray<{ id: TrafficTab; label: string }> = [
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'billable', label: 'Billable metrics' },
+  { id: 'subscriptions', label: 'Subscriptions & Rules' },
+];
+
+function deriveTrafficTab(): TrafficTab {
+  const { tab, query } = currentPath();
+  if (tab !== 'traffic') return 'timeline';
+  const v = query.view;
+  return v === 'billable' || v === 'subscriptions' ? v : 'timeline';
+}
+
+/** Two-way bind the active Traffic tab to `?view=`, mirroring `useDataNav`'s
+ *  URL-is-the-store shape (PRINCIPLES N4) at feature scale. */
+function useTrafficTab(): readonly [TrafficTab, (tab: TrafficTab) => void] {
+  const active = useSyncExternalStore<TrafficTab>(
+    subscribeToLocation,
+    deriveTrafficTab,
+    () => 'timeline',
+  );
+  const setActive = useCallback((tab: TrafficTab) => {
+    pushPath({ tab: 'traffic', query: { view: tab === 'timeline' ? undefined : tab } });
+  }, []);
+  return [active, setActive] as const;
+}
 
 /** A coarse "Nm ago" for the timeline's left axis tick. */
 function relAgo(at: number, now: number): string {
@@ -88,6 +121,7 @@ const PAGE_SIZE = 100;
 
 export function TrafficSurface() {
   const events = useStudioTraffic();
+  const [tab, setTab] = useTrafficTab();
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all');
   const expandedId = useDenialParam();
   const [visibleRows, setVisibleRows] = useState(PAGE_SIZE);
@@ -164,136 +198,159 @@ export function TrafficSurface() {
 
   return (
     <section data-pyric-ui="traffic-surface" className="traffic">
-      <TrafficTimeline
-        events={events}
-        window={window}
-        liveAt={window.end}
-        bucketCount={36}
-        className="traffic__timeline"
-        header={
-          <div className="traffic__tl-header">
-            <span className="traffic__tl-count">
-              {events.length} requests
-              {atCap ? ` (showing latest ${STUDIO_EVENT_CAP})` : ''}
-            </span>
-            {denied > 0 ? (
-              <button
-                type="button"
-                className="traffic__tl-deny"
-                aria-pressed={verdictFilter === 'deny'}
-                onClick={() =>
-                  setVerdictFilter((f) => (f === 'deny' ? 'all' : 'deny'))
-                }
-                title="Filter the stream to denied requests"
-              >
-                {denied} denied
-              </button>
-            ) : null}
-            <span className="traffic__tl-live">live</span>
-          </div>
-        }
-        axis={(w) => (
-          <div className="traffic__tl-axis">
-            <span>{relAgo(w.start, now)}</span>
-            <span>now</span>
-          </div>
-        )}
-        emptyState={
-          <p className="traffic__empty">No requests in this window yet.</p>
-        }
-      />
-
-      <div className="traffic__filters" role="group" aria-label="Traffic filters">
-        <span className="traffic__filters-label" aria-hidden="true">
-          verdict
-        </span>
-        {VERDICT_FILTERS.map((f) => (
+      <div className="traffic__tabs" role="tablist" aria-label="Traffic views">
+        {TRAFFIC_TABS.map((t) => (
           <button
-            key={f}
+            key={t.id}
             type="button"
-            className="traffic__filter"
-            aria-pressed={verdictFilter === f}
-            onClick={() => setVerdictFilter(f)}
+            role="tab"
+            className="traffic__tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
           >
-            {f}
+            {t.label}
           </button>
         ))}
       </div>
 
-      {/* Deep-linked denial with no visible row (filtered out, beyond the
-          pagination fold, folded into a group, or absent from the buffer):
-          the inspector renders standalone above the log. */}
-      {expandedId && !expandedRowVisible ? (
-        <TrafficDenialInspector
-          key={expandedId}
-          denialId={expandedId}
-          onClose={closeDenial}
-        />
-      ) : null}
-
-      {items.length === 0 ? (
-        <p className="traffic__empty">
-          {verdictFilter === 'all'
-            ? 'No requests yet. Reads, writes, and listeners against the sandbox stream in live.'
-            : `No ${verdictFilter} traffic in this session.`}
-        </p>
+      {tab === 'billable' ? (
+        <BillableMetricsView events={events} window={window} />
+      ) : tab === 'subscriptions' ? (
+        <SubscriptionsRulesView events={events} window={window} />
       ) : (
-        <div className="traffic__log" data-pyric-ui="traffic-log" data-pyric-grouped="">
-          <ul data-pyric-traffic-log-items="">
-            {visibleItems.map((item) =>
-              item.type === 'group' ? (
-                <li key={item.key} data-pyric-traffic-group-entry="">
-                  <TrafficGroupRow
-                    group={item}
-                    // Group MEMBERS navigate to their subject too; member deny
-                    // rows stay inert (the in-place disclosure renders only on
-                    // top-level entries — the library owns member markup).
-                    onSelect={(e) => {
-                      const ev = e as StudioTrafficEvent;
-                      if (verdictFor(ev) === 'deny') return;
-                      const target = subjectTarget(ev);
-                      if (target) pushPath(target);
-                    }}
-                    renderClassification={verdictBadge}
-                    formatTime={defaultFormatTime}
-                  />
-                </li>
-              ) : (
-                <li
-                  key={item.event.id}
-                  data-pyric-traffic-entry=""
-                  data-pyric-traffic-id={item.event.id}
-                  data-verdict={verdictFor(item.event as StudioTrafficEvent) ?? undefined}
-                >
-                  <TrafficRow
-                    event={item.event}
-                    selected={item.event.id === expandedId}
-                    onSelect={(e) => onRowSelect(e as StudioTrafficEvent)}
-                    renderClassification={verdictBadge}
-                    formatTime={defaultFormatTime}
-                  />
-                  {item.event.id === expandedId &&
-                  verdictFor(item.event as StudioTrafficEvent) === 'deny' ? (
-                    <TrafficDenialInspector
-                      key={expandedId}
-                      denialId={expandedId}
-                      onClose={closeDenial}
-                    />
-                  ) : null}
-                </li>
-              ),
+        <>
+          <TrafficTimeline
+            events={events}
+            window={window}
+            liveAt={window.end}
+            bucketCount={36}
+            className="traffic__timeline"
+            header={
+              <div className="traffic__tl-header">
+                <span className="traffic__tl-count">
+                  {events.length} requests
+                  {atCap ? ` (showing latest ${STUDIO_EVENT_CAP})` : ''}
+                </span>
+                {denied > 0 ? (
+                  <button
+                    type="button"
+                    className="traffic__tl-deny"
+                    aria-pressed={verdictFilter === 'deny'}
+                    onClick={() =>
+                      setVerdictFilter((f) => (f === 'deny' ? 'all' : 'deny'))
+                    }
+                    title="Filter the stream to denied requests"
+                  >
+                    {denied} denied
+                  </button>
+                ) : null}
+                <span className="traffic__tl-live">live</span>
+              </div>
+            }
+            axis={(w) => (
+              <div className="traffic__tl-axis">
+                <span>{relAgo(w.start, now)}</span>
+                <span>now</span>
+              </div>
             )}
-          </ul>
-          {hiddenCount > 0 ? (
-            <button
-              type="button"
-              className="traffic__show-more"
-              onClick={() => setVisibleRows((n) => n + PAGE_SIZE)}
-            >
-              Show {Math.min(hiddenCount, PAGE_SIZE)} more ({hiddenCount} hidden)
-            </button>
+            emptyState={
+              <p className="traffic__empty">No requests in this window yet.</p>
+            }
+          />
+
+          <div className="traffic__filters" role="group" aria-label="Traffic filters">
+            <span className="traffic__filters-label" aria-hidden="true">
+              verdict
+            </span>
+            {VERDICT_FILTERS.map((f) => (
+              <button
+                key={f}
+                type="button"
+                className="traffic__filter"
+                aria-pressed={verdictFilter === f}
+                onClick={() => setVerdictFilter(f)}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+
+          {/* Deep-linked denial with no visible row (filtered out, beyond the
+              pagination fold, folded into a group, or absent from the buffer):
+              the inspector renders standalone above the log. */}
+          {expandedId && !expandedRowVisible ? (
+            <TrafficDenialInspector
+              key={expandedId}
+              denialId={expandedId}
+              onClose={closeDenial}
+            />
           ) : null}
-        </div>
+
+          {items.length === 0 ? (
+            <p className="traffic__empty">
+              {verdictFilter === 'all'
+                ? 'No requests yet. Reads, writes, and listeners against the sandbox stream in live.'
+                : `No ${verdictFilter} traffic in this session.`}
+            </p>
+          ) : (
+            <div className="traffic__log" data-pyric-ui="traffic-log" data-pyric-grouped="">
+              <ul data-pyric-traffic-log-items="">
+                {visibleItems.map((item) =>
+                  item.type === 'group' ? (
+                    <li key={item.key} data-pyric-traffic-group-entry="">
+                      <TrafficGroupRow
+                        group={item}
+                        // Group MEMBERS navigate to their subject too; member deny
+                        // rows stay inert (the in-place disclosure renders only on
+                        // top-level entries — the library owns member markup).
+                        onSelect={(e) => {
+                          const ev = e as StudioTrafficEvent;
+                          if (verdictFor(ev) === 'deny') return;
+                          const target = subjectTarget(ev);
+                          if (target) pushPath(target);
+                        }}
+                        renderClassification={verdictBadge}
+                        formatTime={defaultFormatTime}
+                      />
+                    </li>
+                  ) : (
+                    <li
+                      key={item.event.id}
+                      data-pyric-traffic-entry=""
+                      data-pyric-traffic-id={item.event.id}
+                      data-verdict={verdictFor(item.event as StudioTrafficEvent) ?? undefined}
+                    >
+                      <TrafficRow
+                        event={item.event}
+                        selected={item.event.id === expandedId}
+                        onSelect={(e) => onRowSelect(e as StudioTrafficEvent)}
+                        renderClassification={verdictBadge}
+                        formatTime={defaultFormatTime}
+                      />
+                      {item.event.id === expandedId &&
+                      verdictFor(item.event as StudioTrafficEvent) === 'deny' ? (
+                        <TrafficDenialInspector
+                          key={expandedId}
+                          denialId={expandedId}
+                          onClose={closeDenial}
+                        />
+                      ) : null}
+                    </li>
+                  ),
+                )}
+              </ul>
+              {hiddenCount > 0 ? (
+                <button
+                  type="button"
+                  className="traffic__show-more"
+                  onClick={() => setVisibleRows((n) => n + PAGE_SIZE)}
+                >
+                  Show {Math.min(hiddenCount, PAGE_SIZE)} more ({hiddenCount} hidden)
+                </button>
+              ) : null}
+            </div>
+          )}
+        </>
       )}
     </section>
   );
