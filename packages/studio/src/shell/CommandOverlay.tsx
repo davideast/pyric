@@ -21,6 +21,17 @@ export function CommandOverlay({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
+  // Escape closes even when focus has wandered off the input (e.g. onto a
+  // result button). The input's own Escape path also calls onClose — closing
+  // twice is a no-op.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   return (
     <div className="studio__cmdk-backdrop" onMouseDown={onClose}>
       <div
