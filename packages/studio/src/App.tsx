@@ -6,10 +6,13 @@
  * metadata, and maintenance live in Settings.
  */
 
+import { useEffect, useState } from 'react';
 import { DevSeedProvider, useDevSeed } from './dev/DevSeedProvider.js';
 import { EnvironmentProvider } from './shell/environment.js';
 import { ThemeProvider } from './shell/theme.js';
 import { useRoute } from './shell/router.js';
+import { focusInlineCommand, isCommandK } from './shell/command-k.js';
+import { CommandOverlay } from './shell/CommandOverlay.js';
 import { ROUTE_IDS, ROUTES, findRoute, type RouteId } from './shell/routes.js';
 import { StatusCluster } from './shell/StatusCluster.js';
 import { FirestorePane, StoragePane } from './components/panes.js';
@@ -84,6 +87,36 @@ function Surface({ id }: { id: string }) {
 function Shell() {
   const [active, navigateRoute] = useRoute(ROUTE_IDS, 'home');
   const navigate = (id: RouteId) => navigateRoute(id);
+  const [commandOpen, setCommandOpen] = useState(false);
+
+  // Global ⌘K (Ctrl+K non-mac): on Home it focuses the inline command input;
+  // elsewhere it toggles the overlay below the bar. preventDefault ONLY when
+  // we actually handled the chord — never fight the browser otherwise.
+  const onHome = active === 'home';
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isCommandK(e)) return;
+      if (commandOpen) {
+        e.preventDefault();
+        setCommandOpen(false);
+        return;
+      }
+      if (onHome) {
+        if (focusInlineCommand()) e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+      setCommandOpen(true);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onHome, commandOpen]);
+
+  // Navigating away (any path — a selection, a tab click) retires the overlay.
+  useEffect(() => {
+    if (onHome) setCommandOpen(false);
+  }, [onHome]);
+
   return (
     <div className="studio" data-surface={active}>
       <header className="studio__bar">
@@ -122,6 +155,8 @@ function Shell() {
           </div>
         ) : null}
       </main>
+
+      {commandOpen ? <CommandOverlay onClose={() => setCommandOpen(false)} /> : null}
     </div>
   );
 }

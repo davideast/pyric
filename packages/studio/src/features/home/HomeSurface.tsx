@@ -12,20 +12,20 @@
  * All layout is gap-based; every child fills its container (L2/L3).
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { ROUTES, type RouteId } from '../../shell/routes.js';
 import { hrefFor, pushPath } from '../../shell/router.js';
 import { useServeInit } from '../../shell/serve-init.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
+import { setInlineCommandFocus } from '../../shell/command-k.js';
 import {
   useSandboxInstanceId,
   useStudioDataSource,
   useStudioEvents,
 } from '../../shell/studio-data.js';
 import { useDevSeed } from '../../dev/DevSeedProvider.js';
-import type { CommandResult, CommandTarget } from './command.js';
-import { flattenSuggestions, matchTypeahead } from './typeahead.js';
-import { useResourceIndex } from './useResourceIndex.js';
+import type { CommandTarget } from './command.js';
+import { CommandTypeahead } from './CommandTypeahead.js';
 import { selectActivity } from './activity.js';
 import './home.css';
 
@@ -60,153 +60,6 @@ function RouteLink({
     >
       {children}
     </a>
-  );
-}
-
-// ─── Command input (primary) ────────────────────────────────────────────────
-
-const TYPEAHEAD_DEBOUNCE_MS = 150;
-
-/** Input that looks RTDB-directed — the one signal worth a full-tree RTDB
- *  read on index refresh (see useResourceIndex's tradeoff note). */
-function looksRtdbish(input: string): boolean {
-  return input.startsWith('/') || /rtdb/i.test(input);
-}
-
-function CommandInput() {
-  const [input, setInput] = useState('');
-  const [query, setQuery] = useState('');
-  const [active, setActive] = useState(0);
-  const [open, setOpen] = useState(false);
-  const { entries, ensure } = useResourceIndex();
-
-  // 150ms debounce: the matcher runs against `query`, not each keystroke.
-  useEffect(() => {
-    const t = setTimeout(() => setQuery(input), TYPEAHEAD_DEBOUNCE_MS);
-    return () => clearTimeout(t);
-  }, [input]);
-
-  const groups = useMemo(
-    () => matchTypeahead(query, ROUTES, entries ?? []),
-    [query, entries],
-  );
-  const flat = useMemo(() => flattenSuggestions(groups), [groups]);
-
-  // Keep the keyboard cursor on a real row as the result set changes.
-  useEffect(() => {
-    setActive((cur) => (flat.length === 0 ? 0 : Math.min(cur, flat.length - 1)));
-  }, [flat.length]);
-
-  const run = (result: CommandResult | undefined) => {
-    if (!result) return;
-    setInput('');
-    setQuery('');
-    setOpen(false);
-    go(result.target);
-  };
-
-  // Enter must act on what the user SEES TYPED, not the debounced snapshot:
-  // if the debounce hasn't committed yet, recompute against the current input
-  // and take its top hit (the stale `active` index has no meaning there).
-  const commit = () => {
-    if (input === query) {
-      run(flat[active] ?? flat[0]);
-      return;
-    }
-    const fresh = flattenSuggestions(matchTypeahead(input, ROUTES, entries ?? []));
-    run(fresh[0]);
-  };
-
-  // Group-relative → flat index (for the active-row highlight).
-  let flatOffset = 0;
-
-  return (
-    <div className="studio-home__command">
-      <div className="studio-home__command-row">
-        <input
-          className="studio-home__command-input"
-          type="text"
-          value={input}
-          placeholder="Jump to a surface, collection, doc, user, or object…"
-          aria-label="Command input"
-          role="combobox"
-          aria-expanded={open && flat.length > 0}
-          aria-autocomplete="list"
-          onFocus={() => {
-            ensure();
-            setOpen(true);
-          }}
-          onBlur={() => setOpen(false)}
-          onChange={(e) => {
-            const next = e.target.value;
-            setInput(next);
-            setOpen(true);
-            if (looksRtdbish(next)) ensure({ rtdbLikely: true });
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowDown') {
-              e.preventDefault();
-              setActive((cur) => Math.min(cur + 1, Math.max(flat.length - 1, 0)));
-            } else if (e.key === 'ArrowUp') {
-              e.preventDefault();
-              setActive((cur) => Math.max(cur - 1, 0));
-            } else if (e.key === 'Enter') {
-              commit();
-            } else if (e.key === 'Escape') {
-              setInput('');
-              setQuery('');
-              setOpen(false);
-            }
-          }}
-        />
-      </div>
-      {open && groups.length ? (
-        <div
-          className="studio-home__command-results"
-          role="listbox"
-          aria-label="Suggestions"
-          // Keep focus in the input so onBlur doesn't close the listbox
-          // before a suggestion's click handler fires.
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          {groups.map((group) => {
-            const start = flatOffset;
-            flatOffset += group.results.length;
-            return (
-              <div key={group.kind} className="studio-home__command-group">
-                <span className="studio-home__command-group-title" aria-hidden="true">
-                  {group.title}
-                </span>
-                <ul className="studio-home__command-group-list">
-                  {group.results.map((r, i) => {
-                    const flatIndex = start + i;
-                    return (
-                      // Keyed with the flat index too: two entries can share a
-                      // kind+label id (e.g. two users with no email whose uids
-                      // render identically after truncation upstream).
-                      <li key={`${r.id}:${flatIndex}`}>
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={flatIndex === active}
-                          className="studio-home__command-result"
-                          data-active={flatIndex === active ? 'true' : undefined}
-                          onMouseEnter={() => setActive(flatIndex)}
-                          onClick={() => run(r)}
-                        >
-                          <span className="studio-home__command-label">{r.label}</span>
-                          <span className="studio-home__command-sub">{r.hint}</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
   );
 }
 
@@ -469,7 +322,9 @@ export function HomeSurface() {
 
   return (
     <section className="studio-surface studio-home" aria-label="Home">
-      <CommandInput />
+      {/* The typeahead's INLINE mount; ⌘K on Home focuses it via the
+          registered handle (shell/command-k.ts) instead of overlaying. */}
+      <CommandTypeahead exposeFocus={setInlineCommandFocus} />
       <StatusStrip />
       <div className="studio-home__body">
         {loading ? (

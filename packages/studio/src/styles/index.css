@@ -811,7 +811,40 @@ button.studio-card:hover {
   font-weight: 500;
 }
 
-/* ── ⌘K command palette ──────────────────────────────────────────────── */
+/* ── Global ⌘K overlay: the command typeahead's second mount ──────────
+   Positioned BELOW the 54px bar — the bar stays visible and uncovered;
+   only the content region dims. The panel reuses the Home typeahead's own
+   classes (`.studio-home__command*`), so the two mounts share one look. */
+.studio__cmdk-backdrop {
+  position: fixed;
+  top: 54px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: clamp(24px, 8vh, 72px) var(--gutter, 16px) 0;
+  z-index: 40;
+}
+.studio__cmdk {
+  width: 100%;
+  max-width: 560px;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px -12px rgba(0, 0, 0, 0.35);
+}
+/* The results listbox is part of the same floating panel — same elevated
+   register as the input row (inline mode uses the flatter --panel). */
+.studio__cmdk .studio-home__command-results {
+  background: var(--elevated);
+}
+
+/* ── Centered modal panel (`.studio__palette*`) ───────────────────────
+   Originally the ⌘K palette's chrome; the palette component is gone (the
+   global ⌘K reuses the Home typeahead), but the AI SettingsModal still
+   renders on these classes. */
 .studio__palette-backdrop {
   position: fixed;
   inset: 0;
