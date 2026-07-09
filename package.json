@@ -27,6 +27,7 @@
     "compat:generate": "bun run scripts/compat/generate-docs.ts --write",
     "compat:report": "bun run scripts/compat/report.ts",
     "compat:validate": "bun run scripts/compat/validate-registry.ts",
+    "compat:climb": "bun run scripts/compat/climb.ts",
     "compat:audit": "bun run scripts/oracle/audit.ts",
     "compat:oracle-versions": "bun run scripts/oracle/check-observation-versions.ts",
     "compat:oracle-check": "bun run scripts/oracle/check-observations.ts",
