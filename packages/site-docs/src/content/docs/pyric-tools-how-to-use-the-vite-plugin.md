@@ -11,7 +11,10 @@ The `pyricSandbox()` Vite plugin gives a **source-driven** app the same
 `firebase/*` → pyric-sandbox swap that `pyric dev` gives a **static** app —
 without leaving your normal `vite dev` loop (HMR, source maps, your own
 router/UI stack). Your app's `firebase/*` imports stay exactly as written; the
-plugin swaps them at Vite's module-resolution layer, in dev only.
+plugin swaps them at Vite's module-resolution layer. A plain `vite build` keeps
+the real firebase package; only `vite dev` and an explicit sandbox build
+(`vite build --mode development`) run the swap — see
+[Two build flavors](#two-build-flavors-production-vs-sandbox).
 
 ## Plugin or `pyric dev`? (they're complementary)
 
@@ -78,6 +81,7 @@ With no options, the plugin discovers your rules from `firebase.json`'s
 | `seed` | `string` | — | Path to a seed file: a `"collection/doc" → fields` JSON map, **or** a `pyric snapshot` state-file. Applied at page init; lived state wins once it exists. |
 | `capture` | `boolean` | `true` | Write the live session to `.pyric/last-session.json` for `pyric verify`. Pass `false` to suppress. |
 | `bridge` | `boolean \| { project?, disableAuditLog? }` | `false` | Mount the **MCP bridge** so an external agent can drive the sandbox. `true` ⇒ defaults; the object form sets the audit project / disables the audit log. The agent shares the **same SharedWorker sandbox** as your app (and Studio) — see [Drive the sandbox from an agent](#drive-the-sandbox-from-an-agent-bridge). |
+| `swapInBuild` | `boolean` | mode-based | Force whether `vite build` runs the swap, overriding the mode default. Unset: swap for any non-`production` mode. `true` = always a sandbox build; `false` = always real firebase in builds. `vite dev` is unaffected. See [Two build flavors](#two-build-flavors-production-vs-sandbox). |
 ```ts
 // Point at a non-default rules file, and persist + seed the sandbox
 pyricSandbox({
@@ -103,7 +107,7 @@ Now `vite dev` serves your app against the in-process pyric sandbox:
 - The Firebase config you pass to `initializeApp(config)` is
   **accepted but ignored** in dev. No project, no credentials, no network —
   the sandbox stands in for the real backend. (That same config flows through
-  untouched to your production build; see [Production](#production-vite-build).)
+  untouched to your production build; see [Two build flavors](#two-build-flavors-production-vs-sandbox).)
 
 ### Rules hot-reload on save
 
@@ -181,16 +185,56 @@ The bridge is the same machinery as [`pyric dev --bridge`](../pyric-tools-how-to
 the [Wire Claude Code](../pyric-tools-tutorials-wire-claude-code/) tutorial walks the
 agent-side setup end to end.
 
-## Production (`vite build`)
+## Two build flavors: production vs. sandbox
 
-The plugin is **dev-only** (`apply: 'serve'`). A production `vite build` ships
-the **real `firebase` package** — the swap never reaches your production output.
+Under `vite dev` the swap is always on. For `vite build`, the plugin decides by
+the build **mode**:
 
-This means there is **no separate "graduation" step**. The Firebase config you
-passed to `initializeApp` — ignored by the sandbox in dev — is the *same* config
-your built app uses to talk to real Firebase in production. Dev and prod are one
-toolchain: `vite dev` runs on the sandbox, `vite build` runs on Firebase, and
-your source never changes between them.
+| Command | Mode | Output |
+|---|---|---|
+| `vite build` | `production` (default) | ships the **real `firebase` package** — your production artifact |
+| `vite build --mode development` | any non-`production` mode | a **sandbox build** that bundles pyric's in-page adapters instead of the SDK |
+
+A plain `vite build` means there is **no separate "graduation" step**. The
+Firebase config you passed to `initializeApp` — ignored by the sandbox in dev —
+is the *same* config your built app uses to talk to real Firebase in production.
+Dev and prod are one toolchain: `vite dev` and the sandbox build run on the
+sandbox, `vite build` runs on Firebase, and your source never changes between
+them.
+
+### The sandbox build (`vite build --mode development`)
+
+`vite build --mode development` produces a **self-contained bundle** whose
+`firebase/*` imports are already swapped to pyric's in-page adapters, plus a
+sandbox init chunk (the runtime bootstrap and the sign-in helper) that shares
+one runtime with your app — nothing to intercept or inject at load time, so you
+can preview a bundled build under `pyric dev` (which sees the marker and skips
+its own runtime injection for these pages):
+```bash
+vite build --mode development   # or the scaffolded `build:sandbox` script
+pyric dev                       # serves dist/ against the sandbox
+```
+The output carries a **sandbox-build marker** in `index.html`
+(`<meta name="pyric-sandbox-build">`). The marker makes the flavor unmistakable:
+
+- `pyric dev` **trusts** a marked dist and serves it (it skips the inlined-SDK
+  scan — a swapped bundle has no real SDK to find).
+- `pyric deploy hosting` **refuses** a marked dist — a sandbox build must never
+  reach production.
+
+To force the build behavior regardless of mode, pass `swapInBuild` to the
+plugin: `pyricSandbox({ swapInBuild: true })` always produces a sandbox build,
+`{ swapInBuild: false }` never swaps in a build (real firebase in every mode).
+
+### Why `pyric dev` refuses a plain `vite build`
+
+`pyric dev`'s import map can only remap **bare** `firebase/*` specifiers. A plain
+`vite build` inlines the real SDK into the app chunk, leaving nothing to
+intercept — the page would reach live Google endpoints with the sandbox's fake
+credentials. Rather than serve that silently, `pyric dev` **hard-refuses** a dist
+that bundles the real SDK and points you at the two ways forward: run plain
+`pyric dev` (the child dev-server flow, plugin active), or rebuild with
+`vite build --mode development` and serve that.
 
 ## Library imports are swapped too (transitive deps)
 

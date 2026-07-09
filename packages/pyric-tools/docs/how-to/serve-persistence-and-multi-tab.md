@@ -44,14 +44,12 @@ worker stays alive and everything in this table trivially survives a refresh.
 | Firestore documents | ✓ | ✓ IndexedDB | ✓ | ✓ |
 | Auth users + session | ✓ | ✓ IndexedDB | ✓ | ✓ |
 | Storage objects | ✓ | ✓ IndexedDB (its own store) | ✗ | ✗ |
-| RTDB data | ✓ | ✗ session-only | ✗ | ✗ |
-| Traffic / event history | ✓ | ✗ session-only | ✗ | ✗ |
+| RTDB data | ✓ | ✓ IndexedDB | ✓ | ✓ (rides the state blob) |
+| Traffic / event history | ✓ | ✓ re-hydrated from the session capture (served mode; the last ~400ms can lag) | ✗ | ✗ |
 | Sandbox branches | ✓ | ✓ IndexedDB | ✗ deliberately local | ✗ |
 
 Notes, honestly stated:
 
-- **RTDB is session-scoped in this release.** It has no persistence hooks yet;
-  worker death loses the tree. Treat RTDB data as a fixture you can re-seed.
 - **Storage persists in this browser but does not ride `--persist`** — objects
   live in their own IndexedDB store, so they survive restarts on your machine
   but are not part of the committable state file or `pyric snapshot`.
