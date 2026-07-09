@@ -62,6 +62,21 @@ mkdir -p "$OUT_DIR"
 echo ""
 echo "━━━ Phase 2: pack ━━━"
 
+# The npm-facing README for the core packages is the ROOT readme (the
+# branded one npmjs renders for `latest`); each package keeps its own
+# README.md in the source tree as the in-repo doc. COPY, never symlink —
+# `npm pack` does not follow symlinks. The original is restored even on
+# failure (RETURN trap), so the working tree stays clean.
+ROOT_README_PACKAGES=("pyric" "pyric-admin" "pyric-tools")
+
+uses_root_readme() {
+  local name="$1"
+  for n in "${ROOT_README_PACKAGES[@]}"; do
+    [ "$n" = "$name" ] && return 0
+  done
+  return 1
+}
+
 pack_one() {
   local pkg_dir="$1"
   local name
@@ -69,6 +84,21 @@ pack_one() {
   local version
   version=$(jq -r '.version' "$ROOT/$pkg_dir/package.json")
   echo "▸ packing $name@$version"
+
+  local swapped=0
+  restore_readme() {
+    if [ "$swapped" -eq 1 ]; then
+      mv "$ROOT/$pkg_dir/README.md.orig" "$ROOT/$pkg_dir/README.md"
+      swapped=0
+    fi
+  }
+  trap restore_readme RETURN
+  if uses_root_readme "$name"; then
+    mv "$ROOT/$pkg_dir/README.md" "$ROOT/$pkg_dir/README.md.orig"
+    cp "$ROOT/README.md" "$ROOT/$pkg_dir/README.md"
+    swapped=1
+    echo "    (README: root readme swapped in for npm)"
+  fi
 
   # npm pack writes <flattened-name>-<version>.tgz (scope removed,
   # `/` replaced by `-`). Capture the produced filename via npm's
