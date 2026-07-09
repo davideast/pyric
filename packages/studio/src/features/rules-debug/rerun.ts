@@ -40,6 +40,8 @@ import {
   deleteDoc,
   addDoc,
   getDoc,
+  getDocs,
+  query,
   SandboxError,
 } from 'pyric/firestore';
 import { lintFirestoreRules, type LintWarning } from 'pyric/rules';
@@ -185,8 +187,14 @@ export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunRe
         await getDoc(doc(db, denial.path));
         break;
       case 'list':
-        // A list/query denial reproduces as a read of the collection path.
-        await getDoc(doc(db, denial.path));
+      case 'listen':
+        // A list/query denial reproduces as a COLLECTION read, not a doc read.
+        // The denial's `path` is the collection (odd segment count), so
+        // `doc(db, path)` would throw INVALID-ARGUMENT ("document path must have
+        // an even number of segments") — a raw SDK shape error, never a rules
+        // verdict. `getDocs(query(collection(...)))` issues the right op shape so
+        // the re-run reflects the actual list rule decision.
+        await getDocs(query(collection(db, denial.path)));
         break;
       case 'create':
       case 'set':

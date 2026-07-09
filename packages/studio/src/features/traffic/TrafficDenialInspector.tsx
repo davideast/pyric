@@ -128,6 +128,7 @@ export function TrafficDenialInspector({
       <DenialDetail
         denial={denial}
         editedRules={effectiveEditedRules}
+        rulesSource={rulesSource}
         onEditedRulesChange={setEditedRules}
         onRerunAsUser={onRerunAsUser}
         onRerunAgainstRules={onRerunAgainstRules}

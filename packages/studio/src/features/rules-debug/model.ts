@@ -18,6 +18,7 @@ import type {
   SandboxEvent,
   SandboxOperationEvent,
 } from 'pyric/sandbox';
+import type { DeniedRuleInfo, ExprTraceEntry } from 'pyric/rules';
 
 type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent;
 
@@ -57,6 +58,13 @@ export interface Denial {
   resourceData?: unknown;
   /** Existing doc state the rule saw (`null`/`exists:false` ⇒ absent doc). */
   resourceBefore?: { data: unknown; exists: boolean };
+  /** The denying rule's 1-indexed source line + condition text + sub-expression
+   *  evaluation trace, threaded from the Firestore simulator's structured
+   *  `RuleEvaluation` (`RequestEvent.deniedRule`). Drives the ✗ line marker in
+   *  the rules editor views and the "show the work" step-through. Absent on an
+   *  implicit deny (no rule evaluated), a simulator-error deny, and for
+   *  RTDB/Storage (which don't emit a Firestore sub-expression trace). */
+  denyingRule?: DeniedRuleInfo;
   /** Where the op came from (user op, listener re-eval, batch, transaction). */
   origin: RequestEvent['origin'] | SandboxOperationEvent['origin'];
   /** `'unsupported'` denials (simulator hit an unmodelled feature) are flagged
@@ -115,6 +123,7 @@ export function toDenial(e: DeniedSandboxEvent): Denial {
     unsupported: e.result === 'unsupported',
   };
   if ('matchedRule' in e && e.matchedRule) d.matchedRule = e.matchedRule;
+  if ('deniedRule' in e && e.deniedRule) d.denyingRule = e.deniedRule;
   if ('rules' in e && e.rules) d.rules = e.rules;
   const requestData = requestDataOf(e);
   if (requestData !== undefined) d.resourceData = requestData;
@@ -375,4 +384,140 @@ export function denialSeverity(denial: Denial): DenialSeverity {
   if (denial.origin === 'listener') return 'low';
   if (explainDenial(denial).implicitDeny) return 'medium';
   return 'high';
+}
+
+/**
+ * Whether to offer the "re-run as the attempting user" (impersonation) row for
+ * a denial. Only when the op ran as a CONCRETE user: an unauthenticated denial
+ * (`request.auth == null`) has no user to impersonate — re-running as the same
+ * (absent) identity isn't impersonation — so the row is dropped entirely rather
+ * than shown as a disabled "no user" button. A future "run as a DIFFERENT user"
+ * picker is the real impersonation design (see `SPEC.md`).
+ */
+export function shouldOfferImpersonation(denial: Denial): boolean {
+  return !!denial.auth?.uid;
+}
+
+// ─── "Show the work": the sub-expression evaluation trace ───────────────────
+
+/**
+ * One node of the denying rule's evaluation, projected from an
+ * {@link ExprTraceEntry} for display. `outcome` classifies the evaluated value
+ * so the UI can mark the branch that was false (the ✗) without re-deriving it:
+ *   - `true` / `false`  the sub-expression evaluated to that boolean;
+ *   - `skipped`         a `&&`/`||` operand short-circuited (not evaluated);
+ *   - `error`           the sub-expression threw;
+ *   - `value`           a non-boolean value (an operand feeding a comparison).
+ * `depth` and `children` reconstruct the AST tree from the flat trace so the
+ * view can indent operands under their operator. Pure — unit-tested.
+ */
+export interface TraceStep {
+  source: string;
+  outcome: 'true' | 'false' | 'skipped' | 'error' | 'value';
+  value?: unknown;
+  error?: string;
+  /** Set when this node recorded a `let name = …` binding inside a function. */
+  letBinding?: string;
+  /** The enclosing user-defined function this node was inlined from, if any. */
+  inlinedFrom?: string;
+  depth: number;
+  children: TraceStep[];
+}
+
+function classifyOutcome(e: ExprTraceEntry): TraceStep['outcome'] {
+  if (e.skipped) return 'skipped';
+  if (e.error !== undefined) return 'error';
+  if (e.value === true) return 'true';
+  if (e.value === false) return 'false';
+  return 'value';
+}
+
+/**
+ * Project a denying rule's flat {@link ExprTraceEntry} array into a tree of
+ * {@link TraceStep}s (via each entry's `parent` index). Roots are the
+ * top-level expressions of the condition. Returns `[]` when the denial carries
+ * no expression trace (implicit deny, simulator-error deny, RTDB/Storage).
+ */
+export function projectTraceSteps(denial: Denial): TraceStep[] {
+  const entries = denial.denyingRule?.expressionTrace;
+  if (!entries || entries.length === 0) return [];
+  const nodes: TraceStep[] = entries.map((e) => ({
+    source: e.source,
+    outcome: classifyOutcome(e),
+    ...(e.value !== undefined ? { value: e.value } : {}),
+    ...(e.error !== undefined ? { error: e.error } : {}),
+    ...(e.letBinding ? { letBinding: e.letBinding.name } : {}),
+    ...(e.inlinedFrom ? { inlinedFrom: e.inlinedFrom.name } : {}),
+    depth: 0,
+    children: [],
+  }));
+  const roots: TraceStep[] = [];
+  entries.forEach((e, i) => {
+    if (e.parent === null || e.parent === undefined || !nodes[e.parent]) {
+      roots.push(nodes[i]);
+    } else {
+      nodes[i].depth = nodes[e.parent].depth + 1;
+      nodes[e.parent].children.push(nodes[i]);
+    }
+  });
+  return roots;
+}
+
+// ─── "What the rule saw": inspectable request/resource variables ────────────
+
+/** A rules variable the UI can render as a read-only inspectable tree. When a
+ *  value genuinely wasn't captured for a denial, `present` is false so the UI
+ *  shows it as honestly absent rather than as an empty object. */
+export interface RuleVariable {
+  /** Dotted rules identifier, e.g. `request.auth`, `resource.data`. */
+  name: string;
+  present: boolean;
+  value: unknown;
+  /** One-line note shown when absent (why the rule didn't see it). */
+  absentNote?: string;
+}
+
+/**
+ * The variables the denying rule evaluated against, in rules terms
+ * (`request.auth`, `request.method`, `request.path`, `request.resource.data`,
+ * `resource`), projected from the denial's captured context. Read-only — this
+ * is what the rule SAW, not an editor. Absent values are reported honestly.
+ */
+export function ruleVariables(denial: Denial): RuleVariable[] {
+  const vars: RuleVariable[] = [
+    {
+      name: 'request.auth',
+      present: denial.auth !== null,
+      value: denial.auth,
+      ...(denial.auth === null
+        ? { absentNote: 'request.auth was null — the request was unauthenticated.' }
+        : {}),
+    },
+    { name: 'request.method', present: true, value: denial.method },
+    { name: 'request.path', present: true, value: denial.path },
+  ];
+  const isRead = denial.method === 'get' || denial.method === 'list' || denial.method === 'listen';
+  vars.push({
+    name: 'request.resource.data',
+    present: denial.resourceData !== undefined,
+    value: denial.resourceData ?? null,
+    ...(denial.resourceData === undefined
+      ? {
+          absentNote: isRead
+            ? 'A read carries no proposed write, so request.resource.data is absent.'
+            : 'No proposed write payload was captured for this denial.',
+        }
+      : {}),
+  });
+  vars.push({
+    name: 'resource',
+    present: denial.resourceBefore !== undefined,
+    value: denial.resourceBefore
+      ? { data: denial.resourceBefore.data, exists: denial.resourceBefore.exists }
+      : null,
+    ...(denial.resourceBefore === undefined
+      ? { absentNote: 'The rule evaluated no existing document (e.g. a list/query, or the doc did not exist).' }
+      : {}),
+  });
+  return vars;
 }
