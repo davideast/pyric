@@ -348,47 +348,18 @@ Two descriptors may share one registry and one doc, as `rtdb` and
 `rtdb-modular` do today, when a surface has two capture planes that
 readers should see as one contract.
 
-## Open questions for the owner
+## Open questions, resolved (owner, 2026-07-09)
 
-The #47 decisions do not determine the following. Each needs an owner
-call before or during the messaging climb; none blocks admission.
+The eight questions this draft originally posed were answered by the owner; each answer is now a decision of this process.
 
-1. **Lane trigger and cadence.** Does the climb lane run on every PR,
-   only on PRs touching the climbing surface's paths, or on a nightly
-   cron in addition? The lane runs full suites and its cost grows with
-   each admitted surface.
-2. **Regression escalation.** The lane is non-blocking, so a green-row
-   regression cannot stop a merge mechanically. What is the protocol when
-   the lane reds: revert by convention, auto-file an issue, or promote
-   the lane to a required check once the first rows flip?
-3. **Receive-plane execution harness.** The existing suites are offline
-   bun replays. The web receive-plane rows (token mint, background
-   routing, visibility routing) describe behavior that involves a service
-   worker and a real registration. Do their assertion sets run in a real
-   browser harness inside the lane, against a faked worker in bun, or are
-   some rows honest `NOT_APPLICABLE` in the offline suite with the demo
-   page as their only executable check?
-4. **Surface partitioning.** Is messaging one surface, or two descriptors
-   (send plane in `pyric-admin`, receive plane in `pyric`) sharing one
-   doc the way rtdb does? A single `conformanceSuite` path cannot span
-   both packages, so the answer decides the descriptor count.
-5. **Row-universe sign-off.** What census slice defines "all rows
-   authored" at admission, given the runtime census cannot see instance
-   methods, option-object fields, or signature changes? Someone must
-   declare the born-unverified row set complete, and the basis for that
-   declaration is not yet specified.
-6. **`conformanceChecks` policy at flip time.** Must every green flip of
-   an observation-backed row add a `conformanceChecks` entry, or only
-   rows above the audit's high-risk line? The first is stronger; the
-   second matches the current ratchet.
-7. **Ratchet interaction during the climb.** Does the audit baseline
-   ratchet apply to climbing surfaces from day zero, or are they exempt
-   until graduation? Born-unverified rows create no audit debt, but the
-   first flips will interact with the baseline.
-8. **Mechanizing the demo-page criterion.** What proves "runs unchanged":
-   an automated CI job that boots `pyric dev` with the sandbox broker and
-   drives the page, or a manual owner sign-off, and if manual, where is
-   it recorded so graduation is auditable?
+1. Climb lane cadence: not per PR. The climb is an experiment and must cost main-branch velocity nothing. The lane runs on demand on the surface's WIP branch; a nightly run is optional. All messaging mirror code is flag-gated and stays on a WIP branch until the owner judges it safe to merge.
+2. Regression escalation: a lane failure on an already-green row halts further row flips until fixed, fix-forward on the WIP branch. No automation (auto-filed issues, required checks) during the experiment phase.
+3. Receive-plane harness: row assertions run headless (bun) against the in-process broker, like every other surface's suite. The real-browser demo page is reserved as the graduation check, not a per-run harness.
+4. Surface partitioning: two surfaces, messaging (client and sw rows, pyric) and messaging-admin (send rows, pyric-admin), sharing one registry file and one COMPAT doc, on the rtdb / rtdb-modular precedent. Per-surface conformanceSuite paths resolve the cross-package suite question.
+5. Row-universe sign-off: docs/conformance/messaging/surface-inventory.md is the signed v1 universe; the registry file header cites it. Instance-method and option-field completeness closes with the tier-2 assignability census.
+6. Audit ratchet: climbing surfaces are exempt from the audit gate until graduation. Isolation is the WIP branch plus flag-gated exports; the mirror does not merge until the owner calls it safe.
+7. conformanceChecks at flip: match the current ratchet; only rows above the audit's high-risk line enroll in blocking compat:oracle-check.
+8. Demo-page criterion: manual owner sign-off during the experiment, recorded in the graduation PR; automated at graduation by driving the demo page against pyric dev with the existing capture rig.
 
 ## Relationship to existing documents
 
