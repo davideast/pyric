@@ -948,9 +948,9 @@
   z-index: 39;
 }
 .fs-overflow__menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
+  /* Fixed + viewport coords from the trigger rect (set inline by
+     OverflowMenu.tsx) — immune to ancestor overflow clipping. */
+  position: fixed;
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -979,9 +979,8 @@
   background: var(--color-sidebar-bg);
   outline: none;
 }
-.fs-overflow__item[data-destructive] {
-  color: var(--color-danger);
-}
+/* Destructive items keep the normal item color — menus stay calm; the
+   confirm step carries the weight (owner's call: no red text here). */
 
 /* ── the F2 document tree (FirestoreDocumentTree) ──────────────────────────
    Console panel-view parity: caret gutter + key/chip aligned per depth,

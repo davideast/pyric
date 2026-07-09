@@ -404,11 +404,6 @@ function DocumentColumn({
     <section data-pyric-ui="fs-documents" className="fs-pane fs-col">
       <div className="fs-phead">
         <span className="fs-phead-title">{collId}</span>
-        <OverflowMenu
-          items={[
-            { label: 'Delete collection', onSelect: () => void onDeleteCollection(), destructive: true },
-          ]}
-        />
         {!importing ? (
           <span className="fs-phead-actions">
             <button type="button" className="fs-add" onClick={() => setCreating(true)}>
@@ -419,6 +414,11 @@ function DocumentColumn({
             </button>
           </span>
         ) : null}
+        <OverflowMenu
+          items={[
+            { label: 'Delete collection', onSelect: () => void onDeleteCollection(), destructive: true },
+          ]}
+        />
       </div>
 
       {creating ? (

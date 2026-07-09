@@ -25,7 +25,20 @@ export function OverflowMenu({
   label?: string;
 }) {
   const [open, setOpen] = useState(false);
+  // Viewport coords for the fixed-position menu — computed when opening, so
+  // the popover can never be clipped by a scrolling/overflow ancestor (the
+  // column panels scroll; an absolutely-positioned menu got cut at their
+  // edges).
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const toggle = () => {
+    if (!open) {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (rect) setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    }
+    setOpen((o) => !o);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -48,14 +61,18 @@ export function OverflowMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={label}
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
       >
         <span aria-hidden="true">⋮</span>
       </button>
       {open ? (
         <>
           <div className="fs-overflow__backdrop" onMouseDown={() => setOpen(false)} />
-          <div className="fs-overflow__menu" role="menu">
+          <div
+            className="fs-overflow__menu"
+            role="menu"
+            style={pos ? { top: pos.top, right: pos.right } : undefined}
+          >
             {items.map((item) => (
               <button
                 key={item.label}
