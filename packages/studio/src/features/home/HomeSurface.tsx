@@ -12,7 +12,7 @@
  * All layout is gap-based; every child fills its container (L2/L3).
  */
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ROUTES, type RouteId } from '../../shell/routes.js';
 import { hrefFor, pushPath } from '../../shell/router.js';
 import { useServeInit } from '../../shell/serve-init.js';
@@ -23,7 +23,9 @@ import {
   useStudioEvents,
 } from '../../shell/studio-data.js';
 import { useDevSeed } from '../../dev/DevSeedProvider.js';
-import { matchCommands, type CommandResult, type CommandTarget } from './command.js';
+import type { CommandResult, CommandTarget } from './command.js';
+import { flattenSuggestions, matchTypeahead } from './typeahead.js';
+import { useResourceIndex } from './useResourceIndex.js';
 import { selectActivity } from './activity.js';
 import './home.css';
 
@@ -63,15 +65,40 @@ function RouteLink({
 
 // ─── Command input (primary) ────────────────────────────────────────────────
 
+const TYPEAHEAD_DEBOUNCE_MS = 150;
+
 function CommandInput() {
   const [input, setInput] = useState('');
-  const results = useMemo(() => matchCommands(input, ROUTES), [input]);
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
+  const { entries, ensure } = useResourceIndex();
+
+  // 150ms debounce: the matcher runs against `query`, not each keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(input), TYPEAHEAD_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [input]);
+
+  const groups = useMemo(
+    () => matchTypeahead(query, ROUTES, entries ?? []),
+    [query, entries],
+  );
+  const flat = useMemo(() => flattenSuggestions(groups), [groups]);
+
+  // Keep the keyboard cursor on a real row as the result set changes.
+  useEffect(() => {
+    setActive((cur) => (flat.length === 0 ? 0 : Math.min(cur, flat.length - 1)));
+  }, [flat.length]);
 
   const run = (result: CommandResult | undefined) => {
     if (!result) return;
     setInput('');
+    setQuery('');
     go(result.target);
   };
+
+  // Group-relative → flat index (for the active-row highlight).
+  let flatOffset = 0;
 
   return (
     <div className="studio-home__command">
@@ -80,34 +107,67 @@ function CommandInput() {
           className="studio-home__command-input"
           type="text"
           value={input}
-          placeholder="Jump to a surface or path — try “firestore users/alice”"
+          placeholder="Jump to a surface, collection, doc, user, or object…"
           aria-label="Command input"
+          role="combobox"
+          aria-expanded={flat.length > 0}
+          aria-autocomplete="list"
+          onFocus={ensure}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') run(results[0]);
-            if (e.key === 'Escape') setInput('');
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setActive((cur) => Math.min(cur + 1, Math.max(flat.length - 1, 0)));
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setActive((cur) => Math.max(cur - 1, 0));
+            } else if (e.key === 'Enter') {
+              run(flat[active] ?? flat[0]);
+            } else if (e.key === 'Escape') {
+              setInput('');
+              setQuery('');
+            }
           }}
         />
         <span className="studio-home__command-hint" aria-hidden="true">
           navigation only
         </span>
       </div>
-      {results.length ? (
-        <ul className="studio-home__command-results">
-          {results.map((r, i) => (
-            <li key={r.id}>
-              <button
-                type="button"
-                className="studio-home__command-result"
-                data-first={i === 0 ? 'true' : undefined}
-                onClick={() => run(r)}
-              >
-                <span className="studio-home__command-label">{r.label}</span>
-                <span className="studio-home__command-sub">{r.hint}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+      {groups.length ? (
+        <div className="studio-home__command-results" role="listbox" aria-label="Suggestions">
+          {groups.map((group) => {
+            const start = flatOffset;
+            flatOffset += group.results.length;
+            return (
+              <div key={group.kind} className="studio-home__command-group">
+                <span className="studio-home__command-group-title" aria-hidden="true">
+                  {group.title}
+                </span>
+                <ul className="studio-home__command-group-list">
+                  {group.results.map((r, i) => {
+                    const flatIndex = start + i;
+                    return (
+                      <li key={r.id}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={flatIndex === active}
+                          className="studio-home__command-result"
+                          data-active={flatIndex === active ? 'true' : undefined}
+                          onMouseEnter={() => setActive(flatIndex)}
+                          onClick={() => run(r)}
+                        >
+                          <span className="studio-home__command-label">{r.label}</span>
+                          <span className="studio-home__command-sub">{r.hint}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
       ) : null}
     </div>
   );
