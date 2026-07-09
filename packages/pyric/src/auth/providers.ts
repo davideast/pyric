@@ -131,6 +131,34 @@ export class OAuthProvider {
 }
 
 /**
+ * The canonical federated (OAuth) provider ids the sandbox supports as
+ * FIRST-CLASS: the dedicated provider classes' `PROVIDER_ID`s
+ * ({@link GoogleAuthProvider} / {@link FacebookAuthProvider} /
+ * {@link GithubAuthProvider}) plus the standard Firebase IdP set reached
+ * through the generic {@link OAuthProvider} (Apple, Twitter, Microsoft,
+ * Yahoo — the same federated ids the emulator console recognizes).
+ *
+ * NOT an allowlist: the backend accepts ANY provider id (custom
+ * `OAuthProvider('oidc.acme')` etc. work end-to-end). This constant exists
+ * so admin surfaces (Studio's user editor, provider toggles) can enumerate
+ * the supported set mechanically instead of hardcoding copies. `password`
+ * / `anonymous` / `phone` are deliberately absent — they're credential-
+ * derived sign-in methods, not federated links.
+ */
+export const FEDERATED_PROVIDER_IDS = [
+  GoogleAuthProvider.PROVIDER_ID,
+  'apple.com',
+  FacebookAuthProvider.PROVIDER_ID,
+  GithubAuthProvider.PROVIDER_ID,
+  'twitter.com',
+  'microsoft.com',
+  'yahoo.com',
+] as const;
+
+/** One of the first-class federated provider ids ({@link FEDERATED_PROVIDER_IDS}). */
+export type FederatedProviderId = (typeof FEDERATED_PROVIDER_IDS)[number];
+
+/**
  * Union of all supported provider instance shapes. Used in the
  * `signInWithPopup` / `signInWithRedirect` overloads (the latter is
  * out of scope but the type makes the surface consistent).

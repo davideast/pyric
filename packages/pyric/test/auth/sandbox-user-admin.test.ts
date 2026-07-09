@@ -335,6 +335,49 @@ describe('sandbox.listUsers / createUser (A3)', () => {
     );
   });
 
+  it('createUser links federated providers from providerUserInfo (multiple, dedup)', () => {
+    const auth = freshAuth();
+    const record = authSandbox.createUser(auth, {
+      uid: 'fed',
+      email: 'fed@x.com',
+      providerUserInfo: [
+        { providerId: 'google.com' },
+        { providerId: 'apple.com' },
+        { providerId: 'google.com' },
+      ],
+    });
+    expect(record.providerUserInfo).toEqual([
+      { providerId: 'google.com' },
+      { providerId: 'apple.com' },
+    ]);
+  });
+
+  it('createUser: password provider is credential-derived, never forged', () => {
+    const auth = freshAuth();
+    // With a password: the password entry leads, then the federated links.
+    const withPw = authSandbox.createUser(auth, {
+      uid: 'pw-fed',
+      email: 'pwfed@x.com',
+      password: 'pw1234',
+      providerUserInfo: [{ providerId: 'github.com' }],
+    });
+    expect(withPw.providerUserInfo).toEqual([
+      { providerId: 'password' },
+      { providerId: 'github.com' },
+    ]);
+    // Without a password: password/anonymous entries are dropped, not linked.
+    const noPw = authSandbox.createUser(auth, {
+      uid: 'no-pw',
+      providerUserInfo: [{ providerId: 'password' }, { providerId: 'anonymous' }],
+    });
+    expect(noPw.providerUserInfo).toEqual([]);
+    // Empty providerId is an argument error.
+    expectAuthError(
+      () => authSandbox.createUser(auth, { providerUserInfo: [{ providerId: ' ' }] }),
+      'auth/argument-error',
+    );
+  });
+
   it('lastLoginAt is bumped by an actual sign-in', async () => {
     const auth = freshAuth();
     authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
