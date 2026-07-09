@@ -2,6 +2,14 @@
   "name": "pyric-admin",
   "version": "0.1.0-alpha.8",
   "homepage": "https://pyric.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davideast/pyric.git",
+    "directory": "packages/pyric-admin"
+  },
+  "bugs": {
+    "url": "https://github.com/davideast/pyric/issues"
+  },
   "description": "Pyric admin-shape adapters (firestore, auth, database, storage) with swappable sandbox/prod backends. Mirrors firebase-admin.",
   "type": "module",
   "exports": {

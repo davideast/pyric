@@ -2,6 +2,14 @@
   "name": "pyric-tools",
   "version": "0.1.0-alpha.8",
   "homepage": "https://pyric.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davideast/pyric.git",
+    "directory": "packages/pyric-tools"
+  },
+  "bugs": {
+    "url": "https://github.com/davideast/pyric/issues"
+  },
   "description": "Pyric CLI binary (`pyric`) + programmatic deploy / bridge / discover / auth-config helpers. Mirrors firebase-tools.",
   "type": "module",
   "exports": {
