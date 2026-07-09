@@ -489,6 +489,44 @@ export function bridgeEnabledFor(
   return bridgeEnabledFromFlags(flags) || childPlan != null;
 }
 
+/**
+ * Process-level last line of defense for the dev server: a single bad
+ * request/WS interaction must never take `pyric dev` down. Node kills the
+ * process on an unhandled rejection (default `--unhandled-rejections=throw`
+ * since v15) and on any uncaught exception — and the serve process hosts
+ * long-lived, browser-driven machinery (WS peers, SSE streams, file watchers,
+ * MCP transports) where one missed error path is fatal. Route both to a LOUD
+ * stderr log instead and keep serving.
+ *
+ * Installed by `runServe` once the server is up (startup errors still fail
+ * fast). Returns the uninstaller. Exported for unit coverage.
+ */
+export function installServeProcessGuard(
+  log: (message: string) => void,
+  proc: Pick<NodeJS.Process, 'on' | 'off'> = process,
+): () => void {
+  const describe = (reason: unknown): string =>
+    reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+  const onRejection = (reason: unknown): void => {
+    log(
+      `  ✖ pyric dev: UNHANDLED REJECTION (the server was kept alive — please report this):\n` +
+        `    ${describe(reason).split('\n').join('\n    ')}`,
+    );
+  };
+  const onException = (err: unknown): void => {
+    log(
+      `  ✖ pyric dev: UNCAUGHT EXCEPTION (the server was kept alive — please report this):\n` +
+        `    ${describe(err).split('\n').join('\n    ')}`,
+    );
+  };
+  proc.on('unhandledRejection', onRejection);
+  proc.on('uncaughtException', onException);
+  return () => {
+    proc.off('unhandledRejection', onRejection);
+    proc.off('uncaughtException', onException);
+  };
+}
+
 /** CLI entry. Resolves on SIGINT/SIGTERM after a clean stop. */
 export async function runServe(parsed: ParsedArgs): Promise<number> {
   const flagPort = parsed.flags.get('port');
@@ -553,6 +591,11 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n`);
     return 2;
   }
+
+  // The server is up: from here on, no single bad request/WS/watcher error
+  // may kill the process — log loudly and keep serving (startup errors above
+  // still fail fast).
+  installServeProcessGuard((m) => process.stderr.write(m + '\n'));
 
   // The agent contract: with --json, stdout carries exactly this one line
   // (the banner went to stderr). Readiness probe: GET /__pyric/init.json.

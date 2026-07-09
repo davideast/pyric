@@ -184,6 +184,35 @@ export function resolveStaticFile(publicDir: string, pathname: string): string |
   return file;
 }
 
+/**
+ * Stream a file to a response with the read stream's `'error'` event handled.
+ * A bare `createReadStream(file).pipe(res)` leaves the stream's error event
+ * unhandled — an fs error between the exists-check and the read (file swapped
+ * out, EMFILE under fd pressure, EISDIR race) then throws at the event-loop
+ * level and KILLS the whole serve process. Headers are usually already sent
+ * when the stream errors, so the recovery is: log, destroy the response (the
+ * client sees a truncated body), keep the server alive.
+ */
+export function pipeFileToResponse(
+  file: string,
+  res: ServerResponse,
+  onError?: (err: Error) => void,
+): void {
+  const stream = createReadStream(file);
+  stream.on('error', (err: Error) => {
+    onError?.(err);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'content-type': 'text/plain' }).end('read error');
+      return;
+    }
+    res.destroy();
+  });
+  // The response can error too (client vanished mid-stream) — swallow it so
+  // an aborted download can't surface as an unhandled 'error' event.
+  res.on('error', () => stream.destroy());
+  stream.pipe(res);
+}
+
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -239,7 +268,7 @@ async function handleRequest(
     res.end();
     return;
   }
-  createReadStream(file).pipe(res);
+  pipeFileToResponse(file, res, (e) => logger.note(`  ✖ read failed ${url.pathname}: ${e.message}`));
 }
 
 /** The subset of `Server` the scan logic needs — injectable for tests

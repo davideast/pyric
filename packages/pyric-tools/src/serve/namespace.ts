@@ -9,14 +9,14 @@
  *
  * Bridge routes (`/__pyric/mcp`, `/__pyric/sandbox`) mount here in P2.
  */
-import { createReadStream, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { collectBody } from '../bridge/server/peer.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
-import { contentTypeFor, resolveStaticFile } from './server.js';
+import { contentTypeFor, pipeFileToResponse, resolveStaticFile } from './server.js';
 
 /** Mirrors the runtime entry's `InitPayload` — keep in lockstep with
  *  `entries/runtime.ts`. */
@@ -68,10 +68,19 @@ export function createEventHub(): ServeEventHub {
       res.write(': connected\n\n');
       clients.add(res);
       req.on('close', () => clients.delete(res));
+      // A dying SSE socket must never surface an unhandled 'error' event
+      // (which would kill the whole serve process) — drop the client instead.
+      res.on('error', () => clients.delete(res));
     },
     broadcast(event, data) {
       const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-      for (const res of clients) res.write(frame);
+      for (const res of clients) {
+        try {
+          res.write(frame);
+        } catch {
+          clients.delete(res); // half-closed socket in the close race window
+        }
+      }
     },
     clientCount: () => clients.size,
   };
@@ -256,7 +265,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       // Immutable-friendly: bundle filenames are content-hashed chunks or
       // cache-keyed outputs; still no-store in dev for simplicity.
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
-      createReadStream(file).pipe(res);
+      pipeFileToResponse(file, res);
       return true;
     }
     if (opts.playgroundUiDir && (url.pathname === '/__pyric/playground' || url.pathname.startsWith('/__pyric/playground/'))) {
@@ -272,7 +281,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
         return true;
       }
       res.writeHead(200, { 'content-type': contentTypeFor(file), 'cache-control': 'no-store' });
-      createReadStream(file).pipe(res);
+      pipeFileToResponse(file, res);
       return true;
     }
     if (
@@ -300,7 +309,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
         return true;
       }
       res.writeHead(200, { 'content-type': contentTypeFor(file), 'cache-control': 'no-store' });
-      createReadStream(file).pipe(res);
+      pipeFileToResponse(file, res);
       return true;
     }
     return false; // unknown /__pyric/* → caller 404s

@@ -146,6 +146,13 @@ export function diskWorkspace(dir: string): WorkspaceStore {
         // Recursive watch unsupported here — degrade to no live updates.
         return () => {};
       }
+      // Watcher failure (EMFILE, root renamed) must not surface as an
+      // unhandled 'error' event — that would kill the serve process.
+      // Degrade to no live updates instead.
+      watcher.on('error', () => {
+        watcher?.close();
+        watcher = null;
+      });
       return () => {
         watcher?.close();
         watcher = null;

@@ -157,7 +157,7 @@ export function watchProjectRules(
   debounceMs = 150,
 ): FSWatcher {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  return watch(sourcePath, () => {
+  const watcher = watch(sourcePath, () => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       void readFile(sourcePath, 'utf8').then(
@@ -173,4 +173,11 @@ export function watchProjectRules(
       );
     }, debounceMs);
   });
+  // An FSWatcher with no 'error' listener throws at the event-loop level on
+  // watcher failure (EMFILE, the watched file renamed away on some platforms)
+  // and would kill the serve process. Degrade to "no hot reload" instead.
+  watcher.on('error', (e) =>
+    onError(`rules watcher failed (hot reload off): ${e instanceof Error ? e.message : String(e)}`),
+  );
+  return watcher;
 }
