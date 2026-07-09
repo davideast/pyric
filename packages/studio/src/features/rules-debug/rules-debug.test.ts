@@ -26,18 +26,22 @@ import {
   type SandboxEvent,
 } from 'pyric/sandbox';
 import { getFirestore as getAdminFirestore } from 'pyric/sandbox/admin-firestore';
-import { getFirestore as getSandboxFirestore, doc, setDoc, SandboxError } from 'pyric/firestore';
+import { getFirestore as getSandboxFirestore, doc, setDoc, collection, query, getDocs, SandboxError } from 'pyric/firestore';
 import { getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
 import {
   selectDenials,
   explainDenial,
   denialSeverity,
   rerunSupport,
+  shouldOfferImpersonation,
+  projectTraceSteps,
+  ruleVariables,
   type Denial,
 } from './model.js';
 import {
   rerunAgainstRules,
   rerunAsUser,
+  issueOp,
   lintEditedRuleset,
   type ImpersonationClient,
 } from './rerun.js';
@@ -402,5 +406,167 @@ describe('rules-debug re-run: as the attempting user (impersonation client)', ()
     if (res.outcome === 'error') expect(res.code).toBe('no-user');
     // Never touched the lens: there was nothing to impersonate.
     expect(client.reissued.length).toBe(0);
+  });
+});
+
+describe('rules-debug: line + expression trace threading (Firestore simulator)', () => {
+  it('threads the denying rule line + sub-expression trace onto the Denial', async () => {
+    const sandbox = denyingSandbox();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+
+    const dbBob = getSandboxFirestore(sandbox.withAuth({ uid: 'bob' }));
+    try {
+      await setDoc(doc(dbBob, 'notes/n1'), { text: 'hi', owner: 'alice' });
+    } catch { /* expected deny */ }
+
+    const d = selectDenials(events)[0];
+    // OWNER_RULES declares the denying `allow read, write` on source line 5.
+    expect(d.denyingRule?.line).toBe(5);
+    expect(Array.isArray(d.denyingRule?.expressionTrace)).toBe(true);
+    expect(d.denyingRule!.expressionTrace!.length).toBeGreaterThan(0);
+    // The condition text is carried too.
+    expect(d.denyingRule?.expression).toContain('request.auth');
+  });
+
+  it('projects the trace into an evaluated step tree (pure, false branch marked)', async () => {
+    const sandbox = denyingSandbox();
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+    const dbBob = getSandboxFirestore(sandbox.withAuth({ uid: 'bob' }));
+    try {
+      await setDoc(doc(dbBob, 'notes/n1'), { text: 'hi', owner: 'alice' });
+    } catch { /* expected */ }
+
+    const d = selectDenials(events)[0];
+    const steps = projectTraceSteps(d);
+    expect(steps.length).toBeGreaterThan(0);
+    // Every node carries an outcome classification; the whole condition (the
+    // root) evaluated false (bob != alice), so at least one node is `false`.
+    const flat: typeof steps = [];
+    const walk = (s: (typeof steps)[number]) => { flat.push(s); s.children.forEach(walk); };
+    steps.forEach(walk);
+    expect(flat.some((s) => s.outcome === 'false')).toBe(true);
+    // Depth is threaded so operands nest under their operator.
+    expect(flat.some((s) => s.depth > 0)).toBe(true);
+  });
+
+  it('projectTraceSteps is empty for a denial with no trace (RTDB / implicit)', () => {
+    const d: Denial = {
+      id: 'x', at: 0, method: 'get', path: 'a/b', service: 'firestore',
+      auth: null, reasons: [], origin: 'user', unsupported: false,
+    };
+    expect(projectTraceSteps(d)).toEqual([]);
+  });
+
+  it('builds a nested tree from a synthetic flat trace', () => {
+    const d: Denial = {
+      id: 'y', at: 0, method: 'get', path: 'a/b', service: 'firestore',
+      auth: null, reasons: [], origin: 'user', unsupported: false,
+      denyingRule: {
+        line: 3,
+        expression: 'a && b',
+        expressionTrace: [
+          { source: 'a && b', kind: 'binary' as never, parent: null, value: false },
+          { source: 'a', kind: 'identifier' as never, parent: 0, value: true },
+          { source: 'b', kind: 'identifier' as never, parent: 0, value: false },
+        ],
+      },
+    };
+    const steps = projectTraceSteps(d);
+    expect(steps.length).toBe(1);
+    expect(steps[0].outcome).toBe('false');
+    expect(steps[0].children.length).toBe(2);
+    expect(steps[0].children[0].depth).toBe(1);
+    expect(steps[0].children[1].outcome).toBe('false');
+  });
+});
+
+describe('rules-debug: what the rule saw (ruleVariables)', () => {
+  it('reports request.auth as absent-and-honest for an unauthenticated denial', () => {
+    const d: Denial = {
+      id: 'z', at: 0, method: 'get', path: 'posts', service: 'firestore',
+      auth: null, reasons: [], origin: 'user', unsupported: false,
+    };
+    const vars = ruleVariables(d);
+    const auth = vars.find((v) => v.name === 'request.auth')!;
+    expect(auth.present).toBe(false);
+    expect(auth.absentNote).toContain('unauthenticated');
+    // A read carries no proposed write — reported as honestly absent.
+    const res = vars.find((v) => v.name === 'request.resource.data')!;
+    expect(res.present).toBe(false);
+  });
+
+  it('surfaces the proposed write + existing resource when captured', () => {
+    const d: Denial = {
+      id: 'w', at: 0, method: 'update', path: 'notes/n1', service: 'firestore',
+      auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
+      resourceData: { text: 'x' },
+      resourceBefore: { data: { owner: 'alice' }, exists: true },
+    };
+    const vars = ruleVariables(d);
+    expect(vars.find((v) => v.name === 'request.resource.data')!.present).toBe(true);
+    expect(vars.find((v) => v.name === 'resource')!.present).toBe(true);
+  });
+});
+
+describe('rules-debug: impersonation row gating (item 6)', () => {
+  it('offers impersonation for an authenticated denial', () => {
+    const d: Denial = {
+      id: 'a', at: 0, method: 'get', path: 'notes/n1', service: 'firestore',
+      auth: { uid: 'bob' }, reasons: [], origin: 'user', unsupported: false,
+    };
+    expect(shouldOfferImpersonation(d)).toBe(true);
+  });
+  it('drops the impersonation row for an unauthenticated denial', () => {
+    const d: Denial = {
+      id: 'b', at: 0, method: 'create', path: 'posts/p1', service: 'firestore',
+      auth: null, reasons: [], origin: 'user', unsupported: false,
+    };
+    expect(shouldOfferImpersonation(d)).toBe(false);
+  });
+});
+
+describe('rules-debug: list/query denial re-run shape (INVALID-ARGUMENT fix)', () => {
+  const LIST_DENY_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /locked/{id} { allow read, write: if false; }
+  }
+}`;
+
+  async function listDenial() {
+    const sandbox = initializeSandbox();
+    getAdminFirestore(sandbox.withAuth(null)).setRules(LIST_DENY_RULES);
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+    const db = getSandboxFirestore(sandbox.withAuth({ uid: 'bob' }));
+    try {
+      await getDocs(query(collection(db, 'locked')));
+    } catch { /* expected deny */ }
+    const d = selectDenials(events).find((x) => x.method === 'list')!;
+    return { sandbox, denial: d };
+  }
+
+  it('reproduces a list denial as a COLLECTION read, never a raw doc-path error', async () => {
+    const { sandbox, denial } = await listDenial();
+    expect(denial).toBeDefined();
+    expect(denial.method).toBe('list');
+    expect(denial.path).toBe('locked'); // odd-segment collection path
+
+    // Directly on the sandbox: the old code issued doc('locked') → INVALID-
+    // ARGUMENT; the fix issues getDocs(collection('locked')), so a still-denying
+    // ruleset returns a genuine DENY, not an SDK shape error.
+    const res = await issueOp(sandbox, denial);
+    expect(res.outcome).toBe('deny');
+    if (res.outcome === 'deny') {
+      expect(res.message).not.toContain('even number of segments');
+    }
+  });
+
+  it('a list denial ALLOWS under permissive rules (no invalid-argument)', async () => {
+    const { sandbox, denial } = await listDenial();
+    const rerun = await rerunAgainstRules(sandbox.snapshot(), denial, PERMISSIVE_RULES, sandbox);
+    expect(rerun.result.outcome).toBe('allow');
   });
 });

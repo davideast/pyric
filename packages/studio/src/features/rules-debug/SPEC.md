@@ -23,15 +23,13 @@ trace: the matched `allow` rule, or an implicit deny when nothing matched.
 the pre-write `resource` are all on the event.
 
 Deeper still, `RuleEvaluation.expressionTrace: ExprTraceEntry[]`
-(`evaluator.ts:139-258`) carries a full sub-expression trace with
-short-circuit `skipped` placeholders, let-bindings, and function inlining, and
-`RuleEvaluation.line` is the 1-indexed source line — but `DenialContext`
-(`packages/pyric/src/sandbox/types.ts:77-118`), which is what actually reaches
-the sandbox event stream via `error-translation.ts:130-155`, currently leaves
-`rule` and `failedFields` undefined. The page renders what's threaded onto
-`DenialContext`/`reasons` today (the per-rule trace); it does not thread
-`expressionTrace`/`line` through, since that's an internal sandbox-surface
-extension outside this page's change budget.
+(`evaluator.ts:139-258`) carries a full sub-expression trace with short-circuit
+`skipped` placeholders, let-bindings, and function inlining, and
+`RuleEvaluation.line` is the 1-indexed source line. These are NOW threaded to
+the event stream (additive `RequestEvent.deniedRule`, see "Threading the line +
+sub-expression trace" below) and drive the ✗ line marker and the "show the
+work" step-through. `DenialContext.failedFields` remains undefined (unused by
+this page).
 
 **Explains**: headline, matched rule `Rule #N (ops)` or implicit deny, full
 `Rule #N (ops) → deny` trace lines, `request.auth`, path/method, proposed
@@ -41,6 +39,78 @@ extension outside this page's change budget.
 `setLens({mode:'as',uid})` seam (`rerunAsUser`); edited ruleset via
 `fork(snapshot, editedRules)` + `lintFirestoreRules` + re-issue + diff
 (`rerunAgainstRules`).
+
+#### The rules editor + denial line emphasis
+
+Both rules views use a real CodeMirror 6 editor (`RulesCodeEditor.tsx`), reusing
+the SAME CodeMirror package set the playground's `CmEditor` uses
+(`codemirror` + `@codemirror/{state,view,language,commands,autocomplete,lint,
+search}` + `@lezer/highlight`, matched versions). There is no first-party
+Firestore-rules language, so — like the playground — it highlights via the
+JavaScript extension (`service`/`match`/`allow`/`if` read as keywords), with a
+muted custom `HighlightStyle`. The editor is code-split behind
+`React.lazy` (`LazyRulesCodeEditor.tsx`): CodeMirror stays out of the Studio
+main bundle and loads only when a denial is actually inspected.
+
+Two views, both marking the denying line:
+
+- the READ-ONLY "what happened" view shows the DEPLOYED ruleset
+  (`useStudioRulesSource()`), read-only, and
+- the EDITABLE "re-run against an edited ruleset" buffer replaces the old plain
+  `<textarea>`.
+
+DENIAL LINE EMPHASIS: the simulator's `RuleEvaluation.line` (1-indexed source
+line of the denying `allow`) is threaded to the event stream (below) and
+rendered as a ✗ gutter marker plus a tinted line background
+(`--diff-remove-bg`) on that line, in BOTH views, so the eye lands on the rule
+that denied. Implemented with the real CodeMirror `Decoration.line` +
+`gutter`/`GutterMarker` APIs (the playground only used the lint gutter, which
+can't tint a whole line). Absent when the simulator didn't thread a line
+(implicit deny, simulator-error deny, or RTDB/Storage).
+
+#### Threading the line + sub-expression trace (additive pyric change)
+
+Previously `renderLegacyDebugMessages` flattened the simulator's structured
+`RuleEvaluation[]` to strings at the event boundary, dropping `line` and
+`expressionTrace`. Two additive, internal-only changes carry them through (no
+mirrored Firebase API touched):
+
+- `packages/pyric/src/rules/test/spec.ts` gains `projectDenyingRule(result)` →
+  `DeniedRuleInfo { line?, expression?, expressionTrace? }`, picking the first
+  `DENY`/`ERROR` rule (fallback: last evaluated). It returns `undefined` for an
+  allow or an implicit deny — never invents data.
+- `RequestEvent` (`sandbox/types.ts`) gains an optional `deniedRule:
+  DeniedRuleInfo`, populated in `buildRequestEvent` (from the emit sites that
+  already hold the `TestResult`) ONLY on `result: 'deny'`.
+
+Studio's `toDenial` copies `deniedRule` onto `Denial.denyingRule`. Everything
+downstream is a pure projection over that.
+
+#### Show the work — the sub-expression step-through
+
+"The denial is the answer to a math problem — show how we got there." For a
+Firestore denial that carries an `expressionTrace`, `projectTraceSteps(denial)`
+(pure, in `model.ts`) rebuilds the AST tree from the flat `ExprTraceEntry[]`
+(via each entry's `parent` index) into `TraceStep`s, each classified by
+`outcome`: `true` / `false` (the ✗ branch) / `skipped` (a `&&`/`||` operand
+short-circuited, not evaluated) / `error` / `value` (a non-boolean operand).
+The UI (`TraceWork`) renders each sub-expression indented under its operator,
+with its evaluated value, the false branch marked ✗, skipped operands greyed
+and struck through, and `let`-bindings / inlined-function frames labelled. This
+is Firestore-only (the only engine that emits a sub-expression trace); for
+RTDB/Storage the section is absent (their engines give a node/reasons, not a
+sub-expression tree — rendered as before, no faked depth).
+
+#### What the rule saw — inspectable variables
+
+`ruleVariables(denial)` (pure) projects the rules-language variables the denial
+evaluated against — `request.auth`, `request.method`, `request.path`,
+`request.resource.data`, `resource` — from the context already on the event
+(`auth`, `resourceData`, `resourceBefore`). The UI (`VariablesInspector`)
+renders each as a read-only expandable key:value tree (the doctree idiom). A
+value genuinely not captured for a denial (e.g. `request.resource.data` on a
+read, `resource` on a list) is shown as honestly ABSENT with a one-line reason,
+never as an empty object.
 
 ### RTDB
 
@@ -116,6 +186,26 @@ short-circuits and reports the parse error. Security-level lint findings
 (e.g. `RECURSIVE_WILDCARD_OPEN`) are surfaced but do NOT block — the whole
 point of the "what if" re-run is to try loose candidate rules and watch the
 decision flip.
+
+**Re-run op shape (list/query).** A `list`/`listen` denial's `path` is the
+COLLECTION (an odd number of segments), so re-issuing it as a document read —
+`getDoc(doc(db, path))` — throws a raw SDK `INVALID-ARGUMENT` ("document path
+must have an even number of segments"), which is an op-shape error, NOT a rules
+verdict. `issueOp` re-issues list/listen denials as a collection read
+(`getDocs(query(collection(db, path)))`) so the re-run reflects the actual list
+rule decision. Raw SDK errors that do slip through are classified
+`outcome: 'error'` and rendered with a neutral error badge — never as a `deny`
+verdict.
+
+**Impersonation, only when there is a user (item 6).** The "re-run as the
+attempting user" row is shown ONLY for a denial with a concrete `request.auth.uid`
+(`shouldOfferImpersonation(denial)`). For an unauthenticated denial
+(`request.auth == null`) the row is dropped entirely rather than shown as a
+disabled "no user to impersonate" button: the accurate frame is that the request
+was unauthenticated, and re-running as the SAME (absent) identity isn't
+impersonation. Real impersonation — running as a DIFFERENT user — is a future
+"run as a different user" picker (roadmap, not now); when it lands it becomes the
+meaningful control for the unauthenticated case too.
 
 Controls a service can't yet back stay **disabled with a hint that names the
 exact missing mechanical tool** — the same convention Firestore already uses

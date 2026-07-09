@@ -500,6 +500,13 @@ export interface RequestEvent {
   /** Parsed from the simulator's "Rule #N → …" debug line. Absent when no
    *  rule matched (e.g. no allow rules at the path — implicit deny). */
   matchedRule?: { ruleIndex: number; operations: string[] };
+  /** The denying rule's 1-indexed source line + full sub-expression trace,
+   *  projected from the simulator's structured `RuleEvaluation` (additive:
+   *  present on `result: 'deny'` Firestore events when the simulator produced a
+   *  per-rule trace). Studio's rules-debug reads this to mark the denying line
+   *  and render the evaluation step-through ("show the work"). Absent on an
+   *  implicit deny (no rule evaluated) or a simulator-error deny. */
+  deniedRule?: import('../rules/test/spec.js').DeniedRuleInfo;
   origin: 'user' | 'listener' | 'transaction' | 'batch';
   /** Shared across ops in one batch or transaction. Opaque to consumers. */
   groupId?: string;
