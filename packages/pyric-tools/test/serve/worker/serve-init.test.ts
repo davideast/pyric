@@ -216,6 +216,92 @@ describe('applyServeInit — seed + authUsers', () => {
   });
 });
 
+describe('applyServeInit — seed applies only into an empty home (guardrail)', () => {
+  it('skips seed docs when the sandbox already has a document (restored/lived data)', async () => {
+    const ctx = await makeCtx();
+    // Simulate a restore that ran before applyServeInit (buildWorkerCtx calls
+    // enablePersistence before applyServeInit): a doc already lives in the db.
+    await handleMessage(ctx, fakePort(), { t: 'op', id: 'pre', method: 'setDoc', path: 'todos/existing', data: { title: 'lived' } });
+
+    const result = applyServeInit(
+      ctx,
+      { ...basePayload, seed: { 'todos/t1': { title: 'seeded', done: false } } },
+      { fetch: recordingFetch() },
+    );
+    expect(result.seededDocs).toBe(0);
+    expect(result.seedSkipped).toBe('existing-data');
+
+    const port = fakePort();
+    await handleMessage(ctx, port, { t: 'op', id: 'g1', method: 'getDoc', path: 'todos/t1' });
+    const res = getRes(port, 'g1') as ResMessage & { ok: true };
+    expect((res.value as { exists: boolean }).exists).toBe(false); // fixture never applied
+  });
+
+  it('skips seeding authUsers when the sandbox already has a document', async () => {
+    const ctx = await makeCtx();
+    await handleMessage(ctx, fakePort(), { t: 'op', id: 'pre', method: 'setDoc', path: 'todos/existing', data: { title: 'lived' } });
+
+    const result = applyServeInit(
+      ctx,
+      { ...basePayload, authUsers: [{ uid: 'u1', email: 'a@b.com', password: 'pw123456' }] },
+      { fetch: recordingFetch() },
+    );
+    expect(result.seededUsers).toBe(0);
+    expect(result.seedSkipped).toBe('existing-data');
+    expect(authOps.exportUsers(ensureAuth(ctx)).map((u) => u.email)).not.toContain('a@b.com');
+  });
+
+  it('skips seed docs when the sandbox already has an auth user (no docs, users only)', async () => {
+    const ctx = await makeCtx();
+    authOps.seedUsers(ensureAuth(ctx), [{ uid: 'existing', email: 'x@y.com', password: 'pw123456' }]);
+
+    const result = applyServeInit(
+      ctx,
+      { ...basePayload, seed: { 'todos/t1': { title: 'seeded' } } },
+      { fetch: recordingFetch() },
+    );
+    expect(result.seededDocs).toBe(0);
+    expect(result.seedSkipped).toBe('existing-data');
+  });
+
+  it('applies the seed (docs + authUsers) when the sandbox is genuinely empty', async () => {
+    const ctx = await makeCtx();
+    const result = applyServeInit(
+      ctx,
+      {
+        ...basePayload,
+        seed: { 'todos/t1': { title: 'seeded' } },
+        authUsers: [{ uid: 'u1', email: 'a@b.com', password: 'pw123456' }],
+      },
+      { fetch: recordingFetch() },
+    );
+    expect(result.seededDocs).toBe(1);
+    expect(result.seededUsers).toBe(1);
+    expect(result.seedSkipped).toBeNull();
+  });
+
+  it('--persist first run: IDB already holding data (prior non-persist session) is treated as non-empty', async () => {
+    // Regression for the interaction the task flagged: a --persist FIRST run
+    // (no server file yet) where IDB already has data from an earlier
+    // non-persist session must NOT be treated as empty.
+    const sandbox = initializeSandbox();
+    const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
+    getAdminFirestore(sandbox.withAuth(null)).setRules(PERMISSIVE_RULES);
+    const idb = createMemoryBackend();
+    await idb.putRecords('pyric-shared-worker', serializeToBuckets({ 'todos/carried-over': { v: 1 } }, {}, 0));
+    await sandbox.enablePersistence({ key: 'pyric-shared-worker', injectedBackend: idb });
+    const ctx: HostCtx = { db: getFirestore(sandbox), sandbox, subs: new Map() };
+
+    const result = applyServeInit(
+      ctx,
+      { ...basePayload, seed: { 'todos/t1': { title: 'seeded' } } },
+      { fetch: recordingFetch() },
+    );
+    expect(result.seededDocs).toBe(0);
+    expect(result.seedSkipped).toBe('existing-data');
+  });
+});
+
 describe('applyServeInit — capture (the verify loop)', () => {
   it('POSTs the service-shaped session fixture to /__pyric/capture, then dispose stops it', async () => {
     const ctx = await makeCtx();

@@ -176,6 +176,9 @@ interface ServeDiagnostics {
   lastFlushAt: number | null;
   /** True when another tab holds the writer lock — this tab won't persist. */
   persistReadOnly: boolean;
+  /** True when a `--seed` fixture was withheld because the sandbox already
+   *  held restored/lived data (see the seed-docs block below). */
+  seedSkipped: boolean;
 }
 
 declare global {
@@ -195,6 +198,7 @@ const diagnostics: ServeDiagnostics = {
   persistEnabled: false,
   lastFlushAt: null,
   persistReadOnly: false,
+  seedSkipped: false,
 };
 globalThis.__pyricServe = diagnostics;
 
@@ -421,10 +425,23 @@ if (!useWorker) try {
     }
   }
   if (payload.seed && Object.keys(payload.seed).length > 0) {
-    // Admin-style fixture load (bypasses rules) — runs before app code
-    // (top-level await), so the app's first render sees the seeded state.
-    sandboxOps.seedDocuments(getFirestore(sandbox), payload.seed);
-    diagnostics.seededDocs = Object.keys(payload.seed).length;
+    // A seed fixture applies only into an empty home — mirrors the worker's
+    // guard (serve/worker/serve-init.ts): by this point any --persist restore
+    // above has already run, so an existing document means lived/restored
+    // data, not a blank slate. Never stomp it with a fixture.
+    const existing = Object.keys(sandboxOps.snapshotState(getFirestore(sandbox))).length > 0;
+    if (existing) {
+      diagnostics.seedSkipped = true;
+      console.info(
+        '[pyric dev] --seed skipped: the sandbox already has restored data — the fixture would ' +
+          'have overwritten it. Use `--persist --fresh` to discard existing state and re-seed.',
+      );
+    } else {
+      // Admin-style fixture load (bypasses rules) — runs before app code
+      // (top-level await), so the app's first render sees the seeded state.
+      sandboxOps.seedDocuments(getFirestore(sandbox), payload.seed);
+      diagnostics.seededDocs = Object.keys(payload.seed).length;
+    }
   }
 } catch (e) {
   diagnostics.initError = e instanceof Error ? e.message : String(e);
