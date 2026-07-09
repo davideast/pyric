@@ -70,9 +70,18 @@ Two stores can hold data — clear the one(s) you need:
 | **IndexedDB** (the SharedWorker's default durable store) | the browser, per origin | DevTools → **Application → Storage → Clear site data**, then reload — or just use a private window |
 | **`.pyric/state/state.json`** (the `--persist` file) | your project directory | `pyric dev --persist --fresh` (discards it and re-seeds) |
 
+`--fresh` **requires `--persist`** — it discards `.pyric/state/state.json`, and
+without `--persist` there is no such file, so `pyric dev` now errors instead of
+silently doing nothing.
+
 `--fresh` clears only the on-disk file — it does **not** touch the browser's
-IndexedDB. For a fully clean slate on the SharedWorker path, **clear site data**
-(or use a private window) and add `--fresh` if you use `--persist`.
+IndexedDB. ⚠ **This makes `--fresh` a half-reset**: prime-once only fills an
+EMPTY IndexedDB, so a browser tab that already has sandbox data KEEPS it, and
+that tab's next flush writes it straight back into the file `--fresh` just
+cleared — the "fresh" file quietly refills with the old data. For a fully clean
+slate on the SharedWorker path, you must **also clear site data** (or use a
+private window) whenever you pass `--fresh`. (A real reset handshake that makes
+`--fresh` clear the browser store too is future work.)
 
 ## Seed data on boot — `--seed`
 
@@ -81,9 +90,18 @@ pyric dev --seed seed.json
 ```
 
 Loads a fixture document set admin-style before your app runs. Accepts either a
-`"collection/doc" → fields` map or a `pyric snapshot` state file. With
-`--persist`, the seed applies only on the **first** (state-less) run — after
-that the lived state wins; use `--fresh` to re-seed.
+`"collection/doc" → fields` map or a `pyric snapshot` state file.
+
+**A seed applies only into an empty home.** If the sandbox already holds
+restored data — a `--persist` state file, or data IndexedDB restored from an
+earlier session (which happens even without `--persist`, since IndexedDB is the
+SharedWorker's default durable store) — the fixture is skipped, not applied on
+top of it, and a console line explains why. This is what stops `--seed` from
+silently reverting your edits on every reload: without it, default (ephemeral)
+mode had no state file to gate on, so the fixture re-applied on every boot no
+matter what you'd changed in the browser. Use `--persist --fresh` (plus
+clearing browser storage — see above) to discard existing state and re-seed
+from scratch.
 
 ## SharedWorker troubleshooting
 
@@ -123,8 +141,8 @@ the in-page fallback.
 | Flag | Effect |
 |---|---|
 | `--persist` | durable, git-trackable state at `.pyric/state/state.json` (worker mirrors to it; the in-page fallback uses it as its durable store) |
-| `--fresh` | discard the `.pyric/state` file and re-seed — does **not** clear browser IndexedDB |
-| `--seed <file>` | load fixture docs on boot (a `"collection/doc" → fields` map, or a `pyric snapshot` file) |
+| `--fresh` | requires `--persist` (errors otherwise); discards the `.pyric/state` file and re-seeds — does **not** clear browser IndexedDB, so a browser with existing data writes it right back (also clear site data / use a private window for a full reset) |
+| `--seed <file>` | load fixture docs on boot (a `"collection/doc" → fields` map, or a `pyric snapshot` file) — applies only into an empty sandbox; skipped (with a console note) if restored/lived data is already present |
 | `--no-capture` | disable the default-on session capture (`.pyric/last-session.json`, replayed by `pyric verify`) |
 
 The complete `pyric dev` flag set (`--port`, `--host`, `--bridge`,

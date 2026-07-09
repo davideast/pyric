@@ -90,7 +90,31 @@ export interface ServeInitResult {
   /** Parse error from a malformed ruleset (defensive — the server lints first);
    *  the sandbox keeps its default rules rather than bricking. */
   rulesParseError: string | null;
+  /** Set when a `--seed` fixture (docs and/or authUsers) was withheld because
+   *  the sandbox already held restored/lived data — see the "seed applies
+   *  only into an empty home" guard below. */
+  seedSkipped: 'existing-data' | null;
   dispose(): void;
+}
+
+/**
+ * A seed fixture applies ONLY into an empty home. `buildWorkerCtx` calls
+ * `sandbox.enablePersistence` (restoring from IDB — and, with `--persist`,
+ * priming from the committable server file — see `createWorkerDurableBackend`)
+ * BEFORE `applyServeInit` runs, so by the time this check runs any restored
+ * data is already visible on `ctx`. If the sandbox holds ANY Firestore
+ * document or auth user at this point, that's lived/restored state, not a
+ * blank slate — a `--seed` fixture must never stomp it. This is the fix for
+ * the worst persistence bug: without it, `--seed` (map form) re-applies on
+ * EVERY boot because default (no `--persist`) mode never has a state.json
+ * file to gate on, silently reverting whatever IndexedDB persistence just
+ * restored.
+ */
+function sandboxHasExistingData(ctx: HostCtx): boolean {
+  const docs = sandboxOps.snapshotState(ctx.db);
+  if (Object.keys(docs).length > 0) return true;
+  const auth = ensureAuth(ctx);
+  return authOps.exportUsers(auth).length > 0;
 }
 
 /**
@@ -112,6 +136,7 @@ export function applyServeInit(
     seededUsers: 0,
     captureEnabled: false,
     rulesParseError: null,
+    seedSkipped: null,
     dispose: () => {},
   };
 
@@ -142,16 +167,32 @@ export function applyServeInit(
     };
   }
 
+  // A seed fixture applies only into an empty home — checked ONCE, before
+  // either seed step, so step 2's own writes can't make step 3's check look
+  // non-empty (see sandboxHasExistingData).
+  const hasExistingData =
+    ((payload.seed && Object.keys(payload.seed).length > 0) ||
+      (payload.authUsers && payload.authUsers.length > 0)) &&
+    sandboxHasExistingData(ctx);
+  if (hasExistingData) {
+    result.seedSkipped = 'existing-data';
+    console.info(
+      '[pyric worker] --seed skipped: the sandbox already has restored data (persisted state or ' +
+        'an earlier session in this browser) — the fixture would have overwritten it. Use ' +
+        '`--persist --fresh` to discard existing state and re-seed from scratch.',
+    );
+  }
+
   // 2. Auth users — seed BEFORE docs so any owner-uid the rules reference
   //    resolves, and before session restore so there is a DB to restore into.
-  if (payload.authUsers && payload.authUsers.length > 0) {
+  if (!hasExistingData && payload.authUsers && payload.authUsers.length > 0) {
     const auth = ensureAuth(ctx);
     authOps.seedUsers(auth, payload.authUsers as unknown as ReadonlyArray<SeedUser>);
     result.seededUsers = payload.authUsers.length;
   }
 
   // 3. Seed docs — admin-style fixture load (bypasses rules).
-  if (payload.seed && Object.keys(payload.seed).length > 0) {
+  if (!hasExistingData && payload.seed && Object.keys(payload.seed).length > 0) {
     sandboxOps.seedDocuments(ctx.db, payload.seed);
     result.seededDocs = Object.keys(payload.seed).length;
   }

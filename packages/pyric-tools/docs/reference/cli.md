@@ -49,9 +49,9 @@ is unavailable). `firestore.rules` is deployed and hot-reloaded over SSE.
 |---|---|---|
 | `--port <n>` | `3473` | Port to serve on ("FIRE" on a phone keypad); scans forward when taken. |
 | `--host <h>` | `localhost` | Host to bind. |
-| `--persist` | off | Persist sandbox state (docs + auth users) to a committable `.pyric/state/state.json`. Once a state file exists it wins; `--seed` then applies only on the first run. (On the SharedWorker path data is already durable in IndexedDB; this adds the on-disk, shareable copy.) |
-| `--fresh` | off | With `--persist`: discard the existing state file and re-seed from scratch. Does not clear the browser's IndexedDB. |
-| `--seed <file>` | — | Load a `"collection/doc" → fields` JSON map admin-style before app code runs. Also accepts a `pyric snapshot` state file (detected by its `version` key) — seeds docs + auth users. |
+| `--persist` | off | Persist sandbox state (docs + auth users) to a committable `.pyric/state/state.json`. Once a state file exists it wins; `--seed` then applies only into an empty sandbox. (On the SharedWorker path data is already durable in IndexedDB; this adds the on-disk, shareable copy.) |
+| `--fresh` | off | Requires `--persist` — errors otherwise (there's no state file to discard). Discards the existing state file and re-seeds from scratch. Does **not** clear the browser's IndexedDB, so a browser tab with existing sandbox data keeps it and writes it right back into the new file; also clear site data (or use a private window) for a full reset. |
+| `--seed <file>` | — | Load a `"collection/doc" → fields` JSON map admin-style before app code runs. Also accepts a `pyric snapshot` state file (detected by its `version` key) — seeds docs + auth users. Applies only into an empty sandbox: if it already holds restored/lived data (a state file, or IndexedDB from an earlier session even without `--persist`), the seed is skipped and a console line explains why. |
 | `--no-capture` | capture on | Disable the session capture. By default pyric dev writes `.pyric/last-session.json` for `pyric verify` to replay. Captures use `pyric.verify.fixture.v1`, with one event timeline and per-service Firestore/RTDB rules + state blocks. |
 | `--no-watch` | watch on | Disable `firestore.rules` hot-reload. |
 | `--no-open` | auto-open on | Don't auto-open the browser. (Auto-open is already suppressed under `--json`, no TTY, and CI.) |
