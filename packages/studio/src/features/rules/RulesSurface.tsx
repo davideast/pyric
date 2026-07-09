@@ -210,6 +210,7 @@ function InspectedDenial({
       setEditResult({
         result: { outcome: 'error', code: 'no-backend', message: 'No sandbox snapshot to re-run against.' },
         diff: [],
+        lint: { parseable: true, findings: [] },
       });
       return;
     }

@@ -4,19 +4,25 @@
  * Pure-props, like the `@pyric/ui` surfaces: it takes the list of {@link Denial}s
  * (projected from the event stream by `model.ts`) plus optional re-run callbacks,
  * and renders:
- *   - a LIST of denied ops (left), severity-ramped via `--color-severity-*`;
- *   - a DETAIL for the selected denial (right): the rule that denied it
- *     (`explainDenial`), the `request.auth` context, the resource path/op, and
- *     the proposed write;
+ *   - a LIST of denied ops (left), severity-ramped via `--color-severity-*`,
+ *     tagged by service;
+ *   - a DETAIL for the selected denial (right): a per-service explanation
+ *     (`explainDenial`) — Firestore's matched rule + trace, RTDB's `.write`/
+ *     `.validate` node + bindings, Storage's match block + reasons — plus the
+ *     `request.auth` context, the resource path/op, and the proposed write;
  *   - two RE-RUN actions: "as the attempting user" (impersonation) and "against
- *     an edited ruleset" (a fork + diff). Each renders its {@link RerunResult}.
+ *     an edited ruleset" (a fork + lint + diff). Each control is graded by
+ *     `rerunSupport(denial)`: `live` (enabled when the host wires a callback),
+ *     `pending`, or `absent` (disabled with a hint naming the missing mechanical
+ *     tool — see `SPEC.md`).
  *
- * Styling is token-only (`--color-danger`, the severity ramp, `--diff-*`) via
+ * Styling is token-only (`--color-danger`, the severity ramp, `--diff-*`, the
+ * violet `--color-primary` accent — no green outside the diff-add token) via
  * Tailwind v4 role classes, so it re-themes with the rest of the shell.
  *
  * The re-run callbacks are OPTIONAL: when the host hasn't wired the live worker
- * yet (T3 / Studio pane today), the buttons render disabled with a "needs the
- * live backend" hint; the denial→rule→context view is fully live regardless.
+ * yet (T3 / Studio pane today), the buttons render disabled with a hint; the
+ * denial→rule→context view is fully live regardless.
  */
 
 import { useState, type ReactNode } from 'react';
@@ -25,8 +31,11 @@ import { truncateVectorsForDisplay } from '@pyric/ui/firestore';
 import {
   explainDenial,
   denialSeverity,
+  rerunSupport,
   type Denial,
   type DenialSeverity,
+  type RuleExplanation,
+  type RerunSupport,
 } from './model.js';
 import type { EditedRulesetRerun, RerunResult } from './rerun.js';
 
@@ -45,7 +54,7 @@ export interface RulesDebugProps {
   onEditedRulesChange?: (rules: string) => void;
   /** Re-run the selected denial AS the attempting user (impersonation, live). */
   onRerunAsUser?: (denial: Denial) => Promise<RerunResult>;
-  /** Re-run the selected denial against `editedRules` (fork + diff). */
+  /** Re-run the selected denial against `editedRules` (fork + lint + diff). */
   onRerunAgainstRules?: (denial: Denial, rules: string) => Promise<EditedRulesetRerun>;
   /** Shown when there are no denials yet (backend-aware copy from the pane). */
   emptyState?: ReactNode;
@@ -189,7 +198,7 @@ function DenialDetail({
         <p className="text-sm leading-relaxed text-soft-white">{exp.headline}</p>
       </section>
 
-      {/* request.auth context. */}
+      {/* request.auth context (shared across services). */}
       <Field label="request.auth">
         {denial.auth ? (
           <code className="font-mono text-xs text-soft-white">
@@ -205,18 +214,33 @@ function DenialDetail({
         )}
       </Field>
 
-      {/* The rule trace: the "rule that denied it". */}
-      <Field label="rule trace">
-        <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs leading-relaxed text-slate-gray">
-          {[...exp.ruleLines, ...exp.otherLines].join('\n') || '(no trace)'}
-        </pre>
-      </Field>
+      {/* Per-service rule detail, grounded in that service's mechanical trace. */}
+      <RuleDetail denial={denial} exp={exp} />
 
       {/* The proposed write, if any. */}
       {denial.resourceData ? (
-        <Field label="request.resource.data (proposed write)">
+        <Field
+          label={
+            exp.engine === 'rtdb'
+              ? 'proposed value (evaluated by .validate)'
+              : exp.engine === 'storage'
+                ? 'request object metadata'
+                : 'request.resource.data (proposed write)'
+          }
+        >
           <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs text-soft-white">
             {JSON.stringify(truncateVectorsForDisplay(denial.resourceData), null, 2)}
+          </pre>
+        </Field>
+      ) : null}
+
+      {/* The pre-write resource state, when the rule saw one. */}
+      {denial.resourceBefore ? (
+        <Field label="resource (existing state the rule saw)">
+          <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs text-slate-gray">
+            {denial.resourceBefore.exists
+              ? JSON.stringify(truncateVectorsForDisplay(denial.resourceBefore.data), null, 2)
+              : '(does not exist)'}
           </pre>
         </Field>
       ) : null}
@@ -233,6 +257,80 @@ function DenialDetail({
   );
 }
 
+/** The service-specific slice of the detail: the exact rule node, in that
+ *  engine's own terms, plus whatever extra structure that engine's mechanical
+ *  tooling hands us (RTDB bindings/expression; Firestore/Storage trace lines). */
+function RuleDetail({ denial, exp }: { denial: Denial; exp: RuleExplanation }) {
+  if (exp.engine === 'rtdb') return <RtdbRuleDetail denial={denial} exp={exp} />;
+  if (exp.engine === 'storage') return <StorageRuleDetail exp={exp} />;
+  return <FirestoreRuleDetail exp={exp} />;
+}
+
+/** Firestore: the matched `Rule #N (ops)` (or implicit-deny note) + the full
+ *  simulator trace (`Rule #N (ops) → deny`, get()/exists() context lines). */
+function FirestoreRuleDetail({ exp }: { exp: RuleExplanation }) {
+  return (
+    <Field label={exp.implicitDeny ? 'matched rule' : `matched rule — ${exp.ruleNode}`}>
+      <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs leading-relaxed text-slate-gray">
+        {[...exp.ruleLines, ...exp.otherLines].join('\n') || '(no trace)'}
+      </pre>
+    </Field>
+  );
+}
+
+/** RTDB: WHICH node in the cascade denied (`.write` vs `.validate`, at which
+ *  rule-tree path), its raw rule text, and the `$variable` bindings —
+ *  `SimulateHandler`'s verdict, not a re-derivation. */
+function RtdbRuleDetail({ denial, exp }: { denial: Denial; exp: RuleExplanation }) {
+  return (
+    <>
+      <Field label={exp.implicitDeny ? 'rule node' : `rule node — ${exp.ruleNode}`}>
+        <code className="font-mono text-xs text-soft-white">
+          {exp.phase ? `.${exp.phase}` : '(no matching rule)'}
+          {denial.rules?.matchedPath ? ` at ${denial.rules.matchedPath}` : ''}
+        </code>
+      </Field>
+      {exp.ruleExpression ? (
+        <Field label="rule expression">
+          <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs text-slate-gray">
+            {exp.ruleExpression}
+          </pre>
+        </Field>
+      ) : null}
+      {exp.bindings ? (
+        <Field label="$variable bindings">
+          <code className="font-mono text-xs text-soft-white">
+            {Object.entries(exp.bindings)
+              .map(([k, v]) => `${k.startsWith('$') ? k : `$${k}`} → ${v}`)
+              .join(', ')}
+          </code>
+        </Field>
+      ) : null}
+      {denial.rules?.reason ? (
+        <Field label="simulator reason">
+          <code className="font-mono text-xs text-slate-gray">{denial.rules.reason}</code>
+        </Field>
+      ) : null}
+    </>
+  );
+}
+
+/** Storage: the `match` block + verb whose condition failed, and the raw
+ *  free-text reasons `evaluateStorageRules` produced (no rule index/trace —
+ *  the Storage engine doesn't build one; see `SPEC.md`). */
+function StorageRuleDetail({ exp }: { exp: RuleExplanation }) {
+  return (
+    <Field label={exp.implicitDeny ? 'matched rule' : 'matched rule (match block)'}>
+      {exp.ruleNode ? (
+        <code className="mb-2 block font-mono text-xs text-soft-white">{exp.ruleNode}</code>
+      ) : null}
+      <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs leading-relaxed text-slate-gray">
+        {[...exp.ruleLines, ...exp.otherLines].join('\n') || '(no trace)'}
+      </pre>
+    </Field>
+  );
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
@@ -244,7 +342,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-// ─── Re-run panel (both paths) ─────────────────────────────────────────────
+// ─── Re-run panel (both paths, capability-gated per service) ──────────────
 
 function RerunPanel({
   denial,
@@ -262,9 +360,10 @@ function RerunPanel({
   const [asUser, setAsUser] = useState<RerunResult | 'pending' | null>(null);
   const [edited, setEdited] = useState<EditedRulesetRerun | 'pending' | null>(null);
 
-  const firestoreReplay = denial.service === 'firestore';
-  const canImpersonate = firestoreReplay && !!onRerunAsUser && !!denial.auth?.uid;
-  const canEdited = firestoreReplay && !!onRerunAgainstRules;
+  const support = rerunSupport(denial);
+  const canImpersonate =
+    support.impersonate.kind === 'live' && !!onRerunAsUser && !!denial.auth?.uid;
+  const canEdited = support.editedRuleset.kind === 'live' && !!onRerunAgainstRules;
 
   async function runAsUser() {
     if (!onRerunAsUser) return;
@@ -285,6 +384,7 @@ function RerunPanel({
       setEdited({
         result: { outcome: 'error', code: 'unknown', message: String(e) },
         diff: [],
+        lint: { parseable: true, findings: [] },
       });
     }
   }
@@ -309,17 +409,17 @@ function RerunPanel({
             {asUser === 'pending'
               ? 'Running…'
               : denial.auth?.uid
-                ? `Impersonate ${denial.auth.uid}`
+                ? support.impersonate.kind === 'live'
+                  ? `Impersonate ${denial.auth.uid}`
+                  : 'Impersonation not available'
                 : 'No user to impersonate'}
           </button>
         </div>
-        {!onRerunAsUser ? (
-          <HintNeedsBackend />
-        ) : null}
+        <RerunHint support={support.impersonate} haveCallback={!!onRerunAsUser} />
         {asUser && asUser !== 'pending' ? <ResultLine result={asUser} /> : null}
       </div>
 
-      {/* Path 2: re-run against an edited ruleset (fork + diff). */}
+      {/* Path 2: re-run against an edited ruleset (lint + fork + diff). */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm font-medium text-soft-white">
@@ -331,10 +431,10 @@ function RerunPanel({
             onClick={runEdited}
             className="rounded-md border border-primary/40 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:border-border disabled:text-slate-gray"
           >
-            {edited === 'pending' ? 'Forking…' : 'Test on a branch'}
+            {edited === 'pending' ? 'Linting + forking…' : 'Lint, then test on a branch'}
           </button>
         </div>
-        {onEditedRulesChange ? (
+        {onEditedRulesChange && support.editedRuleset.kind === 'live' ? (
           <textarea
             value={editedRules ?? ''}
             onChange={(e) => onEditedRulesChange(e.target.value)}
@@ -343,9 +443,12 @@ function RerunPanel({
             className="h-32 w-full resize-y rounded-md border border-border bg-content-bg p-3 font-mono text-xs text-soft-white outline-none focus:border-border-strong"
           />
         ) : null}
-        {!onRerunAgainstRules ? <HintNeedsBackend /> : null}
+        <RerunHint support={support.editedRuleset} haveCallback={!!onRerunAgainstRules} />
         {edited && edited !== 'pending' ? (
           <>
+            {edited.lint.findings.length > 0 || !edited.lint.parseable ? (
+              <LintFindings lint={edited.lint} />
+            ) : null}
             <ResultLine result={edited.result} />
             {edited.diff.length > 0 ? <DiffView diff={edited.diff} /> : null}
           </>
@@ -355,12 +458,57 @@ function RerunPanel({
   );
 }
 
-function HintNeedsBackend() {
+/** Renders the capability gate for one re-run path: nothing when it's `live`
+ *  and wired, the standard "needs the live backend" hint when it's `live` but
+ *  the host hasn't supplied a callback yet, and the mechanical-tool-naming
+ *  hint when the service's tooling itself doesn't back this path yet
+ *  (`pending`/`absent` — see `SPEC.md`). */
+function RerunHint({ support, haveCallback }: { support: RerunSupport; haveCallback: boolean }) {
+  if (support.kind === 'pending' || support.kind === 'absent') {
+    const tool = support.kind === 'pending' ? support.tool : support.missingTool;
+    return (
+      <p
+        data-pyric-ui="rerun-hint-gated"
+        className="rounded-md border border-border bg-content-bg px-3 py-2 text-xs text-slate-gray"
+      >
+        {support.hint}{' '}
+        <code className="font-mono text-[0.7rem] text-warning">{tool}</code>
+      </p>
+    );
+  }
+  if (!haveCallback) {
+    return (
+      <p className="rounded-md border border-border bg-content-bg px-3 py-2 text-xs text-slate-gray">
+        Wired to the live sandbox once the local backend is reachable. The
+        denial, rule, and context above are already live.
+      </p>
+    );
+  }
+  return null;
+}
+
+function LintFindings({ lint }: { lint: EditedRulesetRerun['lint'] }) {
   return (
-    <p className="rounded-md border border-border bg-content-bg px-3 py-2 text-xs text-slate-gray">
-      Wired to the live sandbox once the local backend is reachable. The
-      denial, rule, and context above are already live.
-    </p>
+    <div
+      data-pyric-ui="rerun-lint"
+      className="flex flex-col gap-1 rounded-md border border-border bg-content-bg p-3"
+    >
+      <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-slate-gray">
+        lint (firestore_lint_rules)
+      </span>
+      {!lint.parseable ? (
+        <p className="font-mono text-xs text-danger">{lint.parseError}</p>
+      ) : (
+        lint.findings.map((f, i) => (
+          <p key={`${f.rule}-${i}`} className="font-mono text-xs">
+            <span className={f.severity === 'error' ? 'text-danger' : 'text-warning'}>
+              {f.rule}
+            </span>
+            <span className="text-slate-gray"> — {f.message}</span>
+          </p>
+        ))
+      )}
+    </div>
   );
 }
 
