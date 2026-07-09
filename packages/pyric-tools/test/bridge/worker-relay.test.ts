@@ -46,7 +46,7 @@ import type {
   InboundMessage,
   OutboundMessage,
 } from '../../src/serve/worker/protocol.js';
-import { initializeSandbox, attachPersistence, createMemoryBackend } from 'pyric/sandbox';
+import { initializeSandbox, createMemoryBackend } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import type { AuthUserRecord } from 'pyric/auth';
 
@@ -68,7 +68,7 @@ async function makeWorkerCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
   const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
   getAdminFirestore(sandbox.withAuth(null)).setRules(PERMISSIVE_RULES);
-  await attachPersistence(sandbox, {
+  await sandbox.enablePersistence({
     key: `relay-test-${Math.random()}`,
     injectedBackend: createMemoryBackend(),
   });

@@ -46,30 +46,16 @@ interface SharedWorkerGlobalScope {
   onconnect: ((e: MessageEvent) => void) | null;
 }
 
-import {
-  initializeSandbox,
-  attachPersistence,
-  createIndexedDBBackend,
-} from 'pyric/sandbox';
-import { getFirestore } from 'pyric/firestore';
-import { getAuth } from 'pyric/auth';
+import { createIndexedDBBackend } from 'pyric/sandbox';
 
 import {
   handleMessage,
   cleanupPort,
-  getOrCreateInstanceId,
   type HostCtx,
   type PortLike,
 } from './host.js';
-import {
-  applyServeInit,
-  createWorkerDurableBackend,
-  setupServerAuthFlush,
-  setupWorkerHotReload,
-  type EventSourceLike,
-} from './serve-init.js';
+import { buildWorkerCtx, type EventSourceLike } from './serve-init.js';
 import type { InboundMessage } from './protocol.js';
-import type { InitPayload } from '../namespace.js';
 
 // ─── Singleton context ────────────────────────────────────────────────────
 
@@ -84,17 +70,6 @@ import type { InitPayload } from '../namespace.js';
 let _ctx: HostCtx | null = null;
 let _ctxPromise: Promise<HostCtx> | null = null;
 
-const PERMISSIVE_RULES = `
-  rules_version = '2';
-  service cloud.firestore {
-    match /databases/{database}/documents {
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-  }
-`;
-
 /**
  * Return the shared context, memoizing the in-flight init promise so
  * concurrent first messages await ONE build (see `_ctxPromise` above).
@@ -105,100 +80,32 @@ function getCtx(): Promise<HostCtx> {
 
 /**
  * Build the ONE shared sandbox + Firestore handle. Invoked exactly once per
- * worker lifetime via the `getCtx` memo — never concurrently.
+ * worker lifetime via the `getCtx` memo — never concurrently. The real boot
+ * logic lives in `buildWorkerCtx` (serve-init.ts) so it is testable without
+ * a SharedWorker runtime; this shell only supplies the real ambients.
+ *
+ * NOTE (#754): no worker-side session restore. Sessions are per-port; each
+ * PAGE re-establishes its own session from web storage via
+ * `auth.restorePortSession` (runtime.ts). The user DB itself is restored
+ * from the persisted snapshot inside buildWorkerCtx (#629).
  */
 async function buildCtx(): Promise<HostCtx> {
-  const sandbox = initializeSandbox();
-
-  // Deploy permissive starter rules via admin-firestore.
-  // Callers override at runtime via the setRules op.
-  const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
-  const adminDb = getAdminFirestore(sandbox.withAuth(null));
-  adminDb.setRules(PERMISSIVE_RULES);
-
   // ONE IDB backend for the whole worker. createIndexedDBBackend's guard
   // checks `typeof indexedDB === 'undefined'` — SharedWorkers have full
   // IndexedDB access, so this succeeds. The persistence controller's
   // window.addEventListener('beforeunload', ...) is guarded by
-  // `typeof window !== 'undefined'`, so attachPersistence is worker-safe.
-  const idb = createIndexedDBBackend();
-
-  // Fetch serve's init payload FIRST — it decides the DURABLE strategy before
-  // we attach: `--persist` mirrors the controller blob to the committable
-  // server file (and primes from it on a fresh worker); a `seedState` fixture
-  // primes IDB once. Null when standalone (no `pyric dev` behind us).
-  const payload = await fetchInitPayload();
-
-  // The persistence-controller backend. `--persist`/`seedState` wrap IDB (see
-  // createWorkerDurableBackend); plain IDB otherwise. The session record stays
-  // on the RAW idb (local-only — it must NEVER reach the committable server
-  // file), so that is what we hand the host as `sessionBackend`.
-  const durable = payload ? createWorkerDurableBackend(idb, payload, { fetch }) : idb;
-  await attachPersistence(sandbox, {
-    key: 'pyric-shared-worker',
-    injectedBackend: durable,
+  // `typeof window !== 'undefined'`, so enablePersistence is worker-safe.
+  const ctx = await buildWorkerCtx({
+    fetch,
+    idb: createIndexedDBBackend(),
+    // EventSource is available in workers; guard anyway for exotic hosts.
+    makeEventSource:
+      typeof EventSource !== 'undefined'
+        ? (url) => new EventSource(url) as unknown as EventSourceLike
+        : null,
   });
-
-  // Register the auth service with the persistence registry BEFORE we read
-  // back any session: `getAuth(sandbox)` makes the user DB ride the snapshot
-  // (the #629 mechanism). One auth per worker — one shared session across all
-  // tabs (the v1 decision; see host.ts for the SESSION/LOCAL collapse note).
-  getAuth(sandbox);
-
-  // Sandbox-live Firestore: `getFirestore(sandbox)` reads
-  // `sandbox.currentUser` per operation, so auth changes propagate
-  // to subsequent Firestore ops without rebuilding the handle.
-  const db = getFirestore(sandbox);
-
-  const ctx: HostCtx = {
-    db,
-    sandbox,
-    // Stable per-SharedWorker identity (raw idb, local-only). Two browser
-    // profiles on the same port get two ids — how the UI tells them apart.
-    instanceId: await getOrCreateInstanceId(idb),
-    subs: new Map(),
-    sessionBackend: idb,
-    sessionMode: 'LOCAL',
-  };
   _ctx = ctx; // publish the resolved ctx for the synchronous close handler
-
-  // Apply rules / seed / authUsers / capture BEFORE session restore (so seeded
-  // users exist for the restore and project rules govern the first write),
-  // then mirror auth to the committable server file (`--persist` only).
-  if (payload) {
-    applyServeInit(ctx, payload, { fetch });
-    setupServerAuthFlush(ctx, payload, { fetch });
-  }
-
-  // The worker owns the SINGLE hot-reload stream for the origin (tabs open
-  // none) — so a rules change deploys once and multi-tab pages never exhaust
-  // the per-origin connection cap. EventSource is available in workers.
-  if (typeof EventSource !== 'undefined') {
-    setupWorkerHotReload(ctx, (url) => new EventSource(url) as unknown as EventSourceLike);
-  }
-
-  // NOTE (#754): no worker-side session restore anymore. Sessions are
-  // per-port; each PAGE re-establishes its own session from web storage via
-  // `auth.restorePortSession` (runtime.ts). The user DB itself was already
-  // restored from the snapshot above (#629).
-
   return ctx;
-}
-
-/**
- * Fetch + parse `/__pyric/init.json`. The URL is relative to the worker
- * script's origin (same origin as the page). Returns null on any failure: a
- * worker opened outside `pyric dev` has no init endpoint and simply keeps
- * the permissive starter rules + a plain-IDB durable store.
- */
-async function fetchInitPayload(): Promise<InitPayload | null> {
-  try {
-    const res = await fetch('/__pyric/init.json');
-    if (!res.ok) return null;
-    return (await res.json()) as InitPayload;
-  } catch {
-    return null;
-  }
 }
 
 // ─── SharedWorker connect handler ─────────────────────────────────────────

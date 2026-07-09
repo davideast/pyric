@@ -28,7 +28,6 @@ import type { OutboundMessage, ResMessage } from '../../../src/serve/worker/prot
 import { sandbox as authOps } from 'pyric/auth';
 import {
   initializeSandbox,
-  attachPersistence,
   createMemoryBackend,
   serializeToBuckets,
   deserializeFromBuckets,
@@ -81,7 +80,7 @@ async function makeCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
   const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
   getAdminFirestore(sandbox.withAuth(null)).setRules(PERMISSIVE_RULES);
-  await attachPersistence(sandbox, {
+  await sandbox.enablePersistence({
     key: `serve-init-${Math.random()}`,
     injectedBackend: createMemoryBackend(),
   });

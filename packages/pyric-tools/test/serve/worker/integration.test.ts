@@ -17,7 +17,6 @@ import {
 import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
 import {
   initializeSandbox,
-  attachPersistence,
   createMemoryBackend,
 } from 'pyric/sandbox';
 import { getFirestore as ipGetFirestore } from 'pyric/firestore';
@@ -55,7 +54,7 @@ async function makeHostCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
   const { getFirestore: adm } = await import('pyric/sandbox/admin-firestore');
   adm(sandbox.withAuth(null)).setRules(GATE_RULES);
-  await attachPersistence(sandbox, { key: `int-${Math.random()}`, injectedBackend: createMemoryBackend() });
+  await sandbox.enablePersistence({ key: `int-${Math.random()}`, injectedBackend: createMemoryBackend() });
   ipGetAuth(sandbox);
   return { db: ipGetFirestore(sandbox), sandbox, subs: new Map(), sessionMode: 'LOCAL', sessionBackend: createMemoryBackend() };
 }
