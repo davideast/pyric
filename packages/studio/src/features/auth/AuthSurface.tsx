@@ -5,20 +5,29 @@
  * over `@pyric/ui/auth` (NOT reimplemented):
  *   - LIST  → {@link AuthUserList} (`data-pyric-ui="auth-user-list"`), fed by
  *             {@link useAuthUsers} over the seeded sandbox `Auth` handle.
+ *   - CREATE→ an "Add user" affordance in the sub-bar disclosing the same
+ *             {@link AuthUserForm} in create mode (`useAuthUsers().createUser`,
+ *             i.e. the adminCreateUser op over the worker).
  *   - DETAIL→ {@link AuthUserForm} (`data-pyric-ui="auth-user-form"`) +
  *             {@link ClaimsField} (`data-pyric-ui="claims-field"`) for the
- *             selected user, saved through `useAuthUsers().updateUser`.
+ *             selected user, saved through `useAuthUsers().updateUser`, plus
+ *             an EDITABLE per-user "Sign-in providers" group: linked OAuth
+ *             providers are set/unset (one or several — `providerUserInfo` is
+ *             an array) through `updateUser({ providerUserInfo })`. The
+ *             `password` entry is credential-derived (set a password to link
+ *             it) and rendered as a fact, not a toggle.
+ *
+ * Project-level provider ENABLEMENT (which providers this sandbox accepts at
+ * all) is deliberately NOT a surface here: the backend gating + worker ops
+ * (`get/set/subscribeAuthProviderConfig`) stay wired and `AuthProviderToggles`
+ * stays exported from `@pyric/ui/auth`, but Studio does not mount a toggle
+ * bar — invisible fidelity.
  *
  * The `Auth` handle comes from the dev-seed context ({@link useDevSeed}) so the
  * surface renders for review without a live `pyric dev`. All visual styling
  * lives in the scoped, token-only `auth.css` (imported here) and targets the
  * `data-pyric-*` contract the library emits, so the surface re-themes with the
  * shell's light/dark tokens and never restyles `@pyric/ui` itself.
- *
- * Scope note (honest): the "Sign-in methods" block is read-only: it reflects
- * `providerUserInfo` from the record. Account linking / unlink has no headless
- * seam on `AuthUserForm` today, so those affordances are presentational. The
- * filled-deny "disabled" treatment is driven by the record's `disabled` flag.
  */
 
 import { useMemo, useState } from 'react';
@@ -30,7 +39,8 @@ import {
   useAuthUsers,
   type AuthUserFormSubmit,
 } from '@pyric/ui/auth';
-import type { Auth, AuthUserRecord } from 'pyric/auth';
+import { FEDERATED_PROVIDER_IDS } from 'pyric/auth';
+import type { Auth, AuthUserRecord, CreateUserRequest, ProviderUserInfo } from 'pyric/auth';
 import { useDevSeed } from '../../dev/DevSeedProvider.js';
 import { useDataNav } from '../data/navigation.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
@@ -114,6 +124,7 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
     error,
     filter,
     setFilter,
+    createUser,
     updateUser,
     deleteUser,
     clearUsers,
@@ -129,6 +140,10 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
     () => users.find((u) => u.uid === selectedUid) ?? null,
     [users, selectedUid],
   );
+
+  // "Add user" discloses the create form in the detail pane (one create at a
+  // time; selecting a user closes it).
+  const [creating, setCreating] = useState(false);
 
   return (
     <div className="auth-surface" data-pyric-ui="auth-surface">
@@ -147,6 +162,16 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
         <div className="auth-sub__right">
           <button
             type="button"
+            className="auth-sub__add"
+            onClick={() => {
+              setCreating(true);
+              selectUser(null);
+            }}
+          >
+            Add user
+          </button>
+          <button
+            type="button"
             className="auth-sub__clear"
             onClick={() => {
               clearUsers();
@@ -160,21 +185,24 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
       </div>
 
       {/* Master-detail body. On mobile this drills down: the list, then the
-          selected user's detail with a back affordance. */}
-      <div className="auth-body" data-auth-level={selected ? 'detail' : 'list'}>
+          selected user's detail (or the create form) with a back affordance. */}
+      <div className="auth-body" data-auth-level={selected || creating ? 'detail' : 'list'}>
         <div className="auth-list">
           <AuthUserList
             users={users}
             isLoading={isLoading}
             error={error}
             filter={filter}
-            onSelect={(u) => selectUser(u.uid)}
+            onSelect={(u) => {
+              setCreating(false);
+              selectUser(u.uid);
+            }}
             renderIdentifier={renderIdentifier}
             formatDate={clockTime}
             emptyState={
               <p className="auth-zero">
-                No users yet. Sign-ins from the app and agent-seeded users appear
-                here.
+                No users yet. Sign-ins from the app, agent-seeded users, and
+                “Add user” all land here.
               </p>
             }
             noResultsState={
@@ -184,7 +212,19 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
         </div>
 
         <div className="auth-detail">
-          {selected ? (
+          {creating ? (
+            <CreateUserPanel
+              onCancel={() => setCreating(false)}
+              onCreate={async (request) => {
+                // `createUser` is sync in-process, a Promise over the worker
+                // bundle — normalize, then focus the new user (the coarse
+                // subscribeUsers re-list brings it into the list).
+                const record = await Promise.resolve(createUser(request));
+                setCreating(false);
+                selectUser(record.uid);
+              }}
+            />
+          ) : selected ? (
             <>
               <button
                 type="button"
@@ -199,6 +239,11 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
                 user={selected}
                 onSave={(submit) => {
                   if (submit.mode === 'edit') updateUser(submit.uid, submit.request);
+                }}
+                onProvidersChange={async (providers) => {
+                  await Promise.resolve(
+                    updateUser(selected.uid, { providerUserInfo: providers }),
+                  );
                 }}
                 onDelete={() => {
                   deleteUser(selected.uid);
@@ -217,15 +262,155 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
   );
 }
 
-/** The selected-user editor: header (who · uid) + sign-in methods + the
- *  composed `AuthUserForm` (which carries the claims/disabled/profile fields). */
+/** The "Add user" disclosure: the SAME composed form in create mode —
+ *  `AuthUserForm` without `initial` emits `{ mode: 'create', request }`. */
+function CreateUserPanel({
+  onCreate,
+  onCancel,
+}: {
+  onCreate: (request: CreateUserRequest) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [createError, setCreateError] = useState<Error | null>(null);
+
+  const handleSubmit = (submit: AuthUserFormSubmit) => {
+    if (submit.mode !== 'create') return;
+    setCreateError(null);
+    onCreate(submit.request).catch((e) => {
+      setCreateError(e instanceof Error ? e : new Error(String(e)));
+    });
+  };
+
+  return (
+    <div className="auth-editor" data-pyric-ui="auth-create-user">
+      <div className="auth-editor__head">
+        <div className="auth-editor__who">New user</div>
+        <div className="auth-editor__meta">
+          Created without signing in — admin semantics, like the emulator’s
+          add-user flow.
+        </div>
+      </div>
+      <AuthUserForm onSubmit={handleSubmit} onCancel={onCancel} submitLabel="Create user">
+        {createError ? (
+          <p className="auth-save auth-save--error" role="alert">
+            {createError.message}
+          </p>
+        ) : null}
+      </AuthUserForm>
+    </div>
+  );
+}
+
+/** OAuth provider ids offered as toggles — the sandbox's canonical
+ *  federated set (`FEDERATED_PROVIDER_IDS` from `pyric/auth`), the same
+ *  list the create form's checklist enumerates. */
+const OAUTH_PROVIDER_IDS: string[] = [...FEDERATED_PROVIDER_IDS];
+
+/**
+ * Per-user provider assignment: linked OAuth providers as toggles (multiple
+ * providers per user are supported — the record's `providerUserInfo` is an
+ * array), plus an add-custom input for provider ids outside the known set.
+ * Every change round-trips through `updateUser({ providerUserInfo })`
+ * (replacement semantics; the backend preserves the credential-derived
+ * `password` entry).
+ */
+function ProvidersEditor({
+  user,
+  onChange,
+}: {
+  user: AuthUserRecord;
+  onChange: (providers: ProviderUserInfo[]) => Promise<void>;
+}) {
+  const [providersError, setProvidersError] = useState<Error | null>(null);
+  const [customId, setCustomId] = useState('');
+
+  const linked = user.providerUserInfo.map((p) => p.providerId);
+  const hasPassword = linked.includes('password');
+  const oauthLinked = linked.filter((id) => id !== 'password');
+  const customLinked = oauthLinked.filter((id) => !OAUTH_PROVIDER_IDS.includes(id));
+
+  const apply = (next: string[]) => {
+    setProvidersError(null);
+    onChange(next.map((providerId) => ({ providerId }))).catch((e) => {
+      setProvidersError(e instanceof Error ? e : new Error(String(e)));
+    });
+  };
+  const toggle = (id: string, on: boolean) => {
+    apply(on ? [...oauthLinked, id] : oauthLinked.filter((p) => p !== id));
+  };
+  const addCustom = () => {
+    const id = customId.trim();
+    if (!id) return;
+    setCustomId('');
+    if (oauthLinked.includes(id)) return;
+    apply([...oauthLinked, id]);
+  };
+
+  return (
+    <section className="auth-providers-editor" aria-label="Sign-in providers">
+      <div className="auth-group">Sign-in providers</div>
+      <div className="auth-providers-editor__list">
+        {[...OAUTH_PROVIDER_IDS, ...customLinked].map((id) => (
+          <label key={id} className="auth-provider-row" data-pyric-provider-id={id}>
+            <input
+              type="checkbox"
+              checked={oauthLinked.includes(id)}
+              onChange={(e) => toggle(id, e.target.checked)}
+            />
+            <span className="auth-provider-row__label">{providerLabel(id)}</span>
+            <span className="auth-provider-row__id">{id}</span>
+          </label>
+        ))}
+      </div>
+      {hasPassword || user.isAnonymous ? (
+        <p className="auth-providers-editor__derived">
+          {hasPassword
+            ? 'Password is linked by the password credential above.'
+            : 'Anonymous — the provider lives on the token, not the record.'}
+        </p>
+      ) : null}
+      <div className="auth-provider-custom">
+        <label className="auth-provider-custom__field">
+          <span className="auth-provider-custom__label">Custom provider ID</span>
+          <span className="auth-provider-custom__row">
+            <input
+              type="text"
+              value={customId}
+              placeholder="oidc.my-provider"
+              onChange={(e) => setCustomId(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addCustom();
+                }
+              }}
+            />
+            <button type="button" onClick={addCustom} disabled={!customId.trim()}>
+              Link
+            </button>
+          </span>
+        </label>
+      </div>
+      {providersError ? (
+        <p className="auth-save auth-save--error" role="alert">
+          {providersError.message}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/** The selected-user editor: header (who · uid) + editable sign-in providers
+ *  + the composed `AuthUserForm` (profile + access + claims). */
 function UserDetail({
   user,
   onSave,
+  onProvidersChange,
   onDelete,
 }: {
   user: AuthUserRecord;
   onSave: (submit: AuthUserFormSubmit) => void;
+  onProvidersChange: (providers: ProviderUserInfo[]) => Promise<void>;
   onDelete: () => void;
 }) {
   const [saveError, setSaveError] = useState<Error | null>(null);
@@ -242,7 +427,6 @@ function UserDetail({
     }
   };
 
-  const methods = user.providerUserInfo;
   const created = clockTime(user.createdAt);
   const lastSeen = relativeTime(user.lastLoginAt);
 
@@ -264,35 +448,7 @@ function UserDetail({
         </div>
       </div>
 
-      {/* Sign-in methods (read-only reflection of providerUserInfo). */}
-      {methods.length > 0 || user.isAnonymous ? (
-        <section className="auth-methods" aria-label="Sign-in methods">
-          <div className="auth-group">Sign-in methods</div>
-          {methods.length === 0 && user.isAnonymous ? (
-            <div className="auth-method" data-pyric-provider-id="anonymous">
-              <span className="auth-method__label">Anonymous</span>
-              <span className="auth-method__id">anonymous</span>
-              <span className="auth-method__note">no credential</span>
-            </div>
-          ) : (
-            methods.map((p) => (
-              <div
-                key={p.providerId}
-                className="auth-method"
-                data-pyric-provider-id={p.providerId}
-              >
-                <span className="auth-method__label">
-                  {providerLabel(p.providerId)}
-                </span>
-                <span className="auth-method__id">{p.providerId}</span>
-                <span className="auth-method__note">
-                  {p.providerId === 'password' ? 'password set' : 'federated'}
-                </span>
-              </div>
-            ))
-          )}
-        </section>
-      ) : null}
+      <ProvidersEditor user={user} onChange={onProvidersChange} />
 
       {/* The composed editor form (profile + access + claims). */}
       <AuthUserForm

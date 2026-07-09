@@ -16,6 +16,10 @@ import { AuthFlowController } from '../../../src/auth/index.js';
 
 function wire() {
   const auth = getAuth(initializeSandbox());
+  // These tests exercise the popup/redirect flow via GoogleAuthProvider —
+  // enable it up front (the sandbox default is OFF for every provider except
+  // password/anonymous — see sandbox.setAuthProviderConfig).
+  authSandbox.setAuthProviderConfig(auth, 'google.com', true);
   const controller = new AuthFlowController(auth);
   // inject so signInWithPopup delegates here
   authSandbox.setAuthFlowResolver(auth, controller.resolver());
@@ -95,6 +99,7 @@ describe('AuthFlowController', () => {
 
   test('install/uninstall wire and clear the resolver on the auth handle', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     const controller = new AuthFlowController(auth);
     controller.install();
     const p = signInWithPopup(auth, new GoogleAuthProvider());

@@ -436,6 +436,11 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.adminUpdateUser'; uid: string; request: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'auth.adminDeleteUser'; uid: string }
   | { t: 'op'; id: string; method: 'auth.adminClearUsers' }
+  // Sign-in provider config (Pyric Studio S-AUTH "Sign-in providers" section):
+  // mirror `pyric/auth`'s `sandbox.{getAuthProviderConfig,setAuthProviderConfig}`
+  // over the port. Reply for `getProviderConfig` is `Array<{providerId, enabled}>`.
+  | { t: 'op'; id: string; method: 'auth.getProviderConfig' }
+  | { t: 'op'; id: string; method: 'auth.setProviderConfig'; providerId: string; enabled: boolean }
   // Storage ops (Pyric Studio data browse + pyric-admin remote arm): mirror
   // `pyric/storage` over the port. The ref is a path; `listAll` replies with
   // plain `{ fullPath, name }` entries, `getMetadata` with the plain
@@ -496,6 +501,22 @@ export type OpMessage = (
    * Plain tagged union → structured-clones.
    */
   actAs?: AuthLens;
+  /**
+   * MECHANICAL op provenance (Pyric Studio traffic attribution): the
+   * client that CONSTRUCTS this op declares who issued it. The host maps
+   * it onto the unified event stream's `actor` field (`{ kind: 'studio' }`)
+   * via the sandbox's ambient-provenance window, so Traffic can filter
+   * Studio's own viewer/editor noise out of the app's stream.
+   *
+   * Declared at the issuing call site, never inferred: Studio's worker
+   * client stamps it on every op it builds (see `setOpIssuer` in
+   * `client.ts`); the bridge relay (`relayWorkerOp`) forwards remote
+   * frames VERBATIM without stamping, so a user's own admin-SDK traffic
+   * through the remote bridge — which also rides this port when Studio
+   * holds the peer slot — is never mislabeled as Studio's. Additive:
+   * existing senders omit it (events default to `actor: { kind: 'app' }`).
+   */
+  issuer?: 'studio';
 };
 
 // ─── Subscription messages (client → worker) ─────────────────────────────
@@ -522,6 +543,11 @@ export interface FirestoreSubMessage {
    * so the wire message is byte-identical and existing subs don't regress.
    */
   actAs?: AuthLens;
+  /** Mechanical op provenance — see the field's doc on {@link OpMessage}.
+   *  Tags the listener's REGISTRATION events (the initial rules eval); the
+   *  listener's deferred re-evals stay attributed to the app (they fire on
+   *  the microtask drain, outside any provenance window). */
+  issuer?: 'studio';
 }
 
 /**
@@ -566,6 +592,8 @@ export interface RtdbValueSubMessage {
   target: { service: 'rtdb'; path: string };
   /** Mirrors Firestore subscriptions: absent/app-session uses this port's session. */
   actAs?: AuthLens;
+  /** Mechanical op provenance — see the field's doc on {@link OpMessage}. */
+  issuer?: 'studio';
 }
 
 export type SubMessage = FirestoreSubMessage | AuthSubMessage | EventSubMessage | RtdbValueSubMessage;

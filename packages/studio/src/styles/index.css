@@ -129,10 +129,11 @@
   padding: 0 var(--gutter);
 }
 
-/* ── One bar: brand · context pill · nav · tools ─────────────────────── */
+/* ── One bar: identity | nav | status (specs/shell.md) ───────────────── */
 /* The bar spans full width (the hairline runs edge to edge) but its CONTENT is
-   centered to the same wide column EVERY surface uses, so the brand + tools line
-   up with the content's left/right edges and never shift when switching tabs. */
+   centered to the same wide column EVERY surface uses, so the brand + status
+   line up with the content's left/right edges and never shift when switching
+   tabs. The inner row is the spec's grid: identity | nav | status. */
 .studio__bar {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
@@ -143,18 +144,16 @@
   max-width: var(--wide);
   margin: 0 auto;
   height: 54px;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto; /* identity | nav | status */
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  gap: var(--space-4);
   padding: 0 var(--gutter);
   min-width: 0;
-  overflow: hidden;
 }
 .studio__brand {
   font-weight: 600;
   color: var(--ink);
-  flex-shrink: 0;
 }
 
 /* Project + governance mode: the only session context the bar carries. */
@@ -178,13 +177,13 @@
   padding: 1px 6px;
 }
 
-/* Inline nav tabs. */
+/* Inline nav tabs: flex + gap, horizontal overflow scrolls — the bar never
+   grows a second row (N1). */
 .studio__nav {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 0;
-  flex: 1 1 auto;
+  gap: var(--space-1);
   height: 100%;
   min-width: 0;
   overflow-x: auto;
@@ -223,20 +222,49 @@ a.studio__nav-tab {
   border-bottom-color: var(--ink);
 }
 
-.studio__bar-actions {
-  display: inline-flex;
+/* Status cluster: a flex row of chips, gap-spaced; each chip is
+   container-agnostic (L4). Health renders by exception only. */
+.studio__status {
+  display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
-  flex: 0 0 auto;
 }
-
-.studio__playground-actions {
+.studio-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: var(--elevated);
+  color: var(--muted);
+  font-size: var(--fs-caption);
+  line-height: 1.2;
+  white-space: nowrap;
+  text-decoration: none;
+}
+a.studio-chip:hover {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+.studio-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--faint);
+  flex: none;
+}
+.studio-chip--live .studio-chip__dot {
+  background: var(--accent);
+}
+.studio-chip--warn {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--diff-remove) 45%, var(--line));
+}
+.studio-chip--warn .studio-chip__dot {
+  background: var(--diff-remove);
 }
 
 .studio-icon-button {
@@ -404,7 +432,7 @@ a.studio__nav-tab {
 .studio__content[data-surface='firestore'],
 .studio__content[data-surface='auth'],
 .studio__content[data-surface='storage'],
-.studio__content[data-surface='playground'] {
+.studio__content[data-surface='prototype'] {
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -455,6 +483,11 @@ a.studio__nav-tab {
   appearance: none;
   display: grid;
   gap: 10px;
+  /* Content stacks from the top: grid stretches cards in a row to EQUAL
+     height (the default), and packing rows at the start keeps every card's
+     title on the same first grid line instead of distributing the surplus
+     between rows (L1: alignment from the grid, not from nudging). */
+  align-content: start;
   min-height: 132px;
   padding: 16px;
   color: inherit;
@@ -517,16 +550,14 @@ button.studio-card:hover {
   font-weight: 650;
 }
 
-.studio-home__grid {
-  align-items: stretch;
-}
-.studio-home__tile[aria-disabled='true'] {
-  cursor: default;
-}
 .studio-home__tile-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  /* Title row as its own grid line (label | count pill). Baseline alignment
+     keeps the label's baseline identical across tiles WITH and WITHOUT a
+     pill: the pill's box is shorter than the label's line box, so it hangs
+     off the shared baseline instead of re-centering (and growing) the row. */
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
   gap: 10px;
 }
 .studio-home__tile-label {
@@ -561,7 +592,20 @@ button.studio-card:hover {
   min-height: 0;
   min-width: 0;
   display: flex;
+  flex-direction: column;
   background: var(--bg);
+}
+/* The Prototype surface's OWN control row (model/keys/settings/account) —
+   contextual controls live in the surface, never the bar (N2). */
+.studio-playground__controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--gutter);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 .studio-playground__frame {
   width: 100%;
@@ -576,7 +620,7 @@ button.studio-card:hover {
 .studio__surface-slot--playground {
   min-height: 0;
 }
-.studio__content[data-surface='playground'] > .studio__surface-slot--playground {
+.studio__content[data-surface='prototype'] > .studio__surface-slot--playground {
   flex: 1;
   display: flex;
   min-height: 0;
@@ -679,6 +723,129 @@ button.studio-card:hover {
   gap: 8px;
   padding-top: 4px;
 }
+
+/* ── Sandbox card: live substance + consequence-captioned actions ─────── */
+/* Row 1 — instance · inventory · persistence. The teaching line: the
+   sandbox IS this data; everything below operates on it. */
+.studio-sandbox__live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  padding: 10px 12px;
+}
+.studio-sandbox__instance {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--fs-body);
+}
+.studio-sandbox__inventory {
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+.studio-sandbox__persist {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+/* Action tiles: name row (glyph + label) stacked over the consequence
+   caption. The glyph is the direction: state→file, file→state, fork,
+   loop-back. */
+.studio-sandbox__actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 8px;
+}
+.studio-sandbox__action {
+  appearance: none;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  padding: 10px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+.studio-sandbox__action:hover {
+  border-color: var(--line-2);
+}
+.studio-sandbox__action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.studio-sandbox__action-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+}
+.studio-sandbox__action[data-danger='true'] .studio-sandbox__action-top {
+  color: var(--diff-remove);
+}
+.studio-sandbox__action-name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.studio-sandbox__action-caption {
+  color: var(--muted);
+  font-size: var(--fs-caption);
+  line-height: 1.45;
+}
+
+/* Transient rows: inline branch naming, inline reset confirm (no modals). */
+.studio-sandbox__name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.studio-sandbox__name-input {
+  flex: 1;
+  min-width: 140px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--elevated);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-body);
+  padding: 6px 10px;
+  outline: none;
+}
+.studio-sandbox__name-input:focus {
+  border-color: var(--line-2);
+}
+.studio-sandbox__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--diff-remove) 45%, var(--line));
+  border-radius: 8px;
+  background: var(--deny-tint);
+  padding: 10px 12px;
+}
+.studio-sandbox__confirm-copy {
+  color: var(--ink);
+  font-size: var(--fs-label);
+}
+.studio-sandbox__confirm-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+.studio-sandbox__branches-empty {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--fs-label);
+}
 .studio__content[data-surface='firestore'] > *,
 .studio__content[data-surface='auth'] > *,
 .studio__content[data-surface='storage'] > * {
@@ -705,14 +872,6 @@ button.studio-card:hover {
   flex: 1;
   min-height: 0;
 }
-.data-feature__bar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 12px;
-}
-
 /* Labelled empty placeholder per route (Wave 2 fills these). */
 .studio__placeholder {
   border: 1px dashed var(--line-2);
@@ -782,7 +941,40 @@ button.studio-card:hover {
   font-weight: 500;
 }
 
-/* ── ⌘K command palette ──────────────────────────────────────────────── */
+/* ── Global ⌘K overlay: the command typeahead's second mount ──────────
+   Positioned BELOW the 54px bar — the bar stays visible and uncovered;
+   only the content region dims. The panel reuses the Home typeahead's own
+   classes (`.studio-home__command*`), so the two mounts share one look. */
+.studio__cmdk-backdrop {
+  position: fixed;
+  top: 54px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: clamp(24px, 8vh, 72px) var(--gutter, 16px) 0;
+  z-index: 40;
+}
+.studio__cmdk {
+  width: 100%;
+  max-width: 560px;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px -12px rgba(0, 0, 0, 0.35);
+}
+/* The results listbox is part of the same floating panel — same elevated
+   register as the input row (inline mode uses the flatter --panel). */
+.studio__cmdk .studio-home__command-results {
+  background: var(--elevated);
+}
+
+/* ── Centered modal panel (`.studio__palette*`) ───────────────────────
+   Originally the ⌘K palette's chrome; the palette component is gone (the
+   global ⌘K reuses the Home typeahead), but the AI SettingsModal still
+   renders on these classes. */
 .studio__palette-backdrop {
   position: fixed;
   inset: 0;
@@ -919,11 +1111,12 @@ button.studio-card:hover {
     display: none;
   }
 
-  .studio__bar-actions {
-    gap: 5px;
+  /* Narrow: the status cluster keeps at most one chip's width; nav scrolls. */
+  .studio__status {
+    gap: 4px;
   }
 
-  .studio__playground-actions {
+  .studio-playground__controls {
     gap: 4px;
   }
 

@@ -12,3 +12,11 @@ export {
   type TrafficTimelineProps,
 } from './TrafficTimeline.js';
 export { defaultFormatTime, reasonVerdict } from './format.js';
+export {
+  TrafficMetricCards,
+  type TrafficMetricCardsProps,
+} from './TrafficMetricCards.js';
+export {
+  TrafficLineChart,
+  type TrafficLineChartProps,
+} from './TrafficLineChart.js';

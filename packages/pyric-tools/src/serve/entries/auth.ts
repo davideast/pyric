@@ -22,6 +22,21 @@ import * as wcRaw from '../worker/client.js';
 import { acceptProviderCredential } from '../worker/client.js';
 import { sandbox, workerDb, useWorker, sessionStore } from './runtime.js';
 
+// PROVIDER ENFORCEMENT SEAM: in worker mode the page-local sandbox is only
+// the UI vehicle for popup/redirect resolution — the WORKER's provider config
+// (what Studio's toggles write) is the authority, enforced by its
+// `auth.acceptIdentity` gate. Delegate the page-local gate so the picker
+// opens for providers the worker may have enabled (the page's defaults —
+// password/anonymous only — would otherwise veto them sight unseen).
+//
+// NON-WORKER (in-page fallback) mode keeps LOCAL gating against the page
+// sandbox's own config. There is no worker to consult in that mode, so the
+// documented sandbox defaults (password/anonymous on, OAuth off until
+// `sandbox.setAuthProviderConfig`) apply honestly — a deliberate, simple leg.
+if (useWorker) {
+  ipAuth.sandbox.delegateProviderEnforcement(pyricGetAuth(sandbox), true);
+}
+
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
 const wc = wcRaw as unknown as typeof ipAuth;
@@ -90,6 +105,11 @@ export const setPersistence = (
  * in-page auth's installed AuthFlowResolver), then hand it to the worker. The
  * helper seeds `{ sub, ...claims }` into the resolved credential's token, so we
  * strip `sub` to recover the original custom claims for the worker seed.
+ *
+ * Enforcement lives at the hand-off: `auth.acceptIdentity` gates against the
+ * WORKER's provider config and rejects `auth/operation-not-allowed` for a
+ * disabled provider (matching prod, where the popup opens and the error
+ * surfaces after the interaction). The page-local gate is delegated above.
  */
 async function bridgeProviderSignIn(
   provider: Parameters<typeof ipAuth.signInWithPopup>[1],

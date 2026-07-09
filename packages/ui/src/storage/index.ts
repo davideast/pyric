@@ -20,6 +20,22 @@ export {
   type UploadDropzoneProps,
   type DroppedFile,
 } from './components/UploadDropzone.js';
+export {
+  splitStorageName,
+  parseCopyCounter,
+  resolveCollision,
+  planBatchNames,
+} from './collisionRename.js';
+export {
+  expandPathChain,
+  initialPendingPrefixes,
+  pendingPrefixReducer,
+  pendingChildFolders,
+  isPendingPrefix,
+  folderInputError,
+  type PendingPrefixState,
+  type PendingPrefixAction,
+} from './pendingPrefixes.js';
 
 // M4: inspection, content-type preview registry + inspector
 export {

@@ -1204,3 +1204,33 @@ describe('runInit', () => {
     expect(io.getOut()).toContain('skipped package.json'); // unchanged merge
   });
 });
+
+describe('scanForInlinedFirebase', () => {
+  it('flags a bundled chunk that inlines real-SDK endpoint hosts', async () => {
+    const { scanForInlinedFirebase } = await import('./serve.js');
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-inline-scan-'));
+    mkdirSync(join(dir, 'assets'));
+    writeFileSync(
+      join(dir, 'assets', 'index-abc.js'),
+      'fetch("https://identitytoolkit.googleapis.com/v1/projects?key="+k)',
+    );
+    const hits = scanForInlinedFirebase(dir);
+    expect(hits).toEqual(['assets/index-abc.js']);
+  });
+
+  it('stays clean for an unbundled app importing firebase by bare specifier', async () => {
+    const { scanForInlinedFirebase } = await import('./serve.js');
+    const { mkdtempSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-inline-clean-'));
+    writeFileSync(
+      join(dir, 'main.js'),
+      "import { getAuth } from 'firebase/auth'; import { getFirestore } from 'firebase/firestore';",
+    );
+    expect(scanForInlinedFirebase(dir)).toEqual([]);
+  });
+});

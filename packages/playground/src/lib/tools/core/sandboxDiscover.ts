@@ -30,6 +30,7 @@ export function buildSandboxDiscoverHandler(): ToolHandler {
   return {
     name: 'sandbox_discover_paths',
     parallelSafe: true, // read-only (0.2.0 parallelDispatch)
+    parameters: { type: 'object', properties: {} }, // takes no arguments
     description:
       "Discover the shape of the IN-BROWSER SANDBOX'S Firestore data. Returns per-collection schemas (field types, sampling info, subcollection paths) for every collection currently in the simulator. " +
       'Use this when the user asks about "my data", "what collections do I have", "show me my schema", or before generating rules/code that needs to know the shape of the data. ' +

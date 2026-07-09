@@ -286,6 +286,44 @@ export type TestFirestoreRulesResult =
  * surface, which propagates into the playground's traffic log UI. New
  * consumers should read `result.trace` + `result.notes` directly.
  */
+/**
+ * The denying rule's source position + sub-expression trace, projected from a
+ * {@link TestResult}. Additive companion to {@link renderLegacyDebugMessages}:
+ * that flattens the per-rule trace to strings (dropping `line` and
+ * `expressionTrace`); this preserves the structured detail a UI needs to point
+ * at the exact source line and step through the evaluation ("show the work").
+ * All fields optional so a partial trace projects honestly.
+ */
+export interface DeniedRuleInfo {
+  /** 1-indexed source line of the denying `allow` rule. */
+  line?: number;
+  /** Pretty-printed condition text of the denying rule. */
+  expression?: string;
+  /** Per-sub-expression evaluation trace of the denying rule. */
+  expressionTrace?: ExprTraceEntry[];
+}
+
+/**
+ * Project the denying rule from a simulated {@link TestResult}.
+ *
+ * Picks the rule the sandbox would report as responsible: the first `DENY`/
+ * `ERROR` entry, falling back to the last evaluated rule. Returns `undefined`
+ * when no rule was evaluated (implicit deny — no matching `allow`), or when the
+ * result is not a denial. Never invents data: a missing line/trace stays absent.
+ */
+export function projectDenyingRule(result: TestResult): DeniedRuleInfo | undefined {
+  if (result.decision === 'ALLOW') return undefined;
+  const denied =
+    result.trace.find((t) => t.verdict === 'DENY' || t.verdict === 'ERROR') ??
+    result.trace[result.trace.length - 1];
+  if (!denied) return undefined;
+  const info: DeniedRuleInfo = {};
+  if (denied.line !== undefined) info.line = denied.line;
+  if (denied.conditionText !== undefined) info.expression = denied.conditionText;
+  if (denied.expressionTrace !== undefined) info.expressionTrace = denied.expressionTrace;
+  return Object.keys(info).length > 0 ? info : undefined;
+}
+
 export function renderLegacyDebugMessages(result: TestResult): string[] {
   const out: string[] = [];
   for (const note of result.notes) out.push(note);

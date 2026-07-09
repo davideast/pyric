@@ -40,6 +40,12 @@ export interface UseDocumentEditorResult extends DocumentEditorState {
   remove: (nodeId: string) => void;
   /** Restore the tree to its initial state. Clears `isDirty`. */
   reset: () => void;
+  /** Mark one node touched (dispatch on blur). Gates error display —
+   *  a freshly-added row stays quiet until the user leaves it. */
+  touch: (nodeId: string) => void;
+  /** Mark every node touched (dispatch on a submit attempt) so any
+   *  hidden errors surface at once. */
+  touchAll: () => void;
   /** Serialize the tree back to a Firestore-shaped object suitable
    *  for `setDoc` / `updateDoc`. */
   toData: () => Record<string, unknown>;
@@ -99,6 +105,11 @@ export function useDocumentEditor(
     [],
   );
   const reset = useCallback(() => dispatch({ type: 'reset' }), []);
+  const touch = useCallback(
+    (nodeId: string) => dispatch({ type: 'touch', nodeId }),
+    [],
+  );
+  const touchAll = useCallback(() => dispatch({ type: 'touchAll' }), []);
 
   const toData = useCallback(() => treeToData(state.tree), [state.tree]);
 
@@ -118,6 +129,8 @@ export function useDocumentEditor(
       addArrayEntry,
       remove,
       reset,
+      touch,
+      touchAll,
       toData,
     }),
     [
@@ -131,6 +144,8 @@ export function useDocumentEditor(
       addArrayEntry,
       remove,
       reset,
+      touch,
+      touchAll,
       toData,
     ],
   );

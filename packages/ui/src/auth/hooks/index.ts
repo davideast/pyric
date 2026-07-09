@@ -7,6 +7,11 @@ export {
   type UseAuthUsersResult,
 } from './useAuthUsers.js';
 export {
+  useAuthProviderConfig,
+  type AuthProviderConfigEntry,
+  type UseAuthProviderConfigResult,
+} from './useAuthProviderConfig.js';
+export {
   useAuthUserEditor,
   type UseAuthUserEditorOptions,
   type UseAuthUserEditorResult,

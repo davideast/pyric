@@ -9,14 +9,15 @@
  *
  * Bridge routes (`/__pyric/mcp`, `/__pyric/sandbox`) mount here in P2.
  */
-import { createReadStream, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { collectBody } from '../bridge/server/peer.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
-import { contentTypeFor, resolveStaticFile } from './server.js';
+import { contentTypeFor, pipeFileToResponse, resolveStaticFile } from './server.js';
+import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
 
 /** Mirrors the runtime entry's `InitPayload` — keep in lockstep with
  *  `entries/runtime.ts`. */
@@ -68,10 +69,19 @@ export function createEventHub(): ServeEventHub {
       res.write(': connected\n\n');
       clients.add(res);
       req.on('close', () => clients.delete(res));
+      // A dying SSE socket must never surface an unhandled 'error' event
+      // (which would kill the whole serve process) — drop the client instead.
+      res.on('error', () => clients.delete(res));
     },
     broadcast(event, data) {
       const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-      for (const res of clients) res.write(frame);
+      for (const res of clients) {
+        try {
+          res.write(frame);
+        } catch {
+          clients.delete(res); // half-closed socket in the close race window
+        }
+      }
     },
     clientCount: () => clients.size,
   };
@@ -256,7 +266,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       // Immutable-friendly: bundle filenames are content-hashed chunks or
       // cache-keyed outputs; still no-store in dev for simplicity.
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
-      createReadStream(file).pipe(res);
+      pipeFileToResponse(file, res);
       return true;
     }
     if (opts.playgroundUiDir && (url.pathname === '/__pyric/playground' || url.pathname.startsWith('/__pyric/playground/'))) {
@@ -272,7 +282,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
         return true;
       }
       res.writeHead(200, { 'content-type': contentTypeFor(file), 'cache-control': 'no-store' });
-      createReadStream(file).pipe(res);
+      pipeFileToResponse(file, res);
       return true;
     }
     if (
@@ -281,21 +291,26 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     ) {
       // The built Pyric Studio app. Served verbatim (NOT through
       // injectServeTags: that import-map/init injection is for sandbox pages,
-      // not Studio). Studio uses hash routing, so any extension-less path under
-      // the mount falls back to index.html.
+      // not Studio). Studio uses History-API routing under this mount, so any
+      // path that doesn't resolve to a real file falls back to index.html —
+      // INCLUDING paths with dots (deep links like /storage/uploads/logo.png).
+      // Only misses under Vite's content-hashed asset dir stay hard 404s, so a
+      // broken script/style URL fails loudly instead of returning HTML.
       if (url.pathname === '/__pyric/ui') {
         res.writeHead(301, { location: '/__pyric/ui/' }).end();
         return true;
       }
       const rel = url.pathname.slice('/__pyric/ui'.length) || '/';
       let file = resolveStaticFile(opts.studioUiDir, rel);
-      if (!file && !extname(rel)) file = resolveStaticFile(opts.studioUiDir, '/index.html');
+      if (!file && !rel.startsWith('/assets/')) {
+        file = resolveStaticFile(opts.studioUiDir, '/index.html');
+      }
       if (!file) {
         res.writeHead(404).end('not found');
         return true;
       }
       res.writeHead(200, { 'content-type': contentTypeFor(file), 'cache-control': 'no-store' });
-      createReadStream(file).pipe(res);
+      pipeFileToResponse(file, res);
       return true;
     }
     return false; // unknown /__pyric/* → caller 404s
@@ -330,6 +345,26 @@ export function injectServeTags(
 ): string {
   const MARKER = 'data-pyric-serve';
   if (html.includes(MARKER)) return html;
+  // A pyric SANDBOX BUILD (`vite build` under the pyricSandbox plugin's sandbox
+  // mode) already BUNDLES its own runtime + init chunk — injecting the import
+  // map + /__pyric/sdk/init.js on top would boot a SECOND runtime instance on
+  // the page (two banners, two bridge peer registrations, races between them).
+  // The bundle owns the sandbox for a marked page: it fetches
+  // /__pyric/init.json itself (worker path: the SharedWorker does; in-page
+  // path: the runtime does) and owns rules hot-reload the same way. The ONLY
+  // serve-time contribution left is the worker-version staleness stamp, which
+  // the bundled runtime reads from this meta to warn about a stale
+  // still-running SharedWorker.
+  if (html.includes(SANDBOX_BUILD_MARKER)) {
+    if (!workerVersion || html.includes('pyric-worker-v')) return html;
+    const meta = `<meta name="pyric-worker-v" content="${workerVersion}" ${MARKER}>`;
+    const headTag = html.match(/<head[^>]*>/i);
+    if (headTag && headTag.index !== undefined) {
+      const at = headTag.index + headTag[0].length;
+      return html.slice(0, at) + meta + html.slice(at);
+    }
+    return meta + html;
+  }
   // Stamp the worker's content hash so the page can DETECT staleness: a live
   // SharedWorker survives serve restarts + reloads and can't hot-update, so it
   // keeps running old code until every tab of the origin closes. The worker

@@ -12,6 +12,11 @@ export {
   type AuthUserListProps,
 } from './components/AuthUserList.js';
 export {
+  AuthProviderToggles,
+  DEFAULT_KNOWN_PROVIDER_IDS,
+  type AuthProviderTogglesProps,
+} from './components/AuthProviderToggles.js';
+export {
   AuthUserForm,
   type AuthUserFormField,
   type AuthUserFormFieldName,

@@ -62,6 +62,21 @@ describe('injectServeTags', () => {
     expect(injectServeTags('<html><head></head></html>')).not.toContain('__PYRIC_FORCE_INPAGE__');
   });
 
+  it('SKIPS injection for a marked sandbox build page (the bundle owns the sandbox)', () => {
+    const marked =
+      '<html><head><meta name="pyric-sandbox-build" content="1" data-pyric-sandbox-build></head><body></body></html>';
+    const out = injectServeTags(marked, undefined, 'abc123');
+    // no second runtime: neither the import map nor the injected init module
+    expect(out).not.toContain('importmap');
+    expect(out).not.toContain('/__pyric/sdk/init.js');
+    // the ONE serve-time contribution: the worker staleness stamp
+    expect(out).toContain('<meta name="pyric-worker-v" content="abc123"');
+    // idempotent
+    expect(injectServeTags(out, undefined, 'abc123')).toBe(out);
+    // without a worker version, the marked page passes through untouched
+    expect(injectServeTags(marked)).toBe(marked);
+  });
+
   it('sdkImportMap covers the served modules', () => {
     expect(Object.keys(sdkImportMap()).sort()).toEqual([
       'firebase/app',
@@ -157,6 +172,12 @@ describe('namespace over the real server', () => {
 
     expect((await fetch(h.url + '/__pyric/ui', { redirect: 'manual' })).status).toBe(301);
     expect(await (await fetch(h.url + '/__pyric/ui/deep/link')).text()).toContain('studio');
+    // History-API deep links with dots (e.g. a Storage object path) still
+    // fall back to index.html…
+    expect(await (await fetch(h.url + '/__pyric/ui/storage/uploads/logo.png')).text()).toContain('studio');
+    // …but the content-hashed asset dir keeps hard 404s for real misses.
+    expect((await fetch(h.url + '/__pyric/ui/assets/app.js')).status).toBe(200);
+    expect((await fetch(h.url + '/__pyric/ui/assets/missing.js')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/playground', { redirect: 'manual' })).status).toBe(301);
     expect(await (await fetch(h.url + '/__pyric/playground/?embed=studio')).text()).toContain('playground');
     expect(await (await fetch(h.url + '/__pyric/playground/playground?embed=studio')).text()).toContain('playground');

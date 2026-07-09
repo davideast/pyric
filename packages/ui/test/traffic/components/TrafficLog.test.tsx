@@ -103,7 +103,7 @@ describe('<TrafficLog>', () => {
 });
 
 describe('<TrafficRow>', () => {
-  it('renders timestamp, method badge, path, result badge', () => {
+  it('renders timestamp, method badge, and path — no built-in result chip', () => {
     const event = evt({
       id: 'r',
       method: 'create',
@@ -123,8 +123,13 @@ describe('<TrafficRow>', () => {
     expect(
       container.querySelector('[data-pyric-badge-kind="create"]'),
     ).not.toBeNull();
+    // The result lives on the row attr only; any visible outcome label is
+    // the consumer's `renderClassification` slot (one pill, not two chips).
+    expect(container.querySelector('[data-pyric-badge-kind="allow"]')).toBeNull();
     expect(
-      container.querySelector('[data-pyric-badge-kind="allow"]'),
-    ).not.toBeNull();
+      container
+        .querySelector('[data-pyric-traffic-row]')!
+        .getAttribute('data-pyric-result'),
+    ).toBe('allow');
   });
 });

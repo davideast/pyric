@@ -141,6 +141,67 @@ describe('pyric dev end-to-end (HTTP)', () => {
     expect(banner).toContain('keep the browser tab open');
     expect(banner).toContain('persistence stop when no page is open');
   }, 30_000);
+
+  it('HARD-REFUSES a dist that inlined the real firebase SDK (no marker)', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-serve-inlined-'));
+    writeFileSync(
+      join(cwd, 'firebase.json'),
+      JSON.stringify({ hosting: { public: 'dist' } }),
+    );
+    mkdirSync(join(cwd, 'dist'));
+    mkdirSync(join(cwd, 'dist', 'assets'));
+    writeFileSync(join(cwd, 'dist', 'index.html'), '<!doctype html><html><head></head><body></body></html>');
+    writeFileSync(
+      join(cwd, 'dist', 'assets', 'index-abc.js'),
+      'fetch("https://identitytoolkit.googleapis.com/v1/accounts")',
+    );
+    await expect(
+      startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() }),
+    ).rejects.toThrow(/bundles the REAL firebase SDK/);
+  }, 30_000);
+
+  it('TRUSTS a marked sandbox build even when an asset carries a fingerprint', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'pyric-serve-marked-'));
+    writeFileSync(
+      join(cwd, 'firebase.json'),
+      JSON.stringify({ hosting: { public: 'dist' } }),
+    );
+    mkdirSync(join(cwd, 'dist'));
+    mkdirSync(join(cwd, 'dist', 'assets'));
+    // The marker in index.html short-circuits the scan (marker → trusted), so
+    // even a stray fingerprint string in a bundled adapter must not trip it.
+    writeFileSync(
+      join(cwd, 'dist', 'index.html'),
+      '<!doctype html><html><head><meta name="pyric-sandbox-build" content="1" data-pyric-sandbox-build></head><body></body></html>',
+    );
+    writeFileSync(
+      join(cwd, 'dist', 'assets', 'index-abc.js'),
+      'const host = "identitytoolkit.googleapis.com"; // referenced but never real',
+    );
+    const runtime = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() });
+    stops.push(runtime);
+    expect(runtime.handle.url).toContain('http://');
+
+    // The marked page is served WITHOUT the serve-time injection — the bundle
+    // owns the sandbox (a second injected runtime double-inits: two banners,
+    // two bridge peers). Only the worker staleness meta is added.
+    const html = await (await fetch(runtime.handle.url + '/')).text();
+    expect(html).not.toContain('importmap');
+    expect(html).not.toContain('/__pyric/sdk/init.js');
+    expect(html).toContain('pyric-worker-v');
+    // The init-payload path the bundled runtime/worker uses stays live.
+    const init = await fetch(runtime.handle.url + '/__pyric/init.json');
+    expect(init.status).toBe(200);
+  }, 30_000);
+
+  it('serves a default favicon instead of 404ing every page load', async () => {
+    const cwd = fixtureProject();
+    const runtime = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), logger: silentServeLogger() });
+    stops.push(runtime);
+    const res = await fetch(runtime.handle.url + '/favicon.ico');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('svg');
+  }, 30_000);
 });
 
 describe('hosting config helpers', () => {

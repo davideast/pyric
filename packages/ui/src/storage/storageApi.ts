@@ -1,5 +1,5 @@
 import { createContext, createElement, useContext, type ReactNode } from 'react';
-import { ref, listAll, getMetadata, getBlob } from 'pyric/storage';
+import { ref, listAll, getMetadata, getBlob, uploadBytes } from 'pyric/storage';
 
 /**
  * The modular Storage fns the browse/inspect hooks call, as an INJECTABLE
@@ -11,16 +11,22 @@ import { ref, listAll, getMetadata, getBlob } from 'pyric/storage';
  * no sync/async wrinkle (unlike auth `listUsers`); the worker handles/refs are
  * runtime-compatible at the surface the hooks use (`.fullPath` / `.name`).
  *
+ * `uploadBytes` rides the same seam so `useObjectUpload` follows the injected
+ * backend: in-process writes are uncapped; the worker client's `uploadBytes`
+ * (base64 `storage.putBytes` over the MessagePort) enforces an 8 MiB payload
+ * cap on both ends — an over-cap upload fails that file's task with the typed
+ * `storage/...` too-large error and the rest of the batch proceeds.
+ *
  * NOTE the rules gate (`useStorageRulesGate`) is NOT here: it reads in-process
  * rules internals and no-ops on a handle without them (worker handles), which is
  * the correct degrade (the worker enforces read rules on `listAll` server-side).
  */
 export type StorageApi = Pick<
   typeof import('pyric/storage'),
-  'ref' | 'listAll' | 'getMetadata' | 'getBlob'
+  'ref' | 'listAll' | 'getMetadata' | 'getBlob' | 'uploadBytes'
 >;
 
-const inProcessStorageApi: StorageApi = { ref, listAll, getMetadata, getBlob };
+const inProcessStorageApi: StorageApi = { ref, listAll, getMetadata, getBlob, uploadBytes };
 
 const StorageApiContext = createContext<StorageApi>(inProcessStorageApi);
 

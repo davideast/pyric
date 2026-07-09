@@ -4,8 +4,10 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { create, type ReactTestRenderer } from 'react-test-renderer';
 import {
   getStorageSandbox,
+  getBlob,
   getMetadata,
   listAll,
   ref,
@@ -16,7 +18,9 @@ import {
   useObjectUpload,
   type UploadTask,
   type UseObjectUploadOptions,
+  type UseObjectUploadResult,
 } from '../../../src/storage/hooks/useObjectUpload.js';
+import { StorageApiProvider, type StorageApi } from '../../../src/storage/storageApi.js';
 import { useStorageList } from '../../../src/storage/hooks/useStorageList.js';
 import { renderHook, waitFor, act } from '../../helpers/render-hook.js';
 
@@ -218,6 +222,57 @@ service firebase.storage {
     expect(settled.map((t) => t.status)).toEqual(['success', 'error']);
     const listed = await listAll(ref(storage, base));
     expect(listed.items.map((i) => i.name)).toEqual(['small.txt']);
+  });
+
+  it('uploads a >8 MiB payload in-process — the 8 MiB cap is the worker MessagePort leg only', async () => {
+    const storage = makeStorage('big');
+    const { result } = renderHook(runHook, { storage, options: {} });
+    const size = 8 * 1024 * 1024 + 1024; // just over the worker cap
+    let settled: UploadTask[] = [];
+    await act(async () => {
+      settled = await result.current.upload({ path: 'big.bin', data: new Uint8Array(size) });
+    });
+    expect(settled[0].status).toBe('success');
+    expect(settled[0].metadata?.size).toBe(size);
+  });
+
+  it('routes uploads through an injected StorageApi bundle (the worker seam)', async () => {
+    const storage = makeStorage('seam');
+    const uploaded: string[] = [];
+    const api: StorageApi = {
+      ref,
+      listAll,
+      getMetadata,
+      getBlob,
+      uploadBytes: async (r, data, md) => {
+        uploaded.push(r.fullPath);
+        return uploadBytes(r, data, md);
+      },
+    };
+    const result: { current: UseObjectUploadResult } = {
+      current: undefined as unknown as UseObjectUploadResult,
+    };
+    function Host() {
+      result.current = useObjectUpload(storage, { path: 'docs' });
+      return null;
+    }
+    let renderer: ReactTestRenderer | null = null;
+    act(() => {
+      renderer = create(
+        <StorageApiProvider value={api}>
+          <Host />
+        </StorageApiProvider>,
+      );
+    });
+    await act(async () => {
+      await result.current.upload({ path: 'x.txt', data: new Blob(['x']) });
+    });
+    // The injected bundle carried the write — worker-mode Studio uploads
+    // ride the MessagePort client through this exact seam.
+    expect(uploaded).toEqual(['docs/x.txt']);
+    const listed = await listAll(ref(storage, 'docs'));
+    expect(listed.items.map((i) => i.name)).toEqual(['x.txt']);
+    act(() => renderer?.unmount());
   });
 
   it('clearCompleted drops settled tasks', async () => {

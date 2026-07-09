@@ -88,6 +88,22 @@ export function reducer(
         initial: state.initial,
         errorCount: countErrors(state.initial),
       };
+
+    case 'touch': {
+      const node = state.tree.nodes[action.nodeId];
+      if (!node || node.touched) return state; // no-op: already touched
+      const tree = cloneTree(state.tree);
+      tree.nodes[action.nodeId] = { ...tree.nodes[action.nodeId]!, touched: true };
+      return { ...state, tree };
+    }
+
+    case 'touchAll': {
+      const tree = cloneTree(state.tree);
+      for (const id of Object.keys(tree.nodes)) {
+        tree.nodes[id] = { ...tree.nodes[id]!, touched: true };
+      }
+      return { ...state, tree };
+    }
   }
 }
 

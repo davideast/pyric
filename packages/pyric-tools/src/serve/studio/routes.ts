@@ -93,9 +93,17 @@ async function handleWorkspace(
     });
     res.write(': connected\n\n');
     const unsub = ws.watch((change: WorkspaceChange) => {
-      res.write(`event: change\ndata: ${JSON.stringify(change)}\n\n`);
+      // The write can race the socket teardown (page reload while a
+      // workspace change fires) — a throw here would escape into the
+      // fs.watch callback and kill the serve process.
+      try {
+        res.write(`event: change\ndata: ${JSON.stringify(change)}\n\n`);
+      } catch {
+        unsub();
+      }
     });
     req.on('close', () => unsub());
+    res.on('error', () => unsub());
     return;
   }
 

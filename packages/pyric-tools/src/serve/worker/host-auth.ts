@@ -253,12 +253,17 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.acceptIdentity': {
       // Provider sign-in bridge: the page resolved a popup/redirect identity
-      // in-page (ServeAuthHelper) and hands it here. Seed it into the user DB
-      // (so rules `request.auth.token.*` claims resolve AND it shows in the
-      // picker next time), then mint THIS PORT's session for it — provider
-      // users have no password. Mirrors ServeAuthHelper.add's seeding.
+      // in-page (ServeAuthHelper) and hands it here. GATE FIRST: the page
+      // sandbox delegates provider enforcement to this worker (its picker
+      // opens unconditionally), so THIS is where Studio's provider toggles
+      // bite — a disabled provider throws `auth/operation-not-allowed`
+      // before any user-DB write. Then seed it into the user DB (so rules
+      // `request.auth.token.*` claims resolve AND it shows in the picker
+      // next time), and mint THIS PORT's session for it — provider users
+      // have no password. Mirrors ServeAuthHelper.add's seeding.
       try {
         const { uid, email, displayName, customClaims, providerId } = msg.identity;
+        authSandboxOps.assertAuthProviderEnabled(auth, providerId);
         authSandboxOps.seedUsers(auth, [{
           uid,
           email: email ?? '',
@@ -321,6 +326,26 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         authSandboxOps.clearUsers(auth);
         await bestEffortFlush(ctx);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.getProviderConfig': {
+      // Sign-in provider config (Pyric Studio S-AUTH "Sign-in providers"
+      // section). `setProviderConfig` emits a `provider_config_update`
+      // sandbox event, so a caller subscribed to the event stream (the
+      // worker's event feed, which `subscribeUsers` already rides) sees
+      // toggles live without a dedicated subscription message here.
+      try {
+        ok(port, msg.id, authSandboxOps.getAuthProviderConfig(auth));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.setProviderConfig': {
+      try {
+        authSandboxOps.setAuthProviderConfig(auth, msg.providerId, msg.enabled);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;

@@ -34,12 +34,14 @@ import type { AuthApi } from '@pyric/ui/auth';
 import type { StorageApi } from '@pyric/ui/storage';
 import {
   getFirestore as workerGetFirestore,
+  setOpIssuer,
   getAuth as workerGetAuth,
   getStorage as workerGetStorage,
   ref as workerStorageRef,
   listAll as workerStorageListAll,
   getMetadata as workerStorageGetMetadata,
   getBlob as workerStorageGetBlob,
+  uploadBytes as workerStorageUploadBytes,
   getSnapshot as workerGetSnapshot,
   getWorkerInstanceId,
   exportWorkerState,
@@ -60,10 +62,13 @@ import {
   adminUpdateUser as workerAdminUpdateUser,
   adminDeleteUser as workerAdminDeleteUser,
   adminClearUsers as workerAdminClearUsers,
+  getProviderConfig as workerGetProviderConfig,
+  setProviderConfig as workerSetProviderConfig,
   adminReadRtdbState as workerAdminReadRtdbState,
   adminSetRtdbValue as workerAdminSetRtdbValue,
   adminUpdateRtdbValue as workerAdminUpdateRtdbValue,
   adminDeleteRtdbValue as workerAdminDeleteRtdbValue,
+  adminSubscribeRtdbValue as workerAdminSubscribeRtdbValue,
   collection as workerCollection,
   doc as workerDoc,
   getDoc as workerGetDoc,
@@ -127,6 +132,14 @@ export interface WorkerLivePlane {
   updateRtdbValue(path: string, values: Record<string, unknown>): Promise<void>;
   /** RTDB browse: delete a node with the admin lens. */
   deleteRtdbValue(path: string): Promise<void>;
+  /** RTDB viewer: live value subscription at a path with the admin lens —
+   *  `next` fires with the subtree's plain JSON value on subscribe and after
+   *  every write. Returns the unsubscribe. */
+  subscribeRtdbValue(
+    path: string,
+    next: (value: unknown) => void,
+    error?: (err: unknown) => void,
+  ): () => void;
   /**
    * F2 data browse: the worker client's modular Firestore fns as an injectable
    * {@link FirestoreApi} bundle. Studio feeds this to `@pyric/ui`'s
@@ -261,6 +274,12 @@ export function connectWorkerLive(
   workerUrl: string = DEFAULT_WORKER_URL,
 ): WorkerLivePlane | null {
   if (typeof SharedWorker === 'undefined') return null;
+  // Studio declares itself the issuer of every op THIS bundle's worker
+  // client constructs (data viewers, typeahead index, seed actions) so the
+  // traffic stream can attribute — and filter — Studio-driven ops. The
+  // served app runs its own bundle instance and stays untagged; bridge
+  // relays forward verbatim (see pyric-tools serve/worker client).
+  setOpIssuer('studio');
   let db: ClientDb;
   try {
     db = workerGetFirestore(workerUrl);
@@ -295,6 +314,8 @@ export function connectWorkerLive(
     setRtdbValue: (path, value) => workerAdminSetRtdbValue(db, path, value),
     updateRtdbValue: (path, values) => workerAdminUpdateRtdbValue(db, path, values),
     deleteRtdbValue: (path) => workerAdminDeleteRtdbValue(db, path),
+    subscribeRtdbValue: (path, next, error) =>
+      workerAdminSubscribeRtdbValue(db, path, next, error),
     // The worker client's modular fns, cast to the in-process FirestoreApi
     // signatures (`@pyric/ui` is typed against `pyric/firestore`; the worker
     // handles + snapshots are runtime-compatible at the grid's surface).
@@ -312,25 +333,43 @@ export function connectWorkerLive(
     } as unknown as FirestoreApi,
     auth: authHandle as unknown as Auth,
     // The worker auth admin ops as an AuthApi bundle (cast to the in-process
-    // signatures). `subscribeUsers` rides the event feed: any sandbox event
-    // (incl. an auth mutation) re-lists, matching the coarse in-process contract.
+    // signatures). `subscribeUsers` rides the event feed, FILTERED to auth
+    // service mutations (user create/update/delete/clear, sign-ins, provider
+    // links) — a Firestore write must not fire a `listUsers` RPC.
     authApi: {
       listUsers: () => workerListUsers(authHandle),
-      subscribeUsers: (_auth: unknown, cb: () => void) => feed.subscribe(() => cb()),
+      subscribeUsers: (_auth: unknown, cb: () => void) =>
+        feed.subscribe((event) => {
+          if (event.kind === 'service_mutation' && event.service === 'auth') cb();
+        }),
       createUser: (_auth: unknown, request: unknown) =>
         workerAdminCreateUser(authHandle, request as Parameters<typeof workerAdminCreateUser>[1]),
       updateUser: (_auth: unknown, uid: string, request: unknown) =>
         workerAdminUpdateUser(authHandle, uid, request as Parameters<typeof workerAdminUpdateUser>[2]),
       deleteUser: (_auth: unknown, uid: string) => workerAdminDeleteUser(authHandle, uid),
       clearUsers: () => workerAdminClearUsers(authHandle),
+      // Sign-in provider config: rides the same shared event feed, filtered
+      // to the ONE op that can change it (`provider_config_update`) — an
+      // unrelated sandbox event must not fire a `getProviderConfig` RPC.
+      getAuthProviderConfig: () => workerGetProviderConfig(authHandle),
+      setAuthProviderConfig: (_auth: unknown, providerId: string, enabled: boolean) =>
+        workerSetProviderConfig(authHandle, providerId, enabled),
+      subscribeAuthProviderConfig: (_auth: unknown, cb: () => void) =>
+        feed.subscribe((event) => {
+          if (event.kind === 'service_mutation' && event.op === 'provider_config_update') cb();
+        }),
     } as unknown as AuthApi,
     storage: workerGetStorage(db) as unknown as FirebaseStorage,
-    // The worker storage ops as a StorageApi bundle.
+    // The worker storage ops as a StorageApi bundle. `uploadBytes` is the
+    // base64 `storage.putBytes` MessagePort op — capped at 8 MiB per payload
+    // on both ends; an over-cap upload fails that file's task with the typed
+    // too-large error (the rest of a batch proceeds).
     storageApi: {
       ref: workerStorageRef,
       listAll: workerStorageListAll,
       getMetadata: workerStorageGetMetadata,
       getBlob: workerStorageGetBlob,
+      uploadBytes: workerStorageUploadBytes,
     } as unknown as StorageApi,
     getSnapshot: () => workerGetSnapshot(db),
   };

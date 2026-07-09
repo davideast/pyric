@@ -20,6 +20,202 @@
   margin: 0;
 }
 
+/* ── Tab strip (S-TRAFFIC: Timeline / Billable metrics / Subscriptions &
+   Rules) ────────────────────────────────────────────────────────────── */
+.traffic__tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+.traffic__tab {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-label);
+  padding: 4px 2px;
+  cursor: pointer;
+  position: relative;
+}
+.traffic__tab:hover {
+  color: var(--ink);
+}
+.traffic__tab[aria-selected='true'] {
+  color: var(--ink);
+  font-weight: 600;
+}
+.traffic__tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -11px;
+  height: 2px;
+  background: var(--accent);
+}
+
+/* ── Metric views (billable / rules): cards-as-legend + line chart ────── */
+.traffic__metrics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.traffic__metric-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.traffic__metric-title {
+  margin: 0;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--ink);
+}
+.traffic__metric-note {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--fs-caption);
+}
+.traffic__metric-note code {
+  font-family: var(--font-mono);
+}
+
+.traffic__metric-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.traffic__metric-cards [data-pyric-metric-card] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+  cursor: pointer;
+  user-select: none;
+}
+.traffic__metric-cards [data-pyric-metric-hidden] {
+  opacity: 0.45;
+}
+.traffic__metric-cards [data-pyric-metric-checkbox] {
+  accent-color: var(--accent);
+}
+.traffic__metric-cards [data-pyric-metric-swatch] {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.traffic__metric-cards [data-pyric-metric-label] {
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+.traffic__metric-cards [data-pyric-metric-value] {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Series color channel: one index per metric key, shared by a card's
+   swatch and the chart's matching line — token roles only. */
+.traffic__metric-cards [data-pyric-series-index='0'] [data-pyric-metric-swatch],
+.traffic__chart [data-pyric-series-index='0'] {
+  --pyric-series-color: var(--accent);
+}
+.traffic__metric-cards [data-pyric-series-index='1'] [data-pyric-metric-swatch],
+.traffic__chart [data-pyric-series-index='1'] {
+  --pyric-series-color: var(--diff-add);
+}
+.traffic__metric-cards [data-pyric-series-index='2'] [data-pyric-metric-swatch],
+.traffic__chart [data-pyric-series-index='2'] {
+  --pyric-series-color: var(--diff-remove);
+}
+.traffic__metric-cards [data-pyric-metric-swatch] {
+  background: var(--pyric-series-color, var(--muted));
+}
+
+.traffic__chart {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--panel);
+}
+.traffic__chart [data-pyric-chart-svg] {
+  position: relative;
+  height: 160px;
+}
+.traffic__chart svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.traffic__chart [data-pyric-chart-line] {
+  stroke: var(--pyric-series-color, var(--muted));
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.traffic__chart [data-pyric-chart-hits] {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+.traffic__chart [data-pyric-chart-hit] {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  flex: 1;
+  cursor: default;
+}
+.traffic__chart [data-pyric-chart-tooltip] {
+  position: absolute;
+  top: 0;
+  left: calc(var(--pyric-hover-x, 0) * 1%);
+  transform: translateX(-50%);
+  background: var(--elevated);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}
+.traffic__chart [data-pyric-tooltip-time] {
+  color: var(--faint);
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+}
+.traffic__chart [data-pyric-tooltip-row] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+.traffic__chart [data-pyric-tooltip-row]::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pyric-series-color, var(--muted));
+  flex-shrink: 0;
+}
+.traffic__chart [data-pyric-tooltip-label] {
+  color: var(--muted);
+}
+.traffic__chart [data-pyric-tooltip-value] {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
 /* ── Volume timeline ────────────────────────────────────────────────── */
 .traffic__timeline {
   border: 1px solid var(--line);
@@ -39,9 +235,23 @@
   font-weight: 600;
   color: var(--ink);
 }
+/* The denied count doubles as the deny-filter toggle (a discoverable entry
+   point to denial inspection without the palette). */
 .traffic__tl-deny {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
   color: var(--deny);
   font-weight: 600;
+  cursor: pointer;
+}
+.traffic__tl-deny:hover {
+  text-decoration: underline;
+}
+.traffic__tl-deny[aria-pressed='true'] {
+  text-decoration: underline;
 }
 .traffic__tl-live {
   margin-left: auto;
@@ -130,6 +340,119 @@
   color: var(--faint);
 }
 
+/* ── Filter row (single compact row — no stacked toolbars) ──────────── */
+.traffic__filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.traffic__filters-label {
+  color: var(--faint);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+.traffic__filter {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-caption);
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.traffic__filter:hover {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+.traffic__filter[aria-pressed='true'] {
+  border-color: var(--line-2);
+  background: var(--elevated);
+  color: var(--ink);
+}
+
+/* ── Verdict pill: the row's ONE outcome marker ─────────────────────────
+   Uniform box for all three verdicts (same fixed width AND height, small
+   type) so the column reads as a column; only color varies. Non-rule ops
+   render nothing at all. */
+.traffic__verdict {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 18px;
+  border-radius: 5px;
+  align-self: center; /* the row baselines text; the pill centers itself */
+  flex-shrink: 0;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.traffic__verdict[data-verdict='allow'] {
+  background: var(--elevated);
+  color: var(--muted);
+}
+.traffic__verdict[data-verdict='deny'] {
+  background: var(--deny);
+  color: var(--deny-ink);
+}
+.traffic__verdict[data-verdict='admin'] {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+/* ── Deny inspection (in place; no modal) ───────────────────────────── */
+[data-pyric-traffic-entry][data-verdict='deny'] {
+  background: var(--deny-tint);
+}
+.traffic__denial-inspector {
+  display: grid;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 14px 12px;
+  background: color-mix(in srgb, var(--deny-tint) 60%, var(--panel));
+}
+/* Standalone form (deep link with no visible row): its own bordered block. */
+.traffic > .traffic__denial-inspector {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.traffic__denial-bar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.traffic__denial-title {
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 10px;
+  font-weight: 600;
+}
+.traffic__denial-close {
+  appearance: none;
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+.traffic__denial-close:hover {
+  color: var(--ink);
+}
+.traffic__denial-missing {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-caption);
+}
+
 /* ── Request stream ─────────────────────────────────────────────────── */
 .traffic__log {
   border: 1px solid var(--line);
@@ -171,7 +494,8 @@
   text-overflow: ellipsis;
 }
 
-/* Denials made clear: a dark filled badge + a row tint, matching the timeline. */
+/* Denials made clear: the deny verdict pill + a row tint, matching the
+   timeline. */
 .traffic__log [data-pyric-traffic-row][data-pyric-result="deny"] {
   background: var(--deny-tint);
 }
@@ -182,6 +506,7 @@
   font-weight: 600;
 }
 
+/* The method badge (the only chip the library row still draws). */
 .traffic__log [data-pyric-badge-kind] {
   font-family: var(--font-ui);
   font-size: 10px;
@@ -192,14 +517,6 @@
   border: 1px solid var(--line-2);
   color: var(--muted);
   flex-shrink: 0;
-}
-.traffic__log [data-pyric-badge-kind="deny"] {
-  background: var(--deny);
-  color: var(--deny-ink);
-  border-color: var(--deny);
-}
-.traffic__log [data-pyric-badge-kind="allow"] {
-  color: var(--muted);
 }
 
 /* Group rows (collapsed listener storms). */
@@ -214,4 +531,48 @@
   font-size: 12px;
   color: var(--muted);
   background: var(--panel);
+}
+
+/* Pagination disclosure under the capped log (L6: bounded row count). */
+.traffic__show-more {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+.traffic__show-more:hover {
+  color: var(--ink);
+}
+
+/* "Hide Studio traffic" — pinned to the tab strip's trailing edge so the
+   provenance filter is reachable from every view (it feeds the metrics
+   aggregations too, not just the log). Same pill language as
+   .traffic__filter. */
+.traffic__hide-studio {
+  appearance: none;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-caption);
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.traffic__hide-studio:hover {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+.traffic__hide-studio[aria-pressed='true'] {
+  border-color: var(--line-2);
+  background: var(--elevated);
+  color: var(--ink);
 }

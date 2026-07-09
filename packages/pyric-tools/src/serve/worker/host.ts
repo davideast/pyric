@@ -1687,6 +1687,28 @@ export async function handleMessage(
   port: PortLike,
   msg: InboundMessage,
 ): Promise<void> {
+  // Op provenance: a client that DECLARED itself the issuer (`issuer:
+  // 'studio'`, stamped by Studio's worker client — see `setOpIssuer` in
+  // client.ts) gets its op/sub dispatched inside the sandbox's
+  // ambient-provenance window, so the events the op emits synchronously
+  // (rules eval, request/write events) carry `actor: { kind: 'studio' }`.
+  // Bridge-relayed frames are forwarded verbatim without the stamp
+  // (client.ts `relayWorkerOp`), so remote admin/agent traffic is never
+  // mislabeled as Studio's.
+  const issuer = (msg as { issuer?: 'studio' }).issuer;
+  if (issuer === 'studio' && ctx.sandbox.runWithProvenance) {
+    return ctx.sandbox.runWithProvenance({ actor: { kind: 'studio' } }, () =>
+      dispatchMessage(ctx, port, msg),
+    );
+  }
+  return dispatchMessage(ctx, port, msg);
+}
+
+async function dispatchMessage(
+  ctx: HostCtx,
+  port: PortLike,
+  msg: InboundMessage,
+): Promise<void> {
   if (msg.t === 'op') {
     if (isAuthOp(msg.method)) {
       await handleAuthOp(ctx, port, msg);

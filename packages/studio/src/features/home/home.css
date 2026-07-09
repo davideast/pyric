@@ -1,0 +1,270 @@
+/**
+ * Home (the hub) — foundation layout per specs/home.md. Intrinsic CSS only
+ * (L1): auto-fit/minmax grids, gap-spaced (L2); no component sets its own
+ * external geometry (L3). The page scrolls as one; the feed is capped, not an
+ * inner scroll trap (L5).
+ */
+
+.studio-home {
+  display: grid;
+  grid-template-rows: auto auto 1fr; /* command | status | body */
+  gap: var(--space-5);
+  /* readable measure without margin-centering: */
+  grid-template-columns: minmax(0, 72rem);
+  justify-content: center;
+}
+
+.studio-home__body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: var(--space-5);
+  /* Default (stretch) row alignment: cards sharing a row — the onboarding
+     trio — get EQUAL heights from the grid track, titles on one line (L1). */
+  /* feed spans available columns first; tiles flow after */
+}
+.studio-home__feed {
+  grid-column: 1 / -1;
+}
+.studio-home__tiles {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: var(--space-3);
+}
+
+/* ── Command input: the input row, results below ────────────────────────── */
+.studio-home__command {
+  display: grid;
+  gap: var(--space-2);
+}
+.studio-home__command-row {
+  display: grid;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--elevated);
+  padding: var(--space-2) var(--space-3);
+}
+.studio-home__command-row:focus-within {
+  border-color: var(--line-2);
+}
+.studio-home__command-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  min-width: 0;
+}
+.studio-home__command-input::placeholder {
+  color: var(--faint);
+}
+.studio-home__command-results {
+  margin: 0;
+  padding: var(--space-1);
+  display: grid;
+  gap: var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.studio-home__command-group {
+  display: grid;
+  gap: 2px;
+}
+.studio-home__command-group-title {
+  color: var(--faint);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  padding: 4px 10px 0;
+}
+.studio-home__command-group-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.studio-home__command-result {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  appearance: none;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.studio-home__command-result:hover,
+.studio-home__command-result[data-active='true'] {
+  background: var(--accent-tint);
+}
+.studio-home__command-label {
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: 500;
+}
+.studio-home__command-sub {
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+/* ── Status strip: one compact row of chips ─────────────────────────────── */
+.studio-home__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ── Feed: rows `auto 1fr auto` (provenance | summary | time) ───────────── */
+.studio-home__feed-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.studio-home__feed-title {
+  margin: 0;
+}
+.studio-home__feed-all {
+  color: var(--muted);
+  font-size: var(--fs-label);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.studio-home__feed-all:hover {
+  color: var(--ink);
+}
+/* The feed's ONE scroll owner (L5): capped at ~10 rows (row ≈ 32px incl.
+   list gap), scrolling internally past that. The data bound stays at the
+   projection cap (20 rows); the header's "view all in Traffic" link sits
+   outside this region so it is always visible. */
+.studio-home__feed-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.studio-home__feed-empty {
+  margin: 0;
+  padding-top: var(--space-2);
+  color: var(--faint);
+  font-size: var(--fs-body);
+}
+.studio-home__feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.studio-home__feed-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: 6px 8px;
+  border-radius: 7px;
+  text-decoration: none;
+  min-width: 0;
+}
+a.studio-home__feed-row:hover {
+  background: var(--elevated);
+}
+.studio-home__feed-ident {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+.studio-home__feed-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--faint);
+  flex: none;
+}
+.studio-home__feed-ident[data-provenance='agent'] .studio-home__feed-dot {
+  background: var(--accent);
+}
+.studio-home__feed-ident[data-provenance='studio'] .studio-home__feed-dot {
+  background: var(--diff-add);
+}
+.studio-home__feed-ident[data-provenance='system'] .studio-home__feed-dot {
+  background: var(--line-2);
+}
+.studio-home__feed-summary {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.studio-home__feed-summary[data-denied='true'] {
+  color: var(--diff-remove);
+}
+.studio-home__feed-time {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+/* ── Tiles / onboarding cards ───────────────────────────────────────────── */
+a.studio-home__tile {
+  text-decoration: none;
+  cursor: pointer;
+}
+a.studio-home__tile:hover {
+  border-color: var(--line-2);
+  background: color-mix(in srgb, var(--panel) 80%, var(--elevated));
+}
+.studio-home__onboard {
+  min-height: 0;
+}
+.studio-home__snippet {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  padding: 8px 10px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.studio-home__onboard-link {
+  color: var(--accent);
+  font-size: var(--fs-label);
+  text-decoration: none;
+}
+.studio-home__onboard-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Loading skeletons ──────────────────────────────────────────────────── */
+.studio-home__skeleton-chip {
+  min-width: 96px;
+  min-height: 22px;
+}
+.studio-home__skeleton {
+  display: grid;
+  gap: var(--space-2);
+}
+.studio-home__skeleton-row {
+  height: 16px;
+  border-radius: 6px;
+  background: var(--elevated);
+}

@@ -1,27 +1,26 @@
 /**
- * Pyric Studio V1 shell: one persistent tab strip plus one active surface.
- * Global settings, metadata, and maintenance controls live in Settings so the
- * service tabs stay focused on their primary work.
+ * Pyric Studio shell (specs/shell.md): ONE bar — identity | nav | status —
+ * plus one active surface. The bar navigates and reports; it does not act
+ * (N1/N2): contextual controls live in the surface they act on (the Prototype
+ * model cluster lives in the Prototype surface), and global settings,
+ * metadata, and maintenance live in Settings.
  */
 
-import { useCallback, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { DevSeedProvider, useDevSeed } from './dev/DevSeedProvider.js';
 import { EnvironmentProvider } from './shell/environment.js';
 import { ThemeProvider } from './shell/theme.js';
-import { useHashRoute } from './shell/router.js';
+import { useRoute } from './shell/router.js';
+import { focusInlineCommand, isCommandK } from './shell/command-k.js';
+import { CommandOverlay } from './shell/CommandOverlay.js';
 import { ROUTE_IDS, ROUTES, findRoute, type RouteId } from './shell/routes.js';
-import { IconKey, IconSettings, IconUser } from './shell/icons.js';
+import { StatusCluster } from './shell/StatusCluster.js';
 import { FirestorePane, StoragePane } from './components/panes.js';
 import { AuthSurface } from './features/auth/index.js';
 import { TrafficSurface } from './features/traffic/index.js';
 import { HomeSurface } from './features/home/HomeSurface.js';
 import { RtdbSurface } from './features/rtdb/RtdbSurface.js';
-import {
-  PlaygroundSurface,
-  postPlaygroundCommand,
-  type PlaygroundCommandMessage,
-} from './features/playground/PlaygroundSurface.js';
-import { PlaygroundModelControl } from './features/playground/PlaygroundModelControl.js';
+import { PlaygroundSurface } from './features/playground/PlaygroundSurface.js';
 import { SettingsSurface } from './features/settings/SettingsSurface.js';
 
 /**
@@ -75,16 +74,10 @@ function RoutePlaceholder({ id }: { id: string }) {
  * from the dev-seed (or `dev --ui` env) via the studio-data bridge. The shell
  * owns routing; surfaces never touch it.
  */
-function Surface({
-  id,
-  navigate,
-}: {
-  id: string;
-  navigate: (id: RouteId) => void;
-}) {
+function Surface({ id }: { id: string }) {
   switch (id) {
     case 'home':
-      return <HomeSurface onNavigate={navigate} />;
+      return <HomeSurface />;
     case 'firestore':
       return <FirestorePane />;
     case 'auth':
@@ -103,16 +96,45 @@ function Surface({
 }
 
 function Shell() {
-  const [active, navigateRoute] = useHashRoute(ROUTE_IDS, 'home');
-  const playgroundFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const [active, navigateRoute] = useRoute(ROUTE_IDS, 'home');
   const navigate = (id: RouteId) => navigateRoute(id);
-  const sendPlaygroundCommand = useCallback((message: PlaygroundCommandMessage) => {
-    postPlaygroundCommand(playgroundFrameRef.current, message);
-  }, []);
+  const [commandOpen, setCommandOpen] = useState(false);
+
+  // Global ⌘K (Ctrl+K non-mac): on Home it focuses the inline command input;
+  // elsewhere it toggles the overlay below the bar. preventDefault ONLY when
+  // we actually handled the chord — never fight the browser otherwise.
+  const onHome = active === 'home';
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isCommandK(e)) return;
+      if (commandOpen) {
+        e.preventDefault();
+        setCommandOpen(false);
+        return;
+      }
+      if (onHome) {
+        if (focusInlineCommand()) e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+      setCommandOpen(true);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onHome, commandOpen]);
+
+  // Navigating away (any path — a selection, a tab click) retires the overlay.
+  useEffect(() => {
+    if (onHome) setCommandOpen(false);
+  }, [onHome]);
+
   return (
     <div className="studio" data-surface={active}>
       <header className="studio__bar">
         <div className="studio__bar-inner">
+          <span className="studio__brand" aria-label="Pyric Studio">
+            Pyric
+          </span>
           <nav className="studio__nav" aria-label="Studio tabs">
             {ROUTES.map((r) => (
               <button
@@ -133,60 +155,26 @@ function Shell() {
               Docs
             </a>
           </nav>
-          <div className="studio__bar-actions" aria-label="Studio actions">
-            {active === 'playground' ? (
-              <div className="studio__playground-actions" aria-label="Playground controls">
-                <PlaygroundModelControl onCommand={sendPlaygroundCommand} />
-                <button
-                  type="button"
-                  className="studio-icon-button"
-                  aria-label="Playground API keys"
-                  title="API keys"
-                  onClick={() => sendPlaygroundCommand({ type: 'pyric:playground:open-keys' })}
-                >
-                  <IconKey />
-                </button>
-                <button
-                  type="button"
-                  className="studio-icon-button"
-                  aria-label="Playground settings"
-                  title="Playground settings"
-                  onClick={() => sendPlaygroundCommand({ type: 'pyric:playground:open-settings' })}
-                >
-                  <IconSettings />
-                </button>
-                <button
-                  type="button"
-                  className="studio-icon-button"
-                  aria-label="Playground account"
-                  title="Account"
-                  onClick={() => sendPlaygroundCommand({ type: 'pyric:playground:open-account' })}
-                >
-                  <IconUser />
-                </button>
-              </div>
-            ) : null}
-          </div>
+          <StatusCluster />
         </div>
       </header>
 
       <main className="studio__content" data-surface={active}>
         <div
           className="studio__surface-slot studio__surface-slot--playground"
-          data-active={active === 'playground' ? 'true' : 'false'}
-          aria-hidden={active === 'playground' ? undefined : true}
+          data-active={active === 'prototype' ? 'true' : 'false'}
+          aria-hidden={active === 'prototype' ? undefined : true}
         >
-          <PlaygroundSurface
-            frameRef={playgroundFrameRef}
-            onNavigateSettings={() => navigate('settings')}
-          />
+          <PlaygroundSurface onNavigateSettings={() => navigate('settings')} />
         </div>
-        {active !== 'playground' ? (
+        {active !== 'prototype' ? (
           <div className="studio__surface-slot" data-active="true">
-            <Surface id={active} navigate={navigate} />
+            <Surface id={active} />
           </div>
         ) : null}
       </main>
+
+      {commandOpen ? <CommandOverlay onClose={() => setCommandOpen(false)} /> : null}
     </div>
   );
 }

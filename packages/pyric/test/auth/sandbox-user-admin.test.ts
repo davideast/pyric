@@ -94,6 +94,7 @@ describe('provider tracking (A1)', () => {
 
   it('popup sign-in upserts an unknown identity with the real provider', async () => {
     const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.mockSignInResult(auth, {
       user: mockUser('popup-1', 'popup@x.com'),
       providerId: 'google.com',
@@ -107,6 +108,7 @@ describe('provider tracking (A1)', () => {
 
   it('popup sign-in for a known identity links the provider without duplicating it', async () => {
     const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.seedUsers(auth, [
       { uid: 'alice', email: 'alice@x.com', password: 'pw1234' },
     ]);
@@ -148,6 +150,7 @@ describe('IdTokenResult.signInProvider (A1)', () => {
 
   it('is the provider id after a popup sign-in (via createSignInCredential)', async () => {
     const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     const cred = authSandbox.createSignInCredential(auth, {
       providerId: 'google.com',
       spec: { email: 'g@x.com', displayName: 'G' },
@@ -248,6 +251,7 @@ describe('sandbox.createSignInCredential (A2)', () => {
 
   it('resolves a full popup flow: credential → signInWithPopup → signed in', async () => {
     const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     const cred = authSandbox.createSignInCredential(auth, {
       providerId: 'google.com',
       spec: { email: 'flow@x.com' },
@@ -331,6 +335,49 @@ describe('sandbox.listUsers / createUser (A3)', () => {
     );
   });
 
+  it('createUser links federated providers from providerUserInfo (multiple, dedup)', () => {
+    const auth = freshAuth();
+    const record = authSandbox.createUser(auth, {
+      uid: 'fed',
+      email: 'fed@x.com',
+      providerUserInfo: [
+        { providerId: 'google.com' },
+        { providerId: 'apple.com' },
+        { providerId: 'google.com' },
+      ],
+    });
+    expect(record.providerUserInfo).toEqual([
+      { providerId: 'google.com' },
+      { providerId: 'apple.com' },
+    ]);
+  });
+
+  it('createUser: password provider is credential-derived, never forged', () => {
+    const auth = freshAuth();
+    // With a password: the password entry leads, then the federated links.
+    const withPw = authSandbox.createUser(auth, {
+      uid: 'pw-fed',
+      email: 'pwfed@x.com',
+      password: 'pw1234',
+      providerUserInfo: [{ providerId: 'github.com' }],
+    });
+    expect(withPw.providerUserInfo).toEqual([
+      { providerId: 'password' },
+      { providerId: 'github.com' },
+    ]);
+    // Without a password: password/anonymous entries are dropped, not linked.
+    const noPw = authSandbox.createUser(auth, {
+      uid: 'no-pw',
+      providerUserInfo: [{ providerId: 'password' }, { providerId: 'anonymous' }],
+    });
+    expect(noPw.providerUserInfo).toEqual([]);
+    // Empty providerId is an argument error.
+    expectAuthError(
+      () => authSandbox.createUser(auth, { providerUserInfo: [{ providerId: ' ' }] }),
+      'auth/argument-error',
+    );
+  });
+
   it('lastLoginAt is bumped by an actual sign-in', async () => {
     const auth = freshAuth();
     authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
@@ -391,6 +438,47 @@ describe('sandbox.updateUser (A3)', () => {
     ]);
     const { user } = await signInWithEmailAndPassword(auth, 'oauth@x.com', 'pw1234');
     expect(user.uid).toBe(cred.user.uid);
+  });
+
+  it('providerUserInfo replaces linked OAuth providers (multiple supported)', () => {
+    const auth = freshAuth();
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com' });
+    let r = authSandbox.updateUser(auth, 'u1', {
+      providerUserInfo: [{ providerId: 'google.com' }, { providerId: 'github.com' }],
+    });
+    expect(r.providerUserInfo).toEqual([
+      { providerId: 'google.com' },
+      { providerId: 'github.com' },
+    ]);
+    // Replacement semantics: dropping one drops it; dedupe by providerId.
+    r = authSandbox.updateUser(auth, 'u1', {
+      providerUserInfo: [{ providerId: 'github.com' }, { providerId: 'github.com' }],
+    });
+    expect(r.providerUserInfo).toEqual([{ providerId: 'github.com' }]);
+  });
+
+  it('providerUserInfo cannot forge password/anonymous; password survives replacement', () => {
+    const auth = freshAuth();
+    authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
+    // Replacing providers keeps the credential-derived password entry.
+    let r = authSandbox.updateUser(auth, 'u1', {
+      providerUserInfo: [{ providerId: 'google.com' }],
+    });
+    expect(r.providerUserInfo).toEqual([
+      { providerId: 'password' },
+      { providerId: 'google.com' },
+    ]);
+    // A user WITHOUT a password can't gain one through the list.
+    authSandbox.createUser(auth, { uid: 'u2' });
+    r = authSandbox.updateUser(auth, 'u2', {
+      providerUserInfo: [{ providerId: 'password' }, { providerId: 'anonymous' }],
+    });
+    expect(r.providerUserInfo).toEqual([]);
+    // Empty providerId is an argument error.
+    expectAuthError(
+      () => authSandbox.updateUser(auth, 'u2', { providerUserInfo: [{ providerId: '  ' }] }),
+      'auth/argument-error',
+    );
   });
 
   it('claims changes reach the next forced token refresh (live claims)', async () => {
@@ -454,6 +542,7 @@ describe('disabled users (A3)', () => {
 
   it('blocks popup sign-in with auth/user-disabled', async () => {
     const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.createUser(auth, { uid: 'popup-1', email: 'p@x.com', disabled: true });
     authSandbox.mockSignInResult(auth, {
       user: mockUser('popup-1', 'p@x.com'),

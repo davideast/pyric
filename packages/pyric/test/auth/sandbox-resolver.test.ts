@@ -47,6 +47,7 @@ function fixedResolver(uid: string): AuthFlowResolver {
 describe('AuthFlowResolver (sandbox)', () => {
   it('no resolver + no mock → throws auth/argument-error (faithful default)', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     try {
       await signInWithPopup(auth, new GoogleAuthProvider());
       throw new Error('expected throw');
@@ -57,6 +58,7 @@ describe('AuthFlowResolver (sandbox)', () => {
 
   it('one-shot mock is used when no resolver is injected (headless path)', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.mockSignInResult(auth, {
       user: makeFakeUser('mock-user'),
       providerId: 'google.com',
@@ -68,6 +70,7 @@ describe('AuthFlowResolver (sandbox)', () => {
 
   it('injected resolver drives the flow + sets currentUser', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.setAuthFlowResolver(auth, fixedResolver('resolver-user'));
     const res = await signInWithPopup(auth, new GoogleAuthProvider());
     expect(res.user.uid).toBe('resolver-user');
@@ -76,6 +79,7 @@ describe('AuthFlowResolver (sandbox)', () => {
 
   it('precedence: injected resolver wins over a staged mock', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.mockSignInResult(auth, {
       user: makeFakeUser('mock-user'),
       providerId: 'google.com',
@@ -88,6 +92,7 @@ describe('AuthFlowResolver (sandbox)', () => {
 
   it('precedence: per-call resolver arg wins over the injected one', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.setAuthFlowResolver(auth, fixedResolver('injected'));
     const res = await signInWithPopup(auth, new GoogleAuthProvider(), fixedResolver('per-call'));
     expect(res.user.uid).toBe('per-call');
@@ -95,6 +100,7 @@ describe('AuthFlowResolver (sandbox)', () => {
 
   it('cancel: resolver rejection (popup-closed-by-user) propagates', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     const cancelling: AuthFlowResolver = {
       openPopup: async () => {
         throw Object.assign(new Error('closed'), { code: 'auth/popup-closed-by-user' });
@@ -115,6 +121,7 @@ describe('AuthFlowResolver (sandbox)', () => {
 
   it('redirect: signInWithRedirect signs in + getRedirectResult yields the credential once', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.setAuthFlowResolver(auth, fixedResolver('redir-user'));
     await signInWithRedirect(auth, new GoogleAuthProvider());
     expect(auth.currentUser?.uid).toBe('redir-user');
@@ -131,6 +138,7 @@ describe('AuthFlowResolver (sandbox)', () => {
 
   it('the no-resolver error names the API that was called (popup vs redirect)', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     try {
       await signInWithRedirect(auth, new GoogleAuthProvider());
       throw new Error('expected throw');
@@ -148,6 +156,7 @@ describe('AuthFlowResolver (sandbox)', () => {
 
   it('redirect uses the one-shot mock tier when no resolver is injected', async () => {
     const auth = getAuth(initializeSandbox());
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.mockSignInResult(auth, {
       user: makeFakeUser('redir-mock'),
       providerId: 'google.com',

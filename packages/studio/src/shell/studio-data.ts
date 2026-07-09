@@ -32,12 +32,13 @@ import {
 import { sandbox as authSandbox, type CreateUserRequest } from 'pyric/auth';
 import { setRules as workerSetRules } from 'pyric-tools/serve/worker';
 import type {
+  EventProvenance,
   RequestEvent,
   SandboxEvent,
   SandboxOperationEvent,
   SandboxSnapshot,
 } from 'pyric/sandbox';
-import type { TrafficEvent } from '@pyric/ui/traffic';
+import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
 import type { WorkerLivePlane } from '../env.js';
@@ -210,6 +211,19 @@ export function useStudioEventFeed(): EventFeed {
  * `history()` reads empty at subscribe time: hence we seed from `history()` AND
  * accumulate via `subscribe`, which folds each event exactly once.
  */
+/**
+ * Hard cap on the events any Studio surface accumulates (L6): a long-running
+ * session must not grow render/memory cost without bound. Newest-retained;
+ * `TrafficSurface` surfaces an explicit "showing latest N" line when hit.
+ */
+export const STUDIO_EVENT_CAP = 500;
+
+/** Newest-retained cap. Returns the SAME reference when under the cap, so
+ *  memo consumers don't churn on every render. */
+function capNewest(events: readonly SandboxEvent[]): readonly SandboxEvent[] {
+  return events.length > STUDIO_EVENT_CAP ? events.slice(-STUDIO_EVENT_CAP) : events;
+}
+
 export function useStudioEvents(): readonly SandboxEvent[] {
   const seed = useDevSeed();
   const env = useEnvironment();
@@ -222,23 +236,36 @@ export function useStudioEvents(): readonly SandboxEvent[] {
       setLiveEvents([]);
       return;
     }
-    setLiveEvents(liveFeed.history());
+    // Cap BOTH accumulation paths (the history seed and the live appends).
+    setLiveEvents(capNewest(liveFeed.history()));
     const unsub = liveFeed.subscribe((event) =>
-      setLiveEvents((prev) => [...prev, event]),
+      setLiveEvents((prev) => capNewest([...prev, event])),
     );
     return unsub;
   }, [seedReady, liveFeed]);
 
-  return seedReady ? seed.events : liveEvents;
+  // The dev-seed path reads the sandbox's own reactive array — cap at the
+  // read (same-reference under the cap, so no memo churn).
+  const cappedSeedEvents = useMemo(
+    () => (seedReady ? capNewest(seed.events) : []),
+    [seedReady, seed],
+  );
+  return seedReady ? cappedSeedEvents : liveEvents;
 }
 
-function isTrafficEvent(e: SandboxEvent): e is RequestEvent | SandboxOperationEvent {
+function isTrafficEvent(
+  e: SandboxEvent,
+): e is (RequestEvent | SandboxOperationEvent) & EventProvenance {
   return e.kind === 'request' || e.kind === 'operation';
 }
 
-function toTrafficEvent(e: RequestEvent | SandboxOperationEvent): TrafficEvent {
+function toTrafficEvent(
+  e: (RequestEvent | SandboxOperationEvent) & EventProvenance,
+): StudioTrafficEvent {
   if (e.kind === 'request') {
-    return e as unknown as TrafficEvent;
+    // Structurally identical (plus provenance fields riding through) — the
+    // verdict layer reads `authLens` off the same object.
+    return e as unknown as StudioTrafficEvent;
   }
   return {
     kind: 'operation',
@@ -258,6 +285,7 @@ function toTrafficEvent(e: RequestEvent | SandboxOperationEvent): TrafficEvent {
     groupId: e.groupId,
     groupKind: e.groupKind,
     triggeredBy: e.triggeredBy,
+    authLens: e.authLens,
   };
 }
 
@@ -266,9 +294,9 @@ function toTrafficEvent(e: RequestEvent | SandboxOperationEvent): TrafficEvent {
  * other services can emit canonical `operation` events. Adapt both into the
  * headless `@pyric/ui/traffic` shape.
  */
-export function useStudioTraffic(): TrafficEvent[] {
+export function useStudioTraffic(): StudioTrafficEvent[] {
   const events = useStudioEvents();
-  return useMemo<TrafficEvent[]>(
+  return useMemo<StudioTrafficEvent[]>(
     () => events.filter(isTrafficEvent).map(toTrafficEvent),
     [events],
   );

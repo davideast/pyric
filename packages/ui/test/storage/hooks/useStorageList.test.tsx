@@ -259,5 +259,36 @@ service firebase.storage {
       act(() => result.current.refresh());
       await waitFor(() => expect(result.current.entries.length).toBe(2));
     });
+
+    it('removeItem after a deep insert reverses the SYNTHESIZED folder row (failed-upload rollback)', async () => {
+      const storage = makeStorage('opt-precise-rollback');
+      await seed(storage, ['docs/a.txt']);
+
+      const { result } = renderHook(runHook, { storage, path: 'docs' });
+      await waitFor(() => expect(result.current.status).toBe('success'));
+
+      // A deep upload inserts its own path; the visible row is the synthesized
+      // first-segment folder. Rolling back by the UPLOAD's path must remove it.
+      act(() => result.current.insertItem('docs/sub/deep/file.txt'));
+      expect(result.current.prefixes.map((p) => p.fullPath)).toEqual(['docs/sub']);
+      act(() => result.current.removeItem('docs/sub/deep/file.txt'));
+      expect(result.current.prefixes).toEqual([]);
+      expect(result.current.items.map((i) => i.fullPath)).toEqual(['docs/a.txt']);
+    });
+
+    it('removeItem after a NO-OP insert removes nothing (a real folder survives a failed upload into it)', async () => {
+      const storage = makeStorage('opt-noop-rollback');
+      await seed(storage, ['docs/sub/real.txt']);
+
+      const { result } = renderHook(runHook, { storage, path: 'docs' });
+      await waitFor(() => expect(result.current.status).toBe('success'));
+      expect(result.current.prefixes.map((p) => p.fullPath)).toEqual(['docs/sub']);
+
+      // Upload into the EXISTING folder: the insert is a no-op (the prefix is
+      // server truth), so the failed upload's rollback must not delete it.
+      act(() => result.current.insertItem('docs/sub/newfile.txt'));
+      act(() => result.current.removeItem('docs/sub/newfile.txt'));
+      expect(result.current.prefixes.map((p) => p.fullPath)).toEqual(['docs/sub']);
+    });
   });
 });

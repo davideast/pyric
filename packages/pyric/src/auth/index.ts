@@ -119,6 +119,8 @@ export {
   GithubAuthProvider,
   GoogleAuthProvider,
   OAuthProvider,
+  FEDERATED_PROVIDER_IDS,
+  type FederatedProviderId,
 } from './providers.js';
 
 // ─── Persistence markers ──────────────────────────────────────────────
@@ -168,9 +170,12 @@ function backendFor(sandbox: Sandbox): SandboxBackend {
     // as non-null here, but the closures below need a stable reference).
     const capturedBackend = backend;
     sandbox.registerPersistableService('auth', {
-      snapshot: () => ({ users: capturedBackend.exportUsers() }),
+      snapshot: () => ({
+        users: capturedBackend.exportUsers(),
+        providers: capturedBackend.exportProviderConfig(),
+      }),
       restore: (data: unknown) => {
-        const d = data as { users?: SeedUser[] };
+        const d = data as { users?: SeedUser[]; providers?: Record<string, boolean> };
         // Restore is a REPLACE, not a merge: the user DB becomes EXACTLY what
         // the snapshot holds. On boot / late-registration the backend is empty,
         // so clearUsers() is a no-op; for a runtime `sandbox.loadSnapshot()`
@@ -180,8 +185,20 @@ function backendFor(sandbox: Sandbox): SandboxBackend {
         if (Array.isArray(d?.users) && d.users.length > 0) {
           capturedBackend.seedUsers(d.users);
         }
+        // Same REPLACE policy for provider config. `restoreProviderConfig`
+        // falls back to the documented defaults when `d?.providers` is
+        // missing (a blob written before this feature existed), so older
+        // `--persist` files don't silently disable password/anonymous.
+        capturedBackend.restoreProviderConfig(d?.providers);
       },
-      subscribe: (onChange: () => void) => capturedBackend.subscribeUsers(onChange),
+      subscribe: (onChange: () => void) => {
+        const unsubUsers = capturedBackend.subscribeUsers(onChange);
+        const unsubProviders = capturedBackend.subscribeProviderConfig(onChange);
+        return () => {
+          unsubUsers();
+          unsubProviders();
+        };
+      },
 
       // Session hooks — the persistence controller uses these to save and
       // restore the CURRENTLY SIGNED-IN USER (the session), separate from
@@ -341,6 +358,7 @@ export function connectAuthEmulator(
 export async function signInAnonymously(auth: Auth): Promise<UserCredential> {
   const target = targetOf(auth);
   if (target.kind === 'prod') return prodSignInAnonymously(target.auth);
+  target.backend.assertProviderEnabled('anonymous');
   // Match `firebase/auth` semantics: if there's already an anonymous
   // user signed in, reuse them rather than minting a fresh uid.
   // Production persists anonymous users across page loads via the
@@ -368,6 +386,7 @@ export async function signInWithEmailAndPassword(
   if (target.kind === 'prod') {
     return prodSignInWithEmailAndPassword(target.auth, email, password);
   }
+  target.backend.assertProviderEnabled('password');
   const stored = target.backend.validatePassword(email, password);
   const user = target.backend.buildUserFromStored(stored);
   // The backend records the originating provider ('password') on the
@@ -391,6 +410,7 @@ export async function createUserWithEmailAndPassword(
   if (target.kind === 'prod') {
     return prodCreateUserWithEmailAndPassword(target.auth, email, password);
   }
+  target.backend.assertProviderEnabled('password');
   const stored = target.backend.createEmailPasswordUser(email, password);
   const user = target.backend.buildUserFromStored(stored);
   // providerId: null — same rationale as signInWithEmailAndPassword above
@@ -445,6 +465,10 @@ async function resolveFlow(
   perCall: AuthFlowResolver | undefined,
   kind: 'popup' | 'redirect',
 ): Promise<UserCredential> {
+  // Gate BEFORE touching the resolver/mock registry, so a disabled provider
+  // throws `auth/operation-not-allowed` — distinct from the `auth/argument-
+  // error` below, which keeps meaning "enabled, but no resolver/mock wired".
+  backend.assertProviderEnabled(provider.providerId);
   const req: AuthFlowRequest = { providerId: provider.providerId, authType };
   const resolver = perCall ?? backend.getResolver();
   if (resolver) return kind === 'popup' ? resolver.openPopup(req) : resolver.openRedirect(req);
@@ -515,6 +539,9 @@ export async function signInWithCredential(
   const target = targetOf(auth);
   if (target.kind === 'prod') return prodSignInWithCredential(target.auth, credential);
   const providerId = credential.providerId;
+  // Gate BEFORE consuming the mock — see the `resolveFlow` gating note above
+  // for why `operation-not-allowed` must fire ahead of the mock-registry check.
+  target.backend.assertProviderEnabled(providerId);
   const mock = target.backend.consumeMockResult(providerId);
   if (!mock) {
     throw makeAuthError(
@@ -805,6 +832,74 @@ export const sandbox = {
    */
   subscribeUsers(auth: Auth, callback: () => void): Unsubscribe {
     return requireSandbox(auth, 'sandbox.subscribeUsers').backend.subscribeUsers(callback);
+  },
+
+  // ── Sign-in provider config (Authentication → Sign-in method toggles) ──
+
+  /**
+   * Every provider this sandbox has an explicit enablement for —
+   * seeded defaults (`password`, `anonymous` — both `true`) plus
+   * anything toggled via {@link sandbox.setAuthProviderConfig}. Every
+   * OTHER providerId (`google.com`, a custom OAuth id, …) is disabled
+   * until explicitly enabled.
+   */
+  getAuthProviderConfig(auth: Auth): Array<{ providerId: string; enabled: boolean }> {
+    return requireSandbox(auth, 'sandbox.getAuthProviderConfig').backend.listProviderConfig();
+  },
+
+  /**
+   * Enable/disable a sign-in provider. Gated at every provider entry
+   * point of the ENFORCING backend (`signInWithPopup`/`signInWithRedirect`,
+   * `signInWithCredential`, `createUserWithEmailAndPassword`/
+   * `signInWithEmailAndPassword` for `'password'`, `signInAnonymously`
+   * for `'anonymous'`) — disabling a provider makes the matching sign-in
+   * call throw real Firebase's `auth/operation-not-allowed`, exactly
+   * like flipping the toggle off in the real console. Survives
+   * `enablePersistence` round-trips (rides the `auth` service's
+   * snapshot alongside the user DB). A backend whose enforcement is
+   * delegated ({@link sandbox.delegateProviderEnforcement}) does NOT
+   * gate locally — the remote authority it fronts does.
+   */
+  setAuthProviderConfig(auth: Auth, providerId: string, enabled: boolean): void {
+    requireSandbox(auth, 'sandbox.setAuthProviderConfig').backend.setProviderConfig(providerId, enabled);
+  },
+
+  /**
+   * Assert a provider is enabled — throws `auth/operation-not-allowed`
+   * (the exact gate every provider entry point uses) when it is off.
+   * For hosts that ARE the enforcement authority for identities
+   * resolved elsewhere: the served SharedWorker calls this before
+   * accepting a page-resolved popup/redirect identity
+   * (`auth.acceptIdentity`), so Studio's provider toggles gate served
+   * OAuth sign-in at the shared backend, not at each page's UI shim.
+   */
+  assertAuthProviderEnabled(auth: Auth, providerId: string): void {
+    requireSandbox(auth, 'sandbox.assertAuthProviderEnabled').backend.assertProviderEnabled(providerId);
+  },
+
+  /**
+   * Delegate (or reclaim) THIS handle's provider-enablement gate to a
+   * remote authority. Serve-layer wiring: in SharedWorker mode the
+   * page-local sandbox is only the UI vehicle for popup/redirect
+   * resolution — the worker's `auth.acceptIdentity` gate (against the
+   * worker's own, undelegated config) is the real toggle enforcement —
+   * so the served `firebase/auth` entry sets `true` on the in-page
+   * handle to let the picker open regardless of local defaults. Do NOT
+   * set this on a backend that is itself the authority.
+   */
+  delegateProviderEnforcement(auth: Auth, delegated: boolean): void {
+    requireSandbox(auth, 'sandbox.delegateProviderEnforcement')
+      .backend.setProviderEnforcementDelegated(delegated);
+  },
+
+  /**
+   * Subscribe to provider-config mutations. Coarse contract: no
+   * payload, no initial fire — re-read via
+   * {@link sandbox.getAuthProviderConfig} in the callback (same shape
+   * as {@link sandbox.subscribeUsers}).
+   */
+  subscribeAuthProviderConfig(auth: Auth, callback: () => void): Unsubscribe {
+    return requireSandbox(auth, 'sandbox.subscribeAuthProviderConfig').backend.subscribeProviderConfig(callback);
   },
 };
 

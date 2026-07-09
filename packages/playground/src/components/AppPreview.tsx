@@ -430,7 +430,19 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
   // reset, when the runner's sandbox may be fresh; the hook re-installs
   // whenever the handle identity changes (StrictMode-safe paired effect).
   const previewAuth = useMemo(
-    () => (isSharedSandboxMode() ? null : getAuth(getPlaygroundRuntime().requireInProcessRunner('Preview auth helper').getSandbox() as Sandbox)),
+    () => {
+      if (isSharedSandboxMode()) return null;
+      const auth = getAuth(
+        getPlaygroundRuntime().requireInProcessRunner('Preview auth helper').getSandbox() as Sandbox,
+      );
+      // The helper IS the federated provider here (same wiring as the served
+      // firebase/auth entry): delegate provider enforcement so the picker
+      // opens regardless of the sandbox's provider-config defaults — a
+      // prototype's "Sign in with Google" must open the account picker, not
+      // throw auth/operation-not-allowed before the modal exists.
+      authSandbox.delegateProviderEnforcement(auth, true);
+      return auth;
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [resetKey],
   );

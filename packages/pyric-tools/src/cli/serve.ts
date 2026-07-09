@@ -11,7 +11,7 @@
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
 import { dirname, join, resolve } from 'node:path';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, resolvePlaygroundUiDir, resolveStudioUiDir, workerSourceHash } from '../serve/bundler.js';
@@ -23,6 +23,7 @@ import {
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
 import { loadProjectDatabaseRules, loadProjectRules, watchProjectRules } from '../serve/rules.js';
+import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { createEventHub, createPyricNamespace, injectServeTags, type InitPayload } from '../serve/namespace.js';
 import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from '../serve/state-store.js';
 import { diskProjectStore, diskWorkspace } from '../serve/studio/index.js';
@@ -162,6 +163,31 @@ export async function startServe(opts: {
         `or \`bun run build\` then \`pyric dev\` to preview the production build.`
       : '';
     throw new Error(`pyric dev: hosting.public directory does not exist: ${publicDir}${hint}`);
+  }
+
+  // The import map can only remap BARE `firebase/*` specifiers. A plain bundler
+  // build (`vite build`) inlines the real SDK into the app chunk, leaving
+  // nothing to intercept — the page would then talk to REAL Firebase endpoints
+  // with the sandbox's fake credentials while the injected banner claims
+  // otherwise. That hole is structural, so `pyric dev` REFUSES such a dist
+  // rather than serving it. A pyric SANDBOX build (`vite build --mode
+  // development`) carries the marker and bundles pyric's in-page adapters, so it
+  // is trusted and the scan is skipped (marker present → no real SDK to find).
+  if (!hasSandboxBuildMarker(publicDir)) {
+    const inlined = scanForInlinedFirebase(publicDir);
+    if (inlined.length > 0) {
+      throw new Error(
+        `pyric dev: ${inlined[0]} bundles the REAL firebase SDK, so this dist cannot be ` +
+          `sandboxed — its firebase/* calls would reach LIVE Google endpoints, not the ` +
+          `pyric sandbox. Two ways forward:\n` +
+          `  (a) plain \`pyric dev\` runs the child dev-server flow (the pyric-tools/vite ` +
+          `plugin swaps firebase/* live) — use \`bun run dev\`;\n` +
+          `  (b) rebuild as a self-contained sandbox bundle and serve THAT: ` +
+          `\`vite build --mode development\` (or pyricSandbox({ swapInBuild: true })) then ` +
+          `\`pyric dev\`.\n` +
+          `A plain \`vite build\` is your production build — deploy it, don't sandbox it.`,
+      );
+    }
   }
 
   // Rules: fail fast on broken rules; serve rule-less only when genuinely absent.
@@ -489,6 +515,44 @@ export function bridgeEnabledFor(
   return bridgeEnabledFromFlags(flags) || childPlan != null;
 }
 
+/**
+ * Process-level last line of defense for the dev server: a single bad
+ * request/WS interaction must never take `pyric dev` down. Node kills the
+ * process on an unhandled rejection (default `--unhandled-rejections=throw`
+ * since v15) and on any uncaught exception — and the serve process hosts
+ * long-lived, browser-driven machinery (WS peers, SSE streams, file watchers,
+ * MCP transports) where one missed error path is fatal. Route both to a LOUD
+ * stderr log instead and keep serving.
+ *
+ * Installed by `runServe` once the server is up (startup errors still fail
+ * fast). Returns the uninstaller. Exported for unit coverage.
+ */
+export function installServeProcessGuard(
+  log: (message: string) => void,
+  proc: Pick<NodeJS.Process, 'on' | 'off'> = process,
+): () => void {
+  const describe = (reason: unknown): string =>
+    reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
+  const onRejection = (reason: unknown): void => {
+    log(
+      `  ✖ pyric dev: UNHANDLED REJECTION (the server was kept alive — please report this):\n` +
+        `    ${describe(reason).split('\n').join('\n    ')}`,
+    );
+  };
+  const onException = (err: unknown): void => {
+    log(
+      `  ✖ pyric dev: UNCAUGHT EXCEPTION (the server was kept alive — please report this):\n` +
+        `    ${describe(err).split('\n').join('\n    ')}`,
+    );
+  };
+  proc.on('unhandledRejection', onRejection);
+  proc.on('uncaughtException', onException);
+  return () => {
+    proc.off('unhandledRejection', onRejection);
+    proc.off('uncaughtException', onException);
+  };
+}
+
 /** CLI entry. Resolves on SIGINT/SIGTERM after a clean stop. */
 export async function runServe(parsed: ParsedArgs): Promise<number> {
   const flagPort = parsed.flags.get('port');
@@ -553,6 +617,11 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\n`);
     return 2;
   }
+
+  // The server is up: from here on, no single bad request/WS/watcher error
+  // may kill the process — log loudly and keep serving (startup errors above
+  // still fail fast).
+  installServeProcessGuard((m) => process.stderr.write(m + '\n'));
 
   // The agent contract: with --json, stdout carries exactly this one line
   // (the banner went to stderr). Readiness probe: GET /__pyric/init.json.
@@ -641,4 +710,60 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     process.once('SIGINT', () => shutdown('SIGINT'));
     process.once('SIGTERM', () => shutdown('SIGTERM'));
   });
+}
+
+/**
+ * Detect a bundler build that INLINED the real firebase SDK into its served
+ * assets (`vite build` output). The served import map remaps only bare
+ * `firebase/*` specifiers, so such a build cannot be sandboxed — its calls
+ * reach real Google endpoints. Fingerprints are real-SDK-only endpoint hosts
+ * that never appear in a sandbox-clean app (whose calls all route to
+ * `/__pyric/*`). Bounded: depth ≤ 4, ≤ 200 script files, first hit per file.
+ * Returns publicDir-relative paths of offending assets.
+ */
+export function scanForInlinedFirebase(dir: string): string[] {
+  const FINGERPRINTS = [
+    'identitytoolkit.googleapis.com',
+    'firestore.googleapis.com',
+    'securetoken.googleapis.com',
+    'firebasedatabase.app',
+  ];
+  const hits: string[] = [];
+  let scanned = 0;
+  const walk = (d: string, rel: string, depth: number): void => {
+    if (depth > 4 || scanned >= 200) return;
+    let names: string[];
+    try {
+      names = readdirSync(d);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (scanned >= 200) return;
+      const p = join(d, name);
+      const r = rel ? `${rel}/${name}` : name;
+      let st;
+      try {
+        st = statSync(p);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        // The pyric namespace itself never lands in hosting.public, but a
+        // node_modules inside a served dir would be a scan-cost trap.
+        if (name === 'node_modules') continue;
+        walk(p, r, depth + 1);
+      } else if (/\.(js|mjs)$/.test(name)) {
+        scanned++;
+        try {
+          const text = readFileSync(p, 'utf8');
+          if (FINGERPRINTS.some((f) => text.includes(f))) hits.push(r);
+        } catch {
+          // unreadable asset: skip
+        }
+      }
+    }
+  };
+  walk(dir, '', 0);
+  return hits;
 }

@@ -454,18 +454,27 @@ onAuthStateChanged(auth, (user) => {
     : 'Signed out';
   els.signIn.hidden = !!user;
   els.signOut.hidden = !user;
-  els.form.hidden = !user;
 });
 
 els.form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  // The owner-based rules require uid == request.auth.uid on create.
-  await addDoc(collection(db, 'posts'), {
-    title: els.title.value.trim(),
-    uid: auth.currentUser!.uid,
-    createdAt: serverTimestamp(),
-  });
-  els.title.value = '';
+  // The form stays visible while signed out ON PURPOSE: submitting then
+  // ATTEMPTS the write, the owner-based rules deny it (create requires
+  // uid == request.auth.uid), and the denial shows up in Pyric Studio's
+  // Traffic tab — the rules-teaching loop this demo exists for.
+  const user = auth.currentUser;
+  try {
+    await addDoc(collection(db, 'posts'), {
+      title: els.title.value.trim(),
+      uid: user?.uid ?? 'anonymous',
+      createdAt: serverTimestamp(),
+    });
+    els.title.value = '';
+  } catch (err) {
+    els.status.textContent = user
+      ? \`Write failed: \${(err as { code?: string }).code ?? String(err)}\`
+      : 'Denied by rules (signed out) — see the Traffic tab in Pyric Studio.';
+  }
 });
 
 onSnapshot(collection(db, 'posts'), (snap) => {
@@ -482,10 +491,13 @@ onSnapshot(collection(db, 'posts'), (snap) => {
 const VITE_CONFIG = `import { defineConfig } from 'vite';
 import { pyricSandbox } from 'pyric-tools/vite';
 
-// pyricSandbox() is DEV-ONLY. Under \`vite dev\` it swaps firebase/* to the
-// in-process pyric sandbox and deploys + hot-reloads firestore.rules — no
-// Firebase project, credentials, or emulators. \`vite build\` ships the real
-// firebase package; the swap never reaches production output.
+// Under \`vite dev\` pyricSandbox() swaps firebase/* to the in-process pyric
+// sandbox and deploys + hot-reloads firestore.rules — no Firebase project,
+// credentials, or emulators. \`vite build\` (mode production) ships the real
+// firebase package; the swap never reaches the deployed artifact. For a
+// self-contained sandbox preview you can serve under \`pyric dev\`, build with a
+// non-production mode: \`vite build --mode development\` (see the \`build:sandbox\`
+// script). That output is marked and can never be deployed.
 export default defineConfig({
   plugins: [pyricSandbox()],
 });
@@ -590,6 +602,7 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
     scripts: {
       dev: 'vite',
       build: 'vite build',
+      'build:sandbox': 'vite build --mode development',
       preview: 'vite preview',
       'deploy:rules': 'pyric deploy rules',
       'deploy:hosting': 'pyric deploy hosting',

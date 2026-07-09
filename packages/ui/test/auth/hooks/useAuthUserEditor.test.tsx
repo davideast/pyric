@@ -111,6 +111,62 @@ describe('useAuthUserEditor', () => {
     unmount();
   });
 
+  test('providerIds hydrate from the record (federated only) and stay clean', () => {
+    const { result, unmount } = renderHook(() =>
+      useAuthUserEditor({
+        initial: record({
+          providerUserInfo: [
+            { providerId: 'password' },
+            { providerId: 'google.com' },
+            { providerId: 'apple.com' },
+          ],
+        }),
+      }),
+    );
+    // password is credential-derived — never an editable provider id.
+    expect(result.current.fields.providerIds).toEqual(['google.com', 'apple.com']);
+    expect(result.current.isDirty).toBe(false);
+    unmount();
+  });
+
+  test('toCreateRequest carries selected providers as providerUserInfo entries', () => {
+    const { result, unmount } = renderHook(() => useAuthUserEditor());
+    act(() => result.current.setField('providerIds', ['github.com', 'yahoo.com']));
+    expect(result.current.isDirty).toBe(true);
+    expect(result.current.toCreateRequest()).toEqual({
+      emailVerified: false,
+      disabled: false,
+      providerUserInfo: [{ providerId: 'github.com' }, { providerId: 'yahoo.com' }],
+    });
+    // Empty selection omits the field entirely.
+    act(() => result.current.setField('providerIds', []));
+    expect(result.current.toCreateRequest()).toEqual({
+      emailVerified: false,
+      disabled: false,
+    });
+    unmount();
+  });
+
+  test('toUpdateRequest emits providerUserInfo only when the id set changed', () => {
+    const { result, unmount } = renderHook(() =>
+      useAuthUserEditor({
+        initial: record({
+          providerUserInfo: [{ providerId: 'google.com' }, { providerId: 'github.com' }],
+        }),
+      }),
+    );
+    // Same ids, different order: NOT a change.
+    act(() => result.current.setField('providerIds', ['github.com', 'google.com']));
+    expect(result.current.isDirty).toBe(false);
+    expect(result.current.toUpdateRequest()).toEqual({});
+    // Dropping one emits the replacement list.
+    act(() => result.current.setField('providerIds', ['github.com']));
+    expect(result.current.toUpdateRequest()).toEqual({
+      providerUserInfo: [{ providerId: 'github.com' }],
+    });
+    unmount();
+  });
+
   test('claims edit surfaces in toUpdateRequest as a full replacement map', () => {
     const { result, unmount } = renderHook(() => useAuthUserEditor({ initial: record() }));
     act(() => result.current.setField('claimsText', '{"role":"viewer"}'));

@@ -27,6 +27,11 @@ export {
   callTool,
   relayWorkerOp,
   relayWorkerSub,
+  // Op provenance: Studio declares itself as the issuer of the ops THIS
+  // client-module instance constructs (per-bundle state; the served app's
+  // own bundle stays untagged). Traffic uses the resulting actor stamp to
+  // filter Studio-driven ops out of the app's stream.
+  setOpIssuer,
   // Connect + handles
   getFirestore,
   getAuth,
@@ -107,6 +112,9 @@ export {
   adminUpdateUser,
   adminDeleteUser,
   adminClearUsers,
+  // Sign-in provider config (Pyric Studio S-AUTH)
+  getProviderConfig,
+  setProviderConfig,
   signInWithEmailAndPassword,
   signInAnonymously,
   signOut,
@@ -162,6 +170,7 @@ export {
   adminSetRtdbValue,
   adminUpdateRtdbValue,
   adminDeleteRtdbValue,
+  adminSubscribeRtdbValue,
   type ClientRtdb,
   type RtdbRefHandle,
   type RtdbDataSnapshot,

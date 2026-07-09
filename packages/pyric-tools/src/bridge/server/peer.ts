@@ -90,13 +90,17 @@ export function attachPeer(
         },
       );
       peerGen = bridge.peerGeneration();
-      ws.send(
-        JSON.stringify({
-          type: 'hello-ack',
-          protocol: 1,
-          bridgeVersion: bridge.version,
-        }),
-      );
+      try {
+        ws.send(
+          JSON.stringify({
+            type: 'hello-ack',
+            protocol: 1,
+            bridgeVersion: bridge.version,
+          }),
+        );
+      } catch {
+        // Socket died between hello and ack — the close handler unwinds.
+      }
       return;
     }
     if (!helloed) return;

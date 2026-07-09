@@ -434,3 +434,205 @@
     @apply text-[11px] text-slate-gray mt-1;
   }
 }
+
+/* ----------------------------------------------------------------
+   @pyric/ui/rtdb — Firebase panel RTDB tab. RtdbPathBar + RtdbTree are
+   headless (the Firebase console / firebase-tools-ui data-viewer form);
+   this reproduces the playground's dark panel treatment over the
+   `data-rtdb-*` contract the library emits, mirroring Pyric Studio's
+   `rtdb.css` retuned for the playground's own tokens (content-bg /
+   sidebar-bg / soft-white / slate-gray / primary) instead of Studio's
+   CSS custom properties.
+   ---------------------------------------------------------------- */
+@layer components {
+  .rtdb {
+    @apply rounded-lg border border-[#2a2a35] bg-sidebar-bg overflow-hidden;
+  }
+
+  /* Path bar */
+  .rtdb__pathbar {
+    @apply flex items-center gap-2 min-h-[44px] px-3 border-b border-[#2a2a35] bg-content-bg/60 font-mono text-[12px];
+  }
+  .rtdb__pathbar [data-rtdb-crumb-list] {
+    @apply flex items-center flex-wrap gap-0.5 list-none m-0 p-0 min-w-0;
+  }
+  .rtdb__pathbar [data-rtdb-crumb-item] {
+    @apply inline-flex items-center gap-0.5;
+  }
+  .rtdb__pathbar [data-rtdb-crumb] {
+    @apply appearance-none bg-transparent border-0 rounded px-1 py-0.5 font-mono text-slate-gray cursor-pointer;
+  }
+  .rtdb__pathbar [data-rtdb-crumb]:hover {
+    @apply text-soft-white bg-primary/10;
+  }
+  .rtdb__pathbar [data-rtdb-crumb][data-pyric-current] {
+    @apply text-soft-white;
+  }
+  .rtdb__pathbar [data-rtdb-crumb-root] {
+    @apply text-slate-gray/70;
+  }
+  .rtdb__pathbar [data-rtdb-crumb-separator] {
+    @apply text-slate-gray/70;
+  }
+  .rtdb__pathbar [data-rtdb-path-edit] {
+    @apply appearance-none inline-flex items-center justify-center w-6 h-6 bg-transparent border-0 rounded text-slate-gray/70 cursor-pointer;
+  }
+  .rtdb__pathbar [data-rtdb-path-edit]:hover {
+    @apply text-soft-white bg-primary/10;
+  }
+  .rtdb__pathbar [data-rtdb-path-form] {
+    @apply flex items-center gap-2 flex-1 min-w-0;
+  }
+  .rtdb__pathbar [data-rtdb-path-prefix] {
+    @apply text-slate-gray/70 whitespace-nowrap;
+  }
+  .rtdb__pathbar [data-rtdb-path-input] {
+    @apply flex-1 min-w-0 bg-content-bg border border-[#2a2a35] rounded px-2 py-1 font-mono text-soft-white focus:outline-none focus:border-primary;
+  }
+
+  /* Tree */
+  .rtdb__tree {
+    @apply overflow-auto px-3 py-2 font-mono text-[12px] leading-[1.9];
+  }
+  .rtdb__tree [data-rtdb-loading],
+  .rtdb__tree [data-rtdb-empty] p {
+    @apply my-2 text-slate-gray font-sans text-[13px];
+  }
+  .rtdb__tree [data-rtdb-error] {
+    @apply my-0.5 px-2 py-0.5 rounded bg-[#3a2a2a]/20 text-[#f0a0a0] font-sans text-[11px] w-fit;
+  }
+  .rtdb__tree [data-rtdb-children] {
+    @apply list-none m-0 pl-[18px] border-l border-[#2a2a35] ml-[3px];
+  }
+  .rtdb__tree [data-rtdb-row] {
+    @apply flex items-center gap-1.5 rounded px-1;
+  }
+  .rtdb__tree [data-rtdb-row]:hover {
+    @apply bg-content-bg/60;
+  }
+  .rtdb__tree [data-rtdb-caret],
+  .rtdb__tree [data-rtdb-caret-spacer] {
+    @apply inline-flex items-center justify-center w-3.5 h-3.5 flex-none;
+  }
+  .rtdb__tree [data-rtdb-caret] {
+    @apply appearance-none bg-transparent border-0 p-0 text-slate-gray/70 cursor-pointer transition-transform duration-100;
+  }
+  .rtdb__tree [data-rtdb-caret]:hover {
+    @apply text-soft-white;
+  }
+  .rtdb__tree [data-rtdb-caret][aria-expanded='true'] {
+    @apply rotate-90;
+  }
+  .rtdb__tree [data-rtdb-key] {
+    @apply appearance-none bg-transparent border-0 p-0 font-mono text-soft-white font-semibold cursor-pointer whitespace-nowrap overflow-hidden text-ellipsis max-w-[32ch];
+  }
+  .rtdb__tree [data-rtdb-key]:hover {
+    @apply text-primary underline;
+  }
+  .rtdb__tree [data-rtdb-view-root] > [data-rtdb-row] > [data-rtdb-key] {
+    @apply text-slate-gray font-semibold;
+  }
+  .rtdb__tree [data-rtdb-sep] {
+    @apply text-slate-gray/70;
+  }
+  .rtdb__tree [data-rtdb-value] {
+    @apply appearance-none bg-transparent border-0 rounded px-0.5 font-mono cursor-text whitespace-nowrap overflow-hidden text-ellipsis max-w-[48ch] text-soft-white;
+  }
+  .rtdb__tree [data-rtdb-value]:hover {
+    @apply bg-primary/10;
+  }
+  .rtdb__tree [data-rtdb-value][data-rtdb-type='string'] {
+    @apply text-primary;
+  }
+  .rtdb__tree [data-rtdb-value][data-rtdb-type='number'] {
+    @apply text-[#a3d4ff];
+  }
+  .rtdb__tree [data-rtdb-value][data-rtdb-type='boolean'] {
+    @apply text-[#e6c79c];
+  }
+  .rtdb__tree [data-rtdb-value][data-rtdb-type='null'] {
+    @apply text-slate-gray/70 italic;
+  }
+
+  /* Node actions: revealed on hover / keyboard focus */
+  .rtdb__tree [data-rtdb-actions] {
+    @apply inline-flex items-center gap-0.5 opacity-0 transition-opacity duration-100;
+  }
+  .rtdb__tree [data-rtdb-row]:hover [data-rtdb-actions],
+  .rtdb__tree [data-rtdb-row]:focus-within [data-rtdb-actions] {
+    @apply opacity-100;
+  }
+  .rtdb__tree [data-rtdb-action-add],
+  .rtdb__tree [data-rtdb-action-delete] {
+    @apply appearance-none inline-flex items-center justify-center w-[18px] h-[18px] bg-transparent border-0 rounded font-mono text-[13px] leading-none text-slate-gray/70 cursor-pointer;
+  }
+  .rtdb__tree [data-rtdb-action-add]:hover {
+    @apply text-primary bg-primary/10;
+  }
+  .rtdb__tree [data-rtdb-action-delete]:hover {
+    @apply text-[#f0a0a0] bg-[#3a2a2a]/20;
+  }
+
+  /* Inline delete confirm (two-step, no modal) */
+  .rtdb__tree [data-rtdb-confirm] {
+    @apply inline-flex items-center gap-1.5 px-1.5 rounded bg-[#3a2a2a]/20 font-sans text-[11px] text-[#f0a0a0];
+  }
+  .rtdb__tree [data-rtdb-confirm] button {
+    @apply appearance-none bg-transparent border-0 rounded px-1 py-px font-mono cursor-pointer;
+  }
+  .rtdb__tree [data-rtdb-confirm-yes] {
+    @apply text-[#f0a0a0] font-semibold;
+  }
+  .rtdb__tree [data-rtdb-confirm-yes]:hover {
+    @apply bg-[#f0a0a0] text-sidebar-bg;
+  }
+  .rtdb__tree [data-rtdb-confirm-no] {
+    @apply text-slate-gray;
+  }
+  .rtdb__tree [data-rtdb-confirm-no]:hover {
+    @apply text-soft-white;
+  }
+
+  /* Inline editor (add / edit rows) */
+  .rtdb__tree [data-rtdb-editor] {
+    @apply flex items-center flex-wrap gap-1.5 my-0.5 ml-5 px-2 py-1.5 border border-[#2a2a35] rounded bg-content-bg/60 w-fit max-w-full;
+  }
+  .rtdb__tree [data-rtdb-editor] input,
+  .rtdb__tree [data-rtdb-editor] select {
+    @apply bg-content-bg border border-[#2a2a35] rounded px-1.5 py-0.5 font-mono text-[12px] text-soft-white;
+  }
+  .rtdb__tree [data-rtdb-editor] input:focus,
+  .rtdb__tree [data-rtdb-editor] select:focus {
+    @apply outline-none border-primary;
+  }
+  .rtdb__tree [data-rtdb-editor-key] {
+    @apply w-[14ch];
+  }
+  .rtdb__tree [data-rtdb-editor-value] {
+    @apply w-[26ch];
+  }
+  .rtdb__tree [data-rtdb-editor-save],
+  .rtdb__tree [data-rtdb-editor-cancel] {
+    @apply appearance-none border-0 rounded px-2.5 py-0.5 font-sans text-[11px] cursor-pointer;
+  }
+  .rtdb__tree [data-rtdb-editor-save] {
+    @apply bg-primary text-content-bg;
+  }
+  .rtdb__tree [data-rtdb-editor-cancel] {
+    @apply bg-transparent text-slate-gray;
+  }
+  .rtdb__tree [data-rtdb-editor-cancel]:hover {
+    @apply text-soft-white;
+  }
+  .rtdb__tree [data-rtdb-editor-error] {
+    @apply basis-full text-[#f0a0a0] font-sans text-[11px];
+  }
+
+  /* Paging ("show more", console form) */
+  .rtdb__tree [data-rtdb-show-more] {
+    @apply appearance-none bg-transparent border-0 rounded px-1 py-0.5 font-sans text-[11px] text-primary cursor-pointer;
+  }
+  .rtdb__tree [data-rtdb-show-more]:hover {
+    @apply bg-primary/10;
+  }
+}

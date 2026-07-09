@@ -7,13 +7,20 @@ import {
   getAuth,
   signInWithPopup,
   GoogleAuthProvider,
+  sandbox as authSandbox,
   type Auth,
 } from 'pyric/auth';
 import { renderHook } from '../../helpers/render-hook.js';
 import { useAuthFlowHelper } from '../../../src/auth/hooks/index.js';
 
 function freshAuth(): Auth {
-  return getAuth(initializeSandbox());
+  const auth = getAuth(initializeSandbox());
+  // Mirror the served worker-mode wiring these hooks run under: the
+  // page-local sandbox's provider gate is DELEGATED to the worker authority
+  // (entries/auth.ts), so the popup helper opens without pre-enabling
+  // google.com locally. Enforcement lives at the worker's acceptIdentity.
+  authSandbox.delegateProviderEnforcement(auth, true);
+  return auth;
 }
 
 describe('useAuthFlowHelper', () => {

@@ -14,12 +14,33 @@ import { ServeAuthHelper } from '../../src/serve/entries/auth-helper-core.js';
 
 function wire() {
   const sandbox = initializeSandbox();
+  const auth = getAuth(sandbox);
+  // Mirror the REAL served worker-mode wiring (entries/auth.ts): the
+  // page-local sandbox the helper drives is a UI vehicle — its provider gate
+  // is delegated to the worker authority, so the picker opens for providers
+  // the page's own defaults (password/anonymous only) would otherwise veto.
+  // Enforcement in served mode happens at the worker's `auth.acceptIdentity`
+  // (covered in test/serve/worker/auth.test.ts).
+  authSandbox.delegateProviderEnforcement(auth, true);
   const helper = new ServeAuthHelper(sandbox);
   helper.install();
-  return { auth: getAuth(sandbox), helper };
+  return { auth, helper };
 }
 
 describe('ServeAuthHelper', () => {
+  it('non-delegated (in-page fallback) default: google.com popup throws operation-not-allowed', async () => {
+    // The served NON-worker leg keeps local gating with the documented
+    // sandbox defaults — no silent pre-enabling in these tests anymore.
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    const helper = new ServeAuthHelper(sandbox);
+    helper.install();
+    await expect(signInWithPopup(auth, new GoogleAuthProvider())).rejects.toMatchObject({
+      code: 'auth/operation-not-allowed',
+    });
+    expect(helper.snapshot().request).toBeNull(); // gate fires before the picker opens
+  });
+
   it('add → popup resolves, signs in, claims land in the token', async () => {
     const { auth, helper } = wire();
     const p = signInWithPopup(auth, new GoogleAuthProvider());

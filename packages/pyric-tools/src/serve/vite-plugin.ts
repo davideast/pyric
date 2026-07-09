@@ -7,8 +7,15 @@
  * plugin swaps them at the module-resolution layer (`resolveId`), the same way
  * `pyric dev` swaps via a runtime import map. (Design: `plans/pyric-vite-plugin.md`.)
  *
- * Dev-only (`apply: 'serve'`): a production `vite build` ships the real `firebase`
- * package — the swap is a development affordance and never reaches prod output.
+ * Two flavors, one `apply` function. Under `vite dev` the swap is ALWAYS on.
+ * For `vite build` the swap is MODE-gated: a plain `vite build` (mode
+ * `production`) ships the real `firebase` package — the swap never reaches the
+ * prod artifact — while `vite build --mode development` (any NON-production
+ * mode) produces a SANDBOX build that bundles pyric's in-page adapters instead
+ * of the real SDK: self-contained, meant to be previewed under `pyric dev`, and
+ * stamped with the sandbox-build marker so it can never be deployed (`pyric
+ * deploy hosting` refuses it). `pyricSandbox({ swapInBuild })` forces the build
+ * behavior on/off regardless of mode. See `sandbox-marker.ts`.
  *
  * This is a thin adapter over serve's proven machinery. It REUSES, not reimplements:
  *   - the firebase peer stubs — `collectFirebaseBindings` + `stubModuleSource`
@@ -38,7 +45,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
-import type { Plugin, UserConfig } from 'vite';
+import type { Plugin, UserConfig, ConfigEnv } from 'vite';
 import type { Plugin as EsbuildPlugin } from 'esbuild';
 import {
   SDK_MODULES,
@@ -60,7 +67,22 @@ import { loadProjectDatabaseRules, loadProjectRules, prepareRulesSource, rulesHa
 import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from './state-store.js';
 import { createCaptureStore } from './capture-store.js';
 import { isAllowedHost } from './server.js';
+import { SANDBOX_BUILD_META } from './sandbox-marker.js';
 import { readFirebaseJson, type FirebaseJson } from '../cli/firebase-json.js';
+
+/**
+ * Whether a `vite build` should run the firebase→pyric swap (produce a SANDBOX
+ * build). MODE-based with a plugin-config override:
+ *   - `options.swapInBuild` wins outright when set (force on/off);
+ *   - otherwise swap for any NON-production mode. A plain `vite build` (mode
+ *     `production`) ships real firebase; `vite build --mode development` (or any
+ *     custom non-prod mode) is a sandbox build.
+ * `vite dev` is handled separately in `apply` (always on).
+ */
+function swapsInBuild(env: ConfigEnv, swapInBuild: boolean | undefined): boolean {
+  if (swapInBuild !== undefined) return swapInBuild;
+  return env.mode !== 'production';
+}
 
 /** Any `firebase/<sub>` specifier. */
 const FB_ANY = /^firebase\/([a-z-]+)$/;
@@ -135,6 +157,12 @@ export interface PyricSandboxOptions {
    *  `bridge` ui therefore defaults OFF (an explicit `ui: true` still works but
    *  warns). Use `ui` without `bridge`, or `pyric dev --ui`. */
   ui?: boolean;
+  /** Force whether `vite build` runs the firebase→pyric swap, overriding the
+   *  mode default. Unset (default): swap for any NON-production mode, keep real
+   *  firebase for mode `production`. `true` = always produce a sandbox build;
+   *  `false` = never swap in build (real firebase regardless of mode). `vite
+   *  dev` is unaffected — the swap is always on there. */
+  swapInBuild?: boolean;
 }
 
 /**
@@ -225,6 +253,22 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
   const workerVersion = workerSourceHash();
   let workerReady = false;
 
+  // Set by the `config` hook. When the plugin runs under `vite build` at all it
+  // is a SANDBOX build (the `apply` gate below only lets build through under the
+  // sandbox trigger), so `command === 'build'` is sufficient to know we are
+  // producing marker-stamped, non-production output.
+  let sandboxBuild = false;
+  // Sandbox build: the serve init entry (runtime bootstrap + the ServeAuthHelper
+  // popup picker) is emitted as its OWN chunk and script-tagged into index.html.
+  // Rollup dedupes the shared runtime module between this chunk and the app
+  // chunk (both import the same absolute file), so the page runs exactly ONE
+  // sandbox runtime — unlike serve-time injection of /__pyric/sdk/init.js,
+  // which is a separately-bundled second runtime copy (the double-init bug:
+  // two banners, two bridge registrations). `pyric dev` sees the marker and
+  // skips its injection for these pages (see injectServeTags).
+  let initChunkRef: string | undefined;
+  let initChunkFile: string | undefined;
+
   // M3 bridge fold: normalize `bridge` once (true ⇒ `{}`, falsy ⇒ null). When
   // on, the MCP mount is composed into the /__pyric middleware (createBridgeMount,
   // shared with `pyric dev --bridge`) AND the page is forced onto the in-page
@@ -234,12 +278,20 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
 
   return {
     name: 'pyric:sandbox',
-    // Dev-only — prod `vite build` ships real firebase; the swap never reaches
-    // production output.
-    apply: 'serve',
+    // Active for `vite dev` ALWAYS, and for `vite build` only when it is a
+    // SANDBOX build (any non-`production` mode, or `swapInBuild: true`). A plain
+    // `vite build` keeps the real firebase package — the swap never reaches
+    // production output. A sandbox build applies the same swap so the output
+    // bundles pyric's in-page adapters (self-contained; preview it under
+    // `pyric dev`, never deploy it).
+    apply(_config, env) {
+      if (env.command === 'serve') return true;
+      return swapsInBuild(env, options.swapInBuild);
+    },
     enforce: 'pre',
 
-    config() {
+    config(_config, env) {
+      sandboxBuild = env.command === 'build';
       // Cast: the `esbuild` package's `Plugin` type skews slightly from Vite's
       // bundled esbuild types (benign — the Plugin shape is stable across the
       // versions in range).
@@ -250,6 +302,14 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
           exclude: [...SDK_MODULES],
           esbuildOptions: { plugins: [esbuildMirror] },
         },
+        // Sandbox build only: the swapped-in runtime chunk uses TOP-LEVEL AWAIT
+        // (it deploys rules before app code runs — load-bearing, see
+        // entries/runtime.ts). Vite's default build target predates TLA and the
+        // esbuild transpile would fail. A sandbox build is a throwaway preview
+        // served under `pyric dev` (modern browser), so pin an ESNext target
+        // that keeps TLA. A plain production `vite build` never runs this plugin,
+        // so the user's own target is untouched there.
+        ...(sandboxBuild ? { build: { target: 'esnext' } } : {}),
       } as unknown as UserConfig;
     },
 
@@ -640,7 +700,46 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       }
     },
 
+    // Sandbox build only: emit the serve init entry as its own chunk. Emitted in
+    // buildStart (module graph time); its final filename is resolved in
+    // generateBundle. Our plugin is `enforce: 'pre'`, so our generateBundle runs
+    // BEFORE Vite's build-html plugin applies transformIndexHtml — the filename
+    // is always available when the script tag is injected below.
+    buildStart() {
+      if (sandboxBuild) {
+        initChunkRef = this.emitFile({
+          type: 'chunk',
+          id: entries.init,
+          name: 'pyric-sandbox-init',
+        });
+      }
+    },
+    generateBundle() {
+      if (initChunkRef) initChunkFile = this.getFileName(initChunkRef);
+    },
+
     transformIndexHtml(html) {
+      // Sandbox BUILD: the app's own `firebase/*` imports were already swapped
+      // (resolveId, above) to pyric's in-page adapters and BUNDLED into the app
+      // chunk, and the emitted init chunk (script-tagged here) carries the
+      // runtime bootstrap + the ServeAuthHelper popup picker — rollup shares
+      // ONE runtime module between the two, so the output is fully
+      // self-contained. `pyric dev` sees the marker below and skips its own
+      // serve-time injection for this page (a second injected runtime would
+      // double-init: two banners, two bridge peers). The marker is also the
+      // signal that makes `pyric dev` trust this dist (skip the inlined-SDK
+      // scan) and `pyric deploy hosting` refuse it. transformIndexHtml runs
+      // BEFORE Vite writes index.html, so both land in the emitted asset.
+      if (sandboxBuild) {
+        if (html.includes(SANDBOX_BUILD_META)) return html;
+        const initTag = initChunkFile
+          ? `<script type="module" crossorigin src="/${initChunkFile}" data-pyric-sandbox-init></script>`
+          : '';
+        const tags = SANDBOX_BUILD_META + initTag;
+        return html.includes('</head>')
+          ? html.replace('</head>', `${tags}</head>`)
+          : tags + html;
+      }
       const MARKER = 'data-pyric-sandbox';
       if (html.includes(MARKER)) return html;
       // Worker path (default): stamp the served worker's content hash so the page

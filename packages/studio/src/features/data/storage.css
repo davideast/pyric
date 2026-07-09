@@ -39,14 +39,97 @@
   align-items: center;
 }
 .storage__action {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
   font-size: 12.5px;
   color: var(--faint);
+  cursor: pointer;
+  padding: 0;
+}
+.storage__action:hover {
+  color: var(--ink);
 }
 .storage__action--upload {
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
   border-radius: 7px;
   padding: 6px 12px;
+}
+.storage__action--upload:hover {
+  color: var(--accent);
+  background: var(--panel);
+}
+
+/* ── New-folder disclosure (inline row, VS Code-style nested input) ───── */
+.storage__newfolder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.storage__newfolder-input {
+  flex: 0 1 340px;
+  min-width: 120px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 10px;
+}
+.storage__newfolder-input:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.storage__newfolder-btn {
+  appearance: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: 7px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.storage__newfolder-btn:hover {
+  background: var(--panel);
+}
+.storage__newfolder-note {
+  font-size: 11.5px;
+  color: var(--faint);
+  min-width: 0;
+}
+.storage__newfolder-err {
+  font-size: 11.5px;
+  color: var(--deny);
+}
+
+/* ── Upload failures: one inline error line (no tray) ─────────────────── */
+.storage__upload-err {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--deny);
+}
+.storage__upload-err-dismiss {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .storage [data-pyric-ui="path-breadcrumb"] [data-pyric-breadcrumb-list] {
@@ -97,7 +180,33 @@
 }
 .storage__browser {
   overflow: auto;
+  /* Anchors the drag-drop overlay (`.storage__dropcue`). */
+  position: relative;
 }
+
+/* ── Drag-drop overlay (transient: only while a drag hovers) ──────────── */
+.storage__dropcue {
+  display: none;
+}
+.storage__browser[data-dragging] .storage__dropcue {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  inset: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  outline: 2px dashed color-mix(in srgb, var(--accent) 55%, var(--line));
+  outline-offset: -6px;
+  border-radius: 8px;
+  pointer-events: none;
+  word-break: break-all;
+  padding: 0 var(--storage-gutter);
+}
+/* NOTE a rules-denied dropzone never enters the dragging state (the headless
+   component suppresses it while `disabled`), so no denied overlay exists —
+   drops are silently refused, matching the advisory gate's row treatment. */
 .storage__inspector {
   overflow: auto;
   border-left: 1px solid var(--line);
@@ -166,8 +275,8 @@
 }
 .storage__ic {
   color: var(--faint);
-  font-family: var(--font-mono);
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
 }
 .storage__chev {

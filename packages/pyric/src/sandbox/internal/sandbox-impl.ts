@@ -118,6 +118,12 @@ export class SandboxImpl implements Sandbox {
    *  v1 doesn't cap; consumers persist the snapshot they need. */
   private eventHistory: SandboxEvent[] = [];
 
+  /** Ambient provenance for the current {@link runWithProvenance} window
+   *  (undefined outside any window). Purely synchronous — set on entry,
+   *  restored in `finally` — so deferred work (microtask listener drains)
+   *  never observes a window it didn't open. */
+  private ambientProvenance: EventProvenance | undefined;
+
   /**
    * Currently authenticated user. Mutated by `pyric/auth` (and any
    * future stateful identity bridge). Read per-call by service
@@ -262,7 +268,28 @@ export class SandboxImpl implements Sandbox {
    * what consumers observe beyond the additive provenance fields.
    */
   emitEvent(event: SandboxEvent, provenance?: EventProvenance): void {
-    this.dispatch(stampProvenance(event, provenance));
+    // Ambient window values ({@link runWithProvenance}) fill in for fields
+    // the explicit per-emit override doesn't name; fields the event itself
+    // carries still win inside stampProvenance.
+    const merged = this.ambientProvenance
+      ? { ...this.ambientProvenance, ...provenance }
+      : provenance;
+    this.dispatch(stampProvenance(event, merged));
+  }
+
+  /**
+   * See `Sandbox.runWithProvenance` (types.ts) for the contract: ambient
+   * provenance defaults for events emitted synchronously during `fn`.
+   * Nested windows merge (innermost wins per field) and restore on exit.
+   */
+  runWithProvenance<T>(provenance: EventProvenance, fn: () => T): T {
+    const prev = this.ambientProvenance;
+    this.ambientProvenance = prev ? { ...prev, ...provenance } : provenance;
+    try {
+      return fn();
+    } finally {
+      this.ambientProvenance = prev;
+    }
   }
 
   /**

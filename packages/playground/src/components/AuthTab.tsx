@@ -27,6 +27,7 @@ import {
   useAuthUserEditor,
   type AuthUserFormSubmit,
 } from '@pyric/ui/auth';
+import { FEDERATED_PROVIDER_IDS } from 'pyric/auth';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
 import { ConfirmProvider } from '@pyric/ui/primitives';
 import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
@@ -334,6 +335,13 @@ function UserEditorPanel({
         />
       </Field>
 
+      <ProvidersField
+        selected={editor.fields.providerIds}
+        onChange={(ids) => editor.setField('providerIds', ids)}
+        hasPassword={mode === 'edit' ? initial!.providerUserInfo.some((p) => p.providerId === 'password') : false}
+        isAnonymous={mode === 'edit' ? initial!.isAnonymous : false}
+      />
+
       <div className="flex flex-col gap-2 py-1">
         <label className="flex cursor-pointer select-none items-center gap-2 text-[13px] text-soft-white">
           <input
@@ -390,6 +398,74 @@ function UserEditorPanel({
         </button>
       </footer>
     </form>
+  );
+}
+
+/**
+ * Add/remove `id` from a provider-selection list, order-preserving and
+ * duplicate-safe. Pure so it's directly testable without mounting the
+ * checkbox's `onChange` handler.
+ */
+export function toggleProviderId(selected: readonly string[], id: string, on: boolean): string[] {
+  if (on) return selected.includes(id) ? [...selected] : [...selected, id];
+  return selected.filter((p) => p !== id);
+}
+
+/**
+ * Sign-in providers fieldset — one checkbox per federated provider id
+ * (`FEDERATED_PROVIDER_IDS` from `pyric/auth`, the canonical set derived
+ * from the shipped provider classes; never a UI-side copy). Works in BOTH
+ * create and edit mode: `editor.fields.providerIds` seeds from the
+ * existing record's `providerUserInfo` in edit mode
+ * (`fieldsFromRecord`), and `toCreateRequest` / `toUpdateRequest` both
+ * already round-trip it (see `reducers/userEditor.ts`) — so this is a
+ * plain field like the others, saved by the form's single Save button
+ * rather than Studio's per-checkbox live save.
+ */
+export function ProvidersField({
+  selected,
+  onChange,
+  hasPassword,
+  isAnonymous,
+}: {
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  hasPassword: boolean;
+  isAnonymous: boolean;
+}) {
+  const toggle = (id: string, on: boolean) => {
+    onChange(toggleProviderId(selected, id, on));
+  };
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="text-[11px] uppercase tracking-wide text-slate-gray">
+        Sign-in providers
+      </legend>
+      <div className="grid gap-1.5 sm:grid-cols-2">
+        {FEDERATED_PROVIDER_IDS.map((id) => (
+          <label
+            key={id}
+            className="flex cursor-pointer select-none items-center gap-2 rounded-lg border border-[#2a2a35] px-3 py-2 text-[13px] text-soft-white"
+          >
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 accent-[#5b5bd6]"
+              checked={selected.includes(id)}
+              onChange={(e) => toggle(id, e.target.checked)}
+            />
+            <span className="min-w-0 flex-1 truncate">{providerLabel(id)}</span>
+            <span className="shrink-0 font-mono text-[11px] text-slate-gray">{id}</span>
+          </label>
+        ))}
+      </div>
+      {hasPassword || isAnonymous ? (
+        <p className="text-[11px] text-slate-gray">
+          {hasPassword
+            ? 'Password is linked by the password field above.'
+            : 'Anonymous — the provider lives on the token, not the record.'}
+        </p>
+      ) : null}
+    </fieldset>
   );
 }
 

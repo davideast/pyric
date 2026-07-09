@@ -96,30 +96,21 @@ export function useDocumentEditorContext(): UseDocumentEditorResult {
  */
 export function DocumentEditorFields() {
   const { editor } = useEditorContext();
+  // Stable INSERTION order, never re-sorted by the (currently being
+  // typed) key — `childIds` already preserves the order fields were
+  // added in, which is exactly what must stay stable while a row's
+  // name is edited. Sorting here was the cause of rows visibly
+  // reordering mid-keystroke.
   const rootChildren = editor.tree.childIds[editor.tree.rootId] ?? [];
-
-  // Sort map children lexicographically at render time. The
-  // underlying childIds order preserves insertion (mirrors how
-  // Firestore stores object fields) but the visible order is
-  // sorted to match `<DocumentPreview>`'s convention.
-  const sorted = sortByKey(editor, rootChildren);
 
   return (
     <div data-pyric-editor-fields>
-      {sorted.map((id) => (
+      {rootChildren.map((id) => (
         <Field key={id} nodeId={id} path={fieldPath(editor, id)} />
       ))}
       <AddMapEntry parentId={editor.tree.rootId} />
     </div>
   );
-}
-
-function sortByKey(editor: UseDocumentEditorResult, ids: string[]): string[] {
-  return [...ids].sort((a, b) => {
-    const ka = editor.tree.nodes[a]?.key ?? '';
-    const kb = editor.tree.nodes[b]?.key ?? '';
-    return ka.localeCompare(kb);
-  });
 }
 
 function fieldPath(editor: UseDocumentEditorResult, nodeId: string): string {
@@ -164,17 +155,25 @@ function Field({ nodeId, path }: FieldProps) {
   const EditComponent = contract?.Edit;
   if (!EditComponent) return null;
 
+  // Errors are computed on every keystroke (so Save can gate on
+  // `isValid`), but only DISPLAYED once the field has been touched
+  // (blurred) or a submit attempt swept the tree — otherwise a
+  // freshly-added empty row would show "required" before the user
+  // has typed anything.
+  const showError = node.touched ? node.error : undefined;
+
   return (
     <div
       data-pyric-field-entry
       data-field-name={node.key ?? undefined}
-      data-pyric-error={node.error ? '' : undefined}
+      data-pyric-error={showError ? '' : undefined}
+      onBlur={() => editor.touch(node.id)}
     >
       <FieldChrome node={node} path={path} />
       <EditComponent
         value={node.value as never}
         path={path}
-        error={node.error}
+        error={showError}
         onChange={(v: unknown) => editor.setValue(node.id, v)}
       />
     </div>
@@ -203,7 +202,7 @@ function FieldChrome({ node, path }: { node: FieldNode; path: string }) {
           onChange={(e) => editor.setKey(node.id, e.target.value)}
           aria-label="Field name"
           data-pyric-field-key-input
-          aria-invalid={node.error ? 'true' : undefined}
+          aria-invalid={node.touched && node.error ? 'true' : undefined}
         />
       ) : null}
       <TypeSelect node={node} />
@@ -263,7 +262,8 @@ interface ContainerFieldProps {
 
 function MapField({ node, path }: ContainerFieldProps) {
   const { editor } = useEditorContext();
-  const children = sortByKey(editor, editor.tree.childIds[node.id] ?? []);
+  // Stable insertion order — same rationale as `DocumentEditorFields`.
+  const children = editor.tree.childIds[node.id] ?? [];
 
   return (
     <div

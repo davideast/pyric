@@ -191,6 +191,12 @@ export interface CreateUserRequest {
   customClaims?: Record<string, unknown>;
   disabled?: boolean;
   emailVerified?: boolean;
+  /** Linked OAuth providers to create the user with (dedup by
+   *  providerId; multiple providers per user are supported). Same
+   *  rules as {@link UpdateUserRequest.providerUserInfo}: `password`
+   *  is credential-derived (send `password` to link it) and
+   *  `anonymous` is token-level — neither can be forged here. */
+  providerUserInfo?: ProviderUserInfo[];
 }
 
 /** `sandbox.updateUser` request — `undefined` fields are left
@@ -203,6 +209,14 @@ export interface UpdateUserRequest {
   customClaims?: Record<string, unknown>;
   disabled?: boolean;
   emailVerified?: boolean;
+  /** REPLACES the user's linked OAuth providers (dedup by providerId;
+   *  multiple providers per user are supported — the record's
+   *  `providerUserInfo` is an array precisely for account linking).
+   *  The `password` entry is credential-derived and managed by the
+   *  backend: it survives the replacement while the user has a
+   *  password and cannot be linked through this field; `anonymous`
+   *  is a token-level provider, never a linked entry. */
+  providerUserInfo?: ProviderUserInfo[];
 }
 
 /**
@@ -311,6 +325,53 @@ export class SandboxBackend {
    *  argument; `null` for identities driven directly through the
    *  test driver (`sandbox.setUser`), which has no prod analog. */
   private readonly signInProviderByUid = new Map<string, string | null>();
+
+  /**
+   * Sign-in provider enablement — mirrors a real Firebase project's
+   * Authentication → Sign-in method toggles. GATED at every provider
+   * entry point OF THE ENFORCING BACKEND (owner decision — full
+   * fidelity): `resolveFlow` (`signInWithPopup`/`signInWithRedirect`),
+   * `signInWithCredential`, `createUserWithEmailAndPassword`/
+   * `signInWithEmailAndPassword` (the `'password'` provider), and
+   * `signInAnonymously` (the `'anonymous'` provider). A disabled
+   * provider throws the same `auth/operation-not-allowed` prod throws
+   * — a code deliberately distinct from `auth/argument-error` (which
+   * keeps meaning "no resolver/mock wired" for an ENABLED-but-unmocked
+   * OAuth provider).
+   *
+   * DELEGATION ESCAPE HATCH ({@link providerEnforcementDelegated}): a
+   * backend that is merely a UI vehicle for a REMOTE authority — the
+   * served worker path's page-local sandbox, whose popup picker
+   * resolves identities that a SharedWorker then gates + signs in —
+   * can delegate enforcement to that authority. With delegation on,
+   * {@link assertProviderEnabled} is a no-op HERE and the authority's
+   * own (undelegated) backend gate is the one that decides.
+   *
+   * DEFAULTS DIVERGE FROM A FRESH REAL PROJECT (owner decision,
+   * documented): prod ships every provider OFF until an admin flips it
+   * on in the console. The sandbox ships `'password'` and `'anonymous'`
+   * ON — everything else (`google.com`, `github.com`, `apple.com`,
+   * `microsoft.com`, custom OAuth ids, …) OFF — so the enforcement is
+   * identical to prod but the DEFAULTS are friendlier: every existing
+   * sandbox flow that never called `sandbox.setAuthProviderConfig`
+   * keeps signing in via email/password and anonymous auth unchanged
+   * after this landed.
+   */
+  private readonly providerConfig = new Map<string, boolean>([
+    ['password', true],
+    ['anonymous', true],
+  ]);
+
+  /** Subscribers to provider-config changes — the config analog of
+   *  {@link userDbSubs}. Same coarse contract: no payload, re-read via
+   *  {@link listProviderConfig} on each callback. */
+  private readonly providerConfigSubs = new Set<() => void>();
+
+  /** When true, THIS backend's provider gate is delegated to a remote
+   *  authority (see the {@link providerConfig} docstring's delegation
+   *  section) — {@link assertProviderEnabled} becomes a no-op. Not
+   *  persisted: a runtime wiring decision, not project config. */
+  private providerEnforcementDelegated = false;
 
   constructor(sandbox: Sandbox) {
     this.sandbox = sandbox;
@@ -533,6 +594,125 @@ export class SandboxBackend {
   subscribeUsers(cb: () => void): Unsubscribe {
     this.userDbSubs.add(cb);
     return () => { this.userDbSubs.delete(cb); };
+  }
+
+  // ─── Provider config (sign-in method enablement) ─────────────────────
+
+  /** Whether `providerId` is currently enabled. Unknown providers
+   *  (never toggled) default to `false` — matches a fresh real project,
+   *  EXCEPT `'password'`/`'anonymous'`, which start `true` (see the
+   *  {@link providerConfig} docstring for the rationale). */
+  isProviderEnabled(providerId: string): boolean {
+    return this.providerConfig.get(providerId) ?? false;
+  }
+
+  /** Every provider this backend has an explicit enablement for —
+   *  seeded defaults (`password`, `anonymous`) plus anything a host
+   *  toggled via {@link setProviderConfig}. */
+  listProviderConfig(): Array<{ providerId: string; enabled: boolean }> {
+    return [...this.providerConfig.entries()].map(([providerId, enabled]) => ({ providerId, enabled }));
+  }
+
+  /** Toggle a provider on/off. No-op (no notify) when the value is
+   *  already what was requested — mirrors {@link setPersistenceMode}'s
+   *  dedup so a redundant toggle doesn't churn subscribers / flushes. */
+  setProviderConfig(providerId: string, enabled: boolean): void {
+    const before = this.providerConfig.get(providerId) ?? false;
+    if (before === enabled) return;
+    this.providerConfig.set(providerId, enabled);
+    this.notifyProviderConfigChanged();
+    // No acting session for a config toggle (an admin-console-equivalent
+    // action) — same rationale as the user-admin ops (createUser/
+    // updateUser/…), which also pass `auth: null`. Rides the sandbox's
+    // unified event stream so a host subscribed to `onEvent`/`history()`
+    // (Pyric Studio's Action Center, and the worker's event feed that
+    // `subscribeUsers` already rides) sees provider-config changes too.
+    this.emitAuthEvent('provider_config_update', {
+      path: providerId,
+      auth: null,
+      before: { providerId, enabled: before },
+      after: { providerId, enabled },
+    });
+  }
+
+  private notifyProviderConfigChanged(): void {
+    for (const cb of [...this.providerConfigSubs]) {
+      try {
+        cb();
+      } catch {
+        // Observational — swallow.
+      }
+    }
+  }
+
+  /** Subscribe to provider-config mutations. Coarse: no payload, no
+   *  initial fire — re-read via {@link listProviderConfig} on each
+   *  callback (same contract as {@link subscribeUsers}). */
+  subscribeProviderConfig(cb: () => void): Unsubscribe {
+    this.providerConfigSubs.add(cb);
+    return () => { this.providerConfigSubs.delete(cb); };
+  }
+
+  /**
+   * Mark this backend's provider gate as delegated to (or reclaimed
+   * from) a remote authority. See the {@link providerConfig} docstring:
+   * the served worker path sets this on the PAGE-LOCAL sandbox so the
+   * popup picker opens regardless of local toggles — the SharedWorker's
+   * `auth.acceptIdentity` gate (against the worker's own, undelegated
+   * backend) is the enforcement point.
+   */
+  setProviderEnforcementDelegated(delegated: boolean): void {
+    this.providerEnforcementDelegated = delegated;
+  }
+
+  /**
+   * Gate a provider entry point. Throws real Firebase's
+   * `auth/operation-not-allowed` (exactly the code/shape prod throws
+   * for a disabled sign-in method) when `providerId` is off. Called by
+   * every provider-flow entry point in `index.ts` BEFORE any other
+   * work, so a disabled provider never touches the user DB / mock
+   * registry / resolver. A no-op when enforcement is delegated to a
+   * remote authority ({@link setProviderEnforcementDelegated}).
+   */
+  assertProviderEnabled(providerId: string): void {
+    if (this.providerEnforcementDelegated) return;
+    if (!this.isProviderEnabled(providerId)) {
+      throw makeAuthError(
+        'auth/operation-not-allowed',
+        `${providerId} sign-in is disabled for this sandbox project. Enable it with ` +
+          `sandbox.setAuthProviderConfig(auth, '${providerId}', true).`,
+      );
+    }
+  }
+
+  /** Snapshot the full provider-config map for the persistable-service
+   *  `snapshot()` hook — plain JSON, ready to embed under the `auth`
+   *  service's `providers` key. */
+  exportProviderConfig(): Record<string, boolean> {
+    return Object.fromEntries(this.providerConfig);
+  }
+
+  /**
+   * Restore provider config from a persisted blob — a REPLACE, not a
+   * merge (same policy as `seedUsers`'s persistence path: the map
+   * becomes EXACTLY what `data` holds). When `data` is missing/invalid
+   * — including every blob written BEFORE this feature landed, which
+   * has no `providers` key at all — falls back to the documented
+   * defaults (`password`/`anonymous` enabled) rather than leaving the
+   * map empty, so an old `--persist` file doesn't silently lock
+   * existing sandbox flows out of email/password + anonymous sign-in.
+   */
+  restoreProviderConfig(data: Record<string, boolean> | undefined): void {
+    this.providerConfig.clear();
+    if (data && typeof data === 'object') {
+      for (const [providerId, enabled] of Object.entries(data)) {
+        if (typeof enabled === 'boolean') this.providerConfig.set(providerId, enabled);
+      }
+    } else {
+      this.providerConfig.set('password', true);
+      this.providerConfig.set('anonymous', true);
+    }
+    this.notifyProviderConfigChanged();
   }
 
   // ─── Persistence mode ───────────────────────────────────────────────
@@ -1022,6 +1202,35 @@ export class SandboxBackend {
     return [...this.usersByUid.values()].map((u) => this.toRecord(u));
   }
 
+  /** Sanitize an admin-supplied linked-provider list (create + update):
+   *  dedup by providerId, reject empty ids, and refuse the two ids that
+   *  are NOT linkable entries — `password` is credential-derived (a
+   *  password on the account links it; it leads the list when present)
+   *  and `anonymous` surfaces on the token, never on the record. */
+  private sanitizeLinkedProviders(
+    entries: readonly ProviderUserInfo[],
+    hasPassword: boolean,
+    op: string,
+  ): ProviderUserInfo[] {
+    const seen = new Set<string>();
+    const next: ProviderUserInfo[] = [];
+    for (const entry of entries) {
+      const providerId = entry?.providerId?.trim();
+      if (!providerId) {
+        throw makeAuthError(
+          'auth/argument-error',
+          `${op}: providerUserInfo entries need a non-empty providerId.`,
+        );
+      }
+      if (providerId === 'password' || providerId === 'anonymous') continue;
+      if (seen.has(providerId)) continue;
+      seen.add(providerId);
+      next.push({ providerId });
+    }
+    if (hasPassword) next.unshift({ providerId: 'password' });
+    return next;
+  }
+
   /** Admin user creation. Does NOT sign the user in (unlike
    *  `createUserWithEmailAndPassword`) — matches the emulator's
    *  add-user flow / admin SDK semantics. */
@@ -1061,8 +1270,11 @@ export class SandboxBackend {
       customClaims: req.customClaims ?? {},
       disabled: req.disabled ?? false,
       emailVerified: req.emailVerified ?? false,
-      providerUserInfo:
-        req.password !== undefined ? [{ providerId: 'password' }] : [],
+      providerUserInfo: this.sanitizeLinkedProviders(
+        req.providerUserInfo ?? [],
+        req.password !== undefined,
+        'createUser',
+      ),
     });
     this.usersByUid.set(uid, record);
     if (record.email) this.usersByEmail.set(record.email.toLowerCase(), record);
@@ -1105,6 +1317,13 @@ export class SandboxBackend {
       if (!stored.providerUserInfo.some((p) => p.providerId === 'password')) {
         stored.providerUserInfo.push({ providerId: 'password' });
       }
+    }
+    if (update.providerUserInfo !== undefined) {
+      stored.providerUserInfo = this.sanitizeLinkedProviders(
+        update.providerUserInfo,
+        stored.password !== null,
+        'updateUser',
+      );
     }
     if (update.displayName !== undefined) stored.displayName = update.displayName;
     if (update.customClaims !== undefined) {
@@ -1217,17 +1436,31 @@ export class SandboxBackend {
    * carry (`sandbox.withAuth(state)`) so rules evaluate exactly as they
    * would for a globally signed-in user (`request.auth.uid` + custom
    * claims on `request.auth.token`).
+   *
+   * GATING: `'anonymous'` / `'password'` / `'createPassword'` run through
+   * {@link assertProviderEnabled} — this is the path the served worker's
+   * per-port sessions actually use (`sandbox.mintSession`, NOT the
+   * `index.ts` free functions), so without this the provider toggle would
+   * have zero effect in `pyric dev`/Studio's served mode, the primary
+   * product surface. `'uid'` (session RESTORE for an existing identity —
+   * a page reload re-establishing a previously-valid session) is
+   * deliberately NOT gated, matching {@link restoreSession}: disabling a
+   * provider after the fact doesn't retroactively invalidate an already-
+   * authenticated session, same as real Firebase.
    */
   mintDetachedSession(request: MintSessionRequest): MintedSession {
     switch (request.kind) {
       case 'anonymous':
+        this.assertProviderEnabled('anonymous');
         return this.establishDetachedSession(this.mintAnonymousUser(), 'anonymous');
       case 'password':
+        this.assertProviderEnabled('password');
         return this.establishDetachedSession(
           this.buildUserFromStored(this.validatePassword(request.email, request.password)),
           'password',
         );
       case 'createPassword':
+        this.assertProviderEnabled('password');
         return this.establishDetachedSession(
           this.buildUserFromStored(this.createEmailPasswordUser(request.email, request.password)),
           'password',

@@ -11,7 +11,10 @@
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
 import { validateSerializedClaims } from '../claims.js';
 
-/** Editable field set. `claimsText` is the raw textarea JSON. */
+/** Editable field set. `claimsText` is the raw textarea JSON.
+ *  `providerIds` are the linked FEDERATED providers (`google.com`,
+ *  `apple.com`, …) — `password` is credential-derived (the password
+ *  field) and never appears here. */
 export interface AuthUserEditorFields {
   email: string;
   password: string;
@@ -21,6 +24,7 @@ export interface AuthUserEditorFields {
   emailVerified: boolean;
   disabled: boolean;
   claimsText: string;
+  providerIds: string[];
 }
 
 export interface AuthUserEditorState {
@@ -52,7 +56,12 @@ const EMPTY_FIELDS: AuthUserEditorFields = {
   emailVerified: false,
   disabled: false,
   claimsText: '',
+  providerIds: [],
 };
+
+/** Credential-derived / token-level ids — sign-in methods, not linkable
+ *  federated entries (mirrors the sandbox backend's rule). */
+const NON_FEDERATED_IDS = new Set(['password', 'anonymous', 'phone']);
 
 /** Same permissive shape the emulator UI uses (`pattern` validation). */
 const EMAIL_REGEX = /^[^@]+@[^@]+\.[^@]+$/;
@@ -71,6 +80,9 @@ export function fieldsFromRecord(record?: AuthUserRecord): AuthUserEditorFields 
     claimsText: Object.keys(record.customClaims).length
       ? JSON.stringify(record.customClaims, null, 2)
       : '',
+    providerIds: record.providerUserInfo
+      .map((p) => p.providerId)
+      .filter((id) => !NON_FEDERATED_IDS.has(id)),
   };
 }
 
@@ -111,9 +123,18 @@ export function validateAuthUserFields(fields: AuthUserEditorFields): AuthUserEd
 
 export function isDirty(state: AuthUserEditorState): boolean {
   const { fields, initial } = state;
-  return (Object.keys(fields) as Array<keyof AuthUserEditorFields>).some(
-    (k) => fields[k] !== initial[k],
+  return (Object.keys(fields) as Array<keyof AuthUserEditorFields>).some((k) =>
+    k === 'providerIds'
+      ? !sameIds(fields.providerIds, initial.providerIds)
+      : fields[k] !== initial[k],
   );
+}
+
+/** Order-insensitive id-list equality (toggling A then B ≡ B then A). */
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sorted = [...b].sort();
+  return [...a].sort().every((id, i) => id === sorted[i]);
 }
 
 function parsedClaims(fields: AuthUserEditorFields): Record<string, unknown> | undefined {
@@ -135,6 +156,9 @@ export function toCreateRequest(state: AuthUserEditorState): CreateUserRequest {
   if (f.photoUrl.trim()) req.photoUrl = f.photoUrl.trim();
   const claims = parsedClaims(f);
   if (claims) req.customClaims = claims;
+  if (f.providerIds.length) {
+    req.providerUserInfo = f.providerIds.map((providerId) => ({ providerId }));
+  }
   return req;
 }
 
@@ -153,6 +177,10 @@ export function toUpdateRequest(state: AuthUserEditorState): UpdateUserRequest {
   if (f.disabled !== i.disabled) req.disabled = f.disabled;
   if (f.claimsText !== i.claimsText) {
     req.customClaims = parsedClaims(f) ?? {};
+  }
+  if (!sameIds(f.providerIds, i.providerIds)) {
+    // Replacement semantics; the backend re-derives the password entry.
+    req.providerUserInfo = f.providerIds.map((providerId) => ({ providerId }));
   }
   return req;
 }

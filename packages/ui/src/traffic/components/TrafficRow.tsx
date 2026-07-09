@@ -21,8 +21,12 @@ export interface TrafficRowProps {
 }
 
 /**
- * One headless traffic row — timestamp, method badge, path, result
- * badge, and an optional consumer classification slot. Latency is
+ * One headless traffic row — timestamp, method badge, path, and an
+ * optional consumer classification slot. The raw result is exposed as
+ * `data-pyric-result` on the row (for tinting/filtering); rendering a
+ * verdict/outcome label is the consumer's job via
+ * `renderClassification` — the row itself draws no result chip, so a
+ * consumer verdict never collides with a built-in one. Latency is
  * intentionally absent: this is a local simulator, so `evalMs` lives
  * in `<TrafficDetail>` only.
  *
@@ -31,7 +35,7 @@ export interface TrafficRowProps {
  *   `data-pyric-result`, `data-pyric-origin`, `data-pyric-method`
  * - `[data-pyric-traffic-row][data-pyric-selected]` — active row
  * - `[data-pyric-traffic-time]` / `[data-pyric-traffic-path]`
- * - method + result render as `<Badge>` (`data-pyric-badge-kind`)
+ * - method renders as `<Badge>` (`data-pyric-badge-kind`)
  */
 export function TrafficRow({
   event,
@@ -55,7 +59,6 @@ export function TrafficRow({
       <span data-pyric-traffic-time="">{formatTime(event.at)}</span>
       <Badge kind={event.method}>{event.method}</Badge>
       <span data-pyric-traffic-path="">{event.path}</span>
-      <Badge kind={event.result}>{event.result}</Badge>
       {renderClassification ? renderClassification(event) : null}
     </button>
   );

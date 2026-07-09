@@ -13,6 +13,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
+import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 
 export interface ServeLogger {
@@ -184,6 +185,41 @@ export function resolveStaticFile(publicDir: string, pathname: string): string |
   return file;
 }
 
+/**
+ * Stream a file to a response with the read stream's `'error'` event handled.
+ * A bare `createReadStream(file).pipe(res)` leaves the stream's error event
+ * unhandled — an fs error between the exists-check and the read (file swapped
+ * out, EMFILE under fd pressure, EISDIR race) then throws at the event-loop
+ * level and KILLS the whole serve process. Headers are usually already sent
+ * when the stream errors, so the recovery is: log, destroy the response (the
+ * client sees a truncated body), keep the server alive.
+ */
+export function pipeFileToResponse(
+  file: string,
+  res: ServerResponse,
+  onError?: (err: Error) => void,
+): void {
+  const stream = createReadStream(file);
+  // Read-side failures keep the old contract: log via onError and, when
+  // headers haven't gone out yet, answer 500. (Attached BEFORE pipeline so
+  // it runs ahead of pipeline's own teardown of `res`.)
+  stream.on('error', (err: Error) => {
+    onError?.(err);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'content-type': 'text/plain' }).end('read error');
+    }
+  });
+  // stream.pipeline (not a bare .pipe) so a failure on EITHER side tears both
+  // streams down: a client abort mid-download now destroys the read stream
+  // (closing its fd — the hole .pipe left open), and a mid-stream read
+  // failure destroys the response (the client sees a truncated body), all
+  // without an event-loop-level 'error' escaping.
+  pipeline(stream, res, () => {
+    // Errors on both sides are consumed by the handler above / the teardown
+    // itself; the callback's existence is what keeps the process alive.
+  });
+}
+
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -217,6 +253,19 @@ async function handleRequest(
   if (!file && opts.spaRewrite && !extname(url.pathname)) {
     file = resolveStaticFile(opts.publicDir, '/index.html');
   }
+  if (!file && url.pathname === '/favicon.ico') {
+    // The browser requests /favicon.ico on every load; without this an app
+    // that ships no favicon logs a 404 in every console. Serve a tiny inline
+    // SVG (the pyric flame) so consoles stay clean. An on-disk favicon.ico
+    // was already resolved above and wins.
+    res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'max-age=3600' });
+    res.end(
+      req.method === 'HEAD'
+        ? undefined
+        : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><text y="13" font-size="13">🔥</text></svg>',
+    );
+    return;
+  }
   if (!file) {
     logger.note(`  ✖ 404 ${req.method} ${url.pathname}`);
     res.writeHead(404, { 'content-type': 'text/plain' }).end('not found');
@@ -239,7 +288,7 @@ async function handleRequest(
     res.end();
     return;
   }
-  createReadStream(file).pipe(res);
+  pipeFileToResponse(file, res, (e) => logger.note(`  ✖ read failed ${url.pathname}: ${e.message}`));
 }
 
 /** The subset of `Server` the scan logic needs — injectable for tests
