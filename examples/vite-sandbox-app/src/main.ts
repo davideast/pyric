@@ -48,25 +48,27 @@ onAuthStateChanged(auth, (user) => {
     : 'Signed out';
   els.signIn.hidden = !!user;
   els.signOut.hidden = !user;
-  els.form.hidden = !user;
 });
 
 els.form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  // Null-safe even if the form is somehow shown while signed out: never throw,
-  // just explain via the status line (the form is hidden when signed out).
+  // The form stays visible while signed out ON PURPOSE: submitting then
+  // ATTEMPTS the write, the owner-based rules deny it (create requires
+  // uid == request.auth.uid), and the denial shows up in Pyric Studio's
+  // Traffic tab — the rules-teaching loop this demo exists for.
   const user = auth.currentUser;
-  if (!user) {
-    els.status.textContent = 'Sign in to add a post.';
-    return;
+  try {
+    await addDoc(collection(db, 'posts'), {
+      title: els.title.value.trim(),
+      uid: user?.uid ?? 'anonymous',
+      createdAt: serverTimestamp(),
+    });
+    els.title.value = '';
+  } catch (err) {
+    els.status.textContent = user
+      ? `Write failed: ${(err as { code?: string }).code ?? String(err)}`
+      : 'Denied by rules (signed out) — see the Traffic tab in Pyric Studio.';
   }
-  // The owner-based rules require uid == request.auth.uid on create.
-  await addDoc(collection(db, 'posts'), {
-    title: els.title.value.trim(),
-    uid: user.uid,
-    createdAt: serverTimestamp(),
-  });
-  els.title.value = '';
 });
 
 onSnapshot(collection(db, 'posts'), (snap) => {
