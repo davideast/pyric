@@ -1,39 +1,33 @@
 import { describe, expect, it } from 'bun:test';
 import { ROUTES, ROUTE_IDS, findRoute, type RouteId } from './routes.js';
 
-/** The tab set + order per specs/shell.md (Rules omitted: no approved
- *  surface exists yet — left out rather than shipping a placeholder). */
-const SHELL_ROUTES: readonly RouteId[] = [
+const V1_ROUTES: readonly RouteId[] = [
   'home',
   'firestore',
   'auth',
-  'rtdb',
   'storage',
+  'rtdb',
   'traffic',
-  'prototype',
+  'playground',
   'settings',
 ];
 
-describe('Studio route registry', () => {
-  it('is the ordered top-level tab contract (specs/shell.md)', () => {
-    expect(ROUTE_IDS).toEqual(SHELL_ROUTES);
+describe('Studio V1 route registry', () => {
+  it('is the ordered top-level tab contract', () => {
+    expect(ROUTE_IDS).toEqual(V1_ROUTES);
     expect(ROUTES.map((route) => route.label)).toEqual([
       'Home',
       'Firestore',
       'Auth',
-      'RTDB',
       'Storage',
+      'RTDB',
       'Traffic',
-      'Prototype',
+      'Playground',
       'Settings',
     ]);
   });
 
-  it('renamed playground → prototype (no stale id survives)', () => {
-    expect(ROUTE_IDS).not.toContain('playground' as RouteId);
-  });
-
-  it('does not expose deferred scope as top-level tabs', () => {
+  it('does not expose deferred V1 scope as top-level tabs', () => {
     expect(ROUTE_IDS).not.toContain('session' as RouteId);
     expect(ROUTE_IDS).not.toContain('rules' as RouteId);
     expect(ROUTE_IDS).not.toContain('review' as RouteId);

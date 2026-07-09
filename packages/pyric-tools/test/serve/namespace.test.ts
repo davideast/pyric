@@ -157,12 +157,6 @@ describe('namespace over the real server', () => {
 
     expect((await fetch(h.url + '/__pyric/ui', { redirect: 'manual' })).status).toBe(301);
     expect(await (await fetch(h.url + '/__pyric/ui/deep/link')).text()).toContain('studio');
-    // History-API deep links with dots (e.g. a Storage object path) still
-    // fall back to index.html…
-    expect(await (await fetch(h.url + '/__pyric/ui/storage/uploads/logo.png')).text()).toContain('studio');
-    // …but the content-hashed asset dir keeps hard 404s for real misses.
-    expect((await fetch(h.url + '/__pyric/ui/assets/app.js')).status).toBe(200);
-    expect((await fetch(h.url + '/__pyric/ui/assets/missing.js')).status).toBe(404);
     expect((await fetch(h.url + '/__pyric/playground', { redirect: 'manual' })).status).toBe(301);
     expect(await (await fetch(h.url + '/__pyric/playground/?embed=studio')).text()).toContain('playground');
     expect(await (await fetch(h.url + '/__pyric/playground/playground?embed=studio')).text()).toContain('playground');

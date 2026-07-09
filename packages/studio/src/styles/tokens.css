@@ -45,15 +45,6 @@
 
   /* The micro/eyebrow letter-spacing, used consistently. */
   --tracking-micro: 0.06em;
-
-  /* One spacing scale, used for every sibling gap (PRINCIPLES L2; the
-     specs/*.md layout contracts reference these directly). */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
 }
 
 /* ── DARK (default) ─ minimal neutral ──────────────────────────────────── */

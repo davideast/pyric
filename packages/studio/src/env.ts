@@ -18,7 +18,6 @@
  */
 
 import { createMemoryBackend } from 'pyric/sandbox';
-import type { ConnectedBridgeState } from 'pyric-tools/bridge/client';
 
 import type {
   PersistenceBackend,
@@ -57,37 +56,6 @@ export interface StudioEnvironment {
    * each feature to these seams; 2.5a wires F1 + exposes the rest.
    */
   live?: WorkerLivePlane;
-  /**
-   * Live connection state of Studio's own bridge-peer registration (the MCP
-   * relay). Present whenever a live worker plane exists in `local` mode; the
-   * shell's presence chip subscribes. Settles on `disconnected` when there is
-   * no serve/bridge to register with (dev-seed / review, bridge off).
-   */
-  bridge?: BridgeStatusStore;
-}
-
-/** Read-and-subscribe store over the bridge peer's connection state. */
-export interface BridgeStatusStore {
-  get(): ConnectedBridgeState;
-  subscribe(cb: () => void): () => void;
-}
-
-function createBridgeStatusStore(): BridgeStatusStore & {
-  set(state: ConnectedBridgeState): void;
-} {
-  let state: ConnectedBridgeState = { kind: 'connecting' };
-  const listeners = new Set<() => void>();
-  return {
-    get: () => state,
-    subscribe(cb) {
-      listeners.add(cb);
-      return () => listeners.delete(cb);
-    },
-    set(next) {
-      state = next;
-      for (const cb of listeners) cb();
-    },
-  };
 }
 
 /** Per-mode wiring options. Firms up as the mode branches land. */
@@ -147,22 +115,14 @@ export function createStudioEnvironment(
     // through. Otherwise a Studio-only session (exactly what `pyric dev --ui`
     // auto-opens) gets "no browser tab is connected". Fire-and-forget: the
     // factory stays synchronous, and the peer connect no-ops cleanly when no
-    // serve is present (dev-seed / review) or the bridge is off. The status
-    // store observes the connection so the shell's presence chip stays honest.
-    const bridge = live ? createBridgeStatusStore() : null;
-    if (live && bridge) {
-      void connectStudioBridgePeer(live.db, {
-        baseUrl,
-        onStateChange: (state) => bridge.set(state),
-      });
-    }
+    // serve is present (dev-seed / review) or the bridge is off.
+    if (live) void connectStudioBridgePeer(live.db, { baseUrl });
 
     return {
       mode,
       projects: httpProjectStore(baseUrl),
       persistence,
       ...(live ? { live } : {}),
-      ...(bridge ? { bridge } : {}),
     };
   }
 

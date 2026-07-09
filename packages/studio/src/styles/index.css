@@ -129,11 +129,10 @@
   padding: 0 var(--gutter);
 }
 
-/* ── One bar: identity | nav | status (specs/shell.md) ───────────────── */
+/* ── One bar: brand · context pill · nav · tools ─────────────────────── */
 /* The bar spans full width (the hairline runs edge to edge) but its CONTENT is
-   centered to the same wide column EVERY surface uses, so the brand + status
-   line up with the content's left/right edges and never shift when switching
-   tabs. The inner row is the spec's grid: identity | nav | status. */
+   centered to the same wide column EVERY surface uses, so the brand + tools line
+   up with the content's left/right edges and never shift when switching tabs. */
 .studio__bar {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
@@ -144,16 +143,18 @@
   max-width: var(--wide);
   margin: 0 auto;
   height: 54px;
-  display: grid;
-  grid-template-columns: auto 1fr auto; /* identity | nav | status */
+  display: flex;
   align-items: center;
-  gap: var(--space-4);
+  justify-content: space-between;
+  gap: 14px;
   padding: 0 var(--gutter);
   min-width: 0;
+  overflow: hidden;
 }
 .studio__brand {
   font-weight: 600;
   color: var(--ink);
+  flex-shrink: 0;
 }
 
 /* Project + governance mode: the only session context the bar carries. */
@@ -177,13 +178,13 @@
   padding: 1px 6px;
 }
 
-/* Inline nav tabs: flex + gap, horizontal overflow scrolls — the bar never
-   grows a second row (N1). */
+/* Inline nav tabs. */
 .studio__nav {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: var(--space-1);
+  gap: 0;
+  flex: 1 1 auto;
   height: 100%;
   min-width: 0;
   overflow-x: auto;
@@ -215,49 +216,20 @@
   border-bottom-color: var(--ink);
 }
 
-/* Status cluster: a flex row of chips, gap-spaced; each chip is
-   container-agnostic (L4). Health renders by exception only. */
-.studio__status {
-  display: flex;
+.studio__bar-actions {
+  display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: 8px;
   min-width: 0;
+  flex: 0 0 auto;
 }
-.studio-chip {
+
+.studio__playground-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 3px 9px;
-  background: var(--elevated);
-  color: var(--muted);
-  font-size: var(--fs-caption);
-  line-height: 1.2;
-  white-space: nowrap;
-  text-decoration: none;
-}
-a.studio-chip:hover {
-  border-color: var(--line-2);
-  color: var(--ink);
-}
-.studio-chip__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--faint);
-  flex: none;
-}
-.studio-chip--live .studio-chip__dot {
-  background: var(--accent);
-}
-.studio-chip--warn {
-  color: var(--ink);
-  border-color: color-mix(in srgb, var(--diff-remove) 45%, var(--line));
-}
-.studio-chip--warn .studio-chip__dot {
-  background: var(--diff-remove);
+  min-width: 0;
 }
 
 .studio-icon-button {
@@ -425,7 +397,7 @@ a.studio-chip:hover {
 .studio__content[data-surface='firestore'],
 .studio__content[data-surface='auth'],
 .studio__content[data-surface='storage'],
-.studio__content[data-surface='prototype'] {
+.studio__content[data-surface='playground'] {
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -538,6 +510,12 @@ button.studio-card:hover {
   font-weight: 650;
 }
 
+.studio-home__grid {
+  align-items: stretch;
+}
+.studio-home__tile[aria-disabled='true'] {
+  cursor: default;
+}
 .studio-home__tile-top {
   display: flex;
   align-items: center;
@@ -576,20 +554,7 @@ button.studio-card:hover {
   min-height: 0;
   min-width: 0;
   display: flex;
-  flex-direction: column;
   background: var(--bg);
-}
-/* The Prototype surface's OWN control row (model/keys/settings/account) —
-   contextual controls live in the surface, never the bar (N2). */
-.studio-playground__controls {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--gutter);
-  border-bottom: 1px solid var(--line);
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 .studio-playground__frame {
   width: 100%;
@@ -604,7 +569,7 @@ button.studio-card:hover {
 .studio__surface-slot--playground {
   min-height: 0;
 }
-.studio__content[data-surface='prototype'] > .studio__surface-slot--playground {
+.studio__content[data-surface='playground'] > .studio__surface-slot--playground {
   flex: 1;
   display: flex;
   min-height: 0;
@@ -947,12 +912,11 @@ button.studio-card:hover {
     display: none;
   }
 
-  /* Narrow: the status cluster keeps at most one chip's width; nav scrolls. */
-  .studio__status {
-    gap: 4px;
+  .studio__bar-actions {
+    gap: 5px;
   }
 
-  .studio-playground__controls {
+  .studio__playground-actions {
     gap: 4px;
   }
 
