@@ -1,0 +1,32 @@
+{
+  "name": "rtdb-modular-runtransaction-warm-client-speculation",
+  "matrixRow": "rtdb-modular #160",
+  "rowIds": [
+    "rtdb-modular#160",
+    "rtdb-modular#M37"
+  ],
+  "description": "Warm-client runTransaction speculation. Seeds a path, then WARMS the client cache \u2014 attaches an onValue listener and awaits its initial fire, plus a direct get() \u2014 BEFORE running runTransaction on that same warmed path. Captures every `current` arg (type + isNull + whether it carries the seeded keys) to answer whether a warmed client still speculatively invokes the update fn with `null` first (the cold-cache double-call) or invokes exactly once with the cached value. Directly probes the uncaptured warm-client case flagged in docs/reviews/deep-divergence-review.md item 4 (is the cold-cache double-invoke a stable contract or an artifact?). rowIds are [] pending the registry-admission ticket, which lands the rows.",
+  "observedAt": "2026-07-09T06:00:48.621Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "initialFires": 2,
+    "warmClientWasListening": true,
+    "invocationCount": 1,
+    "firstArgType": "object",
+    "firstArgWasNull": false,
+    "speculativeNullFirstEvenWhenWarm": false,
+    "singleInvocationWithCachedValue": true,
+    "warmArgs": [
+      {
+        "type": "object",
+        "isNull": false,
+        "isUndefined": false,
+        "hasSeededKeys": true
+      }
+    ]
+  }
+}
