@@ -40,6 +40,7 @@ import {
   listAll as workerStorageListAll,
   getMetadata as workerStorageGetMetadata,
   getBlob as workerStorageGetBlob,
+  uploadBytes as workerStorageUploadBytes,
   getSnapshot as workerGetSnapshot,
   getWorkerInstanceId,
   exportWorkerState,
@@ -325,12 +326,16 @@ export function connectWorkerLive(
       clearUsers: () => workerAdminClearUsers(authHandle),
     } as unknown as AuthApi,
     storage: workerGetStorage(db) as unknown as FirebaseStorage,
-    // The worker storage ops as a StorageApi bundle.
+    // The worker storage ops as a StorageApi bundle. `uploadBytes` is the
+    // base64 `storage.putBytes` MessagePort op — capped at 8 MiB per payload
+    // on both ends; an over-cap upload fails that file's task with the typed
+    // too-large error (the rest of a batch proceeds).
     storageApi: {
       ref: workerStorageRef,
       listAll: workerStorageListAll,
       getMetadata: workerStorageGetMetadata,
       getBlob: workerStorageGetBlob,
+      uploadBytes: workerStorageUploadBytes,
     } as unknown as StorageApi,
     getSnapshot: () => workerGetSnapshot(db),
   };

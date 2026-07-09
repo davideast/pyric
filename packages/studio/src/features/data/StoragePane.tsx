@@ -2,31 +2,63 @@
  * Live Storage viewer (F2), styled to `mocks/c-storage.html`.
  *
  * Composes `@pyric/ui/storage` over the Studio sandbox's `FirebaseStorage`
- * handle: a `PathBreadcrumb` + action row on top, then a two-column body:
- * an `ObjectBrowser` (folders-first listing, name/type/size/updated columns,
- * a read-denied row treatment driven by `useStorageRulesGate`) on the left,
- * and an `ObjectInspector` (content-type preview + metadata table + custom
+ * handle: a `PathBreadcrumb` + action row (New folder / Upload files) on top,
+ * then a two-column body: an `ObjectBrowser` (folders-first listing,
+ * name/type/size/updated columns, a read-denied row treatment driven by
+ * `useStorageRulesGate`) on the left — wrapped in an `UploadDropzone` so
+ * files and folders drop straight into the browsed folder — and an
+ * `ObjectInspector` (content-type preview + metadata table + custom
  * metadata) on the right. When a `gs://` / storage-path cross-reference is
- * clicked elsewhere in Studio, `focusPath` drives the browser to that object's
- * folder and selects it.
+ * clicked elsewhere in Studio, `focusPath` drives the browser to that
+ * object's folder and selects it.
+ *
+ * CREATE FOLDER (VS Code style): the "New folder" affordance discloses an
+ * inline input that accepts nested paths — `stuff/things/cool` creates the
+ * whole chain and navigates into the deepest folder. Mechanism: client-side
+ * pending prefixes (`pendingPrefixReducer`), NOT placeholder objects — the
+ * sandbox store stays clean; a pending folder materializes when the first
+ * upload lands in it and disappears on reload if abandoned. The UI says so:
+ * pending rows carry a "session" badge and the pending empty state explains
+ * the lifecycle. (See `@pyric/ui/storage`'s `pendingPrefixes.ts` for the
+ * full decision record; the placeholder-object alternative remains available
+ * as `useObjectUpload.createFolder`.)
+ *
+ * UPLOADS: the Upload button (multi-select file input) and the dropzone
+ * (files AND folder trees via `webkitGetAsEntry`) both feed
+ * `useObjectUpload` — concurrent per-file tasks, one failure never aborts
+ * the rest; progress renders in the transient tray under the action row.
+ * Name collisions auto-rename with OS-copy semantics (`planBatchNames`):
+ * `photo.png` → `photo (1).png`, `photo (1).png` → `photo (2).png`;
+ * dropped folders rename at their root segment, keeping contents intact.
  *
  * Styling only: all data logic stays in the `@pyric/ui/storage` hooks +
- * components. Visual roles come from `storage.css` (token-driven).
+ * components + pure modules. Visual roles come from `storage.css`
+ * (token-driven).
  */
 
-import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import {
   ObjectBrowser,
   ObjectInspector,
   PathBreadcrumb,
+  UploadDropzone,
+  useObjectUpload,
   useStorageList,
   useStorageRulesGate,
   usePathState,
   normalizeStoragePath,
+  planBatchNames,
+  pendingPrefixReducer,
+  initialPendingPrefixes,
+  pendingChildFolders,
+  isPendingPrefix,
+  folderInputError,
+  type DroppedFile,
   type StorageListEntry,
+  type UploadTask,
 } from '@pyric/ui/storage';
-import type { FirebaseStorage, FullMetadata } from 'pyric/storage';
+import type { FirebaseStorage, FullMetadata, StorageReference } from 'pyric/storage';
 import { useDataNav } from './navigation.js';
 import './storage.css';
 
@@ -41,6 +73,19 @@ function parentFolder(objectPath: string): string {
   const norm = normalizeStoragePath(objectPath);
   const idx = norm.lastIndexOf('/');
   return idx === -1 ? '' : norm.slice(0, idx);
+}
+
+/** `a/b` + `c` → `a/b/c`; root-safe. */
+function joinPath(base: string, child: string): string {
+  if (base === '') return child;
+  if (child === '') return base;
+  return `${base}/${child}`;
+}
+
+/** Last path segment (task rows show the file name, not the full path). */
+function lastSegment(path: string): string {
+  const idx = path.lastIndexOf('/');
+  return idx === -1 ? path : path.slice(idx + 1);
 }
 
 /** Standard metadata fields, in the mock's order. Reads `FullMetadata` only. */
@@ -91,14 +136,24 @@ function renderMetadata(metadata: FullMetadata): ReactNode {
   );
 }
 
-/** Row label slot: the 4-column cells inside each entry button. */
-function renderEntry(entry: StorageListEntry): ReactNode {
+/** Row label slot: the 4-column cells inside each entry button. `pending`
+ *  folders (created this session, no object yet) carry a "session" badge —
+ *  the honesty contract of the pending-prefix mechanism. */
+function renderEntry(entry: StorageListEntry, pending: boolean): ReactNode {
   const isFolder = entry.kind === 'folder';
   return (
     <>
       <span className="storage__cell-name">
         {isFolder ? <span className="storage__ic">DIR</span> : null}
         <span className="storage__nm">{entry.name}</span>
+        {pending ? (
+          <span
+            className="storage__pending-badge"
+            title="Empty folder — session-only until a file is uploaded into it."
+          >
+            session
+          </span>
+        ) : null}
         {isFolder ? (
           <span aria-hidden className="storage__chev">
             ›
@@ -109,6 +164,22 @@ function renderEntry(entry: StorageListEntry): ReactNode {
       <span className="storage__cell-size" />
       <span className="storage__cell-updated" />
     </>
+  );
+}
+
+/** One upload task's tray row: name + state (per-file, failures inline). */
+function trayRow(task: UploadTask): ReactNode {
+  const state =
+    task.status === 'running'
+      ? 'uploading…'
+      : task.status === 'success'
+        ? 'done'
+        : (task.error?.message ?? 'failed');
+  return (
+    <li key={task.id} className="storage__tray-row" data-status={task.status}>
+      <span className="storage__tray-name">{lastSegment(task.fullPath)}</span>
+      <span className="storage__tray-state">{state}</span>
+    </li>
   );
 }
 
@@ -127,6 +198,79 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
   // Pre-flight read verdicts → the read-denied row treatment (advisory).
   const gate = useStorageRulesGate(storage);
 
+  // Session-only created folders (see the pending-prefix decision above).
+  const [pending, dispatchPending] = useReducer(
+    pendingPrefixReducer,
+    initialPendingPrefixes,
+  );
+  const uploader = useObjectUpload(storage, {
+    path: pathState.path,
+    list,
+    // A landed upload makes its folder chain real — retire it from pending
+    // so the row's provenance flips from "session" to server truth.
+    onComplete: (task) =>
+      dispatchPending({ type: 'materialize', path: parentFolder(task.fullPath) }),
+  });
+
+  // Create-folder disclosure (inline row, not a modal — C3).
+  const [creating, setCreating] = useState(false);
+  const [folderName, setFolderName] = useState('');
+  const [folderError, setFolderError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Merge pending child folders into the listing (dedup against real
+  // prefixes), keeping the folders-first, name-sorted row order.
+  const entries = useMemo<StorageListEntry[]>(() => {
+    const names = pendingChildFolders(pending, pathState.path).filter(
+      (name) => !list.entries.some((e) => e.kind === 'folder' && e.name === name),
+    );
+    if (names.length === 0) return list.entries;
+    const synthetic = names.map((name) => {
+      const fullPath = joinPath(pathState.path, name);
+      return {
+        kind: 'folder' as const,
+        name,
+        fullPath,
+        // Folder rows navigate via `fullPath` and never dereference `.ref`
+        // (see ObjectBrowser) — a structural stub keeps the entry total.
+        ref: { fullPath, name } as unknown as StorageReference,
+      };
+    });
+    const folders = [
+      ...list.entries.filter((e) => e.kind === 'folder'),
+      ...synthetic,
+    ].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    return [...folders, ...list.entries.filter((e) => e.kind === 'object')];
+  }, [list.entries, pending, pathState.path]);
+
+  // Upload a batch into the browsed folder, OS-copy renaming collisions
+  // against the folder's direct children (real + pending + this batch).
+  const uploadFiles = (files: DroppedFile[]) => {
+    const taken = new Set(entries.map((e) => e.name));
+    const paths = planBatchNames(
+      files.map((f) => f.relativePath),
+      taken,
+    );
+    void uploader.upload(files.map((f, i) => ({ path: paths[i], data: f.file })));
+  };
+
+  const submitFolder = (e: FormEvent) => {
+    e.preventDefault();
+    const err = folderInputError(folderName);
+    if (err) {
+      setFolderError(err);
+      return;
+    }
+    const full = joinPath(pathState.path, normalizeStoragePath(folderName));
+    dispatchPending({ type: 'create', path: full });
+    // VS Code semantics: creating `stuff/things/cool` lands you inside it.
+    pathState.setPath(full);
+    selectObject(null);
+    setFolderName('');
+    setFolderError(null);
+    setCreating(false);
+  };
+
   // Honor a cross-ref jump: descend to the object's folder and select it.
   useEffect(() => {
     if (focusPath) {
@@ -137,6 +281,13 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
     // pathState.setPath is stable; focusPath is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusPath]);
+
+  const settled = uploader.tasks.filter((t) => t.status !== 'running');
+  const failed = uploader.tasks.filter((t) => t.status === 'error');
+  // Advisory pre-flight for the drop target (the gate's canonical wiring —
+  // see UploadDropzone's `disabledReason` doc). Conservative: no size or
+  // contentType is known before the drop.
+  const writeVerdict = gate.verdictFor(pathState.path);
 
   return (
     <div className="storage">
@@ -149,15 +300,107 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
             selectObject(null);
           }}
         />
-        {/* Delete / Upload were inert placeholders. Removed (subtractive): they
-            return only when wired to real storage ops. */}
+        <div className="storage__actions">
+          <button
+            type="button"
+            className="storage__action"
+            aria-expanded={creating}
+            onClick={() => {
+              setCreating((v) => !v);
+              setFolderError(null);
+            }}
+          >
+            New folder
+          </button>
+          <button
+            type="button"
+            className="storage__action storage__action--upload"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Upload files
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const picked = Array.from(e.currentTarget.files ?? []);
+              if (picked.length > 0) {
+                uploadFiles(picked.map((f) => ({ file: f, relativePath: f.name })));
+              }
+              e.currentTarget.value = '';
+            }}
+          />
+        </div>
       </div>
+
+      {creating ? (
+        <form className="storage__newfolder" onSubmit={submitFolder}>
+          <input
+            autoFocus
+            className="storage__newfolder-input"
+            placeholder="folder or nested/path/of/folders"
+            aria-label="New folder name"
+            value={folderName}
+            onChange={(e) => {
+              setFolderName(e.currentTarget.value);
+              setFolderError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setCreating(false);
+            }}
+          />
+          <button type="submit" className="storage__newfolder-btn">
+            Create
+          </button>
+          {folderError ? (
+            <span className="storage__newfolder-err" role="alert">
+              {folderError}
+            </span>
+          ) : (
+            <span className="storage__newfolder-note">
+              Nested paths create the whole chain. Empty folders last this
+              session only — upload a file to keep one.
+            </span>
+          )}
+        </form>
+      ) : null}
+
+      {uploader.tasks.length > 0 ? (
+        <div className="storage__tray" role="status">
+          <div className="storage__tray-head">
+            <span>
+              {uploader.isUploading
+                ? `Uploading ${uploader.tasks.length - settled.length} of ${uploader.tasks.length}…`
+                : `${settled.length - failed.length}/${uploader.tasks.length} uploaded${
+                    failed.length > 0 ? `, ${failed.length} failed` : ''
+                  }`}
+            </span>
+            {uploader.isUploading ? null : (
+              <button
+                type="button"
+                className="storage__tray-clear"
+                onClick={uploader.clearCompleted}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <ul className="storage__tray-list">{uploader.tasks.map(trayRow)}</ul>
+        </div>
+      ) : null}
 
       <div
         className="storage__body"
         data-storage-level={selectedPath ? 'inspector' : 'browser'}
       >
-        <div className="storage__browser">
+        <UploadDropzone
+          className="storage__browser"
+          onFiles={uploadFiles}
+          disabled={!writeVerdict.upload}
+          disabledReason={writeVerdict.reasons.write.join('; ')}
+        >
           <div className="storage__lhead">
             <span>name</span>
             <span>type</span>
@@ -165,12 +408,14 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
             <span>updated</span>
           </div>
           <ObjectBrowser
-            entries={list.entries}
+            entries={entries}
             status={list.status}
             error={list.error}
             gate={gate}
             selectedPath={selectedPath ?? undefined}
-            renderEntry={renderEntry}
+            renderEntry={(entry) =>
+              renderEntry(entry, isPendingPrefix(pending, entry.fullPath))
+            }
             onNavigate={(p) => {
               pathState.enter(p);
               selectObject(null);
@@ -178,11 +423,18 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
             onSelect={(ref) => selectObject(ref.fullPath)}
             emptyState={
               <p className="storage__empty">
-                No files yet. Files your app uploads to Storage will appear here.
+                {isPendingPrefix(pending, pathState.path)
+                  ? 'Empty folder — session-only until a file is uploaded ' +
+                    'here. Drop files anywhere in this pane, or use Upload files.'
+                  : 'No files yet. Drop files here or use Upload files; files ' +
+                    'your app uploads to Storage also appear here.'}
               </p>
             }
           />
-        </div>
+          <div className="storage__dropcue" aria-hidden>
+            Drop to upload to /{pathState.path || ''}
+          </div>
+        </UploadDropzone>
 
         <div className="storage__inspector">
           {selectedPath ? (
