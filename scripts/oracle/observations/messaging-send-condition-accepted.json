@@ -1,9 +1,9 @@
 {
-  "name": "messaging-send-topic-accepted",
+  "name": "messaging-send-condition-accepted",
   "matrixRow": "messaging (no rows yet; surface admitted born-unverified under the CDD map)",
   "rowIds": [],
-  "description": "firebase-admin/messaging send() to a topic: FCM accepts and returns the message resource name projects/<projectId>/messages/<numeric id>. dryRun=true returns a name in the SAME format (fake id), so callers cannot distinguish validation from acceptance by shape alone.",
-  "observedAt": "2026-07-09T05:00:43.783Z",
+  "description": "firebase-admin/messaging send() with a condition target of the form \"'a' in topics && 'b' in topics\": FCM accepts and returns projects/<projectId>/messages/<numeric id>, the same resource-name shape as a direct topic send, with no subscribers required. dryRun=true returns the same shape. rowIds land with the registry-admission ticket.",
+  "observedAt": "2026-07-09T05:00:44.711Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "genkit-idx",
   "behavior": {
