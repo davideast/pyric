@@ -379,8 +379,14 @@ export class MessagingBroker {
     for (const handler of [...handlers]) {
       handlerCount++;
       // Each handler gets its own copy so a mutating consumer can't corrupt
-      // its siblings' view of the captured envelope.
-      handler(structuredClone(payload));
+      // its siblings' view of the captured envelope. A throwing handler must
+      // not block its siblings — same isolation contract as the auth
+      // listener fan-out (test/auth/sandbox-listeners.test.ts).
+      try {
+        handler(structuredClone(payload));
+      } catch {
+        // Handler errors are the consumer's problem, never the broker's.
+      }
     }
 
     this.emit('message_delivered', {
