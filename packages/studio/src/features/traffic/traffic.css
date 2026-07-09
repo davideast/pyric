@@ -130,6 +130,98 @@
   color: var(--faint);
 }
 
+/* ── Filter row (single compact row — no stacked toolbars) ──────────── */
+.traffic__filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.traffic__filters-label {
+  color: var(--faint);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+.traffic__filter {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-caption);
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.traffic__filter:hover {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+.traffic__filter[aria-pressed='true'] {
+  border-color: var(--line-2);
+  background: var(--elevated);
+  color: var(--ink);
+}
+
+/* ── Verdict cell ───────────────────────────────────────────────────── */
+.traffic__verdict {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+  color: var(--faint);
+}
+.traffic__verdict[data-verdict='allow'] {
+  color: var(--muted);
+}
+.traffic__verdict[data-verdict='deny'] {
+  color: var(--deny);
+  font-weight: 600;
+}
+.traffic__verdict[data-verdict='admin'] {
+  color: var(--accent);
+}
+
+/* ── Deny disclosure (in place; no modal) ───────────────────────────── */
+[data-pyric-traffic-entry][data-verdict='deny'] {
+  background: var(--deny-tint);
+}
+.traffic__deny-detail {
+  display: grid;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 14px 12px;
+  background: color-mix(in srgb, var(--deny-tint) 60%, var(--panel));
+}
+.traffic__deny-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--space-3);
+  font-size: var(--fs-caption);
+}
+.traffic__deny-facts dt {
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 10px;
+}
+.traffic__deny-facts dd {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+}
+.traffic__deny-reasons {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+}
+
 /* ── Request stream ─────────────────────────────────────────────────── */
 .traffic__log {
   border: 1px solid var(--line);

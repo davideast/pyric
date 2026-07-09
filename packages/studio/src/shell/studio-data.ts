@@ -32,12 +32,13 @@ import {
 import { sandbox as authSandbox, type CreateUserRequest } from 'pyric/auth';
 import { setRules as workerSetRules } from 'pyric-tools/serve/worker';
 import type {
+  EventProvenance,
   RequestEvent,
   SandboxEvent,
   SandboxOperationEvent,
   SandboxSnapshot,
 } from 'pyric/sandbox';
-import type { TrafficEvent } from '@pyric/ui/traffic';
+import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
 import type { WorkerLivePlane } from '../env.js';
@@ -232,13 +233,19 @@ export function useStudioEvents(): readonly SandboxEvent[] {
   return seedReady ? seed.events : liveEvents;
 }
 
-function isTrafficEvent(e: SandboxEvent): e is RequestEvent | SandboxOperationEvent {
+function isTrafficEvent(
+  e: SandboxEvent,
+): e is (RequestEvent | SandboxOperationEvent) & EventProvenance {
   return e.kind === 'request' || e.kind === 'operation';
 }
 
-function toTrafficEvent(e: RequestEvent | SandboxOperationEvent): TrafficEvent {
+function toTrafficEvent(
+  e: (RequestEvent | SandboxOperationEvent) & EventProvenance,
+): StudioTrafficEvent {
   if (e.kind === 'request') {
-    return e as unknown as TrafficEvent;
+    // Structurally identical (plus provenance fields riding through) — the
+    // verdict layer reads `authLens` off the same object.
+    return e as unknown as StudioTrafficEvent;
   }
   return {
     kind: 'operation',
@@ -258,6 +265,7 @@ function toTrafficEvent(e: RequestEvent | SandboxOperationEvent): TrafficEvent {
     groupId: e.groupId,
     groupKind: e.groupKind,
     triggeredBy: e.triggeredBy,
+    authLens: e.authLens,
   };
 }
 
@@ -266,9 +274,9 @@ function toTrafficEvent(e: RequestEvent | SandboxOperationEvent): TrafficEvent {
  * other services can emit canonical `operation` events. Adapt both into the
  * headless `@pyric/ui/traffic` shape.
  */
-export function useStudioTraffic(): TrafficEvent[] {
+export function useStudioTraffic(): StudioTrafficEvent[] {
   const events = useStudioEvents();
-  return useMemo<TrafficEvent[]>(
+  return useMemo<StudioTrafficEvent[]>(
     () => events.filter(isTrafficEvent).map(toTrafficEvent),
     [events],
   );
