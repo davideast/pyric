@@ -322,6 +322,15 @@ export function HomeSurface() {
 
   return (
     <section className="studio-surface studio-home" aria-label="Home">
+      <div className="studio-home__hero">
+        <img
+          className="studio-home__hero-logo"
+          src={`${import.meta.env.BASE_URL}pyric-logo.svg`}
+          alt=""
+          aria-hidden="true"
+        />
+        <h1 className="studio-home__hero-title">Firebase that runs in the browser</h1>
+      </div>
       {/* The typeahead's INLINE mount; ⌘K on Home focuses it via the
           registered handle (shell/command-k.ts) instead of overlaying. */}
       <CommandTypeahead exposeFocus={setInlineCommandFocus} />
