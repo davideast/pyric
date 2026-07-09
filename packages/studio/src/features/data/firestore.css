@@ -793,13 +793,26 @@
   outline: none;
   border-color: var(--color-primary);
 }
-/* the Edit input wrapper (a <label data-pyric-field-type>) grows to fill */
+/* the Edit input wrapper (a <label data-pyric-field-type>) grows to fill.
+   FORM LAW: the error line stacks BELOW the control, tight to it — never
+   beside. Column flex + a small gap does this without per-element nudges;
+   the row's flex-wrap (above) lets this whole group drop to its own line
+   when the row is narrow. */
 [data-pyric-ui='document-editor'] [data-pyric-field-entry] > [data-pyric-field-type] {
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+/* boolean/null Edit components render a plain (non-flex) wrapper with no
+   error line — keep them vertically centered with the row instead of
+   stretching to the column's cross-start. */
+[data-pyric-ui='document-editor'] [data-pyric-field-entry] > [data-pyric-field-type='boolean'],
+[data-pyric-ui='document-editor'] [data-pyric-field-entry] > [data-pyric-field-type='null'] {
+  flex-direction: row;
   align-items: center;
-  gap: 8px;
 }
 /* cap input width so values don't sprawl across a wide pane; numbers stay compact */
 [data-pyric-ui='document-editor'] [data-pyric-field-type] input {
@@ -865,7 +878,6 @@
 [data-pyric-ui='document-editor'] [data-pyric-error-message] {
   color: var(--color-danger);
   font-size: var(--fs-caption);
-  margin-left: 8px;
 }
 .fs-editor__err {
   margin: 10px 0 0;
@@ -900,6 +912,406 @@
   border: 1px solid var(--color-border-strong);
   background: var(--color-content-bg);
   color: var(--color-slate-gray);
+}
+
+/* ── three-dot overflow menu ───────────────────────────────────────────────
+   Collection column header ("Delete collection") + the document tree's own
+   header ("Delete document" / "Delete document fields"). Hand-rolled — see
+   `OverflowMenu.tsx`'s doc comment: no headless-menu dependency in this repo. */
+.fs-overflow {
+  position: relative;
+  margin-left: auto;
+}
+.fs-overflow__trigger {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--color-slate-gray);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+.fs-overflow__trigger:hover,
+.fs-overflow__trigger[aria-expanded='true'] {
+  color: var(--color-soft-white);
+  background: var(--color-sidebar-bg);
+}
+.fs-overflow__trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.fs-overflow__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+}
+.fs-overflow__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 190px;
+  padding: 4px;
+  background: var(--color-content-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 40%, transparent);
+}
+.fs-overflow__item {
+  appearance: none;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-label);
+  color: var(--color-soft-white);
+  padding: 7px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.fs-overflow__item:hover,
+.fs-overflow__item:focus-visible {
+  background: var(--color-sidebar-bg);
+  outline: none;
+}
+.fs-overflow__item[data-destructive] {
+  color: var(--color-danger);
+}
+
+/* ── the F2 document tree (FirestoreDocumentTree) ──────────────────────────
+   Console panel-view parity: caret gutter + key/chip aligned per depth,
+   generous identical row rhythm, hover-reveal (type) + edit/delete/add,
+   collapsed-container preview, inline single-field editing. Indentation is
+   the one place padding is used (per depth step); everything else is
+   flex + gap. */
+.fs-doctree {
+  padding: 4px 0 20px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+}
+.fs-doctree__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-content-bg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+.fs-doctree__docid {
+  font-weight: 600;
+  color: var(--color-soft-white);
+  overflow-wrap: anywhere;
+}
+.fs-doctree__err {
+  margin: 0;
+  padding: 8px 18px;
+  color: var(--color-danger);
+  font-size: var(--fs-caption);
+}
+.fs-doctree__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.fs-doctree__row {
+  border-top: 1px solid var(--color-border);
+}
+.fs-doctree__rows > .fs-doctree__row:first-child,
+.fs-doctree__rows > .fs-doctree__action-row:first-child {
+  border-top: none;
+}
+.fs-doctree__action-row {
+  border-top: 1px solid var(--color-border);
+}
+.fs-doctree__action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  appearance: none;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-data);
+  color: var(--color-primary);
+  padding: 9px 18px;
+  cursor: pointer;
+}
+.fs-doctree__action:hover,
+.fs-doctree__action:focus-visible {
+  background: var(--color-sidebar-bg);
+  outline: none;
+}
+.fs-doctree__action-row--nested {
+  border-top: none;
+}
+.fs-doctree__action-row--nested .fs-doctree__action {
+  padding: 6px 0 6px calc(18px + (var(--fs-depth, 0) + 1) * 18px);
+  font-size: var(--fs-caption);
+}
+
+/* the row line: caret gutter | key/chip | value | hover actions, all one
+   baseline-aligned flex row that wraps (so long values / the hover cluster
+   never force horizontal scroll). Indentation compounds with depth via a
+   CSS custom property set per-row — the SAME technique regardless of
+   nesting depth, which is what keeps a map-in-an-array-in-a-map aligned
+   correctly (the bug this rebuild fixes: no more fixed-width grid column). */
+.fs-doctree__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-height: 36px;
+  padding: 8px 18px 8px calc(18px + var(--fs-depth, 0) * 18px);
+}
+.fs-doctree__row[data-pyric-doctree-nested] > .fs-doctree__line {
+  align-items: center;
+}
+.fs-doctree__caret {
+  flex: 0 0 auto;
+  width: 14px;
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--color-slate-gray);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+}
+.fs-doctree__caret:hover {
+  color: var(--color-soft-white);
+}
+.fs-doctree__caret--empty {
+  cursor: default;
+}
+.fs-doctree__key {
+  flex: 0 0 auto;
+  color: var(--color-slate-gray);
+}
+.fs-doctree__key::after {
+  content: ':';
+}
+/* array index chip: a small rounded pill instead of a bare number */
+.fs-doctree__chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-sidebar-bg);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-slate-gray);
+  font-size: var(--fs-micro);
+}
+.fs-doctree__value {
+  min-width: 0;
+  color: var(--color-soft-white);
+  overflow-wrap: anywhere;
+}
+/* long string values wrap with a hanging indent aligned to the value
+   column (after the key/chip), never under the key. */
+.fs-doctree__value {
+  flex: 1 1 auto;
+  padding-left: 0;
+  text-indent: 0;
+}
+.fs-doctree__preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-slate-gray);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* hover-reveal cluster: type annotation + pencil/plus + trash. Stays
+   visible while focused (keyboard users) or while the row is being
+   interacted with, same idiom as the document-list row delete affordance. */
+.fs-doctree__hover {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.fs-doctree__row:hover .fs-doctree__hover,
+.fs-doctree__row:focus-within .fs-doctree__hover {
+  opacity: 1;
+}
+.fs-doctree__typenote {
+  color: var(--color-slate-gray);
+  font-size: var(--fs-micro);
+}
+.fs-doctree__icon {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--color-slate-gray);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 4px;
+}
+.fs-doctree__icon:hover,
+.fs-doctree__icon:focus-visible {
+  color: var(--color-soft-white);
+  background: var(--color-sidebar-bg);
+  outline: none;
+}
+.fs-doctree__icon--danger:hover {
+  color: var(--color-danger);
+}
+
+.fs-doctree__children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── inline single-field editor row (pencil / "+ Add field") ──────────────
+   FORM LAW: label (the key input) sits INLINE with the row (this is a
+   compact single-row editor, not a stacked form), but the error line still
+   stacks BELOW the whole editor group, tight to it, never beside a control. */
+.fs-doctree__editrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 7px 18px 7px calc(18px + var(--fs-depth, 0) * 18px);
+}
+.fs-doctree__editkey {
+  flex: 0 0 auto;
+  width: 140px;
+}
+.fs-doctree__editkey,
+.fs-doctree__edittype {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--color-soft-white);
+  background: var(--color-content-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 5px 7px;
+}
+.fs-doctree__editkey:focus,
+.fs-doctree__edittype:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+.fs-doctree__editkey[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+.fs-doctree__editrow > [data-pyric-field-type] {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.fs-doctree__editrow input {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--color-soft-white);
+  background: var(--color-content-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 5px 7px;
+  width: 100%;
+  max-width: 320px;
+}
+.fs-doctree__editnote {
+  color: var(--color-slate-gray);
+  font-size: var(--fs-caption);
+}
+/* the error line: full-row basis so it always drops BELOW the controls,
+   grouped tightly under them (form law — never beside). */
+.fs-doctree__editerr {
+  flex-basis: 100%;
+  color: var(--color-danger);
+  font-size: var(--fs-caption);
+}
+.fs-doctree__editactions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.fs-doctree__editsave,
+.fs-doctree__editcancel {
+  appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 5px;
+}
+.fs-doctree__editsave {
+  color: var(--color-primary);
+}
+.fs-doctree__editsave:hover {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+.fs-doctree__editcancel {
+  color: var(--color-slate-gray);
+}
+.fs-doctree__editcancel:hover {
+  background: var(--color-sidebar-bg);
+  color: var(--color-soft-white);
+}
+
+/* subcollections section, same rhythm as the fields above it */
+[data-pyric-ui='fs-doctree-subcollections'] {
+  margin-top: 6px;
+  border-top: 1px solid var(--color-border);
+}
+.fs-doctree__subhead {
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--color-slate-gray);
+  padding: 14px 18px 6px;
+}
+.fs-doctree__sublist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.fs-doctree__subrow {
+  appearance: none;
+  border: none;
+  background: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 18px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--color-soft-white);
+  text-align: left;
+  cursor: pointer;
+}
+.fs-doctree__subrow:hover {
+  background: var(--color-sidebar-bg);
+}
+.fs-doctree__subtype {
+  margin-left: auto;
+  color: var(--color-slate-gray);
+  font-size: var(--fs-micro);
 }
 
 /* The mobile back affordance is hidden on desktop (panes are side by side). */

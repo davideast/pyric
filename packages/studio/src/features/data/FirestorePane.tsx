@@ -15,13 +15,10 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CollectionList,
   DocumentList,
-  DocumentPreview,
-  DocumentEditor,
-  treeToData,
   useFirestoreApi,
   type FirestoreApi,
-  type DocumentEditorRootProps,
 } from '@pyric/ui/firestore';
+import { useRecursiveDelete } from '@pyric/ui/firestore/hooks';
 import type {
   CollectionReference,
   DocumentReference,
@@ -30,14 +27,25 @@ import type {
   QueryDocumentSnapshot,
 } from 'pyric/firestore';
 import { useDocumentList } from '@pyric/ui/firestore/hooks';
+import { ConfirmProvider, useConfirm } from '@pyric/ui/primitives';
 import { useDataNav, parseDocPath, type NavigationPathSegment } from './navigation.js';
 import type { StudioDataHandles } from './sandbox.js';
 import { ImportJsonPanel } from './FirestoreImportPanel.js';
 import { FirestoreCreateModal, type FirestoreCreateSubmit } from './FirestoreCreateModal.js';
+import { FirestoreDocumentTree } from './FirestoreDocumentTree.js';
+import { OverflowMenu } from './OverflowMenu.js';
+import { makeRecursiveDeleteImpl } from './recursiveDelete.js';
 import './firestore.css';
 
-/** The editor state shape `DocumentEditor.Root`'s `onChange` emits. */
-type EditorState = Parameters<NonNullable<DocumentEditorRootProps['onChange']>>[0];
+/**
+ * `DocumentSnapshot.exists` is a method on the firebase/firestore
+ * `QueryDocumentSnapshot` (`.exists()`) and a getter/property on the Admin
+ * chainable adapter. Same helper `<DocumentPreview>` used internally.
+ */
+function snapshotExists(snapshot: DocumentSnapshot): boolean {
+  const e = (snapshot as { exists: boolean | (() => boolean) }).exists;
+  return typeof e === 'function' ? e.call(snapshot) : e;
+}
 
 /** CREATE semantics without a create primitive on `FirestoreApi`: probe the
  *  backend with `getDoc`, refuse to overwrite, then `setDoc` (the same probe
@@ -147,9 +155,11 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
           key={seg.path}
           api={api}
           firestore={firestore}
+          handles={handles}
           collectionPath={seg.path}
           selectedId={path[i + 1]?.id ?? null}
           onSelect={(ref) => selectAt(i, { kind: 'document', id: ref.id, path: ref.path })}
+          onCollectionDeleted={() => setPath((p) => p.slice(0, i))}
         />
       ) : (
         <DocumentDetailColumn
@@ -161,6 +171,7 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
           onOpenSubcollection={(coll) => selectAt(i, { kind: 'collection', id: coll.id, path: coll.path })}
           onReferenceClick={(r) => navigate({ view: 'firestore', path: parseDocPath(r.path) })}
           onStartCollection={() => setCollectionTarget({ parentDocPath: seg.path })}
+          onDeleted={() => setPath((p) => p.slice(0, i))}
         />
       ),
     ),
@@ -189,18 +200,24 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
   ];
 
   return (
-    <div data-pyric-ui="fs-browser" data-fs-depth={path.length}>
-      <Breadcrumb path={path} onHome={() => setPath([])} onJump={(i) => setPath((p) => p.slice(0, i + 1))} />
-      <div className="fs-columns">{visible}</div>
-      {collectionTarget ? (
-        <FirestoreCreateModal
-          mode="collection"
-          parentPath={collectionTarget.parentDocPath ? `/${collectionTarget.parentDocPath}` : '/'}
-          onCreate={createCollection}
-          onClose={() => setCollectionTarget(null)}
-        />
-      ) : null}
-    </div>
+    // Field/document/collection delete confirmations (the tree's per-field
+    // trash, "Delete document", "Delete collection") all go through
+    // `useConfirm()` — scope the provider to this pane rather than mounting
+    // it globally, since nothing else in Studio uses it yet.
+    <ConfirmProvider>
+      <div data-pyric-ui="fs-browser" data-fs-depth={path.length}>
+        <Breadcrumb path={path} onHome={() => setPath([])} onJump={(i) => setPath((p) => p.slice(0, i + 1))} />
+        <div className="fs-columns">{visible}</div>
+        {collectionTarget ? (
+          <FirestoreCreateModal
+            mode="collection"
+            parentPath={collectionTarget.parentDocPath ? `/${collectionTarget.parentDocPath}` : '/'}
+            onCreate={createCollection}
+            onClose={() => setCollectionTarget(null)}
+          />
+        ) : null}
+      </div>
+    </ConfirmProvider>
   );
 }
 
@@ -294,15 +311,19 @@ function CollectionColumn({
 function DocumentColumn({
   api,
   firestore,
+  handles,
   collectionPath,
   selectedId,
   onSelect,
+  onCollectionDeleted,
 }: {
   api: FirestoreApi;
   firestore: Firestore;
+  handles: StudioDataHandles;
   collectionPath: string;
   selectedId: string | null;
   onSelect: (ref: DocumentReference) => void;
+  onCollectionDeleted: () => void;
 }) {
   const collection = useMemo(
     () => collectionAtPath(api, firestore, collectionPath),
@@ -332,10 +353,31 @@ function DocumentColumn({
     },
     [deleteDocument],
   );
+
+  const confirm = useConfirm();
+  const recursiveImpl = useMemo(() => makeRecursiveDeleteImpl(api, handles), [api, handles]);
+  const { delete: runCollectionDelete } = useRecursiveDelete(recursiveImpl);
+  const onDeleteCollection = useCallback(async () => {
+    const ok = await confirm({
+      title: `Delete collection "${collId}"?`,
+      body: 'This deletes every document in it (and their subcollections).',
+      destructive: true,
+      confirmLabel: 'Delete collection',
+    });
+    if (!ok) return;
+    await runCollectionDelete(collection);
+    onCollectionDeleted();
+  }, [confirm, runCollectionDelete, collection, collId, onCollectionDeleted]);
+
   return (
     <section data-pyric-ui="fs-documents" className="fs-pane fs-col">
       <div className="fs-phead">
         <span className="fs-phead-title">{collId}</span>
+        <OverflowMenu
+          items={[
+            { label: 'Delete collection', onSelect: () => void onDeleteCollection(), destructive: true },
+          ]}
+        />
         {!importing ? (
           <span className="fs-phead-actions">
             <button type="button" className="fs-add" onClick={() => setCreating(true)}>
@@ -443,11 +485,12 @@ function DocumentColumn({
   );
 }
 
-/** One document's detail: fields (read) or the typed editor, plus its
- *  subcollections (drillable) and a "+ Collection" affordance that spawns a
- *  SUBCOLLECTION through the same create modal (collection step seeded with
- *  this document's path — it's the tree, composable). The breadcrumb carries
- *  the path, so no in-column path label. */
+/** One document's detail: the Console-style inline-editable field tree, plus
+ *  its subcollections (drillable) and a "+ Collection" affordance that spawns
+ *  a SUBCOLLECTION through the same create modal (collection step seeded
+ *  with this document's path — it's the tree, composable). The breadcrumb
+ *  carries the path, so no in-column path label; the tree owns its own
+ *  header (doc id + the delete-document / delete-fields overflow). */
 function DocumentDetailColumn({
   api,
   firestore,
@@ -456,6 +499,7 @@ function DocumentDetailColumn({
   onOpenSubcollection,
   onReferenceClick,
   onStartCollection,
+  onDeleted,
 }: {
   api: FirestoreApi;
   firestore: Firestore;
@@ -464,16 +508,14 @@ function DocumentDetailColumn({
   onOpenSubcollection: (coll: CollectionReference) => void;
   onReferenceClick: (ref: DocumentReference) => void;
   onStartCollection: () => void;
+  onDeleted: () => void;
 }) {
   const ref = useMemo(() => api.doc(firestore, docPath), [api, firestore, docPath]);
   const [snapshot, setSnapshot] = useState<DocumentSnapshot | null>(null);
   const [tick, setTick] = useState(0);
-  const [editing, setEditing] = useState(false);
-  const [saveError, setSaveError] = useState<Error | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setEditing(false);
     api
       .getDoc(ref)
       .then((snap) => {
@@ -487,7 +529,6 @@ function DocumentDetailColumn({
     };
   }, [api, ref, tick]);
 
-  const data = useMemo(() => (snapshot?.data() as Record<string, unknown>) ?? {}, [snapshot]);
   const listSubcollections = useCallback(
     async (_fs: Firestore, parent: DocumentReference) => {
       const ids = await handles.listSubcollections(parent.path);
@@ -495,98 +536,62 @@ function DocumentDetailColumn({
     },
     [handles, api],
   );
-  const docId = docPath.split('/').pop() ?? docPath;
+
+  const confirm = useConfirm();
+  const recursiveImpl = useMemo(() => makeRecursiveDeleteImpl(api, handles), [api, handles]);
+  const { delete: runDocDelete } = useRecursiveDelete(recursiveImpl);
+  const onDeleteDocument = useCallback(async () => {
+    const ok = await confirm({
+      title: `Delete document "${ref.id}"?`,
+      body: 'This also deletes its subcollections.',
+      destructive: true,
+      confirmLabel: 'Delete document',
+    });
+    if (!ok) return;
+    await runDocDelete(ref);
+    onDeleted();
+  }, [confirm, runDocDelete, ref, onDeleted]);
+
+  const onDeleteDocumentFields = useCallback(async () => {
+    await api.setDoc(ref, {});
+    setTick((n) => n + 1);
+  }, [api, ref]);
+
+  const exists = snapshot != null && snapshotExists(snapshot);
 
   return (
     <section data-pyric-ui="fs-document" className="fs-pane fs-col doc">
-      <div className="fs-phead">
-        <span className="fs-phead-title">{docId}</span>
-        {!editing ? (
+      {!exists ? (
+        <div className="fs-phead">
+          <span className="fs-phead-title">{ref.id}</span>
           <span className="fs-phead-actions">
             <button type="button" className="fs-add" onClick={onStartCollection}>
               + Collection
             </button>
-            <button type="button" onClick={() => setEditing(true)} className="fs-docact">
-              Edit
-            </button>
           </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
-      {editing ? (
-        <DocumentEditPanel
-          key={docPath}
-          initial={data}
-          onCancel={() => setEditing(false)}
-          onSave={async (next) => {
-            setSaveError(null);
-            try {
-              await api.setDoc(ref, next);
-              setEditing(false);
-              setTick((n) => n + 1);
-            } catch (e) {
-              setSaveError(e instanceof Error ? e : new Error(String(e)));
-            }
-          }}
-          error={saveError}
-        />
-      ) : (
-        <DocumentPreview
+      {snapshot && exists ? (
+        <FirestoreDocumentTree
+          key={`${docPath}:${tick}`}
           snapshot={snapshot}
-          className="fs-docbody"
           documentRef={ref}
           firestore={firestore}
           listSubcollections={listSubcollections}
           onReferenceClick={onReferenceClick}
           onSubcollectionClick={onOpenSubcollection}
-          emptyState={<p className="fs-empty">Empty document.</p>}
+          onStartCollection={onStartCollection}
+          onDeleteDocument={() => void onDeleteDocument()}
+          onDeleteDocumentFields={onDeleteDocumentFields}
+          onCommit={async (data) => {
+            await api.setDoc(ref, data);
+            setTick((n) => n + 1);
+          }}
         />
+      ) : (
+        <p className="fs-empty">Empty document.</p>
       )}
     </section>
-  );
-}
-
-/**
- * The document editor: the library's `<DocumentEditor>` (typed per-field editing
- * via the `fieldEditors` registry) over the admin handle. No raw JSON: each
- * field is edited by its type. Save is enabled only when the tree is valid +
- * dirty; `treeToData` recovers the document to write.
- */
-function DocumentEditPanel({
-  initial,
-  onSave,
-  onCancel,
-  error,
-}: {
-  initial: Record<string, unknown>;
-  onSave: (next: Record<string, unknown>) => void | Promise<void>;
-  onCancel: () => void;
-  error: Error | null;
-}) {
-  const [editor, setEditor] = useState<EditorState | null>(null);
-  const canSave = !!editor && editor.isValid && editor.isDirty;
-
-  return (
-    <div className="fs-editor" data-pyric-ui="fs-editor">
-      <DocumentEditor.Root initial={initial} onChange={setEditor}>
-        <DocumentEditor.Fields />
-      </DocumentEditor.Root>
-
-      {error ? <p className="fs-editor__err">{error.message}</p> : null}
-
-      <div className="fs-editor__actions">
-        <button
-          type="button"
-          className="fs-editor__save"
-          disabled={!canSave}
-          onClick={() => editor && void onSave(treeToData(editor.tree))}
-        >
-          Save
-        </button>
-        <button type="button" className="fs-editor__cancel" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </div>
   );
 }
