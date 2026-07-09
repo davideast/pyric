@@ -96,12 +96,6 @@ function LiveRtdbViewer({ live }: { live: WorkerLivePlane }) {
         api={api}
         onNavigate={setPath}
         rootLabel={instanceLabel}
-        emptyState={
-          <p className="rtdb__empty-copy">
-            No data at this location. Use <strong>+</strong> to add a child, or seed RTDB
-            data from your app — writes appear here live.
-          </p>
-        }
       />
     </div>
   );

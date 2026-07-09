@@ -152,20 +152,24 @@ describe('RtdbTree: rendering + lazy expansion', () => {
     );
   });
 
-  it('shows the empty state when the root has no data', () => {
+  it('renders an empty root as the classic `<root>: null` leaf row', () => {
     const { api } = makeFakeApi(null);
     const { container } = render(<Viewer api={api} />);
-    expect(container.querySelector('[data-rtdb-empty]')).not.toBeNull();
+    const root = container.querySelector('[data-rtdb-view-root]')!;
+    expect(root.getAttribute('data-rtdb-kind')).toBe('leaf');
+    expect(root.querySelector('[data-rtdb-key]')!.textContent).toBe('test-sandbox');
+    expect(root.querySelector('[data-rtdb-value]')!.textContent).toBe('null');
   });
 
-  it('renders an empty-object snapshot as the empty root, never "[object Object]"', () => {
+  it('renders an empty-object snapshot as `<root>: null`, never "[object Object]"', () => {
     // An empty database reads back as {} from some backends; RTDB semantics
-    // say {} IS null, so the root must render like the console's empty state.
+    // say {} IS null, so the root must render as the console's `root: null`.
     const { api } = makeFakeApi({});
     const { container } = render(<Viewer api={api} />);
-    expect(container.querySelector('[data-rtdb-empty]')).not.toBeNull();
     expect(container.textContent).not.toContain('[object Object]');
-    expect(container.querySelector('[data-rtdb-kind="leaf"] [data-rtdb-value]')).toBeNull();
+    const root = container.querySelector('[data-rtdb-view-root]')!;
+    expect(root.getAttribute('data-rtdb-kind')).toBe('leaf');
+    expect(root.querySelector('[data-rtdb-value]')!.textContent).toBe('null');
   });
 });
 

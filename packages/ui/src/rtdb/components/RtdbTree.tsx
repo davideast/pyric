@@ -28,8 +28,6 @@ export interface RtdbTreeProps {
   /** Label for the view-root row when the root is `'/'` — the database /
    *  instance identity. Default `'/'`. */
   rootLabel?: ReactNode;
-  /** Shown when the view root holds no data. */
-  emptyState?: ReactNode;
   className?: string;
 }
 
@@ -50,16 +48,10 @@ export interface RtdbTreeProps {
  * Headless: consumers style `[data-pyric-ui="rtdb-tree"]` and the
  * `data-rtdb-*` attributes (`node`, `row`, `caret`, `key`, `sep`, `value`,
  * `actions`, `action-add`, `action-delete`, `confirm`, `editor`, `children`,
- * `show-more`, `error`, `empty`, `loading`).
+ * `show-more`, `error`, `loading`). An empty root renders the console's
+ * classic form — `<root>: null` — not an instructional empty state.
  */
-export function RtdbTree({
-  tree,
-  api,
-  onNavigate,
-  rootLabel = '/',
-  emptyState,
-  className,
-}: RtdbTreeProps) {
+export function RtdbTree({ tree, api, onNavigate, rootLabel = '/', className }: RtdbTreeProps) {
   const { state } = tree;
   const rootSegments = rtdbPathSegments(state.path);
   const rootKey: ReactNode =
@@ -81,7 +73,6 @@ export function RtdbTree({
           path={state.path}
           label={rootKey}
           isViewRoot
-          emptyState={emptyState}
         />
       )}
     </div>
@@ -97,13 +88,11 @@ interface NodeProps {
   /** The key text (or the root label node for the view root at `'/'`). */
   label: ReactNode;
   isViewRoot?: boolean;
-  emptyState?: ReactNode;
 }
 
-function Node({ tree, api, onNavigate, path, label, isViewRoot, emptyState }: NodeProps) {
+function Node({ tree, api, onNavigate, path, label, isViewRoot }: NodeProps) {
   const value = tree.valueAt(path);
   const isParent = hasRtdbChildren(value);
-  const isEmptyRoot = isViewRoot && !isParent && value === null;
   const expanded = tree.isExpanded(path);
 
   const [adding, setAdding] = useState(false);
@@ -162,7 +151,7 @@ function Node({ tree, api, onNavigate, path, label, isViewRoot, emptyState }: No
           {label}
         </button>
 
-        {!isParent && !isEmptyRoot ? (
+        {!isParent ? (
           <>
             <span aria-hidden data-rtdb-sep>
               :
@@ -262,12 +251,6 @@ function Node({ tree, api, onNavigate, path, label, isViewRoot, emptyState }: No
             )
           }
         />
-      ) : null}
-
-      {isEmptyRoot && !adding ? (
-        <div data-rtdb-empty>
-          {emptyState ?? <p>No data at this location. Add a child to get started.</p>}
-        </div>
       ) : null}
 
       {children ? (
