@@ -54,6 +54,7 @@ import {
 } from '../features/action-center/feed.js';
 import {
   selectDenials,
+  selectRuleEvaluations,
   type Denial,
 } from '../features/rules-debug/model.js';
 
@@ -306,6 +307,13 @@ export function useStudioTraffic(): StudioTrafficEvent[] {
 export function useStudioDenials(): Denial[] {
   const events = useStudioEvents();
   return useMemo<Denial[]>(() => selectDenials(events), [events]);
+}
+
+/** ALL rules-evaluated ops (allow AND deny/unsupported), derived from the live
+ *  stream — the Traffic rules inspector's feed (`selectRuleEvaluations`). */
+export function useStudioRuleEvaluations(): Denial[] {
+  const events = useStudioEvents();
+  return useMemo<Denial[]>(() => selectRuleEvaluations(events), [events]);
 }
 
 /**

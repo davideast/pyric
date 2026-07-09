@@ -115,7 +115,7 @@ export function SessionSurface() {
   // service surface. Tapping the whole row keeps a large, mobile-friendly target.
   const routeRow = (row: ActivityRow) => {
     if (row.denied) {
-      nav.navigateDenial(row.id);
+      nav.navigateInspect(row.id);
       return;
     }
     if (!row.target) return;
@@ -262,7 +262,7 @@ export function SessionSurface() {
                   // Drill into the Rules debugger, focused on this cluster's
                   // first denial (its event id correlates to the denial).
                   const id = item.rows[0]?.id;
-                  if (id) nav.navigateDenial(id);
+                  if (id) nav.navigateInspect(id);
                 }}
               >
                 Debug →

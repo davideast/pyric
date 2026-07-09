@@ -46,10 +46,10 @@ describe('home command matcher (navigation only, M4)', () => {
     });
   });
 
-  it('routes "traffic <id>" to a denial focus', () => {
+  it('routes "traffic <id>" to a rules-inspector focus (?inspect=<id>)', () => {
     const results = matchCommands('traffic evt-9', ROUTES);
     expect(results.some((r) => r.target.tab === 'traffic'
-      && r.target.query?.denial === 'evt-9')).toBe(true);
+      && r.target.query?.inspect === 'evt-9')).toBe(true);
   });
 
   it('returns nothing for empty input and caps result count', () => {

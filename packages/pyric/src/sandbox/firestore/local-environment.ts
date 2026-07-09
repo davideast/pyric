@@ -15,7 +15,7 @@ import {
 } from './local-state.js';
 import { OverlayBacking } from './overlay-backing.js';
 import { EventLog, type AgentEvent } from './event-log.js';
-import { SimulateFirestoreRulesHandler, renderLegacyDebugMessages, projectDenyingRule, type DeniedRuleInfo } from 'pyric/rules';
+import { SimulateFirestoreRulesHandler, renderLegacyDebugMessages, projectEvaluatedRule, type EvaluatedRuleInfo } from 'pyric/rules';
 import { lintFirestoreRules, parseToAST, type LintResult } from 'pyric/rules';
 import type {
   TestCase,
@@ -207,9 +207,10 @@ interface EmitRequestInput {
   auth: Operation['auth'];
   result: 'allow' | 'deny' | 'unsupported';
   debugMessages: string[];
-  /** The denying rule's line + sub-expression trace (from `projectDenyingRule`).
-   *  Only surfaced on `result: 'deny'` events (see `buildRequestEvent`). */
-  deniedRule?: DeniedRuleInfo;
+  /** The deciding rule's verdict + line + sub-expression trace (from
+   *  `projectEvaluatedRule`). Surfaced on allow AND deny events (see
+   *  `buildRequestEvent`); never on unsupported. */
+  evaluatedRule?: EvaluatedRuleInfo;
   resourceData?: DocumentData;
   resourceBefore?: { data: DocumentData | null; exists: boolean };
   resourceAfter?: { data: DocumentData | null; exists: boolean };
@@ -280,10 +281,13 @@ function buildRequestEvent(input: EmitRequestInput): import('../types.js').Reque
   }
   const matched = parseMatchedRule(input.debugMessages, input.result);
   if (matched) out.matchedRule = matched;
-  // The structured denying-rule projection (line + expression trace) rides
-  // alongside the flat `reasons`, but only on genuine denials — an allow/
-  // unsupported event has no "rule that denied" to point at.
-  if (input.result === 'deny' && input.deniedRule) out.deniedRule = input.deniedRule;
+  // The structured deciding-rule projection (verdict + line + expression
+  // trace) rides alongside the flat `reasons` on rules-evaluated results —
+  // the allowing rule on an allow, the denying rule on a deny. Unsupported
+  // results have no deciding rule (the simulator abstained).
+  if (input.result !== 'unsupported' && input.evaluatedRule) {
+    out.evaluatedRule = input.evaluatedRule;
+  }
   if (input.groupId !== undefined) {
     out.groupId = input.groupId;
     // Disambiguates 'origin' for consumers that want the group kind
@@ -1334,7 +1338,7 @@ export class LocalEnvironment {
       at: evalAt, evalMs, method: 'get', path, auth,
       result: isAllowed ? 'allow' : 'deny',
       debugMessages: renderLegacyDebugMessages(result),
-      deniedRule: projectDenyingRule(result), origin: 'listener',
+      evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
       resourceBefore: { data, exists: data !== null },
       ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
     });
@@ -1463,7 +1467,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
         debugMessages: renderLegacyDebugMessages(result),
-        deniedRule: projectDenyingRule(result), origin: 'listener',
+        evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
         ...(requestDetail ? { detail: requestDetail } : {}),
         ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
       });
@@ -1478,7 +1482,8 @@ export class LocalEnvironment {
     // one event in the consumer's stream.
     this.emitRequest({
       at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'allow',
-      debugMessages: renderLegacyDebugMessages(result), origin: 'listener',
+      debugMessages: renderLegacyDebugMessages(result),
+      evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
       ...(requestDetail ? { detail: requestDetail } : {}),
       ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
     });
@@ -1960,7 +1965,7 @@ export class LocalEnvironment {
       const debugMessages = renderLegacyDebugMessages(result);
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'deny',
-        debugMessages, deniedRule: projectDenyingRule(result), origin: 'user',
+        debugMessages, evaluatedRule: projectEvaluatedRule(result), origin: 'user',
         ...(detail ? { detail } : {}),
       });
       const error = makeError('permission-denied', `list ${listPath} denied by rules`, {
@@ -1972,7 +1977,8 @@ export class LocalEnvironment {
     // List allowed — one allow event covers the whole query read.
     this.emitRequest({
       at: evalAt, evalMs, method: 'list', path: listPath, auth, result: 'allow',
-      debugMessages: renderLegacyDebugMessages(result), origin: 'user',
+      debugMessages: renderLegacyDebugMessages(result),
+      evaluatedRule: projectEvaluatedRule(result), origin: 'user',
       ...(detail ? { detail } : {}),
     });
     // RULES-B11 — no per-doc `get` filtering: the proof + list rule
@@ -2175,7 +2181,7 @@ export class LocalEnvironment {
         at: evalAt, evalMs, method, path, auth,
         result: isAllowed ? 'allow' : 'deny',
         debugMessages: renderLegacyDebugMessages(result),
-        deniedRule: projectDenyingRule(result),
+        evaluatedRule: projectEvaluatedRule(result),
         origin: 'user',
         ...(method === 'get'
           ? { resourceBefore: { data: this.state.get(path), exists: this.state.get(path) !== null } }
@@ -2372,7 +2378,7 @@ export class LocalEnvironment {
       at: evalAt, evalMs, method, path, auth,
       result: isAllowed ? 'allow' : 'deny',
       debugMessages: renderLegacyDebugMessages(result),
-      deniedRule: projectDenyingRule(result),
+      evaluatedRule: projectEvaluatedRule(result),
       ...(data ? { resourceData: data } : {}),
       resourceBefore: { data: priorDoc, exists: priorDoc !== null },
       ...(method !== 'delete'

@@ -18,7 +18,7 @@ import type {
   SandboxEvent,
   SandboxOperationEvent,
 } from 'pyric/sandbox';
-import type { DeniedRuleInfo, ExprTraceEntry } from 'pyric/rules';
+import type { EvaluatedRuleInfo, ExprTraceEntry } from 'pyric/rules';
 
 type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent;
 
@@ -29,15 +29,23 @@ type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent;
  *  a storage denial-event emitter lands. */
 export type RuleVerdict = NonNullable<SandboxOperationEvent['rules']>;
 
-/** A single denied operation, projected from a `result:'deny'` request event. */
+/**
+ * A single RULES-EVALUATED operation, projected from a request event. Despite
+ * the historical name (the surface began as denial-only), this now covers BOTH
+ * verdicts — `result` says which — so the rules inspector can open allowed ops
+ * too. `selectDenials` still projects only denials; `selectRuleEvaluations`
+ * projects both.
+ */
 export interface Denial {
   /** The originating request event's id (stable React key + correlation). */
   id: string;
   /** Wall-clock at op start (ms since epoch). */
   at: number;
-  /** The operation the rule rejected. */
+  /** The rules verdict for the op. `'unsupported'` = the simulator abstained. */
+  result: 'allow' | 'deny' | 'unsupported';
+  /** The operation the rule evaluated. */
   method: RequestEvent['method'] | string;
-  /** Service whose rules rejected the operation. */
+  /** Service whose rules evaluated the operation. */
   service: 'firestore' | 'auth' | 'storage' | 'rtdb' | string;
   /** Full resource path (e.g. `notes/abc`). */
   path: string;
@@ -58,13 +66,14 @@ export interface Denial {
   resourceData?: unknown;
   /** Existing doc state the rule saw (`null`/`exists:false` ⇒ absent doc). */
   resourceBefore?: { data: unknown; exists: boolean };
-  /** The denying rule's 1-indexed source line + condition text + sub-expression
-   *  evaluation trace, threaded from the Firestore simulator's structured
-   *  `RuleEvaluation` (`RequestEvent.deniedRule`). Drives the ✗ line marker in
-   *  the rules editor views and the "show the work" step-through. Absent on an
-   *  implicit deny (no rule evaluated), a simulator-error deny, and for
+  /** The DECIDING rule's verdict + 1-indexed source line + condition text +
+   *  sub-expression evaluation trace, threaded from the Firestore simulator's
+   *  structured `RuleEvaluation` (`RequestEvent.evaluatedRule`): the allowing
+   *  rule on an allow, the denying rule on a deny. Drives the ✓/✗ line marker
+   *  in the rules editor views and the "show the work" step-through. Absent on
+   *  an implicit deny (no rule evaluated), a simulator-error deny, and for
    *  RTDB/Storage (which don't emit a Firestore sub-expression trace). */
-  denyingRule?: DeniedRuleInfo;
+  evaluatedRule?: EvaluatedRuleInfo;
   /** Where the op came from (user op, listener re-eval, batch, transaction). */
   origin: RequestEvent['origin'] | SandboxOperationEvent['origin'];
   /** `'unsupported'` denials (simulator hit an unmodelled feature) are flagged
@@ -77,6 +86,16 @@ function isDeniedRequest(e: SandboxEvent): e is DeniedSandboxEvent {
   return (
     (e.kind === 'request' || e.kind === 'operation') &&
     (e.result === 'deny' || e.result === 'unsupported')
+  );
+}
+
+/** Type guard: a request event the rules engine EVALUATED — allow, deny, or
+ *  unsupported. Excludes non-rule results (not-applicable, error) so the rules
+ *  inspector only ever opens ops that actually went through a rules engine. */
+function isRulesEvaluatedRequest(e: SandboxEvent): e is DeniedSandboxEvent {
+  return (
+    (e.kind === 'request' || e.kind === 'operation') &&
+    (e.result === 'allow' || e.result === 'deny' || e.result === 'unsupported')
   );
 }
 
@@ -109,11 +128,27 @@ export function selectDenials(events: readonly SandboxEvent[]): Denial[] {
   return out.sort((a, b) => b.at - a.at);
 }
 
-/** Project one `result:'deny'`/`'unsupported'` request event to a {@link Denial}. */
+/**
+ * Project the unified event stream down to ALL rules-evaluated operations
+ * (allow AND deny/unsupported), newest first — the rules inspector's feed.
+ * Same projection as {@link selectDenials} without the deny-only filter.
+ */
+export function selectRuleEvaluations(events: readonly SandboxEvent[]): Denial[] {
+  const out: Denial[] = [];
+  for (const e of events) {
+    if (!isRulesEvaluatedRequest(e)) continue;
+    out.push(toDenial(e));
+  }
+  return out.sort((a, b) => b.at - a.at);
+}
+
+/** Project one rules-evaluated request event to a {@link Denial}. */
 export function toDenial(e: DeniedSandboxEvent): Denial {
   const d: Denial = {
     id: e.id,
     at: e.at,
+    result:
+      e.result === 'allow' ? 'allow' : e.result === 'unsupported' ? 'unsupported' : 'deny',
     method: e.method,
     service: serviceOf(e),
     path: e.path ?? '(service)',
@@ -123,7 +158,7 @@ export function toDenial(e: DeniedSandboxEvent): Denial {
     unsupported: e.result === 'unsupported',
   };
   if ('matchedRule' in e && e.matchedRule) d.matchedRule = e.matchedRule;
-  if ('deniedRule' in e && e.deniedRule) d.denyingRule = e.deniedRule;
+  if ('evaluatedRule' in e && e.evaluatedRule) d.evaluatedRule = e.evaluatedRule;
   if ('rules' in e && e.rules) d.rules = e.rules;
   const requestData = requestDataOf(e);
   if (requestData !== undefined) d.resourceData = requestData;
@@ -175,6 +210,13 @@ export interface RuleExplanation {
   ruleLines: string[];
   otherLines: string[];
   implicitDeny: boolean;
+  /** True when the event is marked `allow` but carries NO rules evaluation at
+   *  all (no matchedRule, no engine verdict, no evaluatedRule, no per-rule
+   *  trace lines). That means rules likely never ran — an admin-bypass op from
+   *  a worker that didn't stamp its lens, or a mislabel. The UI must NOT
+   *  render a matched rule / ✓ marker / trace / re-runs for it; it says so
+   *  explicitly instead. */
+  noEvaluation?: boolean;
 }
 
 const RULE_LINE = /^Rule #(\d+) \(([^)]+)\) → (ALLOW|deny|unsupported)/;
@@ -204,6 +246,51 @@ export function explainDenial(denial: Denial): RuleExplanation {
     return {
       headline: `The simulator hit an unmodelled rules feature evaluating ${denial.method} ${denial.path}.`,
       engine,
+      ruleLines,
+      otherLines,
+      implicitDeny: false,
+    };
+  }
+
+  // An ALLOWED op: the deciding rule GRANTED access. Explained generically for
+  // any engine — the interesting per-engine detail (rule node, expression,
+  // bindings) is still projected below for Firestore/RTDB from the same fields.
+  if (denial.result === 'allow') {
+    if (engine === 'firestore' && denial.matchedRule) {
+      const r = denial.matchedRule;
+      const ruleNode = `Rule #${r.ruleIndex} (${r.operations.join(', ')})`;
+      return {
+        headline: `${ruleNode} allowed ${denial.method} on ${denial.path}.`,
+        engine,
+        ruleNode,
+        ruleLines,
+        otherLines,
+        implicitDeny: false,
+      };
+    }
+    // Honesty guard: `result: 'allow'` with NO recorded rules evaluation at
+    // all. Rules likely never ran (an admin-bypass op whose lens wasn't
+    // stamped by an older worker, or a mislabel) — say so rather than render
+    // a "Rules allowed …" claim with an undefined matched rule.
+    const noEvaluation =
+      !denial.matchedRule &&
+      !denial.rules &&
+      !denial.evaluatedRule &&
+      ruleLines.length === 0;
+    if (noEvaluation) {
+      return {
+        headline: `This ${denial.method} on ${denial.path} succeeded, but no rules evaluation was recorded for it — rules likely never ran (an admin/bypass operation from a worker that didn't stamp its lens, or a pre-provenance event).`,
+        engine,
+        ruleLines,
+        otherLines,
+        implicitDeny: false,
+        noEvaluation: true,
+      };
+    }
+    return {
+      headline: `Rules allowed ${denial.method} on ${denial.path}.`,
+      engine,
+      ...(denial.rules?.matchedRule ? { ruleExpression: denial.rules.matchedRule } : {}),
       ruleLines,
       otherLines,
       implicitDeny: false,
@@ -380,6 +467,7 @@ export function rerunSupport(denial: Denial): ServiceRerunSupport {
 export type DenialSeverity = 'low' | 'medium' | 'high';
 
 export function denialSeverity(denial: Denial): DenialSeverity {
+  if (denial.result === 'allow') return 'low';
   if (denial.unsupported) return 'high';
   if (denial.origin === 'listener') return 'low';
   if (explainDenial(denial).implicitDeny) return 'medium';
@@ -439,7 +527,7 @@ function classifyOutcome(e: ExprTraceEntry): TraceStep['outcome'] {
  * no expression trace (implicit deny, simulator-error deny, RTDB/Storage).
  */
 export function projectTraceSteps(denial: Denial): TraceStep[] {
-  const entries = denial.denyingRule?.expressionTrace;
+  const entries = denial.evaluatedRule?.expressionTrace;
   if (!entries || entries.length === 0) return [];
   const nodes: TraceStep[] = entries.map((e) => ({
     source: e.source,

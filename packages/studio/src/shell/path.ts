@@ -8,7 +8,7 @@
  *   tab    the shell RouteId (first path segment); `router.ts` routes on it.
  *   rest   in-service location: a Firestore doc/collection path, a Storage
  *          object path, or an Auth uid. `features/data/navigation.tsx` maps it.
- *   query  per-surface state: `denial` (the Traffic surface focus). There is
+ *   query  per-surface state: `inspect` (the Traffic rules-inspector focus). There is
  *          no lens param — data views are always admin (M2/M3).
  *
  * This ports the hash codec's shape (`#<tab>/<rest>?<query>`) verbatim; only

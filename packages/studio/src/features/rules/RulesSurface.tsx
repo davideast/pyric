@@ -356,8 +356,8 @@ export function RulesSurface() {
   // fresh jump (new id) re-applies. Mirrors how the data surfaces honor a
   // cross-ref target.
   useEffect(() => {
-    if (nav.selectedDenialId) setSelectedId(nav.selectedDenialId);
-  }, [nav.selectedDenialId]);
+    if (nav.selectedInspectId) setSelectedId(nav.selectedInspectId);
+  }, [nav.selectedInspectId]);
 
   const ops = useMemo<DeniedOp[]>(() => selectDeniedOps(events), [events]);
 

@@ -1691,18 +1691,30 @@ export async function handleMessage(
   port: PortLike,
   msg: InboundMessage,
 ): Promise<void> {
-  // Op provenance: a client that DECLARED itself the issuer (`issuer:
-  // 'studio'`, stamped by Studio's worker client — see `setOpIssuer` in
-  // client.ts) gets its op/sub dispatched inside the sandbox's
-  // ambient-provenance window, so the events the op emits synchronously
-  // (rules eval, request/write events) carry `actor: { kind: 'studio' }`.
-  // Bridge-relayed frames are forwarded verbatim without the stamp
-  // (client.ts `relayWorkerOp`), so remote admin/agent traffic is never
-  // mislabeled as Studio's.
+  // Op provenance, stamped MECHANICALLY at dispatch:
+  //   - `actor`: a client that DECLARED itself the issuer (`issuer: 'studio'`,
+  //     stamped by Studio's worker client — see `setOpIssuer` in client.ts)
+  //     gets `actor: { kind: 'studio' }`. Bridge-relayed frames are forwarded
+  //     verbatim without the stamp (client.ts `relayWorkerOp`), so remote
+  //     admin/agent traffic is never mislabeled as Studio's.
+  //   - `authLens`: the op's EFFECTIVE lens (`msg.actAs`) is stamped whenever
+  //     present — independent of issuer declaration, because admin is admin
+  //     regardless of who asked (an agent tool relay's admin op must classify
+  //     as a rules BYPASS in Traffic, not as a rules allow). Without this,
+  //     Firestore admin-lens ops carried no lens on their events and
+  //     `verdictFor` mislabeled the bypass as ALLOW (the RTDB/Firestore
+  //     asymmetry the traffic-metrics work flagged).
+  // Events an emitter already stamped win over the window (stampProvenance
+  // semantics: the event's own field always beats the ambient default).
   const issuer = (msg as { issuer?: 'studio' }).issuer;
-  if (issuer === 'studio' && ctx.sandbox.runWithProvenance) {
-    return ctx.sandbox.runWithProvenance({ actor: { kind: 'studio' } }, () =>
-      dispatchMessage(ctx, port, msg),
+  const actAs = (msg as { actAs?: AuthLens }).actAs;
+  if ((issuer === 'studio' || actAs) && ctx.sandbox.runWithProvenance) {
+    return ctx.sandbox.runWithProvenance(
+      {
+        ...(issuer === 'studio' ? { actor: { kind: 'studio' } } : {}),
+        ...(actAs ? { authLens: actAs } : {}),
+      },
+      () => dispatchMessage(ctx, port, msg),
     );
   }
   return dispatchMessage(ctx, port, msg);

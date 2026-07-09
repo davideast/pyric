@@ -236,7 +236,7 @@
   color: var(--ink);
 }
 /* The denied count doubles as the deny-filter toggle (a discoverable entry
-   point to denial inspection without the palette). */
+   point to the rules inspector without the palette). */
 .traffic__tl-deny {
   appearance: none;
   background: none;
@@ -409,7 +409,7 @@
 [data-pyric-traffic-entry][data-verdict='deny'] {
   background: var(--deny-tint);
 }
-.traffic__denial-inspector {
+.traffic__inspector {
   display: grid;
   gap: var(--space-2);
   border-bottom: 1px solid var(--line);
@@ -417,23 +417,23 @@
   background: color-mix(in srgb, var(--deny-tint) 60%, var(--panel));
 }
 /* Standalone form (deep link with no visible row): its own bordered block. */
-.traffic > .traffic__denial-inspector {
+.traffic > .traffic__inspector {
   border: 1px solid var(--line);
   border-radius: 10px;
 }
-.traffic__denial-bar {
+.traffic__inspector-bar {
   display: flex;
   align-items: baseline;
   gap: var(--space-3);
 }
-.traffic__denial-title {
+.traffic__inspector-title {
   color: var(--faint);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   font-size: 10px;
   font-weight: 600;
 }
-.traffic__denial-close {
+.traffic__inspector-close {
   appearance: none;
   margin-left: auto;
   background: none;
@@ -444,10 +444,10 @@
   font-size: var(--fs-caption);
   cursor: pointer;
 }
-.traffic__denial-close:hover {
+.traffic__inspector-close:hover {
   color: var(--ink);
 }
-.traffic__denial-missing {
+.traffic__inspector-missing {
   margin: 0;
   color: var(--muted);
   font-size: var(--fs-caption);

@@ -71,7 +71,7 @@ export function toActivityRow(event: SandboxEvent): ActivityRow | null {
         ...base,
         denied: true,
         summary: `denied ${event.method} /${event.path}`,
-        target: { tab: 'traffic', query: { denial: event.id } },
+        target: { tab: 'traffic', query: { inspect: event.id } },
       };
     case 'operation': {
       if (event.result === 'deny') {
@@ -79,7 +79,7 @@ export function toActivityRow(event: SandboxEvent): ActivityRow | null {
           ...base,
           denied: true,
           summary: `denied ${event.service} ${event.method}${event.path ? ` ${event.path}` : ''}`,
-          target: { tab: 'traffic', query: { denial: event.id } },
+          target: { tab: 'traffic', query: { inspect: event.id } },
         };
       }
       return null; // allowed operations mirror request/commit coverage
