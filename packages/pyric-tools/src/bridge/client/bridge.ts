@@ -290,6 +290,7 @@ export function connectBridge(
       assertJsonSafeRelayValue(`op '${req.op.method}'`, value);
       send({ type: 'worker-res', id: req.id, ok: true, value });
     } catch (err) {
+      const denialContext = (err as { denialContext?: unknown }).denialContext;
       send({
         type: 'worker-res',
         id: req.id,
@@ -297,6 +298,9 @@ export function connectBridge(
         error: {
           code: (err as { code?: string }).code ?? 'unknown',
           message: err instanceof Error ? err.message : String(err),
+          // Structured denial context (spike gap 6) — plain JSON, relayed
+          // verbatim so the Node side re-attaches it.
+          ...(denialContext !== undefined ? { denialContext } : {}),
         },
       });
     }
@@ -332,6 +336,7 @@ export function connectBridge(
     } catch (err) {
       // Synchronous establishment failure — relay it via the worker host's
       // snap-error convention so the far side's subscribe can reject.
+      const denialContext = (err as { denialContext?: unknown }).denialContext;
       send({
         type: 'worker-snap',
         subId: req.subId,
@@ -339,6 +344,7 @@ export function connectBridge(
           __error: {
             code: (err as { code?: string }).code ?? 'unknown',
             message: err instanceof Error ? err.message : String(err),
+            ...(denialContext !== undefined ? { denialContext } : {}),
           },
         },
       });

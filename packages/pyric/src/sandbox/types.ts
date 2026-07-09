@@ -903,13 +903,20 @@ export type EventActor =
 /**
  * The auth lens an operation ran under: `admin` bypasses rules, `as` evaluates
  * rules as a specific uid (impersonation — the rules-debugging primitive),
- * `app-session` is the app's own signed-in user. Mirrors the worker's per-op
- * `actAs`. Absent ⇒ `app-session`.
+ * `app-session` is the app's own signed-in user, and `anon` is a genuinely
+ * UNAUTHENTICATED context (`withAuth(null)` — `request.auth == null` in rules).
+ * Mirrors the worker's per-op `actAs`. Absent ⇒ `app-session`.
+ *
+ * `anon` vs absent matters for RELAYED ops (the remote sandbox): an op with no
+ * lens resolves to the browser tab's port session — whoever happens to be
+ * signed in in the tab. Remote code that means "no auth" must pin
+ * `{ mode: 'anon' }` explicitly, or it silently runs as the tab's user.
  */
 export type AuthLens =
   | { mode: 'admin' }
   | { mode: 'as'; uid: string; token?: Record<string, unknown> }
-  | { mode: 'app-session' };
+  | { mode: 'app-session' }
+  | { mode: 'anon' };
 
 /**
  * Provenance carried by every {@link SandboxEvent}. All fields are OPTIONAL and

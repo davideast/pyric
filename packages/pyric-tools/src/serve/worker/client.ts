@@ -69,6 +69,9 @@ import type {
   GroupRef,
   QueryDescriptor,
   QueryConstraintDescriptor,
+  FilterConstraintDescriptor,
+  AggregateFieldDescriptor,
+  AggregateSpecDescriptor,
   TargetDescriptor,
   SentinelMarker,
   WriteDescriptor,
@@ -237,8 +240,17 @@ function wirePort(port: MessagePort): void {
       if (msg.ok) {
         pending.resolve(msg.value);
       } else {
-        const err = new Error(msg.error.message) as Error & { code: string };
+        const err = new Error(msg.error.message) as Error & {
+          code: string;
+          denialContext?: unknown;
+        };
         err.code = msg.error.code;
+        // Structured denial context (spike gap 6): re-attach so consumers —
+        // and the bridge relay, which re-serializes thrown errors — see the
+        // same shape a local SandboxError carries.
+        if (msg.error.denialContext !== undefined) {
+          err.denialContext = msg.error.denialContext;
+        }
         pending.reject(err);
       }
     } else if (msg.t === 'snap') {
@@ -248,9 +260,10 @@ function wirePort(port: MessagePort): void {
       // "signed out" payload, not an error, so guard the __error sniff.
       const value = (msg.value ?? {}) as Record<string, unknown>;
       if (value.__error) {
-        const errPayload = value.__error as { code: string; message: string };
-        const err = new Error(errPayload.message) as Error & { code: string };
+        const errPayload = value.__error as { code: string; message: string; denialContext?: unknown };
+        const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown };
         err.code = errPayload.code;
+        if (errPayload.denialContext !== undefined) err.denialContext = errPayload.denialContext;
         // Surface an unobserved listener error instead of swallowing it — the
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).
@@ -580,6 +593,45 @@ export function where(field: string, op: string, value: unknown): QueryConstrain
   return { _descriptor: { kind: 'where', field, op, value } };
 }
 
+/**
+ * Extract a constraint's FILTER descriptor for composite embedding — throws
+ * the same TypeError `pyric/firestore`'s `and()`/`or()` raise when handed a
+ * non-filter (`orderBy` / `limit` / cursors are not valid inside composites).
+ */
+function toFilterDescriptor(
+  kind: 'and' | 'or',
+  c: QueryConstraintHandle,
+): FilterConstraintDescriptor {
+  const d = c._descriptor;
+  if (d.kind !== 'where' && d.kind !== 'and' && d.kind !== 'or') {
+    throw new TypeError(
+      `pyric worker client: ${kind}() received a non-filter constraint (orderBy / limit are not valid here).`,
+    );
+  }
+  return d;
+}
+
+function composite(kind: 'and' | 'or', filters: QueryConstraintHandle[]): QueryConstraintHandle {
+  if (filters.length === 0) {
+    throw new TypeError(`pyric worker client: ${kind}() requires at least one filter argument.`);
+  }
+  return { _descriptor: { kind, filters: filters.map((f) => toFilterDescriptor(kind, f)) } };
+}
+
+/**
+ * OR composite filter — at least one operand must match. Operands must be
+ * filters (`where()`, or nested `or()`/`and()`). Mirrors `pyric/firestore`'s
+ * `or(...)`; the worker rebuilds it with the real modular factory.
+ */
+export function or(...filters: QueryConstraintHandle[]): QueryConstraintHandle {
+  return composite('or', filters);
+}
+
+/** AND composite filter — every operand must match. See {@link or}. */
+export function and(...filters: QueryConstraintHandle[]): QueryConstraintHandle {
+  return composite('and', filters);
+}
+
 export function orderBy(field: string, direction?: 'asc' | 'desc'): QueryConstraintHandle {
   return { _descriptor: { kind: 'orderBy', field, direction } };
 }
@@ -839,6 +891,45 @@ export async function getCountFromServer(
       : (source as QueryHandle).descriptor,
   }) as { count: number };
   return { data: () => ({ count: result.count }) };
+}
+
+// ─── Multi-field aggregates (count / sum / average) ───────────────────────
+
+/** Factory: count() aggregate field. Mirrors `pyric/firestore`'s `count()`. */
+export function count(): AggregateFieldDescriptor {
+  return { kind: 'count' };
+}
+
+/** Factory: sum-of-`field` aggregate. Mirrors `pyric/firestore`'s `sum()`. */
+export function sum(field: string): AggregateFieldDescriptor {
+  return { kind: 'sum', field };
+}
+
+/** Factory: average-of-`field` aggregate. Empty input yields `null`. */
+export function average(field: string): AggregateFieldDescriptor {
+  return { kind: 'average', field };
+}
+
+/**
+ * Run a multi-field aggregate on the worker. Mirrors `pyric/firestore`'s
+ * `getAggregateFromServer(query, spec)`: spec entries are keyed by
+ * caller-chosen aliases; `.data()` returns the numbers under the same keys
+ * (`average` over no rows is `null`).
+ */
+export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
+  source: CollRefHandle | QueryHandle,
+  spec: S,
+): Promise<{ data(): { [K in keyof S]: number | null } }> {
+  const result = await dataRpc(source.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'aggregate',
+    source: source.__kind === 'coll-ref'
+      ? (source as CollRefHandle).descriptor
+      : (source as QueryHandle).descriptor,
+    spec,
+  }) as { data: { [K in keyof S]: number | null } };
+  return { data: () => result.data };
 }
 
 // ─── onSnapshot ──────────────────────────────────────────────────────────

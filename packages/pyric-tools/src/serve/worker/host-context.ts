@@ -51,6 +51,15 @@ export interface HostCtx {
   /** Per-uid/token Storage handles for the impersonation lens (rules evaluate
    *  as that user). Mirrors {@link HostCtx.lensRtdbs}. */
   lensStorages?: Map<string, FirebaseStorage>;
+  /** Cached genuinely-UNAUTHENTICATED Firestore handle for the
+   *  `{ mode: 'anon' }` lens — `getFirestore(sandbox.withAuth(null))`, so
+   *  rules evaluate with `request.auth == null`. The remote arm's
+   *  `withAuth(null)`; distinct from an absent lens (the port's session). */
+  anonDb?: Firestore;
+  /** Cached unauthenticated RTDB handle for the `{ mode: 'anon' }` lens. */
+  anonRtdb?: Database;
+  /** Cached unauthenticated Storage handle for the `{ mode: 'anon' }` lens. */
+  anonStorage?: FirebaseStorage;
   /** Per-uid RTDB handles carrying a port session's real identity. */
   sessionRtdbs?: Map<string, Database>;
   /** Per-uid/token RTDB handles for the Studio impersonation lens. */
@@ -170,6 +179,7 @@ export function ok(port: PortLike, id: string, value: unknown): void {
 }
 
 export function fail(port: PortLike, id: string, err: unknown): void {
-  const { code, message } = serializeError(err);
-  post(port, { t: 'res', id, ok: false, error: { code, message } });
+  // The serialized error carries `denialContext` when present (spike gap 6) —
+  // post it whole so the structured denial frame reaches remote consumers.
+  post(port, { t: 'res', id, ok: false, error: serializeError(err) });
 }

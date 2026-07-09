@@ -32,10 +32,14 @@ import type {
 } from 'pyric/sandbox/admin-compat';
 import type { LintResult } from 'pyric/rules';
 
-import type { Sandbox, SandboxContext } from 'pyric/sandbox';
-import { isRemoteSandbox } from '../remote.js';
+import { isRemoteSandbox, SandboxError, type AuthLens, type AuthState, type Sandbox, type SandboxContext } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { CONTEXT_SYMBOL, registerOnSnapshotImpl, wrapWithErrorTranslation } from './error-translation.js';
+import {
+  createRemoteFirestore,
+  getRemoteSnapshotRegistrar,
+  registerRemoteOnSnapshotImpl,
+} from './remote.js';
 
 // Re-export commonly-needed foundation types so most consumers can
 // import everything from `pyric-admin`. Anyone needing more reaches
@@ -198,15 +202,14 @@ function buildFirestoreHandle(
   ctx: SandboxContext,
   bypassRules = false,
 ): SandboxFirestore {
-  // Remote-branded sandboxes have no local engine; without this check the
-  // ctx-form dies later with a misleading `invalid-argument` from
-  // getInternalEnv. Throw the honest not-yet-supported error up front.
+  // Invariant: remote-branded sandboxes are dispatched to the channel-backed
+  // arm by getFirestore/getAdminFirestore before this builder runs. Reaching
+  // here with a remote ctx means a dispatch bug, not a capability gap.
   if (isRemoteSandbox(ctx.sandbox)) {
     throw new Error(
-      'pyric/sandbox/admin-firestore: Firestore is not yet supported on a ' +
-        'remote sandbox — the bridge currently carries Realtime Database and ' +
-        'Auth. Use pyric/firestore in the browser (or the MCP Firestore ' +
-        'tools) until remote Firestore lands.',
+      'pyric/sandbox/admin-firestore: internal — a remote sandbox context ' +
+        'reached the local engine builder; remote dispatch should have ' +
+        'handled it. Please report this.',
     );
   }
   const delegate = (): Firestore =>
@@ -278,14 +281,34 @@ function buildFirestoreHandle(
 export function getFirestore(ctx: SandboxContext): SandboxFirestore {
   const cached = handleCache.get(ctx);
   if (cached) return cached;
-  // Wrap the raw handle so every operation (and every object returned
-  // from it: `DocumentReference`, `Query`, `WriteBatch`, `Transaction`)
-  // re-throws compat errors as `SandboxError` with structured
-  // `denialContext`. The wrapper also stashes `ctx` on every wrapped
-  // value via CONTEXT_SYMBOL so `onSnapshot` can recover it.
-  const fresh = wrapWithErrorTranslation(buildFirestoreHandle(ctx), ctx);
+  // REMOTE ARM (remote sandbox, slice 2): a remote-branded sandbox has no
+  // in-process engine — return the channel-backed parallel implementation
+  // instead of building the local compat handle. Identity mapping: the
+  // context's frozen auth pins the per-op lens — `withAuth(null)` means
+  // `{ mode: 'anon' }` (an ABSENT lens would silently resolve to the
+  // browser tab's port session), and a signed identity pins
+  // `{ mode: 'as', uid, token? }` with the FULL claims token (the worker
+  // resolves it via `sandbox.withAuth({ uid, token })`, so custom claims
+  // evaluate in rules exactly as on the local arm).
+  const fresh = isRemoteSandbox(ctx.sandbox)
+    ? createRemoteFirestore(ctx.sandbox, lensForAuth(ctx.auth))
+    : // Wrap the raw handle so every operation (and every object returned
+      // from it: `DocumentReference`, `Query`, `WriteBatch`, `Transaction`)
+      // re-throws compat errors as `SandboxError` with structured
+      // `denialContext`. The wrapper also stashes `ctx` on every wrapped
+      // value via CONTEXT_SYMBOL so `onSnapshot` can recover it.
+      wrapWithErrorTranslation(buildFirestoreHandle(ctx), ctx);
   handleCache.set(ctx, fresh);
   return fresh;
+}
+
+/** Map a context's frozen `AuthState` to the worker-relay lens the remote
+ *  arm pins on every op/sub. Never absent — see {@link getFirestore}. */
+function lensForAuth(auth: AuthState): AuthLens {
+  if (auth === null || auth === undefined) return { mode: 'anon' };
+  return auth.token === undefined
+    ? { mode: 'as', uid: auth.uid }
+    : { mode: 'as', uid: auth.uid, token: auth.token };
 }
 
 /**
@@ -343,7 +366,12 @@ export function getAdminFirestore(target: SandboxContext | Sandbox): SandboxFire
     : target.withAuth(null);
   const cached = adminHandleCache.get(ctx);
   if (cached) return cached;
-  const fresh = wrapWithErrorTranslation(buildFirestoreHandle(ctx, true), ctx);
+  // REMOTE ARM: rules bypass rides the worker's `{ mode: 'admin' }` lens
+  // (the same lens Studio's admin surface uses) — identity-agnostic, so
+  // the normalised ctx's auth is irrelevant, exactly like the local path.
+  const fresh = isRemoteSandbox(ctx.sandbox)
+    ? createRemoteFirestore(ctx.sandbox, { mode: 'admin' })
+    : wrapWithErrorTranslation(buildFirestoreHandle(ctx, true), ctx);
   adminHandleCache.set(ctx, fresh);
   return fresh;
 }
@@ -578,6 +606,28 @@ export function onSnapshot(
   // observer registers purely to receive errors — `onNext` stays undefined
   // and `addSnapshotListener` only fires the error path.
 
+  // ── REMOTE ARM: refs minted by the channel-backed handle carry their
+  // own listener registrar — dispatch on it BEFORE any local-engine
+  // resolution (`getInternalEnv` rejects remote handles). The registrar
+  // pins the handle's auth lens on the worker subscription; error
+  // callbacks receive `SandboxError`s with `denialContext` when the
+  // worker carried one.
+  const remoteRegistrar = getRemoteSnapshotRegistrar(reference);
+  if (remoteRegistrar) {
+    if ((options as { [FOLLOWS_CURRENT_USER]?: boolean })[FOLLOWS_CURRENT_USER] === true) {
+      // The live-listener marker is stamped by the modular browser layer,
+      // which never runs against a remote handle — defensive throw so a
+      // future mis-wiring fails loudly instead of silently freezing.
+      throw new SandboxError(
+        'unimplemented',
+        'onSnapshot: live (follows-current-user) listeners are not supported on a ' +
+          'remote sandbox — remote listeners are frozen to the identity of the ' +
+          'context that created the ref.',
+      );
+    }
+    return remoteRegistrar(options, onNext, onError);
+  }
+
   // ── Resolve the context + target from the ref. ──
   const ctx = contextFromRef(reference);
   const env = getInternalEnv(ctx.sandbox);
@@ -670,5 +720,8 @@ function contextFromRef(ref: unknown): SandboxContext {
 // excluded from impl compilation.
 
 // Wire the synthesizer. Done at module init, after `onSnapshot` is
-// fully declared so the function reference is stable.
+// fully declared so the function reference is stable. The remote arm's
+// chainable `ref.onSnapshot(...)` late-binds through the same free
+// function (a static back-import from remote.ts would be a cycle).
 registerOnSnapshotImpl(onSnapshot as (ref: unknown, ...args: unknown[]) => () => void);
+registerRemoteOnSnapshotImpl(onSnapshot as (ref: unknown, ...args: unknown[]) => () => void);

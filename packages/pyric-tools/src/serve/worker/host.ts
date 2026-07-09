@@ -55,6 +55,8 @@ import {
   collectionGroup as pyricCollectionGroup,
   query as pyricQuery,
   where as pyricWhere,
+  and as pyricAnd,
+  or as pyricOr,
   orderBy as pyricOrderBy,
   limit as pyricLimit,
   limitToLast as pyricLimitToLast,
@@ -70,6 +72,8 @@ import {
   addDoc,
   onSnapshot,
   getCountFromServer,
+  getAggregateFromServer,
+  type AggregateSpec,
   runTransaction,
   writeBatch,
   serverTimestamp,
@@ -85,6 +89,10 @@ import {
   type SetOptions,
 } from 'pyric/firestore';
 import type { Sandbox, PersistenceBackend, AuthLens } from 'pyric/sandbox';
+// The canonical value codec (same module the protocol's read path uses) —
+// write payloads rehydrate host-side so marker-shaped scalars from the JSON
+// relay legs are STORED as real wrapper instances (see prepareWriteData).
+import { rehydrateDocValue } from 'pyric/firestore-values';
 import { serializeToBuckets, bundleRecords, parseBundle, deserializeFromBuckets } from 'pyric/sandbox';
 import { sandbox as sandboxOps } from 'pyric/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
@@ -262,21 +270,36 @@ function resolveTarget(
 function resolveConstraint(c: QueryConstraintDescriptor): ReturnType<typeof pyricWhere> {
   switch (c.kind) {
     case 'where':
-      return pyricWhere(c.field, c.op as Parameters<typeof pyricWhere>[1], c.value);
+      // Rehydrate the comparison value (same rationale as prepareWriteData,
+      // spike gap 4, applied to READ inputs): over the JSON relay legs a
+      // Node-side Timestamp/Bytes/GeoPoint arrives as its marker shape;
+      // without rehydration the comparison would see a plain map and the
+      // filter would silently mismatch typed stored values.
+      return pyricWhere(c.field, c.op as Parameters<typeof pyricWhere>[1], rehydrateDocValue(c.value));
+    // Composite filters rebuild through the modular `and`/`or` factories,
+    // which validate operands: an empty composite or a nested non-filter
+    // throws the same TypeError the in-page SDK raises (surfaces as an
+    // error res / snap-error, never a crash).
+    case 'and':
+      return pyricAnd(...c.filters.map(resolveConstraint));
+    case 'or':
+      return pyricOr(...c.filters.map(resolveConstraint));
     case 'orderBy':
       return pyricOrderBy(c.field, c.direction);
     case 'limit':
       return pyricLimit(c.n);
     case 'limitToLast':
       return pyricLimitToLast(c.n);
+    // Cursor values rehydrate for the same reason as `where` values —
+    // `startAfter(<timestamp>)` must position against real Timestamps.
     case 'startAt':
-      return pyricStartAt(...c.values);
+      return pyricStartAt(...c.values.map(rehydrateDocValue));
     case 'startAfter':
-      return pyricStartAfter(...c.values);
+      return pyricStartAfter(...c.values.map(rehydrateDocValue));
     case 'endAt':
-      return pyricEndAt(...c.values);
+      return pyricEndAt(...c.values.map(rehydrateDocValue));
     case 'endBefore':
-      return pyricEndBefore(...c.values);
+      return pyricEndBefore(...c.values.map(rehydrateDocValue));
   }
 }
 
@@ -304,6 +327,14 @@ function resolveSentinels(value: unknown): unknown {
     return value.map(resolveSentinels);
   }
   if (value !== null && typeof value === 'object') {
+    // Leave CLASS instances intact (Timestamp/Bytes/LatLng rehydrated by
+    // prepareWriteData below, or FieldValue objects): walking their entries
+    // into a plain object would strip the prototype the sandbox keys on.
+    // Sentinel markers only ever live in plain JSON containers.
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) {
+      return value;
+    }
     const obj = value as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj)) {
@@ -312,6 +343,28 @@ function resolveSentinels(value: unknown): unknown {
     return out;
   }
   return value;
+}
+
+/**
+ * Prepare an incoming WRITE payload for the sandbox: rehydrate marker-shaped
+ * scalars into REAL wrapper instances, then rebuild FieldValue sentinels.
+ *
+ * WHY REHYDRATE WRITES (spike gap 4): over the JSON relay legs a Node-side
+ * `Timestamp`/`Bytes`/`GeoPoint` arrives as its `toJSON()` marker
+ * (`{ type: 'firestore/timestamp/1.0', … }` or `{ __type: 'timestamp', … }`).
+ * Without rehydration the worker STORES the marker as a plain map — reads
+ * mask the bug (the read path rehydrates), but in-worker rules comparisons
+ * and `orderBy` over that field see a map, not a timestamp. `rehydrateDocValue`
+ * is the same canonical codec the read path / persistence uses, so the wire,
+ * store, and IDB formats stay one format.
+ *
+ * Order matters: rehydration first (it passes `__sentinel` markers through
+ * as plain objects, rehydrating any marker-shaped values nested inside
+ * arrayUnion/arrayRemove), then sentinel resolution (which now skips the
+ * freshly rehydrated class instances — see resolveSentinels).
+ */
+function prepareWriteData(value: unknown): unknown {
+  return resolveSentinels(rehydrateDocValue(value));
 }
 
 function resolveRtdbSentinels(value: unknown): unknown {
@@ -337,6 +390,32 @@ function resolveSentinel(marker: SentinelMarker): unknown {
 }
 
 // ─── Snapshot serialization ───────────────────────────────────────────────
+
+/**
+ * Rebuild a JSON-flattened `Uint8Array` (an index-keyed `{ "0": n, … }`
+ * map) and encode it as base64url without padding — the exact form
+ * `pyric/rules`' `Bytes.toBase64()` emits. Backs the transaction read-set
+ * canonicalizer's handling of prototype-stripped `Bytes` clones.
+ */
+/** Timestamp/Duration stripped-clone key set (they share field names). */
+const TS_CLONE_KEYS = ['typeName', 'seconds', 'nanos'] as const;
+
+/** Does `o` carry EXACTLY these own enumerable keys (no more, no fewer)?
+ *  Backs the transaction canonicalizer's strict clone-shape matching. */
+function hasExactKeys(o: Record<string, unknown>, keys: readonly string[]): boolean {
+  const own = Object.keys(o);
+  return own.length === keys.length && keys.every((k) => k in o);
+}
+
+function indexMapToBase64Url(data: unknown): string {
+  const map = (data ?? {}) as Record<string, number>;
+  const keys = Object.keys(map);
+  const bytes = new Uint8Array(keys.length);
+  for (let i = 0; i < keys.length; i++) bytes[i] = map[String(i)] ?? 0;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 
 /**
  * Serialize a document snapshot to cross-port form.
@@ -387,6 +466,12 @@ function serializeDocSnap(snap: {
  *     reading/writing the same store and emitting events. This is Studio's
  *     "edit anything as admin" surface (F2). Cached on `ctx.adminDb`.
  *
+ *   - `{ mode: 'anon' }` (explicitly unauthenticated): a frozen
+ *     `getFirestore(sandbox.withAuth(null))` handle — rules apply with
+ *     `request.auth == null`. The remote arm's `withAuth(null)`; distinct from
+ *     an ABSENT lens, which resolves to the port's session. Cached on
+ *     `ctx.anonDb`.
+ *
  * WRITE-IMPERSONATION GATING (open micro-decision #1, honoured): the resolver
  * itself is symmetric — an `{ mode: 'as', uid }` lens applies to BOTH reads and
  * writes (a write-as-user is denied/allowed exactly as that user's rules say).
@@ -404,6 +489,15 @@ function lensDb(ctx: HostCtx, actAs?: AuthLens): Firestore {
   // { mode: 'admin' } → a modular rules-bypass handle (cached per ctx).
   if (actAs.mode === 'admin') {
     return (ctx.adminDb ??= pyricGetAdminFirestore(ctx.sandbox));
+  }
+
+  // { mode: 'anon' } → a genuinely UNAUTHENTICATED handle
+  // (`withAuth(null)` — `request.auth == null` in rules). NOT the same as an
+  // absent lens, which resolves to the PORT'S SESSION: a relayed op that
+  // means "no auth" must pin this lens or it silently runs as whoever the
+  // browser tab is signed in as.
+  if (actAs.mode === 'anon') {
+    return (ctx.anonDb ??= pyricGetFirestore(ctx.sandbox.withAuth(null)));
   }
 
   // { mode: 'as', uid } → a frozen-identity handle; rules evaluate as `uid`.
@@ -496,6 +590,10 @@ function lensRtdb(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike): Da
   if (actAs.mode === 'admin') {
     return (ctx.adminRtdb ??= pyricGetAdminDatabase(ctx.sandbox));
   }
+  // Genuinely unauthenticated — see the `anon` note on lensDb.
+  if (actAs.mode === 'anon') {
+    return (ctx.anonRtdb ??= pyricGetDatabase(ctx.sandbox.withAuth(null)));
+  }
 
   const handles = (ctx.lensRtdbs ??= new Map());
   const key = lensCacheKey(actAs);
@@ -543,6 +641,12 @@ function lensStorage(ctx: HostCtx, actAs?: AuthLens): FirebaseStorage {
   }
   if (actAs.mode === 'admin') {
     return (ctx.adminStorage ??= getAdminStorageSandbox(ctx.sandbox));
+  }
+  // Genuinely unauthenticated — see the `anon` note on lensDb. Distinct from
+  // the shared page handle only when the host configured storage rules, but
+  // pinning it keeps remote `withAuth(null)` semantics uniform across services.
+  if (actAs.mode === 'anon') {
+    return (ctx.anonStorage ??= getStorageSandbox(ctx.sandbox.withAuth(null)));
   }
   const handles = (ctx.lensStorages ??= new Map());
   const key = lensCacheKey(actAs);
@@ -686,7 +790,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
     case 'setDoc': {
       try {
         const ref = pyricDoc(db, msg.path);
-        const data = resolveSentinels(msg.data) as Record<string, unknown>;
+        const data = prepareWriteData(msg.data) as Record<string, unknown>;
         await setDoc(ref, data, msg.options as SetOptions | undefined);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -696,7 +800,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
     case 'updateDoc': {
       try {
         const ref = pyricDoc(db, msg.path);
-        const data = resolveSentinels(msg.data) as Record<string, unknown>;
+        const data = prepareWriteData(msg.data) as Record<string, unknown>;
         await updateDoc(ref, data);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -715,7 +819,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
     case 'addDoc': {
       try {
         const coll = pyricCollection(db, msg.collectionPath);
-        const data = resolveSentinels(msg.data) as Record<string, unknown>;
+        const data = prepareWriteData(msg.data) as Record<string, unknown>;
         const ref = await addDoc(coll, data);
         ok(port, msg.id, { id: ref.id, path: ref.path });
       } catch (e) { fail(port, msg.id, e); }
@@ -727,6 +831,18 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
         const source = resolveTarget(db, msg.source);
         const snap = await getCountFromServer(source as Query);
         ok(port, msg.id, { count: snap.data().count });
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'aggregate': {
+      // Multi-field aggregates (count/sum/average). The wire spec is
+      // structurally pyric/firestore's AggregateSpec, so it passes straight
+      // through; the reply data is plain numbers / null (empty-input average).
+      try {
+        const source = resolveTarget(db, msg.source);
+        const snap = await getAggregateFromServer(source as Query, msg.spec as AggregateSpec);
+        ok(port, msg.id, { data: snap.data() });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -798,14 +914,25 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
        * `{ ok: false, error: { code: 'aborted' } }` on the wire. The client's
        * retry loop then re-runs `updateFn` with fresh reads.
        *
-       * SERIALIZED-FORM EQUALITY
-       * ------------------------
-       * Comparing JSON strings is valid here because `serializeDocData` uses
-       * `JSON.stringify(data)` on both sides with the same value codec (the
-       * persistence serializer's toJSON markers). Within a single V8 process
-       * (the worker), `JSON.stringify` is deterministic for objects with the
-       * same insertion-order keys, so string equality ↔ deep equality for
-       * the sandbox's doc data.
+       * SERIALIZED-FORM EQUALITY — VIA THE CANONICAL CODEC
+       * ---------------------------------------------------
+       * Both JSON strings are CANONICALIZED before comparison:
+       * `JSON.stringify(rehydrateDocValue(JSON.parse(json)))`. Raw string
+       * equality is NOT safe here even within one process, because the two
+       * read paths yield DIFFERENT wrapper classes for the same stored
+       * value: `getDoc` (what the client's read-set echoes) returns
+       * `firebase/firestore` classes whose `Timestamp.toJSON()` emits
+       * `{ seconds, nanoseconds, type }`, while the transaction's
+       * validation re-read comes through the admin-compat wrapper whose
+       * `Timestamp.toJSON()` emits `{ type, seconds, nanoseconds }` — same
+       * value, different key order, different string. Rehydrating both
+       * sides through the ONE shared codec (`pyric/firestore-values`)
+       * collapses every marker family into the same wrapper classes with
+       * deterministic `toJSON()` key order, so string equality ↔ value
+       * equality again — an unmodified doc can never phantom-abort (which
+       * would livelock the client's retry loop), while a real concurrent
+       * write still mismatches. Plain-map key order is preserved by both
+       * paths from the same stored object, so it stays comparable.
        *
        * NOTE ON tx.set/update/delete SIGNATURE
        * ---------------------------------------
@@ -817,6 +944,69 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
 
       /** Sentinel thrown inside the transaction callback to signal an abort. */
       const TXN_ABORT = Symbol('txn-abort');
+
+      /**
+       * Canonicalize a serialized doc-data JSON string (see
+       * SERIALIZED-FORM EQUALITY above). Two normalization passes:
+       *
+       *   1. `rehydrateDocValue` collapses the marker families (`__type`
+       *      persistence markers and `firebase/firestore` `toJSON()`
+       *      markers) into the one set of wrapper classes, whose
+       *      `toJSON()` re-emits a single deterministic form.
+       *   2. The stringify replacer additionally normalizes PROTOTYPE-
+       *      STRIPPED wrapper clones — the sandbox transaction's
+       *      capture-by-value `structuredClone` turns a stored rules
+       *      wrapper into a plain `{ typeName, … }` object that neither
+       *      marker family matches, so without this pass an unmodified
+       *      typed doc would never compare equal to the client's getDoc
+       *      echo (a guaranteed phantom abort → retry livelock).
+       */
+      const canonicalDocJson = (json: string): string =>
+        JSON.stringify(rehydrateDocValue(JSON.parse(json)), (_key, v) => {
+          if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
+          const o = v as Record<string, unknown>;
+          if (typeof o.typeName !== 'string' || o.__type !== undefined) return v;
+          // Re-shape a stripped rules-wrapper clone into the wrapper's own
+          // canonical toJSON marker form (kept in sync with pyric/rules'
+          // simulator/wrappers/* instance fields + toJSON()) — but ONLY
+          // when the key set EXACTLY matches that wrapper's own-field
+          // shape. A looser match would silently DROP extra keys from
+          // user data that merely resembles a clone, collapsing two
+          // genuinely different docs into one canonical form and letting
+          // a concurrent write commit undetected (false equality). A
+          // near-miss map passes through unchanged — worst case is a
+          // spurious abort + retry, never a lost update.
+          switch (o.typeName) {
+            case 'timestamp':
+              return hasExactKeys(o, TS_CLONE_KEYS)
+                ? { __type: 'timestamp', seconds: o.seconds, nanos: o.nanos }
+                : v;
+            case 'duration':
+              return hasExactKeys(o, TS_CLONE_KEYS)
+                ? { __type: 'duration', seconds: o.seconds, nanos: o.nanos }
+                : v;
+            case 'latlng':
+              return hasExactKeys(o, ['typeName', 'lat', 'lng'])
+                ? { __type: 'latlng', lat: o.lat, lng: o.lng }
+                : v;
+            case 'reference':
+              return hasExactKeys(o, ['typeName', 'path'])
+                ? { __type: 'reference', path: o.path }
+                : v;
+            case 'path':
+              return hasExactKeys(o, ['typeName', 'segments', 'bindings'])
+                ? { __type: 'path', segments: o.segments }
+                : v;
+            case 'bytes':
+              // The Uint8Array field serialized as an index-keyed map;
+              // rebuild and emit Bytes.toJSON()'s base64url form.
+              return hasExactKeys(o, ['typeName', 'data'])
+                ? { __type: 'bytes', base64: indexMapToBase64Url(o.data) }
+                : v;
+            default:
+              return v;
+          }
+        });
 
       try {
         await runTransaction(db, async (tx) => {
@@ -853,7 +1043,11 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
               // Existence changed (created or deleted by another tab).
               throw TXN_ABORT;
             }
-            if (!clientHadNull && !workerHasNull && r.data!.json !== currentSerialized!.json) {
+            if (
+              !clientHadNull &&
+              !workerHasNull &&
+              canonicalDocJson(r.data!.json) !== canonicalDocJson(currentSerialized!.json)
+            ) {
               // Data changed by another tab.
               throw TXN_ABORT;
             }
@@ -863,10 +1057,10 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
           for (const w of msg.writes) {
             const ref = pyricDoc(db, w.path);
             if (w.method === 'set') {
-              const data = resolveSentinels(w.data) as Record<string, unknown>;
+              const data = prepareWriteData(w.data) as Record<string, unknown>;
               modularTx.set(ref, data, w.options as SetOptions | undefined);
             } else if (w.method === 'update') {
-              const data = resolveSentinels(w.data) as Record<string, unknown>;
+              const data = prepareWriteData(w.data) as Record<string, unknown>;
               modularTx.update(ref, data);
             } else if (w.method === 'delete') {
               modularTx.delete(ref);
@@ -1275,10 +1469,10 @@ function applyWriteToBatch(
   const b = batch as BatchHandle;
   const ref = pyricDoc(db, w.path);
   if (w.method === 'set') {
-    const data = resolveSentinels(w.data) as Record<string, unknown>;
+    const data = prepareWriteData(w.data) as Record<string, unknown>;
     b.set(ref, data, w.options as SetOptions | undefined);
   } else if (w.method === 'update') {
-    const data = resolveSentinels(w.data) as Record<string, unknown>;
+    const data = prepareWriteData(w.data) as Record<string, unknown>;
     b.update(ref, data);
   } else if (w.method === 'delete') {
     b.delete(ref);
@@ -1364,8 +1558,7 @@ function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void
     // query or a rules-rejected target). Deliver it to the client's onSnapshot
     // error callback as a snap-error instead of letting it escape handleMessage
     // as an unhandled rejection (which would silently deliver NOTHING).
-    const { code, message } = serializeError(e);
-    post(port, { t: 'snap', subId: msg.subId, value: { __error: { code, message } } });
+    post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
     return;
   }
 
@@ -1390,8 +1583,7 @@ function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessage): 
     );
     portSubs.set(msg.subId, unsub);
   } catch (e) {
-    const { code, message } = serializeError(e);
-    post(port, { t: 'snap', subId: msg.subId, value: { __error: { code, message } } });
+    post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
   }
 }
 
@@ -1440,8 +1632,7 @@ function registerListener(
       // Snapshot listener error (e.g. rules changed to deny).
       // We forward as a snap with an __error field so the client can
       // surface it to the original onSnapshot error callback.
-      const { code, message } = serializeError(err);
-      post(port, { t: 'snap', subId: msg.subId, value: { __error: { code, message } } });
+      post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(err) } });
     },
   );
 }
