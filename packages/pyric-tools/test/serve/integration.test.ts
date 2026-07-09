@@ -216,7 +216,7 @@ describe('hosting config helpers', () => {
 });
 
 describe('/__pyric/capture endpoint (serve-capture)', () => {
-  it('POST writes fixture to .pyric/last-session.json; GET returns 405', async () => {
+  it('POST writes fixture to .pyric/last-session.json; GET reads it back (worker boot hydration)', async () => {
     // The browser-push half of capture (the onEvent flush in runtime.ts) runs
     // only in a real browser — this test asserts the SERVER endpoint + file
     // write, which is the node-testable surface.
@@ -234,10 +234,16 @@ describe('/__pyric/capture endpoint (serve-capture)', () => {
     };
 
     // 1. POST → 204 and the file is written
+    // 0. Before any POST, GET → 404 (nothing captured; worker boot skips
+    //    hydration cleanly).
+    const empty = await fetch(`${base}/__pyric/capture`, { method: 'GET' });
+    expect(empty.status).toBe(404);
+
+    const body = JSON.stringify(fixture);
     const postRes = await fetch(`${base}/__pyric/capture`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(fixture),
+      body,
     });
     expect(postRes.status).toBe(204);
     expect(existsSync(capturePath)).toBe(true);
@@ -248,10 +254,17 @@ describe('/__pyric/capture endpoint (serve-capture)', () => {
     expect(written.state).toEqual(fixture.state);
     expect(written.events).toEqual(fixture.events);
 
-    // 3. Non-POST → 405
+    // 3. GET now returns the stored fixture verbatim (the worker's boot-time
+    //    event-history hydration reads it).
     const getRes = await fetch(`${base}/__pyric/capture`, { method: 'GET' });
-    expect(getRes.status).toBe(405);
-    expect(getRes.headers.get('allow')).toBe('POST');
+    expect(getRes.status).toBe(200);
+    expect(getRes.headers.get('content-type')).toContain('json');
+    expect(await getRes.text()).toBe(body);
+
+    // 4. An unsupported method → 405 advertising GET, POST.
+    const delRes = await fetch(`${base}/__pyric/capture`, { method: 'DELETE' });
+    expect(delRes.status).toBe(405);
+    expect(delRes.headers.get('allow')).toBe('GET, POST');
   }, 30_000);
 
   it('capture: false omits the route (static server falls through)', async () => {

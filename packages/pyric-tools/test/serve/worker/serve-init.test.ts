@@ -18,9 +18,12 @@ import {
 } from '../../../src/serve/worker/host.js';
 import {
   applyServeInit,
+  buildWorkerCtx,
   createWorkerDurableBackend,
+  hydrateEventHistory,
   setupServerAuthFlush,
   setupWorkerHotReload,
+  MAX_PRIMED_EVENTS,
   type EventSourceLike,
 } from '../../../src/serve/worker/serve-init.js';
 import type { InitPayload } from '../../../src/serve/namespace.js';
@@ -400,5 +403,184 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
 
     dispose();
     expect(es.closed).toBe(true);
+  });
+});
+
+// ─── Event-history hydration: survive worker death ──────────────────────────
+
+/** A capture fixture with `n` events, optionally stamped with `capturedBy`. */
+function captureFixture(n: number, capturedBy?: string): string {
+  const events = Array.from({ length: n }, (_, i) => ({
+    kind: 'service_mutation',
+    id: `cap-${i}`,
+    at: i,
+  }));
+  return JSON.stringify({
+    schema: 'pyric.verify.fixture.v1',
+    ...(capturedBy ? { capturedBy } : {}),
+    events,
+    services: {},
+  });
+}
+
+/** A fetch that answers GET /__pyric/capture with `captureBody` (or 404 when
+ *  null). Any other GET / POST resolves 204. */
+function captureFetch(captureBody: string | null): typeof fetch & { calls: string[] } {
+  const calls: string[] = [];
+  const fn = ((url: string, init?: { method?: string }) => {
+    calls.push(String(url));
+    if ((init?.method ?? 'GET') === 'GET' && String(url) === '/__pyric/capture') {
+      return captureBody === null
+        ? Promise.resolve({ status: 404, ok: false, text: () => Promise.resolve('null') } as Response)
+        : Promise.resolve({ status: 200, ok: true, text: () => Promise.resolve(captureBody) } as Response);
+    }
+    return Promise.resolve({ status: 204, ok: true, text: () => Promise.resolve('') } as Response);
+  }) as typeof fetch & { calls: string[] };
+  fn.calls = calls;
+  return fn;
+}
+
+describe('hydrateEventHistory — Traffic/activity survives worker death', () => {
+  it('primes eventHistory from the served capture on a fresh worker', async () => {
+    const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
+    const primed = await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(3, 'inst-A')) });
+    expect(primed).toBe(3);
+    expect(ctx.sandbox.history().map((e) => e.id)).toEqual(['cap-0', 'cap-1', 'cap-2']);
+  });
+
+  it('does NOT dispatch primed events to live onEvent subscribers (append-only)', async () => {
+    const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
+    const seen: string[] = [];
+    ctx.sandbox.onEvent((e) => void seen.push(e.id));
+    await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(3, 'inst-A')) });
+    // History has them (Studio reads history-first)…
+    expect(ctx.sandbox.history()).toHaveLength(3);
+    // …but no live re-emission to already-attached subscribers.
+    expect(seen).toEqual([]);
+  });
+
+  it('skips when history is already non-empty (empty-history guard)', async () => {
+    const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
+    // A live write lands one real event first (client setDoc emits a request
+    // event; admin writes deliberately don't).
+    const port = fakePort();
+    await handleMessage(ctx, port, { t: 'op', id: 'w1', method: 'setDoc', path: 'a/b', data: { x: 1 } });
+    const before = ctx.sandbox.history().length;
+    expect(before).toBeGreaterThan(0);
+    const primed = await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(3, 'inst-A')) });
+    expect(primed).toBe(0);
+    expect(ctx.sandbox.history().length).toBe(before);
+  });
+
+  it(`caps priming at the most recent ${MAX_PRIMED_EVENTS} events`, async () => {
+    const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
+    const primed = await hydrateEventHistory(ctx, {
+      fetch: captureFetch(captureFixture(MAX_PRIMED_EVENTS + 50, 'inst-A')),
+    });
+    expect(primed).toBe(MAX_PRIMED_EVENTS);
+    const hist = ctx.sandbox.history();
+    // Kept the tail (most recent), dropped the oldest 50.
+    expect(hist).toHaveLength(MAX_PRIMED_EVENTS);
+    expect(hist[0].id).toBe('cap-50');
+    expect(hist.at(-1)!.id).toBe(`cap-${MAX_PRIMED_EVENTS + 49}`);
+  });
+
+  it('skips a capture produced by a DIFFERENT instance (identity guard)', async () => {
+    const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
+    const primed = await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(3, 'inst-OTHER')) });
+    expect(primed).toBe(0);
+    expect(ctx.sandbox.history()).toHaveLength(0);
+  });
+
+  it('primes best-effort when the capture carries no instance id (older/standalone)', async () => {
+    const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
+    const primed = await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(2)) });
+    expect(primed).toBe(2);
+  });
+
+  it('skips cleanly on 404 (capture off / nothing captured yet)', async () => {
+    const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
+    const primed = await hydrateEventHistory(ctx, { fetch: captureFetch(null) });
+    expect(primed).toBe(0);
+  });
+
+  it('skips cleanly when fetch throws (standalone worker, no pyric dev)', async () => {
+    const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
+    const throwing = (() => Promise.reject(new Error('offline'))) as unknown as typeof fetch;
+    const primed = await hydrateEventHistory(ctx, { fetch: throwing });
+    expect(primed).toBe(0);
+  });
+});
+
+describe('buildWorkerCtx — boot-time hydration + reset non-resurrection', () => {
+  const initJson = (capture: boolean): string =>
+    JSON.stringify({ rules: null, rulesHash: null, bridgeUrl: null, seed: null, capture });
+
+  /** A fetch that serves BOTH /__pyric/init.json and GET /__pyric/capture. */
+  function bootFetch(capture: string | null): typeof fetch {
+    return ((url: string, init?: { method?: string }) => {
+      const u = String(url);
+      const method = init?.method ?? 'GET';
+      if (u === '/__pyric/init.json') {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(initJson(true))) } as Response);
+      }
+      if (u === '/__pyric/capture' && method === 'GET') {
+        return capture === null
+          ? Promise.resolve({ status: 404, ok: false, text: () => Promise.resolve('null') } as Response)
+          : Promise.resolve({ status: 200, ok: true, text: () => Promise.resolve(capture) } as Response);
+      }
+      return Promise.resolve({ status: 204, ok: true, text: () => Promise.resolve(''), json: () => Promise.resolve({}) } as Response);
+    }) as unknown as typeof fetch;
+  }
+
+  it('a booted worker re-hydrates its own session history from the capture', async () => {
+    const idb = createMemoryBackend();
+    const instanceId = await (await import('../../../src/serve/worker/host.js')).getOrCreateInstanceId(idb);
+    const ctx = await buildWorkerCtx({ fetch: bootFetch(captureFixture(4, instanceId)), idb });
+    expect(ctx.sandbox.history().filter((e) => e.id.startsWith('cap-'))).toHaveLength(4);
+  });
+
+  it('does NOT resurrect pre-reset events: a post-reset capture reflects the cleared log', async () => {
+    // 1. Boot, write, capture reflects the write.
+    const store = { body: null as string | null };
+    const captureCapturingFetch = ((url: string, init?: { method?: string; body?: string }) => {
+      const u = String(url);
+      const method = init?.method ?? 'GET';
+      if (u === '/__pyric/init.json') {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(JSON.parse(initJson(true))) } as Response);
+      }
+      if (u === '/__pyric/capture' && method === 'POST') {
+        store.body = String(init?.body ?? ''); // server writes verbatim.
+        return Promise.resolve({ status: 204, ok: true, text: () => Promise.resolve('') } as Response);
+      }
+      if (u === '/__pyric/capture' && method === 'GET') {
+        return store.body === null
+          ? Promise.resolve({ status: 404, ok: false, text: () => Promise.resolve('null') } as Response)
+          : Promise.resolve({ status: 200, ok: true, text: () => Promise.resolve(store.body) } as Response);
+      }
+      return Promise.resolve({ status: 204, ok: true, text: () => Promise.resolve(''), json: () => Promise.resolve({}) } as Response);
+    }) as unknown as typeof fetch;
+
+    const idb = createMemoryBackend();
+    const ctxA = await buildWorkerCtx({ fetch: captureCapturingFetch, idb, captureDebounceMs: 1 });
+    const port = fakePort();
+    await handleMessage(ctxA, port, { t: 'op', id: 'w1', method: 'setDoc', path: 'notes/x', data: { v: 1 } });
+    await tick(10);
+    // Sanity: the pre-reset capture DID hold the write event.
+    expect(store.body).not.toBeNull();
+    expect((JSON.parse(store.body!) as { events: { kind: string }[] }).events.some((e) => e.kind === 'write')).toBe(true);
+
+    // reset() clears history (after the boundary) → capture flush writes the
+    // cleared log. Wait out the debounce + flush.
+    ctxA.sandbox.reset();
+    await tick(30);
+    expect(store.body).not.toBeNull();
+    const afterReset = JSON.parse(store.body!) as { events: { id: string; kind: string }[] };
+    // No pre-reset write event survives in the persisted capture.
+    expect(afterReset.events.every((e) => e.kind !== 'write')).toBe(true);
+
+    // 2. A cold reboot hydrates from that cleared capture → no resurrection.
+    const ctxB = await buildWorkerCtx({ fetch: captureCapturingFetch, idb, captureDebounceMs: 1 });
+    expect(ctxB.sandbox.history().some((e) => e.kind === 'write')).toBe(false);
   });
 });

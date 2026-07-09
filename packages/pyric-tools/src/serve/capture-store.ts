@@ -15,7 +15,7 @@
  * (.pyric/state/…) so it fits the same .gitignore pattern and feels like
  * one artifact family.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /** Relative path (from project root) where the serve capture lives.
@@ -31,6 +31,13 @@ export interface CaptureStore {
    * as-is so `pyric verify` can hand it straight to the replay engine.
    */
   write(fixtureJson: string): void;
+  /**
+   * Read back the last-written fixture JSON verbatim, or `null` when the
+   * capture file does not exist yet (nothing captured this run). Powers
+   * GET /__pyric/capture, which the served SharedWorker fetches on boot to
+   * re-hydrate its in-memory event history after a worker death.
+   */
+  read(): string | null;
 }
 
 /**
@@ -45,6 +52,14 @@ export function createCaptureStore(projectDir: string): CaptureStore {
     write(fixtureJson: string): void {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, fixtureJson);
+    },
+    read(): string | null {
+      try {
+        return readFileSync(path, 'utf8');
+      } catch {
+        // ENOENT (nothing captured yet) or any read error → treat as absent.
+        return null;
+      }
     },
   };
 }

@@ -26,6 +26,7 @@ export { getInternalEnv } from './sandbox-impl.js';
 // envelope (id/at minted from the shared counter) auth/storage/rtdb emit.
 export {
   emitSandboxEvent,
+  primeEventHistory,
   stampProvenance,
   makeSandboxCommitEvent,
   makeSandboxListenerEvent,

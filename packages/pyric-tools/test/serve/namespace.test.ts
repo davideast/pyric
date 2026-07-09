@@ -183,4 +183,46 @@ describe('namespace over the real server', () => {
     expect(await (await fetch(h.url + '/__pyric/playground/playground?embed=studio')).text()).toContain('playground');
     expect((await fetch(h.url + '/__pyric/playground/_astro/app.js')).status).toBe(200);
   });
+
+  it('GET /__pyric/capture returns the fixture (200) or 404 when absent; POST writes it', async () => {
+    const { site, sdk } = fixture();
+    let stored: string | null = null;
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      capture: { write: (json) => { stored = json; }, read: () => stored },
+    });
+    const h = await startStaticServer({
+      publicDir: site,
+      port: 0,
+      host: '127.0.0.1',
+      portScanLimit: 200,
+      logger: silentServeLogger(),
+      namespaceHandler: ns,
+    });
+    handles.push(h);
+
+    // Nothing captured yet → 404 (worker boot skips hydration cleanly).
+    const empty = await fetch(h.url + '/__pyric/capture');
+    expect(empty.status).toBe(404);
+
+    // POST writes verbatim; GET reads it back byte-for-byte.
+    const body = JSON.stringify({ schema: 'pyric.verify.fixture.v1', events: [{ id: 'e1' }], services: {} });
+    const post = await fetch(h.url + '/__pyric/capture', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    });
+    expect(post.status).toBe(204);
+
+    const got = await fetch(h.url + '/__pyric/capture');
+    expect(got.status).toBe(200);
+    expect(got.headers.get('content-type')).toContain('json');
+    expect(await got.text()).toBe(body);
+
+    // Unsupported method → 405 advertising GET, POST.
+    const del = await fetch(h.url + '/__pyric/capture', { method: 'DELETE' });
+    expect(del.status).toBe(405);
+    expect(del.headers.get('allow')).toBe('GET, POST');
+  });
 });
