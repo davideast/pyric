@@ -152,6 +152,17 @@ export class RtdbBackend {
   private nextId = 0;
 
   /**
+   * Persistence change-subscribers. The sandbox persistence controller
+   * registers one of these (via {@link RtdbBackend.subscribeWrites}) so any
+   * tree mutation schedules a debounced flush. RTDB writes emit
+   * `kind: 'service_mutation'` events, which are NOT in the controller's
+   * `isPersistableEvent` set (`write`/`session_boundary`) — so the sandbox
+   * event stream never triggers an RTDB flush. This subscriber channel is
+   * the sole flush trigger, mirroring how auth drives its own flushes.
+   */
+  private readonly writeSubscribers = new Set<() => void>();
+
+  /**
    * The owning `Sandbox`, when this backend was created through the
    * modular surface's `getDatabase(sandbox)` / `getDatabase(ctx)` path.
    * Held only to emit RTDB write activity onto the unified Studio
@@ -367,6 +378,7 @@ export class RtdbBackend {
       );
       this.tree.write(path, resolved);
     }
+    this.notifyWrite();
   }
 
   setRules(rulesJson: { rules: Record<string, unknown> } | null): void {
@@ -422,6 +434,7 @@ export class RtdbBackend {
       replay: { requestTime: now },
       detail: { admin: true },
     });
+    this.notifyWrite();
   }
 
   adminUpdate(path: string, patch: Record<string, JsonValue>): void {
@@ -455,6 +468,7 @@ export class RtdbBackend {
         replay: { requestTime: now },
         detail: { admin: true, multiPath: true, paths: Object.keys(expanded) },
       });
+      this.notifyWrite();
       return;
     }
 
@@ -485,6 +499,7 @@ export class RtdbBackend {
       replay: { requestTime: now },
       detail: { admin: true, multiPath: false, keys: Object.keys(resolvedPatch) },
     });
+    this.notifyWrite();
   }
 
   adminRemove(path: string): void {
@@ -589,6 +604,7 @@ export class RtdbBackend {
       replay: { requestTime: now },
     });
     this.emitRtdbEvent(auth, effectiveOp, canonicalPath(path), { before, after });
+    this.notifyWrite();
   }
 
   remove(auth: AuthState, path: string): void {
@@ -668,6 +684,7 @@ export class RtdbBackend {
         after: expanded,
         detail: { multiPath: true, paths: Object.keys(expanded) },
       });
+      this.notifyWrite();
       return;
     }
     // Shallow merge mode. Each top-level key of `patch` replaces the
@@ -729,6 +746,7 @@ export class RtdbBackend {
       after: resolvedPatch,
       detail: { multiPath: false, keys: Object.keys(resolvedPatch) },
     });
+    this.notifyWrite();
   }
 
   // Note: `push()` is implemented entirely on the modular surface
@@ -1136,6 +1154,7 @@ export class RtdbBackend {
         after: resolved,
         detail: { committed: true },
       });
+      this.notifyWrite();
       return { committed: true, val: resolved, key };
     }
     // applyLocally: false — rule-check FIRST, write only if allowed,
@@ -1547,6 +1566,68 @@ export class RtdbBackend {
           detail: { query: true },
         });
         // Swallow — see fanOut.
+      }
+    }
+  }
+
+  // ─── Persistence (PersistableService) ──────────────────────────────
+  //
+  // The RTDB tree rides the sandbox persistence controller's `services`
+  // blob exactly like the auth user DB. `getDatabase(sandbox)` registers
+  // these hooks once per sandbox (see modular.ts). Together they give RTDB
+  // the same durability contract as Firestore/auth: worker death / browser
+  // restart restores the whole tree instead of losing it.
+
+  /** Serialize the whole tree as a plain JSON value for the persistence
+   *  snapshot. Defensive deep-copy (via `DataTree.snapshot`). */
+  exportTree(): JsonValue {
+    return this.tree.snapshot();
+  }
+
+  /**
+   * Replace the whole tree with a persisted snapshot, then fire listeners
+   * so any live UI (Studio's RTDB tab) converges on the restored data
+   * rather than showing a stale/empty view.
+   *
+   * REPLACE, not merge — the tree becomes EXACTLY the snapshot. On boot /
+   * late-registration the tree is empty so this is a pure load; for a
+   * runtime `loadSnapshot()` it clobbers divergent state, matching auth's
+   * restore policy.
+   *
+   * Notification: we capture each child-listener parent's prior children
+   * BEFORE the swap, then fan out value listeners from the root (every
+   * listener re-reads its path) and child listeners against the diff. The
+   * value-listener no-op suppression (DB-B8) means a listener whose subtree
+   * is byte-identical to the snapshot won't spuriously re-fire.
+   */
+  restoreTree(root: JsonValue): void {
+    const priors = this.snapshotChildListenerParents();
+    this.tree.restore(root ?? {});
+    this.fanOut(['/']);
+    this.fanOutChildren(priors);
+  }
+
+  /**
+   * Register a persistence change-subscriber. Returns an unsubscribe.
+   * Fired (best-effort, isolated) after every committed tree mutation so
+   * the controller schedules a debounced flush.
+   */
+  subscribeWrites(onChange: () => void): () => void {
+    this.writeSubscribers.add(onChange);
+    return () => {
+      this.writeSubscribers.delete(onChange);
+    };
+  }
+
+  /** Notify persistence subscribers that the tree changed. Best-effort +
+   *  isolated — a subscriber throw must never break the write. */
+  private notifyWrite(): void {
+    if (this.writeSubscribers.size === 0) return;
+    for (const sub of this.writeSubscribers) {
+      try {
+        sub();
+      } catch {
+        // Observational — never let a flush-scheduler throw break a write.
       }
     }
   }

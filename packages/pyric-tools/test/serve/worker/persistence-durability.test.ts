@@ -134,6 +134,76 @@ describe('worker persistence: acked writes survive abrupt teardown', () => {
     expect((b.value as { n?: number } | null)?.n).toBe(2);
   });
 
+  it('an acked rtdb.set restores after a cold reboot over the same IDB', async () => {
+    const key = freshKey();
+    const ctxA = await bootWorker(key);
+    const write = await op(ctxA, {
+      id: 'w1',
+      method: 'rtdb.set',
+      path: '/rooms/general',
+      value: { name: 'General' },
+    });
+    expect(write.ok).toBe(true);
+    // Abrupt teardown: nothing runs after the ack.
+
+    const ctxB = await bootWorker(key);
+    // FIRST op on the rebooted worker is a read — proves the restored tree is
+    // queryable immediately (eager RTDB registration at boot), not only after
+    // some prior RTDB op lazily creates the backend.
+    const read = await op(ctxB, { id: 'r1', method: 'rtdb.get', path: '/rooms/general' });
+    expect(read.ok).toBe(true);
+    expect((read.value as { value?: { name?: string } }).value).toEqual({ name: 'General' });
+  });
+
+  it('an acked rtdb.remove stays removed after a cold reboot', async () => {
+    const key = freshKey();
+    const ctxA = await bootWorker(key);
+    await op(ctxA, { id: 'w1', method: 'rtdb.set', path: '/rooms/doomed', value: { x: 1 } });
+    const del = await op(ctxA, { id: 'd1', method: 'rtdb.remove', path: '/rooms/doomed' });
+    expect(del.ok).toBe(true);
+
+    const ctxB = await bootWorker(key);
+    const read = await op(ctxB, { id: 'r1', method: 'rtdb.get', path: '/rooms/doomed' });
+    expect(read.ok).toBe(true);
+    expect((read.value as { exists?: boolean }).exists).toBe(false);
+  });
+
+  it('an acked rtdb.push value restores after a cold reboot', async () => {
+    const key = freshKey();
+    const ctxA = await bootWorker(key);
+    const pushed = await op(ctxA, {
+      id: 'p1',
+      method: 'rtdb.push',
+      path: '/messages',
+      key: 'm-abc',
+      value: { text: 'hello' },
+    });
+    expect(pushed.ok).toBe(true);
+
+    const ctxB = await bootWorker(key);
+    const read = await op(ctxB, { id: 'r1', method: 'rtdb.get', path: '/messages/m-abc' });
+    expect(read.ok).toBe(true);
+    expect((read.value as { value?: { text?: string } }).value).toEqual({ text: 'hello' });
+  });
+
+  it('an acked rtdb.update restores after a cold reboot', async () => {
+    const key = freshKey();
+    const ctxA = await bootWorker(key);
+    await op(ctxA, { id: 'w1', method: 'rtdb.set', path: '/rooms/general', value: { name: 'General' } });
+    const upd = await op(ctxA, {
+      id: 'u1',
+      method: 'rtdb.update',
+      path: '/rooms/general',
+      values: { members: 5 },
+    });
+    expect(upd.ok).toBe(true);
+
+    const ctxB = await bootWorker(key);
+    const read = await op(ctxB, { id: 'r1', method: 'rtdb.get', path: '/rooms/general' });
+    expect(read.ok).toBe(true);
+    expect((read.value as { value?: unknown }).value).toEqual({ name: 'General', members: 5 });
+  });
+
   it('an acked auth.adminCreateUser restores after a cold reboot', async () => {
     const key = freshKey();
     const ctxA = await bootWorker(key);

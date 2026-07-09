@@ -108,6 +108,33 @@ function getOrCreateBackend(sandbox: Sandbox): RtdbBackend {
     // on the unified Studio `onEvent`/`history()` stream (keystone T1).
     backend = new RtdbBackend(sandbox);
     backendBySandbox.set(sandbox, backend);
+    // Register the RTDB tree as a persistable service on the sandbox — the
+    // same durability mechanism auth uses (see auth/index.ts:backendFor).
+    // This makes `enablePersistence` include the tree in the serialized blob
+    // and restore it on reload (worker death / browser restart), instead of
+    // the old memory-only behavior where RTDB data was lost while Firestore
+    // docs + auth users came back.
+    //
+    // Guarded by the WeakMap memoization above: we only reach this branch
+    // ONCE per sandbox, so double-registration is impossible in practice
+    // (registerPersistableService throws on duplicates anyway).
+    //
+    //   - snapshot: serialize the tree as a plain JSON value.
+    //   - restore : REPLACE the tree AND fire listeners so a live RTDB view
+    //               (Studio's RTDB tab) converges on the restored data.
+    //   - subscribe: notify the controller on ANY write so a mutation
+    //               schedules a debounced flush. RTDB writes emit
+    //               `service_mutation` events, which the controller's
+    //               `isPersistableEvent` does NOT cover — so this hook is the
+    //               sole flush trigger, exactly as auth does it.
+    const capturedBackend = backend;
+    sandbox.registerPersistableService('rtdb', {
+      snapshot: () => capturedBackend.exportTree(),
+      restore: (data: unknown) => {
+        capturedBackend.restoreTree(data as JsonValue);
+      },
+      subscribe: (onChange: () => void) => capturedBackend.subscribeWrites(onChange),
+    });
   }
   return backend;
 }
