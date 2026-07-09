@@ -46,6 +46,13 @@ import {
 } from '~/lib/llm/inference/diagnostics';
 import { useLlmStore } from '~/lib/store/llm';
 import { Modal } from './Modal';
+import {
+  countEnabled,
+  isDisclosureExpanded,
+  summarizeOnCount,
+  toggleDisclosure,
+  type DisclosureState,
+} from './settings-disclosure';
 
 interface Props {
   open: boolean;
@@ -94,6 +101,15 @@ export function SettingsModal({ open, onClose }: Props) {
   // copy it, paste it back when reporting an issue.
   const [diagOutput, setDiagOutput] = useState('');
   const [diagStatus, setDiagStatus] = useState('');
+
+  // Disclosure state for parent settings with a child group (e.g. the
+  // diagnostic-tools list below). UI-only, ephemeral, keyed by section
+  // id — default collapsed, same "dense by default" convention as
+  // `Fold.tsx`. Generic across any parent-with-children setting; wired
+  // to diagnostics today because it's the only settings entry with a
+  // real multi-item child group.
+  const [disclosure, setDisclosure] = useState<DisclosureState>({});
+  const toggleSection = (id: string) => setDisclosure((s) => toggleDisclosure(s, id));
 
   const handleTogglePyricDiagnostics = () => {
     const next = !pyricDiagnosticsEnabled;
@@ -194,32 +210,45 @@ export function SettingsModal({ open, onClose }: Props) {
         </div>
 
         <div className="space-y-1.5 pt-2">
-          <ToggleRow
+          <DisclosureToggleRow
             checked={pyricDiagnosticsEnabled}
             onChange={handleTogglePyricDiagnostics}
             title="Enable pyric diagnostics"
             body="Inline rules lint, recent denials, and rules-pitfalls primer in the agent's system prompt, plus diagnostic tools under tools/diagnostics/. Core write/run tools stay registered either way. Turn off to A/B-compare agent behavior without playground-supplied diagnostics. Toggling is logged as a session event in the exported JSON."
+            expanded={isDisclosureExpanded(disclosure, 'diagnostics')}
+            onToggleExpand={() => toggleSection('diagnostics')}
+            collapsedSummary={summarizeOnCount(
+              DIAGNOSTIC_TOOL_MANIFEST.length,
+              countEnabled(DIAGNOSTIC_TOOL_MANIFEST, (entry) =>
+                isDiagnosticToolEnabled({ diagnosticToolsEnabled }, entry.key),
+              ),
+              'tools',
+            )}
+            controlsId="settings-diagnostic-tools"
           />
-          <div
-            className={[
-              'pl-7 pt-1.5 space-y-1.5 transition-opacity',
-              pyricDiagnosticsEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none',
-            ].join(' ')}
-            aria-disabled={!pyricDiagnosticsEnabled}
-          >
-            <p className="text-[10px] uppercase tracking-wider text-slate-gray font-bold">
-              diagnostic tools
-            </p>
-            {DIAGNOSTIC_TOOL_MANIFEST.map((entry) => (
-              <SubToggleRow
-                key={entry.key}
-                checked={isDiagnosticToolEnabled({ diagnosticToolsEnabled }, entry.key)}
-                onChange={() => handleToggleDiagnosticTool(entry.key, entry.label)}
-                title={entry.label}
-                body={entry.description}
-              />
-            ))}
-          </div>
+          {isDisclosureExpanded(disclosure, 'diagnostics') ? (
+            <div
+              id="settings-diagnostic-tools"
+              className={[
+                'pl-7 pt-1.5 space-y-1.5 transition-opacity',
+                pyricDiagnosticsEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none',
+              ].join(' ')}
+              aria-disabled={!pyricDiagnosticsEnabled}
+            >
+              <p className="text-[10px] uppercase tracking-wider text-slate-gray font-bold">
+                diagnostic tools
+              </p>
+              {DIAGNOSTIC_TOOL_MANIFEST.map((entry) => (
+                <SubToggleRow
+                  key={entry.key}
+                  checked={isDiagnosticToolEnabled({ diagnosticToolsEnabled }, entry.key)}
+                  onChange={() => handleToggleDiagnosticTool(entry.key, entry.label)}
+                  title={entry.label}
+                  body={entry.description}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-1.5 pt-2">
@@ -598,6 +627,102 @@ function ToggleRow({
         <span className="block text-[11px] text-slate-gray leading-snug">{body}</span>
       </span>
     </button>
+  );
+}
+
+/**
+ * ToggleRow variant for a parent setting with a collapsible child
+ * group (e.g. "Enable pyric diagnostics" → its per-tool checkboxes).
+ * Same master-gate checkbox as `ToggleRow`, plus a sibling disclosure
+ * caret — deliberately NOT nested inside the checkbox button, since a
+ * `<button>` inside a `<button>` is invalid and would make the caret
+ * click also fire the checkbox toggle. Caret visual matches `Fold.tsx`
+ * (`chevron_right`, rotates 90° open, `material-symbols-outlined`) so
+ * the modal doesn't invent a second disclosure idiom.
+ *
+ * Collapsed, the body line is replaced by `collapsedSummary` (e.g.
+ * "5 of 6 tools on") so the row stays informative without the full
+ * child list eating vertical space. Toggling the checkbox never
+ * changes `expanded` — presentation and the enable/disable cascade
+ * are fully independent.
+ */
+function DisclosureToggleRow({
+  checked,
+  onChange,
+  title,
+  body,
+  expanded,
+  onToggleExpand,
+  collapsedSummary,
+  controlsId,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  title: string;
+  body: string;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  collapsedSummary: string;
+  controlsId: string;
+}) {
+  return (
+    <div className="w-full flex items-start gap-2">
+      <button
+        type="button"
+        onClick={onChange}
+        role="switch"
+        aria-checked={checked}
+        className="flex-1 min-w-0 flex items-start gap-3 text-left group py-1 -my-1"
+      >
+        <span
+          className={[
+            'mt-0.5 inline-flex shrink-0 w-[18px] h-[18px] items-center justify-center rounded-sm border transition-colors',
+            checked
+              ? 'bg-primary border-primary'
+              : 'bg-transparent border-slate-gray group-hover:border-soft-white',
+          ].join(' ')}
+          aria-hidden="true"
+        >
+          {checked ? (
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-[14px] h-[14px] text-content-bg"
+            >
+              <polyline points="3 8.5 6.5 12 13 4.5" />
+            </svg>
+          ) : null}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] text-soft-white font-medium">{title}</span>
+          <span className="block text-[11px] text-slate-gray leading-snug">
+            {expanded ? body : collapsedSummary}
+          </span>
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        aria-expanded={expanded}
+        aria-controls={controlsId}
+        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${title}`}
+        className="shrink-0 mt-0.5 p-1 -m-1 rounded text-slate-gray hover:text-soft-white transition-colors"
+      >
+        <span
+          className={[
+            'material-symbols-outlined text-[18px] transition-transform',
+            expanded ? 'rotate-90' : '',
+          ].join(' ')}
+          aria-hidden="true"
+        >
+          chevron_right
+        </span>
+      </button>
+    </div>
   );
 }
 
