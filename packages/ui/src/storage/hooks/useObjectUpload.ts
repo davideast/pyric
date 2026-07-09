@@ -1,12 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
-import {
-  ref as refFn,
-  uploadBytes,
-  type FirebaseStorage,
-  type FullMetadata,
-  type SettableMetadata,
+import type {
+  FirebaseStorage,
+  FullMetadata,
+  SettableMetadata,
 } from 'pyric/storage';
 import { folderPlaceholderRef } from '../folderPlaceholder.js';
+import { useStorageApi } from '../storageApi.js';
 import { normalizeStoragePath } from './usePathState.js';
 import type { UseStorageListResult } from './useStorageList.js';
 
@@ -101,6 +100,11 @@ export interface UseObjectUploadResult {
    * first-class placeholder API routing prod through the REST
    * `name=<path>/` upload). Throws the underlying error after
    * rolling back the optimistic prefix insert.
+   *
+   * ALTERNATIVE: when the store must stay free of placeholder
+   * objects (Pyric Studio's choice), use the client-side
+   * pending-prefix mechanism instead — see `pendingPrefixes.ts`
+   * for the reducer and the recorded tradeoff.
    */
   createFolder: (name: string) => Promise<void>;
   /** Drop settled (`success`/`error`) tasks from `tasks`. */
@@ -142,6 +146,12 @@ export function useObjectUpload(
   storage: FirebaseStorage | null | undefined,
   options: UseObjectUploadOptions = {},
 ): UseObjectUploadResult {
+  // Injected backend (in-process `pyric/storage` by default, the
+  // SharedWorker client bundle in Studio served mode) — uploads follow
+  // the same seam the browse hooks read through. The worker leg caps a
+  // payload at 8 MiB (base64 `storage.putBytes`); in-process writes are
+  // uncapped. An over-cap file fails as a normal per-file task error.
+  const { ref: refFn, uploadBytes } = useStorageApi();
   const base = normalizeStoragePath(options.path ?? '');
   const [tasks, setTasks] = useState<UploadTask[]>([]);
 
@@ -213,7 +223,7 @@ export function useObjectUpload(
         }),
       );
     },
-    [storage, base, patchTask],
+    [storage, base, patchTask, refFn, uploadBytes],
   );
 
   const createFolder = useCallback(
@@ -239,7 +249,7 @@ export function useObjectUpload(
         throw e;
       }
     },
-    [storage, base],
+    [storage, base, uploadBytes],
   );
 
   const clearCompleted = useCallback(() => {
