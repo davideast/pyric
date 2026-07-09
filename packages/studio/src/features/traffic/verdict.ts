@@ -16,8 +16,33 @@ import type { TrafficEvent } from '@pyric/ui/traffic';
 import type { CommandTarget } from '../home/command.js';
 
 /** A traffic event as Studio's adapter emits it: the library shape plus the
- *  provenance lens every `SandboxEvent` may carry (additive, optional). */
-export type StudioTrafficEvent = TrafficEvent & { authLens?: AuthLens };
+ *  provenance every `SandboxEvent` may carry (additive, optional). `actor`
+ *  is stamped MECHANICALLY at the issuing call site (Studio's worker client
+ *  declares `issuer: 'studio'`; the worker host maps it onto the event via
+ *  the sandbox's ambient-provenance window) — never inferred from the op's
+ *  shape, so a user's own admin-SDK traffic through the remote bridge is
+ *  never classified as Studio's. */
+export type StudioTrafficEvent = TrafficEvent & {
+  authLens?: AuthLens;
+  actor?: { kind?: string; name?: string };
+};
+
+/** Was this op issued by Pyric Studio itself (data viewers/editors, the
+ *  typeahead index, seed actions)? Provenance-stamped events only — an
+ *  absent `actor` means the served app (or a pre-provenance emitter) and is
+ *  never hidden. */
+export function isStudioTraffic(event: { actor?: { kind?: string } }): boolean {
+  return event.actor?.kind === 'studio';
+}
+
+/** Drop Studio-issued events when `hide` is on (pure; `hide: false` is a
+ *  pass-through copy so callers can treat the result uniformly). */
+export function filterStudioTraffic<E extends { actor?: { kind?: string } }>(
+  events: readonly E[],
+  hide: boolean,
+): E[] {
+  return hide ? events.filter((e) => !isStudioTraffic(e)) : [...events];
+}
 
 export type TrafficVerdict = 'allow' | 'deny' | 'admin' | null;
 

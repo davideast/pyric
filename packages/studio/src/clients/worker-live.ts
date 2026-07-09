@@ -34,6 +34,7 @@ import type { AuthApi } from '@pyric/ui/auth';
 import type { StorageApi } from '@pyric/ui/storage';
 import {
   getFirestore as workerGetFirestore,
+  setOpIssuer,
   getAuth as workerGetAuth,
   getStorage as workerGetStorage,
   ref as workerStorageRef,
@@ -273,6 +274,12 @@ export function connectWorkerLive(
   workerUrl: string = DEFAULT_WORKER_URL,
 ): WorkerLivePlane | null {
   if (typeof SharedWorker === 'undefined') return null;
+  // Studio declares itself the issuer of every op THIS bundle's worker
+  // client constructs (data viewers, typeahead index, seed actions) so the
+  // traffic stream can attribute — and filter — Studio-driven ops. The
+  // served app runs its own bundle instance and stays untagged; bridge
+  // relays forward verbatim (see pyric-tools serve/worker client).
+  setOpIssuer('studio');
   let db: ClientDb;
   try {
     db = workerGetFirestore(workerUrl);

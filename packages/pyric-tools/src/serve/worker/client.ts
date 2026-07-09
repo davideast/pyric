@@ -332,20 +332,20 @@ export function getLens(): AuthLens | undefined {
  * user's own admin-SDK traffic through the remote bridge is never
  * mislabeled as Studio's even though it rides the same port.
  */
-let _opSource: 'studio' | undefined;
+let _opIssuer: 'studio' | undefined;
 
-/** Declare who issues the ops this client module constructs. See {@link _opSource}. */
-export function setOpSource(source: 'studio' | undefined): void {
-  _opSource = source;
+/** Declare who issues the ops this client module constructs. See {@link _opIssuer}. */
+export function setOpIssuer(source: 'studio' | undefined): void {
+  _opIssuer = source;
 }
 
 /** Stamp the declared op source onto a client-constructed message. Ops and
  *  subscriptions only — control frames (`tool`, `unsub`) never carry it
  *  (agent tool-calls dispatched through this port must not inherit
  *  Studio's source; their inner ops are attributed by the host). */
-function stampSource<T extends { t?: string }>(msg: T): T {
-  return _opSource && (msg.t === 'op' || msg.t === 'sub')
-    ? { ...msg, source: _opSource }
+function stampIssuer<T extends { t?: string }>(msg: T): T {
+  return _opIssuer && (msg.t === 'op' || msg.t === 'sub')
+    ? { ...msg, issuer: _opIssuer }
     : msg;
 }
 
@@ -364,7 +364,7 @@ function rawRpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
 
 /** Send a CLIENT-CONSTRUCTED message: stamps the declared op source, then sends. */
 function rpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
-  return rawRpc(port, stampSource(msg));
+  return rawRpc(port, stampIssuer(msg));
 }
 
 /**
@@ -504,7 +504,7 @@ export async function callTool(
  */
 export function relayWorkerOp(db: ClientDb, op: WorkerOpPayload): Promise<unknown> {
   // rawRpc, NOT rpc: relayed frames must pass verbatim — the declared op
-  // source (`setOpSource`) covers only ops THIS client constructs, so
+  // source (`setOpIssuer`) covers only ops THIS client constructs, so
   // bridge-relayed admin/agent traffic is never mislabeled as Studio's.
   return rawRpc(db.port, { ...op, t: 'op', id: nextId() } as InboundMessage);
 }
@@ -1020,7 +1020,7 @@ export function onSnapshot(
   // rides along the same way (client-constructed subs only — the relay's
   // subs post verbatim).
   port.postMessage(
-    stampSource(
+    stampIssuer(
       (_defaultLens
         ? { t: 'sub', subId, target: descriptor, actAs: _defaultLens }
         : { t: 'sub', subId, target: descriptor }) satisfies InboundMessage,
@@ -1486,7 +1486,7 @@ export function adminSubscribeRtdbValue(
     error,
   });
   db.port.postMessage(
-    stampSource({
+    stampIssuer({
       t: 'sub',
       subId,
       target: { service: 'rtdb', path: normalizeRtdbPath(path) },
@@ -1536,7 +1536,7 @@ export function rtdbOnValue(
   const msg: InboundMessage = _defaultLens
     ? { t: 'sub', subId, target: { service: 'rtdb', path: r.path }, actAs: _defaultLens }
     : { t: 'sub', subId, target: { service: 'rtdb', path: r.path } };
-  r.port.postMessage(stampSource(msg));
+  r.port.postMessage(stampIssuer(msg));
   return () => {
     _snapSubs.delete(subId);
     r.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);

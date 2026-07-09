@@ -39,6 +39,7 @@ import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-data.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
 import {
   filterByVerdict,
+  filterStudioTraffic,
   subjectTarget,
   verdictFor,
   VERDICT_FILTERS,
@@ -77,9 +78,32 @@ function useTrafficTab(): readonly [TrafficTab, (tab: TrafficTab) => void] {
     () => 'timeline',
   );
   const setActive = useCallback((tab: TrafficTab) => {
-    pushPath({ tab: 'traffic', query: { view: tab === 'timeline' ? undefined : tab } });
+    // Preserve unrelated query keys (`?hide=studio` must survive a view
+    // switch); `?denial` intentionally drops with the rest replaced only
+    // when absent from the merge — spread keeps it too, and that's right:
+    // an open denial belongs to the timeline view the user returns to.
+    const query = { ...currentPath().query, view: tab === 'timeline' ? undefined : tab };
+    if (query.view === undefined) delete query.view;
+    pushPath({ tab: 'traffic', query });
   }, []);
   return [active, setActive] as const;
+}
+
+/** Two-way bind the "hide Studio traffic" toggle to `?hide=studio` (N4:
+ *  the URL is the store — a filtered view is linkable and survives reload). */
+function useHideStudio(): readonly [boolean, () => void] {
+  const hide = useSyncExternalStore(
+    subscribeToLocation,
+    () => currentPath().query.hide === 'studio',
+    () => false,
+  );
+  const toggle = useCallback(() => {
+    const query = { ...currentPath().query } as Record<string, string | undefined>;
+    if (query.hide === 'studio') delete query.hide;
+    else query.hide = 'studio';
+    pushPath({ tab: 'traffic', query });
+  }, []);
+  return [hide, toggle] as const;
 }
 
 /** A coarse "Nm ago" for the timeline's left axis tick. */
@@ -120,8 +144,17 @@ function useDenialParam(): string | null {
 const PAGE_SIZE = 100;
 
 export function TrafficSurface() {
-  const events = useStudioTraffic();
+  const allEvents = useStudioTraffic();
   const [tab, setTab] = useTrafficTab();
+  const [hideStudio, toggleHideStudio] = useHideStudio();
+  // The Studio filter applies UPSTREAM of everything — timeline buckets,
+  // counts, verdict filtering, AND the metrics tabs' aggregations — so
+  // "hide Studio traffic" means the numbers agree with the rows.
+  const events = useMemo(
+    () => filterStudioTraffic(allEvents, hideStudio),
+    [allEvents, hideStudio],
+  );
+  const hiddenStudioCount = allEvents.length - events.length;
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all');
   const expandedId = useDenialParam();
   const [visibleRows, setVisibleRows] = useState(PAGE_SIZE);
@@ -211,6 +244,16 @@ export function TrafficSurface() {
             {t.label}
           </button>
         ))}
+        <button
+          type="button"
+          className="traffic__hide-studio"
+          aria-pressed={hideStudio}
+          onClick={toggleHideStudio}
+          title="Hide ops issued by Pyric Studio's own viewers and editors"
+        >
+          Hide Studio traffic
+          {hideStudio && hiddenStudioCount > 0 ? ` (${hiddenStudioCount} hidden)` : ''}
+        </button>
       </div>
 
       {tab === 'billable' ? (

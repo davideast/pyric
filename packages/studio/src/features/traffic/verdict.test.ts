@@ -4,6 +4,8 @@ import {
   actingIdentity,
   denialReasons,
   filterByVerdict,
+  filterStudioTraffic,
+  isStudioTraffic,
   subjectTarget,
   verdictFor,
 } from './verdict.js';
@@ -116,5 +118,40 @@ describe('denialReasons', () => {
       'Rule #2 (update) → DENY',
     ]);
     expect(denialReasons({})).toEqual([]);
+  });
+});
+
+describe('filterStudioTraffic', () => {
+  type Ev = { id: string; actor?: { kind?: string; name?: string } };
+  const studio: Ev = { id: 's1', actor: { kind: 'studio' } };
+  const app: Ev = { id: 'a1' }; // absent actor = served app / pre-provenance
+  const appExplicit: Ev = { id: 'a2', actor: { kind: 'app' } };
+  const agent: Ev = { id: 'g1', actor: { kind: 'agent', name: 'claude' } };
+
+  it('drops only studio-issued events when hiding', () => {
+    expect(filterStudioTraffic([studio, app, appExplicit, agent], true)).toEqual([
+      app,
+      appExplicit,
+      agent,
+    ]);
+  });
+
+  it('never hides untagged (pre-provenance / bridge-relayed) events', () => {
+    // Provenance is declared at the issuing call site; an absent actor must
+    // pass through — remote admin-SDK traffic is untagged by design.
+    expect(filterStudioTraffic([app], true)).toEqual([app]);
+    expect(isStudioTraffic(app)).toBe(false);
+  });
+
+  it('is a pass-through copy when not hiding', () => {
+    const input = [studio, app];
+    const out = filterStudioTraffic(input, false);
+    expect(out).toEqual(input);
+    expect(out).not.toBe(input);
+  });
+
+  it('classifies via actor.kind only, not the auth lens', () => {
+    expect(isStudioTraffic({ actor: { kind: 'studio' } })).toBe(true);
+    expect(isStudioTraffic({ actor: { kind: 'agent' } })).toBe(false);
   });
 });

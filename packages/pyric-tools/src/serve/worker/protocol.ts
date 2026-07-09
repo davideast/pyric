@@ -509,14 +509,14 @@ export type OpMessage = (
    * Studio's own viewer/editor noise out of the app's stream.
    *
    * Declared at the issuing call site, never inferred: Studio's worker
-   * client stamps it on every op it builds (see `setOpSource` in
+   * client stamps it on every op it builds (see `setOpIssuer` in
    * `client.ts`); the bridge relay (`relayWorkerOp`) forwards remote
    * frames VERBATIM without stamping, so a user's own admin-SDK traffic
    * through the remote bridge — which also rides this port when Studio
    * holds the peer slot — is never mislabeled as Studio's. Additive:
    * existing senders omit it (events default to `actor: { kind: 'app' }`).
    */
-  source?: 'studio';
+  issuer?: 'studio';
 };
 
 // ─── Subscription messages (client → worker) ─────────────────────────────
@@ -547,7 +547,7 @@ export interface FirestoreSubMessage {
    *  Tags the listener's REGISTRATION events (the initial rules eval); the
    *  listener's deferred re-evals stay attributed to the app (they fire on
    *  the microtask drain, outside any provenance window). */
-  source?: 'studio';
+  issuer?: 'studio';
 }
 
 /**
@@ -593,7 +593,7 @@ export interface RtdbValueSubMessage {
   /** Mirrors Firestore subscriptions: absent/app-session uses this port's session. */
   actAs?: AuthLens;
   /** Mechanical op provenance — see the field's doc on {@link OpMessage}. */
-  source?: 'studio';
+  issuer?: 'studio';
 }
 
 export type SubMessage = FirestoreSubMessage | AuthSubMessage | EventSubMessage | RtdbValueSubMessage;
