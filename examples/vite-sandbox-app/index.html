@@ -8,6 +8,9 @@
       body { font: 16px/1.5 system-ui, sans-serif; max-width: 640px; margin: 3rem auto; padding: 0 1rem; }
       button { padding: 0.4rem 0.9rem; cursor: pointer; }
       form { display: flex; gap: 0.5rem; margin: 1rem 0; }
+      /* `form { display: flex }` above beats the UA `[hidden] { display: none }`,
+         so without this the form stays visible while signed out. */
+      [hidden] { display: none !important; }
       input { flex: 1; padding: 0.4rem 0.6rem; }
       ul { padding-left: 1.2rem; }
       .status { color: #666; }
