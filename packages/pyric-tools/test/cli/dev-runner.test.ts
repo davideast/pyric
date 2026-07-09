@@ -16,6 +16,7 @@ import {
   readDevScript,
   registerModuleUrl,
   resolveDevChild,
+  waitForSandboxPeer,
 } from '../../src/cli/dev-runner.js';
 
 describe('parseArgs `--` passthrough', () => {
@@ -146,5 +147,54 @@ describe('createLinePrefixer', () => {
     expect(out).toEqual(['[dev] hello\n', '[dev] world\n', '[dev] tail\n']);
     p.flush(); // idempotent
     expect(out).toHaveLength(3);
+  });
+});
+
+describe('waitForSandboxPeer (first-run race guard)', () => {
+  const health = (connected: boolean) =>
+    ({ ok: true, json: async () => ({ sandboxConnected: connected }) }) as Response;
+
+  it('resolves true as soon as the health endpoint reports a peer', async () => {
+    let calls = 0;
+    const ok = await waitForSandboxPeer('http://localhost:1', {
+      timeoutMs: 5000,
+      intervalMs: 1,
+      fetchImpl: async () => health(++calls >= 3),
+      sleep: async () => {},
+    });
+    expect(ok).toBe(true);
+    expect(calls).toBe(3);
+  });
+
+  it('returns false at the deadline when no peer ever connects', async () => {
+    let now = 0;
+    const realNow = Date.now;
+    Date.now = () => now;
+    try {
+      const ok = await waitForSandboxPeer('http://localhost:1', {
+        timeoutMs: 1000,
+        intervalMs: 100,
+        fetchImpl: async () => health(false),
+        sleep: async () => { now += 100; },
+      });
+      expect(ok).toBe(false);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it('tolerates fetch failures while the server boots', async () => {
+    let calls = 0;
+    const ok = await waitForSandboxPeer('http://localhost:1/', {
+      timeoutMs: 5000,
+      intervalMs: 1,
+      fetchImpl: async () => {
+        calls++;
+        if (calls < 2) throw new Error('ECONNREFUSED');
+        return health(true);
+      },
+      sleep: async () => {},
+    });
+    expect(ok).toBe(true);
   });
 });

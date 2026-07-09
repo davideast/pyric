@@ -19,6 +19,48 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// ─── First-run race guard ───────────────────────────────────────────────────
+
+/**
+ * Wait (bounded) for a browser tab to register as the bridge's sandbox peer
+ * before the child spawns. `pyric dev` opens the tab and spawns the child in
+ * the same breath; a child whose first line is a sandbox op otherwise races
+ * the tab's boot and dies on the no-tab fail-fast — the exact first-run of
+ * the two-command story. Polls `/__pyric/health` (`sandboxConnected`).
+ *
+ * Returns true when a peer connected, false on timeout (caller warns and
+ * spawns anyway — the child may not touch the sandbox at all). Injectable
+ * clock/fetch for the unit suite.
+ */
+export async function waitForSandboxPeer(
+  serveUrl: string,
+  opts: {
+    timeoutMs?: number;
+    intervalMs?: number;
+    fetchImpl?: typeof fetch;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<boolean> {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const intervalMs = opts.intervalMs ?? 250;
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const res = await fetchImpl(`${serveUrl.replace(/\/$/, '')}/__pyric/health`);
+      if (res.ok) {
+        const health = (await res.json()) as { sandboxConnected?: boolean };
+        if (health.sandboxConnected === true) return true;
+      }
+    } catch {
+      // Health not up yet — keep polling until the deadline.
+    }
+    if (Date.now() >= deadline) return false;
+    await sleep(intervalMs);
+  }
+}
+
 // ─── Child-command resolution (pure) ───────────────────────────────────────
 
 export type PackageManager = 'bun' | 'pnpm' | 'yarn' | 'npm';
