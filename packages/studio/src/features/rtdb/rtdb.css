@@ -1,0 +1,414 @@
+/**
+ * RTDB surface styling — token roles only, styling the `@pyric/ui/rtdb`
+ * `data-rtdb-*` contract (path bar + data tree in the Firebase console /
+ * firebase-tools-ui viewer form).
+ *
+ * Layout is gap/grid based (L1/L2): the framed panel owns one vertical scroll
+ * (L5); tree depth indents via the children list's padding + a hairline
+ * indent guide. Node actions (`+` / `×`) reveal on row hover OR focus-within
+ * so the affordances are keyboard-reachable.
+ */
+
+.rtdb {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 480px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+/* ── Path bar ─────────────────────────────────────────────────────────── */
+
+.rtdb__pathbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--elevated);
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+}
+
+.rtdb__pathbar [data-rtdb-crumb-list] {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.rtdb__pathbar [data-rtdb-crumb-item] {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.rtdb__pathbar [data-rtdb-crumb] {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rtdb__pathbar [data-rtdb-crumb]:hover {
+  color: var(--ink);
+  background: var(--accent-tint);
+}
+.rtdb__pathbar [data-rtdb-crumb][data-pyric-current] {
+  color: var(--ink);
+}
+.rtdb__pathbar [data-rtdb-crumb-root] {
+  color: var(--faint);
+}
+.rtdb__pathbar [data-rtdb-crumb-separator] {
+  color: var(--faint);
+}
+
+.rtdb__pathbar [data-rtdb-path-edit] {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--faint);
+  cursor: pointer;
+}
+.rtdb__pathbar [data-rtdb-path-edit]:hover {
+  color: var(--ink);
+  background: var(--accent-tint);
+}
+
+.rtdb__pathbar [data-rtdb-path-form] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+.rtdb__pathbar [data-rtdb-path-prefix] {
+  color: var(--faint);
+  white-space: nowrap;
+}
+.rtdb__pathbar [data-rtdb-path-input] {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  color: var(--ink);
+}
+.rtdb__pathbar [data-rtdb-path-input]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ── Tree ─────────────────────────────────────────────────────────────── */
+
+.rtdb__tree {
+  overflow: auto; /* the panel's single scroll owner (L5) */
+  padding: var(--space-2) var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  line-height: 1.9;
+}
+
+.rtdb__tree [data-rtdb-loading],
+.rtdb__tree [data-rtdb-empty] p {
+  margin: var(--space-2) 0;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+}
+
+.rtdb__tree [data-rtdb-error] {
+  margin: 2px 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--deny-tint);
+  color: var(--deny-ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-caption);
+  width: fit-content;
+}
+
+.rtdb__tree [data-rtdb-children] {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 18px;
+  border-left: 1px solid var(--line); /* indent guide */
+  margin-left: 3px;
+}
+
+.rtdb__tree [data-rtdb-row] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.rtdb__tree [data-rtdb-row]:hover {
+  background: var(--elevated);
+}
+
+.rtdb__tree [data-rtdb-caret],
+.rtdb__tree [data-rtdb-caret-spacer] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.rtdb__tree [data-rtdb-caret] {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--faint);
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+.rtdb__tree [data-rtdb-caret]:hover {
+  color: var(--ink);
+}
+.rtdb__tree [data-rtdb-caret][aria-expanded='true'] {
+  transform: rotate(90deg);
+}
+
+.rtdb__tree [data-rtdb-key] {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 32ch;
+}
+.rtdb__tree [data-rtdb-key]:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.rtdb__tree [data-rtdb-view-root] > [data-rtdb-row] > [data-rtdb-key] {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.rtdb__tree [data-rtdb-sep] {
+  color: var(--faint);
+}
+
+.rtdb__tree [data-rtdb-value] {
+  appearance: none;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 0 3px;
+  font: inherit;
+  cursor: text;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 48ch;
+  color: var(--ink);
+}
+.rtdb__tree [data-rtdb-value]:hover {
+  background: var(--accent-tint);
+}
+.rtdb__tree [data-rtdb-value][data-rtdb-type='string'] {
+  color: var(--diff-add);
+}
+.rtdb__tree [data-rtdb-value][data-rtdb-type='number'] {
+  color: var(--accent);
+}
+.rtdb__tree [data-rtdb-value][data-rtdb-type='boolean'] {
+  color: var(--accent);
+}
+.rtdb__tree [data-rtdb-value][data-rtdb-type='null'] {
+  color: var(--faint);
+  font-style: italic;
+}
+
+/* ── Node actions: revealed on hover / keyboard focus ─────────────────── */
+
+.rtdb__tree [data-rtdb-actions] {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+.rtdb__tree [data-rtdb-row]:hover [data-rtdb-actions],
+.rtdb__tree [data-rtdb-row]:focus-within [data-rtdb-actions] {
+  opacity: 1;
+}
+
+.rtdb__tree [data-rtdb-action-add],
+.rtdb__tree [data-rtdb-action-delete] {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--faint);
+  cursor: pointer;
+}
+.rtdb__tree [data-rtdb-action-add]:hover {
+  color: var(--accent);
+  background: var(--accent-tint);
+}
+.rtdb__tree [data-rtdb-action-delete]:hover {
+  color: var(--deny-ink);
+  background: var(--deny-tint);
+}
+
+/* Inline delete confirm (two-step, no modal). */
+.rtdb__tree [data-rtdb-confirm] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--deny-tint);
+  font-family: var(--font-ui);
+  font-size: var(--fs-caption);
+  color: var(--deny-ink);
+}
+.rtdb__tree [data-rtdb-confirm] button {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+.rtdb__tree [data-rtdb-confirm-yes] {
+  color: var(--deny-ink);
+  font-weight: 600;
+}
+.rtdb__tree [data-rtdb-confirm-yes]:hover {
+  background: var(--deny);
+  color: var(--panel);
+}
+.rtdb__tree [data-rtdb-confirm-no] {
+  color: var(--muted);
+}
+.rtdb__tree [data-rtdb-confirm-no]:hover {
+  color: var(--ink);
+}
+
+/* ── Inline editor (add / edit rows) ──────────────────────────────────── */
+
+.rtdb__tree [data-rtdb-editor] {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 2px 20px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--elevated);
+  width: fit-content;
+  max-width: 100%;
+}
+.rtdb__tree [data-rtdb-editor] input,
+.rtdb__tree [data-rtdb-editor] select {
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--ink);
+}
+.rtdb__tree [data-rtdb-editor] input:focus,
+.rtdb__tree [data-rtdb-editor] select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.rtdb__tree [data-rtdb-editor-key] {
+  width: 14ch;
+}
+.rtdb__tree [data-rtdb-editor-value] {
+  width: 26ch;
+}
+.rtdb__tree [data-rtdb-editor-save],
+.rtdb__tree [data-rtdb-editor-cancel] {
+  appearance: none;
+  border: none;
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+.rtdb__tree [data-rtdb-editor-save] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.rtdb__tree [data-rtdb-editor-cancel] {
+  background: none;
+  color: var(--muted);
+}
+.rtdb__tree [data-rtdb-editor-cancel]:hover {
+  color: var(--ink);
+}
+.rtdb__tree [data-rtdb-editor-error] {
+  flex-basis: 100%;
+  color: var(--deny-ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-caption);
+}
+
+/* ── Paging ("show more", console form) ───────────────────────────────── */
+
+.rtdb__tree [data-rtdb-show-more] {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-caption);
+  color: var(--accent);
+  cursor: pointer;
+}
+.rtdb__tree [data-rtdb-show-more]:hover {
+  background: var(--accent-tint);
+}
+
+/* ── Empty state ──────────────────────────────────────────────────────── */
+
+.rtdb__empty-copy {
+  margin: 0;
+  color: var(--muted);
+}
