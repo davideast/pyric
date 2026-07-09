@@ -14,9 +14,14 @@ import { ServeAuthHelper } from '../../src/serve/entries/auth-helper-core.js';
 
 function wire() {
   const sandbox = initializeSandbox();
+  const auth = getAuth(sandbox);
+  // These tests exercise the popup/redirect flow via GoogleAuthProvider —
+  // enable it up front (the sandbox default is OFF for every provider except
+  // password/anonymous — see sandbox.setAuthProviderConfig).
+  authSandbox.setAuthProviderConfig(auth, 'google.com', true);
   const helper = new ServeAuthHelper(sandbox);
   helper.install();
-  return { auth: getAuth(sandbox), helper };
+  return { auth, helper };
 }
 
 describe('ServeAuthHelper', () => {

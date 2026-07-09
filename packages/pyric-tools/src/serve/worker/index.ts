@@ -107,6 +107,9 @@ export {
   adminUpdateUser,
   adminDeleteUser,
   adminClearUsers,
+  // Sign-in provider config (Pyric Studio S-AUTH)
+  getProviderConfig,
+  setProviderConfig,
   signInWithEmailAndPassword,
   signInAnonymously,
   signOut,

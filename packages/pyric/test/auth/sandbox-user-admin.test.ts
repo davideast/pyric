@@ -94,6 +94,7 @@ describe('provider tracking (A1)', () => {
 
   it('popup sign-in upserts an unknown identity with the real provider', async () => {
     const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.mockSignInResult(auth, {
       user: mockUser('popup-1', 'popup@x.com'),
       providerId: 'google.com',
@@ -107,6 +108,7 @@ describe('provider tracking (A1)', () => {
 
   it('popup sign-in for a known identity links the provider without duplicating it', async () => {
     const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.seedUsers(auth, [
       { uid: 'alice', email: 'alice@x.com', password: 'pw1234' },
     ]);
@@ -148,6 +150,7 @@ describe('IdTokenResult.signInProvider (A1)', () => {
 
   it('is the provider id after a popup sign-in (via createSignInCredential)', async () => {
     const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     const cred = authSandbox.createSignInCredential(auth, {
       providerId: 'google.com',
       spec: { email: 'g@x.com', displayName: 'G' },
@@ -248,6 +251,7 @@ describe('sandbox.createSignInCredential (A2)', () => {
 
   it('resolves a full popup flow: credential → signInWithPopup → signed in', async () => {
     const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     const cred = authSandbox.createSignInCredential(auth, {
       providerId: 'google.com',
       spec: { email: 'flow@x.com' },
@@ -454,6 +458,7 @@ describe('disabled users (A3)', () => {
 
   it('blocks popup sign-in with auth/user-disabled', async () => {
     const auth = freshAuth();
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.createUser(auth, { uid: 'popup-1', email: 'p@x.com', disabled: true });
     authSandbox.mockSignInResult(auth, {
       user: mockUser('popup-1', 'p@x.com'),

@@ -7,13 +7,19 @@ import {
   getAuth,
   signInWithPopup,
   GoogleAuthProvider,
+  sandbox as authSandbox,
   type Auth,
 } from 'pyric/auth';
 import { renderHook } from '../../helpers/render-hook.js';
 import { useAuthFlowHelper } from '../../../src/auth/hooks/index.js';
 
 function freshAuth(): Auth {
-  return getAuth(initializeSandbox());
+  const auth = getAuth(initializeSandbox());
+  // These tests exercise the popup flow via GoogleAuthProvider — enable it
+  // up front (the sandbox default is OFF for every provider except
+  // password/anonymous — see sandbox.setAuthProviderConfig).
+  authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+  return auth;
 }
 
 describe('useAuthFlowHelper', () => {

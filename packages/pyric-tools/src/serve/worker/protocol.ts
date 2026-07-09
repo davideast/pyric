@@ -436,6 +436,11 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.adminUpdateUser'; uid: string; request: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'auth.adminDeleteUser'; uid: string }
   | { t: 'op'; id: string; method: 'auth.adminClearUsers' }
+  // Sign-in provider config (Pyric Studio S-AUTH "Sign-in providers" section):
+  // mirror `pyric/auth`'s `sandbox.{getAuthProviderConfig,setAuthProviderConfig}`
+  // over the port. Reply for `getProviderConfig` is `Array<{providerId, enabled}>`.
+  | { t: 'op'; id: string; method: 'auth.getProviderConfig' }
+  | { t: 'op'; id: string; method: 'auth.setProviderConfig'; providerId: string; enabled: boolean }
   // Storage ops (Pyric Studio data browse + pyric-admin remote arm): mirror
   // `pyric/storage` over the port. The ref is a path; `listAll` replies with
   // plain `{ fullPath, name }` entries, `getMetadata` with the plain

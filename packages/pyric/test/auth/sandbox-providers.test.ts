@@ -95,6 +95,7 @@ describe('signInWithPopup (sandbox)', () => {
   it('throws auth/argument-error without a pre-staged result', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
@@ -108,6 +109,7 @@ describe('signInWithPopup (sandbox)', () => {
   it('returns the pre-staged mock result and sets currentUser', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     const mockUser = makeFakeUser('google-user-1', 'a@example.com');
     authSandbox.mockSignInResult(auth, {
       user: mockUser,
@@ -122,6 +124,7 @@ describe('signInWithPopup (sandbox)', () => {
   it('mock result is one-shot — second call without re-stage throws', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     authSandbox.mockSignInResult(auth, {
       user: makeFakeUser('u', 'u@example.com'),
       providerId: 'google.com',
@@ -139,6 +142,8 @@ describe('signInWithPopup (sandbox)', () => {
   it('mocks are keyed per provider', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
+    authSandbox.setAuthProviderConfig(auth, 'facebook.com', true);
     authSandbox.mockSignInResult(auth, {
       user: makeFakeUser('g-user', 'g@example.com'),
       providerId: 'google.com',
@@ -161,6 +166,7 @@ describe('signInWithCredential (sandbox)', () => {
   it('consumes a mock keyed by credential.providerId', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
+    authSandbox.setAuthProviderConfig(auth, 'apple.com', true);
     authSandbox.mockSignInResult(auth, {
       user: makeFakeUser('apple-1', 'a@example.com'),
       providerId: 'apple.com',
@@ -176,6 +182,7 @@ describe('signInWithCredential (sandbox)', () => {
   it('throws auth/no-mock-configured without a pre-staged mock', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
+    authSandbox.setAuthProviderConfig(auth, 'google.com', true);
     const cred = GoogleAuthProvider.credential('id-token');
     try {
       await signInWithCredential(auth, cred);

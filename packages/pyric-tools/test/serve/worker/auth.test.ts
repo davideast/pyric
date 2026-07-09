@@ -535,3 +535,85 @@ describe('auth.updateProfile — port session profile update', () => {
     if (!res.ok) expect(res.error.code).toBe('auth/no-current-user');
   });
 });
+
+// ─── auth.getProviderConfig / auth.setProviderConfig (S-AUTH sign-in providers) ──
+
+describe('auth.getProviderConfig / auth.setProviderConfig — worker op round-trip', () => {
+  it('getProviderConfig returns the documented defaults (password + anonymous enabled)', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    const res = await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getProviderConfig' });
+    const config = okValue<Array<{ providerId: string; enabled: boolean }>>(res);
+    const byId = Object.fromEntries(config.map((c) => [c.providerId, c.enabled]));
+    expect(byId).toEqual({ password: true, anonymous: true });
+  });
+
+  it('setProviderConfig toggles a provider; getProviderConfig reflects it round-trip', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'google.com', enabled: true,
+    });
+    let config = okValue<Array<{ providerId: string; enabled: boolean }>>(
+      await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getProviderConfig' }),
+    );
+    expect(config.find((c) => c.providerId === 'google.com')?.enabled).toBe(true);
+
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'google.com', enabled: false,
+    });
+    config = okValue<Array<{ providerId: string; enabled: boolean }>>(
+      await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.getProviderConfig' }),
+    );
+    expect(config.find((c) => c.providerId === 'google.com')?.enabled).toBe(false);
+  });
+
+  it('a disabled provider is enforced by the sign-in ops the SAME worker serves', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'anonymous', enabled: false,
+    });
+    const res = await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.signInAnonymously' });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe('auth/operation-not-allowed');
+  });
+
+  it('setProviderConfig fires a provider_config_update sandbox event another port can observe', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await handleMessage(ctx, port, { t: 'sub', subId: 'ev', target: 'events' });
+    await tick();
+    const before = port.messages.filter((m) => m.t === 'event').length;
+
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'github.com', enabled: true,
+    });
+    await tick();
+    const eventMsgs = port.messages.filter((m): m is Extract<OutboundMessage, { t: 'event' }> => m.t === 'event');
+    expect(eventMsgs.length).toBeGreaterThan(before);
+    const last = eventMsgs.at(-1)!;
+    expect(last.events.some((e) => (e as { op?: string }).op === 'provider_config_update')).toBe(true);
+  });
+
+  it('config round-trips across a worker restart via the persisted `auth` service snapshot', async () => {
+    const backend = createMemoryBackend();
+    const key = 'auth-provider-config-persist-rt';
+
+    const ctx1 = await makeCtx({ backend, key });
+    const port1 = fakePort();
+    await sendOp(ctx1, port1, {
+      t: 'op', id: id(), method: 'auth.setProviderConfig', providerId: 'google.com', enabled: true,
+    });
+    await ctx1.sandbox.flush();
+
+    const ctx2 = await makeCtx({ backend, key });
+    const port2 = fakePort();
+    const config = okValue<Array<{ providerId: string; enabled: boolean }>>(
+      await sendOp(ctx2, port2, { t: 'op', id: id(), method: 'auth.getProviderConfig' }),
+    );
+    expect(config.find((c) => c.providerId === 'google.com')?.enabled).toBe(true);
+  });
+});

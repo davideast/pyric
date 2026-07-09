@@ -3,6 +3,11 @@
  *
  * The users master-detail from the design rationale, composed
  * over `@pyric/ui/auth` (NOT reimplemented):
+ *   - PROVIDERS → {@link AuthProviderToggles} (`data-pyric-ui="auth-provider-
+ *             toggles"`), fed by {@link useAuthProviderConfig} — a section
+ *             (not a modal) above the master-detail, gating which sign-in
+ *             providers this sandbox project accepts (mirrors the real
+ *             console's Authentication → Sign-in method page).
  *   - LIST  → {@link AuthUserList} (`data-pyric-ui="auth-user-list"`), fed by
  *             {@link useAuthUsers} over the seeded sandbox `Auth` handle.
  *   - DETAIL→ {@link AuthUserForm} (`data-pyric-ui="auth-user-form"`) +
@@ -15,19 +20,24 @@
  * `data-pyric-*` contract the library emits, so the surface re-themes with the
  * shell's light/dark tokens and never restyles `@pyric/ui` itself.
  *
- * Scope note (honest): the "Sign-in methods" block is read-only: it reflects
- * `providerUserInfo` from the record. Account linking / unlink has no headless
- * seam on `AuthUserForm` today, so those affordances are presentational. The
- * filled-deny "disabled" treatment is driven by the record's `disabled` flag.
+ * Scope note (honest): the "Sign-in methods" block on the DETAIL side is
+ * read-only: it reflects `providerUserInfo` from the record. Account linking
+ * / unlink has no headless seam on `AuthUserForm` today, so those affordances
+ * are presentational. The filled-deny "disabled" treatment is driven by the
+ * record's `disabled` flag. Provider ENABLEMENT (this project accepts
+ * sign-ins from provider X at all) is now in scope via the "Sign-in
+ * providers" section above — that gap is closed.
  */
 
 import { useMemo, useState } from 'react';
 import {
   AuthUserList,
   AuthUserForm,
+  AuthProviderToggles,
   AuthApiProvider,
   providerLabel,
   useAuthUsers,
+  useAuthProviderConfig,
   type AuthUserFormSubmit,
 } from '@pyric/ui/auth';
 import type { Auth, AuthUserRecord } from 'pyric/auth';
@@ -119,6 +129,8 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
     clearUsers,
   } = useAuthUsers(auth);
 
+  const providerConfig = useAuthProviderConfig(auth);
+
   const nav = useDataNav();
   // The selected user IS the URL: #auth/<uid> (see navigation.tsx). Selecting or
   // clearing writes the hash via nav.navigate, so the focused user is deep-
@@ -132,6 +144,18 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
 
   return (
     <div className="auth-surface" data-pyric-ui="auth-surface">
+      {/* Sign-in providers: a SECTION (not a modal) gating which providers this
+          sandbox project accepts, mirroring Authentication → Sign-in method. */}
+      <section className="auth-providers" aria-label="Sign-in providers">
+        <div className="auth-group">Sign-in providers</div>
+        <AuthProviderToggles
+          config={providerConfig.config}
+          onToggle={providerConfig.setEnabled}
+          isLoading={providerConfig.isLoading}
+          error={providerConfig.error}
+        />
+      </section>
+
       {/* Sub-bar: count · filter · actions (ported from the mock's `.sub`). */}
       <div className="auth-sub">
         <span className="auth-sub__h">

@@ -316,6 +316,26 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       break;
     }
 
+    case 'auth.getProviderConfig': {
+      // Sign-in provider config (Pyric Studio S-AUTH "Sign-in providers"
+      // section). `setProviderConfig` emits a `provider_config_update`
+      // sandbox event, so a caller subscribed to the event stream (the
+      // worker's event feed, which `subscribeUsers` already rides) sees
+      // toggles live without a dedicated subscription message here.
+      try {
+        ok(port, msg.id, authSandboxOps.getAuthProviderConfig(auth));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.setProviderConfig': {
+      try {
+        authSandboxOps.setAuthProviderConfig(auth, msg.providerId, msg.enabled);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
     default: {
       fail(port, msg.id, new Error(`Unknown auth method: ${String((msg as { method: unknown }).method)}`));
     }

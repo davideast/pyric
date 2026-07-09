@@ -34,6 +34,7 @@ describe('sandbox.exportUsers', () => {
 
   it('passwordless provider identities export with the sentinel; anonymous are skipped', async () => {
     const a = wire();
+    authSandbox.setAuthProviderConfig(a, 'google.com', true);
     // provider-flow identity without a password (createSignInCredential spec path)
     authSandbox.mockSignInResult(
       a,
