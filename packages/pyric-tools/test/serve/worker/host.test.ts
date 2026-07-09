@@ -32,7 +32,6 @@ import type {
 } from '../../../src/serve/worker/protocol.js';
 import {
   initializeSandbox,
-  attachPersistence,
   createMemoryBackend,
 } from 'pyric/sandbox';
 import {
@@ -98,7 +97,7 @@ async function makeCtx(rules: string = PERMISSIVE_RULES): Promise<HostCtx> {
   const adminDb = getAdminFirestore(sandbox.withAuth(null));
   adminDb.setRules(rules);
 
-  await attachPersistence(sandbox, {
+  await sandbox.enablePersistence({
     key: `test-worker-${Math.random()}`,
     injectedBackend: createMemoryBackend(),
   });

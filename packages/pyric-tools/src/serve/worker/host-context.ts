@@ -183,3 +183,25 @@ export function fail(port: PortLike, id: string, err: unknown): void {
   // post it whole so the structured denial frame reaches remote consumers.
   post(port, { t: 'res', id, ok: false, error: serializeError(err) });
 }
+
+/**
+ * Await a persistence flush BEFORE acking a mutating op, so an acknowledged
+ * write is durable in IndexedDB when the reply reaches the client. This is
+ * the worker's ONLY durability mechanism: there is no beforeterminate-style
+ * event for a SharedWorker, so a teardown on last-tab close/reload can kill
+ * the worker inside the controller's debounce window — an un-flushed write
+ * would be silently lost (the reload-durability bug).
+ *
+ * "Best-effort" refers to the REPLY, not the flush: a flush failure (e.g.
+ * storage quota) must not turn a successful in-memory mutation into a wire
+ * error, but it IS logged — a silently swallowed flush failure is exactly
+ * how a broken flush contract stays invisible.
+ */
+export async function bestEffortFlush(ctx: HostCtx): Promise<void> {
+  try {
+    await ctx.sandbox.flush?.();
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[pyric worker] persistence flush after acked write failed:', e);
+  }
+}

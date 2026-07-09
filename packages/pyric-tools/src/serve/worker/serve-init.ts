@@ -27,13 +27,13 @@
  * loop than the per-tab in-page capture it replaces.
  */
 
-import { sandbox as sandboxOps } from 'pyric/firestore';
+import { getFirestore, sandbox as sandboxOps } from 'pyric/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database/modular';
-import { sandbox as authOps, type SeedUser } from 'pyric/auth';
+import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import type { PersistenceBackend } from 'pyric/sandbox';
-import { serializeToBuckets, bundleRecords, parseBundle } from 'pyric/sandbox';
+import { initializeSandbox, serializeToBuckets, bundleRecords, parseBundle } from 'pyric/sandbox';
 import type { InitPayload } from '../namespace.js';
-import { ensureAuth, type HostCtx } from './host.js';
+import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
 
 /** Injected environment — `fetch` is the only ambient the worker init needs
@@ -381,4 +381,130 @@ export function setupServerAuthFlush(
     if (timer) clearTimeout(timer);
     unsub();
   };
+}
+
+// ─── Worker boot: build the ONE shared HostCtx ──────────────────────────────
+
+/** Default persistence key — also the IndexedDB database name. Package-level
+ *  default; stable across reloads (never derived from the page path, so every
+ *  boot on an origin opens the SAME database). */
+export const WORKER_PERSISTENCE_KEY = 'pyric-shared-worker';
+
+const PERMISSIVE_RULES = `
+  rules_version = '2';
+  service cloud.firestore {
+    match /databases/{database}/documents {
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+  }
+`;
+
+/** Environment for {@link buildWorkerCtx}. Everything ambient is injected so
+ *  the REAL boot path is testable headlessly (fake-indexeddb + stub fetch). */
+export interface WorkerBootEnv extends ServeInitEnv {
+  /** The raw local backend (IndexedDB in the real worker). Also used for the
+   *  instance id + branches + (via the durable wrapper) the controller blob. */
+  idb: PersistenceBackend;
+  /** Persistence key / IDB database name. Default {@link WORKER_PERSISTENCE_KEY}. */
+  persistenceKey?: string;
+  /** Hot-reload EventSource factory. Omit/null when unavailable (tests, hosts
+   *  without EventSource). */
+  makeEventSource?: ((url: string) => EventSourceLike) | null;
+}
+
+/**
+ * Build the ONE shared sandbox + Firestore handle — the SharedWorker's boot
+ * path, extracted from `entry.ts` so it is testable without a SharedWorker
+ * runtime (the reload-durability regression tests boot it twice over one
+ * fake-IDB factory).
+ *
+ * DURABILITY CONTRACT: persistence is wired via `sandbox.enablePersistence`
+ * (NOT the raw `attachPersistence` helper) so the controller registers on the
+ * sandbox and `sandbox.flush()` works. The worker host awaits that flush —
+ * which awaits the IndexedDB transaction's `oncomplete` — before acking every
+ * mutating op. That is the worker's ONLY durability mechanism: a SharedWorker
+ * gets no beforeunload/beforeterminate, so anything not committed to IDB when
+ * the last tab closes is lost.
+ */
+export async function buildWorkerCtx(env: WorkerBootEnv): Promise<HostCtx> {
+  const sandbox = initializeSandbox();
+
+  // Deploy permissive starter rules via admin-firestore.
+  // Callers override at runtime via the setRules op.
+  const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
+  const adminDb = getAdminFirestore(sandbox.withAuth(null));
+  adminDb.setRules(PERMISSIVE_RULES);
+
+  // Fetch serve's init payload FIRST — it decides the DURABLE strategy before
+  // we attach: `--persist` mirrors the controller blob to the committable
+  // server file (and primes from it on a fresh worker); a `seedState` fixture
+  // primes IDB once. Null when standalone (no `pyric dev` behind us).
+  const payload = await fetchInitPayload(env.fetch);
+
+  // The persistence-controller backend. `--persist`/`seedState` wrap IDB (see
+  // createWorkerDurableBackend); plain IDB otherwise. The session record stays
+  // on the RAW idb (local-only — it must NEVER reach the committable server
+  // file), so that is what we hand the host as `sessionBackend`.
+  const durable = payload ? createWorkerDurableBackend(env.idb, payload, env) : env.idb;
+  await sandbox.enablePersistence({
+    key: env.persistenceKey ?? WORKER_PERSISTENCE_KEY,
+    injectedBackend: durable,
+  });
+
+  // Register the auth service with the persistence registry BEFORE we read
+  // back any session: `getAuth(sandbox)` makes the user DB ride the snapshot
+  // (the #629 mechanism). One auth per worker — one shared user pool across
+  // all tabs (sessions are per-port; see host-auth.ts).
+  getAuth(sandbox);
+
+  // Sandbox-live Firestore: `getFirestore(sandbox)` reads
+  // `sandbox.currentUser` per operation, so auth changes propagate
+  // to subsequent Firestore ops without rebuilding the handle.
+  const db = getFirestore(sandbox);
+
+  const ctx: HostCtx = {
+    db,
+    sandbox,
+    // Stable per-SharedWorker identity (raw idb, local-only). Two browser
+    // profiles on the same port get two ids — how the UI tells them apart.
+    instanceId: await getOrCreateInstanceId(env.idb),
+    subs: new Map(),
+    sessionBackend: env.idb,
+    sessionMode: 'LOCAL',
+  };
+
+  // Apply rules / seed / authUsers / capture BEFORE any port op runs (so
+  // seeded users exist and project rules govern the first write), then mirror
+  // auth to the committable server file (`--persist` only).
+  if (payload) {
+    applyServeInit(ctx, payload, env);
+    setupServerAuthFlush(ctx, payload, env);
+  }
+
+  // The worker owns the SINGLE hot-reload stream for the origin (tabs open
+  // none) — so a rules change deploys once and multi-tab pages never exhaust
+  // the per-origin connection cap.
+  if (env.makeEventSource) {
+    setupWorkerHotReload(ctx, env.makeEventSource);
+  }
+
+  return ctx;
+}
+
+/**
+ * Fetch + parse `/__pyric/init.json`. The URL is relative to the worker
+ * script's origin (same origin as the page). Returns null on any failure: a
+ * worker opened outside `pyric dev` has no init endpoint and simply keeps
+ * the permissive starter rules + a plain-IDB durable store.
+ */
+async function fetchInitPayload(fetchFn: typeof fetch): Promise<InitPayload | null> {
+  try {
+    const res = await fetchFn('/__pyric/init.json');
+    if (!res.ok) return null;
+    return (await res.json()) as InitPayload;
+  } catch {
+    return null;
+  }
 }
