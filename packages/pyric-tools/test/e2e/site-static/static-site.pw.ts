@@ -124,26 +124,22 @@ test('a Firestore write via the worker port is visible to a second, independent 
 test.fail(
   'KNOWN GAP: a write does not reliably survive a full page reload (SharedWorker teardown races the IDB flush)',
   async ({ page }) => {
-    // DISCOVERED DURING THIS VERIFICATION PASS (not introduced by the
-    // STUDIO_STATIC change — reproduces identically under a normal `pyric
-    // dev --ui` serve; this is pyric-tools' `serve/worker` host/persistence
-    // internals, out of scope for this change to fix):
+    // STILL OPEN as of the recompose-on-main pass (2026-07-09). #62 ("acked
+    // writes now durable before reply") IS merged to main and this build
+    // includes it (buildWorkerCtx + sandbox.enablePersistence, awaited flush
+    // before ack for admin.setDocument) — yet a write acked over the worker
+    // port is NOT found after a full reload in the composed static site.
+    // Reproduced directly against dist/site: the write acks ok:true, the IDB
+    // databases exist (pyric-shared-worker, …), and even with 3s of settle
+    // before the reload and 4s after, the post-reload read comes back
+    // value:null. So the durable-write path (#62) is in place but the
+    // restore-from-IDB-on-reboot path in the composed worker bundle does not
+    // rehydrate user writes — a pyric-tools serve/worker persistence issue,
+    // out of scope for the site composition to fix. The seed (init.json) is
+    // re-applied on every boot, so demo data is always present regardless.
     //
-    // When the LAST connected tab/port disconnects (page.reload() briefly
-    // drops to zero connected ports; page.close() + a fresh page does too),
-    // Chromium is free to terminate the SharedWorker. A write acknowledged
-    // via `admin.setDocument`/`setDoc` (both awaited `ctx.sandbox.flush()`
-    // before replying `ok`) was NOT found after such a restart in repeated
-    // manual runs — including with an extra 3s settle window between the
-    // write and the reload. Same-session reads (including across a SECOND,
-    // concurrently-open port — see the multi-tab test above) always saw the
-    // write correctly. This points at the underlying IndexedDB commit racing
-    // (and losing to) worker teardown, rather than anything about the
-    // request/reply protocol itself.
-    //
-    // `test.fail(...)` keeps this documented + runnable (green suite) while
-    // being explicit that persistence-across-reload — item 3's ask — is NOT
-    // currently verified. See the build-site report for the full write-up.
+    // `test.fail(...)` keeps this documented + runnable (green suite) and will
+    // flip loudly the moment reboot-restore starts working.
     await page.goto('/');
     await page.waitForTimeout(1000);
 
@@ -214,6 +210,37 @@ test('the playground static client loads at /playground/', async ({ page }) => {
   const res = await page.goto('/playground/');
   expect(res?.ok()).toBeTruthy();
   await expect(page).toHaveTitle(/./);
+});
+
+test('the Studio Prototype embed (/playground/?embed=studio) lands on the session HomePage, not a redirect loop', async ({
+  page,
+}) => {
+  // Regression guard for the compose bug where only client/playground/ (the
+  // workspace) was copied to /playground/ and client/index.html (HomePage) was
+  // dropped: a sessionless workspace page redirects to playgroundHomeHref()
+  // (/playground/), which — without HomePage there — resolved back to the
+  // workspace and looped forever, showing only "Loading session…". The embed
+  // src the Studio Prototype tab uses is /playground/?embed=studio; it must
+  // reach the HomePage (its "New session" composer), which is the session list
+  // where a user starts a prototype.
+  await page.goto('/playground/?embed=studio');
+  // HomePage's new-session prompt is the tell it rendered (not the workspace's
+  // "Loading session…" placeholder, and not a blank looping frame).
+  await expect(page.getByLabel('New session prompt')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Loading session…')).toHaveCount(0);
+});
+
+test('the static build hides the GitHub import/create options (no BYOPAT in v1)', async ({
+  page,
+}) => {
+  // GitHub import/create needs a PAT + github.com network calls the static
+  // deploy doesn't ship (issue #72: "No GitHub features in v1"). Both option
+  // rows must be gone from the HomePage composer there; the Enhance/Start flow
+  // (a plain local session) stays.
+  await page.goto('/playground/?embed=studio');
+  await expect(page.getByLabel('New session prompt')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Import an existing GitHub repository')).toHaveCount(0);
+  await expect(page.getByText('Create a GitHub repo for this project')).toHaveCount(0);
 });
 
 test('DIAGNOSTIC: full request log for /__pyric/* on first load (not an assertion — informational)', async ({

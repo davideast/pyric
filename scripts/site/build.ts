@@ -13,9 +13,11 @@
  *     __pyric/init.json            the curated demo seed (rules/authUsers/docs)
  *     playground/…                 the playground's STATIC client only (no
  *                                  Cloud Function build, no inference-endpoint.json)
- *     docs/…                       placeholder — the docs track (site/docs-platform)
- *                                  generates the real content
- *     llms.txt                     placeholder, same reason
+ *     docs/…                       the site-docs SSG output (packages/site-docs,
+ *                                  directory-format pages + flat .md agent twins
+ *                                  + /docs/index.json), built with DOCS_BASE=/
+ *     _astro/…                     the docs pages' one shared stylesheet
+ *     llms.txt                     the docs' generated agent entry point
  *
  * Every piece here is already output:'static'/pure-esbuild; this script's only
  * job is to run each build with the right base path and copy bytes into one
@@ -42,7 +44,7 @@ async function main(): Promise<void> {
   await bundleSdkAndWorker();
   await buildPlayground();
   writeInitJson();
-  writeDocsPlaceholder();
+  await buildDocs();
 
   log(`Done → ${DIST}`);
 }
@@ -57,6 +59,11 @@ async function buildStudio(): Promise<void> {
     ...process.env,
     STUDIO_BASE: '/',
     STUDIO_STATIC: '1',
+    // The composed site ships the playground at /playground/ (buildPlayground
+    // below), NOT the `pyric dev --ui` default /__pyric/playground/. Vite
+    // exposes VITE_-prefixed process env, so PlaygroundSurface's
+    // `import.meta.env.VITE_PYRIC_PLAYGROUND_URL` embed src resolves there.
+    VITE_PYRIC_PLAYGROUND_URL: '/playground/',
   });
   const appDir = join(studioDir, 'dist', 'app');
   if (!existsSync(appDir)) {
@@ -124,6 +131,10 @@ async function buildPlayground(): Promise<void> {
   await $`bun --env-file=../../.env --env-file=.env astro build`.cwd(pgDir).env({
     ...process.env,
     PLAYGROUND_BASE: '/playground/',
+    // No server relay / inference Cloud Function behind the static site:
+    // force page-direct BYOK inference and hide the server-stream toggle
+    // (see packages/playground/src/lib/build-env.ts).
+    PUBLIC_PLAYGROUND_STATIC: '1',
   });
   const clientDir = join(pgDir, 'dist', 'client');
   if (!existsSync(clientDir)) {
@@ -131,20 +142,23 @@ async function buildPlayground(): Promise<void> {
   }
   const target = join(DIST, 'playground');
   mkdirSync(target, { recursive: true });
-  // Astro's static output already nests the playground ROUTE under
-  // `client/playground/` (from `src/pages/playground.astro`) and keeps
-  // shared build assets under `client/_astro/`. Copy both; skip the
-  // top-level `client/index.html` (the astro app's OWN root page — the
-  // composed site's root is Studio, not this).
-  cpSync(join(clientDir, 'playground'), target, { recursive: true });
-  const astroAssets = join(clientDir, '_astro');
-  if (existsSync(astroAssets)) {
-    cpSync(astroAssets, join(target, '_astro'), { recursive: true });
-  }
-  const favicon = join(clientDir, 'favicon.svg');
-  if (existsSync(favicon)) {
-    cpSync(favicon, join(target, 'favicon.svg'));
-  }
+  // Copy the WHOLE astro client under /playground/, preserving the app's own
+  // base structure (PLAYGROUND_BASE=/playground/):
+  //   client/index.html            → /playground/            (HomePage: the
+  //                                   session list — where the Studio Prototype
+  //                                   embed src and a direct visit both land)
+  //   client/playground/index.html → /playground/playground/ (the workspace,
+  //                                   opened with ?session=<id>)
+  //   client/_astro/, favicon.svg  → shared assets
+  //
+  // The playground's OWN root page (HomePage) MUST ship at /playground/. A
+  // sessionless workspace page redirects to `playgroundHomeHref()` =
+  // `/playground/`; if HomePage isn't there, that redirect resolves back to the
+  // workspace and loops forever ("Loading session…" flicker — the exact bug an
+  // earlier version of this compose shipped by copying only client/playground/
+  // and dropping client/index.html). Studio still owns the SITE root /
+  // (dist/site/index.html); this only fills /playground/*.
+  cpSync(clientDir, target, { recursive: true });
   log(`Playground static client → ${target}`);
 }
 
@@ -192,46 +206,40 @@ function writeInitJson(): void {
   writeFileSync(join(outDir, 'init.json'), JSON.stringify(initPayload, null, 2));
 }
 
-// ─── docs + llms.txt placeholders ──────────────────────────────────────
+// ─── docs (site-docs SSG) + llms.txt ───────────────────────────────────
 
-function writeDocsPlaceholder(): void {
-  log('Writing docs/ + llms.txt placeholders');
-  const docsDir = join(DIST, 'docs');
-  mkdirSync(docsDir, { recursive: true });
-  writeFileSync(
-    join(docsDir, 'index.html'),
-    STUB_HTML(
-      'Docs — coming soon',
-      'The real docs/ tree is generated by the site/docs-platform track. ' +
-        'This is a placeholder stub so the composed static site has SOMETHING ' +
-        'at /docs/ until that track lands.',
-    ),
-  );
-  writeFileSync(
-    join(DIST, 'llms.txt'),
-    [
-      '# Pyric — llms.txt (PLACEHOLDER)',
-      '',
-      'This file is a stub. The real llms.txt is generated by the',
-      'site/docs-platform track from the actual docs content.',
-      '',
-      'Generated by scripts/build-site.sh — do not hand-edit; it will be',
-      'overwritten by the next build.',
-      '',
-    ].join('\n'),
-  );
-}
-
-function STUB_HTML(title: string, body: string): string {
-  return `<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><title>${title}</title></head>
-<body>
-<h1>${title}</h1>
-<p>${body}</p>
-</body>
-</html>
-`;
+async function buildDocs(): Promise<void> {
+  log('Building packages/site-docs (DOCS_BASE=/) and composing into dist/site');
+  const docsDir = join(ROOT, 'packages', 'site-docs');
+  rmSync(join(docsDir, 'dist'), { recursive: true, force: true });
+  // DOCS_BASE=/ so the docs live at /docs/<slug>/ and the shared stylesheet at
+  // /_astro/ under the composed site root (astro.config.mjs reads DOCS_BASE).
+  await $`bun run --cwd ${docsDir} build`.env({
+    ...process.env,
+    DOCS_BASE: '/',
+  });
+  const docsDist = join(docsDir, 'dist');
+  const builtDocs = join(docsDist, 'docs');
+  if (!existsSync(builtDocs)) {
+    throw new Error(`build-site: site-docs build did not produce ${builtDocs}`);
+  }
+  // The whole /docs subtree: directory-format pages (<slug>/index.html), the
+  // flat .md agent twins (<slug>.md), and /docs/index.json. Directory format
+  // means a dumb static host serves /docs/<slug>/ with no rewrite rules.
+  cpSync(builtDocs, join(DIST, 'docs'), { recursive: true });
+  // The docs pages' one shared stylesheet lives at /_astro/ (base=/). Studio's
+  // own bundle uses assets/, the playground's uses playground/_astro, so this
+  // never collides at the site root.
+  const docsAstro = join(docsDist, '_astro');
+  if (existsSync(docsAstro)) {
+    cpSync(docsAstro, join(DIST, '_astro'), { recursive: true });
+  }
+  // The agent entry point at the site root; its links point at the flat
+  // /docs/<slug>.md twins just copied. Deliberately NOT the docs build's OWN
+  // root index.html (`dist/index.html`, "Pyric docs") — Studio owns / in the
+  // composed site.
+  cpSync(join(docsDist, 'llms.txt'), join(DIST, 'llms.txt'));
+  log('Docs + llms.txt composed → dist/site/docs, /_astro, /llms.txt');
 }
 
 await main();

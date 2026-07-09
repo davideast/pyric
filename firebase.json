@@ -1,0 +1,22 @@
+{
+  "hosting": {
+    "site": "pyric-site",
+    "public": "dist/site",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      { "source": "**", "destination": "/index.html" }
+    ],
+    "headers": [
+      {
+        "source": "**/*.md",
+        "headers": [
+          { "key": "Content-Type", "value": "text/markdown; charset=utf-8" }
+        ]
+      }
+    ]
+  }
+}
