@@ -32,6 +32,7 @@ import { AutosaveStatus } from './AutosaveStatus';
 import { SessionReadOnlyBanner } from './SessionReadOnlyBanner';
 import { SettingsModal } from './SettingsModal';
 import { WorkspacePanel, type WorkspaceTabId } from './WorkspacePanel';
+import { SessionBreadcrumbs } from './SessionBreadcrumbs';
 import { StatusBar } from './StatusBar';
 import { TopBar } from './TopBar';
 import { ToastProvider } from '@pyric/ui/primitives';
@@ -951,6 +952,14 @@ export function PlaygroundPage() {
               before the input. On desktop it stays below as a
               footer. Visual order matches importance per breakpoint. */}
           <StatusBar
+            leading={
+              <SessionBreadcrumbs
+                base={playgroundBase}
+                embedded={embeddedInStudio}
+                sessionTitle={sessionRouting.title}
+                sessionId={sessionRouting.sessionId ?? ''}
+              />
+            }
             modelLabel={`${activeProvider.label}: ${activeModelLabel}`}
             sessionState={sessionState}
             error={error}
