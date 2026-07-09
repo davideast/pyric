@@ -541,15 +541,6 @@
 .fs-editor {
   padding: 12px 18px 24px;
 }
-.fs-editor__warn {
-  margin: 0 0 12px;
-  font-size: var(--fs-label);
-  color: var(--color-warning);
-  border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
-  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
-  border-radius: 7px;
-  padding: 6px 10px;
-}
 [data-pyric-ui='document-editor'] [data-pyric-editor-fields] {
   display: flex;
   flex-direction: column;

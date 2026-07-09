@@ -8,8 +8,8 @@
  *   tab    the shell RouteId (first path segment); `router.ts` routes on it.
  *   rest   in-service location: a Firestore doc/collection path, a Storage
  *          object path, or an Auth uid. `features/data/navigation.tsx` maps it.
- *   query  cross-cutting state preserved across navigations: `lens` (admin vs
- *          app-session) and `denial` (the Traffic surface focus).
+ *   query  per-surface state: `denial` (the Traffic surface focus). There is
+ *          no lens param — data views are always admin (M2/M3).
  *
  * This ports the hash codec's shape (`#<tab>/<rest>?<query>`) verbatim; only
  * the transport changed from `location.hash` to `pathname` + `search`. One
@@ -67,7 +67,7 @@ export function parsePath(
 
 /**
  * Serialize the routed shape to a `pathname + search` URL string under `base`.
- * Empty/nullish query values are dropped (the admin lens carries no query).
+ * Empty/nullish query values are dropped.
  */
 export function serializePath(
   input: {

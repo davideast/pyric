@@ -742,14 +742,6 @@ button.studio-card:hover {
   flex: 1;
   min-height: 0;
 }
-.data-feature__bar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 12px;
-}
-
 /* Labelled empty placeholder per route (Wave 2 fills these). */
 .studio__placeholder {
   border: 1px dashed var(--line-2);

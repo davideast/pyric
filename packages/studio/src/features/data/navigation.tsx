@@ -5,31 +5,29 @@
  * own shell tab, and a clickable cross-reference jumps *between* them (a uid →
  * the Auth user, a `gs://` path → the Storage object, a doc path → the Firestore
  * document). Navigation state is encoded in the URL pathname under the app base
- * (see `shell/path.ts`), so the active view, the in-service location, and the
- * lens are deep-linkable, survive reload and per-tab remounts, and follow
- * browser back/forward:
+ * (see `shell/path.ts`), so the active view and the in-service location are
+ * deep-linkable, survive reload and per-tab remounts, and follow browser
+ * back/forward:
  *
  *   /firestore/<collection>/<doc>/...   the drill path
  *   /auth/<uid>                         the focused user
  *   /storage/<object/path>              the focused object
- *   ?lens=app                           app-session lens (admin is the default, omitted)
  *   /traffic?denial=<id>                traffic drill-in for a denied request
  *
+ * Data views are ALWAYS admin (PRINCIPLES M2/M3) — there is no lens param.
  * `useDataNav()` reads the location via `useSyncExternalStore`; `navigate(...)`
- * / `setLens(...)` / `navigateDenial(...)` push through the shell's one history
- * facade (`shell/router.ts`).
+ * / `navigateDenial(...)` push through the shell's one history facade
+ * (`shell/router.ts`).
  */
 
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import {
-  currentPath,
   locationKey,
   pushPath,
   subscribeToLocation,
 } from '../../shell/router.js';
 import { parsePath } from '../../shell/path.js';
 import type { CrossRef } from './refs.js';
-import type { DataLens } from './sandbox.js';
 
 /** The three service sub-views the Data feature spans. */
 export type DataView = 'firestore' | 'auth' | 'storage';
@@ -60,7 +58,6 @@ export type DataTarget =
 
 interface NavState {
   target: DataTarget | null;
-  lens: DataLens;
   /** The denial to focus in the Traffic surface. */
   selectedDenialId: string | null;
 }
@@ -77,8 +74,6 @@ function deriveNav(raw: string): NavState {
     qIdx === -1 ? raw : raw.slice(0, qIdx),
     qIdx === -1 ? '' : raw.slice(qIdx),
   );
-  // Admin lens by default (rules bypassed); `?lens=app` selects app-session.
-  const lens: DataLens = query.lens === 'app' ? 'app-session' : 'admin';
   let target: DataTarget | null = null;
   if (tab === 'firestore') {
     target = { view: 'firestore', path: parseDocPath(rest.join('/')) };
@@ -88,7 +83,7 @@ function deriveNav(raw: string): NavState {
     target = { view: 'storage', objectPath: rest.length ? rest.join('/') : null };
   }
   const selectedDenialId = tab === 'traffic' ? query.denial ?? null : null;
-  return { target, lens, selectedDenialId };
+  return { target, selectedDenialId };
 }
 
 let cachedRaw: string | null = null;
@@ -121,28 +116,16 @@ function restForTarget(target: DataTarget): string[] {
   }
 }
 
-/** Switch sub-view (shell tab) + focus a target, preserving the lens. */
+/** Switch sub-view (shell tab) + focus a target. */
 function navigateTo(target: DataTarget): void {
-  const cur = currentPath();
   pushPath({
     tab: target.view,
     rest: restForTarget(target),
-    query: { lens: cur.query.lens },
-  });
-}
-
-function setLensUrl(lens: DataLens): void {
-  const cur = currentPath();
-  pushPath({
-    tab: cur.tab,
-    rest: cur.rest,
-    query: { ...cur.query, lens: lens === 'app-session' ? 'app' : undefined },
   });
 }
 
 function navigateDenialUrl(id: string): void {
-  const cur = currentPath();
-  pushPath({ tab: 'traffic', query: { denial: id, lens: cur.query.lens } });
+  pushPath({ tab: 'traffic', query: { denial: id } });
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
@@ -150,9 +133,6 @@ function navigateDenialUrl(id: string): void {
 export interface DataNavValue {
   /** The focused target within the active view, if any. */
   target: DataTarget | null;
-  /** The active auth lens for the data grids. */
-  lens: DataLens;
-  setLens: (lens: DataLens) => void;
   /** Switch sub-view (shell tab) + focus a target. */
   navigate: (target: DataTarget) => void;
   /** Route a detected cross-ref to the right sub-view + target. */
@@ -184,19 +164,16 @@ export function useDataNav(): DataNavValue {
     }
   }, []);
 
-  const setLens = useCallback((lens: DataLens) => setLensUrl(lens), []);
   const navigateDenial = useCallback((id: string) => navigateDenialUrl(id), []);
 
   return useMemo<DataNavValue>(
     () => ({
       target: snap.target,
-      lens: snap.lens,
-      setLens,
       navigate,
       navigateRef,
       selectedDenialId: snap.selectedDenialId,
       navigateDenial,
     }),
-    [snap, setLens, navigate, navigateRef, navigateDenial],
+    [snap, navigate, navigateRef, navigateDenial],
   );
 }

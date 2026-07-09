@@ -4,7 +4,7 @@
  * Mounts one of the three service sub-views (Firestore / Auth / Storage) chosen
  * by the active shell tab, all sharing:
  *   - one Studio sandbox handle (hydrated from the env's durable backend),
- *   - one auth-lens choice + the `<LensToggle>` (admin = edit anything),
+ *     always through the ADMIN handle (data views are admin — M2/M3),
  *   - one navigation context so clickable cross-references jump between views,
  *   - one live `useAuthUsers` so the uid set is shared (a Firestore field that
  *     IS a real uid links to its user authoritatively).
@@ -21,7 +21,6 @@ import { StorageApiProvider } from '@pyric/ui/storage';
 import { LiveFirestorePane } from './FirestorePane.js';
 import { LiveAuthPane } from './AuthPane.js';
 import { LiveStoragePane } from './StoragePane.js';
-import { LensToggle } from './components.js';
 import { useDataNav, type DataView } from './navigation.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
 
@@ -45,7 +44,7 @@ function PendingState({ view }: { view: DataView }) {
 }
 
 export function DataFeature({ view }: { view: DataView }) {
-  const { lens, target } = useDataNav();
+  const { target } = useDataNav();
 
   // Live handles, dev-seed first (review), env-hydrated otherwise (`dev --ui`).
   const data = useStudioDataSource();
@@ -55,16 +54,7 @@ export function DataFeature({ view }: { view: DataView }) {
   const auth = data.status === 'ready' ? data.handles.auth : null;
 
   return (
-    <div data-pyric-ui="data-feature" data-pyric-lens={lens}>
-      {/* The lens governs Firestore edits (admin = bypass rules); it is the one
-          load-bearing control here. No explanatory copy: the browser explains
-          itself. */}
-      {view === 'firestore' ? (
-        <div className="data-feature__bar">
-          <LensToggle />
-        </div>
-      ) : null}
-
+    <div data-pyric-ui="data-feature">
       {data.status !== 'ready' || !auth ? (
         <PendingState view={view} />
       ) : data.authApi ? (

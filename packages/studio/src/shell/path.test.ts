@@ -14,11 +14,11 @@ describe('studio path codec (History-API, N4)', () => {
     });
   });
 
-  it('parses the lens query', () => {
-    expect(parsePath('/firestore/users/abc', '?lens=app', '/')).toEqual({
+  it('parses the query string', () => {
+    expect(parsePath('/firestore/users/abc', '?denial=evt-1', '/')).toEqual({
       tab: 'firestore',
       rest: ['users', 'abc'],
-      query: { lens: 'app' },
+      query: { denial: 'evt-1' },
     });
   });
 
@@ -28,10 +28,10 @@ describe('studio path codec (History-API, N4)', () => {
   });
 
   it('strips the packaged app base (/__pyric/ui/)', () => {
-    expect(parsePath('/__pyric/ui/firestore/users/abc', '?lens=app', '/__pyric/ui/')).toEqual({
+    expect(parsePath('/__pyric/ui/firestore/users/abc', '?denial=evt-1', '/__pyric/ui/')).toEqual({
       tab: 'firestore',
       rest: ['users', 'abc'],
-      query: { lens: 'app' },
+      query: { denial: 'evt-1' },
     });
     expect(parsePath('/__pyric/ui/', '', '/__pyric/ui/')).toEqual({ tab: '', rest: [], query: {} });
     expect(parsePath('/__pyric/ui', '', '/__pyric/ui/')).toEqual({ tab: '', rest: [], query: {} });
@@ -39,8 +39,8 @@ describe('studio path codec (History-API, N4)', () => {
 
   it('serializes tab + rest + query', () => {
     expect(
-      serializePath({ tab: 'firestore', rest: ['users', 'abc'], query: { lens: 'app' } }, '/'),
-    ).toBe('/firestore/users/abc?lens=app');
+      serializePath({ tab: 'firestore', rest: ['users', 'abc'], query: { denial: 'evt-1' } }, '/'),
+    ).toBe('/firestore/users/abc?denial=evt-1');
   });
 
   it('serializes under the packaged app base', () => {
@@ -49,15 +49,15 @@ describe('studio path codec (History-API, N4)', () => {
     );
   });
 
-  it('drops empty / undefined query values (admin lens = no query)', () => {
-    expect(serializePath({ tab: 'auth', rest: ['uid1'], query: { lens: undefined } }, '/')).toBe(
+  it('drops empty / undefined query values', () => {
+    expect(serializePath({ tab: 'auth', rest: ['uid1'], query: { denial: undefined } }, '/')).toBe(
       '/auth/uid1',
     );
   });
 
   it('round-trips a storage object path', () => {
-    const url = '/storage/uploads/logo.png?lens=app';
-    const p = parsePath('/storage/uploads/logo.png', '?lens=app', '/');
+    const url = '/storage/uploads/logo.png?denial=evt-1';
+    const p = parsePath('/storage/uploads/logo.png', '?denial=evt-1', '/');
     expect(serializePath({ tab: p.tab, rest: p.rest, query: p.query }, '/')).toBe(url);
   });
 

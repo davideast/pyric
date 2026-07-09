@@ -31,7 +31,7 @@ import type {
 } from 'pyric/firestore';
 import { useDocumentList } from '@pyric/ui/firestore/hooks';
 import { useDataNav, parseDocPath, type NavigationPathSegment } from './navigation.js';
-import { firestoreForLens, type StudioDataHandles } from './sandbox.js';
+import type { StudioDataHandles } from './sandbox.js';
 import './firestore.css';
 
 /** The editor state shape `DocumentEditor.Root`'s `onChange` emits. */
@@ -59,8 +59,9 @@ export interface FirestorePaneProps {
 }
 
 export function LiveFirestorePane({ handles }: FirestorePaneProps) {
-  const { lens, target, navigate } = useDataNav();
-  const firestore = firestoreForLens(handles, lens);
+  const { target, navigate } = useDataNav();
+  // Data views are always admin (M3): the rules-bypass handle, no lens.
+  const firestore = handles.adminFirestore;
   // The modular fns: in-process by default, the SharedWorker client bundle in
   // served mode (injected by DataFeature's FirestoreApiProvider).
   const api = useFirestoreApi();
@@ -110,7 +111,6 @@ export function LiveFirestorePane({ handles }: FirestorePaneProps) {
           firestore={firestore}
           handles={handles}
           docPath={seg.path}
-          adminLens={lens === 'admin'}
           onOpenSubcollection={(coll) => selectAt(i, { kind: 'collection', id: coll.id, path: coll.path })}
           onReferenceClick={(r) => navigate({ view: 'firestore', path: parseDocPath(r.path) })}
         />
@@ -343,7 +343,6 @@ function DocumentDetailColumn({
   firestore,
   handles,
   docPath,
-  adminLens,
   onOpenSubcollection,
   onReferenceClick,
 }: {
@@ -351,7 +350,6 @@ function DocumentDetailColumn({
   firestore: Firestore;
   handles: StudioDataHandles;
   docPath: string;
-  adminLens: boolean;
   onOpenSubcollection: (coll: CollectionReference) => void;
   onReferenceClick: (ref: DocumentReference) => void;
 }) {
@@ -402,7 +400,6 @@ function DocumentDetailColumn({
         <DocumentEditPanel
           key={docPath}
           initial={data}
-          adminLens={adminLens}
           onCancel={() => setEditing(false)}
           onSave={async (next) => {
             setSaveError(null);
@@ -434,19 +431,17 @@ function DocumentDetailColumn({
 
 /**
  * The document editor: the library's `<DocumentEditor>` (typed per-field editing
- * via the `fieldEditors` registry) over the lensed handle. No raw JSON: each
+ * via the `fieldEditors` registry) over the admin handle. No raw JSON: each
  * field is edited by its type. Save is enabled only when the tree is valid +
  * dirty; `treeToData` recovers the document to write.
  */
 function DocumentEditPanel({
   initial,
-  adminLens,
   onSave,
   onCancel,
   error,
 }: {
   initial: Record<string, unknown>;
-  adminLens: boolean;
   onSave: (next: Record<string, unknown>) => void | Promise<void>;
   onCancel: () => void;
   error: Error | null;
@@ -456,12 +451,6 @@ function DocumentEditPanel({
 
   return (
     <div className="fs-editor" data-pyric-ui="fs-editor">
-      {!adminLens ? (
-        <p className="fs-editor__warn">
-          Editing as the app (security rules apply). Switch to Admin to edit anything.
-        </p>
-      ) : null}
-
       <DocumentEditor.Root initial={initial} onChange={setEditor}>
         <DocumentEditor.Fields />
       </DocumentEditor.Root>

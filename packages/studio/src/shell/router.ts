@@ -122,20 +122,20 @@ export function useRoute(
     // non-empty unknown tab rewrites to the fallback.
     const cur = currentPath();
     if (cur.tab !== '' && !valid.includes(cur.tab)) {
-      replacePath({ tab: resolve(cur.tab), query: { lens: cur.query.lens } });
+      replacePath({ tab: resolve(cur.tab) });
     }
     // Run once on mount; `resolve` is stable for a given valid/fallback pair.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolve]);
 
   // Navigate by pushing the path. Switching tabs clears the previous tab's
-  // in-service `rest` but preserves the lens query (a console-wide parameter,
-  // not per-view).
+  // in-service `rest` and query (no console-wide parameters exist — the lens
+  // is gone; data views are always admin, M2/M3).
   const navigate = useCallback(
     (id: string) => {
       const next = resolve(id);
       if (next === active) return;
-      pushPath({ tab: next, query: { lens: currentPath().query.lens } });
+      pushPath({ tab: next });
     },
     [resolve, active],
   );

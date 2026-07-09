@@ -10,21 +10,16 @@
  *   1. a single backend the app, the agent, and Studio all share, and
  *   2. an *admin lens* so the user can "edit anything" (rules bypass).
  *
- * THE LENS (admin vs app-session)
- * -------------------------------
- * The auth lens is one knob with two positions Studio cares about here:
- *   - `app-session`: rules apply (what the running app sees), and
- *   - `admin`      : rules bypass, "edit anything" (`getAdminFirestore`).
- * In the served-app worker context the same switch is `setLens({mode:'admin'})`
- * on the worker client (see `serve/worker/client.ts`); that client routes every
- * Firestore data op through the worker host's `lensDb`, which resolves
- * `{mode:'admin'}` to exactly this `getAdminFirestore(sandbox)` handle. Studio
- * is its own Vite app (it can't import that worker-internal client as a
- * package), so it drives the *same primitive* directly: flip the lens and the
- * Firestore handle swaps between `getFirestore(sandbox)` (rules apply) and
- * `getAdminFirestore(sandbox)` (admin bypass). If a host ever exposes the worker
- * client on `window`, {@link applyWorkerLens} mirrors the choice onto it too, so
- * a future served-context embedding stays in sync: best-effort, never throws.
+ * ALWAYS ADMIN (M2/M3)
+ * --------------------
+ * Studio data views read and write through the ADMIN handle
+ * (`getAdminFirestore`, rules bypass) — always. "What can user X see/do" is
+ * a simulation in the rules debugger, never a viewing mode, so there is no
+ * lens toggle and no as-app-session read path here. The rules-respecting
+ * `firestore` handle remains on the bundle for the worker/dev-seed plumbing
+ * that needs both, but the data surfaces never render through it. (The
+ * worker protocol's actAs/lens machinery is untouched — other consumers use
+ * it; this is UI-layer policy only.)
  *
  * DURABLE STATE
  * -------------
@@ -46,9 +41,6 @@ import type { FirestoreApi } from '@pyric/ui/firestore';
 import type { AuthApi } from '@pyric/ui/auth';
 import type { StorageApi } from '@pyric/ui/storage';
 
-/** Which auth lens the data grids run under. */
-export type DataLens = 'app-session' | 'admin';
-
 /** Stable durable-state bucket key for Studio's mirror of the sandbox. */
 const PERSIST_KEY = 'pyric-studio';
 
@@ -67,35 +59,6 @@ export interface StudioDataHandles {
   /** Subcollection IDs under a document path. Sync in-process (dev-seed),
    *  async over the worker (served mode); callers await either. */
   listSubcollections(docPath: string): string[] | Promise<string[]>;
-}
-
-/**
- * Pick the Firestore handle for a lens. `admin` returns the rules-bypass handle
- * (`getAdminFirestore`): the "edit anything" surface; `app-session` returns the
- * rules-respecting handle. This is the in-process analog of the worker client's
- * `setLens(...)` (which resolves to the same `getAdminFirestore` on the host).
- */
-export function firestoreForLens(handles: StudioDataHandles, lens: DataLens): Firestore {
-  return lens === 'admin' ? handles.adminFirestore : handles.firestore;
-}
-
-/**
- * Best-effort: mirror the lens onto a worker client if a host exposed one on
- * `window.__pyricWorker` (served-context embedding). Never throws; Studio's own
- * in-process handle swap is the source of truth; this only keeps a co-resident
- * worker client in sync. Calls the same `setLens({mode:'admin'|'app-session'})`
- * the worker protocol documents.
- */
-export function applyWorkerLens(lens: DataLens): void {
-  try {
-    const w = globalThis as unknown as {
-      __pyricWorker?: { setLens?: (l: { mode: string }) => void };
-    };
-    w.__pyricWorker?.setLens?.({ mode: lens === 'admin' ? 'admin' : 'app-session' });
-  } catch {
-    // A worker client may be absent (the common case); Studio's own handle
-    // swap already applied the lens, so this is purely additive.
-  }
 }
 
 /** Build the handle bundle for a freshly-created sandbox. */

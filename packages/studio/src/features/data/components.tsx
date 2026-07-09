@@ -1,53 +1,16 @@
 /**
- * Shared presentational atoms for the Data feature (F2): the lens toggle and
- * the clickable cross-reference value. Both reference semantic token roles only
- * (see `styles/tokens.css`) so they re-theme with the rest of Studio.
+ * Shared presentational atoms for the Data feature (F2): the clickable
+ * cross-reference value. References semantic token roles only (see
+ * `styles/tokens.css`) so it re-themes with the rest of Studio.
+ *
+ * (The former LensToggle is gone: Studio data views are ALWAYS admin —
+ * PRINCIPLES M2/M3. "What can user X see" is a simulation in the rules
+ * debugger, never a viewing mode.)
  */
 
 import type { ReactNode } from 'react';
 import { describeRef, detectRef, isCrossRef, type DetectRefOptions } from './refs.js';
-import { applyWorkerLens, type DataLens } from './sandbox.js';
 import { useDataNav } from './navigation.js';
-
-/**
- * The access-mode toggle. Off = `app-session` (acting as the app; rules apply);
- * on = `admin` (full access; rules bypassed, "edit anything"). Admin is rendered
- * LOUD (danger role) because it skips security rules on purpose. Flipping it
- * swaps the Firestore handle the grids use AND mirrors the choice onto any
- * co-resident worker client (`setLens`). Plain terms, no "lens" jargon, no dot.
- */
-export function LensToggle() {
-  const { lens, setLens } = useDataNav();
-  const admin = lens === 'admin';
-
-  const toggle = () => {
-    const next: DataLens = admin ? 'app-session' : 'admin';
-    setLens(next);
-    applyWorkerLens(next);
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={toggle}
-      aria-pressed={admin}
-      data-pyric-ui="lens-toggle"
-      data-pyric-lens={lens}
-      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-        admin
-          ? 'border-danger/50 bg-danger/10 text-danger'
-          : 'border-border text-slate-gray hover:text-soft-white'
-      }`}
-      title={
-        admin
-          ? 'Admin access: security rules are OFF (edit anything). Click to act as the app.'
-          : 'Acting as the app: security rules apply. Click for full admin access.'
-      }
-    >
-      {admin ? 'Admin' : 'As app'}
-    </button>
-  );
-}
 
 export interface CrossRefValueProps {
   /** The raw field value to render. */
