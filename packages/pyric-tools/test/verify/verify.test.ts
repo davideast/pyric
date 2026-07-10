@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'bun:test';
 import {
   getDatabase,
@@ -11,15 +12,21 @@ import {
 import { defineRtdbRules, allow, deny } from 'pyric/rules/rtdb';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, getFirestore } from 'pyric/sandbox/admin-firestore';
+import { getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
 import {
   buildVerifyFixture,
   deriveRulesTestCases,
   parseVerifyFixture,
+  restoreStorageRulesFromFixture,
   verifyFixture,
   VerifyInputError,
   type PyricVerifyFixture,
 } from '../../src/verify/index.js';
 import type { ProjectScope } from '../../src/deploy/index.js';
+
+function uniqueDbName(label: string): string {
+  return `pyric-storage-verify-${label}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 const ALLOW_ALL_RTDB = { rules: { '.read': true, '.write': true } };
 const DENY_ALL_RTDB = { rules: { '.read': false, '.write': false } };
@@ -321,5 +328,89 @@ describe('verifyFixture', () => {
         rulesTestApi: { scope: MOCK_SCOPE },
       }),
     ).rejects.toThrow(VerifyInputError);
+  });
+});
+
+// ─── Storage rules — capture / restore round-trip ───────────────────────
+//
+// `services.storage.rules` used to be a typed-but-never-written slot:
+// firestore and rtdb rules ride the fixture (captured above), but no
+// caller ever passed `storageRules` into `buildVerifyFixture`, and
+// `parseVerifyFixture` didn't validate the block. This covers the full
+// loop: deployed rules -> captured fixture -> fresh sandbox restore ->
+// the restored rules actually enforcing (one denied op).
+describe('storage rules — fixture capture and restore', () => {
+  const OWNER_ONLY_RULES = `
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/{fileName} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`;
+
+  it('captures the deployed storage rules source into the fixture', async () => {
+    const sandbox = initializeSandbox();
+    getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('capture'),
+      rules: OWNER_ONLY_RULES,
+    });
+
+    const fixture = buildVerifyFixture({ sandbox, storageRules: OWNER_ONLY_RULES });
+
+    expect(fixture.services.storage?.rules).toEqual({
+      format: 'storage.rules',
+      source: OWNER_ONLY_RULES,
+    });
+    // Round-trips through parse/validate too.
+    expect(parseVerifyFixture(fixture).services.storage?.rules.source).toBe(OWNER_ONLY_RULES);
+  });
+
+  it('omits the storage block when no storage rules were deployed', () => {
+    const fixture = buildVerifyFixture({ sandbox: initializeSandbox() });
+    expect(fixture.services.storage).toBeUndefined();
+  });
+
+  it('restores captured rules into a fresh sandbox and they enforce (denied op)', async () => {
+    // Session 1: deploy rules, capture a fixture.
+    const dbName1 = uniqueDbName('restore-src');
+    const sandbox1 = initializeSandbox();
+    getStorageSandbox(sandbox1.withAuth({ uid: 'alice' }), {
+      dbName: dbName1,
+      rules: OWNER_ONLY_RULES,
+    });
+    const fixture = buildVerifyFixture({ sandbox: sandbox1, storageRules: OWNER_ONLY_RULES });
+
+    // Session 2: a FRESH sandbox that never saw the rules directly —
+    // restore them from the fixture before anything else opens storage.
+    const dbName2 = uniqueDbName('restore-dst');
+    const sandbox2 = initializeSandbox();
+    restoreStorageRulesFromFixture(fixture, sandbox2);
+
+    // Allowed: alice writing under her own uid.
+    const aliceStorage = getStorageSandbox(sandbox2.withAuth({ uid: 'alice' }), { dbName: dbName2 });
+    const allowedResult = await uploadBytes(
+      storageRef(aliceStorage, 'b/pyric-default/o/users/alice/notes.txt'),
+      new Blob(['hi']),
+      { contentType: 'text/plain' },
+    );
+    expect(allowedResult.metadata.fullPath).toBe('b/pyric-default/o/users/alice/notes.txt');
+
+    // Denied: bob writing under alice's uid — the restored rules are
+    // actually enforcing, not just present as inert text.
+    const bobStorage = getStorageSandbox(sandbox2.withAuth({ uid: 'bob' }), { dbName: dbName2 });
+    await expect(
+      uploadBytes(
+        storageRef(bobStorage, 'b/pyric-default/o/users/alice/hijack.txt'),
+        new Blob(['nope']),
+        { contentType: 'text/plain' },
+      ),
+    ).rejects.toThrow(/unauthorized/);
+  });
+
+  it('is a no-op when the fixture carries no storage block', () => {
+    const fixture = buildVerifyFixture({ sandbox: initializeSandbox() });
+    const sandbox = initializeSandbox();
+    expect(() => restoreStorageRulesFromFixture(fixture, sandbox)).not.toThrow();
   });
 });

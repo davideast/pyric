@@ -38,11 +38,13 @@ export {
   buildVerifyFixture,
   fixtureVerifiableServices,
   parseVerifyFixture,
+  restoreStorageRulesFromFixture,
   VERIFY_FIXTURE_SCHEMA,
   type BuildVerifyFixtureInput,
   type PyricVerifyFixture,
   type VerifyFirestoreRulesBlock,
   type VerifyRtdbRulesBlock,
+  type VerifyStorageRulesBlock,
 } from './fixture.js';
 export {
   deriveRulesTestCases,
