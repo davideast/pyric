@@ -32,8 +32,8 @@ The backend is local state with a tool surface, so a coding agent can work on it
 
 Firebase development has hard parts, and they are not the parts the manuals dwell on. Rules that pass locally and fail in production. A denial with no explanation. Query shapes that quietly demand indexes. Limits that are real but written down nowhere.
 
-Pyric was built by working those parts until they gave, and what was learned is in the product. The rules linter carries the exact limits of the production compiler. The standard library ships rule modules that were verified against the real engine, including the ones folklore says are impossible. The event stream exists because a bare `permission-denied` is not an answer. None of this asks for your trust. Run it, break a rule on purpose, and read the verdict.
+Pyric was built by working those parts until they gave, and what was learned is in the product. The rules linter carries the exact limits of the production compiler. The standard library ships rule modules verified against the real engine, including rate limiting and cross-document checks that most rulesets never attempt. The event stream exists because a bare `permission-denied` is not an answer. None of this asks for your trust. Run it, break a rule on purpose, and read the verdict.
 
 ## Where to go next
 
-Start with [your backend in one command](./get-started/start-building.md). If you came here for rules, go straight to [prove your rules protect the app](./secure/secure-it-with-rules.md).
+Start with [the quickstart](./get-started/start-building.md). If you came here for rules, go straight to [prove your rules protect the app](./secure/secure-it-with-rules.md).

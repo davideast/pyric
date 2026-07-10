@@ -3,7 +3,7 @@ title: "How to round-trip metadata"
 navLabel: "Round-trip metadata"
 group: "pyric / storage"
 section: "How-to"
-order: 147
+order: 150
 ---
 # How to round-trip metadata
 

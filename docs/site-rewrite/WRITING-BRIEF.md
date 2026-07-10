@@ -31,6 +31,20 @@ We never claim to be better than the official docs, smarter than the reader, or 
 
 Vary sentence length deliberately. Short sentences land points. Medium sentences carry the work. And occasionally, when the reader has been given a rest and the moment is right, a long sentence builds and rolls and delivers something that matters. Read every paragraph aloud in your head. If it drones, break it.
 
+## Titles and nav labels (owner review, first pass)
+
+- Concrete over clever, always. A title must say what the page is about on sight. "How the swap works" not "What just happened". "Rules limits" not "The limits that actually bite". "Case studies" not "What's possible".
+- Never let a nav item echo its group label ("Get started > Start building" reads as a stutter; "Quickstart" does not).
+- Playful phrasing is not worth a vague label. If a reader (or an agent scanning the nav) cannot predict the content from the label, rename it.
+
+## Never against Firebase (owner review, first pass)
+
+Pyric is Firebase tooling, never a competitor and never a critic. Two rules follow. Never frame moving to Pyric as migration ("use in existing code", not "migrate from Firestore"; "coverage of", not "vs"). And never say or imply Firebase's docs are lacking. The measured rules limits are "researched and observed behavior discovered by Pyric's tooling", not "what Google doesn't document". The same for community assumptions: show the verified behavior, skip the myth-busting posture.
+
+## Density (owner review, first pass)
+
+Walls of text are a defect. On a guide page, every H2 section should reach an example (code, a table, or a tight list) within about two short paragraphs. Paragraphs run one to three sentences. If a section needs more prose than that, it is probably two sections, or it belongs in the reference. The API reference is where density is allowed.
+
 ## Structure conventions
 
 - H1 is the outcome in the reader's words, not a feature name.

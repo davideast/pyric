@@ -82,7 +82,8 @@ const DIATAXIS: SectionSpec[] = [
   { label: 'How-to', path: 'how-to' },
   { label: 'Reference', path: 'reference' },
   { label: 'Explanation', path: 'explanation' },
-  { label: 'Compat', path: 'COMPAT.md' },
+  // COMPAT.md files are claimed by the Compatibility guide group below,
+  // not by the per-service reference trees.
 ];
 
 const GROUPS: GroupSpec[] = [
@@ -441,6 +442,36 @@ for (const group of GUIDE_GROUPS) {
     if (!existsSync(p)) throw new Error(`guide page missing: ${p}`);
     addGuidePage(p, group.label);
   }
+}
+
+// The compatibility matrices, right after the guide: the per-service
+// conformance tables are the receipt behind the Trust pages and matter
+// to agents especially, so they stay itemized in the nav rather than
+// folding into the Reference shelf. Slugs are unchanged (slugFor).
+const COMPAT_PAGES: { file: string; label: string }[] = [
+  { file: 'firestore/COMPAT.md', label: 'Firestore' },
+  { file: 'auth/COMPAT.md', label: 'Auth' },
+  { file: 'database/COMPAT.md', label: 'Realtime Database' },
+  { file: 'storage/COMPAT.md', label: 'Storage' },
+];
+for (const c of COMPAT_PAGES) {
+  const src = join(docsRoot('pyric'), c.file);
+  if (!existsSync(src)) throw new Error(`compat matrix missing: ${src}`);
+  const slug = slugFor('pyric', src);
+  const clash = bySlug.get(slug);
+  if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
+  const page: Page = {
+    src,
+    slug,
+    group: 'Compatibility',
+    section: '',
+    order: order++,
+    title: titleOf(src),
+    navLabel: c.label,
+  };
+  pages.push(page);
+  bySrc.set(src, page);
+  bySlug.set(slug, page);
 }
 
 for (const group of GROUPS) {

@@ -9,7 +9,9 @@ description: "Get a rules verdict and a lint report locally, before production a
 
 # Catch the error before Firebase's opaque 400
 
-Deploy a broken ruleset to Firebase and the answer is a `400` with a message that buries the cause, or worse, a `403` at runtime with no message at all. Pyric moves both failures to your machine, before the deploy. Simulation tells you what a rule decides. Linting tells you what the production compiler and runtime will reject, and why, in the language of the mistake you made.
+A broken ruleset fails late: a `400` at deploy time, or a `403` at runtime. Pyric moves both failures to your machine, before the deploy.
+
+Simulation tells you what a rule decides. Linting tells you what the production compiler and runtime will reject, and why, in the language of the mistake you made.
 
 ## Simulate a hypothetical request
 
@@ -48,9 +50,11 @@ const { warnings, metrics } = lintFirestoreRules(source);
 ```
 The linter checks two different kinds of failure.
 
-**The production limits.** The rules compiler enforces caps that its error messages do not explain: a 256 KB source ceiling, a boolean chain depth of 98, 11 `let` bindings per function, `get()` call counts, and a runtime evaluation budget that fails as a silent `permission-denied` under load. The linter carries these as exact thresholds, found by probing the production engine. The numbers live in [the limits that actually bite](../limits-that-bite/).
+**The production limits.** The rules compiler enforces hard caps: a 256 KB source ceiling, a boolean chain depth of 98, 11 `let` bindings per function, `get()` call counts, and a runtime evaluation budget that fails as a silent `permission-denied` under load. The linter carries each cap as an exact threshold, measured by probing the production engine. The numbers live in [the limits that actually bite](../limits-that-bite/).
 
-**JS-in-rules mistakes.** The rules language looks like JavaScript, and that resemblance is a trap. Models fall into it constantly, and humans do too. Code like `resource.data.tags.includes('x')` parses fine and then fails at runtime as a bare `permission-denied`. The linter knows the specific ways this goes wrong and maps each one to the rules-language fix:
+**JS-in-rules mistakes.** The rules language looks like JavaScript, and that resemblance is a trap. Models fall into it constantly, and humans do too.
+
+Code like `resource.data.tags.includes('x')` parses fine and then fails at runtime as a bare `permission-denied`. The linter knows the specific ways this goes wrong and maps each one to the rules-language fix:
 
 | You wrote | The rules language wants |
 |---|---|

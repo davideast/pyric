@@ -1,6 +1,6 @@
 ---
 title: Seed, snapshot, reset, and replay the backend like source
-navLabel: Shape your data
+navLabel: Seed, snapshot, replay
 outcome: Put the backend in any state you want, capture the good ones, and get them back on demand.
 status: draft
 ---
@@ -75,11 +75,15 @@ Writes through `aliceDb` evaluate with `request.auth.uid == 'alice'`. The `token
 
 ## Replay a captured session
 
-While you work, `pyric dev` records the session to `.pyric/last-session.json` by default: every write, with its real identity, real server timestamps, real auto-ids. A replay re-issues those writes against a fresh sandbox and a candidate ruleset and reports what changed.
+While you work, `pyric dev` records the session to `.pyric/last-session.json` by default: every write, with its real identity, real server timestamps, real auto-ids. A replay re-issues those writes against a fresh sandbox and a candidate ruleset and reports what changed:
 
-That recording is a rules regression suite you didn't write. It knows a re-resolved `serverTimestamp()` is not a change, and a freshly minted auto-id is not a change, so what surfaces is the signal: the operation that used to be allowed and now is not. The place this pays off is the deploy gate, where `pyric verify` runs the replay against the rules you're about to ship. See [Ship to production](../ship/ship-to-production.md).
+```bash
+pyric verify --rules firestore=firestore.rules
+```
 
-You can also replay in code with `sandbox.history()` and `replay(events, rules)` when you want the divergence list programmatically.
+That recording is a rules regression suite you didn't write. It knows a re-resolved `serverTimestamp()` is not a change, and a freshly minted auto-id is not a change, so what surfaces is the signal: the operation that used to be allowed and now is not.
+
+The place this pays off is the deploy gate, where the same replay runs against the rules you're about to ship. See [Ship to production](../ship/ship-to-production.md). You can also replay in code with `sandbox.history()` and `replay(events, rules)` when you want the divergence list programmatically.
 
 ## And from an agent
 

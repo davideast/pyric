@@ -3,7 +3,7 @@ title: "How to pick a backend at init time"
 navLabel: "Pick a backend"
 group: "pyric / firestore"
 section: "How-to"
-order: 75
+order: 79
 ---
 # How to pick a backend at init time
 

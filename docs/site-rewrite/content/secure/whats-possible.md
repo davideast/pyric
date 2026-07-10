@@ -1,22 +1,59 @@
 ---
-title: What's possible in pure security rules
-navLabel: What's possible
-outcome: See working proof of how far rules go, from chess to the US tax code, all enforced in rules alone.
+title: Case studies in pure security rules
+navLabel: Case studies
+outcome: See working, deployed rulesets that enforce chess, checkers, connect four, and US tax math, built from the patterns this wing teaches.
 status: draft
 ---
 
-# What's possible in pure security rules
+# Case studies in pure security rules
 
-The claims in this wing are large, so here is the shelf they stand on. Every artifact below enforces its logic entirely in security rules. No server, no Cloud Functions. The database is the referee. If you have written rules before, some of these should look impossible, and that is the point of the shelf: they exist, they deployed, and each one is built from the same [patterns](../secure/rules-patterns.md) and [standard library](../secure/rules-standard-library.md) this wing teaches.
+Every artifact below enforces its logic entirely in security rules. No server, no Cloud Functions. The database is the referee. Each one deployed, each one is built from the same [patterns](../secure/rules-patterns.md) and [standard library](../secure/rules-standard-library.md) this wing teaches, and each one was engineered inside the [measured limits](../secure/limits-that-bite.md).
 
-**Chess.** Complete chess as Firestore rules, deployed to production, seventeen test scenarios passing. All six piece types with correct geometry, sliding-piece path blocking, pins, pawn captures and double moves. The detail worth pausing on is check detection, because rules cannot iterate and check requires examining every opponent piece. The answer is piece position tracking: all thirty-two piece locations are document fields, so check becomes sixteen targeted lookups against a config document, about sixty-two expressions. Checkmate is not computed at all. The rules deny any move that leaves your own king in check, so checkmate is emergent, the state from which no legal write exists, and the suite includes a false checkmate claim, denied. The boundary, stated plainly: castling, en passant, and promotion are written into the rules but were not among the seventeen production tests.
+| Case | Service | The rules enforce | The move that makes it work |
+|---|---|---|---|
+| Chess | Firestore | Full piece geometry, check, checkmate | Piece position tracking |
+| Checkers | Firestore | Moves, jumps, captures, win state | The lookup document |
+| Connect Four | Firestore | Gravity, 69 win lines, lobby lifecycle | Generated win tables |
+| US tax return | Firestore | 2024 single-filer bracket math | Config-document verification |
+| Tic-tac-toe | Realtime DB | Turns, board integrity, win claims | The constraint DSL |
 
-**Checkers.** Where the lookup-document pattern was born. The first build hardcoded the geometry: 30 KB of rules, 611 lines, and gate expressions to survive the evaluation budget. The rebuild stores geometry as data and reads it with `config().moves[piece][from][to]`: 7 KB, 86 lines, a 77 percent reduction. Jump-and-capture geometry, piece counters for win detection, and a React UI that plays against the deployed ruleset over live snapshots.
+## Chess
 
-**Connect Four.** A placement game, and the cleanest complete example. Gravity is enforced in rules, so a piece may only land on the lowest empty row of its column. Win detection is sixty-nine code-generated four-in-a-row lines, split per player. The lobby lifecycle (create, join, cancel) is rules too, which means the whole multiplayer flow has no trusted server anywhere in it. Forty-plus scenarios tested against production.
+Rules cannot iterate, and check detection means examining every opponent piece. The answer is to stop scanning and start tracking. All thirty-two piece locations live as document fields, so check becomes sixteen targeted lookups against a config document:
 
-**The US tax code.** The unlikely one. 2024 federal single-filer brackets, as Firestore rules. Bracket boundaries, rates, and precomputed per-bracket maximums live in a config document. The client computes its own return, and the rules verify every step: the standard deduction, the taxable-income arithmetic, each of the seven brackets' tax, and the total. A return whose math is wrong is not invalid data. It is a permission denial.
+```
+// Is the king's square in this piece's attack table?
+kingSquare in cfg.moves[board[piecePos]][piecePos]
+```
 
-**Tic-tac-toe, live.** A deployed, playable browser app, this one on Realtime Database rules. Lobby, turn enforcement, per-cell board integrity, and win verification all live in the ruleset. The winner field only accepts a value when the claimed winning line actually exists on the board, so a player cannot announce a victory the board does not show. The ruleset itself is generated from a typed constraint DSL and deployed over REST.
+Checkmate is not computed at all. The rules deny any move that leaves your own king in check, so checkmate is emergent: the state from which no legal write exists. Seventeen scenarios pass against a deployed ruleset, including a false checkmate claim, denied.
 
-None of this is a feature you will ship on Monday. It is calibration. If rules can hold chess, they can hold your role model, your state machine, your billing invariants. And the parts are the same ones you already have: [rules patterns](../secure/rules-patterns.md) are the techniques, [the standard library](../secure/rules-standard-library.md) is the tested pieces, and [the limits that actually bite](../secure/limits-that-bite.md) are the numbers that keep all of it deployable.
+Stated plainly: castling, en passant, and promotion are written into the rules but were not among the seventeen deployed tests.
+
+## Checkers
+
+Where the lookup-document pattern was born. The first build hardcoded geometry into 30 KB of rules across 611 lines. The rebuild stores the same geometry as data and reads it back with one expression:
+
+```
+cfg.moves[piece][from][to] == true
+```
+
+That took the ruleset to 7 KB and 86 lines, a 77 percent reduction, with a React UI playing against it over live snapshots.
+
+## Connect Four
+
+The cleanest complete example. Gravity is one rule: a piece may only land on the lowest empty row of its column. Win detection is sixty-nine generated four-in-a-row lines. The lobby lifecycle, create, join, cancel, is rules too, so the whole multiplayer flow runs with no trusted server anywhere in it. Forty-plus scenarios tested against a deployed ruleset.
+
+## The US tax return
+
+The unlikely one. The 2024 federal single-filer brackets live in a config document: boundaries, rates, and precomputed per-bracket maximums. The client computes its own return, and the rules verify every step of the arithmetic, from the standard deduction through each of the seven brackets to the total.
+
+A return whose math is wrong is not invalid data. It is a permission denial.
+
+## Tic-tac-toe, live
+
+A deployed, playable browser app on Realtime Database rules. Turn enforcement, per-cell board integrity, and win verification all live in the ruleset, so the winner field only accepts a value when the claimed winning line actually exists on the board. The ruleset is generated from a typed constraint DSL and deployed over REST.
+
+## Why this shelf exists
+
+None of this is a feature you will ship on Monday. It is calibration. If rules can hold chess, they can hold your role model, your state machine, your billing invariants, and the parts are the ones you already have: the [patterns](../secure/rules-patterns.md), the [standard library](../secure/rules-standard-library.md), and the [limits](../secure/limits-that-bite.md) that keep all of it deployable.

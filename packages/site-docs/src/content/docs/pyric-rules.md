@@ -3,7 +3,7 @@ title: "pyric/rules"
 navLabel: "Overview"
 group: "pyric / rules"
 section: ""
-order: 89
+order: 92
 ---
 # `pyric/rules`
 

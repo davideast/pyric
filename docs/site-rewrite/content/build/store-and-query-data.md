@@ -92,7 +92,13 @@ All reads must come before any writes inside the callback. Production enforces t
 
 A query with combined filters and ordering needs a composite index in production, and the missing-index error arrives at the worst time. Pyric derives the index file from your code instead: `firestore_extract_indexes` statically reads your `query(collection(...), where(...), orderBy(...))` call sites and returns the `firestore.indexes.json` they require, with warnings where it suspects overshoot.
 
-When branchy code enumerates more shapes than your app will ever run, guide the extractor with JSDoc annotations on the function: `@firestore-mutex { fieldA, fieldB }` drops combinations where those filters would coexist, `@firestore-required fieldA` drops combinations missing a filter that is always present, and `@firestore-budget N` is a soft cap that warns when exceeded. The index file stops being a hand-kept artifact. It becomes derived output, and [ship to production](../ship/ship-to-production.md) deploys it.
+When branchy code enumerates more shapes than your app will ever run, guide the extractor with JSDoc annotations on the function:
+
+- `@firestore-mutex { fieldA, fieldB }` drops combinations where those filters would coexist.
+- `@firestore-required fieldA` drops combinations missing a filter that is always present.
+- `@firestore-budget N` is a soft cap that warns when exceeded.
+
+The index file stops being a hand-kept artifact. It becomes derived output, and [ship to production](../ship/ship-to-production.md) deploys it.
 
 ## And from an agent
 

@@ -64,9 +64,13 @@ Either both paths change or neither does. Queries take one `orderBy`, so multi-f
 
 ## Guard writes before they land
 
-Nothing in RTDB stops a typo'd field name or a mistyped value. The tree accepts what you write. `rtdb_validated_write` closes that gap: it infers the schema at the target path from the data already there, validates your payload against it, simulates the security-rules verdict, and only then commits. A wrong type, a misspelled key, or a write your rules would deny is reported before it lands, with the schema warnings and the simulation result attached.
+Nothing in RTDB stops a typo'd field name or a mistyped value. The tree accepts what you write. `rtdb_validated_write` closes that gap with three checks before anything commits:
 
-It sits on Pyric's agent tool surface alongside `rtdb_get`, `rtdb_set`, `rtdb_push`, `rtdb_update`, and the crawl and rules tools, and the same factories are callable from your own code through `getRtdbTools`.
+- It infers the schema at the target path from the data already there and validates your payload against it.
+- It simulates the security-rules verdict for the write.
+- Only then does it commit, with the schema warnings and the simulation result attached.
+
+A wrong type, a misspelled key, or a write your rules would deny is reported before it lands. The tool sits on Pyric's agent surface alongside `rtdb_get`, `rtdb_set`, `rtdb_push`, `rtdb_update`, and the crawl and rules tools, and the same factories are callable from your own code through `getRtdbTools`.
 
 ## And from an agent
 

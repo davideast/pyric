@@ -3,7 +3,7 @@ title: "How to handle AdminApiError and Outcome failures"
 navLabel: "Handle errors and outcomes"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 53
+order: 57
 ---
 # How to handle `AdminApiError` and `Outcome` failures
 

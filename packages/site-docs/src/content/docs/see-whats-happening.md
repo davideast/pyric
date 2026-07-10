@@ -1,6 +1,6 @@
 ---
 title: "Watch every read, write, and denial live"
-navLabel: "See what's happening"
+navLabel: "Traffic & rule verdicts"
 group: "Observe & shape"
 section: ""
 order: 18
@@ -63,7 +63,10 @@ Studio's Traffic view is a consumer of `onEvent`, and you can build your own in 
 [#5] snapshot_delivery query notes (+1 ~0 -0) size=1 by alice  triggered by set notes/n1
 [#7] request    deny   get    notes/n1  by bob    0.2ms  Rule #0 (read,write) deny
 ```
-Two things to know before you ship one. Listener re-evaluations dominate the raw stream, so default your view to user-origin requests, deliveries, lifecycle, and denials, and put `origin: 'listener'` traffic behind a toggle. And your callback runs synchronously with the operation that produced it, so push heavy work off the hot path with `queueMicrotask` or a worker.
+Two things to know before you ship one:
+
+- Listener re-evaluations dominate the raw stream. Default your view to user-origin requests, deliveries, lifecycle, and denials, and put `origin: 'listener'` traffic behind a toggle.
+- Your callback runs synchronously with the operation that produced it, so push heavy work off the hot path with `queueMicrotask` or a worker.
 
 ## And from an agent
 

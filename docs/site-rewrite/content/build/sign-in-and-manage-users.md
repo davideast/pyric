@@ -38,7 +38,9 @@ import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 await signInWithPopup(auth, new GoogleAuthProvider());
 ```
 
-Under `pyric dev`, that call opens an account picker instead of a Google window. Pick an existing sandbox identity or create one on the spot, with a display name and custom claims if you want them. No OAuth app, no consent screen, and the identity flows into your rules like any other. `signInWithRedirect` and `getRedirectResult` follow the same path.
+Under `pyric dev`, that call opens an account picker instead of a Google window. Pick an existing sandbox identity or create one on the spot, with a display name and custom claims if you want them.
+
+No OAuth app, no consent screen, and the identity flows into your rules like any other. `signInWithRedirect` and `getRedirectResult` follow the same path.
 
 ## Manage users in the sandbox
 
@@ -76,7 +78,9 @@ Authentication answers who the user is. Rules answer what that identity may do. 
 
 **Make the UID the bridge.** The `uid` is the stable key that connects Authentication to your data. Put profile documents at `users/{uid}`, use the UID as the document ID wherever a record belongs to one person, and decide early which profile fields are public and which are private.
 
-**Split claims from roles data.** Custom claims carry coarse, global, slow-changing roles (`admin`, `moderator`), and rules read them as `request.auth.token.role`. Membership, ownership, and anything resource-specific belongs in document data, where a rule can `get()` it. One caution that pays for itself: users must never be able to grant themselves a role through a writable profile field. Your rules have to protect the shape of profile creates and updates, not only who performs them.
+**Split claims from roles data.** Custom claims carry coarse, global, slow-changing roles (`admin`, `moderator`), and rules read them as `request.auth.token.role`. Membership, ownership, and anything resource-specific belongs in document data, where a rule can `get()` it.
+
+One caution that pays for itself: users must never be able to grant themselves a role through a writable profile field. Your rules have to protect the shape of profile creates and updates, not only who performs them.
 
 ## How identity reaches your rules
 
@@ -90,11 +94,21 @@ match /posts/{postId} {
 }
 ```
 
-`request.auth` is `null` when nobody is signed in. `request.auth.uid` is the owner check. `request.auth.token.*` carries the custom claims, and the claims you pass to `seedUsers` flow through to it end to end, so a rules test with an admin claim exercises the same path production will. When a rule denies, the verdict names the rule and the data it saw. [Prove your rules protect the app](../secure/secure-it-with-rules.md) picks up from here.
+- `request.auth` is `null` when nobody is signed in.
+- `request.auth.uid` is the owner check.
+- `request.auth.token.*` carries the custom claims, and the claims you pass to `seedUsers` flow through end to end, so a rules test with an admin claim exercises the same path production will.
+
+When a rule denies, the verdict names the rule and the data it saw. [Prove your rules protect the app](../secure/secure-it-with-rules.md) picks up from here.
 
 ## The boundaries, plainly
 
-Phone auth, email-link sign-in, multi-factor, account linking, and password-reset emails are not in v1. Code that reaches for them fails loudly rather than pretending. The full deny list lives in the reference, and every entry throws with a remediation message instead of returning bad data.
+Not in v1, and loud about it:
+
+- Phone auth and email-link sign-in.
+- Multi-factor auth and account linking.
+- Password-reset emails.
+
+Code that reaches for these fails with a remediation message instead of returning bad data. The full deny list lives in the reference.
 
 ## And from an agent
 

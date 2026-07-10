@@ -3,7 +3,7 @@ title: "Getting started — scaffold, run pyric dev, and let an agent drive"
 navLabel: "Getting started"
 group: "pyric-tools"
 section: "Tutorials"
-order: 30
+order: 34
 ---
 # Getting started — scaffold, run pyric dev, and let an agent drive
 

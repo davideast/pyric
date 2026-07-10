@@ -9,7 +9,9 @@ description: "See which rule denied an operation, on what path, with what data, 
 
 # Never debug a bare permission-denied again
 
-Production Firebase answers a blocked operation with one string: `permission-denied`. Not which rule. Not what the rule saw. You are left rereading your ruleset and guessing. In Pyric the guessing ends, because every operation the backend evaluates produces a verdict you can read, and a denial arrives carrying its own explanation.
+In production, a blocked operation answers with one string: `permission-denied`. Not which rule. Not what the rule saw.
+
+In Pyric, every operation the backend evaluates produces a verdict you can read, and a denial arrives carrying its own explanation.
 
 ## Every operation carries a verdict
 
@@ -45,9 +47,15 @@ import { lintFirestoreRules } from 'pyric/rules';
 const result = lintFirestoreRules(newSource, { previousSource: oldSource });
 const weakened = result.warnings.filter((w) => w.rule === 'RULES_WEAKENED');
 ```
-The linter normalizes every match path and diffs the predicates conjunct by conjunct. It reports three shapes of weakening: a match block that had `allow` rules and is gone, an `allow` rule that was deleted, and a conjunct that was dropped, for example `auth.uid == ownerId && status == 'open'` becoming only `auth.uid == ownerId`.
+The linter normalizes every match path and diffs the predicates conjunct by conjunct. It reports three shapes of weakening:
 
-`RULES_WEAKENED` is a warning, not an error, because removing a predicate is sometimes a legitimate refactor. The signal is "a human should look at this," and in CI you decide whether that means a required ack or a hard block. One boundary stated plainly: the diff compares the predicates in `allow` statements, so weakening a helper function's body does not fire it. Your [test suite](../write-a-rules-test-suite/) is the net for that shape.
+- a match block that had `allow` rules and is gone
+- an `allow` rule that was deleted
+- a dropped conjunct, for example `auth.uid == ownerId && status == 'open'` becoming only `auth.uid == ownerId`
+
+`RULES_WEAKENED` is a warning, not an error, because removing a predicate is sometimes a legitimate refactor. The signal is "a human should look at this," and in CI you decide whether that means a required ack or a hard block.
+
+One boundary stated plainly: the diff compares the predicates in `allow` statements, so weakening a helper function's body does not fire it. Your [test suite](../write-a-rules-test-suite/) is the net for that shape.
 
 ## And from an agent
 

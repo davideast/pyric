@@ -74,7 +74,13 @@ Both run over REST against the live APIs, each step idempotent with a typed outc
 
 ## Sign in for deploys
 
-Local deploys use `pyric login`, a loopback OAuth flow that stores a refresh token at `~/.pyric/credentials.json`. CI uses a service account via `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`, and ambient application-default credentials work as the fallback. Deploy commands resolve whichever is present, service account first. The full precedence and flag list is in the [CLI reference](../../../../packages/pyric-tools/docs/reference/cli.md).
+Deploy commands resolve whichever credential is present, service account first:
+
+- **Local**: `pyric login`, a loopback OAuth flow that stores a refresh token at `~/.pyric/credentials.json`.
+- **CI**: a service account via `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`.
+- **Fallback**: ambient application-default credentials.
+
+The full precedence and flag list is in the [CLI reference](../../../../packages/pyric-tools/docs/reference/cli.md).
 
 ## Where to go next
 

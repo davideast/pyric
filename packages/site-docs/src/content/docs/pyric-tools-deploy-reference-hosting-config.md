@@ -3,7 +3,7 @@ title: "firebase.json hosting config — supported keys and REST translation"
 navLabel: "firebase.json hosting config"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 61
+order: 65
 ---
 # firebase.json hosting config — supported keys and REST translation
 

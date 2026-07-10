@@ -26,11 +26,21 @@ The rules language has no import statement. This file deploys anyway, and what l
 
 ## An import system that compiles away
 
-Declare `rules_version = '2+modules'` instead of `'2'` and the import syntax becomes legal. When you lint, simulate, or deploy, the resolver reads each import, pulls in the functions you named plus anything they call, prefixes each module's private helpers with the module name so two modules can never collide, orders dependencies before dependents, and injects the result into your ruleset. Then it rewrites the version back to `'2'`. The output is byte-valid stock Firestore rules. Firebase never sees the module system.
+Declare `rules_version = '2+modules'` instead of `'2'` and the import syntax becomes legal. When you lint, simulate, or deploy, the resolver:
 
-Two things to know once you are inside it. Imports resolve to flat names, so you call `hasRequired([...])`, never `validation.hasRequired(...)`. And if an imported function collides with one your file already defines, resolution fails loudly instead of shadowing anything.
+- reads each import and pulls in the functions you named, plus anything they call
+- prefixes each module's private helpers with the module name, so two modules can never collide
+- orders dependencies before dependents and injects the result into your ruleset
+- rewrites the version back to `'2'`
 
-## The modules folklore says are impossible
+The output is byte-valid stock Firestore rules. Firebase never sees the module system.
+
+Two things to know once you are inside it:
+
+- Imports resolve to flat names. You call `hasRequired([...])`, never `validation.hasRequired(...)`.
+- If an imported function collides with one your file already defines, resolution fails loudly instead of shadowing anything.
+
+## Rate limits, atomic pairs, and state machines
 
 Fifteen modules ship with Pyric. A few exist specifically because the received wisdom says they can't.
 
@@ -45,17 +55,34 @@ allow update: if cooldownElapsed('lastMoveAt', 2)
 ```
 A missing or non-timestamp field errors, and an error denies. Verified against the production rules engine, not a simulation of it.
 
-**Rules can enforce integrity across a batch.** The `atomic` module uses the `get()`/`getAfter()` pair, where `getAfter()` reads another document as it will be after the current batch commits. `companionChangedBy(before, after, 'taskCount', 1)` allows a write only if a companion document's counter moved by exactly one in the same batch. A solo write denies by construction: outside a batch, `getAfter()` equals `get()`, so the delta is zero. `consumedFlag` handles single-use invites the same way, pre-batch false and post-batch true, so a replay of the consuming write denies. Live-verified against a real production database, rules deployed and batch commits issued as a signed-in user. One thing to remember: every write in a batch is evaluated, so the companion write needs its own allow rule.
+**Rules can enforce integrity across a batch.** The `atomic` module uses the `get()`/`getAfter()` pair, where `getAfter()` reads another document as it will be after the current batch commits. `companionChangedBy(before, after, 'taskCount', 1)` allows a write only if a companion document's counter moved by exactly one in the same batch.
+
+A solo write denies by construction: outside a batch, `getAfter()` equals `get()`, so the delta is zero. `consumedFlag` handles single-use invites the same way, pre-batch false and post-batch true, so a replay of the consuming write denies.
+
+Live-verified against a real production database, rules deployed and batch commits issued as a signed-in user. One thing to remember: every write in a batch is evaluated, so the companion write needs its own allow rule.
 
 **Rules can be a state machine.** `transitions.validTransition('status', 'pending', 'paid')` names exactly which edge a write may traverse, and nothing else.
 
-**Membership can change safely with no backend.** `spaces` gates a subcollection through its parent document's members field, list-shaped or map-shaped, and fails closed when the field or the parent document is missing. `joining` covers the write side. `onlyAddedSelf('members', 'editor')` uses set equality on the map diff, so the write adds exactly the caller at exactly that role. Nobody else changed, nobody removed, no self-granted admin. Compose it with `lifecycle.onlyFieldsChanged(['members'])` and a join cannot touch anything else on the document. Production-verified, ten scenarios of ten.
+**Membership can change safely with no backend.** `spaces` gates a subcollection through its parent document's members field, list-shaped or map-shaped, and fails closed when the field or the parent document is missing.
+
+`joining` covers the write side. `onlyAddedSelf('members', 'editor')` uses set equality on the map diff, so the write adds exactly the caller at exactly that role. Nobody else changed, nobody removed, no self-granted admin.
+
+Compose it with `lifecycle.onlyFieldsChanged(['members'])` and a join cannot touch anything else on the document. Production-verified, ten scenarios of ten.
 
 One gotcha worth taking from `membership` even if you never import it: custom claims live at `request.auth.token.admin`, not `request.auth.admin`. The second form reads null and quietly denies forever.
 
 ## The everyday ones
 
-The rest of the shelf covers the common shapes. `auth` for the two checks every app writes first. `validation` for field shape and enum checks. `lifecycle`, whose `onlyFieldsChanged` is the single most common update guard, users may edit these fields and nothing else. `content` for author-owned documents with draft visibility and soft delete. `counters` for client-maintained numbers that may only change by known steps. And the game set the gallery is built from: `lobby`, `turns`, `state`, and `geometry`.
+The rest of the shelf covers the common shapes.
+
+| Module | What it covers |
+|---|---|
+| `auth` | the two checks every app writes first |
+| `validation` | field shape and enum checks |
+| `lifecycle` | `onlyFieldsChanged`, the single most common update guard: users may edit these fields and nothing else |
+| `content` | author-owned documents with draft visibility and soft delete |
+| `counters` | client-maintained numbers that may only change by known steps |
+| `lobby`, `turns`, `state`, `geometry` | the game set the case studies are built from |
 
 Every module ships with test fixtures that execute against the rules engine in CI, and each case must decide allow or deny as expected. The modules making the boldest claims, `timing`, `atomic`, `spaces`, `joining`, and `geometry`, are verified against production Firebase as well.
 

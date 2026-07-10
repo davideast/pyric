@@ -1,9 +1,9 @@
 ---
 title: "pyric/storage compatibility matrix"
-navLabel: "Compatibility matrix"
-group: "pyric / storage"
-section: "Compat"
-order: 157
+navLabel: "Storage"
+group: "Compatibility"
+section: ""
+order: 32
 ---
 <!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

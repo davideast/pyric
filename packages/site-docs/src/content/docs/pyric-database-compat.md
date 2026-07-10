@@ -1,9 +1,9 @@
 ---
 title: "@pyric/rtdb compatibility matrix"
-navLabel: "Compatibility matrix"
-group: "pyric / database"
-section: "Compat"
-order: 167
+navLabel: "Realtime Database"
+group: "Compatibility"
+section: ""
+order: 31
 ---
 <!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

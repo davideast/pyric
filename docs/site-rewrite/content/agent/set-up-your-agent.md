@@ -79,7 +79,13 @@ Whatever your client's config file looks like, one of those two lines is the who
 
 ## If your app uses the Vite plugin
 
-`pyricSandbox({ bridge: true })` in `vite.config.ts` makes your own `vite dev` the bridge. Do not start a second `pyric dev` next to it; two servers means two sandboxes, and your agent will be working in the one you are not looking at. The endpoints are the same, `/__pyric/mcp` on Vite's port, and `npx pyric mcp` finds it the same way.
+One option in `vite.config.ts` makes your own `vite dev` the bridge:
+
+```ts
+plugins: [pyricSandbox({ bridge: true })],
+```
+
+Do not start a second `pyric dev` next to it. Two servers means two sandboxes, and your agent will be working in the one you are not looking at. The endpoints are the same, `/__pyric/mcp` on Vite's port, and `npx pyric mcp` finds it the same way.
 
 ## Where to go next
 

@@ -3,7 +3,7 @@ title: "Server adoption — run your firebase-admin app on the pyric sandbox"
 navLabel: "Server adoption"
 group: "pyric-tools"
 section: "Tutorials"
-order: 31
+order: 35
 ---
 # Server adoption — run your firebase-admin app on the pyric sandbox
 

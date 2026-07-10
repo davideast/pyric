@@ -55,7 +55,10 @@ await updateMetadata(ref(storage, 'sessions/s1'), {
   customMetadata: { ...meta.customMetadata, version: '1.1' },
 });
 ```
-Two contracts worth knowing, both matching the upstream SDK: `updateMetadata` replaces the settable fields rather than merging (fetch first and spread, as above), and `customMetadata` is string-to-string, so numbers and objects need serializing.
+Two contracts worth knowing, both matching the upstream SDK:
+
+- `updateMetadata` replaces the settable fields rather than merging. Fetch first and spread, as above.
+- `customMetadata` is string-to-string, so numbers and objects need serializing.
 
 ## Enforce storage rules in-process
 
@@ -75,7 +78,9 @@ const RULES = `service firebase.storage {
 
 const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), { rules: RULES });
 ```
-An anonymous upload now throws `FirebaseError` with `storage/unauthenticated`. An 11 MiB payload throws `storage/unauthorized`, the signed-in-but-not-allowed code. And notice the `request.resource == null` carve-out: `deleteObject` carries no payload, so without it every delete would fail the size check. The pattern is standard in production Storage rules, and it is enforced identically here.
+An anonymous upload now throws `FirebaseError` with `storage/unauthenticated`. An 11 MiB payload throws `storage/unauthorized`, the signed-in-but-not-allowed code.
+
+Notice the `request.resource == null` carve-out. `deleteObject` carries no payload, so without it every delete would fail the size check. The pattern is standard in production Storage rules, and it is enforced identically here.
 
 One rule-shape gotcha carried over faithfully from production: `listAll` requires `read` on the listed folder itself. A rule scoped to `match /sessions/{id}` grants nothing on `/sessions`, so give the folder its own read rule.
 

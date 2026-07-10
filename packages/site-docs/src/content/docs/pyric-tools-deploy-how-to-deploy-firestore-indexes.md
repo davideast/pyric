@@ -3,7 +3,7 @@ title: "How to deploy Firestore indexes"
 navLabel: "Deploy Firestore indexes"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 48
+order: 52
 ---
 # How to deploy Firestore indexes
 

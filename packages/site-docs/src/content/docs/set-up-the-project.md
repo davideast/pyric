@@ -9,7 +9,9 @@ description: "Enable providers, authorize domains, and provision databases, Stor
 
 # Stand up the real Firebase project without leaving the terminal
 
-Between "the app works in the sandbox" and "the app works in production" sits project configuration: sign-in providers to enable, domains to authorize, a database and a bucket to provision. That work usually means clicking through the Console. Pyric does it over REST with your credentials, from the CLI, a script, or an agent. Every step probes before it mutates, so rerunning is safe, and every step returns a typed outcome that says what actually happened.
+Between "the app works in the sandbox" and "the app works in production" sits project configuration: sign-in providers to enable, domains to authorize, a database and a bucket to provision. That work usually means clicking through the Console. Pyric does it over REST with your credentials, from the CLI, a script, or an agent.
+
+Every step probes before it mutates, so rerunning is safe, and every step returns a typed outcome that says what actually happened.
 
 These commands change a real project. There is no dry run. Pass `--project` when you want to be certain which one.
 
@@ -18,7 +20,10 @@ These commands change a real project. There is no dry run. Pass `--project` when
 pyric auth:configure-provider anonymous true --project my-app
 pyric auth:configure-provider email true --project my-app
 ```
-`anonymous`, `email`, `phone`, and `google` are supported. Two have honest edges. Enabling `phone` succeeds, but SMS delivery needs a billing account, and the result carries a warning saying so. And `google` can only be toggled once its OAuth client exists: Google does not let that client be minted from scratch, so the first enable happens once in the Console (Authentication, Sign-in method, Google), after which Pyric can enable and disable it freely. When the client is missing, the command tells you exactly that instead of pretending.
+`anonymous`, `email`, `phone`, and `google` are supported. Two have honest edges:
+
+- Enabling `phone` succeeds, but SMS delivery needs a billing account, and the result carries a warning saying so.
+- `google` can only be toggled once its OAuth client exists. That client cannot be minted from scratch over the API, so the first enable happens once in the Console (Authentication, Sign-in method, Google), after which Pyric can enable and disable it freely. When the client is missing, the command tells you exactly that instead of pretending.
 
 ## Authorize the domains you sign in from
 
@@ -49,7 +54,7 @@ The probe runs first; an existing database short-circuits with no writes. A newl
 
 ## Provision Storage, end to end
 
-Storage enablement is a sequence, and the Console hides most of it. Pyric runs the whole thing:
+Storage enablement is a five-step sequence. Pyric runs the whole thing:
 ```ts
 import { provisionStorage, defaultPlaygroundCors } from 'pyric/storage';
 
@@ -70,7 +75,12 @@ The result reports which steps ran, so a second invocation returns with everythi
 
 ## APIs enable themselves
 
-Each of these operations needs certain Google APIs active on the project. Deploys run a preflight that checks the required services and batch-enables the missing ones, polling the operation to completion, before the real work starts. When your credential lacks permission to enable an API, the preflight surfaces that as the actionable error instead of a downstream failure.
+Each of these operations needs certain Google APIs active on the project. Before the real work starts, deploys run a preflight that:
+
+- checks the required services
+- batch-enables the missing ones, polling the operation to completion
+
+When your credential lacks permission to enable an API, the preflight surfaces that as the actionable error instead of a downstream failure.
 
 ## And from an agent
 

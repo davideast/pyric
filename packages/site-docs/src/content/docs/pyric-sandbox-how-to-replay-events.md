@@ -3,7 +3,7 @@ title: "How to replay a captured event stream"
 navLabel: "Replay events"
 group: "pyric / sandbox"
 section: "How-to"
-order: 124
+order: 127
 ---
 # How to replay a captured event stream
 

@@ -9,7 +9,9 @@ description: "Get an evidence-backed answer to who can access what, with every s
 
 # Find the holes before someone else does
 
-Your rules are a security boundary on the public internet, and anyone who cares to probe them can. An audit answers three questions with evidence: who can do what, whether the expressions mean what they appear to mean, and where the rules, the data, and the auth configuration disagree. Pyric packages each audit as a skill, a procedure you or your agent runs against the real project, and a finding does not make the report on a reading alone. It has to cite a simulation, a test, or a lint result that demonstrates it.
+Your rules are a security boundary on the public internet, and anyone who cares to probe them can. An audit answers three questions with evidence: who can do what, whether the expressions mean what they appear to mean, and where the rules, the data, and the auth configuration disagree.
+
+Pyric packages each audit as a skill, a procedure you or your agent runs against the real project. A finding does not make the report on a reading alone. It has to cite a simulation, a test, or a lint result that demonstrates it.
 
 ## Audit your Firestore rules
 
@@ -21,7 +23,9 @@ Then it checks each expression against its operation context, because rules have
 - Authorization must derive from what already exists. The writer controls `request.resource.data`, so authorization read from it is attacker-controlled by definition.
 - A `list` cannot lean on a single document's fields. Rules are not filters.
 
-Then composition. Any matching allow grants access, so a recursive wildcard like `{doc=**}` can bypass every carefully scoped sibling rule, and the audit states each wildcard's reach explicitly. It also flags user-controlled writes with no validation, undefined function calls, and role fields writable by the user they empower, which is privilege escalation in one line. Critical findings are proven with `firestore_simulate_rules` runs that vary the auth context, and the report arrives severity-ranked with a fix per finding.
+Then composition. Any matching allow grants access, so a recursive wildcard like `{doc=**}` can bypass every carefully scoped sibling rule, and the audit states each wildcard's reach explicitly. It also flags user-controlled writes with no validation, undefined function calls, and role fields writable by the user they empower, which is privilege escalation in one line.
+
+Critical findings are proven with `firestore_simulate_rules` runs that vary the auth context, and the report arrives severity-ranked with a fix per finding.
 
 ## Audit your Realtime Database rules
 

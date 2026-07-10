@@ -3,7 +3,7 @@ title: "How to bundle and deploy a Cloud Function"
 navLabel: "Bundle & deploy a function"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 47
+order: 51
 ---
 # How to bundle and deploy a Cloud Function
 

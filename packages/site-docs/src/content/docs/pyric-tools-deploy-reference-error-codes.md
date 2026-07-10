@@ -2,7 +2,7 @@
 title: "Error codes by operation"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 58
+order: 62
 ---
 # Error codes by operation
 

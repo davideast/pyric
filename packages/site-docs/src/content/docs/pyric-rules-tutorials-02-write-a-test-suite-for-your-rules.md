@@ -3,7 +3,7 @@ title: "Write a test suite for your rules"
 navLabel: "Write a rules test suite"
 group: "pyric / rules"
 section: "Tutorials"
-order: 91
+order: 94
 ---
 # Write a test suite for your rules
 

@@ -7,7 +7,9 @@ status: draft
 
 # Rules you trust because they are tested
 
-A ruleset is code that decides who sees what. It deserves tests like any other code that matters. In Pyric a rules test is a small fixture, a `TestCase`, and a whole suite runs in-process in milliseconds. No Firebase project, no network, no deploy.
+A ruleset is code that decides who sees what. It deserves tests like any other code that matters.
+
+In Pyric a rules test is a small fixture, a `TestCase`, and a whole suite runs in-process in milliseconds. No Firebase project, no network, no deploy.
 
 ## The fixtures
 
@@ -67,7 +69,10 @@ console.log(`${passed} passed · ${failed} failed · ${unsupported} unsupported`
 
 A failed case means the simulator's verdict disagreed with your `expectation`, and its `debugMessages` trace shows which rule decided. An `UNSUPPORTED` case means the simulator hit a feature it does not implement and abstained. It is not counted as a failure, and it is never a guess.
 
-Two fixtures worth knowing before your suite grows. For `update` and merge writes, set `writeMode` so the simulator projects the post-write document the way Firestore does. For rules that read `request.time`, pin `requestTime` to an ISO timestamp so the verdict does not depend on the clock, and pass `{ testCases }` to `lintFirestoreRules` to have `REQUEST_TIME_NOT_PINNED` flag the cases you missed.
+Two fixture fields worth knowing before your suite grows:
+
+- For `update` and merge writes, set `writeMode` so the simulator projects the post-write document the way Firestore does.
+- For rules that read `request.time`, pin `requestTime` to an ISO timestamp so the verdict does not depend on the clock. Pass `{ testCases }` to `lintFirestoreRules` and `REQUEST_TIME_NOT_PINNED` flags the cases you missed.
 
 ## Gate CI on it
 

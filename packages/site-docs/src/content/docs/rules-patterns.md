@@ -28,7 +28,11 @@ function validGeometry() {
   return config().moves[piece][mf][mt] == true;
 }
 ```
-Three expressions replace hundreds of branches. It works because dynamic map access is legal when the key is a stored field value (computed strings are not), and because `get()` results are cached per request, so every function sharing `config()` costs one read of the ten-read budget. A key absent from the map evaluates as a non-match, so absence is the deny. That default is the security property.
+Three expressions replace hundreds of branches. It works because of three engine facts:
+
+- Dynamic map access is legal when the key is a stored field value. Computed strings are not.
+- `get()` results are cached per request, so every function sharing `config()` costs one read of the ten-read budget.
+- A key absent from the map evaluates as a non-match, so absence is the deny. That default is the security property.
 
 **The receipt.** Rewriting checkers from hardcoded branches to a lookup document took the ruleset from 30 KB and 611 lines to 7 KB and 86 lines, a 77 percent reduction, and removed the budget pressure the hardcoded version needed extra scaffolding to survive.
 
@@ -58,11 +62,18 @@ function pathClear() {
 
 **The move.** Read the type from pre-write state and make it the first key of the lookup. In `config().moves[piece][from][to]`, `piece` is `resource.data[moveFrom]`. One function covers every type.
 
-The load-bearing detail is which side of the write the type comes from. The client declares where the piece moves. The rules read what piece sits there from `resource.data`, the existing board the client does not control. A client cannot claim a pawn moved like a queen, because the pawn's identity was never in its hands.
+The load-bearing detail is which side of the write the type comes from:
+
+- The client declares where the piece moves, in `request.resource.data`.
+- The rules read what piece sits there from `resource.data`, the existing board the client does not control.
+
+A client cannot claim a pawn moved like a queen, because the pawn's identity was never in its hands.
 
 ## Give every rule a unique first expression
 
-**The problem.** Firestore evaluates the allow rules of a match block in order, against a shared per-request expression budget. When several rules open with the same check, the non-matching rules evaluate deep and burn the budget before the matching rule is reached. The matching rule then fails as a silent 403. This was discovered the hard way, debugging chess: pawn moves denied while every rule tested fine in isolation, and reordering the rules changed which category failed.
+**The problem.** Firestore evaluates the allow rules of a match block in order, against a shared per-request expression budget. When several rules open with the same check, the non-matching rules evaluate deep and burn the budget before the matching rule is reached. The matching rule then fails as a silent 403.
+
+This was discovered the hard way, debugging chess: pawn moves denied while every rule tested fine in isolation, and reordering the rules changed which category failed.
 
 **The move.** Open every allow rule with a cheap discriminator that is unique to it:
 ```
@@ -92,4 +103,4 @@ The patterns with stable shapes ship as standard library modules an agent import
 
 ## Where to go next
 
-These techniques run up against real budgets, and the exact numbers are in [the limits that actually bite](../limits-that-bite/). To see how far the techniques reach, the finished proof is in [what's possible](../whats-possible/).
+These techniques run up against real budgets, and the exact numbers are in [the measured limits](../limits-that-bite/). To see how far the techniques reach, read the [case studies](../whats-possible/).

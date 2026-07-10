@@ -2,7 +2,7 @@
 title: "Why IndexedDB"
 group: "pyric / storage"
 section: "Explanation"
-order: 156
+order: 159
 ---
 # Why IndexedDB
 

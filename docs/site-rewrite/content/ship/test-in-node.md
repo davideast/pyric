@@ -58,7 +58,9 @@ describe('notes rules', () => {
 });
 ```
 
-Notice the division of labor. Writes go through user contexts, so the rules are what's under test. Assertions go through `sandbox.admin.getDocument`, which bypasses rules, so a test can confirm the state without depending on a read rule. The denial test asserts three layers: the throw, the error code, and that the state did not change.
+Notice the division of labor. Writes go through user contexts, so the rules are what's under test. Assertions go through `sandbox.admin.getDocument`, which bypasses rules, so a test can confirm the state without depending on a read rule.
+
+The denial test asserts three layers: the throw, the error code, and that the state did not change.
 
 ## The admin shape, one line from production
 
@@ -71,15 +73,29 @@ import { initializeApp } from 'pyric-admin/app';
 const app = initializeApp({ sandbox: initializeSandbox() });
 ```
 
-Or with zero changed lines. A bare `initializeApp()` lets the environment decide: with `PYRIC_SANDBOX=remote` set, the app routes to the sandbox, and with it unset you get exactly `firebase-admin`'s behavior. Your source carries no Pyric identifiers at all. `pyric dev` sets that variable for the dev command it runs, and a guard refuses sandbox routing when `NODE_ENV` is `production`, so the swap cannot follow you to a real deployment.
+Or with zero changed lines. A bare `initializeApp()` lets the environment decide: with `PYRIC_SANDBOX=remote` set, the app routes to the sandbox, and with it unset you get exactly `firebase-admin`'s behavior. Your source carries no Pyric identifiers at all.
+
+`pyric dev` sets that variable for the dev command it runs, and a guard refuses sandbox routing when `NODE_ENV` is `production`, so the swap cannot follow you to a real deployment.
 
 ## One backend across app, Node, and agent
 
-Under `pyric dev` the backend lives in a SharedWorker in the browser, and a Node process can attach to it remotely: the admin handle relays operations over the dev server's bridge to that same worker. Your open tab, your script, and an agent on the MCP bridge all see one pool of documents and users, live. It is a relay, so it has edges worth knowing: the browser tab must stay open, and remote Storage is single-bucket with an 8 MiB per-operation cap. Anything unimplemented throws an explicit error with a remediation, never wrong data.
+Under `pyric dev` the backend lives in a SharedWorker in the browser, and a Node process can attach to it remotely: the admin handle relays operations over the dev server's bridge to that same worker. Your open tab, your script, and an agent on the MCP bridge all see one pool of documents and users, live.
+
+It is a relay, so it has edges worth knowing:
+
+- The browser tab must stay open.
+- Remote Storage is single-bucket with an 8 MiB per-operation cap.
+- Anything unimplemented throws an explicit error with a remediation, never wrong data.
 
 ## Verification is a test too
 
-Your captured dev sessions double as a suite. `pyric verify journeys/` replays every fixture in the directory against candidate rules and exits non-zero on a real divergence, which slots straight into CI next to your unit tests. See [Ship to production](./ship-to-production.md).
+Your captured dev sessions double as a suite:
+
+```bash
+pyric verify journeys/
+```
+
+It replays every fixture in the directory against candidate rules and exits non-zero on a real divergence, which slots straight into CI next to your unit tests. See [Ship to production](./ship-to-production.md).
 
 ## Where to go next
 

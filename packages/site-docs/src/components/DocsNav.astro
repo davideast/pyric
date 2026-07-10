@@ -46,7 +46,24 @@ const referenceHoldsCurrent = referenceGroups.some(holdsCurrent);
 <nav class="docs-nav" aria-label="Documentation">
   <DocsSearch />
   {
-    guideGroups.map((group) => (
+    guideGroups.map((group) => {
+      // A group with exactly one page is a direct link, never a
+      // disclosure over a single item ("Overview > Overview").
+      const entries = group.sections.flatMap((s) => s.entries);
+      if (entries.length === 1) {
+        const only = entries[0];
+        return (
+          <a
+            class="docs-nav-toplink"
+            href={docPath(only)}
+            id={variant === 'primary' ? groupAnchorId(group.group) : undefined}
+            aria-current={slugOf(only) === currentSlug ? 'page' : undefined}
+          >
+            {group.group}
+          </a>
+        );
+      }
+      return (
       <details
         class="docs-nav-group"
         id={variant === 'primary' ? groupAnchorId(group.group) : undefined}
@@ -86,7 +103,8 @@ const referenceHoldsCurrent = referenceGroups.some(holdsCurrent);
           ))}
         </div>
       </details>
-    ))
+      );
+    })
   }
   {
     referenceGroups.length > 0 && (

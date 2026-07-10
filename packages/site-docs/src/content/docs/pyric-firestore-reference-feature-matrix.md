@@ -3,7 +3,7 @@ title: "Feature matrix — pyric/firestore coverage of firebase/firestore"
 navLabel: "Feature matrix"
 group: "pyric / firestore"
 section: "Reference"
-order: 80
+order: 84
 ---
 # Feature matrix — `pyric/firestore` coverage of `firebase/firestore`
 

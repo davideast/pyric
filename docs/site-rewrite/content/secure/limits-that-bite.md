@@ -1,15 +1,15 @@
 ---
-title: The limits that actually bite
-navLabel: The limits that actually bite
-outcome: Know the production rules limits Google does not document, with exact numbers, so your rules compile the first time.
+title: Firestore rules limits, measured
+navLabel: Rules limits
+outcome: Know the measured limits of the production rules compiler and evaluator, with exact numbers, so your rules compile the first time.
 status: draft
 ---
 
-# The limits that actually bite
+# Firestore rules limits, measured
 
-A ruleset can be syntactically perfect and still fail two ways: a 400 at deploy with no useful message, or a silent 403 at runtime that looks exactly like a denial you wrote. Both come from limits in the production compiler and evaluator that appear in no Firebase documentation. The numbers below were found by probing production Firestore directly, isolating one variable at a time. They ship inside Pyric's linter as thresholds, so you do not have to remember them. It helps to know they exist.
+A ruleset can be syntactically perfect and still fail two ways: a 400 at deploy with no useful message, or a silent 403 at runtime that looks exactly like a denial you wrote. Both come from real limits in the production compiler and evaluator. The numbers below are researched and observed behavior: Pyric's tooling probed production Firestore directly, isolating one variable at a time, and recorded what it measured. They ship inside Pyric's linter as thresholds, so you do not have to remember them. It helps to know they exist.
 
-## 256 KB of source, and the folklore it replaces
+## 256 KB of source
 
 For a long time the working assumption was a "30 to 37 KB practical limit" on rules source. It was wrong. That number was chain depth in disguise: complex rulesets happened to hit the depth limit at around that size, and size took the blame. Isolate the variable with a large file of trivial single-comparison rules and 250 KB compiles while 256 KB fails. The real source ceiling is 256 KB, and 58 KB of simple functions compiles without complaint.
 
@@ -23,7 +23,7 @@ Eleven `let` bindings in a function compile. Twelve fail, with the same unexplai
 
 ## 10 get() calls per evaluation
 
-This one Google documents. What matters in practice is the caching: results are cached per unique path, so a shared `config()` helper called from six functions costs one read, while six different paths cost six. The linter warns past 5 distinct calls and errors at the documented 10.
+This limit is in Firebase's own documentation. What matters in practice is the caching: results are cached per unique path, so a shared `config()` helper called from six functions costs one read, while six different paths cost six. The linter warns past 5 distinct calls and errors at the documented 10.
 
 ## The runtime budget, and its flaky zone
 
@@ -53,8 +53,8 @@ The runtime expression budget is shared across all the allow rules of a match bl
 
 `npx pyric rules:lint` carries every number above as a threshold and reports the specific function, chain, or rule that crosses it, with a fix. It runs in-process, no deploy, so the first time production sees your rules they already fit. From an agent, the same check is `firestore_lint_rules`, and it runs before every deploy the agent attempts.
 
-One honest note. The Firebase emulator does not reproduce the cross-rule budget and does not enforce these thresholds at production values. Rules that pass there can still fail to deploy, or deny at runtime. The numbers on this page came from production because production is the only place they exist.
+One honest note. The Firebase emulator does not reproduce the cross-rule budget and does not enforce these thresholds at production values. Rules that pass there can still fail to deploy, or deny at runtime. The numbers on this page were measured against production because that is where they apply.
 
 ## Where to go next
 
-Lint and simulate together in [simulate and lint before you deploy](../secure/simulate-and-lint.md). To see rules engineered against these exact limits, the shelf is [what's possible](../secure/whats-possible.md).
+Lint and simulate together in [simulate and lint before you deploy](../secure/simulate-and-lint.md). To see rules engineered against these exact limits, read the [case studies](../secure/whats-possible.md).

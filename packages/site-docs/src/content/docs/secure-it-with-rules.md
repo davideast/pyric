@@ -1,6 +1,6 @@
 ---
 title: "Prove a user can touch only their own data"
-navLabel: "Secure it with rules"
+navLabel: "Security Rules"
 group: "Secure & debug"
 section: ""
 order: 9
@@ -9,7 +9,9 @@ description: "Write a rule, simulate a request against it, read the verdict, and
 
 # Prove a user can touch only their own data
 
-Before you deploy a ruleset, you can ask Pyric a direct question: would this specific request, from this specific user, be allowed? You get an answer, and the answer names the rule that decided it. That is the whole discipline of this wing. Not "the rules look right." Asked and answered, before production gets a vote.
+Before you deploy a ruleset, you can ask Pyric a direct question: would this specific request, from this specific user, be allowed? You get an answer, and the answer names the rule that decided it.
+
+That is the whole discipline of this wing. Not "the rules look right." Asked and answered, before production gets a vote.
 
 Here is the loop.
 
@@ -65,7 +67,9 @@ Rule #0 (read) → deny
 Rule #1 (write) → ALLOW
 Simulated: ALLOW
 ```
-And this is not only a test-time thing. While `pyric dev` runs, your `firestore.rules` is loaded into the sandbox and hot-reloaded on save, and every operation your app performs carries this same verdict. A denial in your running app tells you the rule, the path, and the data that produced it. See [read a denial and understand it](../read-a-denial/).
+And this is not only a test-time thing. While `pyric dev` runs, your `firestore.rules` is loaded into the sandbox and hot-reloaded on save, and every operation your app performs carries this same verdict.
+
+A denial in your running app tells you the rule, the path, and the data that produced it. See [read a denial and understand it](../read-a-denial/).
 
 ## Deploy
 
@@ -84,9 +88,9 @@ That loop is the core. The wing deepens each step.
 - [Read a denial and understand it](../read-a-denial/). Every denial carries the rule, path, and data that produced it.
 - [The rules standard library](../rules-standard-library/). Tested rule modules, composed with an import the rules language does not have.
 - [Rules patterns](../rules-patterns/). The techniques the hard rules are built from.
-- [The limits that actually bite](../limits-that-bite/). The production compiler's real limits, with numbers.
+- [Rules limits, measured](../limits-that-bite/). The production compiler's real limits, with numbers.
 - [Audit your rules and data](../audit-your-rules/). Find the holes before someone else does.
-- [What's possible](../whats-possible/). Proof, for the reader who thinks the claims are too big.
+- [Case studies](../whats-possible/). Deployed rulesets that enforce chess, connect four, and tax math.
 
 ## And from an agent
 

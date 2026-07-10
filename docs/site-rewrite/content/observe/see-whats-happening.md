@@ -1,6 +1,6 @@
 ---
 title: Watch every read, write, and denial live
-navLabel: See what's happening
+navLabel: Traffic & rule verdicts
 outcome: See every operation your backend performs, with its rules verdict, without writing a log line.
 status: draft
 ---
@@ -69,7 +69,10 @@ Studio's Traffic view is a consumer of `onEvent`, and you can build your own in 
 [#7] request    deny   get    notes/n1  by bob    0.2ms  Rule #0 (read,write) deny
 ```
 
-Two things to know before you ship one. Listener re-evaluations dominate the raw stream, so default your view to user-origin requests, deliveries, lifecycle, and denials, and put `origin: 'listener'` traffic behind a toggle. And your callback runs synchronously with the operation that produced it, so push heavy work off the hot path with `queueMicrotask` or a worker.
+Two things to know before you ship one:
+
+- Listener re-evaluations dominate the raw stream. Default your view to user-origin requests, deliveries, lifecycle, and denials, and put `origin: 'listener'` traffic behind a toggle.
+- Your callback runs synchronously with the operation that produced it, so push heavy work off the hot path with `queueMicrotask` or a worker.
 
 ## And from an agent
 

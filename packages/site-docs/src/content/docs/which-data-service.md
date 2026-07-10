@@ -11,11 +11,18 @@ description: "Pick between Firestore and Realtime Database in one short read."
 
 The short answer: Firestore, unless your data is a small shared tree that many clients watch at once.
 
-**Choose Firestore for query power and structured documents.** Combined filters and ordering, collection groups, aggregations, transactions, and cursor pagination. Documents and subcollections grow with your app's shape, and access rules attach naturally to paths and document data. Most apps, and almost every CRUD app, land here.
+| | Firestore | Realtime Database |
+|---|---|---|
+| Model | documents and subcollections | one JSON tree |
+| Queries | combined filters, ordering, aggregations, cursors | path reads, one `orderBy` |
+| Built for | structured app data, almost every CRUD app | presence, live cursors, game state, counters |
+| Maturity in Pyric | v1, tested against recorded production behavior | [experimental](../whats-experimental/) |
 
-**Choose Realtime Database for low-latency tree sync.** Presence, live cursors, game state, counters. The whole database is one JSON tree, reads are path-shaped, and queries take one `orderBy`. The model is deliberately simpler, and that simplicity is the feature. It stops being a fit the moment you want multi-field queries, so [model the tree around your reads](../sync-realtime-data/) before committing.
+**Choose Firestore for query power and structured documents.** Documents and subcollections grow with your app's shape, and access rules attach naturally to paths and document data. Most apps land here.
 
-In Pyric today, maturity belongs in the decision too. Firestore is v1, tested against recorded production behavior. Realtime Database is [experimental](../whats-experimental/): it works, but most of its behavior is not yet pinned to a production observation. If either service would fit, pick Firestore.
+**Choose Realtime Database for low-latency tree sync.** The model is deliberately simpler, and that simplicity is the feature. It stops being a fit the moment you want multi-field queries, so [model the tree around your reads](../sync-realtime-data/) before committing.
+
+Maturity belongs in the decision too. If either service would fit, pick Firestore.
 
 They also combine. A common shape is Firestore for the documents your app is made of and RTDB for the ephemeral layer on top, presence and typing indicators, where a two-field tree beats a document write per keystroke.
 
