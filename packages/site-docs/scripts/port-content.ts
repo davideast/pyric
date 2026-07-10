@@ -105,6 +105,7 @@ const GROUPS: GroupSpec[] = [
   { pkg: 'pyric', label: 'pyric / storage', dir: 'storage', sections: DIATAXIS },
   { pkg: 'pyric', label: 'pyric / auth', dir: 'auth', sections: DIATAXIS },
   { pkg: 'pyric', label: 'pyric / database', dir: 'database', sections: DIATAXIS },
+  { pkg: 'pyric', label: 'pyric / ai', dir: 'ai', sections: DIATAXIS },
   { pkg: 'pyric-admin', label: 'pyric-admin / firestore', dir: 'firestore', sections: DIATAXIS },
   {
     pkg: 'ui',
@@ -215,6 +216,7 @@ const NAV_ALIASES: Record<string, string> = {
   'pyric-database-compat': 'Compatibility matrix',
   'pyric-rules-how-to-resolve-module-imports': 'Resolve 2+modules imports',
   'pyric-auth-compat': 'Compatibility matrix',
+  'pyric-ai-compat': 'Compatibility matrix',
   'pyric-sandbox-reference-snapshot-and-admin': 'Snapshot and admin reads',
   'pyric-tools-deploy-how-to-deploy-firestore-indexes': 'Deploy Firestore indexes',
   'pyric-tools-how-to-build-a-standalone-binary': 'Build a standalone binary',
