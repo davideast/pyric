@@ -56,15 +56,21 @@ And you compose them with an import the rules language cannot do on its own. `im
 
 ## The compounding, proven
 
-Here is the part that turns a feature list into a thesis. The library was used to build the library, and the difference it made is on the record with numbers.
+Here is the part that turns a feature list into a thesis. The library was used to build the library. But we have to be careful about what that proves, because it is easy to oversell.
 
-The chess retrospective (`firebase-agent-sdk/plans/chess-v1-vs-v2-retrospective.md`) tells it plainly. Chess got built twice. The first time was the hard way, before the tools existed: five deploy attempts, three compile failures, two runtime failures, roughly two hours, most of it spent debugging opaque `400` and `403` errors with no message. That pain is where the empirical limits were discovered. It is also where a longstanding assumption got overturned, the "thirty to thirty-seven kilobyte practical limit" the team had believed for months turned out to be wrong, an artifact of chain depth correlating with size. The real source limit is two hundred fifty-six kilobytes, found by isolating the variable and probing production.
+The chess retrospective (`firebase-agent-sdk/plans/chess-v1-vs-v2-retrospective.md`) tells it plainly. Chess got built twice. The first time was the hard way, before the tools existed: five deploy attempts, three compile failures, two runtime failures, roughly two hours, most of it spent debugging opaque `400` and `403` errors with no message. That pain is where the empirical limits were discovered. It is also where a longstanding assumption got overturned. The "thirty to thirty-seven kilobyte practical limit" the team had believed for months turned out to be wrong, an artifact of chain depth correlating with size. The real source limit is two hundred fifty-six kilobytes, found by isolating the variable and probing production.
 
-Then they built the linter from that hard-won knowledge and rebuilt chess. The second time: one deploy attempt, zero compile failures, zero runtime failures, about ten minutes. First try.
+The second build, after the linter existed, went smoothly. One deploy, first try. I am not going to lean on the stopwatch, though, and neither should the docs. A coding agent building the second version can read the first, so "ten minutes versus two hours" is not a clean benchmark and selling it as one would be dishonest. The honest claim is smaller and it is stronger. Chess in pure Firestore security rules exists at all. Every piece, sliding-piece path blocking, check detection, checkmate as an emergent state, deployed to production, passing. The conventional wisdom was that rules cannot iterate, so this is impossible. It is not impossible. It is done, and so are checkers, connect four, and US tax code.
 
-That is the whole argument in one table. Two hours to ten minutes. Five attempts to one. And the key line from the retrospective: the linter did not just find the issues faster, it prevented them from existing, because the v2 generator was written with the verified limits as constraints from the start. The tools did not speed up the work. They changed what the work was.
+### The real lesson: forward deploy
 
-This is the compounding point made concrete. A raw model builds chess-in-rules the two-hour way, if it can at all. A model with these tools builds it the ten-minute way. The gap is the product.
+The thing to take from that retrospective is not the speed. It is the method, and the method is the product.
+
+They called it the Forward Deploy principle. Before building a hard thing, ask what artifacts would make it trivial, and build those first. Before the linter, they saved a corpus of every rules variant with its known outcome, probed the exact production limits instead of estimating, wrote the lint spec, and built the AST primitives as tested pieces. By the time the linter itself got written, there were no decisions left to make. It was mechanical.
+
+Now read that as the product, not the process. Pyric is the forward deploy for Firebase. The painful discovery already happened. The limits are probed and encoded in the linter. The corpus exists. The standard library ships tested modules. The observed behaviors are recorded. When an agent sits down to a hard Firebase task, it does not start from zero and walk into the same wall chess v1 did. It starts from the artifacts that make the task tractable. The retrospective says it directly, and this is the sentence to remember: every future user benefits from these limits without having to rediscover them.
+
+That is the honest version of the compounding claim. Not that the tools make the work faster on a stopwatch. That they front-load the expertise, so the hard thing begins on the far side of the hard part.
 
 ### The origin story is the same story
 
@@ -155,7 +161,7 @@ Here is the argument that ties it together, and it is the narrative spine.
 
 A large model, on its own, is a mediocre Firebase engineer. It writes rules that look right and are quietly public. It writes queries that need indexes it does not create. It cannot debug a denial because it cannot see why. It does not know the rules compiler will reject its two-hundred-line function. It has read the docs, and the docs do not contain the hard parts.
 
-Give that same model Pyric and it becomes good, measurably and visibly. It can:
+Give that same model Pyric and it becomes good, visibly. It can:
 
 - Design a data model and know the indexes it implies, because it can extract them.
 - Write secure rules and prove them, because it can simulate and test them in-process.
