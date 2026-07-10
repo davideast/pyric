@@ -79,6 +79,7 @@ describe('injectServeTags', () => {
 
   it('sdkImportMap covers the served modules', () => {
     expect(Object.keys(sdkImportMap()).sort()).toEqual([
+      'firebase/ai',
       'firebase/app',
       'firebase/auth',
       'firebase/database',

@@ -76,6 +76,37 @@ describe('firebase stub generation (drift-proof list)', () => {
     expect(() => mod('uid', '==', 'x')).not.toThrow();
     expect(mod.anything.deep).toBe(mod); // get → deny
   });
+
+  it('firebase/app stub emits a REAL FirebaseError (pyric subclasses it at runtime)', () => {
+    const src = stubModuleSource('firebase/app', new Set(['FirebaseError', 'initializeApp']));
+    // Subclassing the inert proxy is broken (super() returns the SHARED proxy,
+    // own fields like `.code` are unreadable) — pyric/ai's AIError and
+    // pyric/auth's sandbox backend extend/throw FirebaseError, so this ONE
+    // binding must be a real class; everything else stays inert.
+    expect(src).toContain('export class FirebaseError extends Error');
+    expect(src).not.toContain('export const FirebaseError = deny;');
+    expect(src).toContain('export const initializeApp = deny;');
+    // Prove subclass instances carry their own fields (the AIError contract).
+    const FirebaseError = (0, eval)(
+      '(function(){' +
+        src
+          .replace(/export default deny;?/, '')
+          .replace(/export const \w+ = deny;/g, '')
+          .replace('export class', 'class') +
+        ';return FirebaseError;})()',
+    ) as new (code: string, message: string) => Error & { code: string };
+    class Sub extends FirebaseError {}
+    const a = new Sub('fetch-error', 'boom');
+    const b = new Sub('other', 'x');
+    expect(a).not.toBe(b);
+    expect(a.code).toBe('fetch-error');
+    expect(a.message).toBe('boom');
+    expect(a instanceof Error).toBe(true);
+    // A non-firebase/app module never gets the real class.
+    expect(stubModuleSource('firebase/firestore', new Set(['FirebaseError']))).toContain(
+      'export const FirebaseError = deny;',
+    );
+  });
 });
 
 describe('cache key', () => {
@@ -125,9 +156,9 @@ export const db = getFirestore(initializeSandbox());`,
 });
 
 describe('the real wrapper entries (plan step 1.2)', () => {
-  it('defaultSdkEntries locates app + auth + firestore + database + storage entries', () => {
+  it('defaultSdkEntries locates ai + app + auth + firestore + database + storage entries', () => {
     const entries = (require('../../src/serve/bundler.js') as typeof import('../../src/serve/bundler.js')).defaultSdkEntries();
-    expect(Object.keys(entries).sort()).toEqual(['app', 'auth', 'database', 'firestore', 'init', 'storage']);
+    expect(Object.keys(entries).sort()).toEqual(['ai', 'app', 'auth', 'database', 'firestore', 'init', 'storage']);
   });
 
   it('bundles browser-standalone with a SINGLE shared runtime chunk', async () => {
@@ -136,6 +167,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-entries-'));
     const result = await bundleSdk({ entries: defaultSdkEntries(), cacheRoot: join(dir, 'cache'), minify: false });
     const names = result.files.map((f) => f.split('/').pop()!);
+    expect(names).toContain('ai.js');
     expect(names).toContain('app.js');
     expect(names).toContain('auth.js');
     expect(names).toContain('database.js');

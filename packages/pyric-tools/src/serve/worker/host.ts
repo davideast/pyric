@@ -149,6 +149,7 @@ import {
   isAuthSub,
   isEventSub,
   isRtdbSub,
+  isAiSub,
   bytesToBase64,
   base64ToBytes,
   storagePayloadTooLarge,
@@ -175,6 +176,7 @@ import {
   handleEventSub,
   handleEventUnsub,
 } from './host-events.js';
+import { isAiOp, handleAiOp, handleAiSub } from './host-ai.js';
 
 // Re-export so host.ts's public surface is unchanged after the decomposition.
 export { ensureAuth, portSession } from './host-auth.js';
@@ -1445,9 +1447,9 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
     }
 
     default: {
-      // Auth ops (`auth.*`) are routed to handleAuthOp by handleMessage before
-      // reaching here, so any method landing in this default is genuinely
-      // unknown. (We can't use a `never` exhaustiveness check anymore because
+      // Auth ops (`auth.*`) and AI ops (`ai.*`) are routed to handleAuthOp /
+      // handleAiOp by handleMessage before reaching here, so any method
+      // landing in this default is genuinely unknown. (We can't use a `never` exhaustiveness check anymore because
       // OpMessage now includes the auth variants this switch deliberately skips.)
       fail(port, msg.id, new Error(`Unknown method: ${String((msg as { method: unknown }).method)}`));
     }
@@ -1728,6 +1730,8 @@ async function dispatchMessage(
   if (msg.t === 'op') {
     if (isAuthOp(msg.method)) {
       await handleAuthOp(ctx, port, msg);
+    } else if (isAiOp(msg.method)) {
+      await handleAiOp(ctx, port, msg);
     } else {
       await handleOp(ctx, port, msg);
     }
@@ -1738,6 +1742,10 @@ async function dispatchMessage(
       handleEventSub(ctx, port, msg);
     } else if (isRtdbSub(msg)) {
       handleRtdbSub(ctx, port, msg);
+    } else if (isAiSub(msg)) {
+      // AI streams are FINITE subs registered in ctx.subs (so `unsub` cancels
+      // them); they auto-unsub on the terminal done/error snap. host-ai.ts.
+      handleAiSub(ctx, port, msg);
     } else {
       handleSub(ctx, port, msg);
     }

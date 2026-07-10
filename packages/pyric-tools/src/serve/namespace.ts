@@ -122,6 +122,138 @@ export interface NamespaceOptions {
    *  assets live at `/__pyric/ui/_astro/` (Astro's asset dir, at the base
    *  root — NOT under `docs/`). Both are served from this one dir. */
   docsUiDir?: string;
+  /** The OpenAI-compatible upstream `/__pyric/ai-proxy` forwards to
+   *  (pyric/ai — cdd-deltas #98.2). Falls back to the
+   *  `PYRIC_AI_PROXY_UPSTREAM` env var, then `http://localhost:11434/v1`
+   *  (local Ollama). Always mounted — the route only touches the network
+   *  when a request arrives. */
+  aiProxyUpstream?: string;
+}
+
+// ─── AI proxy (`/__pyric/ai-proxy` — pyric/ai, cdd-deltas #98.2) ───────────
+
+/** Default upstream: local Ollama's OpenAI-compatible endpoint. */
+export const AI_PROXY_DEFAULT_UPSTREAM = 'http://localhost:11434/v1';
+
+/**
+ * Request headers that must NOT be forwarded upstream: origin-sensitive
+ * browser context (`origin`/`referer`/`cookie` — the upstream is a different
+ * origin and must never see the page's), hop-by-hop headers, and the two the
+ * proxy re-derives (`host`, `content-length`). `accept-encoding` is dropped
+ * so fetch negotiates its own compression and the streamed body needs no
+ * length fixups.
+ */
+const AI_PROXY_STRIPPED_HEADERS = new Set([
+  'host',
+  'origin',
+  'referer',
+  'cookie',
+  'connection',
+  'content-length',
+  'accept-encoding',
+  'keep-alive',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+]);
+
+/**
+ * Handle `POST /__pyric/ai-proxy/<suffix>` — a same-origin passthrough to the
+ * configured OpenAI-compatible upstream, so the browser openai engine
+ * (running in the served page or the SharedWorker host) reaches a localhost
+ * upstream like Ollama with ZERO CORS setup (no `OLLAMA_ORIGINS`, ever).
+ *
+ * Behavior:
+ *   - POST only (the OpenAI chat-completions surface is POST); 405 otherwise.
+ *   - the path suffix + query ride through verbatim
+ *     (`/__pyric/ai-proxy/chat/completions` → `<upstream>/chat/completions`).
+ *   - the request body is forwarded verbatim; headers minus the
+ *     origin-sensitive/hop-by-hop set above (`authorization` DOES forward —
+ *     upstreams may require a key).
+ *   - the response body is STREAMED through chunk-by-chunk — SSE passthrough
+ *     must never buffer, or `stream: true` completions would arrive all at
+ *     once at the end.
+ *   - an unreachable upstream answers 502 with a plain-text explanation.
+ */
+async function handleAiProxy(
+  configuredUpstream: string | undefined,
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    res.writeHead(405, { allow: 'POST' }).end('method not allowed');
+    return;
+  }
+  const upstreamBase = (
+    configuredUpstream ??
+    process.env.PYRIC_AI_PROXY_UPSTREAM ??
+    AI_PROXY_DEFAULT_UPSTREAM
+  ).replace(/\/$/, '');
+  const suffix = url.pathname.slice('/__pyric/ai-proxy'.length);
+  const target = `${upstreamBase}${suffix}${url.search}`;
+
+  // Buffer the REQUEST body (small JSON payloads); the RESPONSE streams.
+  const raw = await new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+  // Copy into a plain-ArrayBuffer view — fetch's BodyInit typing rejects
+  // Buffer's ArrayBufferLike backing.
+  const body = new Uint8Array(raw.byteLength);
+  body.set(raw);
+
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value === undefined) continue;
+    if (AI_PROXY_STRIPPED_HEADERS.has(key.toLowerCase())) continue;
+    headers[key] = Array.isArray(value) ? value.join(', ') : value;
+  }
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, { method: 'POST', headers, body });
+  } catch (e) {
+    res.writeHead(502, { 'content-type': 'text/plain' });
+    res.end(
+      `pyric dev ai-proxy: upstream ${target} unreachable: ` +
+        `${e instanceof Error ? e.message : String(e)}\n` +
+        'Set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL ' +
+        `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
+    );
+    return;
+  }
+
+  const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
+  const contentType = upstream.headers.get('content-type');
+  if (contentType) responseHeaders['content-type'] = contentType;
+  res.writeHead(upstream.status, responseHeaders);
+  if (!upstream.body) {
+    res.end();
+    return;
+  }
+  (res as ServerResponse & { flushHeaders?: () => void }).flushHeaders?.();
+
+  // Chunk-by-chunk passthrough. A dropped client cancels the upstream read
+  // so an abandoned SSE stream doesn't keep the upstream generating.
+  const reader = upstream.body.getReader();
+  res.on('close', () => {
+    void reader.cancel().catch(() => {});
+  });
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(value);
+    }
+  } catch {
+    // Upstream or client dropped mid-stream — nothing to salvage.
+  }
+  res.end();
 }
 
 /** The page's persistence backend speaks this route:
@@ -276,6 +408,9 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       opts.events.handle(req, res);
       return true;
     }
+    if (url.pathname === '/__pyric/ai-proxy' || url.pathname.startsWith('/__pyric/ai-proxy/')) {
+      return handleAiProxy(opts.aiProxyUpstream, req, res, url).then(() => true);
+    }
     if (url.pathname === '/__pyric/init.json') {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(opts.initPayload()));
@@ -388,6 +523,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
 /** The import-map targets. Spec → served URL. */
 export function sdkImportMap(): Record<string, string> {
   return {
+    'firebase/ai': '/__pyric/sdk/ai.js',
     'firebase/app': '/__pyric/sdk/app.js',
     'firebase/auth': '/__pyric/sdk/auth.js',
     'firebase/database': '/__pyric/sdk/database.js',
