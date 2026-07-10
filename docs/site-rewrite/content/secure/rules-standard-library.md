@@ -73,7 +73,7 @@ Compose it with `lifecycle.onlyFieldsChanged(['members'])` and a join cannot tou
 
 One gotcha worth taking from `membership` even if you never import it: custom claims live at `request.auth.token.admin`, not `request.auth.admin`. The second form reads null and quietly denies forever.
 
-## The everyday ones
+## The everyday modules
 
 The rest of the shelf covers the common shapes.
 

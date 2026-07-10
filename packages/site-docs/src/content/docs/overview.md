@@ -18,17 +18,17 @@ npx pyric dev
 ```
 No account. No cloud project. No emulator, no Java, no port to babysit. You have a full Firebase stack before your coffee is warm, and it behaves like the real one because that claim is tested, not assumed. Pyric runs probes against production Firebase, records what actually happens, and replays every recorded behavior against itself in CI. When it diverges from Firebase, that is a documented row or a bug, never a surprise.
 
-## What you do with it
+## Build the app, prove the rules, ship the same code
 
 You build your app. Sign users in with the auth calls you already know. Write documents, run queries, keep the UI live with snapshots. Write security rules and find out, before you deploy, exactly what they allow and deny, because every operation in Pyric produces a verdict you can read, and a denial tells you which rule said no and what data it saw.
 
 Then you ship. The same code goes to production against real Firebase. Your rules leave development already exercised against your app's real behavior. Your composite indexes come from your actual queries instead of a hand-kept file. And before anything goes live, you can replay a captured session against the new rules and learn which operations would change verdict, before production learns it for you.
 
-## Where your agent fits
+## Your agent works the same backend
 
 The backend is local state with a tool surface, so a coding agent can work on it the way you do. Point Claude Code, Cursor, or any MCP client at the sandbox and the agent can seed data, run queries, simulate a rules verdict before writing, and check its own work. Nothing it does leaves your machine. Everything it does is inspectable, live, in the same event stream you watch.
 
-## Why it holds up
+## It focuses on the hard parts
 
 Firebase development has hard parts, and they are not the parts the manuals dwell on. Rules that pass locally and fail in production. A denial with no explanation. Query shapes that quietly demand indexes. Limits that are real but written down nowhere.
 

@@ -79,7 +79,7 @@ pyric deploy rules --project my-app
 ```
 The deploy refuses a ruleset with error-severity lint findings, so the mistakes that produce opaque production failures get stopped at the door.
 
-## The rest of the wing
+## Where the wing goes deeper
 
 That loop is the core. The wing deepens each step.
 

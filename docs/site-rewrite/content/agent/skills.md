@@ -21,7 +21,7 @@ The skills live in the Pyric repository under `.agents/skills/`, one folder per 
 - For Claude Code, copy the folders you want into your project's `.claude/skills/` directory.
 - The Claude Code plugin ships its own operational pieces (`pyric-start` boots and wires the sandbox), so the domain skills below slot into a session that is already connected.
 
-## The catalog
+## What each skill does
 
 **firebase-auth-model.** Design or audit an identity model that actually connects to your rules. It maps every identity your app has, chooses provider flows, decides where profile data lives and which document IDs use `uid`, and draws the line between custom claims and document roles so they never contradict, ending with test users you can seed. Serves [sign in and manage users](../build/sign-in-and-manage-users.md).
 

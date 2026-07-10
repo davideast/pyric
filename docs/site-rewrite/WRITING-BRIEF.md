@@ -51,7 +51,7 @@ Walls of text are a defect. On a guide page, every H2 section should reach an ex
 - The first paragraph states the result the reader gets. No preamble, no "In this guide."
 - Show a working example early. Code before concepts wherever possible.
 - Code blocks are real and runnable against the current surface (check INVENTORY.md). Never pseudo-code presented as real.
-- Headings continue the narrative ("Watch the denial explain itself"), never label taxonomy ("Denial inspection").
+- Headings continue the narrative ("Watch the denial explain itself"), never label taxonomy ("Denial inspection"). Banned outright (owner review): vague relational labels that describe the section's role instead of its content. "What you do with it", "Where your agent fits", "Why it holds up", "The catalog", "The rest of the wing". If the heading would fit on any product's page, it says nothing about this one.
 - Keep pages short. One tangible win per page. Link deeper instead of piling on.
 - End with where to go next, one or two links, chosen, not a link farm.
 

@@ -52,6 +52,6 @@ A return whose math is wrong is not invalid data. It is a permission denial.
 
 A deployed, playable browser app on Realtime Database rules. Turn enforcement, per-cell board integrity, and win verification all live in the ruleset, so the winner field only accepts a value when the claimed winning line actually exists on the board. The ruleset is generated from a typed constraint DSL and deployed over REST.
 
-## Why this shelf exists
+## Calibration, not a feature list
 
 None of this is a feature you will ship on Monday. It is calibration. If rules can hold chess, they can hold your role model, your state machine, your billing invariants, and the parts are the ones you already have: the [patterns](../rules-patterns/), the [standard library](../rules-standard-library/), and the [limits](../limits-that-bite/) that keep all of it deployable.
