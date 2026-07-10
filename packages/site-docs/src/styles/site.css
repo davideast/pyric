@@ -775,26 +775,69 @@ samp {
   font-variant-ligatures: none;
 }
 
-/* ── Conformance rows ─ the compat matrices as a status-dot list ────
+/* ── Conformance rows ─ the compat matrices as a scannable list ─────
    (port-content.ts rewrites the `# | Behavior | Status | Probe` tables
-   into this shape). One row per behavior: dot, number, behavior, probe
-   on its own muted line. The dot carries the status by color; its
-   aria-label / title carry it in words. */
+   into this shape). The scan line is dot + behavior, nothing else.
+   Evidence (probe, notes) hides behind a native disclosure — one click
+   away, never in the way. The legend becomes the key for the dots. */
+.prose .compat-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  margin: 1rem 0;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+
+.prose .compat-key-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.prose .compat-key-item .compat-dot {
+  align-self: center;
+}
+
 .prose .compat-list {
   margin: 1rem 0;
 }
 
-.prose .compat-row {
+.prose .compat-line {
   display: grid;
-  grid-template-columns: 3rem 0.75rem 1fr;
+  grid-template-columns: 2.5rem 0.75rem 1fr auto;
   column-gap: var(--space-3);
   align-items: start;
   padding: var(--space-2) 0;
+}
+
+.prose .compat-row {
   border-bottom: 1px solid var(--line);
 }
 
 .prose .compat-row:last-child {
   border-bottom: 0;
+}
+
+/* Disclosure affordance: a faint chevron on rows that carry evidence. */
+.prose summary.compat-line {
+  cursor: pointer;
+  list-style: none;
+}
+
+.prose summary.compat-line::-webkit-details-marker {
+  display: none;
+}
+
+.prose summary.compat-line::after {
+  content: '›';
+  color: var(--faint);
+  transition: transform 0.12s;
+}
+
+.prose details[open] > summary.compat-line::after {
+  transform: rotate(90deg);
 }
 
 .prose .compat-num {
@@ -813,23 +856,23 @@ samp {
   background: var(--muted);
 }
 
-.prose .compat-row[data-status='ok'] .compat-dot {
+.prose .compat-dot[data-status='ok'] {
   background: var(--diff-add);
 }
 
-.prose .compat-row[data-status='diverged'] .compat-dot {
+.prose .compat-dot[data-status='diverged'] {
   background: var(--accent);
 }
 
-.prose .compat-row[data-status='bug'] .compat-dot {
+.prose .compat-dot[data-status='bug'] {
   background: var(--diff-remove);
 }
 
-.prose .compat-row[data-status='unsupported'] .compat-dot {
+.prose .compat-dot[data-status='unsupported'] {
   background: var(--line-2);
 }
 
-.prose .compat-row[data-status='unverified'] .compat-dot {
+.prose .compat-dot[data-status='unverified'] {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--faint);
 }
@@ -844,6 +887,10 @@ samp {
   font-size: 0.875rem;
 }
 
+.prose .compat-evidence {
+  margin: 0 0 var(--space-2) calc(2.5rem + 0.75rem + 2 * var(--space-3));
+}
+
 .prose .compat-probe,
 .prose .compat-note {
   margin-top: 2px;
@@ -854,6 +901,16 @@ samp {
 
 .prose .compat-probe {
   font-family: var(--font-mono);
+}
+
+/* Quiet code inside compat rows: plain mono, no chip chrome — the
+   bordered pills are what made the list read as busy. */
+.prose .compat-list code,
+.prose .compat-key code {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
 }
 
 /* Heading anchors need room under the sticky bar. */

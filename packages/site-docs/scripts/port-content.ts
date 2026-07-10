@@ -741,6 +741,30 @@ function transformCompatTables(body: string): string {
           const iBeh = col('behavior');
           const iSt = col('status');
           const iPr = col('probe');
+          const iMeaning = col('meaning');
+          // The status legend becomes the key for the dots: one compact
+          // line per status, same dot the rows use.
+          if (iBeh < 0 && iSt >= 0 && iMeaning >= 0) {
+            let j = i + 2;
+            const html: string[] = ['<div class="compat-key">'];
+            while (j < lines.length && /^\s*\|/.test(lines[j])) {
+              const cells = splitRow(lines[j]);
+              const glyph = (cells[iSt] ?? '').trim();
+              const meta = STATUS_META[glyph];
+              if (meta) {
+                html.push(
+                  `<span class="compat-key-item"><span class="compat-dot" data-status="${meta.key}"></span>${mdInlineHtml(
+                    (cells[iMeaning] ?? '').trim(),
+                  )}</span>`,
+                );
+              }
+              j++;
+            }
+            html.push('</div>');
+            out.push(html.join('\n'));
+            i = j - 1;
+            continue;
+          }
           if (iBeh >= 0 && iSt >= 0) {
             let j = i + 2;
             const rows: string[][] = [];
@@ -752,7 +776,7 @@ function transformCompatTables(body: string): string {
             for (const cells of rows) {
               const status = (cells[iSt] ?? '').trim();
               // A status may carry a qualifier ("✓ (wrap)"): the glyph
-              // drives the dot, the rest joins the notes.
+              // drives the dot, the rest joins the evidence.
               const glyph = status.slice(0, 1);
               const meta = STATUS_META[status] ?? STATUS_META[glyph];
               const qualifier = meta && status.length > 1 ? status.slice(1).trim() : '';
@@ -763,22 +787,38 @@ function transformCompatTables(body: string): string {
                 .filter(({ k }) => ![iNum, iBeh, iSt, iPr].includes(k))
                 .map(({ c }) => c.trim())
                 .filter(Boolean);
-              html.push(`<div class="compat-row" data-status="${meta?.key ?? 'unknown'}">`);
-              html.push(`<span class="compat-num">${mdInlineHtml(num)}</span>`);
-              if (meta) {
+              // The scan line is dot + behavior, nothing else. Evidence
+              // (probe, qualifier, notes) hides behind a native
+              // disclosure; rows without evidence render as plain rows.
+              const dot = meta
+                ? `<span class="compat-dot" data-status="${meta.key}" role="img" aria-label="${meta.label}" title="${meta.label}"></span>`
+                : `<span class="compat-status">${mdInlineHtml(status)}</span>`;
+              const scanLine = [
+                `<span class="compat-num">${mdInlineHtml(num)}</span>`,
+                dot,
+                `<span class="compat-behavior">${mdInlineHtml(cells[iBeh] ?? '')}</span>`,
+              ].join('');
+              const evidence = [
+                probe ? `<div class="compat-probe">${mdInlineHtml(probe)}</div>` : '',
+                qualifier ? `<div class="compat-note">${mdInlineHtml(qualifier)}</div>` : '',
+                ...extras.map((ex) => `<div class="compat-note">${mdInlineHtml(ex)}</div>`),
+              ]
+                .filter(Boolean)
+                .join('\n');
+              if (evidence) {
                 html.push(
-                  `<span class="compat-dot" role="img" aria-label="${meta.label}" title="${meta.label}"></span>`,
+                  `<details class="compat-row" data-status="${meta?.key ?? 'unknown'}">`,
+                  `<summary class="compat-line">${scanLine}</summary>`,
+                  `<div class="compat-evidence">${evidence}</div>`,
+                  '</details>',
                 );
               } else {
-                html.push(`<span class="compat-status">${mdInlineHtml(status)}</span>`);
+                html.push(
+                  `<div class="compat-row" data-status="${meta?.key ?? 'unknown'}">`,
+                  `<div class="compat-line">${scanLine}</div>`,
+                  '</div>',
+                );
               }
-              html.push('<div class="compat-main">');
-              html.push(`<div class="compat-behavior">${mdInlineHtml(cells[iBeh] ?? '')}</div>`);
-              if (probe) html.push(`<div class="compat-probe">${mdInlineHtml(probe)}</div>`);
-              if (qualifier) html.push(`<div class="compat-note">${mdInlineHtml(qualifier)}</div>`);
-              for (const ex of extras) html.push(`<div class="compat-note">${mdInlineHtml(ex)}</div>`);
-              html.push('</div>');
-              html.push('</div>');
             }
             html.push('</div>');
             out.push(html.join('\n'));
