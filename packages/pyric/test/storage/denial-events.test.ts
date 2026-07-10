@@ -108,7 +108,9 @@ describe('storage rules denial lands on the unified event stream', () => {
 
     const denies = operations(events).filter((e) => e.service === 'storage' && e.result === 'deny');
     expect(denies.length).toBe(1);
-    expect(denies[0]!.method).toBe('read');
+    // Granular verbs (storage-rules-granular-verbs): download enforces the
+    // precise `get` verb, not the coarse `read` umbrella.
+    expect(denies[0]!.method).toBe('get');
   });
 
   it('a denied op issued with Studio provenance carries actor "studio" on the deny event', async () => {

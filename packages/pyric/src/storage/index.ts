@@ -79,6 +79,7 @@ export type {
   StorageResource,
   EvaluationInput,
   EvaluationResult,
+  FirestoreLookup,
 } from './rules.js';
 
 // ─── Admin / control-plane surface ───────────────────────────────────
