@@ -1,7 +1,9 @@
 {
   "name": "ai-system-instruction-accepted",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "ai#generate-system-instruction"
+  ],
   "description": "A top-level systemInstruction rides the request unchanged and the response envelope shape is unaffected. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:18.661Z",
   "fbSdkVersion": "2.12.0",

@@ -1,7 +1,9 @@
 {
   "name": "ai-function-response-round",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "ai#fncall-round-trip"
+  ],
   "description": "A full function-calling round trip is accepted when the model functionCall turn is threaded back verbatim from a real response, preserving thoughtSignature (see ai-error-fncall-missing-thought-signature for the rejection without it). rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:16.974Z",
   "fbSdkVersion": "2.12.0",

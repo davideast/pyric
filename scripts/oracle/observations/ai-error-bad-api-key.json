@@ -1,7 +1,10 @@
 {
   "name": "ai-error-bad-api-key",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "ai#error-bad-api-key",
+    "ai#error-aierror-shape"
+  ],
   "description": "Error envelope for an invalid API key. detailTypes is recorded as a set: the messaging effort found details ordering is not stable across cases. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:04.583Z",
   "fbSdkVersion": "2.12.0",

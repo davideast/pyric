@@ -1,7 +1,19 @@
 {
   "name": "ai-generate-minimal-envelope",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "ai#generate-envelope-keys",
+    "ai#generate-candidate-keys",
+    "ai#generate-role-model",
+    "ai#generate-finish-stop",
+    "ai#generate-usage-key-set",
+    "ai#generate-usage-service-tier",
+    "ai#generate-modelversion-responseid",
+    "ai#generate-decoration-synthesized",
+    "ai#chat-sendmessage-envelope",
+    "ai#scripted-zero-config",
+    "ai#scripted-shorthand-text"
+  ],
   "description": "Raw wire envelope of a minimal generateContent on the GoogleAI backend. Facts are the key sets and enum values; generated text in raw is a nondeterministic sample. Note: candidate `index` and `inferenceSource` are ABSENT on the wire (the SDK adds them client-side), and usageMetadata carries `serviceTier`, which the SDK typings do not declare. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:03.455Z",
   "fbSdkVersion": "2.12.0",

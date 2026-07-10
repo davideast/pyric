@@ -1,7 +1,10 @@
 {
   "name": "ai-thinking-thought-parts",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "ai#generate-thinking-signature",
+    "ai#helper-thoughtsummary"
+  ],
   "description": "Whether thinkingConfig.includeThoughts surfaces parts flagged thought:true, and whether thoughtSignature rides on parts, on the probe model. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:18.149Z",
   "fbSdkVersion": "2.12.0",

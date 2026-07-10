@@ -1,7 +1,9 @@
 {
   "name": "ai-error-unknown-model",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "ai#error-unknown-model"
+  ],
   "description": "Error envelope for a model name production has never served. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:04.446Z",
   "fbSdkVersion": "2.12.0",

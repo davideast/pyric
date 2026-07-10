@@ -1,7 +1,11 @@
 {
   "name": "ai-error-fncall-missing-thought-signature",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "ai#fncall-thought-signature-required",
+    "ai#fncall-signature-minted",
+    "ai#scripted-shorthand-functioncall"
+  ],
   "description": "A function-calling round trip whose model functionCall turn lacks thoughtSignature is REJECTED 400 INVALID_ARGUMENT. No SDK typing or reference doc states this; the error message cites ai.google.dev/gemini-api/docs/thought-signatures and names the call as `default_api:get_weather`. A mirror and any translation engine must mint and thread thought signatures through tool round trips. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:15.909Z",
   "fbSdkVersion": "2.12.0",

@@ -1,7 +1,9 @@
 {
   "name": "ai-error-retired-model",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "ai#error-retired-model"
+  ],
   "description": "Error envelope for a retired model family (Gemini 1.5, retired 2025-09-24 per the message text). Distinct from unknown-model: production distinguishes never-existed from retired. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:04.515Z",
   "fbSdkVersion": "2.12.0",

@@ -1,7 +1,9 @@
 {
   "name": "ai-error-bad-role",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "ai#error-bad-role"
+  ],
   "description": "Error envelope for an invalid content role. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:04.875Z",
   "fbSdkVersion": "2.12.0",
