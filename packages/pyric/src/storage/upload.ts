@@ -90,7 +90,7 @@ export async function uploadBytes(
       }),
     },
     resource: resourceFromStored(existing),
-  }, target);
+  }, target, provenance);
   await service.backend.put(ref.fullPath, blob, stored);
   // Land the put on the unified Studio stream. Best-effort: a throw from
   // the emit path must not fail the upload the caller just completed.
@@ -134,13 +134,14 @@ export async function uploadString(
   value: string,
   format: StringFormat = 'raw',
   metadata?: SettableMetadata,
+  provenance?: EventProvenance,
 ): Promise<UploadResult> {
   const { bytes, inferredType } = decodeString(value, format);
   const effective: SettableMetadata = {
     ...metadata,
     contentType: metadata?.contentType ?? inferredType ?? defaultRawContentType(format),
   };
-  return uploadBytes(ref, bytes, effective);
+  return uploadBytes(ref, bytes, effective, provenance);
 }
 
 /**

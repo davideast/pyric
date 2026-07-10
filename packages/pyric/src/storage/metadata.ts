@@ -196,7 +196,7 @@ export async function updateMetadata(
         : undefined,
     },
     resource: resourceFromStored(existing),
-  }, target);
+  }, target, provenance);
   if (!existing) {
     throw objectNotFound(ref.fullPath);
   }
