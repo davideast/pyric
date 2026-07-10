@@ -61,7 +61,14 @@ export interface SimResource {
 
 export interface SimulationContext {
   request: SimRequest;
-  resource: SimResource;
+  /**
+   * The PRE-WRITE stored document (data + identity), or `null` when no such
+   * document exists. On a `create` the target does not exist yet, so this is
+   * null and any access (`resource.data`, `resource.id`, `resource.__name__`)
+   * errors → DENY, matching production. `request.resource` (the INCOMING
+   * proposed data) is a separate value and is populated on create/update.
+   */
+  resource: SimResource | null;
   /** Mock documents for get()/exists() calls, keyed by full path. Pre-seeded
    *  from `functionMocks` (the serializable Test API path) and/or populated
    *  lazily by {@link getDoc}. */

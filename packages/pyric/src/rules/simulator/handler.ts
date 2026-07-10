@@ -480,11 +480,21 @@ function buildContext(
       query: buildRequestQuery(tc),
       time: serverTime,
     },
-    resource: {
-      data: existing ?? {},  // NOT resolved — resource is pre-write, no sentinels
-      id: docId,             // Item 6
-      __name__: fullPath,    // Item 6
-    },
+    // `resource` is the PRE-WRITE stored document. On a `create` the target
+    // does not exist yet, so production makes `resource` null — reading
+    // `resource.data`/`.id`/`.__name__` then errors → DENY. Synthesizing an
+    // identity here (the previous behavior) was a FALSE-ALLOW for the common
+    // ownership/existence idioms (`resource.data.owner == request.auth.uid`,
+    // `resource.id == id`). For get/list/update/delete `resource` reflects the
+    // existing doc (unchanged). Note: `request.resource` (proposed data) is
+    // built separately above and stays populated on create.
+    resource: tc.method === 'create'
+      ? null
+      : {
+          data: existing ?? {},  // NOT resolved — resource is pre-write, no sentinels
+          id: docId,             // Item 6
+          __name__: fullPath,    // Item 6
+        },
     mockDocuments: mockDocs,
     getDoc,
     pathVariables,
