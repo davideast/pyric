@@ -36,7 +36,7 @@ The `rules` source is parsed eagerly — malformed source throws a `SyntaxError`
 ## The `request.resource == null` carve-out
 
 Notice this in the rule:
-```
+```rules
 allow write: if request.auth != null
              && (request.resource == null
                  || (request.resource.size < 10 * 1024 * 1024

@@ -52,12 +52,12 @@ Even with a single rule sitting comfortably inside its budget, two rules in the 
 The scenario: two `allow update` rules whose conditions both start with the same first expression — say `request.auth.uid == resource.data.host`. The engine evaluates each rule against the request. Even though only one rule actually applies, the prefix evaluation happens in both. If each rule's body is near the budget on its own, their combined evaluation crosses the line.
 
 The fix is to give each rule a unique first expression — a discriminator. Instead of:
-```
+```rules
 allow update: if request.auth.uid == resource.data.host && validBigCheckA();
 allow update: if request.auth.uid == resource.data.host && validBigCheckB();
 ```
 route on something distinct:
-```
+```rules
 allow update: if request.resource.data.moveType == 'A' && validBigCheckA();
 allow update: if request.resource.data.moveType == 'B' && validBigCheckB();
 ```

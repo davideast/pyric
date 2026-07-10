@@ -14,7 +14,7 @@ This guide shows you how to write rules that import reusable helper functions an
 ## Author rules with imports
 
 Set the version to `'2+modules'` and add `import` statements at the top of the file:
-```
+```rules
 import { isAuthenticated, isOwner } from 'auth';
 import { hasRequired, hasOnly } from 'validation';
 
@@ -56,7 +56,7 @@ For the full list of exports, see [Standard library modules](../pyric-rules-refe
 ## Use your own `.rules` files
 
 For project-specific helpers, write a `.rules` file and use a relative import:
-```
+```rules
 import { hasModeratorClaim } from './lib/moderation';
 ```
 Then point the resolver at the base directory:

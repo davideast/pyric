@@ -727,18 +727,29 @@ a.external-link::after {
   overflow-x: auto;
 }
 
+/* Tables carry almost no chrome: hairline row separators only — no
+   vertical rules, no outer box, no header fill. Content-sized, never
+   stretched to the text column; the scroll wrapper owns overflow. Code
+   chips and headers never break mid-token (the wonky two-line cell),
+   they push the table into its horizontal scroller instead. */
 .prose table {
-  width: 100%;
+  width: auto;
   border-collapse: collapse;
   font-size: 0.875rem;
 }
 
 .prose th,
 .prose td {
-  border: 1px solid var(--line);
-  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 0.5rem 2rem 0.5rem 0;
   text-align: left;
   vertical-align: top;
+}
+
+.prose th:last-child,
+.prose td:last-child {
+  padding-right: 0;
 }
 
 .prose th {
@@ -747,7 +758,102 @@ a.external-link::after {
   text-transform: uppercase;
   letter-spacing: var(--tracking-micro, 0.06em);
   color: var(--muted);
-  background: var(--panel);
+  white-space: nowrap;
+  border-bottom-color: var(--line-2);
+}
+
+.prose td code {
+  white-space: nowrap;
+}
+
+/* Code renders exactly what you typed: no ligatures turning != into a
+   single glyph in a language where the token is the point. */
+pre,
+code,
+kbd,
+samp {
+  font-variant-ligatures: none;
+}
+
+/* ── Conformance rows ─ the compat matrices as a status-dot list ────
+   (port-content.ts rewrites the `# | Behavior | Status | Probe` tables
+   into this shape). One row per behavior: dot, number, behavior, probe
+   on its own muted line. The dot carries the status by color; its
+   aria-label / title carry it in words. */
+.prose .compat-list {
+  margin: 1rem 0;
+}
+
+.prose .compat-row {
+  display: grid;
+  grid-template-columns: 3rem 0.75rem 1fr;
+  column-gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.prose .compat-row:last-child {
+  border-bottom: 0;
+}
+
+.prose .compat-num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--faint);
+  text-align: right;
+  padding-top: 2px;
+}
+
+.prose .compat-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 0.45em;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.prose .compat-row[data-status='ok'] .compat-dot {
+  background: var(--diff-add);
+}
+
+.prose .compat-row[data-status='diverged'] .compat-dot {
+  background: var(--accent);
+}
+
+.prose .compat-row[data-status='bug'] .compat-dot {
+  background: var(--diff-remove);
+}
+
+.prose .compat-row[data-status='unsupported'] .compat-dot {
+  background: var(--line-2);
+}
+
+.prose .compat-row[data-status='unverified'] .compat-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--faint);
+}
+
+.prose .compat-status {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+
+.prose .compat-behavior {
+  font-size: 0.875rem;
+}
+
+.prose .compat-probe,
+.prose .compat-note {
+  margin-top: 2px;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.prose .compat-probe {
+  font-family: var(--font-mono);
 }
 
 /* Heading anchors need room under the sticky bar. */

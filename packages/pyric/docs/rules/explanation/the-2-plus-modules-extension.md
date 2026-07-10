@@ -8,7 +8,7 @@ Firestore rules don't have imports. The DSL has functions, but every function ha
 
 A new version string and an `import` statement:
 
-```
+```rules
 import { isAuthenticated, isOwner } from 'auth';
 import { hasOnly } from 'validation';
 
@@ -24,7 +24,7 @@ Module names are either:
 
 Functions inside a module file declare visibility with `export`:
 
-```
+```rules
 // auth.rules
 export function isAuthenticated() { return request.auth != null; }
 export function isOwner(userId) { return isAuthenticated() && request.auth.uid == userId; }

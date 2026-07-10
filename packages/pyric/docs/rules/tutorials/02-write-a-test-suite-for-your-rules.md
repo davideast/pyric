@@ -18,7 +18,7 @@ A `simulate.ts` script that exercises a handful of allow/deny scenarios against 
 
 Make sure your `firestore.rules` looks like this:
 
-```
+```rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {

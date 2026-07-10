@@ -69,7 +69,7 @@ If you have a use case that needs pagination, file an issue.
 
 A `read` rule scoped to an item (`match /sessions/{id} { allow read }`) does NOT grant list on the parent `/sessions`; give the folder its own rule:
 
-```
+```rules
 match /sessions {
   allow read: if request.auth != null; // covers listAll of /sessions
 }

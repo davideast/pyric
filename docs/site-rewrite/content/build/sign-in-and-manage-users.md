@@ -86,7 +86,7 @@ One caution that pays for itself: users must never be able to grant themselves a
 
 Every operation in the sandbox carries `request.auth`, exactly as production rules see it:
 
-```
+```rules
 match /posts/{postId} {
   allow update, delete: if request.auth != null
     && (request.auth.uid == resource.data.ownerId

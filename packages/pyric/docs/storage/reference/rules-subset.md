@@ -22,7 +22,7 @@ Three segment types:
 
 Nested `match` blocks compose naturally:
 
-```
+```rules
 match /b/{bucket}/o {
   match /users/{uid} {
     match /private/{file=**} {

@@ -15,7 +15,7 @@ The rules language cannot loop. It cannot build a map key out of strings. And it
 
 **The move.** Store the legal transitions as data in a config document. Rules read it once with `get()` and validate with nested dynamic access:
 
-```
+```rules
 function config() {
   return get(/databases/$(database)/documents/gameConfig/checkers).data;
 }
@@ -44,7 +44,7 @@ One operational note: the config document must exist before the rules go live. I
 
 **The move.** Store the between-cells in the config document, where `paths[from][to]` holds a length and the cell names, then check them with short-circuit OR:
 
-```
+```rules
 function pathClear() {
   let mf = request.resource.data.moveFrom;
   let mt = request.resource.data.moveTo;
@@ -79,7 +79,7 @@ This was discovered the hard way, debugging chess: pawn moves denied while every
 
 **The move.** Open every allow rule with a cheap discriminator that is unique to it:
 
-```
+```rules
 allow update: if request.resource.data.moveType == 'pawn_forward'
   && isMyTurn() && validPawnForward(config());
 

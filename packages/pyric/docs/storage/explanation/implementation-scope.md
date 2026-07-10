@@ -65,7 +65,7 @@ The upstream grammar supports regex matches on strings. Rare in practice for Sto
 
 ### Rule function definitions
 
-```
+```rules
 function isOwner() { return request.auth.uid == resource.metadata['owner']; }
 ```
 

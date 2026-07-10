@@ -69,7 +69,7 @@ The parser explicitly rejects the granular forms so consumers don't accidentally
 The upstream grammar supports regex matches on strings. Rare in practice for Storage rules; deferred.
 
 ### Rule function definitions
-```
+```rules
 function isOwner() { return request.auth.uid == resource.metadata['owner']; }
 ```
 Not parsed. Inline the predicate where you need it.

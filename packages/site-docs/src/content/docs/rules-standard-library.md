@@ -10,7 +10,7 @@ description: "Compose security rules from tested modules, with an import system 
 # Build your rules from tested parts
 
 This is a Firestore rules file:
-```
+```rules
 rules_version = '2+modules';
 import { isMyTurn, turnFlipped } from 'turns';
 
@@ -45,7 +45,7 @@ Two things to know once you are inside it:
 Fifteen modules ship with Pyric. A few exist specifically because the received wisdom says they can't.
 
 **Rules can rate-limit.** `timing.cooldownElapsed('lastMoveAt', 2)` allows an update only when the stored timestamp is more than two seconds old. On its own that is forgeable, because the client writes the timestamp and could write one from last week. So pair it with `isServerTimestamp('lastMoveAt')` from `lifecycle` on the same write, which forces the field to be the server's own clock:
-```
+```rules
 import { cooldownElapsed } from 'timing';
 import { isServerTimestamp } from 'lifecycle';
 

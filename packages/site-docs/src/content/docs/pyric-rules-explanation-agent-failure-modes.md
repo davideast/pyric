@@ -29,7 +29,7 @@ The fix isn't to relax the linter — it's to give the agent a real diagnostic f
 ## Silently removing predicates
 
 A subtler variant. The agent writes:
-```
+```rules
 allow update: if request.auth.uid == resource.data.ownerId
               && status == 'open';
 ```

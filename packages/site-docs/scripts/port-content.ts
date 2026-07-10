@@ -151,7 +151,7 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
   {
     label: 'Get started',
     dir: 'get-started',
-    files: ['start-building.md', 'what-just-happened.md'],
+    files: ['start-building.md', 'how-the-swap-works.md'],
   },
   {
     label: 'Build',
@@ -680,6 +680,119 @@ function rewriteLinks(page: Page, body: string): string {
     .join('');
 }
 
+/* ── Compatibility row lists ───────────────────────────────────────── */
+//
+// The COMPAT matrices are authored as markdown tables, and a table is
+// the wrong display for them: a one-glyph status column between two
+// prose columns never aligns, and the probe text fights the behavior
+// text for width. On Compatibility pages the port rewrites each
+// `# | Behavior | Status | Probe [| …]` table into a row list — status
+// dot, number, behavior, probe on its own muted line. Tables with any
+// other header (the status legend, the target tables) pass through
+// untouched. The generator can adopt this shape natively later; until
+// then the port owns the transform.
+
+const STATUS_META: Record<string, { key: string; label: string }> = {
+  '✓': { key: 'ok', label: 'Conforming' },
+  '⚠': { key: 'diverged', label: 'Diverged (documented)' },
+  '✗': { key: 'bug', label: 'Bug' },
+  '—': { key: 'unsupported', label: 'Unsupported' },
+  '?': { key: 'unverified', label: 'Unverified' },
+};
+
+/** Inline markdown → HTML for a table cell: code, links, bold, em.
+ *  Escapes everything else. Enough for the COMPAT cells, which use
+ *  exactly that subset. */
+function mdInlineHtml(md: string): string {
+  let s = md
+    .trim()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  return s;
+}
+
+/** Split a markdown table row into cells (escaped pipes survive). */
+function splitRow(line: string): string[] {
+  const inner = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  return inner.split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, '|'));
+}
+
+function transformCompatTables(body: string): string {
+  return splitFences(body)
+    .map((part) => {
+      if (part.isFence) return part.text;
+      const lines = part.text.split('\n');
+      const out: string[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const isHeader =
+          /^\s*\|/.test(line) &&
+          i + 1 < lines.length &&
+          /^\s*\|[\s:|-]+\|?\s*$/.test(lines[i + 1]);
+        if (isHeader) {
+          const header = splitRow(line).map((h) => h.trim().toLowerCase());
+          const col = (name: string) => header.findIndex((h) => h === name || h.startsWith(name));
+          const iNum = col('#');
+          const iBeh = col('behavior');
+          const iSt = col('status');
+          const iPr = col('probe');
+          if (iBeh >= 0 && iSt >= 0) {
+            let j = i + 2;
+            const rows: string[][] = [];
+            while (j < lines.length && /^\s*\|/.test(lines[j])) {
+              rows.push(splitRow(lines[j]));
+              j++;
+            }
+            const html: string[] = ['<div class="compat-list">'];
+            for (const cells of rows) {
+              const status = (cells[iSt] ?? '').trim();
+              // A status may carry a qualifier ("✓ (wrap)"): the glyph
+              // drives the dot, the rest joins the notes.
+              const glyph = status.slice(0, 1);
+              const meta = STATUS_META[status] ?? STATUS_META[glyph];
+              const qualifier = meta && status.length > 1 ? status.slice(1).trim() : '';
+              const num = iNum >= 0 ? (cells[iNum] ?? '').trim() : '';
+              const probe = iPr >= 0 ? (cells[iPr] ?? '').trim() : '';
+              const extras = cells
+                .map((c, k) => ({ c, k }))
+                .filter(({ k }) => ![iNum, iBeh, iSt, iPr].includes(k))
+                .map(({ c }) => c.trim())
+                .filter(Boolean);
+              html.push(`<div class="compat-row" data-status="${meta?.key ?? 'unknown'}">`);
+              html.push(`<span class="compat-num">${mdInlineHtml(num)}</span>`);
+              if (meta) {
+                html.push(
+                  `<span class="compat-dot" role="img" aria-label="${meta.label}" title="${meta.label}"></span>`,
+                );
+              } else {
+                html.push(`<span class="compat-status">${mdInlineHtml(status)}</span>`);
+              }
+              html.push('<div class="compat-main">');
+              html.push(`<div class="compat-behavior">${mdInlineHtml(cells[iBeh] ?? '')}</div>`);
+              if (probe) html.push(`<div class="compat-probe">${mdInlineHtml(probe)}</div>`);
+              if (qualifier) html.push(`<div class="compat-note">${mdInlineHtml(qualifier)}</div>`);
+              for (const ex of extras) html.push(`<div class="compat-note">${mdInlineHtml(ex)}</div>`);
+              html.push('</div>');
+              html.push('</div>');
+            }
+            html.push('</div>');
+            out.push(html.join('\n'));
+            i = j - 1;
+            continue;
+          }
+        }
+        out.push(line);
+      }
+      return out.join('\n');
+    })
+    .join('');
+}
+
 /* ── Emit ──────────────────────────────────────────────────────────── */
 
 function yamlQuote(s: string): string {
@@ -693,7 +806,8 @@ for (const stale of readdirSync(outDir)) {
 for (const page of pages) {
   const raw = readFileSync(page.src, 'utf8');
   const source = page.stripFm ? parseFrontmatter(raw).body : raw;
-  const body = rewriteLinks(page, source);
+  let body = rewriteLinks(page, source);
+  if (page.group === 'Compatibility') body = transformCompatTables(body);
   const fm = [
     '---',
     `title: ${yamlQuote(page.title)}`,

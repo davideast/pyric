@@ -25,7 +25,7 @@ Three segment types:
 - **Multi-segment wildcards**: `{allPaths=**}` — matches the rest of the path.
 
 Nested `match` blocks compose naturally:
-```
+```rules
 match /b/{bucket}/o {
   match /users/{uid} {
     match /private/{file=**} {

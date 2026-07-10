@@ -71,4 +71,4 @@ npx pyric dev --bridge
 
 ## Where to go next
 
-You have a backend. [How the swap works](../what-just-happened/) explains the swap in one page, or go straight to [signing users in](../sign-in-and-manage-users/).
+You have a backend. [How the swap works](../how-the-swap-works/) explains the swap in one page, or go straight to [signing users in](../sign-in-and-manage-users/).

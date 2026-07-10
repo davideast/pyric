@@ -46,7 +46,7 @@ sandbox.withAuth({
 });
 ```
 Inside a rule:
-```
+```rules
 allow update: if request.auth.token.role == 'editor'
               || request.auth.token.role == 'admin';
 ```

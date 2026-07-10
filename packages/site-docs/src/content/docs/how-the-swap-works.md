@@ -1,15 +1,14 @@
 ---
 title: "How the swap works"
-navLabel: "What just happened"
 group: "Get started"
 section: ""
 order: 3
 description: "Understand how your firebase imports reached a local backend, and why production is untouched."
 ---
 
-# Where that backend came from
+# How the swap works
 
-Your app called `getFirestore` and got a working database with rules enforced, and no request left your machine. Here is the whole mechanism, in three parts.
+In development, your app's `firebase/*` imports resolve to a local backend with rules enforced, and no request leaves your machine. In production they resolve to Firebase, unchanged. Here is the whole mechanism, in three parts.
 
 ## Your imports resolve differently in dev
 

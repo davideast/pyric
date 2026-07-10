@@ -4,7 +4,7 @@ Fifteen modules ship with `pyric/rules`. Each module is a `.rules` file living u
 
 Use them by setting `rules_version = '2+modules'` and adding import statements:
 
-```
+```rules
 import { isAuthenticated, isOwner } from 'auth';
 import { hasOnly } from 'validation';
 ```
@@ -102,7 +102,7 @@ Movement-game validation via a config-document lookup. The caller must pass the 
 
 Usage:
 
-```
+```rules
 import { validSimpleMove, validJumpMove } from 'geometry';
 
 function config() {

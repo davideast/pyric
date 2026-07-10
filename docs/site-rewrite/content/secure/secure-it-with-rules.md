@@ -17,7 +17,7 @@ Here is the loop.
 
 A notes collection. Anyone signed in can read. Only the owner can write.
 
-```
+```rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {

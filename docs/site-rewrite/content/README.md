@@ -9,7 +9,7 @@ Every page of the new docs, written to WRITING-BRIEF.md against HIERARCHY.md v3.
 | Overview | `overview.md` | new (voice anchor) |
 | **GET STARTED** | | |
 | Start building | `get-started/start-building.md` | new landing over reused tutorials |
-| What just happened | `get-started/what-just-happened.md` | new |
+| How the swap works | `get-started/how-the-swap-works.md` | new |
 | **BUILD** | | |
 | Sign in and manage users | `build/sign-in-and-manage-users.md` | new (Auth finally gets its guide) |
 | Store and query data | `build/store-and-query-data.md` | new landing over reused how-tos |

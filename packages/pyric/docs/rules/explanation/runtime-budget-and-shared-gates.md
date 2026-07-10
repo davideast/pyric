@@ -46,14 +46,14 @@ The scenario: two `allow update` rules whose conditions both start with the same
 
 The fix is to give each rule a unique first expression — a discriminator. Instead of:
 
-```
+```rules
 allow update: if request.auth.uid == resource.data.host && validBigCheckA();
 allow update: if request.auth.uid == resource.data.host && validBigCheckB();
 ```
 
 route on something distinct:
 
-```
+```rules
 allow update: if request.resource.data.moveType == 'A' && validBigCheckA();
 allow update: if request.resource.data.moveType == 'B' && validBigCheckB();
 ```

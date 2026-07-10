@@ -30,7 +30,7 @@ You now have a working project. Let's write a rules file.
 
 Create a file called `firestore.rules` next to your `package.json` and paste the following:
 
-```
+```rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
@@ -115,7 +115,7 @@ Notice three things:
 
 Edit `firestore.rules` and replace the admin block with something narrower:
 
-```
+```rules
     match /admin/{document=**} {
       allow read, write: if request.auth.token.role == 'admin';
     }
@@ -133,7 +133,7 @@ You have now seen the full lint cycle. The linter accepted a clean file, rejecte
 
 Edit the same file and change `allow read, write: if request.auth.token.role == 'admin';` to:
 
-```
+```rules
       allow read, write: if request.auth?.token?.role === 'admin';
 ```
 
