@@ -412,6 +412,129 @@ describe('evaluateStorageRules — matches()', () => {
   });
 });
 
+// ─── firestore.get() / firestore.exists() cross-service lookups ───
+//
+// Storage rules may read Firestore documents to authorize an op:
+//
+//   firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+//     .data.premium == true
+//
+// The evaluator stays PURE — it never imports the Firestore sandbox.
+// A lookup capability is injected (4th arg). Path syntax:
+// `/databases/<db>/documents/<collection>/<doc>` with `$(expr)`
+// interpolation segments; the `/databases/<db>/documents/` prefix is
+// stripped and the remaining document path is handed to the lookup
+// (matching `sandbox.admin.getDocument`'s `collection/doc` form).
+//
+// Failure posture is deny-with-reason (never a false allow):
+//   - no lookup injected             → deny "unsupported"
+//   - get() on a nonexistent doc     → deny (production errors, errors deny)
+//   - malformed path / wrong arg type → deny
+describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
+  const path = 'b/pyric-default/o/docs/d1.json';
+
+  function evalFs(
+    cond: string,
+    docs: Record<string, Record<string, unknown>>,
+    auth: { uid: string } | null = { uid: 'alice' },
+  ): { allowed: boolean; reasons: string[] } {
+    const rules = parseStorageRules(`service firebase.storage {
+      match /b/{bucket}/o {
+        match /docs/{docId} { allow read: if ${cond}; }
+      }
+    }`);
+    const lookup = {
+      get(p: string) {
+        return p in docs ? docs[p] : null;
+      },
+      exists(p: string) {
+        return p in docs;
+      },
+    };
+    return evaluateStorageRules(
+      rules,
+      { request: { auth, method: 'read', path }, resource: { size: 1 } },
+      undefined,
+      lookup,
+    );
+  }
+
+  it('allows when an interpolated firestore.get reads .data.premium == true', () => {
+    const r = evalFs(
+      'firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.premium == true',
+      { 'users/alice': { premium: true } },
+    );
+    expect(r.allowed).toBe(true);
+  });
+
+  it('denies when the looked-up field is false', () => {
+    const r = evalFs(
+      'firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.premium == true',
+      { 'users/alice': { premium: false } },
+    );
+    expect(r.allowed).toBe(false);
+  });
+
+  it('firestore.exists returns true for a present document', () => {
+    const r = evalFs(
+      'firestore.exists(/databases/(default)/documents/members/$(request.auth.uid))',
+      { 'members/alice': { since: 1 } },
+    );
+    expect(r.allowed).toBe(true);
+  });
+
+  it('firestore.exists returns false for an absent document', () => {
+    const r = evalFs(
+      'firestore.exists(/databases/(default)/documents/members/$(request.auth.uid))',
+      {},
+    );
+    expect(r.allowed).toBe(false);
+  });
+
+  it('denies (with reason) when firestore.get targets a nonexistent doc', () => {
+    // Production: get() on a missing doc is an error, and errors deny.
+    const r = evalFs(
+      'firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.premium == true',
+      {},
+    );
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toMatch(/firestore\.get|nonexistent|does not exist/i);
+  });
+
+  it('denies "unsupported" when NO lookup capability is injected', () => {
+    const rules = parseStorageRules(`service firebase.storage {
+      match /b/{bucket}/o {
+        match /docs/{docId} {
+          allow read: if firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+        }
+      }
+    }`);
+    // No 4th arg — pure/test usage with no sandbox.
+    const r = evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: 'read', path },
+      resource: { size: 1 },
+    });
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toMatch(/unsupported|firestore/i);
+  });
+
+  it('denies on a malformed path (missing /databases/<db>/documents prefix)', () => {
+    const r = evalFs('firestore.exists(/users/$(request.auth.uid))', {
+      'users/alice': { x: 1 },
+    });
+    expect(r.allowed).toBe(false);
+  });
+
+  it('denies when an interpolation segment resolves to a non-string (auth is null)', () => {
+    const r = evalFs(
+      'firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))',
+      { 'users/alice': { x: 1 } },
+      null,
+    );
+    expect(r.allowed).toBe(false);
+  });
+});
+
 // ─── Granular verbs (get/list/create/update/delete) ──────────────
 //
 // Production Storage semantics:
@@ -1011,5 +1134,62 @@ service firebase.storage {
     expect(() =>
       getStorageSandbox(sandbox.withAuth({ uid: 'bob' }), { dbName, rules: DENY_ALL }),
     ).not.toThrow();
+  });
+});
+
+// ─── firestore lookups thread through real storage enforcement ────
+//
+// End-to-end: a storage rule reads a Firestore document from the SAME
+// sandbox to authorize an upload (the premium-user pattern). Enforcement
+// (`enforce.ts`) builds the lookup capability from the sandbox's admin
+// Firestore accessor (`sandbox.admin.getDocument`, a synchronous
+// in-memory read) and injects it into the pure evaluator.
+const PREMIUM_UPLOAD_RULES = `
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{file} {
+      allow write: if firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.premium == true;
+    }
+  }
+}`;
+
+describe('firestore lookups thread through real storage enforcement', () => {
+  const path = 'b/pyric-default/o/uploads/report.json';
+
+  it('allows an upload when the user\'s Firestore doc says premium == true', async () => {
+    const sandbox = initializeSandbox({});
+    // Seed the acting user's Firestore doc via the admin plane.
+    sandbox.admin.setDocument('users/alice', { premium: true });
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName: uniqueDbName('fs-premium-allow'),
+      rules: PREMIUM_UPLOAD_RULES,
+    });
+    await uploadBytes(ref(alice, path), new Blob(['{}']), {
+      contentType: 'application/json',
+    });
+    // No throw = allowed.
+  });
+
+  it('denies an upload when the user\'s Firestore doc is not premium', async () => {
+    const sandbox = initializeSandbox({});
+    sandbox.admin.setDocument('users/bob', { premium: false });
+    const bob = getStorageSandbox(sandbox.withAuth({ uid: 'bob' }), {
+      dbName: uniqueDbName('fs-premium-deny'),
+      rules: PREMIUM_UPLOAD_RULES,
+    });
+    await expect(
+      uploadBytes(ref(bob, path), new Blob(['{}']), { contentType: 'application/json' }),
+    ).rejects.toThrow(/unauthorized/);
+  });
+
+  it('denies an upload when the user has no Firestore doc (get on missing doc errors → deny)', async () => {
+    const sandbox = initializeSandbox({});
+    const carol = getStorageSandbox(sandbox.withAuth({ uid: 'carol' }), {
+      dbName: uniqueDbName('fs-premium-missing'),
+      rules: PREMIUM_UPLOAD_RULES,
+    });
+    await expect(
+      uploadBytes(ref(carol, path), new Blob(['{}']), { contentType: 'application/json' }),
+    ).rejects.toThrow(/unauthorized/);
   });
 });

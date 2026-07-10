@@ -43,7 +43,7 @@
 import { emitSandboxEvent, makeSandboxOperationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import type { StorageService, Target } from './service.js';
-import { evaluateStorageRules, type EvaluationInput } from './rules.js';
+import { evaluateStorageRules, type EvaluationInput, type FirestoreLookup } from './rules.js';
 import { unauthorized } from './errors.js';
 
 export function enforceRules(
@@ -69,7 +69,7 @@ export function enforceRules(
     emitOperation(target, input, 'allow', undefined, 'user', false, provenance);
     return;
   }
-  const result = evaluateStorageRules(service.rules, input);
+  const result = evaluateStorageRules(service.rules, input, undefined, firestoreLookupFor(target));
   if (!result.allowed) {
     emitOperation(target, input, 'deny', result.reasons, 'user', true, provenance);
     const detail = result.reasons.length > 0 ? ` — ${result.reasons.join('; ')}` : '';
@@ -117,4 +117,24 @@ function emitOperation(
   } catch {
     // Observational — never let event emission break storage enforcement.
   }
+}
+
+/**
+ * Build the {@link FirestoreLookup} a rule's `firestore.get()/exists()`
+ * calls read from. Only sandbox targets have Firestore data reachable
+ * in-process: `sandbox.admin.getDocument` is a SYNCHRONOUS, rules-bypassing
+ * in-memory read of the SAME per-sandbox store the user-plane writes to, so
+ * the enforcement seam stays synchronous AND the lookup is invoked lazily
+ * during evaluation (honoring short-circuit) exactly like production.
+ *
+ * Prod targets and rules-less services get no lookup — a rule that reaches
+ * for `firestore.*` there denies "unsupported" rather than false-allowing.
+ */
+function firestoreLookupFor(target?: Target): FirestoreLookup | undefined {
+  if (target?.kind !== 'sandbox') return undefined;
+  const admin = target.sandbox.admin;
+  return {
+    get: (path) => admin.getDocument(path) as Record<string, unknown> | null,
+    exists: (path) => admin.getDocument(path) !== null,
+  };
 }

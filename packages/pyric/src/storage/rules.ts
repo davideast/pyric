@@ -135,6 +135,26 @@ export interface EvaluationResult {
   reasons: string[];
 }
 
+/**
+ * Injected capability that lets a Storage rule read Firestore documents
+ * (`firestore.get(path)` / `firestore.exists(path)`), WITHOUT the pure
+ * evaluator importing the Firestore sandbox. The enforcement layer builds
+ * one from the sandbox's admin Firestore accessor (a synchronous in-memory
+ * read) and passes it into {@link evaluateStorageRules}; pure/test callers
+ * that omit it get the deny-with-reason "unsupported" behavior instead.
+ *
+ * Paths are the document path RELATIVE to the database — the
+ * `collection/doc` form `sandbox.admin.getDocument` expects — after the
+ * evaluator has stripped the `/databases/<db>/documents/` prefix from the
+ * rule's path literal.
+ */
+export interface FirestoreLookup {
+  /** The document's fields, or `null` when the document does not exist. */
+  get(path: string): Record<string, unknown> | null;
+  /** Whether a document exists at `path`. */
+  exists(path: string): boolean;
+}
+
 /** Opaque parsed-rules handle returned by `parseStorageRules`. */
 export interface StorageRules {
   readonly _root: MatchBlock;
@@ -196,7 +216,19 @@ type Expr =
    *  `string.matches(re)` (target is any string expr) and the timestamp
    *  namespace constructors `timestamp.date(y,m,d)` / `timestamp.value(ms)`
    *  (target is the bare `timestamp` identifier). */
-  | { kind: 'methodcall'; target: Expr; method: string; args: Expr[] };
+  | { kind: 'methodcall'; target: Expr; method: string; args: Expr[] }
+  /** A Firestore path literal — the argument to `firestore.get()` /
+   *  `firestore.exists()`, e.g.
+   *  `/databases/(default)/documents/users/$(request.auth.uid)`. Segments
+   *  are either fixed text or `$(expr)` interpolations resolved at eval.
+   *  Only meaningful as a Firestore-lookup argument; evaluating one in any
+   *  other position denies (see `evalExpr`). */
+  | { kind: 'path'; segments: PathArgSegment[] };
+
+/** One segment of a {@link Expr} `path` literal. */
+type PathArgSegment =
+  | { kind: 'literal'; value: string }
+  | { kind: 'interp'; expr: Expr };
 
 // ═══════════════════════════════════════════════════════════════
 // Lexer
@@ -283,8 +315,9 @@ function tokenize(source: string): Token[] {
       i += 2;
       continue;
     }
-    // Single-char punctuation
-    if ('{}()[].,;:=*+-/<>!|&'.includes(ch)) {
+    // Single-char punctuation. `$` is here for `$(expr)` interpolation
+    // segments inside a Firestore path literal (`firestore.get(/…/$(x))`).
+    if ('{}()[].,;:=*+-/<>!|&$'.includes(ch)) {
       tokens.push({ kind: 'punct', value: ch, pos: i });
       i++;
       continue;
@@ -555,6 +588,13 @@ class Parser {
   }
   private parsePrimary(): Expr {
     const t = this.peek();
+    // A leading `/` in primary position can only be a Firestore path
+    // literal (division needs a left operand, which primary position lacks).
+    // Only `firestore.get()/exists()` accept one; anywhere else it parses
+    // fine but denies at eval (see `evalExpr` 'path').
+    if (t.kind === 'punct' && t.value === '/') {
+      return this.parsePathArg();
+    }
     if (t.kind === 'punct' && t.value === '(') {
       this.expectPunct('(');
       const e = this.parseExpression();
@@ -577,6 +617,55 @@ class Parser {
       return { kind: 'ident', name: t.value };
     }
     throw new SyntaxError(`Unexpected token "${describeToken(t)}" at offset ${t.pos}.`);
+  }
+
+  /**
+   * Parse a Firestore path literal — the `firestore.get()/exists()`
+   * argument. Grammar (each segment preceded by `/`):
+   *
+   *   - `$(expr)`      — an interpolation resolved at eval time
+   *   - `(name)`       — the parenthesized database sentinel, e.g. `(default)`
+   *   - `ident`/number — a fixed path segment (`databases`, `documents`, …)
+   *
+   * The full path is assembled and prefix-validated at eval (see
+   * `buildFirestoreDocPath`); the parser only captures structure.
+   */
+  private parsePathArg(): Expr {
+    const segments: PathArgSegment[] = [];
+    while (this.atPunct('/')) {
+      this.expectPunct('/');
+      if (this.atPunct('$')) {
+        this.expectPunct('$');
+        this.expectPunct('(');
+        const expr = this.parseExpression();
+        this.expectPunct(')');
+        segments.push({ kind: 'interp', expr });
+      } else if (this.atPunct('(')) {
+        // Database sentinel like `(default)`; kept verbatim (parens included)
+        // so the eval-time prefix check sees the exact production form.
+        this.expectPunct('(');
+        const name = this.expectIdentValue();
+        this.expectPunct(')');
+        segments.push({ kind: 'literal', value: `(${name})` });
+      } else {
+        const t = this.peek();
+        if (t.kind === 'ident') {
+          this.pos++;
+          segments.push({ kind: 'literal', value: t.value });
+        } else if (t.kind === 'number') {
+          this.pos++;
+          segments.push({ kind: 'literal', value: String(t.value) });
+        } else {
+          throw new SyntaxError(
+            `Expected a path segment after '/' at offset ${t.pos}, got "${describeToken(t)}".`,
+          );
+        }
+      }
+    }
+    if (segments.length === 0) {
+      throw new SyntaxError(`Empty Firestore path literal at offset ${this.peek().pos}.`);
+    }
+    return { kind: 'path', segments };
   }
 
   // ─── Token helpers ─────────────────────────────────────────
@@ -721,6 +810,7 @@ export function evaluateStorageRules(
   rules: StorageRules,
   input: EvaluationInput,
   now: Date = new Date(),
+  firestoreLookup?: FirestoreLookup,
 ): EvaluationResult {
   // `request.time` is the request's evaluation moment, modeled internally
   // as epoch milliseconds so it compares numerically against the
@@ -772,6 +862,7 @@ export function evaluateStorageRules(
                 locals: {},
                 funcs: block.visibleFuncs ?? new Map(),
                 depth: 0,
+                firestoreLookup,
               }))
             : true;
         } catch (err) {
@@ -894,6 +985,9 @@ interface EvalCtx {
   funcs: FunctionMap;
   /** Current call depth (0 at an allow condition). */
   depth: number;
+  /** Optional Firestore read capability for `firestore.get()/exists()`.
+   *  Absent in pure/test usage → those methods deny "unsupported". */
+  firestoreLookup?: FirestoreLookup;
 }
 
 /**
@@ -936,6 +1030,11 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       return evalCall(expr, ctx);
     case 'methodcall':
       return evalMethodCall(expr, ctx);
+    case 'path':
+      // A path literal is only meaningful as a `firestore.get()/exists()`
+      // argument (handled directly there). Reaching it anywhere else means
+      // the rule used it out of position — deny rather than coerce.
+      throw new RuleEvalError('a Firestore path literal is only valid as an argument to firestore.get()/exists()');
     case 'unary':
       return !truthy(evalExpr(expr.arg, ctx));
     case 'binary': {
@@ -1008,6 +1107,7 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
     locals,
     funcs: fn.declScope ?? new Map(),
     depth,
+    firestoreLookup: ctx.firestoreLookup,
   };
   // `let` bindings evaluated in order; each is visible to the next and
   // to the return expression (they share the `locals` object).
@@ -1069,11 +1169,109 @@ function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCt
     return evalTimestampBuiltin(expr, ctx);
   }
 
+  // Firestore namespace: `firestore.get(path)` / `firestore.exists(path)`.
+  // Detected on the bare `firestore` identifier (not a bound local/param) so
+  // a user value named `firestore` can't hijack it.
+  if (
+    expr.target.kind === 'ident' &&
+    expr.target.name === 'firestore' &&
+    !(expr.target.name in ctx.locals) &&
+    !(expr.target.name in ctx.params)
+  ) {
+    return evalFirestoreBuiltin(expr, ctx);
+  }
+
   if (expr.method === 'matches') {
     return evalMatches(expr, ctx);
   }
 
   throw new RuleEvalError(`unsupported method .${expr.method}()`);
+}
+
+/**
+ * Evaluate `firestore.get(path)` / `firestore.exists(path)`.
+ *
+ * Requires an injected {@link FirestoreLookup} (the enforcement layer
+ * supplies one from the sandbox's Firestore data). With NO capability —
+ * pure/test usage without a sandbox — this denies with an "unsupported"
+ * reason rather than ever a false allow, preserving the pre-lookup posture.
+ *
+ * Semantics (production-honest, deny-on-error):
+ *   - `firestore.get(path)` → a resource `{ data: <fields> }`. Member access
+ *     `.data.<field>` then reads the doc's fields. On a NONEXISTENT doc,
+ *     production `get()` is itself an error, so this denies with a reason.
+ *   - `firestore.exists(path)` → boolean.
+ *   - Malformed path (missing `/databases/<db>/documents/` prefix, odd
+ *     segment count), a non-string interpolation, wrong arg count, or a
+ *     non-path argument → deny with a reason.
+ */
+function evalFirestoreBuiltin(
+  expr: Extract<Expr, { kind: 'methodcall' }>,
+  ctx: EvalCtx,
+): unknown {
+  if (expr.method !== 'get' && expr.method !== 'exists') {
+    throw new RuleEvalError(`unsupported method firestore.${expr.method}()`);
+  }
+  if (!ctx.firestoreLookup) {
+    // No sandbox-backed capability injected — keep the deny-with-reason
+    // "unsupported" behavior; never a false allow.
+    throw new RuleEvalError(
+      `firestore.${expr.method}() is unsupported here — no Firestore lookup capability is configured`,
+    );
+  }
+  if (expr.args.length !== 1) {
+    throw new RuleEvalError(`firestore.${expr.method}() expects a single path argument`);
+  }
+  const arg = expr.args[0];
+  if (arg.kind !== 'path') {
+    throw new RuleEvalError(`firestore.${expr.method}() requires a /databases/.../documents/... path literal`);
+  }
+  const docPath = buildFirestoreDocPath(arg, ctx);
+  if (expr.method === 'exists') {
+    return ctx.firestoreLookup.exists(docPath);
+  }
+  const fields = ctx.firestoreLookup.get(docPath);
+  if (fields === null) {
+    // Production: `get()` on a missing document errors, and errors deny.
+    throw new RuleEvalError(`firestore.get() targeted a nonexistent document: ${docPath}`);
+  }
+  return { data: fields };
+}
+
+/**
+ * Assemble a {@link PathArgSegment} list into the document path the
+ * {@link FirestoreLookup} expects, then validate + strip the required
+ * `/databases/<db>/documents/` prefix. Interpolations must resolve to a
+ * string or number; anything else (e.g. `request.auth.uid` when auth is
+ * null → undefined) throws → deny.
+ */
+function buildFirestoreDocPath(
+  pathExpr: Extract<Expr, { kind: 'path' }>,
+  ctx: EvalCtx,
+): string {
+  const parts = pathExpr.segments.map((seg) => {
+    if (seg.kind === 'literal') return seg.value;
+    const v = evalExpr(seg.expr, ctx);
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number') return String(v);
+    throw new RuleEvalError(
+      `Firestore path interpolation resolved to ${describeType(v)} (expected a string)`,
+    );
+  });
+  // Required production shape: databases / <db> / documents / <doc path…>.
+  if (parts.length < 4 || parts[0] !== 'databases' || parts[2] !== 'documents') {
+    throw new RuleEvalError(
+      `malformed Firestore path — expected /databases/<db>/documents/... , got /${parts.join('/')}`,
+    );
+  }
+  const docSegments = parts.slice(3);
+  // A document path is collection/doc pairs — an even, non-zero segment count.
+  if (docSegments.length === 0 || docSegments.length % 2 !== 0) {
+    throw new RuleEvalError(
+      `Firestore path does not point at a document (needs an even segment count): ${docSegments.join('/')}`,
+    );
+  }
+  return docSegments.join('/');
 }
 
 /** `timestamp.date(year, month, day)` (UTC midnight) and
