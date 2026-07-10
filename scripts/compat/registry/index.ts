@@ -23,6 +23,18 @@ export const surfaceDescriptors: SurfaceDescriptor[] = [
   // that `admin-app-` is a recognized observation filename prefix. It reuses the
   // existing `auth` registry — it adds NO new COMPAT.md doc and NO matrix rows.
   { surface: 'auth', registry: authRegistry, observationPrefix: 'admin-app-' },
+  // `rules-firestore-` observations are captures of the production Firestore
+  // Rules Test API replaying the conformance corpus in
+  // `scripts/oracle/rules-corpus/firestore/`. They are produced on-demand by
+  // `scripts/oracle/run-rules.ts` (credentialed; see the runner). No captures
+  // exist yet and the matrix rows land in a later phase, so this descriptor
+  // only teaches the validator that `rules-firestore-` is a recognized
+  // observation filename prefix. It reuses the existing `firestore` registry —
+  // it adds NO new COMPAT.md doc and NO matrix rows. Any captured observation
+  // will need either a matrix row citing it or an entry in
+  // `observationExceptions` below (the replay suite enforces coverage
+  // structurally).
+  { surface: 'firestore', registry: firestoreRegistry, observationPrefix: 'rules-firestore-' },
 ];
 
 /** One registry per generated COMPAT.md doc (shared registries deduped). */
