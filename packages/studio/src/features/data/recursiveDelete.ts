@@ -9,7 +9,9 @@
  * new worker message type for this, the walk is done CLIENT-SIDE against
  * the existing primitives: `listSubcollections` (already on
  * `StudioDataHandles`, sync in-process / async over the worker) to find a
- * document's children, `getDocs` to list a collection's documents, and
+ * document's children, `listDocuments` to enumerate a collection — NOT
+ * `getDocs`: a query excludes "missing" parent docs (no stored fields,
+ * real descendants), which would orphan everything beneath them — and
  * `deleteDoc` to remove leaves. This keeps the sandbox/worker protocol
  * untouched while still giving the panel a real recursive delete.
  *
@@ -38,16 +40,20 @@ function isDocumentPath(path: string): boolean {
 
 export function makeRecursiveDeleteImpl(
   api: FirestoreApi,
-  handles: Pick<StudioDataHandles, 'listSubcollections'>,
+  handles: Pick<StudioDataHandles, 'listSubcollections' | 'listDocuments'>,
 ): RecursiveDeleteImpl {
   async function* walkDoc(
     ref: DocumentReference,
     countRef: { n: number },
+    phantom = false,
   ): AsyncIterableIterator<RecursiveDeleteProgress> {
     const subIds = await handles.listSubcollections(ref.path);
     for (const collId of subIds) {
       yield* walkCollection(api.collection(ref, collId), countRef);
     }
+    // A phantom has no stored doc: the subtree walk above is the whole job,
+    // and a delete would be a no-op we'd miscount as a deletion.
+    if (phantom) return;
     await api.deleteDoc(ref);
     countRef.n++;
     yield { deletedCount: countRef.n, done: false };
@@ -57,12 +63,13 @@ export function makeRecursiveDeleteImpl(
     coll: CollectionReference,
     countRef: { n: number },
   ): AsyncIterableIterator<RecursiveDeleteProgress> {
-    // `getDocs` wants a `Query`, not a bare `CollectionReference` — wrap it
-    // with zero constraints (same shape `useDocumentList`'s paged fetch uses).
-    const snap = await api.getDocs(api.query(coll));
-    for (const d of snap.docs) {
-      const ref = (d as unknown as { ref: DocumentReference }).ref;
-      yield* walkDoc(ref, countRef);
+    // The phantom-INCLUSIVE listing, not a `getDocs` query: queries exclude
+    // "missing" parent docs, so their descendants would survive the delete.
+    const entries = await handles.listDocuments(coll.path);
+    for (const entry of entries) {
+      const id = entry.path.split('/').pop();
+      if (!id) continue;
+      yield* walkDoc(api.doc(coll, id), countRef, entry.phantom === true);
     }
   }
 

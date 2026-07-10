@@ -44,6 +44,14 @@ import type { StorageApi } from '@pyric/ui/storage';
 /** Stable durable-state bucket key for Studio's mirror of the sandbox. */
 const PERSIST_KEY = 'pyric-studio';
 
+/** One entry from a phantom-inclusive collection listing (browse traversal).
+ *  `phantom: true` marks a "missing" parent doc — no stored fields, real
+ *  descendants — which queries correctly exclude but the browser must show. */
+export interface ListedDocument {
+  path: string;
+  phantom?: boolean;
+}
+
 /** The resolved data handles for one Studio sandbox, plus collection listing. */
 export interface StudioDataHandles {
   sandbox: Sandbox;
@@ -59,6 +67,23 @@ export interface StudioDataHandles {
   /** Subcollection IDs under a document path. Sync in-process (dev-seed),
    *  async over the worker (served mode); callers await either. */
   listSubcollections(docPath: string): string[] | Promise<string[]>;
+  /** Phantom-inclusive document listing for a collection path (mirrors live
+   *  Firestore's `listDocuments`). Browse-only: queries stay phantom-free.
+   *  Sync in-process, async over the worker; callers await either. */
+  listDocuments(collectionPath: string): ListedDocument[] | Promise<ListedDocument[]>;
+}
+
+/**
+ * Phantom-inclusive browse listing off a sandbox's internal env, mapped to
+ * the handle shape (drops `data`: browse needs ids + the phantom flag;
+ * document content always reads via `getDoc`). Shared by both in-process
+ * handle builders (here and `handlesFromSeed` in `shell/studio-data.ts`).
+ */
+export function listDocumentsForBrowse(
+  env: Pick<ReturnType<typeof getInternalEnv>, 'listDocuments'>,
+  collectionPath: string,
+): ListedDocument[] {
+  return env.listDocuments(collectionPath).map(({ path, phantom }) => ({ path, phantom }));
 }
 
 /** Build the handle bundle for a freshly-created sandbox. */
@@ -74,6 +99,7 @@ function makeHandles(sandbox: Sandbox): StudioDataHandles {
     storage: getStorage(app),
     listRootCollections: () => env.listRootCollections(),
     listSubcollections: (docPath: string) => env.listSubcollections(docPath),
+    listDocuments: (collectionPath: string) => listDocumentsForBrowse(env, collectionPath),
   };
 }
 

@@ -478,6 +478,19 @@
   padding: 6px 16px;
 }
 
+/* a "missing" parent doc row (Console parity): no stored fields, real
+   descendants — italic + muted, but still a navigable row so the subtree
+   stays reachable */
+[data-pyric-ui='fs-browser'] .fs-doc-phantom {
+  font-style: italic;
+  color: var(--color-slate-gray);
+}
+
+[data-pyric-ui='fs-browser'] .fs-doc-phantom-hint {
+  font-style: italic;
+  margin-right: 6px;
+}
+
 /* the secondary text on a row (doc title / collection count) */
 [data-pyric-ui='fs-browser'] .fs-sub {
   font-size: 11.5px;

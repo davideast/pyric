@@ -43,6 +43,7 @@ import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
 import type { WorkerLivePlane } from '../env.js';
 import {
+  listDocumentsForBrowse,
   useStudioData,
   type StudioDataHandles,
   type StudioDataState,
@@ -59,7 +60,7 @@ import {
 } from '../features/rules-debug/model.js';
 
 /** Lift the dev-seed's `SeededHandles` to the richer `StudioDataHandles` the F2
- *  panes expect (the only delta is the two keyspace-listing helpers, which come
+ *  panes expect (the only delta is the keyspace-listing helpers, which come
  *  straight off the sandbox's internal env). */
 function handlesFromSeed(seed: {
   sandbox: StudioDataHandles['sandbox'];
@@ -79,6 +80,7 @@ function handlesFromSeed(seed: {
     storage: seed.storage,
     listRootCollections: () => env.listRootCollections(),
     listSubcollections: (docPath: string) => env.listSubcollections(docPath),
+    listDocuments: (collectionPath: string) => listDocumentsForBrowse(env, collectionPath),
   };
 }
 
@@ -132,6 +134,7 @@ export function useStudioDataSource(): StudioDataState {
               storage: live.storage,
               listRootCollections: () => workerRoots,
               listSubcollections: (docPath: string) => live.listSubcollections(docPath),
+              listDocuments: (collectionPath: string) => live.listDocuments(collectionPath),
             },
           };
         }
