@@ -43,15 +43,21 @@ allow write: if request.auth != null
 
 The pattern is standard in production Storage rules. Match it.
 
-## Operations match `read` and `write`
+## Operations match umbrella and granular verbs
 
-| Function | Verb |
-|---|---|
-| `getBytes`, `getBlob`, `getMetadata` | `read` |
-| `uploadBytes`, `uploadString`, `updateMetadata`, `deleteObject` | `write` |
-| `listAll` | `read`, evaluated against the listed folder path (see [List and delete](./list-and-delete.md)) |
+| Function | Umbrella verb | Granular verb |
+|---|---|---|
+| `getBytes`, `getBlob`, `getMetadata` | `read` | `get` |
+| `uploadBytes`, `uploadString` (new path) | `write` | `create` |
+| `uploadBytes`, `uploadString` (existing path), `updateMetadata` | `write` | `update` |
+| `deleteObject` | `write` | `delete` |
+| `listAll` | `read`, evaluated against the listed folder path (see [List and delete](./list-and-delete.md)) | `list` |
 
-The granular verbs (`get`, `list`, `create`, `update`, `delete`) are deferred. Currently the parser rejects them.
+Write rules with the umbrella verbs (`read`/`write`) when the distinction doesn't matter, or the granular verbs when it does — production semantics either way.
+
+## Served mode enforces rules too
+
+Under `pyric dev`, rules load into the served worker at boot and gate every operation the same as the in-process sandbox. Unlike `firestore.rules` and `database.rules.json`, `storage.rules` doesn't hot-reload — editing it while the dev server is running requires a restart to take effect.
 
 ## Switching users to test rules
 

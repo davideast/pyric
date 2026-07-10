@@ -27,7 +27,7 @@ const blob = await getBlob(ref(storage, 'sessions/s1'));
 console.log(JSON.parse(await blob.text()));
 ```
 
-`uploadString` covers text without the encoder, and `getBytes` returns an `ArrayBuffer` when you want raw bytes instead of a `Blob`. Under `pyric dev`, a served page's `firebase/storage` imports resolve to the sandbox's shared object store, so uploads show up across tabs like every other write.
+`uploadString` covers text without the encoder, and `getBytes` returns an `ArrayBuffer` when you want raw bytes instead of a `Blob`. Under `pyric dev`, a served page's `firebase/storage` imports resolve to the sandbox's shared object store, so uploads show up across tabs like every other write. `pyric dev` enforces `storage.rules` the same as `firestore.rules` and `database.rules.json` — but unlike those two, storage rules load at server boot and don't hot-reload. Edit `storage.rules` and you need to restart the dev server to pick up the change.
 
 ## List and delete
 
@@ -98,7 +98,7 @@ The v1 scope is deliberate. What is not in it:
 - **No `getDownloadURL`.** For a renderable URL in dev, use `getBlob` and `URL.createObjectURL`. In production the upstream `firebase/storage` has the real one.
 - **No resumable uploads.** `uploadBytesResumable`, with its pause and progress machinery, is deferred. `uploadBytes` and `uploadString` are the write path.
 - **No paginated `list`.** `listAll` only.
-- **Rules subset is `read` and `write`.** The granular verbs (`get`, `list`, `create`, `update`, `delete`), `request.time`, regex `matches()`, and rule functions are rejected by the parser rather than silently behaving differently from production.
+- **`resource.timeCreated` / `resource.updated` aren't exposed on `resource`.** Everything else on `resource` and `request` — including `request.time`, `matches()`, rule functions, and the granular verbs (`get`, `list`, `create`, `update`, `delete`) — works.
 - **One implicit bucket.** The `bucket` option round-trips through metadata but does not partition data.
 
 Each of these fails loudly at the call site instead of drifting quietly.

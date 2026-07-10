@@ -36,12 +36,30 @@ Path variables bind to the surrounding scope: `uid` from the parent match is in 
 
 ## Allow conditions
 
-Two verbs:
+Both the umbrella verbs and the granular verbs work, matching production semantics:
 
 - `allow read: if <expr>` matches `getBytes`, `getBlob`, `getMetadata`.
 - `allow write: if <expr>` matches `uploadBytes`, `uploadString`, `updateMetadata`, `deleteObject`.
+- `allow get: if <expr>` — reads a single object (`getBytes`, `getBlob`, `getMetadata`).
+- `allow list: if <expr>` — `listAll` against the matched prefix.
+- `allow create: if <expr>` — `uploadBytes` / `uploadString` against a path with no existing object.
+- `allow update: if <expr>` — `uploadBytes` / `uploadString` against a path with an existing object, or `updateMetadata`.
+- `allow delete: if <expr>` — `deleteObject`.
 
-The granular forms (`get`, `list`, `create`, `update`, `delete`) are deferred. The parser rejects them.
+`read` is the umbrella for `get` + `list`; `write` is the umbrella for `create` + `update` + `delete` — same as production. A rule can mix umbrella and granular verbs across sibling `match` blocks.
+
+## Rule functions
+
+User-defined functions are supported, including `let` bindings:
+
+```rules
+function isOwner(uid) {
+  let owner = resource.metadata['owner'];
+  return request.auth != null && request.auth.uid == owner;
+}
+```
+
+Recursion depth is capped; a function that errors mid-evaluation denies rather than throwing past the rule (deny-on-error).
 
 ## Request bindings
 
@@ -52,6 +70,7 @@ The granular forms (`get`, `list`, `create`, `update`, `delete`) are deferred. T
 - `request.resource.contentType`: MIME string of the proposed upload.
 - `request.method`: `'get'` / `'create'` / `'update'` / `'delete'`.
 - `request.path`: full path of the object.
+- `request.time`: a `Timestamp`. Compare with `timestamp.date(...)` literals or other `request.time` values.
 
 For deletes, `request.resource == null`. The carve-out lets delete rules accept `null` without confusing the parser. See [Enforce Storage rules](../how-to/enforce-rules.md) for the pattern.
 
@@ -61,9 +80,21 @@ For existing objects:
 
 - `resource.size`: byte count.
 - `resource.contentType`: MIME string.
-- `resource.metadata`: bracket-access for custom metadata, `resource.metadata['sessionId']`.
+- `resource.metadata`: custom metadata, accessible both by bracket (`resource.metadata['sessionId']`) and dotted form (`resource.metadata.sessionId`).
 
-Deep dotted access (`resource.metadata.sessionId`) is deferred. Use the bracket form.
+`resource.timeCreated` / `resource.updated` are still unsupported — see [Implementation scope](../explanation/implementation-scope.md).
+
+## Cross-service lookups
+
+`firestore.get(path)` and `firestore.exists(path)` read a Firestore document from inside a Storage rule, with `$(expr)` interpolation for dynamic path segments:
+
+```rules
+allow write: if firestore.exists(/databases/(default)/documents/sessions/$(request.auth.uid));
+```
+
+## String matching
+
+`matches()` does whole-string-anchored regex matching, evaluated with RE2 semantics. Constructs RE2 can't express (backreferences, lookahead/lookbehind) are denied at parse time rather than silently mismatching.
 
 ## Operators
 
@@ -74,17 +105,14 @@ Deep dotted access (`resource.metadata.sessionId`) is deferred. Use the bracket 
 
 ## Literal values
 
-Strings (`'...'` or `"..."`), numbers, booleans (`true` / `false`), `null`.
+Strings (`'...'` or `"..."`), numbers, booleans (`true` / `false`), `null`, `timestamp.date(...)`.
 
 ## Out of scope
 
-These produce parse errors:
+These still produce parse or evaluation errors:
 
-- `request.time` and time-based rules.
-- `matches()` / regex predicates.
-- Rule function definitions (`function isOwner() { return ... }`).
-- Deep dotted access into `customMetadata.<field>`. Use the bracket form.
-- Granular verbs (`get`, `list`, `create`, `update`, `delete`).
+- `resource.timeCreated` / `resource.updated` metadata fields.
+- Regex constructs that RE2 can't express inside `matches()`.
 
 See [Implementation scope and deferred features](../explanation/implementation-scope.md) for the reasoning.
 
