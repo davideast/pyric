@@ -27,6 +27,16 @@ export interface InitPayload {
   databaseRules?: { rules: Record<string, unknown> } | null;
   databaseRulesHash?: string | null;
   databaseUrl?: string | null;
+  /** Storage rules source (plain storage-rules language), or null when the
+   *  project has no storage.rules configured/present. Deployed ONCE at
+   *  sandbox boot — `pyric/storage` only honors rules on the FIRST
+   *  storage call per `Sandbox` (a documented invariant, not an
+   *  oversight: a later, differing rules source would otherwise be a
+   *  silent rules wipe). Unlike firestore/database rules, storage rules
+   *  do NOT hot-reload — editing storage.rules while `pyric dev` is
+   *  running requires a restart to take effect. */
+  storageRules?: string | null;
+  storageRulesHash?: string | null;
   bridgeUrl: string | null;
   /** `--seed` documents (path → fields), applied admin-style at page init.
    *  Null in persist mode once a state file exists — the lived state wins. */
