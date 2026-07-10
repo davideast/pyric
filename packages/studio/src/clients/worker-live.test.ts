@@ -189,6 +189,44 @@ describe('workerEventFeed (F1 live-feed adapter)', () => {
   });
 });
 
+describe('listDocuments (F2 phantom-inclusive browse)', () => {
+  let restore: (() => void) | null = null;
+  afterEach(() => {
+    restore?.();
+    restore = null;
+  });
+
+  it("rides the 'admin.listDocuments' op and keeps the phantom flag", async () => {
+    const sw = controllableSharedWorker();
+    restore = sw.restore;
+    const plane = connectWorkerLive('worker://test')!;
+
+    const listed = plane.listDocuments('zones');
+    const opMsg = sw.port.sent.find(
+      (m): m is { t: 'op'; id: string; method: string; path: string } =>
+        (m as { method?: string }).method === 'admin.listDocuments',
+    );
+    expect(opMsg).toBeDefined();
+    expect(opMsg!.path).toBe('zones');
+
+    // The host answers with full `{ path, data, phantom? }` records; the
+    // plane drops `data` (browse needs ids, content reads via getDoc).
+    sw.deliver({
+      t: 'res',
+      id: opMsg!.id,
+      ok: true,
+      value: [
+        { path: 'zones/spawn', data: { open: true } },
+        { path: 'zones/village', data: {}, phantom: true },
+      ],
+    });
+    expect(await listed).toEqual([
+      { path: 'zones/spawn', phantom: undefined },
+      { path: 'zones/village', phantom: true },
+    ]);
+  });
+});
+
 describe("createStudioEnvironment('local') live-plane gating", () => {
   let restore: (() => void) | null = null;
   afterEach(() => {

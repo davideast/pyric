@@ -637,8 +637,10 @@ interface SubcollectionsSectionProps {
 
 /** Same section `<DocumentPreview>` renders, reimplemented against this
  *  component's own tree/row CSS so it sits in the same rhythm as the
- *  fields above it. */
-function SubcollectionsSection({
+ *  fields above it. Exported: `DocumentDetailColumn` also renders it for a
+ *  MISSING document (no stored fields, real subcollections), where the tree
+ *  itself doesn't mount but the subtree must stay reachable. */
+export function SubcollectionsSection({
   firestore,
   documentRef,
   listSubcollections,
