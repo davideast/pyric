@@ -49,12 +49,12 @@ The dispatch is shape-uniform across reads, writes, queries, listeners, transact
 
 A proxy could intercept method calls on the handle and forward them. We didn't because:
 
-- The upstream `firebase/firestore` is a function-based API, not a class-based one. Proxying free functions is awkward — every caller would need to import through the proxy.
-- The free-function dispatch is one branch per function. Cheap, explicit, easy to read.
+- The upstream `firebase/firestore` is a function-based API, not a class-based one. Proxying free functions is awkward: every caller would need to import through the proxy.
+- The free-function dispatch is one branch per function. Cheap, explicit, readable at a glance.
 
 ## Why `Firestore` is opaque
 
-The handle exposes one property: `[TARGET_SYMBOL]: Target`. No methods, no public state. The reason: any property on the handle becomes part of the public API. Consumers reading `db.something` couldn't be insulated from future internal changes.
+The handle exposes one property, `[TARGET_SYMBOL]: Target`. No methods, no public state. The reason: any property on the handle becomes part of the public API. Consumers reading `db.something` couldn't be insulated from future internal changes.
 
 By contrast, the chainable `pyric-admin` handle exposes methods (`db.collection`, `db.doc`, etc.) because that's how the admin SDK shapes its surface. The two packages match their respective upstream conventions.
 
@@ -71,23 +71,23 @@ In both cases the cost is dwarfed by the actual operation. We measured. It's not
 Where the two backends genuinely diverge, the differences are intentional and documented:
 
 - **Metadata fields** (`fromCache`, `hasPendingWrites`): sandbox doesn't have a cache or a pending-writes window. Both fields always `false`. Production-shaped UI code that displays these states sees the fields populated only on prod.
-- **Rule changes**: sandbox re-evaluates listeners on `sandbox.setRules`; prod doesn't affect already-attached listeners. The sandbox behaviour matches what a playground UI needs; prod's behaviour matches the eventual-consistency model. Neither is wrong; they serve different needs.
-- **Network-bound errors**: prod can throw `unavailable`, `aborted` from contention, `resource-exhausted` from quota. Sandbox has no analog for any of these. Tests that need to exercise these paths use the emulator or live Firestore.
+- **Rule changes**: sandbox re-evaluates listeners on `sandbox.setRules`; prod doesn't affect already-attached listeners. The sandbox behaviour matches what a playground UI needs, and prod's behaviour matches the eventual-consistency model. Neither is wrong. They serve different needs.
+- **Network-bound errors**: prod can throw `unavailable`, `aborted` from contention, `resource-exhausted` from quota. Sandbox has no analog for any of these. Tests that need to exercise these paths run against live Firestore.
 
 These show up only in code that branches on the behavioural difference. Most application code touches none of them.
 
-## Why not just use the emulator
+## How this differs from the emulator
 
-The Firebase Emulator Suite is bit-for-bit production. We use it for full-stack tests where the spawn cost is amortised across many cases. We don't use it for:
+The Firebase Emulator Suite runs the production engine in a separate Java process. Three constraints follow:
 
-- **Browser hosts.** Can't spawn Java.
-- **Agent loops.** Sub-second iteration matters.
-- **Bundle-sensitive apps.** Even when not active, the emulator can't ship.
+- **Browser hosts.** A tab can't spawn Java.
+- **Agent loops.** Sub-second iteration matters, and process round-trips add up.
+- **Bundle-sensitive apps.** A separate process can't ship inside one.
 
-`pyric/firestore`'s sandbox backend covers those cases. The emulator covers cases the sandbox doesn't model.
+`pyric/firestore`'s sandbox backend is in-process, so it fits all three.
 
 ## When this design wins
 
-A team writes a Cloud Function in `firebase/firestore`. They import `pyric/firestore` instead. Their unit tests run in-process against the sandbox; their integration tests pass `getFirestore(app)` and run against the live project; the *application code* between the two never knows which it's running against.
+A team writes a Cloud Function in `firebase/firestore`. They import `pyric/firestore` instead. Their unit tests run in-process against the sandbox. Their integration tests pass `getFirestore(app)` and run against the live project. The *application code* between the two never knows which it's running against.
 
 The two backends behind one surface is the affordance that makes this possible.

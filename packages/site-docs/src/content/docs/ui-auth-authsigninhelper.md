@@ -3,7 +3,7 @@ title: "<AuthSignInHelper> + useAuthFlowHelper"
 navLabel: "AuthSignInHelper"
 group: "@pyric/ui"
 section: "Auth"
-order: 209
+order: 202
 ---
 # `<AuthSignInHelper>` + `useAuthFlowHelper`
 

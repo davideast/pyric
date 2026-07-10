@@ -8,10 +8,10 @@
 
 Two overloads:
 
-- `getFirestore(ctx: SandboxContext)` — sandbox backend via `pyric-admin`.
-- `getFirestore(app: FirebaseApp)` — prod backend via `firebase/firestore`.
+- `getFirestore(ctx: SandboxContext)`: sandbox backend via `pyric-admin`.
+- `getFirestore(app: FirebaseApp)`: prod backend via `firebase/firestore`.
 
-The returned `Firestore` is opaque — it carries the target via `TARGET_SYMBOL` and is consumed only by other functions in this package. See [`getFirestore` overloads](./getfirestore.md).
+The returned `Firestore` is opaque. It carries the target via `TARGET_SYMBOL` and is consumed only by other functions in this package. See [`getFirestore` overloads](./getfirestore.md).
 
 ### `connectFirestoreEmulator(db, host, port)`
 
@@ -69,7 +69,7 @@ interface QuerySnapshot<T = DocumentData> {
 ## Path construction
 
 - `doc(db, path, ...segments)`
-- `doc(ref, path, ...segments)` — relative path under a doc / collection
+- `doc(ref, path, ...segments)`: relative path under a doc / collection
 - `collection(parent, path, ...segments)`
 - `collectionGroup(db, collectionId)`
 
@@ -107,20 +107,20 @@ Pass to `getAggregateFromServer(query, { name: aggregateField })`.
 
 ## Listeners
 
-- `onSnapshot(refOrQuery, ...)` — same four-overload-group shape as `firebase/firestore`.
+- `onSnapshot(refOrQuery, ...)`: same four-overload-group shape as `firebase/firestore`.
 
 Returns an `Unsubscribe` (`() => void`).
 
 ## Batches and transactions
 
-- `writeBatch(db)` — returns a `WriteBatch`.
+- `writeBatch(db)`: returns a `WriteBatch`.
 - `runTransaction(db, async (tx) => { ... })`.
 
 ## Equality helpers
 
-- `refEqual(a, b)` — compare two `DocumentReference`s.
-- `queryEqual(a, b)` — compare two `Query`s.
-- `snapshotEqual(a, b)` — compare two `DocumentSnapshot`s or `QuerySnapshot`s.
+- `refEqual(a, b)`: compare two `DocumentReference`s.
+- `queryEqual(a, b)`: compare two `Query`s.
+- `snapshotEqual(a, b)`: compare two `DocumentSnapshot`s or `QuerySnapshot`s.
 
 ## Sentinels
 
@@ -165,8 +165,8 @@ See [Sandbox-only operations](./sandbox-ops.md).
 
 ## Tool factories
 
-- `createFirestoreDataTools(deps): ToolHandler[]` — wraps reads and writes as agent tools.
-- `FirestoreDataToolDeps` — `{ resolveDb }` resolver.
-- `UserAuth` — `{ uid, claims? }` shape the tool layer accepts.
+- `createFirestoreDataTools(deps): ToolHandler[]`: wraps reads and writes as agent tools.
+- `FirestoreDataToolDeps`: `{ resolveDb }` resolver.
+- `UserAuth`: `{ uid, claims? }` shape the tool layer accepts.
 
 See [Tool factories](./tool-factories.md).

@@ -17,17 +17,17 @@ const result = await db.runTransaction(async (tx) => {
 });
 ```
 
-The callback receives a `Transaction` object with `.get`, `.getAll`, `.set`, `.update`, `.delete`, `.create`. All reads must happen before any writes — read-after-write inside a tx throws `'failed-precondition'`.
+The callback receives a `Transaction` object with `.get`, `.getAll`, `.set`, `.update`, `.delete`, `.create`. All reads must happen before any writes: read-after-write inside a tx throws `'failed-precondition'`.
 
 ## Read tracking
 
 The sandbox tracks every doc the callback reads. On commit:
 
-- If any read doc was written by anyone else between the read and the commit, the transaction would (in production) retry. The sandbox is synchronous, so this can't actually happen — but reads are still recorded for diagnostic value.
+- If any read doc was written by anyone else between the read and the commit, the transaction would (in production) retry. The sandbox is synchronous, so this can't actually happen, but reads are still recorded for diagnostic value.
 - If the callback itself reads a doc after writing to it, the second read throws `'failed-precondition'`. This matches production's read-after-write rule.
 - If the callback writes to a doc and then deletes the same doc within the same tx, the simulator handles the ordering correctly.
 
-The recorded reads are available on the event log via `getInternalEnv(sandbox).getEventLog().getEvents()` — each transaction event carries a `reads` array.
+The recorded reads are available on the event log via `getInternalEnv(sandbox).getEventLog().getEvents()`: each transaction event carries a `reads` array.
 
 ## Aborted transactions
 
@@ -68,7 +68,7 @@ For single-doc operations with no read dependency, plain `set` / `update` / `del
 - You need to write across multiple documents that depend on each other's values.
 - You want production-shaped read tracking in your event log.
 
-For multi-doc writes that don't need read-then-write semantics, use a `WriteBatch` instead — see [Write a batch](./write-a-batch.md).
+For multi-doc writes that don't need read-then-write semantics, use a `WriteBatch` instead. See [Write a batch](./write-a-batch.md).
 
 ## Where to look next
 

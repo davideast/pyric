@@ -3,14 +3,14 @@ title: "pyric/auth"
 navLabel: "Overview"
 group: "pyric / auth"
 section: ""
-order: 159
+order: 152
 ---
 # `pyric/auth`
 
-Modular Web SDK Auth adapter for the Pyric sandbox. Mirrors `firebase/auth`'s tree-shakable shape — `getAuth`, `signInAnonymously`, `signInWithEmailAndPassword`, `onAuthStateChanged`, `signInWithPopup`, `GoogleAuthProvider` — with two backends picked at init time:
+Modular Web SDK Auth adapter for the Pyric sandbox. Mirrors `firebase/auth`'s tree-shakable shape (`getAuth`, `signInAnonymously`, `signInWithEmailAndPassword`, `onAuthStateChanged`, `signInWithPopup`, `GoogleAuthProvider`) with two backends picked at init time:
 
-- **Sandbox** (`pyric/sandbox`) — in-process, browser-safe, no network. Drives `sandbox.currentUser` so downstream service handles can read identity per-call.
-- **Prod** (`firebase/auth`) — the real Firebase Auth.
+- **Sandbox** (`pyric/sandbox`): in-process, browser-safe, no network. Drives `sandbox.currentUser` so downstream service handles can read identity per-call.
+- **Prod** (`firebase/auth`): the real Firebase Auth.
 
 Same call sites, two different backends. Swap by changing what you pass to `getAuth`.
 
@@ -41,7 +41,7 @@ onAuthStateChanged(auth, (user) => {
 await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 console.log(auth.currentUser?.uid); // 'alice'
 ```
-Prod backend — the same code with a different `getAuth` argument:
+Prod backend, the same code with a different `getAuth` argument:
 ```ts
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword } from 'pyric/auth';
@@ -55,10 +55,10 @@ await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 
 The deliberately-minimal surface covers everything an `appSource` likely needs:
 
-- `getAuth(target)` — `(sandbox)` and `(app)` overloads
-- `connectAuthEmulator(auth, url, options?)` — no-op on sandbox; delegates on prod
+- `getAuth(target)`: `(sandbox)` and `(app)` overloads
+- `connectAuthEmulator(auth, url, options?)`: no-op on sandbox; delegates on prod
 - `signInAnonymously` / `signInWithEmailAndPassword` / `createUserWithEmailAndPassword` / `signOut`
-- `signInWithPopup(auth, provider)` / `signInWithCredential(auth, credential)` — sandbox returns pre-staged mock results
+- `signInWithPopup(auth, provider)` / `signInWithCredential(auth, credential)`: sandbox returns pre-staged mock results
 - `setPersistence` + `inMemoryPersistence` / `browserSessionPersistence` / `browserLocalPersistence`
 - `onAuthStateChanged` / `onIdTokenChanged`
 - Provider classes: `GoogleAuthProvider`, `EmailAuthProvider`, `FacebookAuthProvider`, `GithubAuthProvider`, `OAuthProvider`
@@ -76,7 +76,7 @@ Multi-factor, phone auth, redirect flows, link/unlink, profile mutation, passwor
 
 Today, `pyric/auth` writes to the field; reading from other service handles is the next follow-up.
 
-## What's next (deferred follow-ups, not in this PR)
+## What's next (deferred follow-ups)
 
 - **`getFirestore(sandbox)` per-call identity read.** Add a `(sandbox)` overload on `pyric/firestore`'s `getFirestore` that reads `sandbox.currentUser` for each op. Lets agent code call `getFirestore(sandbox)` once and have Firestore see auth changes from `pyric/auth`'s sign-in flows automatically.
 - **Playground alias swap.** Add `firebase/auth` → `pyric/auth` to the playground preview build's esbuild aliases.

@@ -2,7 +2,7 @@
 
 Firestore rules don't have imports. The DSL has functions, but every function has to be defined in the same file as the match block that calls it. This means real-world rules either repeat the same helper code across files (and drift) or live in one giant file (and become unreadable).
 
-`2+modules` is a Pyric extension that adds imports to the rules language — on the way *into* the Firebase deploy. The production rules engine never sees `2+modules`; it only sees standard `'2'` rules. The resolver does the rewrite.
+`2+modules` is a Pyric extension that adds imports to the rules language, on the way *into* the Firebase deploy. The production rules engine never sees `2+modules`. It only sees standard `'2'` rules. The resolver does the rewrite.
 
 ## What it adds
 
@@ -18,9 +18,9 @@ service cloud.firestore { … }
 
 Module names are either:
 
-- **Stdlib** names like `auth`, `validation`, `lobby` — built-in modules bundled with the package.
-- **Relative paths** like `./moderation` — resolved against a `basePath` you supply.
-- **In-memory entries** — passed via `options.modules` as a `Record<name, source>`.
+- **Stdlib** names like `auth`, `validation`, `lobby`: built-in modules bundled with the package.
+- **Relative paths** like `./moderation`: resolved against a `basePath` you supply.
+- **In-memory entries**: passed via `options.modules` as a `Record<name, source>`.
 
 Functions inside a module file declare visibility with `export`:
 
@@ -32,7 +32,7 @@ export function isOwner(userId) { return isAuthenticated() && request.auth.uid =
 function _private() { return request.time != null; }
 ```
 
-`isAuthenticated` and `isOwner` are importable. `_private` is not — it's an internal helper.
+`isAuthenticated` and `isOwner` are importable. `_private` is not. It's an internal helper.
 
 ## What it doesn't add
 
@@ -50,7 +50,7 @@ This is deliberate. We did not want to extend the rules language in any way that
 6. **Rewrite** the version to `'2'` and clear the import list.
 7. **Assemble** the AST back to a rules source string.
 
-The output is a standard `'2'` rules source with the imports gone and the relevant helpers inlined. You feed that to `firebase deploy` (or to `pyric-tools/deploy`'s release primitive) and Firebase is none the wiser.
+The output is a standard `'2'` rules source with the imports gone and the relevant helpers inlined. You feed that to `firebase deploy` (or to `pyric-tools/deploy`'s release primitive) and it deploys like any hand-written ruleset.
 
 ## Why prefix only private functions
 
@@ -61,12 +61,12 @@ Two reasons:
 
 ## Why no syntax-level module boundaries
 
-The resolver flattens everything into a single function namespace. This means an exported function from `auth` and an exported function from `validation` cannot share a name — if they do, the resolver returns `DUPLICATE_FUNCTION` and refuses to assemble.
+The resolver flattens everything into a single function namespace. This means an exported function from `auth` and an exported function from `validation` cannot share a name. If they do, the resolver returns `DUPLICATE_FUNCTION` and refuses to assemble.
 
 We considered keeping the prefix on exported functions and rewriting the call sites in the user's source. We rejected it because:
 
 - The result is opaque (`auth__isOwner(...)`); the import was supposed to make it readable.
-- Conflicts between exported names are rare in practice — the stdlib is small and curated, and project-local modules tend to be domain-specific.
+- Conflicts between exported names are rare in practice. The stdlib is small and curated, and project-local modules tend to be domain-specific.
 - The diagnostic is clear: `DUPLICATE_FUNCTION` tells you exactly which modules collide.
 
 ## Why a custom version string
@@ -74,6 +74,6 @@ We considered keeping the prefix on exported functions and rewriting the call si
 We needed a marker that distinguishes "this source needs resolution before deploy" from "this source is ready to deploy". The two choices were:
 
 1. **A new version string** (`'2+modules'`): unambiguous, single-source-of-truth, fails fast on accidental deploy.
-2. **A comment or directive** (`// @pyric:modules`): unobtrusive but easy to ignore.
+2. **A comment or directive** (`// @pyric:modules`): unobtrusive, but nothing fails when it's ignored.
 
-We chose (1) because Firebase's deploy path validates the version string before parsing anything else. If a `2+modules` source leaks into a real deploy by accident, Firebase rejects it with a clear error — "unknown rules version" — instead of attempting to parse the imports as rules.
+We chose (1) because Firebase's deploy path validates the version string before parsing anything else. If a `2+modules` source leaks into a real deploy by accident, Firebase rejects it with a clear error ("unknown rules version") instead of attempting to parse the imports as rules.

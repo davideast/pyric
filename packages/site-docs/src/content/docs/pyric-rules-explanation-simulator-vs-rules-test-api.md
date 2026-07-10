@@ -2,7 +2,7 @@
 title: "Simulator vs Rules Test API"
 group: "pyric / rules"
 section: "Explanation"
-order: 115
+order: 112
 ---
 # Simulator vs Rules Test API
 
@@ -34,14 +34,14 @@ The shared shape is a feature. You can swap one handler for the other, or route 
 
 ## When the simulator returns `UNSUPPORTED`
 
-The local simulator implements most of the rules language: literals, identifiers, member access, method calls, all the binary and unary operators, function definitions with let bindings, all the standard built-ins (`get`, `exists`, `getAfter`, `existsAfter`, `debug`, `request.auth`, `request.resource`, `resource`, path literals, the type-test `is` operator). It does **not** implement every namespace method on every wrapper type — `duration.value(...).abs()` works, some less-common `bytes` arithmetic does not.
+The local simulator implements most of the rules language: literals, identifiers, member access, method calls, all the binary and unary operators, function definitions with let bindings, all the standard built-ins (`get`, `exists`, `getAfter`, `existsAfter`, `debug`, `request.auth`, `request.resource`, `resource`, path literals, the type-test `is` operator). It does **not** implement every namespace method on every wrapper type. `duration.value(...).abs()` works, some less-common `bytes` arithmetic does not.
 
-When the evaluator hits a method or operation it doesn't model, it throws `UnsupportedError` rather than guessing. The handler catches that and surfaces `state: 'UNSUPPORTED'`. The semantics is "the gap is on my side, not yours". An `UNSUPPORTED` case is **not** counted as a failure — `data.failed` and `data.unsupported` are separate counters.
+When the evaluator hits a method or operation it doesn't model, it throws `UnsupportedError` rather than guessing. The handler catches that and surfaces `state: 'UNSUPPORTED'`. The semantics is "the gap is on my side, not yours". An `UNSUPPORTED` case is **not** counted as a failure: `data.failed` and `data.unsupported` are separate counters.
 
 The right response to `UNSUPPORTED` depends on context:
 
 - **Agent loops** can treat `UNSUPPORTED` as "don't know, ask the API". A common pattern is to run locally first, then escalate only the unsupported subset to the live API.
-- **CI** can treat `UNSUPPORTED` as a build-time signal: "this rule uses a feature the simulator doesn't model — switch this case to the live API or restructure the rule".
+- **CI** can treat `UNSUPPORTED` as a build-time signal: "this rule uses a feature the simulator doesn't model, so switch this case to the live API or restructure the rule".
 - **Local development** can ignore `UNSUPPORTED` until the rule is otherwise correct, then verify against the API once.
 
 ## When the simulator is wrong

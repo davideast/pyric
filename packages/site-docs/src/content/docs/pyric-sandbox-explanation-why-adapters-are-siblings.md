@@ -3,15 +3,15 @@ title: "Why service adapters live in sibling packages"
 navLabel: "Why adapters are siblings"
 group: "pyric / sandbox"
 section: "Explanation"
-order: 143
+order: 138
 ---
 # Why service adapters live in sibling packages
 
-`pyric/sandbox` doesn't ship the data-plane API. The functions you actually call — `getDoc`, `setDoc`, `collection`, `onSnapshot`, `runTransaction` — live in `pyric-admin` (Admin-SDK-shaped) and `pyric/firestore` (modular Web-SDK-shaped). This page explains why.
+`pyric/sandbox` doesn't ship the data-plane API. The functions you actually call (`getDoc`, `setDoc`, `collection`, `onSnapshot`, `runTransaction`) live in `pyric-admin` (Admin-SDK-shaped) and `pyric/firestore` (modular Web-SDK-shaped). This page explains why.
 
 ## Two production shapes, one substrate
 
-Firebase ships two Firestore SDKs that look quite different up close. Server / Admin / Cloud Functions code uses `firebase-admin/firestore` — chainable methods, class-shaped query builders, instance-bound operations. Browser / mobile / React Native code uses `firebase/firestore` — modular functions, function-bound queries, tree-shakable imports.
+Firebase ships two Firestore SDKs that look quite different up close. Server / Admin / Cloud Functions code uses `firebase-admin/firestore`: chainable methods, class-shaped query builders, instance-bound operations. Browser / mobile / React Native code uses `firebase/firestore`: modular functions, function-bound queries, tree-shakable imports.
 
 Both are good APIs. Neither is a superset of the other. A package targeting both audiences has two reasonable choices:
 
@@ -26,13 +26,13 @@ A monorepo with one big `pyric/sandbox` that includes both APIs would work, mech
 
 ### Bundle cost
 
-A browser app that uses the modular Web SDK does not want the Admin-SDK shape in its bundle. They're not just different APIs — they have different opinions about what `Query` is, what a transaction's read/write API looks like, what reference identity means. If both surfaces live in one package, tree-shaking has to be perfect to avoid pulling in the unused shape. Tree-shaking in practice is "almost perfect", and "almost" hurts.
+A browser app that uses the modular Web SDK does not want the Admin-SDK shape in its bundle. These are more than different APIs. They have different opinions about what `Query` is, what a transaction's read/write API looks like, what reference identity means. If both surfaces live in one package, tree-shaking has to be perfect to avoid pulling in the unused shape. Tree-shaking in practice is "almost perfect", and "almost" hurts.
 
-Splitting into separate packages means the bundler doesn't have to be clever — the browser app imports `pyric/firestore`, that's all the bundler sees.
+Splitting into separate packages means the bundler doesn't have to be clever. The browser app imports `pyric/firestore`, and that's all the bundler sees.
 
 ### Conceptual clutter
 
-The substrate's API surface (`Sandbox`, `SandboxContext`, listeners, lifecycle, error family) is small and stable. The data-plane API surfaces are large and follow upstream SDKs. Mixing them in one package would either bury the substrate in a sea of `getDoc`/`setDoc` exports or split into namespaces inside one package — which is just sibling packages with extra steps.
+The substrate's API surface (`Sandbox`, `SandboxContext`, listeners, lifecycle, error family) is small and stable. The data-plane API surfaces are large and follow upstream SDKs. Mixing them in one package would either bury the substrate in a sea of `getDoc`/`setDoc` exports or split into namespaces inside one package, which is sibling packages with extra steps.
 
 Keeping the split visible at the package level makes the dependency direction obvious: the data planes depend on the substrate, never the other way around.
 
@@ -52,7 +52,7 @@ OperationResult { allowed, data?, debugMessages, event }
   ↓
 Adapter translates back to user-facing types (QuerySnapshot, DocumentSnapshot, etc.)
 ```
-The adapter is mostly translation. Each one does a few extra things to match its upstream SDK's idiosyncrasies — `pyric-admin` constructs a per-call compat impl to keep reference semantics right; `pyric/firestore` chooses between sandbox and prod backends at init — but the core flow is the same.
+The adapter is mostly translation. Each one does a few extra things to match its upstream SDK's idiosyncrasies (`pyric-admin` constructs a per-call compat impl to keep reference semantics right; `pyric/firestore` chooses between sandbox and prod backends at init), but the core flow is the same.
 
 This is what makes "the substrate is shared" workable. Both adapters bottom out at the same `LocalEnvironment` methods. Two contexts derived from one sandbox, one through `pyric-admin` and one through `pyric/firestore`, see the same data.
 
@@ -76,7 +76,7 @@ The rule of thumb: anything *shape-agnostic* (the data, the rules, the lifecycle
 
 The cycle is benign: the import from `pyric/rules` into `pyric/sandbox` is value (the `SimulateFirestoreRulesHandler` class and a handful of wrappers); the import from `pyric/sandbox` back into `pyric/rules` is type-only (the `LocalEnvironment` interface for `createFirestoreSimulatorTools`'s `resolveSandbox` dep). Neither side is in the other's runtime call graph beyond what's documented.
 
-We accepted the cycle because the alternative — duplicating wrapper classes in both packages — would make `instanceof Timestamp` start lying depending on which copy was imported. The substrate consuming the simulator's wrapper types is the canonical path.
+We accepted the cycle because the alternative, duplicating wrapper classes in both packages, would make `instanceof Timestamp` start lying depending on which copy was imported. The substrate consuming the simulator's wrapper types is the canonical path.
 
 ## Future adapters
 

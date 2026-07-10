@@ -9,10 +9,10 @@ where and why.
 
 Foundation types you'll always need alongside the data plane:
 
-- `AuthState` — the `{ uid, token? }` shape `withAuth` accepts.
-- `Sandbox` — the root handle from `initializeSandbox()`.
-- `SandboxContext` — the `(sandbox, auth)` pair `getFirestore` accepts.
-- `SandboxError` — the typed error family. Catch with `instanceof`.
+- `AuthState`: the `{ uid, token? }` shape `withAuth` accepts.
+- `Sandbox`: the root handle from `initializeSandbox()`.
+- `SandboxContext`: the `(sandbox, auth)` pair `getFirestore` accepts.
+- `SandboxError`: the typed error family. Catch with `instanceof`.
 
 Anyone needing more reaches into `pyric/sandbox` directly.
 
@@ -72,8 +72,8 @@ onSnapshot(db.doc('games/g1'), (snap: DocumentSnapshot) => {
 
 Two runtime values re-exported from the simulator:
 
-- `FieldValue` — the sentinel factory. `FieldValue.serverTimestamp()`, `FieldValue.increment(1)`, `FieldValue.arrayUnion(...)`, `FieldValue.arrayRemove(...)`, `FieldValue.delete()`.
-- `Timestamp` — the timestamp wrapper class. `Timestamp.now()`, `Timestamp.fromDate(d)`, `Timestamp.fromMillis(ms)`.
+- `FieldValue`: the sentinel factory. `FieldValue.serverTimestamp()`, `FieldValue.increment(1)`, `FieldValue.arrayUnion(...)`, `FieldValue.arrayRemove(...)`, `FieldValue.delete()`.
+- `Timestamp`: the timestamp wrapper class. `Timestamp.now()`, `Timestamp.fromDate(d)`, `Timestamp.fromMillis(ms)`.
 
 Both behave the same way as in `firebase-admin/firestore`. The implementations route through the sandbox's value-resolver so writes encoded with sentinels merge correctly into the post-state.
 
@@ -92,12 +92,12 @@ import {
 } from 'pyric-admin';
 ```
 
-Mostly one import. Reaching for `pyric/sandbox` separately just to get
+Mostly one import. Reaching for `pyric/sandbox` separately to get
 `SandboxError`, or for `pyric/sandbox/admin-firestore` separately for
 `FieldValue`, would create friction for the common case. The aliases and
 re-exports here exist to remove that friction.
 
 When the consumer genuinely needs something not in this surface (the raw
 `LocalEnvironment`, a deploy primitive, the rules linter), the import path tells
-them where to look — `pyric/sandbox/internal`, `pyric-tools/deploy`, or
+them where to look: `pyric/sandbox/internal`, `pyric-tools/deploy`, or
 `pyric/rules`.

@@ -18,13 +18,13 @@ interface Sandbox {
 }
 ```
 
-A `Sandbox` is **identity-agnostic**. It does not know who you are — that's what `SandboxContext` is for. The `Sandbox` only holds:
+A `Sandbox` is **identity-agnostic**. It does not know who you are; that's what `SandboxContext` is for. The `Sandbox` only holds:
 
 - The current `LocalEnvironment` (documents, rules, listeners).
 - The `onEvent` subscriber registry (survives `reset()`).
 - Lifecycle methods (`reset`, `dispose`).
 
-Construct via `initializeSandbox()`. Custom implementations are not supported — adapter packages use `instanceof` checks to route, and pass through `getInternalEnv` (from `pyric/sandbox/internal`) which throws on non-`SandboxImpl` handles.
+Construct via `initializeSandbox()`. Custom implementations are not supported. Adapter packages use `instanceof` checks to route, and pass through `getInternalEnv` (from `pyric/sandbox/internal`) which throws on non-`SandboxImpl` handles.
 
 ### `withAuth(auth)`
 
@@ -36,19 +36,19 @@ const adminCtx = sandbox.withAuth({ uid: 'admin', token: { role: 'admin' } });
 const anonCtx  = sandbox.withAuth(null);
 ```
 
-`undefined` is rejected — say `withAuth(null)` for anonymous explicitly so the call site is unambiguous. Empty UIDs are rejected. Non-object `token` is rejected. See the [error-handling notes](./error-codes.md#invalid-argument) for the exact rules.
+`undefined` is rejected: say `withAuth(null)` for anonymous explicitly so the call site is unambiguous. Empty UIDs are rejected. Non-object `token` is rejected. See the [error-handling notes](./error-codes.md#invalid-argument) for the exact rules.
 
 ### `onEvent(cb)`
 
-Subscribe to every observable event the sandbox emits — see [`SandboxEvent`](./sandbox-event.md) for the discriminated-union shape. One subscription covers requests, committed writes, snapshot deliveries, suppressed re-evals, listener lifecycle, and reset / dispose boundaries. Filter on `event.kind` to recover individual streams; see the [filter cookbook](./sandbox-event.md#filter-cookbook).
+Subscribe to every observable event the sandbox emits. See [`SandboxEvent`](./sandbox-event.md) for the discriminated-union shape. One subscription covers requests, committed writes, snapshot deliveries, suppressed re-evals, listener lifecycle, and reset / dispose boundaries. Filter on `event.kind` to recover individual streams; see the [filter cookbook](./sandbox-event.md#filter-cookbook).
 
-Survives `sandbox.reset()` — the registry lives on the sandbox, not on the underlying environment, so the env swap doesn't invalidate live subscribers. A `session_boundary` event with `phase: 'reset'` fires immediately before the swap so consumers can segment a persisted stream.
+Survives `sandbox.reset()`. The registry lives on the sandbox, not on the underlying environment, so the env swap doesn't invalidate live subscribers. A `session_boundary` event with `phase: 'reset'` fires immediately before the swap so consumers can segment a persisted stream.
 
 Returns an unsubscribe function. Listener throws (sync) and async-promise rejections are swallowed so a faulty subscriber can't change rule semantics, hide other events, or crash the process via `unhandledRejection`.
 
 ### `history()`
 
-Every [`SandboxEvent`](./sandbox-event.md) this sandbox has emitted since init or the last `reset()`. Returns a defensive copy — mutating the result doesn't affect future calls.
+Every [`SandboxEvent`](./sandbox-event.md) this sandbox has emitted since init or the last `reset()`. Returns a defensive copy; mutating the result doesn't affect future calls.
 
 Unlike `onEvent`, which is a live stream from the moment of subscribe, `history()` returns *every* event the sandbox has seen. Use it for:
 
@@ -62,13 +62,13 @@ v1 doesn't cap the history. Long-running sandboxes accumulate; snapshot + `reset
 
 ### `admin`
 
-Rule-bypass reads for test assertions. See [`SandboxSnapshot` and admin reads](./snapshot-and-admin.md). Surfaced only on the root sandbox — admin reads are identity-agnostic, so presenting them on a context (which exists to carry identity) is conceptually muddled.
+Rule-bypass reads for test assertions. See [`SandboxSnapshot` and admin reads](./snapshot-and-admin.md). Surfaced only on the root sandbox. Admin reads are identity-agnostic, so presenting them on a context (which exists to carry identity) is conceptually muddled.
 
 ### `reset()`
 
 Wipe data, rules, and any service-specific configuration. Replaces the underlying environment with a fresh one.
 
-Snapshot listeners on the OLD environment are dropped at the swap — their target docs have been wiped, so they can't survive. `onEvent` subscribers DO survive — the registry lives on the sandbox itself, and a `session_boundary` event with `phase: 'reset'` fires before the swap so observers know the rollover happened. Existing `SandboxContext`s continue to work — their sandbox reference is stable; subsequent operations resolve to the new environment.
+Snapshot listeners on the OLD environment are dropped at the swap. Their target docs have been wiped, so they can't survive. `onEvent` subscribers DO survive: the registry lives on the sandbox itself, and a `session_boundary` event with `phase: 'reset'` fires before the swap so observers know the rollover happened. Existing `SandboxContext`s continue to work. Their sandbox reference is stable; subsequent operations resolve to the new environment.
 
 ### `dispose()`
 
@@ -88,7 +88,7 @@ interface SandboxContext {
 }
 ```
 
-A `(sandbox, auth)` pair. Cheap to create, immutable, freely shareable. Service factories require this — passing a bare `Sandbox` is a type error.
+A `(sandbox, auth)` pair. Cheap to create, immutable, freely shareable. Service factories require this; passing a bare `Sandbox` is a type error.
 
 Many contexts can coexist for one sandbox. Data is shared; rules evaluate per-context under the context's auth identity.
 
@@ -137,4 +137,4 @@ initializeSandbox()
    └───────┘
 ```
 
-The sandbox object identity is stable for the life of the consumer — only the underlying environment swaps. Contexts holding references to the sandbox don't need to be re-derived after a `reset`.
+The sandbox object identity is stable for the life of the consumer. Only the underlying environment swaps. Contexts holding references to the sandbox don't need to be re-derived after a `reset`.

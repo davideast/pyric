@@ -2,7 +2,7 @@
 title: "Standard library modules"
 group: "pyric / rules"
 section: "Reference"
-order: 107
+order: 104
 ---
 # Standard library modules
 
@@ -97,7 +97,7 @@ State-machine enforcement.
 
 ## `geometry`
 
-Movement-game validation via a config-document lookup. The caller must pass the config data (from a `get()` call) as the parameter — no implicit dependencies.
+Movement-game validation via a config-document lookup. The caller must pass the config data (from a `get()` call) as the parameter. No implicit dependencies.
 
 | Function | Returns |
 |---|---|
@@ -119,7 +119,7 @@ match /games/{gameId} {
 ```
 ## Importing private functions
 
-Functions in a module that aren't marked `export` are still inlined by the resolver — but renamed with a module prefix (`{module}__{name}`) so they don't collide with source-defined functions or with private helpers in other modules. You can't import a private function by name; doing so produces `UNKNOWN_FUNCTION` with a message that explains the function exists but isn't exported.
+Functions in a module that aren't marked `export` are still inlined by the resolver, but renamed with a module prefix (`{module}__{name}`) so they don't collide with source-defined functions or with private helpers in other modules. You can't import a private function by name; doing so produces `UNKNOWN_FUNCTION` with a message that explains the function exists but isn't exported.
 
 ## Overriding a stdlib module
 

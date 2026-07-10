@@ -7,7 +7,7 @@ order: 75
 ---
 # Swap the demo to the prod backend
 
-In this tutorial you will take the demo from [Write a sandbox-backed demo](../pyric-firestore-tutorials-01-write-a-sandbox-demo/) and swap it to talk to a real Firebase project. The only code change is one line.
+Take the demo from [Write a sandbox-backed demo](../pyric-firestore-tutorials-01-write-a-sandbox-demo/) and point it at a real Firebase project. The only code change is one line.
 
 This tutorial assumes you have a Firebase project with Firestore enabled and a config object handy.
 
@@ -19,7 +19,7 @@ bun add firebase
 ```
 `firebase` is the upstream Web SDK. `pyric/firestore`'s prod backend dispatches through it.
 
-## Step 1 — The one-line change
+## Step 1: The one-line change
 
 Replace this:
 ```ts
@@ -38,9 +38,9 @@ const app = initializeApp({
 });
 const db = getFirestore(app);
 ```
-That's the swap. Everything else in `demo.ts` — `setDoc`, `getDoc`, `query`, `onSnapshot`, the writes, the reads, the listener — stays unchanged.
+That's the swap. Everything else in `demo.ts` (`setDoc`, `getDoc`, `query`, `onSnapshot`, the writes, the reads, the listener) stays unchanged.
 
-## Step 2 — What won't work anymore
+## Step 2: What won't work anymore
 
 Three calls will fail:
 ```ts
@@ -55,9 +55,9 @@ import { fromServiceAccount, firestore } from 'pyric-tools/deploy';
 const scope = await fromServiceAccount('./service-account.json');
 await firestore.rules.deploy(scope, `rules_version = '2'; ...`);
 ```
-Seed data via writes, just like any other production code. Dump state — there's no efficient API on the prod side, but you can iterate collections via `getDocs`.
+Seed data via writes, the same as any other production code. For dumping state there's no efficient API on the prod side, but you can iterate collections via `getDocs`.
 
-## Step 3 — Make sure rules are deployed
+## Step 3: Make sure rules are deployed
 
 The sandbox-shaped tutorial deployed rules inline. On prod, you need rules deployed *before* you run the code, or every write will deny. Two options:
 
@@ -84,7 +84,7 @@ service cloud.firestore {
   }
 }`);
 ```
-## Step 4 — Auth
+## Step 4: Auth
 
 The sandbox version used `sandbox.withAuth({ uid: 'alice' })` to act as Alice. On prod, the user identity comes from Firebase Auth:
 ```ts
@@ -96,7 +96,7 @@ await signInAnonymously(auth);
 ```
 For server-side scripts, sign in with a custom token or run as a service account. The details depend on your project's auth setup.
 
-## Step 5 — Run it
+## Step 5: Run it
 
 With rules deployed and a user signed in:
 ```bash
@@ -107,7 +107,7 @@ The same writes, the same reads, the same listener. The output will be similar, 
 - Operations take tens to hundreds of milliseconds instead of sub-millisecond.
 - `snap.metadata.fromCache` and `snap.metadata.hasPendingWrites` reflect real cache state.
 
-The denied write from Step 6 of Tutorial 1 still denies, with a `FirebaseError('firestore/permission-denied')` instead of a `SandboxError` — the upstream SDK's error class.
+The denied write from Step 6 of Tutorial 1 still denies, with a `FirebaseError('firestore/permission-denied')` instead of a `SandboxError`. That's the upstream SDK's error class.
 
 ## What's actually under the hood
 
@@ -118,7 +118,7 @@ There's no proxy, no wrapper, no overhead. The package is mostly the dispatch la
 ## What you have learned
 
 - The same demo code runs against two completely different backends.
-- The choice happens at `getFirestore(...)` — one line.
+- The choice happens at `getFirestore(...)`, one line.
 - Sandbox-only operations throw on prod handles, surfacing the mistake immediately.
 - Auth, error types, and metadata fields are the main behavioural deltas.
 
@@ -126,4 +126,4 @@ There's no proxy, no wrapper, no overhead. The package is mostly the dispatch la
 
 - For deploying rules to prod, see [`pyric-tools/deploy`'s firestore namespace](../pyric-tools-deploy-reference-firestore-namespace/).
 - For why the two-backend story works, see [Why two backends behind one surface](../pyric-firestore-explanation-two-backends-one-surface/).
-- For a real migration from `firebase/firestore`, see [Migrate from `firebase/firestore`](../pyric-firestore-how-to-migrate-from-firebase-firestore/).
+- To adopt `pyric/firestore` in an existing codebase, see [How to use `pyric/firestore` in existing code](../pyric-firestore-how-to-migrate-from-firebase-firestore/).

@@ -3,7 +3,7 @@ title: "Simulator context and result states"
 navLabel: "Simulator context"
 group: "pyric / rules"
 section: "Reference"
-order: 106
+order: 103
 ---
 # Simulator context and result states
 
@@ -23,7 +23,7 @@ interface SimulationContext {
   existsAfter: boolean;
 }
 ```
-You don't construct this directly — `SimulateFirestoreRulesHandler.simulate` builds it from each `TestCase`. The shape is documented because `evaluate(expression, ctx)` is exported, so callers writing custom evaluators do need to build it.
+You don't construct this directly. `SimulateFirestoreRulesHandler.simulate` builds it from each `TestCase`. The shape is documented because `evaluate(expression, ctx)` is exported, so callers writing custom evaluators do need to build it.
 
 ### `request: SimRequest`
 ```ts
@@ -62,7 +62,7 @@ Function definitions visible at the matched scope: parent-match functions, this-
 
 ### `afterStatePath`, `afterState`, `existsAfter`
 
-The projected post-write document for `getAfter()` / `existsAfter()`. When the rule calls those built-ins with `request.path`, they return `afterState` / `existsAfter`. With any other path they fall through to `get()` / `exists()` against the same data — unrelated docs aren't mutated by the write under evaluation.
+The projected post-write document for `getAfter()` / `existsAfter()`. When the rule calls those built-ins with `request.path`, they return `afterState` / `existsAfter`. With any other path they fall through to `get()` / `exists()` against the same data. Unrelated docs aren't mutated by the write under evaluation.
 
 ## Result states
 
@@ -78,15 +78,15 @@ The simulator's decision was the opposite of `expectation`. The rule allowed whe
 
 ### `UNSUPPORTED`
 
-The simulator encountered a feature it does not yet implement and chose to abstain rather than guess. **`UNSUPPORTED` is not `FAILED`** — the simulator is saying "the gap is on my side". The `data.unsupported` counter tracks these separately from `failed`.
+The simulator encountered a feature it does not yet implement and chose to abstain rather than guess. **`UNSUPPORTED` is not `FAILED`**. The simulator is saying "the gap is on my side". The `data.unsupported` counter tracks these separately from `failed`.
 
 When you see `UNSUPPORTED`, you have three options:
 
 1. Trust the rule and skip the case in local CI.
 2. Reformulate the rule to avoid the unsupported feature.
-3. Route just the unsupported cases to the Firebase Rules Test API — see [How to test rules against the Firebase Rules Test API](../pyric-rules-how-to-test-rules-against-firebase/).
+3. Route only the unsupported cases to the Firebase Rules Test API. See [How to test rules against the Firebase Rules Test API](../pyric-rules-how-to-test-rules-against-firebase/).
 
-The live Rules Test API never returns `UNSUPPORTED` — it uses the production engine and decides every case.
+The live Rules Test API never returns `UNSUPPORTED`. It uses the production engine and decides every case.
 
 ## Decision precedence within a match block
 
@@ -96,7 +96,7 @@ Multiple `allow` rules in the same match block use **OR semantics**:
 - Otherwise, if any rule threw `UnsupportedError` → final decision is `UNSUPPORTED`.
 - Otherwise → `DENY`.
 
-Real evaluation errors (`EvalError`, type mismatches) are caught and treated as that rule denying — matching production's behaviour where runtime errors deny the request.
+Real evaluation errors (`EvalError`, type mismatches) are caught and treated as that rule denying, matching production's behaviour where runtime errors deny the request.
 
 ## Path resolution
 

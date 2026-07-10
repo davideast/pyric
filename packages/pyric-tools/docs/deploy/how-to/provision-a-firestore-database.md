@@ -69,5 +69,5 @@ Both are subsumed by Owner / Editor / Firebase Admin.
 
 ## Where to look next
 
-- For the `ProvisionDatabaseOutcome` shape and options, see [`firestore` namespace — `databases`](../reference/firestore-namespace.md#firestoredatabases).
-- For the matching error codes, see [Error codes by operation — Firestore databases](../reference/error-codes.md#firestore-databases).
+- For the `ProvisionDatabaseOutcome` shape and options, see [`firestore` namespace: `databases`](../reference/firestore-namespace.md#firestoredatabases).
+- For the matching error codes, see [Error codes by operation: Firestore databases](../reference/error-codes.md#firestore-databases).

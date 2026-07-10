@@ -1,6 +1,6 @@
 # How to build queries with `where`, `orderBy`, `limit`
 
-This guide shows you how to compose query constraints.
+Filter, order, and page through documents by composing constraints. The same `query(...)` runs on either backend.
 
 ## A basic query
 
@@ -21,7 +21,7 @@ for (const doc of snap.docs) {
 }
 ```
 
-Constraints stack — multiple `where` calls AND together. Multiple `orderBy` calls become tiebreaker chains.
+Constraints stack. Multiple `where` calls AND together. Multiple `orderBy` calls become tiebreaker chains.
 
 ## OR conditions
 
@@ -120,13 +120,13 @@ const q = query(
 const snap = await getDocs(q);
 ```
 
-Useful for nested structures like `rooms/{roomId}/messages/{messageId}` — the collection group finds every `messages` collection regardless of which room it belongs to.
+Useful for nested structures like `rooms/{roomId}/messages/{messageId}`. The collection group finds every `messages` collection regardless of which room it belongs to.
 
 ## What works on the sandbox
 
 `getDocs` evaluates every constraint correctly on both backends. The sandbox runs the query against its `LocalEnvironment`, applying filters, ordering, and limits in memory.
 
-`onSnapshot` on the sandbox currently fires for any change in the underlying collection — filters at the listener layer are in a later slice. For now, filter the results in your callback if you need filtered streaming:
+`onSnapshot` on the sandbox currently fires for any change in the underlying collection. Filters at the listener layer are in a later slice. For now, filter the results in your callback if you need filtered streaming:
 
 ```ts
 onSnapshot(query(collection(db, 'notes'), where('owner', '==', 'alice')), (snap) => {
@@ -136,7 +136,7 @@ onSnapshot(query(collection(db, 'notes'), where('owner', '==', 'alice')), (snap)
 });
 ```
 
-This is a sandbox-only caveat — on the prod backend, the filter is enforced server-side.
+This is a sandbox-only caveat. On the prod backend, the filter is enforced server-side.
 
 ## Aggregations
 

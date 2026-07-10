@@ -1,18 +1,18 @@
 ---
-title: "firebase.json hosting config — supported keys and REST translation"
+title: "firebase.json hosting config: supported keys and REST translation"
 navLabel: "firebase.json hosting config"
 group: "pyric-tools / deploy"
 section: "Reference"
 order: 64
 ---
-# firebase.json hosting config — supported keys and REST translation
+# firebase.json hosting config: supported keys and REST translation
 
 The hosting block of `firebase.json` is the public config shape
 (`HostingJsonConfig`). It is translated to the Hosting REST
 `ServingConfig` exactly the way firebase-tools' `convertConfig` does
-(`clones/firebase-tools/src/deploy/hosting/convertConfig.ts` — every
+(`clones/firebase-tools/src/deploy/hosting/convertConfig.ts`. Every
 translation below is pinned by a test in
-`test/deploy/hosting/config.test.ts` citing the relevant lines).
+`test/deploy/hosting/config.test.ts` citing the relevant lines.)
 
 The contract: every key is **supported**, **deferred with a clear
 error**, or **rejected with the reason**. Unknown keys produce a loud
@@ -48,9 +48,9 @@ warning. Nothing is ever silently dropped.
 
 | Key | Reason |
 |---|---|
-| `rewrites[].dynamicLinks` | Firebase Dynamic Links was sunset (August 2025) — the rewrite can never serve. |
+| `rewrites[].dynamicLinks` | Firebase Dynamic Links was sunset (August 2025). The rewrite can never serve. |
 
-## Warned (consumed elsewhere or unsupported — never silent)
+## Warned (consumed elsewhere or unsupported, but never silent)
 
 | Key | Warning points to |
 |---|---|
@@ -69,8 +69,8 @@ Walking `localDir` applies, in order:
 1. Always: `**/firebase-debug.log`, `**/firebase-debug.*.log`,
    `.firebase/*` (hard-coded in firebase-tools' walker,
    `src/listFiles.ts:8`).
-2. The `ignore` list — or, when absent, the firebase-tools scaffold
-   defaults `["firebase.json", "**/.*", "**/node_modules/**"]`
+2. The `ignore` list. When absent, the firebase-tools scaffold
+   defaults apply: `["firebase.json", "**/.*", "**/node_modules/**"]`
    (`src/init/features/hosting/index.ts:20`). An explicit list (even
    `[]`) replaces the defaults, exactly like editing the key.
 
@@ -80,7 +80,7 @@ supported and match literally. Patterns are dot-mode (a `*` matches
 dotfiles) and match the POSIX-relative path.
 
 Parity quirk, preserved deliberately: `**/.*` excludes dotFILES at any
-depth but **not files inside dot-directories** — `.git/config` uploads,
+depth but **not files inside dot-directories**: `.git/config` uploads,
 exactly as it does with firebase-tools (glob@10 ignore semantics;
 only `/**`-suffixed patterns skip a whole subtree).
 
@@ -91,12 +91,12 @@ only `/**`-suffixed patterns skip a whole subtree).
   functions to Run rewrites (convertConfig.ts:84-130). Pyric forwards
   `function` + `functionRegion` as-is (upstream's "endpoint not found,
   still including it" branch) and relies on Hosting's finalize-time
-  validation — a missing target fails the deploy with
+  validation. A missing target fails the deploy with
   `REWRITE_TARGET_NOT_FOUND`.
 - **Defaults applied when `ignore` is absent.** A hand-written
   firebase.json with no `ignore` key gets the scaffold defaults rather
-  than uploading dotfiles (upstream applies no defaults at deploy time
-  — they exist because `firebase init` writes them into the file).
-- **Channel TTL applies on creation only** — re-deploying to an
+  than uploading dotfiles (upstream applies no defaults at deploy time;
+  they exist because `firebase init` writes them into the file).
+- **Channel TTL applies on creation only**: re-deploying to an
   existing channel does not extend it (upstream `--expires` PATCHes the
   TTL; see the preview-channel how-to).

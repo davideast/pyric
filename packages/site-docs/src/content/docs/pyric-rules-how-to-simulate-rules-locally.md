@@ -3,11 +3,11 @@ title: "How to simulate rules locally"
 navLabel: "Simulate rules locally"
 group: "pyric / rules"
 section: "How-to"
-order: 100
+order: 97
 ---
 # How to simulate rules locally
 
-This guide shows you how to evaluate Firestore rules in-process against a list of test cases, without deploying or contacting Google's servers.
+Evaluate Firestore rules in-process against a list of test cases, without deploying or contacting Google's servers.
 
 ## Run a suite
 ```ts
@@ -19,7 +19,7 @@ import {
 const handler = new SimulateFirestoreRulesHandler();
 const result = handler.simulate(source, testCases);
 ```
-If `result.success` is `false`, the source failed to parse — `result.error.code` is `'PARSE_FAILED'`. Otherwise `result.data` carries `{ passed, failed, unsupported, results }`.
+If `result.success` is `false`, the source failed to parse and `result.error.code` is `'PARSE_FAILED'`. Otherwise `result.data` carries `{ passed, failed, unsupported, results }`.
 
 ## Mock `get()` and `exists()`
 
@@ -43,7 +43,7 @@ For `get`, supply the document's data. For `exists`, supply a boolean. Paths are
 
 ## Set `writeMode` for accurate update semantics
 
-By default, `tc.data` IS the after-state — fine for shallow `create`. For `update` or `set({ merge: true })`, set `writeMode` so the simulator projects the post-write document correctly:
+By default, `tc.data` IS the after-state, which is fine for shallow `create`. For `update` or `set({ merge: true })`, set `writeMode` so the simulator projects the post-write document correctly:
 ```ts
 {
   description: 'patch a single field',
@@ -89,7 +89,7 @@ Run `lintFirestoreRules(source, { testCases })` and look for `REQUEST_TIME_NOT_P
 ```
 ## Handle `UNSUPPORTED` results
 
-`UNSUPPORTED` means the simulator hit a feature it does not yet implement — not that your rule is wrong. It is *not* counted as a failure. If you have unsupported cases and need a verdict for them, route those cases to the live Rules Test API:
+`UNSUPPORTED` means the simulator hit a feature it does not yet implement, not that your rule is wrong. It is *not* counted as a failure. If you have unsupported cases and need a verdict for them, route those cases to the live Rules Test API:
 ```ts
 const unsupported = result.data.results
   .filter((r) => r.state === 'UNSUPPORTED');
@@ -102,7 +102,7 @@ See [Simulator vs Rules Test API](../pyric-rules-explanation-simulator-vs-rules-
 
 ## Read the debug trace
 
-Each result carries `debugMessages` — useful when a case fails and you can't tell which rule decided:
+Each result carries `debugMessages`, useful when a case fails and you can't tell which rule decided:
 ```ts
 for (const r of result.data.results) {
   if (r.state !== 'PASSED') {

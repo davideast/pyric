@@ -3,7 +3,7 @@ title: "How to test rule expressions independently"
 navLabel: "Test rule expressions"
 group: "pyric / storage"
 section: "How-to"
-order: 151
+order: 144
 ---
 # How to test rule expressions independently
 
@@ -64,19 +64,19 @@ The synthetic input mirrors what the actual handler builds when an operation run
 ```
 `resource` represents `request.resource` (what's being uploaded). `existing` represents `resource` (what's already stored). Set whichever the rule references.
 
-## Why not just use the handler
+## Why not go through the handler
 
 Using `evaluateStorageRules` directly:
 
 - Doesn't require constructing a sandbox.
 - Doesn't require uploading any data.
-- Is fast (microseconds — just walks the AST).
+- Is fast (microseconds, it only walks the AST).
 
 For iterating on rule logic or building a parametric rules-test harness, this is the right surface. For end-to-end verification (does the actual handler enforce the rule correctly?) use `getStorageSandbox(target, { rules: source })` and exercise it through normal operations.
 
 ## What you can't test this way
 
-The synthetic input is what *you* fabricate. The real handler builds its input from the operation arguments — if your handler-side wiring has a bug (passing wrong content-type, wrong size), `evaluateStorageRules` won't catch it. The two surfaces verify different layers:
+The synthetic input is what *you* fabricate. The real handler builds its input from the operation arguments, so if your handler-side wiring has a bug (passing wrong content-type, wrong size), `evaluateStorageRules` won't catch it. The two surfaces verify different layers:
 
 - `evaluateStorageRules` verifies the rule's *logic*.
 - `getStorageSandbox` with the rule deployed verifies the *integration*.
@@ -85,5 +85,5 @@ For a full test, run both. Most tests need only one or the other.
 
 ## Where to look next
 
-- For the input shape and the rule engine details, see [Public API — Rules](../pyric-storage-reference-api/#rules).
+- For the input shape and the rule engine details, see [Public API: Rules](../pyric-storage-reference-api/#rules).
 - For the grammar these functions parse, see [Storage rules subset](../pyric-storage-reference-rules-subset/).

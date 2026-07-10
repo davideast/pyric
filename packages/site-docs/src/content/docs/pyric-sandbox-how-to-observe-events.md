@@ -3,7 +3,7 @@ title: "How to observe sandbox events"
 navLabel: "Observe sandbox events"
 group: "pyric / sandbox"
 section: "How-to"
-order: 124
+order: 119
 ---
 # How to observe sandbox events
 
@@ -35,7 +35,7 @@ const unsubscribe = sandbox.onEvent((event) => events.push(event));
 // ... later:
 unsubscribe();
 ```
-The subscription **survives `sandbox.reset()`** — the underlying environment swaps but the user callback stays in the sandbox-level registry. A `session_boundary` event with `phase: 'reset'` fires immediately before the swap so consumers can segment their stream. On `sandbox.dispose()` the boundary fires once with `phase: 'dispose'` and the registry clears.
+The subscription **survives `sandbox.reset()`**. The underlying environment swaps but the user callback stays in the sandbox-level registry. A `session_boundary` event with `phase: 'reset'` fires immediately before the swap so consumers can segment their stream. On `sandbox.dispose()` the boundary fires once with `phase: 'dispose'` and the registry clears.
 
 ## Render a traffic panel
 ```tsx
@@ -68,14 +68,14 @@ function TrafficPanel() {
 ```
 ## Derive denials as a filter
 
-The previous `onDenial` channel is gone — denials are a one-line filter:
+The previous `onDenial` channel is gone. Denials are a one-line filter:
 ```ts
 const unsubscribe = sandbox.onEvent((event) => {
   if (event.kind !== 'request' || event.result !== 'deny') return;
   showBanner(`${event.method} ${event.path} denied`);
 });
 ```
-The same `request` event carries `auth`, `reasons`, `request.resourceData`, `resourceBefore` — every field the old `DenialEvent` carried, plus the per-eval `evalMs` the request channel always had.
+The same `request` event carries `auth`, `reasons`, `request.resourceData`, and `resourceBefore`: every field the old `DenialEvent` carried, plus the per-eval `evalMs` the request channel always had.
 
 ## Capture snapshot deliveries
 
@@ -103,11 +103,11 @@ sandbox.onEvent((event) => {
   else if (event.kind === 'listener_errored') console.log(`! ${event.listenerId}: ${event.error?.message}`);
 });
 ```
-Attach fires once before the initial-snapshot delivery. Detach fires when the returned unsubscribe is called against a still-registered listener (idempotent calls don't double-emit; listeners dropped by `reset()` don't emit detach — the `session_boundary` event covers the rollover). Errored fires when a stream-level rule denial silently terminates the listener.
+Attach fires once before the initial-snapshot delivery. Detach fires when the returned unsubscribe is called against a still-registered listener (idempotent calls don't double-emit; listeners dropped by `reset()` don't emit detach, the `session_boundary` event covers the rollover). Errored fires when a stream-level rule denial silently terminates the listener.
 
-## Volume — default-hide listener re-evals
+## Volume: default-hide listener re-evals
 
-Per the issue #307 probe data: a query listener can re-evaluate on every write to its collection. With N existing docs and N writes, the upper bound is O(N²) re-evals. The `snapshot_delivery` count tracks actual user-callback invocations — much smaller than the raw re-eval count. Use `kind: 'snapshot_delivery'` events (rather than `kind: 'request' && origin: 'listener'`) when "how many times did the listener fire" is the question.
+Per the issue #307 probe data: a query listener can re-evaluate on every write to its collection. With N existing docs and N writes, the upper bound is O(N²) re-evals. The `snapshot_delivery` count tracks actual user-callback invocations, much smaller than the raw re-eval count. Use `kind: 'snapshot_delivery'` events (rather than `kind: 'request' && origin: 'listener'`) when "how many times did the listener fire" is the question.
 
 The decision-doc recommendation: in a UI panel, default-hide `kind: 'request' && origin: 'listener'` events behind a toggle. Default-show: user-origin requests + snapshot deliveries + listener lifecycle + denials. `snapshot_suppressed` is opt-in (inspector mode).
 
@@ -130,7 +130,7 @@ sandbox.onEvent((event) => {
 ```
 `write` events fire only for writes that the rule engine allowed AND the keyspace successfully applied. Denied or rolled-back writes surface as `kind: 'request' && result: 'deny'` with no companion `write` event.
 
-The `sentinels`, `autoId`, and `requestTime` fields on `WriteSandboxEvent` are populated so a captured stream can be replayed — see [Replay a captured event stream](../pyric-sandbox-how-to-replay-events/). For live observation you can ignore them.
+The `sentinels`, `autoId`, and `requestTime` fields on `WriteSandboxEvent` are populated so a captured stream can be replayed. See [Replay a captured event stream](../pyric-sandbox-how-to-replay-events/). For live observation you can ignore them.
 
 ## Segment around reset()
 ```ts
@@ -148,14 +148,14 @@ sandbox.onEvent((event) => {
 
 The sandbox calls your callback **synchronously**, inline with the op that produced the event. A few consequences worth understanding:
 
-- **Heavy synchronous work inflates the next op's `evalMs`.** The event you receive carries timing for the rules evaluation that just finished, but the *next* op is sitting on the same event loop. If your subscriber sorts a 10k-element array on every event, the user-visible op latency includes that work. Push expensive processing into a `queueMicrotask` / `setTimeout(..., 0)` or onto a worker.
-- **The sandbox does not await async subscribers.** If you write `sandbox.onEvent(async (ev) => { await fetch(...) })`, the sandbox returns from emit before your `await` resolves. Subscribers are **observational** — the sandbox doesn't propagate their errors and won't pause ops on them. Do your own error handling inside the handler.
-- **Async rejections are swallowed.** A rejected Promise from an async subscriber is silently caught — it will not become an `unhandledRejection`, but it will also not surface anywhere. Wrap in `try/catch` yourself if you need to know your subscriber crashed.
+- **Heavy synchronous work inflates the next op's `evalMs`.** The event you receive carries timing for the rules evaluation that finished, but the *next* op is sitting on the same event loop. If your subscriber sorts a 10k-element array on every event, the user-visible op latency includes that work. Push expensive processing into a `queueMicrotask` / `setTimeout(..., 0)` or onto a worker.
+- **The sandbox does not await async subscribers.** If you write `sandbox.onEvent(async (ev) => { await fetch(...) })`, the sandbox returns from emit before your `await` resolves. Subscribers are **observational**: the sandbox doesn't propagate their errors and won't pause ops on them. Do your own error handling inside the handler.
+- **Async rejections are swallowed.** A rejected Promise from an async subscriber is silently caught. It will not become an `unhandledRejection`, but it will also not surface anywhere. Wrap in `try/catch` yourself if you need to know your subscriber crashed.
 - **Large `resourceData` / `sample.docs` balloons the in-memory buffer.** A 1 MB write becomes ~1 MB per event in your ring buffer. Multiply by 5000-event default cap = 5 GB worst case. Strip or truncate before retaining events long-term.
 - **No back-pressure.** There is no per-subscriber queue. If a subscriber is slow synchronously, the sandbox blocks; if it's slow asynchronously, the sandbox doesn't wait but events accumulate in *your* downstream pipeline. Size your consumer's buffer.
 
 ## See also
 
-- [`SandboxEvent` reference](../pyric-sandbox-reference-sandbox-event/) — field-by-field for every kind.
-- [Listener re-evaluation on `deployRules`](../pyric-sandbox-explanation-listener-re-evaluation/) — why deploy-rules-driven re-evals carry no `triggeredBy`.
-- design rationale — the rationale for replacing the three-channel surface with one.
+- [`SandboxEvent` reference](../pyric-sandbox-reference-sandbox-event/): field-by-field for every kind.
+- [Listener re-evaluation on `deployRules`](../pyric-sandbox-explanation-listener-re-evaluation/): why deploy-rules-driven re-evals carry no `triggeredBy`.
+- Design rationale: the reasoning for replacing the three-channel surface with one.

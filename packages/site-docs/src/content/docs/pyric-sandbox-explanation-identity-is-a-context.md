@@ -3,7 +3,7 @@ title: "Identity is a context, not a sandbox"
 navLabel: "Identity is a context"
 group: "pyric / sandbox"
 section: "Explanation"
-order: 139
+order: 134
 ---
 # Identity is a context, not a sandbox
 
@@ -19,7 +19,7 @@ sandbox.firestore.collection('notes').doc('n1').set(...);  // runs as alice
 sandbox.setAuth({ uid: 'bob' });
 sandbox.firestore.collection('notes').doc('n1').get();     // runs as bob
 ```
-This is closest to how the Firebase client SDK works — the client knows who you are because you signed in earlier. It's intuitive. So why didn't we ship it?
+This is closest to how the Firebase client SDK works: the client knows who you are because you signed in earlier. It's intuitive. So why didn't we ship it?
 
 ## Three problems with auth-on-sandbox
 
@@ -64,7 +64,7 @@ Each operation's identity is captured in the handle it was issued through. No ra
 
 ### 3. Identity-agnostic operations should be obvious
 
-Admin reads, listener subscribers, `reset`, `dispose`, `snapshot` — none of these are tied to a user. With auth-on-sandbox, where do they live? On the sandbox, alongside the user-bound operations? That blurs the line. With contexts, the identity-agnostic surface is exactly what's on `Sandbox`; everything else (data operations) requires a context. A reader of the type signature can tell at a glance.
+Admin reads, listener subscribers, `reset`, `dispose`, `snapshot`: none of these are tied to a user. With auth-on-sandbox, where do they live? On the sandbox, alongside the user-bound operations? That blurs the line. With contexts, the identity-agnostic surface is exactly what's on `Sandbox`; everything else (data operations) requires a context. A reader of the type signature can tell at a glance.
 
 ## The mental model
 ```
@@ -84,7 +84,7 @@ Three layers, each with one job. Operations that mutate data flow down the chain
 
 We considered exposing `db.collection('x').doc('y').get({ auth: { uid: 'alice' } })` as an override. Rejected because:
 
-- The service handle's whole shape would need to change. Every method gets an optional `OperationOptions { auth?: AuthState }` parameter — multiplying the surface area.
+- The service handle's whole shape would need to change. Every method gets an optional `OperationOptions { auth?: AuthState }` parameter, multiplying the surface area.
 - The handle's binding to its context becomes a lie. "This handle is bound to alice, except when it isn't."
 - Composition gets harder. A function that takes a `FirestoreHandle` can no longer assume it knows whose identity its operations run under.
 
@@ -94,9 +94,9 @@ We considered exposing `db.collection('x').doc('y').get({ auth: { uid: 'alice' }
 
 A different option: let auth-less handles exist, and have them default to anonymous. `getFirestore(sandbox)` (no context) returns a handle that evaluates as `request.auth == null`.
 
-Rejected because: the call site is then ambiguous about whether anonymous was intended or just forgotten. Service factories require a `SandboxContext` (`getFirestore(sandbox.withAuth(null))` for anonymous) so the intent is on the page.
+Rejected because the call site is then ambiguous about whether anonymous was intended or forgotten. Service factories require a `SandboxContext` (`getFirestore(sandbox.withAuth(null))` for anonymous) so the intent is on the page.
 
-The same reasoning applies to `withAuth(undefined)` — it throws instead of treating `undefined` as anonymous. Explicit `null` is the only way to say "anonymous on purpose".
+The same reasoning applies to `withAuth(undefined)`: it throws instead of treating `undefined` as anonymous. Explicit `null` is the only way to say "anonymous on purpose".
 
 ## Where this design came from
 

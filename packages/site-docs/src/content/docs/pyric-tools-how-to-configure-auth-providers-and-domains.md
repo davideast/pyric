@@ -15,7 +15,7 @@ CLI (or from an agent), so you don't have to click through the Firebase Console.
 
 > **These commands mutate a real Firebase project, not the sandbox.** They call
 > Google's Identity Toolkit admin API directly against the resolved project.
-> There is no dry-run — a successful invocation changes production auth config.
+> There is no dry-run: a successful invocation changes production auth config.
 > Point them at the project you actually intend to change.
 
 ## Prerequisites
@@ -25,9 +25,9 @@ target project before they will do anything.
 
 1. **Service-account credentials.** Provide *one* of:
 
-   - `FIREBASE_SA_BASE64` — base64-encoded service-account JSON (ideal for CI;
+   - `FIREBASE_SA_BASE64`: base64-encoded service-account JSON (ideal for CI,
      decoded in memory, never written to disk), or
-   - `GOOGLE_APPLICATION_CREDENTIALS` — a filesystem path to a service-account
+   - `GOOGLE_APPLICATION_CREDENTIALS`: a filesystem path to a service-account
      JSON file (the standard Google ADC convention).
 
    If neither is set, the command fails before making any request:
@@ -54,7 +54,7 @@ pyric auth:configure-provider <anonymous|email|phone|google> <true|false>
 ```
 The first argument is the provider, the second is whether to enable (`true`) or
 disable (`false`) it. Both are required, and the provider must be exactly one of
-the four supported ids — `anonymous`, `email`, `phone`, or `google`.
+the four supported ids: `anonymous`, `email`, `phone`, or `google`.
 
 To turn on anonymous sign-in:
 ```sh
@@ -74,15 +74,15 @@ operation, and `1` on bad arguments or an unresolved scope.
 
 ### Provider-specific behaviour
 
-- **`phone`** — enabling phone succeeds, but SMS delivery requires a billing
+- **`phone`**: enabling phone succeeds, but SMS delivery requires a billing
   account. The result includes a `warning` reminding you to confirm billing is
   enabled for the project in the Google Cloud Console.
-- **`google`** — Google sign-in can only be *toggled* once its OAuth client has
+- **`google`**: Google sign-in can only be *toggled* once its OAuth client has
   been provisioned. If it has never been set up, the command returns a
   `GOOGLE_NOT_PROVISIONED` error: enable Google once in the Firebase Console
   (Authentication → Sign-in method → Google) to auto-provision the OAuth client,
   after which this command can enable or disable it freely.
-- **`anonymous`** and **`email`** — enabled or disabled instantly, with no
+- **`anonymous`** and **`email`**: enabled or disabled instantly, with no
   external dependency.
 
 ## Manage authorised domains
@@ -118,8 +118,8 @@ pyric auth:manage-domains remove old.example.com --project my-app
 ```
 Removes the domain and writes the updated list back. If the domain isn't in the
 list, the command succeeds with the list unchanged. Removing `localhost`
-succeeds but returns a `warning`, since dropping it can break local development —
-re-add it with `add` if you need it.
+succeeds but returns a `warning`, since dropping it can break local development.
+Re-add it with `add` if you need it.
 
 Like `auth:configure-provider`, this command prints its result as JSON, exiting
 `0` on success, `2` on a failed operation, and `1` on missing or invalid

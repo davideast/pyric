@@ -1,6 +1,6 @@
 # How to compare two rulesets for weakening
 
-When you ship a rules change, the most dangerous mistake is silently removing a security predicate to make a failing test pass. This guide shows you how to catch that before it deploys.
+When you ship a rules change, the most dangerous mistake is silently removing a security predicate to make a failing test pass. Here's how to catch that before it deploys.
 
 ## Lint with the previous source
 
@@ -23,7 +23,7 @@ The linter walks both rulesets, normalises every match path, and diffs the predi
 
 Three weakening shapes are surfaced:
 
-- **Removed match block**: `match /admin/{x} { allow … }` existed before; it's gone now. Only reported if the previous block had `allow` rules — empty parent shells disappearing is silent.
+- **Removed match block**: `match /admin/{x} { allow … }` existed before; it's gone now. Only reported if the previous block had `allow` rules. Empty parent shells disappearing is silent.
 - **Removed allow rule**: same match path, but `allow update: …` was deleted.
 - **Removed conjunct**: same match path and same allow op-set, but a conjunct was dropped. For example, `auth.uid == ownerId && status == 'open'` becoming just `auth.uid == ownerId`.
 
@@ -63,7 +63,7 @@ if (weakened.length > 0) {
 }
 ```
 
-`RULES_WEAKENED` is a `warning`, not an `error`. The deploy gate stays under your control — you can require human ack, or treat it as a hard block as above.
+`RULES_WEAKENED` is a `warning`, not an `error`. The deploy gate stays under your control: require human ack, or treat it as a hard block as above.
 
 ## When the previous source is malformed
 
@@ -72,4 +72,4 @@ If `previousSource` fails to parse, the linter silently skips the diff and the r
 ## Where to look next
 
 - For why this check exists, see [Agent failure modes](../explanation/agent-failure-modes.md#silently-removing-predicates).
-- For the conjunct-extraction algorithm, see [Lint rules reference — `RULES_WEAKENED`](../reference/lint-rules.md#rules_weakened).
+- For the conjunct-extraction algorithm, see [`RULES_WEAKENED` in the lint rules reference](../reference/lint-rules.md#rules_weakened).

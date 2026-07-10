@@ -1,11 +1,11 @@
 ---
-title: "Feature matrix — pyric/firestore coverage of firebase/firestore"
+title: "Feature matrix: pyric/firestore coverage of firebase/firestore"
 navLabel: "Feature matrix"
 group: "pyric / firestore"
 section: "Reference"
-order: 83
+order: 82
 ---
-# Feature matrix — `pyric/firestore` coverage of `firebase/firestore`
+# Feature matrix: `pyric/firestore` coverage of `firebase/firestore`
 
 Side-by-side coverage of the modular Web SDK surface. Use this to
 decide what's safe to write in code that has to run against both
@@ -13,11 +13,11 @@ the pyric sandbox and prod Firebase.
 
 **Legend:**
 
-- ✅ — exported by `pyric/firestore` with the same name and
+- ✅: exported by `pyric/firestore` with the same name and
   signature as upstream. Works on both backends.
-- ⚠️ — exported, but with a caveat: signature subset, sandbox-only
+- ⚠️: exported, but with a caveat: signature subset, sandbox-only
   no-op, runtime parity gap, or similar. Read the note.
-- ❌ — not exported. Code that imports it will fail to resolve
+- ❌: not exported. Code that imports it will fail to resolve
   when the sandbox-preview build aliases `firebase/firestore` →
   `pyric/firestore`.
 
@@ -130,8 +130,8 @@ deny-list / allow-list the agent's system prompt should encode.
 | `deleteField()` | ✅ | | Yes |
 | `FieldValue` (class re-export) | ✅ | Re-exported as `ChainFieldValue` alias | Yes |
 | `Timestamp` (class re-export) | ✅ | Re-exported as `ChainTimestamp` alias | Yes |
-| `Bytes` | ✅ | Round-trips through sandbox `setDoc` / `getDoc` as a `Bytes` instance — sandbox converter at `packages/pyric/src/sandbox/firestore/converters/bytes-geopoint.ts` + read finalization at `pyric/firestore`. COMPAT row #109. | Yes |
-| `GeoPoint` | ✅ | Round-trips through sandbox `setDoc` / `getDoc` as a `GeoPoint` instance — same converter family. COMPAT row #110. | Yes |
+| `Bytes` | ✅ | Round-trips through sandbox `setDoc` / `getDoc` as a `Bytes` instance. Sandbox converter at `packages/pyric/src/sandbox/firestore/converters/bytes-geopoint.ts` plus read finalization at `pyric/firestore`. COMPAT row #109. | Yes |
+| `GeoPoint` | ✅ | Round-trips through sandbox `setDoc` / `getDoc` as a `GeoPoint` instance. Same converter family. COMPAT row #110. | Yes |
 
 ## Bundles & named queries
 
@@ -160,7 +160,7 @@ deny-list / allow-list the agent's system prompt should encode.
 | Symbol | Status | Note | Use in `appSource`? |
 |---|---|---|---|
 | `Firestore` | ✅ | Opaque handle carrying `TARGET_SYMBOL` | Yes |
-| `DocumentReference<T>` | ✅ | Subset of upstream — `id` + `path` only; rest opaque | Yes |
+| `DocumentReference<T>` | ✅ | Subset of upstream: `id` + `path` only, rest opaque | Yes |
 | `CollectionReference<T>` | ✅ | As above | Yes |
 | `Query<T>` | ✅ | Opaque branded type | Yes |
 | `DocumentSnapshot<T>` | ✅ | `id`, `exists()`, `data()`, `ref`, `metadata` | Yes |
@@ -185,9 +185,9 @@ called against a prod-backed handle.
 
 | Symbol | Status | Note | Use in `appSource`? |
 |---|---|---|---|
-| `sandbox.setRules(db, rulesSource)` | ✅ | Sandbox-only; use `pyric-tools/deploy` for prod | **No** — never appears in deployed app code |
-| `sandbox.seedDocuments(db, docs)` | ✅ | Sandbox-only; bulk-load bypassing rules | **No** — same |
-| `sandbox.snapshotState(db)` | ✅ | Sandbox-only; dump of all stored docs | **No** — same |
+| `sandbox.setRules(db, rulesSource)` | ✅ | Sandbox-only; use `pyric-tools/deploy` for prod | **No**: never appears in deployed app code |
+| `sandbox.seedDocuments(db, docs)` | ✅ | Sandbox-only; bulk-load bypassing rules | **No**: same |
+| `sandbox.snapshotState(db)` | ✅ | Sandbox-only; dump of all stored docs | **No**: same |
 | `TARGET_SYMBOL` | ✅ | Internal brand; agents should not read it | No |
 
 These belong in the **runner** (the `code` artifact in the
@@ -198,18 +198,18 @@ metafile gate refuses any prod bundle containing `@pyric/*`.
 
 ## Adjacent surfaces not in this matrix
 
-- `firebase/app` — `initializeApp`, `getApp`, `getApps`,
+- `firebase/app`: `initializeApp`, `getApp`, `getApps`,
   `FirebaseApp`. Used by the template's `main.tsx` and
   `firebase.ts`. Real prod surface in deployed bundles; the
   sandbox does not provide a `firebase/app` shim because
   `getFirestore(sandboxContext)` skips the app handle entirely.
-- `firebase/auth` — **no `@pyric/*` equivalent today.** Agent
+- `firebase/auth`: **no `@pyric/*` equivalent today.** Agent
   code in `appSource` must not import `firebase/auth`. Identity
   in the sandbox is provided by `sandbox.withAuth(...)`
   (see `pyric/sandbox` docs). Tracked as an open question in
   the design rationale; build a `pyric/auth`
   shim if a real app pattern forces it.
-- `firebase/storage`, `firebase/functions`, etc. — out of scope
+- `firebase/storage`, `firebase/functions`, etc.: out of scope
   for the deploy milestone. Separate `pyric/storage` package
   exists; mapping to a `firebase/storage` alias is a future
   question.
@@ -222,7 +222,7 @@ metafile gate refuses any prod bundle containing `@pyric/*`.
   sandbox preview.
 - **The sandbox preview build** aliases `firebase/firestore` →
   `pyric/firestore`. A `✅` row is guaranteed to work. A `⚠️`
-  row works at the type level but has a sandbox-runtime caveat —
+  row works at the type level but has a sandbox-runtime caveat:
   acceptable for preview, fix-on-deploy.
 - **The deploy build** has no aliases. Whatever the agent imports
   resolves to real `firebase/firestore` in node_modules. Any
@@ -237,10 +237,10 @@ metafile gate refuses any prod bundle containing `@pyric/*`.
 
 Re-run this audit when:
 
-- `pyric/firestore` adds or removes exports (`grep -E "^export" packages/pyric/src/firestore/index.ts | wc -l` — current count: ~86).
+- `pyric/firestore` adds or removes exports (`grep -E "^export" packages/pyric/src/firestore/index.ts | wc -l`, current count ~86).
 - The upstream `firebase/firestore` modular SDK adds a new
   symbol category (vector search expanded, persistence APIs
   reshaped, etc.).
 - The sandbox wire-encoder closes a parity gap (e.g. `Bytes` /
-  `GeoPoint` round-trip support) — flip the corresponding row
+  `GeoPoint` round-trip support): flip the corresponding row
   from ⚠️ to ✅.

@@ -2,7 +2,7 @@
 title: "Public API"
 group: "pyric-admin / firestore"
 section: "Reference"
-order: 174
+order: 167
 ---
 # Public API
 
@@ -12,7 +12,7 @@ Every symbol re-exported from `pyric-admin`.
 
 ### `getFirestore(ctx: SandboxContext): SandboxFirestore`
 
-Resolve the Firestore service handle for a `SandboxContext`. Idempotent — subsequent calls with the same context return the same wrapper, cached in a `WeakMap`.
+Resolve the Firestore service handle for a `SandboxContext`. Idempotent: subsequent calls with the same context return the same wrapper, cached in a `WeakMap`.
 
 Requires a `SandboxContext`, not a bare `Sandbox`. For anonymous, pass `sandbox.withAuth(null)` explicitly.
 
@@ -40,7 +40,7 @@ interface SnapshotObserver<T> {
   complete?: () => void;
 }
 ```
-Mirrors `firebase/firestore`'s `PartialObserver<T>`. `complete` is accepted for shape parity but never fires — the local listener stream has no terminal state.
+Mirrors `firebase/firestore`'s `PartialObserver<T>`. `complete` is accepted for shape parity but never fires: the local listener stream has no terminal state.
 
 ### `SnapshotListenOptions`
 
@@ -52,8 +52,8 @@ Type alias for `SnapshotListenerOptions`. Mirrors `firebase/firestore`'s shape; 
 
 ## Re-exported from `pyric/sandbox`
 
-- `AuthState`, `Sandbox`, `SandboxContext` — foundation types.
-- `SandboxError` — typed error family.
+- `AuthState`, `Sandbox`, `SandboxContext`: foundation types.
+- `SandboxError`: typed error family.
 
 See the [`pyric/sandbox` API reference](../pyric-sandbox-reference-api/).
 
@@ -73,7 +73,7 @@ The production-shaped Firestore types:
 
 ### Values
 
-- `FieldValue` — `serverTimestamp`, `increment`, `arrayUnion`, `arrayRemove`, `delete`.
-- `Timestamp` — wrapper class for Firestore timestamps.
+- `FieldValue`: `serverTimestamp`, `increment`, `arrayUnion`, `arrayRemove`, `delete`.
+- `Timestamp`: wrapper class for Firestore timestamps.
 
 See [Re-exported types](../pyric-admin-firestore-reference-re-exported-types/) for why the admin shape and the Web shape both appear here.

@@ -3,7 +3,7 @@ title: "Implementation scope and deferred features"
 navLabel: "Implementation scope"
 group: "pyric / storage"
 section: "Explanation"
-order: 156
+order: 149
 ---
 # Implementation scope and deferred features
 
@@ -21,7 +21,7 @@ The bounded subset:
 - `listAll`.
 - `deleteObject`.
 - `parseStorageRules`, `evaluateStorageRules`.
-- A Storage rules subset — service header, path matching, `read` / `write` allow verbs, request/resource bindings, standard operators.
+- A Storage rules subset: service header, path matching, `read` / `write` allow verbs, request/resource bindings, standard operators.
 
 End-to-end coverage: see `packages/pyric/test/storage/session-archive.test.ts`.
 
@@ -50,9 +50,9 @@ Resumable uploads with pause/resume/progress are a substantial piece of code tha
 
 A sibling `pyric/storage-admin` package could mirror `firebase-admin/storage` the way `pyric-admin` mirrors `firebase-admin/firestore`. Not built yet; not blocking the v1 scope.
 
-### Storage emulator parity testing
+### Recorded production parity testing
 
-We didn't run parity tests against the official Firebase Storage Emulator. The rules engine is verified against the engine spec; the data plane is verified against the documented API. Bit-for-bit comparison with the emulator is future work.
+Storage's behavior is not yet pinned to recorded production observations the way Auth and Firestore are. The rules engine is verified against the engine spec; the data plane is verified against the documented API. Pinning Storage to recorded production behavior is future work.
 
 ### Granular allow verbs
 
@@ -80,7 +80,7 @@ Not parsed. Inline the predicate where you need it.
 
 ### Gated `listAll`
 
-`listAll` enforces the rules engine (ST-B2). Firebase's `read` permission governs both download and list, and list is evaluated against the scanned prefix path — so `listAll` requires `read` on the listed folder. A `read` rule scoped to `match /sessions/{id}` does NOT grant list on `/sessions`; the folder needs its own read rule (the session-archive ruleset adds `match /sessions { allow read: if request.auth != null; }`). This matches prod: in real Firebase you'd hit the same requirement. With no rules configured, `listAll` is open-by-default like every other operation. (Granular `allow list` as a distinct verb is still deferred — the two-verb `read`/`write` model collapses get+list into `read`.)
+`listAll` enforces the rules engine (ST-B2). Firebase's `read` permission governs both download and list, and list is evaluated against the scanned prefix path, so `listAll` requires `read` on the listed folder. A `read` rule scoped to `match /sessions/{id}` does NOT grant list on `/sessions`; the folder needs its own read rule (the session-archive ruleset adds `match /sessions { allow read: if request.auth != null; }`). This matches prod: in real Firebase you'd hit the same requirement. With no rules configured, `listAll` is open-by-default like every other operation. (Granular `allow list` as a distinct verb is still deferred; the two-verb `read`/`write` model collapses get+list into `read`.)
 
 ### Cross-bucket isolation
 
@@ -88,7 +88,7 @@ The `bucket` option round-trips through metadata but doesn't actually partition 
 
 ### Cloud Functions Storage triggers
 
-Triggers on upload / delete are out of scope — they're not data-plane concerns. The closest analog would be a sandbox-side event channel; not built.
+Triggers on upload / delete are out of scope. They're not data-plane concerns. The closest analog would be a sandbox-side event channel; not built.
 
 ### Image transformations / Firebase Extensions
 

@@ -2,7 +2,7 @@
 title: "Rules-aware affordances"
 group: "@pyric/ui"
 section: "Storage"
-order: 202
+order: 195
 ---
 # Rules-aware affordances
 

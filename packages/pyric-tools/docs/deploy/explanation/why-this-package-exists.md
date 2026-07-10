@@ -2,7 +2,7 @@
 
 Firebase has a deploy CLI (`firebase`) and a TypeScript admin SDK (`firebase-admin`). Both are good at what they do. Neither does what `pyric-tools/deploy` does, which is:
 
-- Deploy from a long-running TypeScript process — agent runtimes, deploy bots, IDE plugins, CI scripts — without spawning a CLI subprocess.
+- Deploy from a long-running TypeScript process (agent runtimes, deploy bots, IDE plugins, CI scripts) without spawning a CLI subprocess.
 - Run the same code in Node and in a browser.
 - Hand the deploy primitives to an LLM-driven agent as structured tools.
 - Stay free of `firebase-admin` so callers don't pull a 50 MB transitive graph for what is, mechanically, a handful of HTTPS calls.
@@ -20,11 +20,11 @@ The `firebase` CLI is a one-shot tool: you invoke it from a shell, it reads a `f
 
 ## `firebase-admin` carries too much
 
-`firebase-admin` is built around the assumption that you're writing a long-running Node service that uses every Firebase product — Auth, Firestore, Realtime Database, Cloud Messaging, Storage, plus the deploy admin surface. That's the right shape for a backend, but it's wrong for our consumer.
+`firebase-admin` is built around the assumption that you're writing a long-running Node service that uses every Firebase product: Auth, Firestore, Realtime Database, Cloud Messaging, Storage, plus the deploy admin surface. That's the right shape for a backend, but it's wrong for our consumer.
 
-The actual mechanical surface of "deploy a function" or "deploy Hosting files" is small — a handful of REST calls against well-documented endpoints. `firebase-admin` wraps those calls behind classes, interceptors, and a dependency graph that doesn't tree-shake meaningfully.
+The actual mechanical surface of "deploy a function" or "deploy Hosting files" is small: a handful of REST calls against well-documented endpoints. `firebase-admin` wraps those calls behind classes, interceptors, and a dependency graph that doesn't tree-shake meaningfully.
 
-We use plain `fetch` instead. The package has no Firebase dependencies — just `fflate` (for zip), the package's own helpers, and Node built-ins where unavoidable.
+We use plain `fetch` instead. The package has no Firebase dependencies, only `fflate` (for zip), the package's own helpers, and Node built-ins where unavoidable.
 
 ## Agent-shaped surfaces are a goal, not an afterthought
 
@@ -53,10 +53,10 @@ You don't need a translation layer between "deploy primitives" and "tool handler
 
 ## What stays out
 
-- **Data plane** (read / write documents) — that's `pyric/firestore` and `pyric-admin`.
-- **Rules tooling** (parse, lint, simulate) — that's `pyric/rules`.
-- **Auth admin** (user management, custom claims) — not yet implemented; will live here when it lands.
-- **Realtime Database deploy** — deferred until a consumer asks.
-- **Storage upload** — `pyric/storage` covers the storage data plane; the storage admin surface (CORS, bucket creation) will live here when needed.
+- **Data plane** (read / write documents): handled by `pyric/firestore` and `pyric-admin`.
+- **Rules tooling** (parse, lint, simulate): handled by `pyric/rules`.
+- **Auth admin** (user management, custom claims): not yet implemented, will live here when it lands.
+- **Realtime Database deploy**: deferred until a consumer asks.
+- **Storage upload**: `pyric/storage` covers the storage data plane; the storage admin surface (CORS, bucket creation) will live here when needed.
 
 The principle: anything that *mutates project configuration* belongs here; anything that *reads or writes data within an already-deployed project* belongs in a sibling package.

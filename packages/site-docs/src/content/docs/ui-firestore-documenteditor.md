@@ -2,7 +2,7 @@
 title: "<DocumentEditor>"
 group: "@pyric/ui"
 section: "Firestore"
-order: 191
+order: 184
 ---
 # `<DocumentEditor>`
 

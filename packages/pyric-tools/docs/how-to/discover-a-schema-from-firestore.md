@@ -1,6 +1,6 @@
 # How to infer a schema from an existing Firestore
 
-You have a real Firestore database and you want its inferred shape — the
+You have a real Firestore database and you want its inferred shape: the
 collections, their fields, field types, presence ratios, enum-like value
 sets, and example values. This guide walks you through running
 `pyric firestore:discover` against that database so you can use the output
@@ -20,10 +20,10 @@ credentials and a project before you run anything.
 
 Provide a service account through **one** of these environment variables:
 
-- `FIREBASE_SA_BASE64` — the service-account JSON, base64-encoded. It is
+- `FIREBASE_SA_BASE64`: the service-account JSON, base64-encoded. It is
   decoded in memory and never written to disk, which makes it the better
   fit for CI runners.
-- `GOOGLE_APPLICATION_CREDENTIALS` — a filesystem path to the
+- `GOOGLE_APPLICATION_CREDENTIALS`: a filesystem path to the
   service-account JSON file (the standard Google ADC convention).
 
 If both are set, `FIREBASE_SA_BASE64` wins. If neither is set, the command
@@ -70,7 +70,7 @@ pyric firestore:discover --project my-project-id
 
 Pass a collection id as the positional argument to narrow the crawl to
 that root collection (and its subcollections). This is the "tell me about
-this one collection" probe — it avoids walking the whole tree:
+this one collection" probe. It avoids walking the whole tree:
 
 ```bash
 pyric firestore:discover users --project my-project-id
@@ -87,34 +87,34 @@ For the complete flag list, see the
 The command prints a single JSON object to stdout with these top-level
 fields:
 
-- `complete` — `true` if the crawl finished without a pending
+- `complete`: `true` if the crawl finished without a pending
   continuation, `false` otherwise.
-- `listOps` — cumulative count of list operations the crawl issued.
-- `readOps` — cumulative count of document reads the crawl issued.
-- `schemaByTemplate` — a map keyed by **template path** (for example
+- `listOps`: cumulative count of list operations the crawl issued.
+- `readOps`: cumulative count of document reads the crawl issued.
+- `schemaByTemplate`: a map keyed by **template path** (for example
   `users/{userId}/posts`), each value being the inferred schema for that
   collection.
 
 Each entry under `schemaByTemplate` describes one collection:
 
-- `templatePath` — the templated collection path, e.g.
+- `templatePath`: the templated collection path, e.g.
   `users/{userId}/posts`. This is the cross-reference key you would line up
   against your security rules.
-- `examplePath` — a concrete observed path, e.g. `users/uid_42/posts`,
+- `examplePath`: a concrete observed path, e.g. `users/uid_42/posts`,
   when one was sampled.
-- `schema.fields` — a map of field name to a descriptor that carries the
+- `schema.fields`: a map of field name to a descriptor that carries the
   observed `types`, presence counts (`presenceSeen` / `presenceTotal`),
   whether the field was ever `null` (`nullable`), an optional
   `enumCandidate` (the low-cardinality value set), and an `example` value.
-- `schema.samplesSeen` — how many documents were fed into the inference
+- `schema.samplesSeen`: how many documents were fed into the inference
   for that collection.
-- `samplingComplete` — how sampling terminated for the collection:
+- `samplingComplete`: how sampling terminated for the collection:
   `converged_via_stable`, `converged_via_exhausted`, `converged_via_max`,
   or `sampling_open`. Treat `converged_via_max` and `sampling_open` as
   "schema may be incomplete".
-- `declaredAt` — the document index at which convergence was declared, or
+- `declaredAt`: the document index at which convergence was declared, or
   `null` if it was not.
-- `subcollectionTemplatePaths` — the child collection template paths
+- `subcollectionTemplatePaths`: the child collection template paths
   discovered beneath this collection.
 
 Redirect the output to a file so you can feed it into your next step:

@@ -3,23 +3,23 @@ title: "How to test rules against the Firebase Rules Test API"
 navLabel: "Test rules against Firebase"
 group: "pyric / rules"
 section: "How-to"
-order: 101
+order: 98
 ---
 # How to test rules against the Firebase Rules Test API
 
-This guide shows you how to evaluate Firestore rules against Google's live Rules Test API. Use this when the local simulator returns `UNSUPPORTED`, or when you need parity with what production will actually decide.
+Evaluate Firestore rules against Google's live Rules Test API. Use this when the local simulator returns `UNSUPPORTED`, or when you need parity with what production will actually decide.
 
-The Rules Test API does not deploy the rules — it evaluates them against your test cases on Google's servers, in the same engine production uses, and returns pass/fail per case.
+The Rules Test API does not deploy the rules. It evaluates them against your test cases on Google's servers, in the same engine production uses, and returns pass/fail per case.
 
 ## You need a `ProjectScope`
 
-`TestFirestoreRulesHandler.execute` takes a `ProjectScope` from `pyric-tools/deploy` — a `{ projectId, resolveToken }` pair. Build it from a service-account file:
+`TestFirestoreRulesHandler.execute` takes a `ProjectScope` from `pyric-tools/deploy`, a `{ projectId, resolveToken }` pair. Build it from a service-account file:
 ```ts
 import { fromServiceAccount } from 'pyric-tools/deploy';
 
 const scope = await fromServiceAccount('./service-account.json');
 ```
-Or build one by hand from any OAuth source — for example, the current Firebase Auth user in a browser host:
+Or build one by hand from any OAuth source, for example the current Firebase Auth user in a browser host:
 ```ts
 import type { ProjectScope } from 'pyric-tools/deploy';
 
@@ -38,7 +38,7 @@ import {
 const handler = new TestFirestoreRulesHandler();
 const result = await handler.execute(scope, source, testCases);
 ```
-The result shape is identical to `SimulateFirestoreRulesHandler.simulate` — the same `TestCase` and `TestResult` types, the same `{ passed, failed, results }`. The only difference is that `result.data.unsupported` is always `0` (the live API never abstains).
+The result shape is identical to `SimulateFirestoreRulesHandler.simulate`: the same `TestCase` and `TestResult` types, the same `{ passed, failed, results }`. The only difference is that `result.data.unsupported` is always `0` (the live API never abstains).
 
 ## Handle authentication failures
 
@@ -62,7 +62,7 @@ if (!result.success) {
 
 Two common patterns:
 
-**Local-first, escalate on `UNSUPPORTED`** — fast for the common case, accurate when needed:
+**Local-first, escalate on `UNSUPPORTED`**: fast for the common case, accurate when needed.
 ```ts
 import {
   SimulateFirestoreRulesHandler,
@@ -83,7 +83,7 @@ if (needsEscalation.length > 0) {
   // merge `remote.data.results` back into `local.data.results` by index
 }
 ```
-**Test-only** — slower but bit-for-bit production parity:
+**Test-only**: slower, but bit-for-bit production parity.
 ```ts
 const result = await new TestFirestoreRulesHandler().execute(scope, source, testCases);
 ```

@@ -1,6 +1,6 @@
 # How to run a transaction
 
-This guide shows you how to use `runTransaction` against either backend.
+Read a document and write based on its current value, atomically, with `runTransaction`. It works the same against either backend.
 
 ## The shape
 
@@ -18,7 +18,7 @@ const result = await runTransaction(db, async (tx) => {
 console.log('Counter is now:', result);
 ```
 
-`runTransaction` is a free function in the modular SDK shape (vs. `db.runTransaction(...)` on the admin shape). The first argument is the `Firestore` handle, the second is your async callback.
+`runTransaction` is a free function in the modular SDK shape; the admin shape puts it on the handle as `db.runTransaction(...)`. The first argument is the `Firestore` handle, the second is your async callback.
 
 ## All reads before any writes
 
@@ -40,13 +40,13 @@ try {
 }
 ```
 
-On sandbox, aborts are not undoable — they had no effect, so popping them as undo steps would skip a real prior write.
+On sandbox, aborts are not undoable: they had no effect, so popping them as undo steps would skip a real prior write.
 
 ## Denied operations inside
 
 If a `tx.set` would deny under the current rules, the transaction aborts with `SandboxError('permission-denied')` on the sandbox backend (or `FirebaseError('firestore/permission-denied')` on prod). The `denialContext` is populated on the sandbox side.
 
-## When to use a transaction vs a batch
+## When to use a transaction or a batch
 
 - **Transaction**: you need to read a doc and write based on its current value.
 - **Batch**: you have multiple writes that don't depend on current state.

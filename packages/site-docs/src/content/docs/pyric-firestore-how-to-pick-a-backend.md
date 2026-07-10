@@ -3,11 +3,11 @@ title: "How to pick a backend at init time"
 navLabel: "Pick a backend"
 group: "pyric / firestore"
 section: "How-to"
-order: 78
+order: 77
 ---
 # How to pick a backend at init time
 
-This guide shows you how to choose between the sandbox and prod backends — and how to switch between them without changing the rest of your code.
+Choose between the sandbox and prod backends at init time, and switch between them without changing the rest of your code.
 
 ## The choice happens once
 ```ts
@@ -77,7 +77,7 @@ Each module imports only what it needs. The bundler keeps `firebase` out of the 
 | `sandbox.setRules(db, ...)` | Works | Throws `failed-precondition` |
 | Network failures | None | `unavailable`, `aborted`, etc. |
 
-For most application code, none of these matter. For code that *depends* on cache state or propagation timing, sandbox can give misleading results — those cases belong on the emulator or live Firestore.
+For most application code, none of these matter. For code that *depends* on cache state or propagation timing, sandbox can give misleading results. Those cases belong on live Firestore.
 
 ## Both at once
 

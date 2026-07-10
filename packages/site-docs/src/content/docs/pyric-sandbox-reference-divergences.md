@@ -2,17 +2,17 @@
 title: "Divergence"
 group: "pyric / sandbox"
 section: "Reference"
-order: 132
+order: 127
 ---
 # `Divergence`
 
-What `replay(events, rules, opts, originalState)` returns when the replayed state doesn't perfectly match the captured state. A discriminated union — filter on `kind` to handle each case.
+What `replay(events, rules, opts, originalState)` returns when the replayed state doesn't perfectly match the captured state. A discriminated union; filter on `kind` to handle each case.
 
 ## What is a divergence?
 
 A divergence is a single classified difference between what the original sandbox stored and what the replayed sandbox produced after re-issuing every captured write.
 
-When the engine sees a difference, it tries to *explain* it from captured metadata (which fields had `FieldValue.*` sentinels, which paths came from auto-id minting, which `request.time` the rule engine evaluated against). Each explanation maps to a `kind`. If no explanation fits, the kind is `real-divergence` — the only kind that signals an actual bug; the other three are intentional by-design differences.
+When the engine sees a difference, it tries to *explain* it from captured metadata (which fields had `FieldValue.*` sentinels, which paths came from auto-id minting, which `request.time` the rule engine evaluated against). Each explanation maps to a `kind`. If no explanation fits, the kind is `real-divergence`, the only kind that signals an actual bug. The other three are intentional by-design differences.
 
 Two design rules govern the classifier:
 
@@ -36,7 +36,7 @@ type Divergence =
 ```
 ## `kind: 'autoid-alias'`
 
-A write that originated from `LocalEnvironment.createWithAutoId` minted a fresh document ID on replay — same content, different path.
+A write that originated from `LocalEnvironment.createWithAutoId` minted a fresh document ID on replay: same content, different path.
 ```ts
 { kind: 'autoid-alias', originalPath: 'notes/Iy5CGRl0HlP1XZo4GGiI', replayedPath: 'notes/5MM3PdzWUQvqRCi3wthO' }
 ```
@@ -57,7 +57,7 @@ A captured `FieldValue.*` sentinel (other than `serverTimestamp`, which has its 
   after: 7,
 }
 ```
-Usually means **the prior state differed**, not that the sentinel itself misbehaved. `increment`, `arrayUnion`, `arrayRemove`, and `deleteField` are deterministic given the same prior — if their result differs, the prior was different. Look for an upstream `real-divergence` that explains why.
+Usually means **the prior state differed**, not that the sentinel itself misbehaved. `increment`, `arrayUnion`, `arrayRemove`, and `deleteField` are deterministic given the same prior. If their result differs, the prior was different. Look for an upstream `real-divergence` that explains why.
 
 In practice, with the same captured stream replayed onto a fresh sandbox, sentinel-drift is rare. It surfaces most often when you replay onto state that *isn't* the captured starting point (e.g., partial replays, splicing two logs).
 
@@ -73,12 +73,12 @@ A captured `serverTimestamp()` sentinel at this exact field path resolved to a d
   after:  { __type: 'timestamp', seconds: 1778955966, nanos: 657000000 },
 }
 ```
-Only fires when `pinRequestTime: false`. With the default `pinRequestTime: true`, the engine re-issues the captured `request.time` to the fresh sandbox so the sentinel resolves to the same value — zero `time-drift`.
+Only fires when `pinRequestTime: false`. With the default `pinRequestTime: true`, the engine re-issues the captured `request.time` to the fresh sandbox so the sentinel resolves to the same value: zero `time-drift`.
 
 Not a bug. Useful for two scenarios:
 
-- **Rules that branch on `request.time`** — turn pinning off and see whether a captured stream that passed yesterday still passes today. If a rule like `allow write: if request.time >= timestamp.date(2024, 1, 1)` started failing, you'd see denied writes surface as `real-divergence` rather than `time-drift` (the time-drift signals "yes, time moved" without it being a bug).
-- **Debugging "why is my serverTimestamp different"** — the `before` / `after` values show exactly how far the clock drifted.
+- **Rules that branch on `request.time`**. Turn pinning off and see whether a captured stream that passed yesterday still passes today. If a rule like `allow write: if request.time >= timestamp.date(2024, 1, 1)` started failing, you'd see denied writes surface as `real-divergence` rather than `time-drift` (the time-drift signals "yes, time moved" without it being a bug).
+- **Debugging "why is my serverTimestamp different"**. The `before` / `after` values show exactly how far the clock drifted.
 
 ## `kind: 'real-divergence'`
 
@@ -92,15 +92,15 @@ Anything else. Captured metadata doesn't license this difference, so the engine 
   after: 'NOT-alice',
 }
 ```
-The `field` may be absent — for example, when an entire document is present on one side and missing on the other, the path alone identifies the divergence:
+The `field` may be absent. For example, when an entire document is present on one side and missing on the other, the path alone identifies the divergence:
 ```ts
 { kind: 'real-divergence', path: 'notes/x', before: { /* doc */ }, after: undefined }
 ```
 This is the only kind that signals an actual bug. Common causes:
 
-- **Rules changed between capture and replay** — a write that succeeded originally gets denied; the doc is missing in replayed state.
-- **A captured write hit a sandbox feature that isn't deterministic** — the engine's contract says writes are deterministic given the same prior + rules + clock; if you see real-divergence on a clean replay, something is non-deterministic in the path you're testing.
-- **Replay state seeded incorrectly** — if you persisted state separately from events and they drift apart, fields can disagree.
+- **Rules changed between capture and replay**: a write that succeeded originally gets denied; the doc is missing in replayed state.
+- **A captured write hit a sandbox feature that isn't deterministic**: the engine's contract says writes are deterministic given the same prior + rules + clock; if you see real-divergence on a clean replay, something is non-deterministic in the path you're testing.
+- **Replay state seeded incorrectly**: if you persisted state separately from events and they drift apart, fields can disagree.
 
 ## Classifying in code
 ```ts
@@ -138,6 +138,6 @@ This matches the `field` shape on captured `WriteSandboxEvent.sentinels[]`, so s
 
 ## See also
 
-- [How-to: Replay a captured event stream](../pyric-sandbox-how-to-replay-events/) — capture / replay / classify workflow.
-- [`SandboxEvent` reference](../pyric-sandbox-reference-sandbox-event/) — the events `sandbox.history()` returns, including `WriteSandboxEvent.sentinels`.
-- `packages/pyric/src/sandbox/replay/index.ts` — the classifier source; file header documents the contract.
+- [How-to: Replay a captured event stream](../pyric-sandbox-how-to-replay-events/): capture / replay / classify workflow.
+- [`SandboxEvent` reference](../pyric-sandbox-reference-sandbox-event/): the events `sandbox.history()` returns, including `WriteSandboxEvent.sentinels`.
+- `packages/pyric/src/sandbox/replay/index.ts`: the classifier source; file header documents the contract.

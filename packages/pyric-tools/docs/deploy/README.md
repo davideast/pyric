@@ -1,12 +1,12 @@
 # `pyric-tools/deploy`
 
-Firebase control-plane primitives — Hosting, Cloud Functions Gen 2, Firestore rules, Firestore indexes, Firestore database provisioning, and Realtime Database rules — without the `firebase` CLI. Pure-fetch over OAuth access tokens; works in Node and the browser alike.
+Firebase control-plane primitives for Hosting, Cloud Functions Gen 2, Firestore rules, Firestore indexes, Firestore database provisioning, and Realtime Database rules, without the `firebase` CLI. Pure-fetch over OAuth access tokens; works in Node and the browser alike.
 
 The package is organised around three things:
 
-- **`ProjectScope`** — a tiny `{ projectId, resolveToken }` pair every primitive takes as its first argument. Build one from a service-account JSON (Node) or from `firebaseAuth.currentUser.getIdToken()` (browser).
-- **Namespaced primitives** — `hosting`, `functions`, `firestore`, `rtdb`, and `recipes`. Each groups the operations for one Firebase product.
-- **Tool factories** — `createHostingDeployTools`, `createFunctionsDeployTools`, `createFirestoreDeployTools`, `createRtdbDeployTools`. Each returns a `ToolHandler[]` ready to feed an `@inbrowser/agent` registry.
+- **`ProjectScope`**: a tiny `{ projectId, resolveToken }` pair every primitive takes as its first argument. Build one from a service-account JSON (Node) or from `firebaseAuth.currentUser.getIdToken()` (browser).
+- **Namespaced primitives**: `hosting`, `functions`, `firestore`, `rtdb`, and `recipes`. Each groups the operations for one Firebase product.
+- **Tool factories**: `createHostingDeployTools`, `createFunctionsDeployTools`, `createFirestoreDeployTools`, `createRtdbDeployTools`. Each returns a `ToolHandler[]` ready to feed an `@inbrowser/agent` registry.
 
 ## Install
 
@@ -47,7 +47,7 @@ Documentation is organised under [`docs/`](./) following the [Diataxis](https://
 
 ## Position in the Pyric stack
 
-`pyric-tools/deploy` is the **control plane**. It mutates project configuration (deploys rules, creates indexes, uploads functions). It does not read or write Firestore documents — that's `pyric/firestore` (data plane) and `pyric/rules` (rules tooling). The three packages plus `pyric/sandbox` form a loose hexagon; each depends on a small surface of the others.
+`pyric-tools/deploy` is the **control plane**. It mutates project configuration (deploys rules, creates indexes, uploads functions). It does not read or write Firestore documents; that's `pyric/firestore` (data plane) and `pyric/rules` (rules tooling). The three packages plus `pyric/sandbox` form a loose hexagon; each depends on a small surface of the others.
 
 See [Why this package exists](./explanation/why-this-package-exists.md) for the longer story.
 

@@ -85,7 +85,7 @@ interface LetBinding {
 
 ## `Expression`
 
-Discriminated union — the discriminator is `type`.
+Discriminated union. The discriminator is `type`.
 
 ```ts
 type Expression =
@@ -108,12 +108,12 @@ type Expression =
 
 ### Notes per variant
 
-- `literal.raw` preserves the original source text of the literal — useful for diagnostics and for `RULES_WEAKENED`'s deterministic serialiser.
+- `literal.raw` preserves the original source text of the literal, useful for diagnostics and for `RULES_WEAKENED`'s deterministic serialiser.
 - `binaryOp.op` is one of: `&&`, `||`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-`, `*`, `/`, `%`.
 - `unaryOp.op` is `!` or `-`.
-- `methodCall.method` and `memberAccess.property` are strings — there are no nested expressions in the property position.
+- `methodCall.method` and `memberAccess.property` are strings: there are no nested expressions in the property position.
 - `inExpr` represents `x in y`. `isExpr` represents `x is timestamp` (and other type tests).
-- `pathLiteral.segments` is `Array<string | Expression>` — a string segment is a literal path component, an `Expression` segment is an interpolation like `$(uid)`.
+- `pathLiteral.segments` is `Array<string | Expression>`: a string segment is a literal path component, an `Expression` segment is an interpolation like `$(uid)`.
 - `sliceAccess` represents `bytes[0:10]` style slicing. Only valid on `Bytes` at runtime.
 
 ## Right-associative chains

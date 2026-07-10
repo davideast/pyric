@@ -3,7 +3,7 @@ title: "How to enforce Storage rules"
 navLabel: "Enforce Storage rules"
 group: "pyric / storage"
 section: "How-to"
-order: 147
+order: 141
 ---
 # How to enforce Storage rules
 
@@ -31,7 +31,7 @@ const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
   rules: RULES,
 });
 ```
-The `rules` source is parsed eagerly — malformed source throws a `SyntaxError` at handle construction. After config, every operation evaluates against the rules.
+The `rules` source is parsed eagerly: malformed source throws a `SyntaxError` at handle construction. After config, every operation evaluates against the rules.
 
 ## The `request.resource == null` carve-out
 
@@ -52,7 +52,7 @@ The pattern is standard in production Storage rules. Match it.
 |---|---|
 | `getBytes`, `getBlob`, `getMetadata` | `read` |
 | `uploadBytes`, `uploadString`, `updateMetadata`, `deleteObject` | `write` |
-| `listAll` | (not currently gated — see [implementation scope](../pyric-storage-explanation-implementation-scope/)) |
+| `listAll` | `read`, evaluated against the listed folder path (see [List and delete](../pyric-storage-how-to-list-and-delete/)) |
 
 The granular verbs (`get`, `list`, `create`, `update`, `delete`) are deferred. Currently the parser rejects them.
 
@@ -73,7 +73,7 @@ try {
 ```
 The rules engine sees `request.auth.uid == 'alice'` in the first call and `request.auth == null` in the second.
 
-The `rules` option only takes effect on the *first* `getStorageSandbox` call per sandbox — subsequent calls return the cached handle. The cached handle's rules apply uniformly to every user via that sandbox.
+The `rules` option only takes effect on the *first* `getStorageSandbox` call per sandbox. Subsequent calls return the cached handle, and its rules apply uniformly to every user via that sandbox.
 
 ## Catching denials
 

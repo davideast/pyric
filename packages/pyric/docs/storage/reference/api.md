@@ -8,7 +8,7 @@ Every symbol exported from `pyric/storage`.
 
 Build a Storage handle backed by IndexedDB.
 
-`target` is either a `Sandbox` (anonymous identity wired internally) or a `SandboxContext`. The handle is idempotent — calling `getStorageSandbox` twice with the same context returns the same wrapper.
+`target` is either a `Sandbox` (anonymous identity wired internally) or a `SandboxContext`. The handle is idempotent: calling `getStorageSandbox` twice with the same context returns the same wrapper.
 
 ### `getStorageProd(app, options?): FirebaseStorage`
 
@@ -16,7 +16,7 @@ Build a Storage handle backed by the real Firebase Storage. Dispatches to `fireb
 
 ### `const TARGET_SYMBOL: unique symbol`
 
-The discriminator that lets downstream functions tell the two backends apart. Consumers don't import this — pass the handle to free functions.
+The discriminator that lets downstream functions tell the two backends apart. Consumers don't import this. Pass the handle to free functions.
 
 ## Reference construction
 
@@ -77,7 +77,7 @@ Atomically removes both the blob and its metadata. No-op on missing paths.
 
 ### `getMetadata(ref): Promise<FullMetadata>`
 
-Read every metadata field — both client-settable and server-set.
+Read every metadata field, both client-settable and server-set.
 
 ### `updateMetadata(ref, patch): Promise<FullMetadata>`
 
@@ -125,7 +125,7 @@ interface ListResult {
 }
 ```
 
-Paginated `list(ref, { maxResults, pageToken })` is deferred — `listAll` covers every v1 scope scenario.
+Paginated `list(ref, { maxResults, pageToken })` is deferred. `listAll` covers every v1 scope scenario.
 
 ## Rules
 
@@ -137,7 +137,7 @@ Parse a Storage rules source. Surfaces parse errors with line/column info. Usefu
 
 Evaluate parsed rules against a synthetic request shape. Returns `{ allowed: true } | { allowed: false; reason }`.
 
-Typically you don't call these directly — pass the source to `getStorageSandbox(target, { rules })` and operations enforce it automatically.
+Typically you don't call these directly. Pass the source to `getStorageSandbox(target, { rules })` and operations enforce it automatically.
 
 ## Service types
 
@@ -159,7 +159,7 @@ See [`StorageOptions`](./storage-options.md).
 
 ### `ProdStorageOptions`
 
-The options accepted by `getStorageProd`. Subset of `StorageOptions` — no `dbName` (there's no IndexedDB on the prod backend), no `rules` (rules are deployed via `firebase deploy --only storage:rules`).
+The options accepted by `getStorageProd`. Subset of `StorageOptions`: no `dbName` (there's no IndexedDB on the prod backend), no `rules` (rules are deployed via `firebase deploy --only storage:rules`).
 
 ### `Target`, `SandboxTarget`, `ProdTarget`
 

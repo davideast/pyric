@@ -2,7 +2,7 @@
 title: "Query constraints"
 group: "pyric / firestore"
 section: "Reference"
-order: 85
+order: 84
 ---
 # Query constraints
 
@@ -33,7 +33,7 @@ query(
 ```
 ### `and(...filters)`
 
-Compose multiple filters with AND semantics. Useful inside `or` (the only context where AND combinators are needed — top-level constraints are already AND-combined).
+Compose multiple filters with AND semantics. Top-level constraints already AND together, so `and` is only needed inside an `or`.
 ```ts
 or(
   and(where('priority', '>=', 5), where('archived', '==', false)),
@@ -48,7 +48,7 @@ orderBy('createdAt')              // default 'asc'
 orderBy('createdAt', 'desc')
 orderBy('priority', 'desc')
 ```
-`direction` is `'asc'` or `'desc'`. Multiple `orderBy` calls in one query stack — later constraints are tiebreakers.
+`direction` is `'asc'` or `'desc'`. Multiple `orderBy` calls in one query stack; later constraints are tiebreakers.
 
 ## Limits
 
@@ -58,7 +58,7 @@ Cap the result set to `n` documents.
 
 ### `limitToLast(n)`
 
-Cap to the last `n` documents in the query's ordering. Requires at least one `orderBy`; reverses internally to fetch the tail.
+Cap to the last `n` documents in the query's ordering. Requires at least one `orderBy`. Reverses internally to fetch the tail.
 
 ## Cursors
 
@@ -96,7 +96,7 @@ const secondPage = await getDocs(query(
 ```
 ## Sandbox-backend caveat
 
-Chained queries (`.where`, `.orderBy`, `.limit`) currently route to the underlying `LocalEnvironment` as whole-collection listeners when used with `onSnapshot`. The simulator fires for any change in the collection and the callback receives every document. Filter / order honouring at the listener layer is in a later slice — for `getDocs` calls, the constraints apply normally.
+Chained queries (`.where`, `.orderBy`, `.limit`) currently route to the underlying `LocalEnvironment` as whole-collection listeners when used with `onSnapshot`. The simulator fires for any change in the collection and the callback receives every document. Filter / order honouring at the listener layer is in a later slice. For `getDocs` calls, the constraints apply normally.
 
 This matters only for `onSnapshot`. One-shot `getDocs` evaluates the filters correctly on both backends.
 
@@ -113,7 +113,7 @@ const q = query(
   limit(20),
 );
 ```
-The order of constraints in the argument list doesn't change semantics — the engine sorts them into the right execution order. Keep them in a readable order for humans.
+The order of constraints in the argument list doesn't change semantics. The engine sorts them into the right execution order, so keep them in a readable order for humans.
 
 ## Where to look next
 

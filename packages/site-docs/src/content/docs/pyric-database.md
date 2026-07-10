@@ -3,7 +3,7 @@ title: "Realtime Database"
 navLabel: "Overview"
 group: "pyric / database"
 section: ""
-order: 163
+order: 156
 ---
 # Realtime Database
 

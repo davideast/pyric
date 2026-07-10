@@ -53,7 +53,7 @@ Default ignore set keeps the bundle small without a `.gcloudignore`: `node_modul
 
 `BundleOptions` (when called via the lower-level bundler):
 
-- `slim: boolean` — default `true`. Rewrites `package.json` to drop `devDependencies` and build-related scripts, and drops `package-lock.json` so the Cloud Build buildpack falls back to `npm install --omit=dev`.
+- `slim: boolean`: default `true`. Rewrites `package.json` to drop `devDependencies` and build-related scripts, and drops `package-lock.json` so the Cloud Build buildpack falls back to `npm install --omit=dev`.
 
 ## `functions.pollOperation(scope, operationName, opts?)`
 
@@ -81,7 +81,7 @@ async function grantPublicInvoker(
   input: { region: string; serviceId: string },
 ): Promise<IamGrantResult>;
 ```
-`serviceId` is the Cloud Run service the function landed on — usually the same as the function id, but check `DeployedFunction.uri` when in doubt.
+`serviceId` is the Cloud Run service the function landed on, usually the same as the function id, but check `DeployedFunction.uri` when in doubt.
 
 ## `FunctionDeployConfig`
 ```ts

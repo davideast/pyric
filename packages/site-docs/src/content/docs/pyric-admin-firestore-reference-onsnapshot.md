@@ -2,7 +2,7 @@
 title: "onSnapshot overloads"
 group: "pyric-admin / firestore"
 section: "Reference"
-order: 175
+order: 168
 ---
 # `onSnapshot` overloads
 
@@ -44,25 +44,25 @@ interface SnapshotListenOptions {
   includeMetadataChanges?: boolean;
 }
 ```
-Accepted for shape parity. `includeMetadataChanges` has no observable effect in the sandbox — there's no offline cache and no pending-writes window, so `metadata.fromCache` and `metadata.hasPendingWrites` are always `false`.
+Accepted for shape parity. `includeMetadataChanges` has no observable effect in the sandbox (there's no offline cache and no pending-writes window), so `metadata.fromCache` and `metadata.hasPendingWrites` are always `false`.
 
 ## What `Unsubscribe` does
 
-Calling the returned function deregisters the listener and stops further callback invocations. Idempotent — calling it twice is a no-op.
+Calling the returned function deregisters the listener and stops further callback invocations. Idempotent: calling it twice is a no-op.
 
 Always unsubscribe before discarding a listener, especially in React `useEffect` cleanup. Without it, a new render registers a fresh listener and the old one stays alive (until the sandbox is reset or disposed).
 
 ## What fires the `error` callback
 
-The observer's `error` (or the positional `onError`) fires when a snapshot listener is silently terminated by a rule denial — either at initial read or during re-evaluation after a write. Once-per-stream: after `error` fires, no further callbacks happen on that listener.
+The observer's `error` (or the positional `onError`) fires when a snapshot listener is silently terminated by a rule denial, either at initial read or during re-evaluation after a write. Once-per-stream: after `error` fires, no further callbacks happen on that listener.
 
 The sandbox also exposes `sandbox.onSnapshotError(cb)` (from `pyric/sandbox`) which fires for every stream-error across every listener. Use that when you want host-level error handling without each listener registering its own callback.
 
 ## What does *not* fire the callbacks
 
-- Network failures — there is no network.
-- `unavailable` / `aborted` errors — no transport, no concurrent transactions.
-- `complete` — the listener stream has no terminal state.
+- Network failures: there is no network.
+- `unavailable` / `aborted` errors: no transport, no concurrent transactions.
+- `complete`: the listener stream has no terminal state.
 
 ## Routing
 
@@ -74,7 +74,7 @@ The handler routes by reference type:
 | `CollectionReference` | `{ kind: 'query', collection: path }` |
 | Chained query (`.where`, `.orderBy`, `.limit`) | `{ kind: 'query', collection: rootCollection }` |
 
-Chained queries currently route as whole-collection listeners — the simulator fires for any change in the collection, and the callback receives every document. Filter/order honoring at the listener layer is in a later slice.
+Chained queries currently route as whole-collection listeners: the simulator fires for any change in the collection, and the callback receives every document. Filter/order honoring at the listener layer is in a later slice.
 
 ## Auth capture at register time
 

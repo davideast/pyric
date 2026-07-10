@@ -1,6 +1,6 @@
 # How to pin `request.time` for deterministic tests
 
-A rule that reads `request.time` evaluates against wallclock by default. That makes any date-gated test flaky: the same `TestCase` run twice can decide `ALLOW` once and `DENY` the next. This guide shows you how to pin time so the verdict is reproducible.
+A rule that reads `request.time` evaluates against wallclock by default. That makes any date-gated test flaky: the same `TestCase` run twice can decide `ALLOW` once and `DENY` the next. Pin time and the verdict is reproducible.
 
 ## Set `requestTime` on every affected `TestCase`
 
@@ -58,5 +58,5 @@ The linter only flags a case if its `path` actually matches a rule that reads `r
 
 ## Where to look next
 
-- For the timestamp value model, see [Value wrappers reference — `Timestamp`](../reference/value-wrappers.md#timestamp).
-- For the `TestCase` schema field, see [`TestCase` schema — `requestTime`](../reference/test-case-schema.md#requesttime).
+- For the timestamp value model, see [`Timestamp` in the value wrappers reference](../reference/value-wrappers.md#timestamp).
+- For the `TestCase` schema field, see [`requestTime` in the `TestCase` schema](../reference/test-case-schema.md#requesttime).

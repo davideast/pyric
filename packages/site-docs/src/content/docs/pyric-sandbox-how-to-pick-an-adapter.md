@@ -3,7 +3,7 @@ title: "How to pick between pyric-admin and pyric/firestore"
 navLabel: "Pick an adapter"
 group: "pyric / sandbox"
 section: "How-to"
-order: 125
+order: 120
 ---
 # How to pick between `pyric-admin` and `pyric/firestore`
 
@@ -11,7 +11,7 @@ Two adapter packages sit on top of `pyric/sandbox`. Both expose Firestore. They 
 
 ## The two surfaces
 
-**`pyric-admin`** mirrors `firebase-admin/firestore` — chainable, class-shaped:
+**`pyric-admin`** mirrors `firebase-admin/firestore`: chainable, class-shaped.
 ```ts
 import { getFirestore } from 'pyric-admin';
 
@@ -21,7 +21,7 @@ await db.collection('notes').doc('n1').set({ title: 'hello' });
 const snap = await db.collection('notes').where('owner', '==', 'alice').get();
 await db.runTransaction(async (tx) => { /* ... */ });
 ```
-**`pyric/firestore`** mirrors `firebase/firestore` (the modular Web SDK) — function-shaped, tree-shakable:
+**`pyric/firestore`** mirrors `firebase/firestore` (the modular Web SDK): function-shaped, tree-shakable.
 ```ts
 import { initializeFirestore, getDoc, setDoc, doc, query, where, getDocs } from 'pyric/firestore';
 
@@ -41,12 +41,12 @@ Both back onto the same `LocalEnvironment` under the hood. The runtime behaviour
 | `pyric-admin` | You prefer chainable / OO-style APIs. |
 | `pyric-admin` | You're writing tests that need to mirror admin SDK semantics. |
 | `pyric/firestore` | Your production code uses `firebase/firestore` (web app, React Native). |
-| `pyric/firestore` | You want tree-shaking — the modular SDK is designed for it. |
+| `pyric/firestore` | You want tree-shaking; the modular SDK is designed for it. |
 | `pyric/firestore` | You're sharing test code with browser-side components that import `firebase/firestore`. |
 
 ## Rule of thumb
 
-The right choice is whatever shape your *production* code already uses. The sandbox is a development tool — keeping the test code's surface identical to production avoids translation bugs.
+The right choice is whatever shape your *production* code already uses. The sandbox is a development tool, and keeping the test code's surface identical to production avoids translation bugs.
 
 If you're working in both environments (a hybrid app, a Cloud Functions backend with a web frontend), use both. They share the same sandbox cleanly:
 ```ts

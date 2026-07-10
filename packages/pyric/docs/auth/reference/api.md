@@ -1,4 +1,4 @@
-# API reference — `pyric/auth`
+# API reference: `pyric/auth`
 
 Exact signatures of every public export, grouped by purpose. Sandbox-only behavior is called out per function.
 
@@ -82,7 +82,7 @@ function signInWithPopup(auth: Auth, provider: AuthProvider): Promise<UserCreden
 function signInWithCredential(auth: Auth, credential: AuthCredential): Promise<UserCredential>;
 ```
 
-Sandbox: looks up the pre-staged mock by `providerId` (set via `sandbox.mockSignInResult`). One-shot — each mock is consumed by one sign-in call. Throws `auth/no-mock-configured` if absent.
+Sandbox: looks up the pre-staged mock by `providerId` (set via `sandbox.mockSignInResult`). One-shot: each mock is consumed by one sign-in call. Throws `auth/no-mock-configured` if absent.
 
 ### `setPersistence(auth, persistence)`
 
@@ -113,7 +113,7 @@ Fires immediately on subscribe with current state (via microtask). Subsequent fi
 
 Same shape as `onAuthStateChanged`.
 
-**Sandbox divergence:** fires on user change only. Sandbox issues no token refresh, so a forced `getIdToken(true)` does NOT trigger this channel. Prod fires on both user change and token refresh.
+Sandbox fires on identity change and on `getIdToken(true)` forced refresh, matching prod (oracle `auth-onidtokenchanged-force-refresh.json`). It does not fire spontaneously, because sandbox tokens don't expire.
 
 ---
 
@@ -133,14 +133,14 @@ Each (except `OAuthProvider`) exposes `credentialFromResult(result)` and `creden
 
 ## Types
 
-- `Auth` — `{ currentUser: User | null }` plus an opaque `TARGET_SYMBOL` brand.
-- `User` — `uid`, `email`, `displayName`, `isAnonymous`, `getIdToken()`, `getIdTokenResult()`.
-- `IdTokenResult` — `token`, `claims`, `expirationTime`, `issuedAtTime`, `authTime`.
-- `UserCredential` — `user`, `providerId`, `operationType` (`'signIn'` / `'reauthenticate'` / `'link'`).
-- `AuthCredential` — `providerId`, `signInMethod`.
-- `Persistence` — `{ type: 'NONE' | 'SESSION' | 'LOCAL' }`.
-- `AuthObserver` — function form or `{ next, error, complete }` object.
-- `Unsubscribe` — `() => void`.
+- `Auth`: `{ currentUser: User | null }` plus an opaque `TARGET_SYMBOL` brand.
+- `User`: `uid`, `email`, `displayName`, `isAnonymous`, `getIdToken()`, `getIdTokenResult()`.
+- `IdTokenResult`: `token`, `claims`, `expirationTime`, `issuedAtTime`, `authTime`.
+- `UserCredential`: `user`, `providerId`, `operationType` (`'signIn'` / `'reauthenticate'` / `'link'`).
+- `AuthCredential`: `providerId`, `signInMethod`.
+- `Persistence`: `{ type: 'NONE' | 'SESSION' | 'LOCAL' }`.
+- `AuthObserver`: function form or `{ next, error, complete }` object.
+- `Unsubscribe`: `() => void`.
 
 ## Sandbox-only test driver
 

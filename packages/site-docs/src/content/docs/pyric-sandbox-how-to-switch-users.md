@@ -3,11 +3,11 @@ title: "How to switch users with withAuth"
 navLabel: "Switch users"
 group: "pyric / sandbox"
 section: "How-to"
-order: 129
+order: 124
 ---
 # How to switch users with `withAuth`
 
-This guide shows you how to evaluate rules under different auth identities against the same sandbox.
+Evaluate rules under different auth identities against the same sandbox.
 
 ## Two contexts, one sandbox
 ```ts
@@ -52,22 +52,22 @@ allow update: if request.auth.token.role == 'editor'
 ```
 ## Anonymous must be explicit
 
-`withAuth(undefined)` throws `SandboxError('invalid-argument')`. For anonymous access, say `withAuth(null)` — the call site is then unambiguous about whether anonymous was intended or omitted.
+`withAuth(undefined)` throws `SandboxError('invalid-argument')`. For anonymous access, say `withAuth(null)`. The call site is then unambiguous about whether anonymous was intended or omitted.
 
 ## Invalid shapes
 
 The validator rejects:
 
-- `undefined` — say `withAuth(null)` for anonymous.
-- Empty UID (`{ uid: '' }`) — UIDs must be non-empty strings.
-- Non-string UID — `uid` must be a string.
-- `token` set but not an object — `token` must be a plain object when present.
+- `undefined`: say `withAuth(null)` for anonymous.
+- Empty UID (`{ uid: '' }`): UIDs must be non-empty strings.
+- Non-string UID: `uid` must be a string.
+- `token` set but not an object: `token` must be a plain object when present.
 
 All four raise `SandboxError('invalid-argument')` with a `remediation` describing the fix.
 
 ## Per-operation auth isn't a thing
 
-There are no per-operation `auth` overrides. Identity is exclusively a property of `SandboxContext`. To act as a different user, derive a different context — don't pass auth to the operation.
+There are no per-operation `auth` overrides. Identity is exclusively a property of `SandboxContext`. To act as a different user, derive a different context; don't pass auth to the operation.
 
 The reason is composability: a service handle (`FirestoreHandle` from `pyric-admin`) doesn't carry auth in its method signatures. The handle is bound to its context at construction. Adding per-call auth would either bypass that binding silently or require duplicating every method signature with an optional override; both are worse than "derive a new context".
 

@@ -2,7 +2,7 @@
 title: "getFirestore overloads"
 group: "pyric / firestore"
 section: "Reference"
-order: 84
+order: 83
 ---
 # `getFirestore` overloads
 
@@ -33,7 +33,7 @@ const db = getFirestore(app);
 ```
 Pass a `FirebaseApp` to get a prod-backed `Firestore`. The handle delegates every operation to `firebase/firestore`.
 
-The sandbox-only operations throw `SandboxError('failed-precondition')` on this handle — there's no `LocalEnvironment` to set rules against.
+The sandbox-only operations throw `SandboxError('failed-precondition')` on this handle: there's no `LocalEnvironment` to set rules against.
 
 ## Dispatch rule
 
@@ -45,7 +45,7 @@ For application code this means: pass a `SandboxContext` derived from `initializ
 
 We considered exporting two factories: `getFirestoreSandbox(ctx)` and `getFirestoreProd(app)`. Rejected because:
 
-- The swap-in contract for `firebase/firestore` is `getFirestore(app)`. Code that migrates from the upstream SDK to `pyric/firestore` shouldn't need to rename its calls.
+- The swap-in contract for `firebase/firestore` is `getFirestore(app)`. Code written against the upstream SDK shouldn't need to rename its calls.
 - The two-factory version forces every consumer of the resulting `Firestore` to track which factory produced it. The single factory hides the choice behind one call site.
 
 ## Type-level dispatch
@@ -56,7 +56,7 @@ function f(target: SandboxContext | FirebaseApp): Firestore {
   return getFirestore(target);   // resolves to overload 1 or 2 by inference
 }
 ```
-TypeScript picks the right overload from the argument's type. The runtime check is independent — even if a caller cast through `any`, the runtime branch still routes correctly.
+TypeScript picks the right overload from the argument's type. The runtime check is independent: even if a caller cast through `any`, the runtime branch still routes correctly.
 
 ## What's identical across backends
 
@@ -69,9 +69,9 @@ const snap = await getDoc(doc(db, 'notes', 'n1'));
 ```
 The same `setDoc` call routes to the simulator's `set` on sandbox and to Firebase's `setDoc` on prod. Differences are confined to:
 
-- Sandbox-only operations (`sandbox.*`) — throw on prod.
-- Performance characteristics — sandbox is sub-millisecond, prod is network-latency-bound.
-- Error sources — sandbox throws `SandboxError`; prod throws `FirebaseError` from `firebase/firestore` (translated via the simulator's compat path on the sandbox side).
+- Sandbox-only operations (`sandbox.*`): throw on prod.
+- Performance characteristics: sandbox is sub-millisecond, prod is network-latency-bound.
+- Error sources: sandbox throws `SandboxError`; prod throws `FirebaseError` from `firebase/firestore` (translated via the simulator's compat path on the sandbox side).
 
 ## What's not identical across backends
 
@@ -79,4 +79,4 @@ The same `setDoc` call routes to the simulator's `set` on sandbox and to Firebas
 - **Network failures**. Only prod can throw `'unavailable'` or `'failed-precondition'` from contention. Sandbox is synchronous.
 - **Rule changes**. Sandbox re-evaluates listeners immediately after `sandbox.setRules`; prod's `firebase deploy --only firestore:rules` propagates over seconds to minutes and does not affect already-attached listeners.
 
-These divergences are documented and intentional — see [Why two backends behind one surface](../pyric-firestore-explanation-two-backends-one-surface/).
+These divergences are documented and intentional. See [Why two backends behind one surface](../pyric-firestore-explanation-two-backends-one-surface/).

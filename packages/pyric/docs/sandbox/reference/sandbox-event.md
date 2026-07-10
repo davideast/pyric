@@ -18,7 +18,7 @@ type SandboxEvent =
 
 Every event carries `kind: <discriminator>`, `id: string` (unique within the sandbox process; React-list-key safe), and `at: number` (`Date.now()` at emission).
 
-## `kind: 'request'` — every evaluated op
+## `kind: 'request'`: every evaluated op
 
 ```ts
 interface RequestEvent {
@@ -42,7 +42,7 @@ interface RequestEvent {
 }
 ```
 
-Fires once per simulator-evaluated op. Denials surface here with `result: 'deny'`; the previous `DenialEvent` shape lives on as a derived field-projection — filter `kind === 'request' && result === 'deny'` to recover it.
+Fires once per simulator-evaluated op. Denials surface here with `result: 'deny'`; the previous `DenialEvent` shape lives on as a derived field-projection. Filter `kind === 'request' && result === 'deny'` to recover it.
 
 **`method`** preserves the caller's verb. `set` stays `'set'` (the rule engine maps it internally to `'create'` or `'update'` based on whether the doc exists; that mapping appears on `matchedRule.operations`).
 
@@ -52,7 +52,7 @@ Fires once per simulator-evaluated op. Denials surface here with `result: 'deny'
 
 **`evalMs`** is the wall-clock duration of `simulator.simulate(...)`. Sub-millisecond for trivial rules; a traffic-monitor validation probe measured ~95ms p99 on connect-four's deep boolean chains.
 
-## `kind: 'write'` — committed writes only
+## `kind: 'write'`: committed writes only
 
 ```ts
 interface WriteSandboxEvent {
@@ -73,19 +73,19 @@ interface WriteSandboxEvent {
 }
 ```
 
-Fires AFTER the corresponding `kind: 'request'` event for the same op, and ONLY for writes that the rule engine allowed AND the keyspace successfully applied. Denied or rolled-back writes don't emit a write event — they surface as `kind: 'request' && result: 'deny'` only.
+Fires AFTER the corresponding `kind: 'request'` event for the same op, and ONLY for writes that the rule engine allowed AND the keyspace successfully applied. Denied or rolled-back writes don't emit a write event. They surface as `kind: 'request' && result: 'deny'` only.
 
-**`data`** is the **pre-resolution** payload — the user's intent. `FieldValue.*` sentinels are preserved as their marker shapes (`{ __type: 'serverTimestamp' }`, etc.); plain values pass through unchanged. The replay engine re-resolves the markers against a fresh sandbox so `pinRequestTime: false` actually drifts and `pinRequestTime: true` matches capture. Absent on `delete`. The materialized values the keyspace applied live on `nextState`.
+**`data`** is the **pre-resolution** payload: the user's intent. `FieldValue.*` sentinels are preserved as their marker shapes (`{ __type: 'serverTimestamp' }`, etc.); plain values pass through unchanged. The replay engine re-resolves the markers against a fresh sandbox so `pinRequestTime: false` actually drifts and `pinRequestTime: true` matches capture. Absent on `delete`. The materialized values the keyspace applied live on `nextState`.
 
-**`priorState`** / **`nextState`** are full **post-resolution** doc snapshots — actual stored state. `null` when the doc is absent. Use these for diff rendering, undo, or forensic logging.
+**`priorState`** / **`nextState`** are full **post-resolution** doc snapshots, actual stored state. `null` when the doc is absent. Use these for diff rendering, undo, or forensic logging.
 
 **`sentinels`** is a flat index of the markers in `data`, keyed by field path (dotted with bracket-indices, `a.b[0].c`). Redundant with `data` (you could walk it yourself), but cheap to consume and emitted unconditionally when sentinels are present. Absent when the write had none.
 
 **`autoId`** is the minted document ID (the path's last segment) when the write came from `collection.add()` / `LocalEnvironment.createWithAutoId`. The replay engine aliases this path to a fresh mint rather than reusing the original ID. Absent on explicit-ID writes.
 
-**`requestTime`** pins the `request.time` the rule engine evaluated against — shape mirrors the Firestore Web SDK Timestamp (`{ seconds, nanoseconds }`). Required. The replay engine re-issues this exact value when re-resolving `serverTimestamp()` sentinels so resolved fields are bit-identical on replay; rules that branch on `request.time` evaluate identically. Within a batch or transaction, all sub-ops share the same `requestTime`.
+**`requestTime`** pins the `request.time` the rule engine evaluated against. The shape mirrors the Firestore Web SDK Timestamp (`{ seconds, nanoseconds }`). Required. The replay engine re-issues this exact value when re-resolving `serverTimestamp()` sentinels so resolved fields are bit-identical on replay; rules that branch on `request.time` evaluate identically. Within a batch or transaction, all sub-ops share the same `requestTime`.
 
-## `kind: 'snapshot_delivery'` — listener callback fired
+## `kind: 'snapshot_delivery'`: listener callback fired
 
 ```ts
 interface SnapshotDeliveryEvent {
@@ -106,17 +106,17 @@ interface SnapshotDeliveryEvent {
 }
 ```
 
-Fires AFTER the user callback runs — corresponds 1:1 with actual snapshot deliveries.
+Fires AFTER the user callback runs, corresponding 1:1 with actual snapshot deliveries.
 
-**`addedCount` + `modifiedCount` + `removedCount`** match `QuerySnapshot.docChanges()`. Doc-target listeners report exactly one of (added=1, removed=1, modified=1) per fire. Query-target listeners can report any combination — initial fire surfaces every doc as `added`.
+**`addedCount` + `modifiedCount` + `removedCount`** match `QuerySnapshot.docChanges()`. Doc-target listeners report exactly one of (added=1, removed=1, modified=1) per fire. Query-target listeners can report any combination; the initial fire surfaces every doc as `added`.
 
 **`size`** is the doc count surfaced to the listener: `1` (exists) / `0` (deleted) for doc-target, `n` for query-target.
 
-**`sample.docs`** carries the docs as the user callback received them, serialization-ready. Consumers truncate before persisting if scenarios produce large snapshots — the sandbox doesn't truncate itself.
+**`sample.docs`** carries the docs as the user callback received them, serialization-ready. Consumers truncate before persisting if scenarios produce large snapshots; the sandbox doesn't truncate itself.
 
 **`triggeredBy`** absent on initial fire (no user op caused it) and on `deployRules`-driven re-evals.
 
-## `kind: 'snapshot_suppressed'` — re-eval ran but didn't deliver
+## `kind: 'snapshot_suppressed'`: re-eval ran but didn't deliver
 
 ```ts
 interface SnapshotSuppressedEvent {
@@ -131,7 +131,7 @@ interface SnapshotSuppressedEvent {
 }
 ```
 
-Fires when a listener wakes up on a write but the diff against the prior snapshot finds nothing observable changed — Slice 3's no-op suppression. Useful for "why didn't my listener fire" debugging.
+Fires when a listener wakes up on a write but the diff against the prior snapshot finds nothing observable changed (the no-op suppression). Useful for "why didn't my listener fire" debugging.
 
 **`reason`** is `'no-op'` in v1. The discriminator exists so future suppression sources (auth changes, rules changes mid-listen) can land without reshape.
 
@@ -155,13 +155,13 @@ interface ListenerLifecycleEvent {
 
 **`listener_attach`** fires once when `onSnapshot` registers a record, BEFORE the initial-snapshot delivery.
 
-**`listener_detach`** fires once when the returned unsubscribe is called against a still-registered listener. Idempotent unsubscribes don't double-emit. Listeners dropped by `sandbox.reset()` don't emit detach — the `session_boundary` event covers the rollover.
+**`listener_detach`** fires once when the returned unsubscribe is called against a still-registered listener. Idempotent unsubscribes don't double-emit. Listeners dropped by `sandbox.reset()` don't emit detach; the `session_boundary` event covers the rollover.
 
 **`listener_errored`** fires when a stream-level rule denial silently terminates the listener (initial-read denial, change-driven re-read denial, or `deployRules` flipping a listener allowed → denied). The listener stops delivering snapshots after this event and the user's `errorCallback` fires once with the same error.
 
 **`error`** is populated on `listener_errored` only. The shape mirrors what the previous `SnapshotErrorEvent` carried.
 
-## `kind: 'session_boundary'` — reset / dispose
+## `kind: 'session_boundary'`: reset / dispose
 
 ```ts
 interface SessionBoundaryEvent {
@@ -173,7 +173,7 @@ interface SessionBoundaryEvent {
 }
 ```
 
-Fires BEFORE the env swap on `sandbox.reset()` and BEFORE registry teardown on `sandbox.dispose()`. The subscription itself survives `reset()` — only `dispose()` clears it.
+Fires BEFORE the env swap on `sandbox.reset()` and BEFORE registry teardown on `sandbox.dispose()`. The subscription itself survives `reset()`; only `dispose()` clears it.
 
 **`priorOpCount`** is the cumulative count of events emitted from this sandbox prior to the boundary. Useful for verifying a persisted stream's segmentation against the sandbox's own bookkeeping.
 
@@ -199,6 +199,6 @@ const isLiveDelivery = (e: SandboxEvent): e is SnapshotDeliveryEvent =>
 
 ## See also
 
-- [Observe sandbox events — how-to](../how-to/observe-events.md) — usage patterns + subscriber contract.
-- [`Sandbox.onEvent`](./sandbox-and-context.md#onevent) — the method docs.
-- design rationale — the rationale for replacing the three-channel surface with one.
+- [Observe sandbox events](../how-to/observe-events.md): usage patterns + subscriber contract.
+- [`Sandbox.onEvent`](./sandbox-and-context.md#onevent): the method docs.
+- Design rationale: the reasoning for replacing the three-channel surface with one.

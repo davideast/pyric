@@ -2,7 +2,7 @@
 title: "<UploadDropzone>"
 group: "@pyric/ui"
 section: "Storage"
-order: 201
+order: 194
 ---
 # `<UploadDropzone>`
 

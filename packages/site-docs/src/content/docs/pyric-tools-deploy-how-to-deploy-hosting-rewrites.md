@@ -41,7 +41,7 @@ if (result.success) {
   console.error(`[${result.error.code}] ${result.error.message}`);
 }
 ```
-`config` is the firebase.json hosting block — rewrites shown here; redirects, headers, `cleanUrls`, `trailingSlash`, `appAssociation`, and `i18n` ride along the same way (see [firebase.json hosting config](../pyric-tools-deploy-reference-hosting-config/)). `localDir` walks the directory and uploads everything not matched by the `ignore` globs (defaults: `firebase.json`, `**/.*`, `**/node_modules/**`). Server-side dedup via content hashes means re-deploys that haven't changed content upload nothing — `data.uploadedCount` will be less than `data.fileCount`.
+`config` is the firebase.json hosting block: rewrites shown here; redirects, headers, `cleanUrls`, `trailingSlash`, `appAssociation`, and `i18n` ride along the same way (see [firebase.json hosting config](../pyric-tools-deploy-reference-hosting-config/)). `localDir` walks the directory and uploads everything not matched by the `ignore` globs (defaults: `firebase.json`, `**/.*`, `**/node_modules/**`). Server-side dedup via content hashes means re-deploys that haven't changed content upload nothing. `data.uploadedCount` will be less than `data.fileCount`.
 
 ## From a browser host
 
@@ -60,7 +60,7 @@ const result = await hosting.deployFiles(scope, {
   config: { rewrites: [{ source: '/api/**', function: { functionId: 'api' } }] },
 });
 ```
-`bytes` is a `Uint8Array` — read from a `File`, fetch, or any other browser source. `path` is the public URL path (leading `/`).
+`bytes` is a `Uint8Array`: read from a `File`, fetch, or any other browser source. `path` is the public URL path (leading `/`).
 
 ## Ensure the site exists first
 
@@ -69,7 +69,7 @@ For greenfield projects:
 await hosting.sites.ensure(scope, { siteId: 'my-site' });
 await hosting.deployFiles(scope, { siteId: 'my-site', /* ... */ });
 ```
-`ensure` is idempotent — it returns success whether the site already exists or had to be created.
+`ensure` is idempotent: it returns success whether the site already exists or had to be created.
 
 ## Handle rewrite-target failures
 
@@ -80,20 +80,20 @@ The two related error codes:
 | `SITE_NOT_FOUND` | The named site doesn't exist. Call `hosting.sites.ensure` first. |
 | `REWRITE_TARGET_NOT_FOUND` | Finalize rejected a rewrite pointing at a function that isn't deployed. Deploy the function first, then retry. |
 
-Both are `recoverable: true`. The deploy fails atomically — no partial release is created.
+Both are `recoverable: true`. The deploy fails atomically: no partial release is created.
 
 ## Glob patterns
 
 Hosting glob syntax:
 
-- `/api` — exact match on the path `/api`.
-- `/api/**` — matches `/api`, `/api/x`, `/api/x/y`, etc.
-- `/foo/*` — single-segment wildcard.
+- `/api`: exact match on the path `/api`.
+- `/api/**`: matches `/api`, `/api/x`, `/api/x/y`, etc.
+- `/foo/*`: single-segment wildcard.
 
-For function targets, the `**` recursive form is the most common — you typically want every path under `/api` to route through the function and let the function decide what to do.
+For function targets, the `**` recursive form is the most common. You typically want every path under `/api` to route through the function and let the function decide what to do.
 
 ## Where to look next
 
-- For all Hosting error codes, see [Error codes by operation — Hosting](../pyric-tools-deploy-reference-error-codes/#hosting).
+- For all Hosting error codes, see [Error codes by operation: Hosting](../pyric-tools-deploy-reference-error-codes/#hosting).
 - For deploying the function before the rewrite, see [Bundle and deploy a Cloud Function](../pyric-tools-deploy-how-to-bundle-and-deploy-a-function/).
-- For the config shape, see [`hosting` namespace — `HostingJsonConfig`](../pyric-tools-deploy-reference-hosting-namespace/#hostingjsonconfig) and the full [supported-config table](../pyric-tools-deploy-reference-hosting-config/).
+- For the config shape, see [`hosting` namespace: `HostingJsonConfig`](../pyric-tools-deploy-reference-hosting-namespace/#hostingjsonconfig) and the full [supported-config table](../pyric-tools-deploy-reference-hosting-config/).

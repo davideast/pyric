@@ -3,11 +3,11 @@ title: "How to seed initial data and rules"
 navLabel: "Seed data and rules"
 group: "pyric / sandbox"
 section: "How-to"
-order: 128
+order: 123
 ---
 # How to seed initial data and rules
 
-This guide shows you how to bring a fresh sandbox up to a known state — rules deployed, documents in place — before your test code runs.
+Bring a fresh sandbox up to a known state (rules deployed, documents in place) before your test code runs.
 
 ## The two options
 
@@ -76,7 +76,7 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
   throw new Error('rules failed to lint');
 }
 ```
-`seed` returns the `LintResult` from `pyric/rules`. Check it before treating the seed as successful — a ruleset with errors leaves the sandbox in default-deny.
+`seed` returns the `LintResult` from `pyric/rules`. Check it before treating the seed as successful. A ruleset with errors leaves the sandbox in default-deny.
 
 `/internal` is documented as adapter-only. Tooling that uses it accepts that the surface may change between minor versions.
 
@@ -91,7 +91,7 @@ seed(sandbox);  // your helper
 
 beforeEach(() => sandbox.reset());
 ```
-After `reset`, the sandbox is empty — you need to re-seed if the next test depends on the initial state. A helper makes that cheap:
+After `reset`, the sandbox is empty. Re-seed if the next test depends on the initial state. A helper makes that cheap:
 ```ts
 beforeEach(() => {
   sandbox.reset();
@@ -111,7 +111,7 @@ Heavier (rebuilds the environment per test) but isolates state changes more stri
 
 ## Order matters
 
-Rules first, then documents. If you write documents before rules, the writes evaluate against default-deny and most will fail. The `seed` method on `LocalEnvironment` enforces this order — rules are set, then documents are loaded, then the event log is cleared.
+Rules first, then documents. If you write documents before rules, the writes evaluate against default-deny and most will fail. The `seed` method on `LocalEnvironment` enforces this order: rules are set, then documents are loaded, then the event log is cleared.
 
 ## Where to look next
 

@@ -4,8 +4,8 @@ This page lists every lint rule emitted by `lintFirestoreRules`. Each entry give
 
 Severities have two values:
 
-- `error` — blocks deploys in `pyric-tools/deploy`.
-- `warning` — advisory; does not block.
+- `error`: blocks deploys in `pyric-tools/deploy`.
+- `warning`: advisory; does not block.
 
 Some rules adjust severity by threshold band; those entries note the bands explicitly.
 
@@ -25,7 +25,7 @@ These catch sources that Firebase will reject with `400 INVALID_ARGUMENT` at dep
 - **Severity**: `warning` at chain depth ≥ 85, `error` at ≥ 95, `error` at ≥ 98.
 - **Threshold**: 98 (the exact compile limit).
 - **Detection**: the deepest flat `&&` or `||` chain in any function body or let value.
-- **Fix**: nest into groups — `a && b && c && d` → `(a && b) && (c && d)` halves the chain depth.
+- **Fix**: nest into groups. `a && b && c && d` → `(a && b) && (c && d)` halves the chain depth.
 
 ### `LET_LIMIT`
 
@@ -45,9 +45,9 @@ These catch sources that compile fine but exhaust the runtime evaluation budget 
 
 ### `EXPRESSION_BUDGET`
 
-- **Severity**: `warning` (never `error` — runtime budget is non-deterministic).
+- **Severity**: `warning` (never `error`, because the runtime budget is non-deterministic).
 - **Threshold**: depends on function-call count, with conservative bands:
-  - 1–2 function calls → warn at ~100 total expression nodes.
+  - 1 or 2 function calls → warn at ~100 total expression nodes.
   - 3 function calls → warn at ~60.
   - 4+ function calls → warn at ~40.
 - **Detection**: walk the rule's condition counting expression nodes, follow function calls transitively (each call visited at most once). Multiply by a discount factor for rules with many top-level `||` branches to avoid false positives on well-gated trees.
@@ -63,7 +63,7 @@ These catch sources that compile fine but exhaust the runtime evaluation budget 
 
 - **Severity**: `warning` at ≥ 5, `error` at ≥ 10 (documented Firestore limit).
 - **Detection**: count of `get()` and `exists()` calls reachable from a rule's condition.
-- **Fix**: cache results via a `let` in a wrapper function — same-path calls are cached by Firestore.
+- **Fix**: cache results via a `let` in a wrapper function. Same-path calls are cached by Firestore.
 
 ### `GET_DUPLICATION`
 
@@ -78,11 +78,11 @@ These flag patterns that *compile* but are almost always wrong.
 ### `PERMISSIVE_RULE`
 
 - **Severity**: `error`.
-- **Detection**: a write rule (`write`, `create`, `update`, or `delete`) whose predicate folds to constant `true`. Folding handles boolean literals, `&&`/`||` of booleans, and `!` of a boolean — it does not try to prove `1 == 1` or follow function calls.
+- **Detection**: a write rule (`write`, `create`, `update`, or `delete`) whose predicate folds to constant `true`. Folding handles boolean literals, `&&`/`||` of booleans, and `!` of a boolean. It does not try to prove `1 == 1` or follow function calls.
 - **Why error**: the most common agent failure mode is escaping a denial with `if true`. Blocking the deploy forces fixing the real denial.
 - **Fix**: replace the always-true predicate with a request-shape check.
 
-`allow read: if true` on a *read* rule is **not** flagged — it's a legitimate "public read" pattern.
+`allow read: if true` on a *read* rule is **not** flagged. It's a legitimate "public read" pattern.
 
 ### `RECURSIVE_WILDCARD_OPEN`
 
@@ -120,7 +120,7 @@ These catch JS-style code or look-alike syntax that parses (or fails to parse) w
 
 - **Severity**: `error`.
 - **Detection**: source contains a JS-style operator that has no Firestore equivalent: `===`, `!==`, `?.`, `??`, backtick template literals.
-- **Runs**: pre-parse — fires even on unparseable input so the diagnostic is precise instead of "expected `)`".
+- **Runs**: pre-parse. Fires even on unparseable input so the diagnostic is precise instead of "expected `)`".
 
 ### `HALLUCINATED_METHOD`
 
@@ -149,7 +149,7 @@ These catch JS-style code or look-alike syntax that parses (or fails to parse) w
 ### `INVALID_PATH_INTERPOLATION`
 
 - **Severity**: `error`.
-- **Detection**: a path literal segment in the form `{ident}` — match-style binding used outside a match block. Firestore requires `$(ident)` for interpolation inside path literals.
+- **Detection**: a path literal segment in the form `{ident}`, a match-style binding used outside a match block. Firestore requires `$(ident)` for interpolation inside path literals.
 - **Fix**: replace `/users/{uid}` inside `get(...)` with `/users/$(uid)`.
 
 ### `METHOD_MISSING_PARENS`

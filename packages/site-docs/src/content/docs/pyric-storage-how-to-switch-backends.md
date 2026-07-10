@@ -3,7 +3,7 @@ title: "How to switch between sandbox and prod backends"
 navLabel: "Switch backends"
 group: "pyric / storage"
 section: "How-to"
-order: 150
+order: 143
 ---
 # How to switch between sandbox and prod backends
 
@@ -55,7 +55,7 @@ The dispatch is hidden inside each function. Same call sites; the backend choice
 ## What only prod does
 
 - **Real bucket isolation**. Multi-bucket scenarios work as expected.
-- **`getDownloadURL`** when it's added to this package — it's deferred for the v1 scope.
+- **`getDownloadURL`** when it's added to this package. It's deferred for the v1 scope.
 - **Resumable uploads**, progress events. Deferred.
 - **Storage triggers**, image transformations, Firebase Extensions. Out of scope.
 
@@ -72,16 +72,16 @@ await uploadBytes(ref(prodStorage, 'sessions/n1'), bytes);
 ```
 Two backends, two handles, one process. Sometimes useful for replication-style tests.
 
-## Migrating from `firebase/storage`
+## Use it in code written against `firebase/storage`
 
-If you're swapping a real project from `firebase/storage` to `pyric/storage`, the rename targets the entry point only:
+To use `pyric/storage` in a project whose code imports `firebase/storage`, the rename targets the entry point only:
 ```diff
 - import { getStorage, ref, uploadBytes } from 'firebase/storage';
 + import { getStorageProd as getStorage, ref, uploadBytes } from 'pyric/storage';
 ```
 Application code that calls `getStorage(app)` keeps working. Tests can import `getStorageSandbox` separately.
 
-Note that not every `firebase/storage` symbol is re-exported — see [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) for what's missing.
+Note that not every `firebase/storage` symbol is re-exported. See [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) for what's missing.
 
 ## Where to look next
 

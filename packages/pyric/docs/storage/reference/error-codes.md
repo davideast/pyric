@@ -1,6 +1,6 @@
 # Error codes
 
-Operations through `pyric/storage` throw errors with Firebase-aligned `code` properties — `'storage/<noun>'`. Catch by code.
+Operations through `pyric/storage` throw errors with Firebase-aligned `code` properties, `'storage/<noun>'`. Catch by code.
 
 ## Common codes
 
@@ -26,7 +26,7 @@ The uploaded payload didn't match its declared checksum. Rare in the sandbox; mo
 
 ### `'storage/canceled'`
 
-The operation was cancelled before completing. Currently sandbox doesn't generate this — the prod backend can.
+The operation was cancelled before completing. Currently sandbox doesn't generate this; the prod backend can.
 
 ### `'storage/invalid-argument'`
 
@@ -65,4 +65,4 @@ Both backends throw `FirebaseError` for shape-consistency with the upstream `fir
 - **Sandbox**: only emits `unauthenticated`, `unauthorized`, `object-not-found`, `quota-exceeded`, `invalid-argument`. Network-bound codes don't apply.
 - **Prod**: can emit any code in the upstream `firebase/storage` set, including `canceled`, `retry-limit-exceeded`, `app-deleted`, `server-file-wrong-size`, etc.
 
-If your error-handling code branches on a code only prod can emit, the branch will never fire in tests. That's the same situation as `metadata.fromCache` in Firestore — inert path on sandbox, real on prod.
+If your error-handling code branches on a code only prod can emit, the branch will never fire in tests. That's the same situation as `metadata.fromCache` in Firestore: inert path on sandbox, real on prod.

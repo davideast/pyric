@@ -58,7 +58,7 @@ interface DeployHostingSuccess {
 }
 ```
 
-When `channelId` is set the deploy releases onto that preview channel instead of live — see [Deploy to a preview channel](../how-to/deploy-to-a-preview-channel.md) for the channel lifecycle.
+When `channelId` is set the deploy releases onto that preview channel instead of live. See [Deploy to a preview channel](../how-to/deploy-to-a-preview-channel.md) for the channel lifecycle.
 
 ### `DeployHostingError`
 
@@ -96,7 +96,7 @@ async function create(
 ): Promise<CreateSiteResult>;
 ```
 
-The site id must be globally unique within the project's region — collisions return a non-recoverable error.
+The site id must be globally unique within the project's region. Collisions return a non-recoverable error.
 
 ## `hosting.sites.ensure(scope, input)`
 
@@ -127,11 +127,11 @@ interface HostingJsonConfig {
 }
 ```
 
-Each rewrite names exactly one pattern (`source`/`glob` — a Hosting
-glob — or `regex`) and one target: a static `destination`, a
+Each rewrite names exactly one pattern (`source`/`glob`, a Hosting
+glob, or `regex`) and one target: a static `destination`, a
 `function` (legacy string or `{ functionId, region? }` object), or a
 Cloud Run `run: { serviceId, region? }`. `dynamicLinks` is rejected
-(product sunset) and `pinTag` is deferred — both with clear errors.
+(product sunset) and `pinTag` is deferred, both with clear errors.
 Invalid config fails the deploy as `INVALID_INPUT` **before** anything
 is created or uploaded; non-serving keys come back as
 `configWarnings`.

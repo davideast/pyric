@@ -1,6 +1,6 @@
 # Use the sandbox in a test harness
 
-In this tutorial you will wire `pyric/sandbox` into a real test suite. By the end you will have:
+Wire `pyric/sandbox` into a real test suite. By the end you will have:
 
 1. A single sandbox shared across every test in a file.
 2. A `beforeEach` that resets state between tests.
@@ -13,7 +13,7 @@ This tutorial assumes you completed [Your first sandbox session](./01-your-first
 
 A file `notes.test.ts` that exercises rules for a notes collection. Three tests: a successful write, a denied write, an admin-read assertion.
 
-## Step 1 — Module-level setup
+## Step 1: Module-level setup
 
 Create `notes.test.ts`:
 
@@ -42,7 +42,7 @@ const bobDb = getFirestore(sandbox.withAuth({ uid: 'bob' }));
 
 Three contexts at module scope. They're cheap to create and survive every reset (the sandbox object identity is stable).
 
-## Step 2 — Reset and seed in `beforeEach`
+## Step 2: Reset and seed in `beforeEach`
 
 ```ts
 beforeEach(() => {
@@ -51,7 +51,7 @@ beforeEach(() => {
 });
 ```
 
-Every test starts with no documents and the rules freshly deployed. `setRules` lives on `pyric-admin`'s handle — the admin context's token doesn't matter for rule deployment (any context will do), but the convention of "all admin-plane operations through the admin context" makes the test code read clearly.
+Every test starts with no documents and the rules freshly deployed. `setRules` lives on `pyric-admin`'s handle. The admin context's token doesn't matter for rule deployment (any context will do), but the convention of "all admin-plane operations through the admin context" makes the test code read clearly.
 
 If your tests share a setup (e.g. always have a `notes/system` doc), do it here:
 
@@ -64,9 +64,9 @@ beforeEach(async () => {
 });
 ```
 
-Admin context writes evaluate against the same rules as anyone else. If your rules reject `admin`-authed writes for fixture docs, use `/internal` seeding instead — see [Seed initial data and rules](../how-to/seed-data-and-rules.md).
+Admin context writes evaluate against the same rules as anyone else. If your rules reject `admin`-authed writes for fixture docs, use `/internal` seeding instead; see [Seed initial data and rules](../how-to/seed-data-and-rules.md).
 
-## Step 3 — First test: a successful write
+## Step 3: First test: a successful write
 
 ```ts
 describe('notes rules', () => {
@@ -84,8 +84,8 @@ describe('notes rules', () => {
 
 Two things to notice:
 
-- The write goes through `aliceDb` — evaluated under Alice's identity.
-- The assertion uses `sandbox.admin.getDocument` — bypasses rules. This lets the test confirm "the write landed" without depending on a successful read rule.
+- The write goes through `aliceDb`, evaluated under Alice's identity.
+- The assertion uses `sandbox.admin.getDocument`, which bypasses rules. This lets the test confirm "the write landed" without depending on a successful read rule.
 
 Run:
 
@@ -95,7 +95,7 @@ bun test
 
 You should see one passing test.
 
-## Step 4 — Second test: a denied write
+## Step 4: Second test: a denied write
 
 ```ts
 it('denies writes that misattribute ownership', async () => {
@@ -123,7 +123,7 @@ The assertion now has three layers:
 
 This "three-layer assertion" pattern catches drift between intent and reality. A bug that lets the write through silently would fail layer three even if layer two looked fine.
 
-## Step 5 — Third test: a user-shaped read
+## Step 5: Third test: a user-shaped read
 
 ```ts
 it('allows any authed user to read', async () => {
@@ -141,9 +141,9 @@ it('allows any authed user to read', async () => {
 });
 ```
 
-This test exercises a user-shaped read, not an admin read. The point is to verify that `bob` *can* read — not just that the doc exists. Use admin reads for state assertions; use user-shaped reads to test rules.
+This test exercises a user-shaped read, not an admin read. The point is to verify that `bob` *can* read, not merely that the doc exists. Use admin reads for state assertions; use user-shaped reads to test rules.
 
-## Step 6 — Observe denials in a debugging test
+## Step 6: Observe denials in a debugging test
 
 Add a sanity-check test that captures every denial that fires during the run:
 
@@ -182,7 +182,7 @@ it('records exactly one denial when bob tampers', async () => {
 });
 ```
 
-`onEvent` fires regardless of whether your test code catches the throw, and the subscription survives `reset()` — subscribe once in `beforeAll`. The `denials` array clears at the start of each test; everything between reset and the next test's first op gets attributed correctly.
+`onEvent` fires regardless of whether your test code catches the throw, and the subscription survives `reset()`, so subscribe once in `beforeAll`. The `denials` array clears at the start of each test; everything between reset and the next test's first op gets attributed correctly.
 
 ## Putting it together
 
@@ -223,7 +223,7 @@ describe('notes rules', () => {
 });
 ```
 
-Run `bun test` — four passing tests.
+Run `bun test`. Four passing tests.
 
 ## What you have learned
 

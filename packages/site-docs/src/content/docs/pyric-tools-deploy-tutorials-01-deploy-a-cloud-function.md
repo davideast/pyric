@@ -23,13 +23,13 @@ You need:
 - A service-account JSON file with the **Firebase Admin** role and **Service Account User** role.
 - Node 20+ or Bun 1.x.
 
-## Step 1 — Set up a working folder
+## Step 1: Set up a working folder
 ```bash
 mkdir deploy-tutorial && cd deploy-tutorial
 bun init -y
 bun add pyric-tools
 ```
-## Step 2 — Write the function source
+## Step 2: Write the function source
 
 Create a `functions/` subdirectory and add `functions/package.json`:
 ```json
@@ -48,11 +48,11 @@ export function hello(req, res) {
   res.json({ message: 'Hello from pyric-tools/deploy', when: new Date().toISOString() });
 }
 ```
-Two files — that's the whole function. The bundler will zip it, the Cloud Build buildpack will install dependencies (there are none), and Cloud Functions will run `hello` on HTTP requests.
+Two files. That's the whole function. The bundler will zip it, the Cloud Build buildpack will install dependencies (there are none), and Cloud Functions will run `hello` on HTTP requests.
 
-## Step 3 — Deploy it
+## Step 3: Deploy it
 
-Save your service-account JSON as `service-account.json` next to your `package.json` (or set it through an env var — `fromServiceAccount` accepts both).
+Save your service-account JSON as `service-account.json` next to your `package.json` (or set it through an env var; `fromServiceAccount` accepts both).
 
 Create `deploy.ts`:
 ```ts
@@ -86,7 +86,7 @@ Run it:
 ```bash
 bun run deploy.ts
 ```
-The first deploy takes a few minutes — the bundler zips the directory, the upload uses a Cloud Build signed URL, and the function build itself takes ~30–90 seconds. When it completes you will see:
+The first deploy takes a few minutes: the bundler zips the directory, the upload uses a Cloud Build signed URL, and the function build itself takes ~30 to 90 seconds. When it completes you will see:
 ```
 Project: your-project-id
 Deployed hello → https://hello-<hash>-uc.a.run.app (public: true)
@@ -97,19 +97,19 @@ That URL is the function's Cloud Run endpoint. Open it in a browser:
 ```
 The function is live.
 
-## Step 4 — Re-deploy
+## Step 4: Re-deploy
 
-Edit `functions/index.js` and change the message. Re-run `bun run deploy.ts`. This time the deploy is faster — Cloud Build re-uses the dependency layer because `package.json` is unchanged. The bundler still uploads the new source.
+Edit `functions/index.js` and change the message. Re-run `bun run deploy.ts`. This time the deploy is faster. Cloud Build re-uses the dependency layer because `package.json` is unchanged. The bundler still uploads the new source.
 
-## Step 5 — Watch a failure
+## Step 5: Watch a failure
 
 Edit `deploy.ts` and change `entryPoint: 'hello'` to `entryPoint: 'missing'`. Run again:
 ```
 [OPERATION_FAILED] Function deployment operation failed: ...
 ```
-The deploy was issued, the source uploaded, Cloud Build ran — and then the function failed to load because the export doesn't exist. The error code `OPERATION_FAILED` signals "the operation completed with an error" (as opposed to `CREATE_FAILED`, which would mean the create call itself returned non-2xx).
+The deploy was issued, the source uploaded, Cloud Build ran, and then the function failed to load because the export doesn't exist. The error code `OPERATION_FAILED` signals "the operation completed with an error" (as opposed to `CREATE_FAILED`, which would mean the create call itself returned non-2xx).
 
-`result.error.functionIndex` tells you which function in the array failed. In a multi-function deploy, earlier functions may already be live — the array isn't transactional.
+`result.error.functionIndex` tells you which function in the array failed. In a multi-function deploy, earlier functions may already be live. The array isn't transactional.
 
 Fix the entry point and re-run. Five for five.
 
@@ -117,7 +117,7 @@ Fix the entry point and re-run. Five for five.
 
 - `fromServiceAccount` builds a `ProjectScope` with internally-cached token resolution.
 - `functions.deployLocal` bundles a Node source directory and deploys one or more functions from it.
-- The result shape is `{ success: true, data: { deployed } } | { success: false, error }` — branch on `success` first.
+- The result shape is `{ success: true, data: { deployed } } | { success: false, error }`: branch on `success` first.
 - `FunctionsErrorCode` carries enough information to distinguish "build failed" from "create failed" from "operation failed".
 
 ## What to do next

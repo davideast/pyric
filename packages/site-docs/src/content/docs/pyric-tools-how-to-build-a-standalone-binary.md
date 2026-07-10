@@ -7,7 +7,7 @@ order: 36
 ---
 # Build a standalone `pyric` binary
 
-Ship `pyric` as a single self-contained executable — no Node, no npm, no
+Ship `pyric` as a single self-contained executable: no Node, no npm, no
 `node_modules`. Built with [`bun build --compile`](https://bun.sh/docs/bundler/executables).
 
 ## Build
@@ -31,7 +31,7 @@ Binaries land in `packages/pyric-tools/dist-bin/`:
 | `pyric-darwin-arm64` | macOS Apple Silicon |
 | `pyric` | copy of this host's binary, for local runs |
 
-`dist-bin/` is git-ignored and **outside the npm `files` allowlist** — the
+`dist-bin/` is git-ignored and **outside the npm `files` allowlist**. The
 ~100 MB binaries are release artifacts, never published to npm or committed.
 
 Verify a build:
@@ -40,17 +40,17 @@ bun run --cwd packages/pyric-tools smoke:standalone
 ```
 ## How `dev` works in the binary
 
-Every command runs from the binary, including `dev` — the headline one.
+Every command runs from the binary, including `dev` (the headline one).
 
 Normally `pyric dev` bundles its `firebase/*` → sandbox SDK shims with esbuild
 **at runtime**, reading the installed `pyric` dist. Neither esbuild's native
 helper nor that on-disk dist exist inside a compiled binary's virtual
-filesystem. But those bundles are **deterministic** — a pure function of
+filesystem. But those bundles are **deterministic**: a pure function of
 pyric-tools' wrapper entries and the `pyric` version baked into pyric-tools, not
-your project (pyric dev ships its *own* sandbox; your app just imports `firebase/*`).
+your project (pyric dev ships its *own* sandbox; your app imports `firebase/*`, nothing more).
 
 So the compile step runs the bundler **once on the build host** and embeds the
-result — the SDK + worker bundles and the Studio UI — into the binary. At
+result (the SDK + worker bundles and the Studio UI) into the binary. At
 runtime `dev` materializes those bytes to a temp dir and serves them
 unchanged. `dev`, `dev --ui`, and `dev --bridge` all work fully offline.
 `--no-cache` is a no-op in the binary (there is nothing to rebuild).
@@ -75,7 +75,7 @@ would otherwise pull that empty stub instead of the vendored package.
 the override.) `vendor/` is committable (the scaffold ignores only `.pyric/`), so
 a clone installs offline too.
 
-### `--deps npm` — opt out of vendoring
+### `--deps npm`: opt out of vendoring
 
 Once the packages are published (or against a private registry), scaffold with
 registry deps instead:

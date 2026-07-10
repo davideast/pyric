@@ -4,7 +4,7 @@ The Storage rules grammar in the v1 scope. Anything not listed is out of scope a
 
 ## Service header
 
-```
+```rules
 service firebase.storage {
   // ...
 }
@@ -18,7 +18,7 @@ Three segment types:
 
 - **Static segments**: `sessions`, `images`, `uploads`.
 - **Single-segment parameters**: `{sessionId}`, `{uid}`.
-- **Multi-segment wildcards**: `{allPaths=**}` — matches the rest of the path.
+- **Multi-segment wildcards**: `{allPaths=**}` matches the rest of the path.
 
 Nested `match` blocks compose naturally:
 
@@ -32,36 +32,36 @@ match /b/{bucket}/o {
 }
 ```
 
-Path variables bind to the surrounding scope — `uid` from the parent match is in scope in the inner allow condition.
+Path variables bind to the surrounding scope: `uid` from the parent match is in scope in the inner allow condition.
 
 ## Allow conditions
 
 Two verbs:
 
-- `allow read: if <expr>` — matches `getBytes`, `getBlob`, `getMetadata`.
-- `allow write: if <expr>` — matches `uploadBytes`, `uploadString`, `updateMetadata`, `deleteObject`.
+- `allow read: if <expr>` matches `getBytes`, `getBlob`, `getMetadata`.
+- `allow write: if <expr>` matches `uploadBytes`, `uploadString`, `updateMetadata`, `deleteObject`.
 
 The granular forms (`get`, `list`, `create`, `update`, `delete`) are deferred. The parser rejects them.
 
 ## Request bindings
 
-- `request.auth` — `null` for anonymous, otherwise `{ uid, token }`.
-- `request.auth.uid` — string.
-- `request.auth.token['claim']` — bracket access on the token object.
-- `request.resource.size` — byte count of the proposed upload payload.
-- `request.resource.contentType` — MIME string of the proposed upload.
-- `request.method` — `'get'` / `'create'` / `'update'` / `'delete'`.
-- `request.path` — full path of the object.
+- `request.auth`: `null` for anonymous, otherwise `{ uid, token }`.
+- `request.auth.uid`: string.
+- `request.auth.token['claim']`: bracket access on the token object.
+- `request.resource.size`: byte count of the proposed upload payload.
+- `request.resource.contentType`: MIME string of the proposed upload.
+- `request.method`: `'get'` / `'create'` / `'update'` / `'delete'`.
+- `request.path`: full path of the object.
 
-For deletes, `request.resource == null` — the carve-out lets delete rules accept `null` without confusing the parser. See [Enforce Storage rules](../how-to/enforce-rules.md) for the pattern.
+For deletes, `request.resource == null`. The carve-out lets delete rules accept `null` without confusing the parser. See [Enforce Storage rules](../how-to/enforce-rules.md) for the pattern.
 
 ## Resource bindings
 
 For existing objects:
 
-- `resource.size` — byte count.
-- `resource.contentType` — MIME string.
-- `resource.metadata` — bracket-access for custom metadata: `resource.metadata['sessionId']`.
+- `resource.size`: byte count.
+- `resource.contentType`: MIME string.
+- `resource.metadata`: bracket-access for custom metadata, `resource.metadata['sessionId']`.
 
 Deep dotted access (`resource.metadata.sessionId`) is deferred. Use the bracket form.
 
@@ -83,7 +83,7 @@ These produce parse errors:
 - `request.time` and time-based rules.
 - `matches()` / regex predicates.
 - Rule function definitions (`function isOwner() { return ... }`).
-- Deep dotted access into `customMetadata.<field>` — use the bracket form.
+- Deep dotted access into `customMetadata.<field>`. Use the bracket form.
 - Granular verbs (`get`, `list`, `create`, `update`, `delete`).
 
 See [Implementation scope and deferred features](../explanation/implementation-scope.md) for the reasoning.

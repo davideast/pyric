@@ -1,6 +1,6 @@
 # How to resolve `2+modules` imports
 
-This guide shows you how to write rules that import reusable helper functions and resolve them into a standard Firestore rules source.
+Write rules that import reusable helper functions, then resolve them into a standard Firestore rules source.
 
 `2+modules` is a Pyric extension. The Firestore rules engine itself only understands `rules_version = '2'`. The resolver inlines all imported functions and rewrites the version, so the output is something Firebase will accept.
 
@@ -46,7 +46,7 @@ The output uses `rules_version = '2'` and has the imported functions inlined at 
 
 ## Use the stdlib
 
-Fifteen modules ship with the package — `auth`, `validation`, `lobby`, `turns`, `state`, `membership`, `lifecycle`, `transitions`, `geometry`, `counters`, `timing`, `content`, `spaces`, `joining`, `atomic`. They resolve automatically; you don't need to configure anything.
+Fifteen modules ship with the package: `auth`, `validation`, `lobby`, `turns`, `state`, `membership`, `lifecycle`, `transitions`, `geometry`, `counters`, `timing`, `content`, `spaces`, `joining`, `atomic`. They resolve automatically; you don't need to configure anything.
 
 For the full list of exports, see [Standard library modules](../reference/stdlib-modules.md).
 
@@ -65,7 +65,7 @@ const result = resolveModules(source, { basePath: './src' });
 // Loads './src/lib/moderation.rules'
 ```
 
-The resolved path is `${basePath}/${importPath}.rules`. Functions in your module file can be marked `export` (visible to importers) or left bare (private — renamed with a module prefix so they don't collide).
+The resolved path is `${basePath}/${importPath}.rules`. Functions in your module file can be marked `export` (visible to importers) or left bare (private, renamed with a module prefix so they don't collide).
 
 ## Inject modules from memory
 
@@ -91,7 +91,7 @@ The `modules` map takes priority over both `basePath` lookups and the stdlib, so
 
 | Code | Meaning |
 |---|---|
-| `PARSE_FAILED` | The input source did not parse — fix syntax first. |
+| `PARSE_FAILED` | The input source did not parse. Fix syntax first. |
 | `NOT_MODULE_SOURCE` | The source has `rules_version = '2'`, not `'2+modules'`. No resolution needed; deploy as-is. |
 | `UNKNOWN_MODULE` | An imported module name isn't in stdlib, the `modules` map, or `basePath`. |
 | `UNKNOWN_FUNCTION` | The module exists but doesn't export the named function. The error message tells you if it exists but is private. |

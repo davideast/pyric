@@ -10,7 +10,7 @@ bun init -y
 bun add pyric/sandbox pyric-admin
 ```
 
-## Step 1 — Boot the sandbox and deploy rules
+## Step 1: Boot the sandbox and deploy rules
 
 Create `session.ts`:
 
@@ -46,7 +46,7 @@ console.log('Rules deployed.');
 
 Run with `bun run session.ts`. You should see `Rules deployed.` and no warnings.
 
-## Step 2 — Write as one user
+## Step 2: Write as one user
 
 ```ts
 const aliceCtx = sandbox.withAuth({ uid: 'alice' });
@@ -67,7 +67,7 @@ Output:
 Alice reads back: { ownerId: "alice", title: "My first note" }
 ```
 
-## Step 3 — Try a denied write
+## Step 3: Try a denied write
 
 ```ts
 const bobDb = getFirestore(sandbox.withAuth({ uid: 'bob' }));
@@ -83,7 +83,7 @@ try {
 
 Bob is not Alice; the update rule requires `request.auth.uid == resource.data.ownerId`. The denial fires with full context.
 
-## Step 4 — Run a transaction
+## Step 4: Run a transaction
 
 ```ts
 const result = await adminDb.runTransaction(async (tx) => {
@@ -99,7 +99,7 @@ console.log('Counter is now:', result);
 
 Output: `Counter is now: 1`. Run the file again and it becomes 2 (the sandbox isn't reset between runs of the script).
 
-## Step 5 — Write a batch
+## Step 5: Write a batch
 
 ```ts
 const batch = adminDb.batch();
@@ -113,7 +113,7 @@ console.log('After batch:', adminDb.snapshot());
 
 The three operations either all succeed or all fail. `FieldValue.increment(2)` resolves against the pre-batch state.
 
-## Step 6 — Watch with `onSnapshot`
+## Step 6: Watch with `onSnapshot`
 
 ```ts
 const changes: any[] = [];
@@ -140,9 +140,9 @@ Saw changes: [
 ]
 ```
 
-The listener fires once for the initial state, then again per write. Don't forget to `unsubscribe` — without it, a script holding the listener forever keeps the sandbox alive in memory.
+The listener fires once for the initial state, then again per write. Don't forget to `unsubscribe`: without it, a script holding the listener forever keeps the sandbox alive in memory.
 
-## Step 7 — Snapshot the world
+## Step 7: Snapshot the world
 
 ```ts
 console.log('Full state:');
@@ -156,11 +156,11 @@ Every document, every path. Use this for forensic dumps when a test fails.
 - `getFirestore(ctx)` is the entry point. Every operation runs under `ctx.auth`.
 - `setRules`, `seed`, `snapshot` are the sandbox-only methods on the handle.
 - The chainable production-shaped surface (`collection`, `doc`, `batch`, `runTransaction`) works as in `firebase-admin/firestore`.
-- `onSnapshot` mirrors the Web SDK's function form — preferred over `ref.onSnapshot(...)` for portability across `pyric-admin` and `pyric/firestore`.
+- `onSnapshot` mirrors the Web SDK's function form (preferred over `ref.onSnapshot(...)` for portability across `pyric-admin` and `pyric/firestore`).
 - `SandboxError` carries `denialContext` for `permission-denied`.
 
 ## What to do next
 
-- Pick between this package and `pyric/firestore` — see [Pick between `pyric-admin` and `pyric/firestore`](../../../sandbox/docs/how-to/pick-an-adapter.md).
-- Wire denials into a UI — see [Translate denials with `denialContext`](../how-to/translate-denials.md).
-- Use the sandbox in a real test suite — see [Use the sandbox in a test harness](../../../sandbox/docs/tutorials/02-use-the-sandbox-in-a-test-harness.md).
+- Pick between this package and `pyric/firestore`: see [Pick between `pyric-admin` and `pyric/firestore`](../../../sandbox/docs/how-to/pick-an-adapter.md).
+- Wire denials into a UI: see [Translate denials with `denialContext`](../how-to/translate-denials.md).
+- Use the sandbox in a real test suite: see [Use the sandbox in a test harness](../../../sandbox/docs/tutorials/02-use-the-sandbox-in-a-test-harness.md).

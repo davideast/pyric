@@ -3,11 +3,11 @@ title: "pyric/storage"
 navLabel: "Overview"
 group: "pyric / storage"
 section: ""
-order: 145
+order: 140
 ---
 # `pyric/storage`
 
-Firebase Storage adapter for the Pyric sandbox. Modular Web-SDK shape — `getStorageSandbox`, `ref`, `uploadBytes`, `getBytes`, `listAll`, `deleteObject` — backed by IndexedDB. A `getStorageProd` factory dispatches the same call sites to real Firebase Storage.
+Firebase Storage adapter for the Pyric sandbox. Modular Web-SDK shape (`getStorageSandbox`, `ref`, `uploadBytes`, `getBytes`, `listAll`, `deleteObject`) backed by IndexedDB. A `getStorageProd` factory dispatches the same call sites to real Firebase Storage.
 
 Built for the agent-session-archive use case. The scope is bounded; the architecture validates the broader pattern for adding file-based services to `pyric/sandbox`.
 
@@ -40,7 +40,7 @@ console.log(await blob.text());
 ```
 ## Control-plane surface
 
-Beyond the data-plane adapter, the package exports a control-plane surface for provisioning and managing real Cloud Storage buckets — `provisionStorage`, `getStorageServiceState`, `enableStorageService`, bucket listing, CORS management (`getBucketCors` / `setBucketCors`), `deployStorageRules` — plus `createStorageAdminTools`, a `ToolHandler[]` factory for an `@inbrowser/agent` registry. It also ships a local Storage rules engine (`parseStorageRules` / `evaluateStorageRules`).
+Beyond the data-plane adapter, the package exports a control-plane surface for provisioning and managing real Cloud Storage buckets: `provisionStorage`, `getStorageServiceState`, `enableStorageService`, bucket listing, CORS management (`getBucketCors` / `setBucketCors`), and `deployStorageRules`. Alongside those sits `createStorageAdminTools`, a `ToolHandler[]` factory for an `@inbrowser/agent` registry. It also ships a local Storage rules engine (`parseStorageRules` / `evaluateStorageRules`).
 
 ## Where to go next
 
@@ -55,7 +55,7 @@ This documentation follows the [Diataxis](https://diataxis.fr/) framework:
 
 ### Starting points
 
-- **Upload + download flow**: [Upload and download a session archive](../pyric-storage-tutorials-01-upload-and-download/).
+- **Upload + download flow**: [Upload and download a session archive](../store-files/).
 - **Enforcing rules**: [Enforce Storage rules](../pyric-storage-how-to-enforce-rules/).
 - **Knowing what's deferred**: [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/).
 
@@ -63,7 +63,7 @@ This documentation follows the [Diataxis](https://diataxis.fr/) framework:
 
 `pyric/storage` is the **storage data-plane adapter** (plus a thin control plane). It depends on `pyric/sandbox` for identity (and lifecycle on the sandbox backend), `pyric-tools/deploy` for the bucket-provisioning calls, and `@inbrowser/agent` for the tool-factory contract. It exposes the modular Web SDK's Storage surface. Sibling to `pyric/firestore` and `pyric-admin` on the Firestore side.
 
-The package's rules engine is local to the package — Storage rules use a different DSL from Firestore rules, so unlike `pyric/firestore` (which depends on `pyric/rules`), this package keeps the Storage-specific parser and evaluator in-tree.
+The package's rules engine is local to the package. Storage rules use a different DSL from Firestore rules, so unlike `pyric/firestore` (which depends on `pyric/rules`), this package keeps the Storage-specific parser and evaluator in-tree.
 
 ## Licence
 

@@ -1,6 +1,6 @@
 # `pyric/rules`
 
-Pyric-native Firestore Security Rules tooling. A browser-safe parser, linter, modules resolver, in-process simulator, and Rules Test API client — packaged so the data-plane swap-in (`pyric/firestore`) stays minimal.
+Pyric-native Firestore Security Rules tooling. A browser-safe parser, linter, modules resolver, in-process simulator, and Rules Test API client, packaged so the data-plane swap-in (`pyric/firestore`) stays minimal.
 
 The surface is grouped around the things you can do with a rules source:
 
@@ -8,11 +8,11 @@ The surface is grouped around the things you can do with a rules source:
 - **Lint** it for compilation limits, runtime-budget risks, and known agent failure modes.
 - **Validate** it for security and quality findings (`SEC-1` … `STR-3`).
 - **Resolve** `2+modules` imports against a stdlib of reusable functions.
-- **Simulate** it locally against test cases — no network, no propagation wait.
+- **Simulate** it locally against test cases. No network, no propagation wait.
 - **Test** it against the live Firebase Rules Test API.
 - **Wrap** it in agent-tool factories for `@inbrowser/agent` registries.
 
-Parse, Lint, Validate, Simulate, and Test are on the browser-safe root entry. **Resolve** and **Wrap** are Node-only and live on the `pyric/rules/node` subpath — `resolveModules`, `createFirestoreRulesTools`, and `createFirestoreSimulatorTools` are not exported from the root.
+Parse, Lint, Validate, Simulate, and Test are on the browser-safe root entry. **Resolve** and **Wrap** are Node-only and live on the `pyric/rules/node` subpath: `resolveModules`, `createFirestoreRulesTools`, and `createFirestoreSimulatorTools` are not exported from the root.
 
 ## Install
 
@@ -87,7 +87,7 @@ Documentation is organised under [`docs/`](./docs/) following the [Diataxis](htt
 
 ## Position in the Pyric stack
 
-`pyric/rules` is the **rules-tooling** sibling of `pyric/firestore` (the modular Web-SDK swap-in). The split is deliberate: the data-plane swap-in must mirror the production Firestore surface and nothing more. Anything that is *about* rules — parsing them, linting them, simulating them — lives here. See [Why this package exists](./docs/explanation/why-this-package-exists.md) for the longer story.
+`pyric/rules` is the **rules-tooling** sibling of `pyric/firestore` (the modular Web-SDK swap-in). The split is deliberate: the data-plane swap-in must mirror the production Firestore surface and nothing more. Anything that is *about* rules (parsing them, linting them, simulating them) lives here. See [Why this package exists](./docs/explanation/why-this-package-exists.md) for the longer story.
 
 ## Licence
 

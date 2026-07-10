@@ -4,7 +4,7 @@ This guide shows you how to build a `ProjectScope` in a browser host using the c
 
 ## The shape
 
-`ProjectScope` is just `{ projectId, resolveToken }`. Wire it by hand:
+`ProjectScope` is `{ projectId, resolveToken }`. Wire it by hand:
 
 ```ts
 import type { ProjectScope } from 'pyric-tools/deploy';
@@ -55,9 +55,9 @@ Most primitives in `pyric-tools/deploy` use only `fetch` and work from a browser
 
 - All `firestore.rules.*` calls.
 - All `firestore.indexes.*` and `firestore.databases.*` calls.
-- `hosting.deployFiles` *when you supply pre-walked `files`* — not when you pass `localDir` (Node-only).
+- `hosting.deployFiles` *when you supply pre-walked `files`*, not when you pass `localDir` (Node-only).
 - `hosting.sites.{create, ensure}`.
-- `functions.deploy` *when you supply a pre-built zip* — not `functions.deployLocal` or `functions.bundle` (Node-only).
+- `functions.deploy` *when you supply a pre-built zip*, not `functions.deployLocal` or `functions.bundle` (Node-only).
 - `functions.pollOperation` and `functions.grantPublicInvoker`.
 
 A browser host that ships an already-bundled functions zip from any source (a build server, a file upload UI, an in-memory esbuild bundle) can still deploy without leaving the browser.
