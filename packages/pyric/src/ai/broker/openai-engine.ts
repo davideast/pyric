@@ -443,14 +443,19 @@ export class OpenAiEngine implements AnswerEngine {
   private readonly baseUrl: string;
   private readonly defaultModel: string | undefined;
   private readonly modelMap: Record<string, string>;
-  private readonly fetchImpl: typeof fetch;
+  /** Call-signature only (not `typeof fetch`): the wrapper below carries none
+   *  of the runtime's static props (e.g. Bun's `fetch.preconnect`). */
+  private readonly fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   private readonly synth: Synthesizer;
 
   constructor(options: OpenAiEngineOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.defaultModel = options.model;
     this.modelMap = options.modelMap ?? {};
-    this.fetchImpl = options.fetch ?? fetch;
+    // Wrapped, not stored bare: `this.fetchImpl(...)` would otherwise invoke
+    // the global fetch with the engine as its receiver, an Illegal invocation
+    // in browser/worker contexts (Node tolerates it, browsers do not).
+    this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
     this.synth = options.synthesizer ?? new Synthesizer();
   }
 
