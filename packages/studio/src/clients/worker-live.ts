@@ -57,6 +57,7 @@ import {
   getPolicy as workerGetPolicy,
   listRootCollections as workerListRootCollections,
   listSubcollections as workerListSubcollections,
+  adminListDocuments as workerAdminListDocuments,
   listUsers as workerListUsers,
   adminCreateUser as workerAdminCreateUser,
   adminUpdateUser as workerAdminUpdateUser,
@@ -125,6 +126,9 @@ export interface WorkerLivePlane {
   listRootCollections(): Promise<string[]>;
   /** F2 data browse: enumerate subcollection ids under a document path. */
   listSubcollections(docPath: string): Promise<string[]>;
+  /** F2 data browse: phantom-inclusive document listing for a collection path
+   *  (`phantom: true` = a "missing" parent — descendants but no stored doc). */
+  listDocuments(collectionPath: string): Promise<{ path: string; phantom?: boolean }[]>;
   /** RTDB browse: read the full worker-backed RTDB tree with the admin lens. */
   readRtdbState(): Promise<unknown>;
   /** RTDB browse: replace a node with the admin lens. */
@@ -311,6 +315,13 @@ export function connectWorkerLive(
     getPolicy: () => workerGetPolicy(db),
     listRootCollections: () => workerListRootCollections(db),
     listSubcollections: (docPath) => workerListSubcollections(db, docPath),
+    // Browse-only listing: drop `data` at this seam (the pane only needs the
+    // id + the phantom flag; document CONTENT always reads via getDoc).
+    listDocuments: async (collectionPath) =>
+      (await workerAdminListDocuments(db, collectionPath)).map(({ path, phantom }) => ({
+        path,
+        phantom,
+      })),
     readRtdbState: () => workerAdminReadRtdbState(db),
     setRtdbValue: (path, value) => workerAdminSetRtdbValue(db, path, value),
     updateRtdbValue: (path, values) => workerAdminUpdateRtdbValue(db, path, values),

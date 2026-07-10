@@ -38,12 +38,17 @@ Path variables bind to the surrounding scope — `uid` from the parent match is 
 
 ## Allow conditions
 
-Two verbs:
+Coarse umbrellas and granular verbs, matching production Storage semantics.
 
-- `allow read: if <expr>` — matches `getBytes`, `getBlob`, `getMetadata`.
-- `allow write: if <expr>` — matches `uploadBytes`, `uploadString`, `updateMetadata`, `deleteObject`.
+- `allow read: if <expr>` — the umbrella for `get` + `list`.
+- `allow write: if <expr>` — the umbrella for `create` + `update` + `delete`.
+- `allow get` — `getBlob` / `getBytes` / `getMetadata`.
+- `allow list` — `listAll`.
+- `allow create` — `uploadBytes` / `uploadString` to a path with no existing object.
+- `allow update` — `uploadBytes` / `uploadString` over an existing object, and `updateMetadata`.
+- `allow delete` — `deleteObject`.
 
-The granular forms (`get`, `list`, `create`, `update`, `delete`) are deferred. The parser rejects them.
+A granular grant covers only its own verb: `allow get` does not grant `list`, and `allow create` does not grant `update` or `delete`. Verbs may be comma-separated in one clause (`allow get, list: if <expr>`). A verb with no applicable grant is denied.
 
 ## Request bindings
 
@@ -86,7 +91,6 @@ These produce parse errors:
 - `matches()` / regex predicates.
 - Rule function definitions (`function isOwner() { return ... }`).
 - Deep dotted access into `customMetadata.<field>` — use the bracket form.
-- Granular verbs (`get`, `list`, `create`, `update`, `delete`).
 
 See [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) for the reasoning.
 

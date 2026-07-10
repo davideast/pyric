@@ -63,7 +63,7 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
   enforceRules(service, {
     request: {
       auth: target.context.auth,
-      method: 'read',
+      method: 'list',
       path: refIn.fullPath,
     },
     resource: null,

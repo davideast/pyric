@@ -44,6 +44,14 @@ import type { StorageApi } from '@pyric/ui/storage';
 /** Stable durable-state bucket key for Studio's mirror of the sandbox. */
 const PERSIST_KEY = 'pyric-studio';
 
+/** One entry from a phantom-inclusive collection listing (browse traversal).
+ *  `phantom: true` marks a "missing" parent doc — no stored fields, real
+ *  descendants — which queries correctly exclude but the browser must show. */
+export interface ListedDocument {
+  path: string;
+  phantom?: boolean;
+}
+
 /** The resolved data handles for one Studio sandbox, plus collection listing. */
 export interface StudioDataHandles {
   sandbox: Sandbox;
@@ -59,6 +67,59 @@ export interface StudioDataHandles {
   /** Subcollection IDs under a document path. Sync in-process (dev-seed),
    *  async over the worker (served mode); callers await either. */
   listSubcollections(docPath: string): string[] | Promise<string[]>;
+  /** Phantom-inclusive document listing for a collection path (mirrors live
+   *  Firestore's `listDocuments`). Browse-only: queries stay phantom-free.
+   *  Sync in-process, async over the worker; callers await either. */
+  listDocuments(collectionPath: string): ListedDocument[] | Promise<ListedDocument[]>;
+}
+
+/**
+ * Phantom-inclusive browse listing off a sandbox's internal env, mapped to
+ * the handle shape (drops `data`: browse needs ids + the phantom flag;
+ * document content always reads via `getDoc`). Shared by both in-process
+ * handle builders (here and `handlesFromSeed` in `shell/studio-data.ts`).
+ */
+export function listDocumentsForBrowse(
+  env: Pick<ReturnType<typeof getInternalEnv>, 'listDocuments'>,
+  collectionPath: string,
+): ListedDocument[] {
+  return env.listDocuments(collectionPath).map(({ path, phantom }) => ({ path, phantom }));
+}
+
+/**
+ * Collect every STORED document path in the keyspace: root collections walked
+ * recursively through the phantom-inclusive `listDocuments` seam, so docs
+ * under "missing" parents are reached (a `getDocs` walk would skip the
+ * phantom and orphan everything beneath it). Phantoms are traversed but not
+ * collected — there is nothing stored to delete. Per-collection failures are
+ * reported, not thrown, so one bad branch doesn't abort the sweep ("clear
+ * sandbox" semantics — see `useStudioClear`).
+ */
+export async function collectAllDocPaths(
+  handles: Pick<
+    StudioDataHandles,
+    'listRootCollections' | 'listSubcollections' | 'listDocuments'
+  >,
+): Promise<{ docPaths: string[]; errors: string[] }> {
+  const docPaths: string[] = [];
+  const errors: string[] = [];
+  const walk = async (collPath: string): Promise<void> => {
+    try {
+      const entries = await handles.listDocuments(collPath);
+      for (const entry of entries) {
+        if (entry.phantom !== true) docPaths.push(entry.path);
+        for (const sub of await handles.listSubcollections(entry.path)) {
+          await walk(`${entry.path}/${sub}`);
+        }
+      }
+    } catch (e) {
+      errors.push(`list ${collPath}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  for (const collId of handles.listRootCollections()) {
+    await walk(collId);
+  }
+  return { docPaths, errors };
 }
 
 /** Build the handle bundle for a freshly-created sandbox. */
@@ -74,6 +135,7 @@ function makeHandles(sandbox: Sandbox): StudioDataHandles {
     storage: getStorage(app),
     listRootCollections: () => env.listRootCollections(),
     listSubcollections: (docPath: string) => env.listSubcollections(docPath),
+    listDocuments: (collectionPath: string) => listDocumentsForBrowse(env, collectionPath),
   };
 }
 

@@ -18,6 +18,7 @@
  */
 import * as fb from 'firebase/storage';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored } from './rules.js';
@@ -70,8 +71,16 @@ export async function getBlob(
  * `storage/object-not-found` when the path is missing. The v1 scope
  * keeps the persistence-layer no-op behavior for now; Slice 8 will
  * reconsider whether to mirror the strict throw.
+ *
+ * `provenance` (host-only): op {@link EventProvenance} bound at ISSUE time,
+ * threaded EXPLICITLY onto the emitted `object_delete` event. The delete
+ * awaits the backend before emitting, so it escapes the sandbox's
+ * synchronous ambient-provenance window — see the note on `uploadBytes`.
  */
-export async function deleteObject(ref: StorageReference): Promise<void> {
+export async function deleteObject(
+  ref: StorageReference,
+  provenance?: EventProvenance,
+): Promise<void> {
   guardNonRoot(ref, 'deleteObject');
   const target = targetOf(ref.storage);
   if (target.kind === 'prod') {
@@ -83,11 +92,11 @@ export async function deleteObject(ref: StorageReference): Promise<void> {
   enforceRules(service, {
     request: {
       auth: target.context.auth,
-      method: 'write',
+      method: 'delete',
       path: ref.fullPath,
     },
     resource: resourceFromStored(existing),
-  }, target);
+  }, target, provenance);
   await service.backend.delete(ref.fullPath);
   try {
     emitSandboxEvent(
@@ -100,7 +109,7 @@ export async function deleteObject(ref: StorageReference): Promise<void> {
         before: existing ?? undefined,
         detail: { bucket: ref.bucket },
       }),
-      { service: 'storage' },
+      { ...provenance, service: 'storage' },
     );
   } catch {
     // Observational — never let event emission break a storage delete.
@@ -130,7 +139,7 @@ async function fetchBlob(
   enforceRules(service, {
     request: {
       auth: target.context.auth,
-      method: 'read',
+      method: 'get',
       path: ref.fullPath,
     },
     resource: resourceFromStored(existing),

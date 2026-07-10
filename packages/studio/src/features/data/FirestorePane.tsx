@@ -33,7 +33,7 @@ import { PANEL_BREAKPOINTS, panelWindow } from './panelLayout.js';
 import type { StudioDataHandles } from './sandbox.js';
 import { ImportJsonPanel } from './FirestoreImportPanel.js';
 import { FirestoreCreateModal, type FirestoreCreateSubmit } from './FirestoreCreateModal.js';
-import { FirestoreDocumentTree } from './FirestoreDocumentTree.js';
+import { FirestoreDocumentTree, SubcollectionsSection } from './FirestoreDocumentTree.js';
 import { OverflowMenu } from './OverflowMenu.js';
 import { makeRecursiveDeleteImpl } from './recursiveDelete.js';
 import './firestore.css';
@@ -68,6 +68,20 @@ async function createDocWithProbe(
     throw new Error(`Document "${docId}" already exists here — choose a different ID.`);
   }
   await api.setDoc(ref, data);
+}
+
+/**
+ * A "missing" parent doc (no stored fields, real descendants) rendered as a
+ * navigable row. Queries correctly exclude these (Firebase parity), so the
+ * DocumentColumn synthesizes just enough of a snapshot for `<DocumentList>`'s
+ * surface (`.id` + `.ref`) and marks it so the renderers can style it.
+ */
+function makePhantomRow(ref: DocumentReference): QueryDocumentSnapshot {
+  return { id: ref.id, ref, __pyricPhantom: true } as unknown as QueryDocumentSnapshot;
+}
+
+function isPhantomRow(snap: QueryDocumentSnapshot): boolean {
+  return (snap as unknown as { __pyricPhantom?: boolean }).__pyricPhantom === true;
 }
 
 /**
@@ -370,6 +384,37 @@ function DocumentColumn({
     createDocument,
     deleteDocument,
   } = useDocumentList({ collection, mode: 'live' });
+  // "Missing" parents come from the phantom-inclusive listDocuments seam —
+  // the paged getDocs above can't see them (queries match stored docs only).
+  // Re-fetched whenever the real page changes so create/delete stays in sync.
+  const [phantomIds, setPhantomIds] = useState<readonly string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.resolve(handles.listDocuments(collectionPath))
+      .then((entries) => {
+        if (cancelled) return;
+        setPhantomIds(
+          entries.filter((e) => e.phantom).map((e) => e.path.split('/').pop() ?? ''),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setPhantomIds([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [handles, collectionPath, documents]);
+  // Real docs first (the paged order), phantoms after — the same order
+  // `LocalState.list` guarantees — deduped by id so a real doc always wins.
+  const rows = useMemo(() => {
+    const realIds = new Set(documents.map((d) => d.id));
+    return [
+      ...documents,
+      ...phantomIds
+        .filter((id) => id.length > 0 && !realIds.has(id))
+        .map((id) => makePhantomRow(api.doc(firestore, `${collectionPath}/${id}`))),
+    ];
+  }, [documents, phantomIds, api, firestore, collectionPath]);
   const collId = collectionPath.split('/').pop() ?? collectionPath;
   // Per-row delete: plain click arms an inline confirm; shift-click deletes
   // immediately (rapid bulk delete). Only one row arms at a time.
@@ -454,7 +499,7 @@ function DocumentColumn({
 
       {!importing ? (
         <DocumentList
-        documents={documents}
+        documents={rows}
         isLoading={isLoading}
         error={error}
         updateScope={`${collectionPath}:${subscriptionGeneration}`}
@@ -465,11 +510,21 @@ function DocumentColumn({
           const ref = (snap as unknown as { ref: DocumentReference }).ref;
           return (
             <span data-pyric-selected={selectedId === ref.id ? '' : undefined} style={{ display: 'contents' }}>
-              {snap.id}
+              {isPhantomRow(snap) ? (
+                <>
+                  <span className="fs-doc-phantom">{snap.id}</span>
+                  <span className="fs-sub fs-doc-phantom-hint">missing</span>
+                </>
+              ) : (
+                snap.id
+              )}
             </span>
           );
         }}
         renderRowAction={(snap: QueryDocumentSnapshot) => {
+          // No per-row delete on a phantom: there is no stored doc to delete.
+          // Its subtree deletes through the detail column / delete-collection.
+          if (isPhantomRow(snap)) return null;
           const r = (snap as unknown as { ref: DocumentReference }).ref;
           if (confirmingId === r.id) {
             return (
@@ -616,7 +671,17 @@ function DocumentDetailColumn({
       ) : isLoading ? (
         <p className="fs-empty">Loading document…</p>
       ) : (
-        <p className="fs-empty">Empty document.</p>
+        <>
+          {/* Console parity: a missing doc still lists its subcollections —
+              that's the only way deep data under a phantom stays reachable. */}
+          <p className="fs-empty">This document does not exist.</p>
+          <SubcollectionsSection
+            firestore={firestore}
+            documentRef={ref}
+            listSubcollections={listSubcollections}
+            onSubcollectionClick={onOpenSubcollection}
+          />
+        </>
       )}
     </section>
   );

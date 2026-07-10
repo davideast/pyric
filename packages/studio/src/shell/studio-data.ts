@@ -24,9 +24,6 @@ import {
   sandbox as firestoreSandbox,
   doc as inProcessDoc,
   setDoc as inProcessSetDoc,
-  collection as inProcessCollection,
-  query as inProcessQuery,
-  getDocs as inProcessGetDocs,
   deleteDoc as inProcessDeleteDoc,
 } from 'pyric/firestore';
 import { sandbox as authSandbox, type CreateUserRequest } from 'pyric/auth';
@@ -43,6 +40,8 @@ import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
 import type { WorkerLivePlane } from '../env.js';
 import {
+  collectAllDocPaths,
+  listDocumentsForBrowse,
   useStudioData,
   type StudioDataHandles,
   type StudioDataState,
@@ -59,7 +58,7 @@ import {
 } from '../features/rules-debug/model.js';
 
 /** Lift the dev-seed's `SeededHandles` to the richer `StudioDataHandles` the F2
- *  panes expect (the only delta is the two keyspace-listing helpers, which come
+ *  panes expect (the only delta is the keyspace-listing helpers, which come
  *  straight off the sandbox's internal env). */
 function handlesFromSeed(seed: {
   sandbox: StudioDataHandles['sandbox'];
@@ -79,6 +78,7 @@ function handlesFromSeed(seed: {
     storage: seed.storage,
     listRootCollections: () => env.listRootCollections(),
     listSubcollections: (docPath: string) => env.listSubcollections(docPath),
+    listDocuments: (collectionPath: string) => listDocumentsForBrowse(env, collectionPath),
   };
 }
 
@@ -132,6 +132,7 @@ export function useStudioDataSource(): StudioDataState {
               storage: live.storage,
               listRootCollections: () => workerRoots,
               listSubcollections: (docPath: string) => live.listSubcollections(docPath),
+              listDocuments: (collectionPath: string) => live.listDocuments(collectionPath),
             },
           };
         }
@@ -430,8 +431,9 @@ export function useStudioSeedAuth(): (
 /**
  * Clear the sandbox: delete every Firestore document (root collections +
  * recursive subcollections, via the admin handle) and clear all auth users.
- * Subcollection refs are built from the parent doc ref (not multi-segment
- * collection paths), so it works in both in-process and served modes.
+ * The walk rides the handles' path-based listing seams — phantom-inclusive
+ * (see {@link collectAllDocPaths}), so data under "missing" parents is
+ * reached — and works unchanged in both in-process and served modes.
  */
 export function useStudioClear(): () => Promise<{ cleared: number; errors: string[] }> {
   const data = useStudioDataSource();
@@ -439,32 +441,8 @@ export function useStudioClear(): () => Promise<{ cleared: number; errors: strin
     if (data.status !== 'ready') throw new Error('No sandbox to clear.');
     const adminDb = data.handles.adminFirestore as unknown as Parameters<typeof inProcessDoc>[0];
     const docFn = (data.firestoreApi?.doc ?? inProcessDoc) as typeof inProcessDoc;
-    const collectionFn = (data.firestoreApi?.collection ?? inProcessCollection) as typeof inProcessCollection;
-    const queryFn = (data.firestoreApi?.query ?? inProcessQuery) as typeof inProcessQuery;
-    const getDocsFn = (data.firestoreApi?.getDocs ?? inProcessGetDocs) as typeof inProcessGetDocs;
     const deleteDocFn = (data.firestoreApi?.deleteDoc ?? inProcessDeleteDoc) as typeof inProcessDeleteDoc;
-    const errors: string[] = [];
-    const docPaths: string[] = [];
-
-    // Collect every doc path, recursing subcollections (parent-ref form).
-    const collectFrom = async (collRef: unknown, collPath: string): Promise<void> => {
-      try {
-        const snap = await getDocsFn(queryFn(collRef as never));
-        for (const d of snap.docs) {
-          const docPath = `${collPath}/${d.id}`;
-          docPaths.push(docPath);
-          const subIds = await data.handles.listSubcollections(docPath);
-          for (const sub of subIds) {
-            await collectFrom(collectionFn(docFn(adminDb, docPath) as never, sub), `${docPath}/${sub}`);
-          }
-        }
-      } catch (e) {
-        errors.push(`list ${collPath}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    };
-    for (const collId of data.handles.listRootCollections()) {
-      await collectFrom(collectionFn(adminDb as never, collId), collId);
-    }
+    const { docPaths, errors } = await collectAllDocPaths(data.handles);
 
     let cleared = 0;
     for (const path of docPaths) {
