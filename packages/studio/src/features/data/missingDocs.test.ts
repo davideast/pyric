@@ -8,7 +8,9 @@
  *     in-process handle builders share) is phantom-INCLUSIVE,
  *   - queries (`getDocs`) and `getDoc` stay phantom-FREE (Firebase parity),
  *   - the recursive delete walks THROUGH phantoms, so deep leaves are found
- *     and removed when an ancestor collection is deleted.
+ *     and removed when an ancestor collection is deleted,
+ *   - the clear-sandbox sweep (`collectAllDocPaths`) reaches stored docs
+ *     under phantoms and collects nothing for the phantoms themselves.
  *
  * Handles are built off the internal env directly (not `makeHandles`, whose
  * storage handle needs IndexedDB) — the same `getInternalEnv` wiring both
@@ -32,7 +34,11 @@ import {
   startAfter,
 } from 'pyric/firestore';
 import type { FirestoreApi } from '@pyric/ui/firestore';
-import { listDocumentsForBrowse, type StudioDataHandles } from './sandbox.js';
+import {
+  collectAllDocPaths,
+  listDocumentsForBrowse,
+  type StudioDataHandles,
+} from './sandbox.js';
 import { makeRecursiveDeleteImpl } from './recursiveDelete.js';
 
 /** `exists` is a method on modular snapshots, a boolean on compat shapes. */
@@ -114,5 +120,22 @@ describe('recursive delete through missing parents', () => {
     expect(handles.listRootCollections()).toEqual([]);
     // Only the real leaf counts as a deletion; the phantom parent is a no-op.
     expect(progress.at(-1)).toEqual({ deletedCount: 1, done: true });
+  });
+});
+
+describe('clear sandbox through missing parents (collectAllDocPaths)', () => {
+  it('collects only stored docs, reaching leaves under phantoms', async () => {
+    const { handles, db } = await seedDeepOnly();
+
+    const { docPaths, errors } = await collectAllDocPaths(handles);
+    expect(errors).toEqual([]);
+    // The leaf is found through the missing parent; the phantom itself is
+    // traversed but never collected (nothing stored to delete).
+    expect(docPaths).toEqual(['zones/village/players/anonymous-2']);
+
+    // The clear's delete loop over the collected paths empties the keyspace.
+    for (const path of docPaths) await deleteDoc(doc(db, path));
+    expect(exists(await getDoc(doc(db, 'zones/village/players/anonymous-2')))).toBe(false);
+    expect(handles.listRootCollections()).toEqual([]);
   });
 });
