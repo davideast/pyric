@@ -222,6 +222,12 @@ describe('oracle conformance (rules-firestore)', () => {
       if (!pack) return;
 
       const sim = await simulateVerdicts(pack);
+      // Every case in the pack is checked and any mismatch is collected here
+      // rather than asserted immediately — bun aborts a test at the first
+      // thrown `expect`, so asserting per-case would hide later divergences
+      // behind an earlier one. Collecting first and asserting once at the end
+      // (below) means every diverging case in the pack is reported together.
+      const mismatches: string[] = [];
       for (const [caseKey, prodVerdict] of Object.entries(obs.behavior)) {
         const simVerdict = sim[caseKey];
         // The simulator's documented third state: when it abstains
@@ -233,18 +239,28 @@ describe('oracle conformance (rules-firestore)', () => {
         const divergenceKey = `${obs.name} :: ${caseKey}`;
         const known = KNOWN_DIVERGENCES[divergenceKey];
         if (known) {
-          // Pinned, tracked gap (see KNOWN_DIVERGENCES above): assert the
-          // captured production verdict AND the simulator's current verdict
-          // so neither can silently drift. If the simulator's behavior ever
-          // changes on this case, this fails and the entry must be revisited.
-          expect(prodVerdict, `${divergenceKey} (recorded prod verdict)`).toBe(known.prodVerdict);
-          expect(simVerdict, `${divergenceKey} (recorded sim verdict, ${known.issue}: ${known.reason})`).toBe(
-            known.simVerdict,
-          );
+          // Pinned, tracked gap (see KNOWN_DIVERGENCES above): the captured
+          // production verdict AND the simulator's current verdict must both
+          // still match what was pinned, so neither can silently drift. If
+          // the simulator's behavior ever changes on this case, that's
+          // reported below and the entry must be revisited.
+          if (prodVerdict !== known.prodVerdict) {
+            mismatches.push(
+              `${divergenceKey} (recorded prod verdict): expected ${JSON.stringify(known.prodVerdict)}, got ${JSON.stringify(prodVerdict)}`,
+            );
+          }
+          if (simVerdict !== known.simVerdict) {
+            mismatches.push(
+              `${divergenceKey} (recorded sim verdict, ${known.issue}: ${known.reason}): expected ${JSON.stringify(known.simVerdict)}, got ${JSON.stringify(simVerdict)}`,
+            );
+          }
           continue;
         }
-        expect(simVerdict, divergenceKey).toBe(prodVerdict);
+        if (simVerdict !== prodVerdict) {
+          mismatches.push(`${divergenceKey}: expected ${JSON.stringify(prodVerdict)}, got ${JSON.stringify(simVerdict)}`);
+        }
       }
+      expect(mismatches).toEqual([]);
     });
   }
 
