@@ -395,6 +395,221 @@ describe('evaluateStorageRules — granular verbs', () => {
   });
 });
 
+// ─── User-defined functions ───────────────────────────────────────
+//
+// Production Storage rules (rules_version '2') support `function`
+// declarations at service scope and inside match blocks. They are
+// lexically scoped (visible within their declaring block and nested
+// blocks), may take arguments, may contain `let` bindings before a
+// single `return`, and may call other functions. Any function-eval
+// failure (undefined, wrong arity, depth exceeded, error in body)
+// must DENY with a reason that names the function — never a false
+// allow.
+
+describe('evaluateStorageRules — user-defined functions', () => {
+  const path = 'b/pyric-default/o/files/f1.bin';
+
+  function evalRule(source: string, opts: {
+    method?: string;
+    auth?: { uid: string; token?: Record<string, unknown> } | null;
+    reqPath?: string;
+    resource?: StorageResourceLike;
+  } = {}) {
+    const rules = parseStorageRules(source);
+    return evaluateStorageRules(rules, {
+      request: {
+        auth: opts.auth === undefined ? { uid: 'alice' } : opts.auth,
+        method: (opts.method ?? 'read') as never,
+        path: opts.reqPath ?? path,
+      },
+      resource: opts.resource ?? null,
+    });
+  }
+
+  it('declares a function at service scope and calls it from an allow', () => {
+    const src = `service firebase.storage {
+      function signedIn() { return request.auth != null; }
+      match /b/{bucket}/o {
+        match /files/{fileId} { allow read: if signedIn(); }
+      }
+    }`;
+    expect(evalRule(src, { auth: { uid: 'alice' } }).allowed).toBe(true);
+    expect(evalRule(src, { auth: null }).allowed).toBe(false);
+  });
+
+  it('declares a function inside a match block', () => {
+    const src = `service firebase.storage {
+      match /b/{bucket}/o {
+        match /files/{fileId} {
+          function signedIn() { return request.auth != null; }
+          allow read: if signedIn();
+        }
+      }
+    }`;
+    expect(evalRule(src, { auth: { uid: 'alice' } }).allowed).toBe(true);
+    expect(evalRule(src, { auth: null }).allowed).toBe(false);
+  });
+
+  it('evaluates arguments in the caller context and binds them to params', () => {
+    // isOwner(userId) compares its parameter to the auth uid; the
+    // caller passes the path wildcard fileId as the arg.
+    const src = `service firebase.storage {
+      function isOwner(userId) {
+        return request.auth != null && request.auth.uid == userId;
+      }
+      match /b/{bucket}/o {
+        match /files/{fileId} { allow read: if isOwner(fileId); }
+      }
+    }`;
+    // path param fileId === 'alice' → owner match
+    expect(
+      evalRule(src, { auth: { uid: 'alice' }, reqPath: 'b/pyric-default/o/files/alice' }).allowed,
+    ).toBe(true);
+    expect(
+      evalRule(src, { auth: { uid: 'bob' }, reqPath: 'b/pyric-default/o/files/alice' }).allowed,
+    ).toBe(false);
+  });
+
+  it('does not leak caller wildcards into the body except via args', () => {
+    // The body references `fileId` directly, but a function body does
+    // NOT see the caller's path wildcards (only its own params). The
+    // reference resolves to undefined → falsy → deny.
+    const src = `service firebase.storage {
+      function leaks() { return fileId == 'alice'; }
+      match /b/{bucket}/o {
+        match /files/{fileId} { allow read: if leaks(); }
+      }
+    }`;
+    expect(
+      evalRule(src, { auth: { uid: 'alice' }, reqPath: 'b/pyric-default/o/files/alice' }).allowed,
+    ).toBe(false);
+  });
+
+  it('inner declaration shadows an outer one of the same name', () => {
+    const src = `service firebase.storage {
+      function which() { return false; }
+      match /b/{bucket}/o {
+        match /files/{fileId} {
+          function which() { return true; }
+          allow read: if which();
+        }
+      }
+    }`;
+    expect(evalRule(src, { auth: { uid: 'alice' } }).allowed).toBe(true);
+  });
+
+  it('a function is not visible outside its declaring block', () => {
+    // `scoped` is declared inside /files; the sibling /public block
+    // cannot call it → undefined function → deny with reason.
+    const src = `service firebase.storage {
+      match /b/{bucket}/o {
+        match /files/{fileId} {
+          function scoped() { return true; }
+          allow read: if true;
+        }
+        match /public/{id} { allow read: if scoped(); }
+      }
+    }`;
+    const r = evalRule(src, { auth: { uid: 'alice' }, reqPath: 'b/pyric-default/o/public/x' });
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('scoped');
+  });
+
+  it('supports a function calling another function', () => {
+    const src = `service firebase.storage {
+      function signedIn() { return request.auth != null; }
+      function isOwner(userId) { return signedIn() && request.auth.uid == userId; }
+      match /b/{bucket}/o {
+        match /files/{fileId} { allow read: if isOwner(fileId); }
+      }
+    }`;
+    expect(
+      evalRule(src, { auth: { uid: 'alice' }, reqPath: 'b/pyric-default/o/files/alice' }).allowed,
+    ).toBe(true);
+    expect(
+      evalRule(src, { auth: null, reqPath: 'b/pyric-default/o/files/alice' }).allowed,
+    ).toBe(false);
+  });
+
+  it('supports let bindings before the return', () => {
+    const src = `service firebase.storage {
+      function bigEnough() {
+        let limit = 10 * 1024;
+        let ok = request.resource.size < limit;
+        return ok;
+      }
+      match /b/{bucket}/o {
+        match /files/{fileId} { allow write: if bigEnough(); }
+      }
+    }`;
+    const rules = parseStorageRules(src);
+    expect(
+      evaluateStorageRules(rules, {
+        request: { auth: { uid: 'a' }, method: 'write' as never, path, resource: { size: 5 } },
+        resource: null,
+      }).allowed,
+    ).toBe(true);
+    expect(
+      evaluateStorageRules(rules, {
+        request: { auth: { uid: 'a' }, method: 'write' as never, path, resource: { size: 20 * 1024 } },
+        resource: null,
+      }).allowed,
+    ).toBe(false);
+  });
+
+  it('undefined function → deny with reason naming the function', () => {
+    const src = `service firebase.storage {
+      match /b/{bucket}/o {
+        match /files/{fileId} { allow read: if missing(); }
+      }
+    }`;
+    const r = evalRule(src, { auth: { uid: 'alice' } });
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('missing');
+  });
+
+  it('arity mismatch → deny with reason naming the function', () => {
+    const src = `service firebase.storage {
+      function isOwner(userId) { return request.auth.uid == userId; }
+      match /b/{bucket}/o {
+        match /files/{fileId} { allow read: if isOwner(); }
+      }
+    }`;
+    const r = evalRule(src, { auth: { uid: 'alice' } });
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('isOwner');
+  });
+
+  it('recursion depth cap → deny with reason (never loops)', () => {
+    const src = `service firebase.storage {
+      function loop() { return loop(); }
+      match /b/{bucket}/o {
+        match /files/{fileId} { allow read: if loop(); }
+      }
+    }`;
+    const r = evalRule(src, { auth: { uid: 'alice' } });
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('loop');
+  });
+
+  it('an error inside a function body denies rather than false-allows', () => {
+    // The body calls a function that is undefined; the error propagates
+    // out of the nested call and denies.
+    const src = `service firebase.storage {
+      function outer() { return inner(); }
+      match /b/{bucket}/o {
+        match /files/{fileId} { allow read: if outer(); }
+      }
+    }`;
+    const r = evalRule(src, { auth: { uid: 'alice' } });
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('inner');
+  });
+});
+
+// Local structural alias so the helper above stays readable.
+type StorageResourceLike = { size: number; contentType?: string; metadata?: Record<string, string> } | null;
+
 // ─── Operation integration tests ──────────────────────────────────
 
 function authedStorage(label: string, auth: { uid: string } | null) {

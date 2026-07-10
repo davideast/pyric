@@ -30,9 +30,15 @@
  *       unary: `!`
  *       binary: `&& || == != < > <= >= + - * /`
  *       parens
+ *       user-defined function calls (`isOwner(uid)`)
+ *   - `function name(params) { let …; return expr; }` declarations at
+ *     service scope or inside a `match` block. Lexically scoped (visible
+ *     within the declaring block and nested blocks; inner shadows
+ *     outer), may call other functions, support `let` bindings, and are
+ *     depth-capped. Any function-eval failure denies with a reason.
  *
  * Out of scope (mirrors the survey + plan): `request.time`,
- * `matches()`/regex, function definitions, `customMetadata.<field>`
+ * `matches()`/regex, `customMetadata.<field>`
  * deep access (use bracket form against `resource.metadata` when
  * really needed). Hooks for adding more live at the obvious
  * extension seams in the parser + evaluator.
@@ -131,7 +137,29 @@ interface MatchBlock {
   segments: PathSegment[];
   children: MatchBlock[];
   allows: AllowRule[];
+  /** User-defined functions declared directly in this block. */
+  functions: FunctionDef[];
+  /** Functions visible to conditions/bodies declared in this block:
+   *  ancestor functions plus this block's, inner shadowing outer.
+   *  Resolved once by `resolveFunctions` after parsing. */
+  visibleFuncs?: FunctionMap;
 }
+
+/** A user-defined `function name(params) { let …; return expr; }`. */
+interface FunctionDef {
+  name: string;
+  params: string[];
+  /** `let` bindings evaluated in order before the return, each visible
+   *  to those after it and to the return expression. */
+  lets: { name: string; value: Expr }[];
+  body: Expr;
+  /** Lexical scope: the functions visible from this function's body
+   *  (its declaring block's `visibleFuncs`). Resolved after parsing so
+   *  a call's body uses declaration-site scope, not the caller's. */
+  declScope?: FunctionMap;
+}
+
+type FunctionMap = Map<string, FunctionDef>;
 
 type PathSegment =
   | { kind: 'literal'; value: string }
@@ -151,7 +179,8 @@ type Expr =
   | { kind: 'member'; target: Expr; name: string }
   | { kind: 'index'; target: Expr; index: Expr }
   | { kind: 'unary'; op: '!'; arg: Expr }
-  | { kind: 'binary'; op: BinaryOp; left: Expr; right: Expr };
+  | { kind: 'binary'; op: BinaryOp; left: Expr; right: Expr }
+  | { kind: 'call'; name: string; args: Expr[] };
 
 // ═══════════════════════════════════════════════════════════════
 // Lexer
@@ -167,6 +196,7 @@ type Token =
 const KEYWORDS = new Set([
   'service', 'match', 'allow', 'if', 'true', 'false', 'null',
   'read', 'write', 'get', 'list', 'create', 'update', 'delete',
+  'function', 'let', 'return',
 ]);
 
 /** Verb tokens accepted in an `allow` clause. */
@@ -270,12 +300,47 @@ class Parser {
     this.expectPunct('.');
     this.expectIdent('storage');
     this.expectPunct('{');
-    const root: MatchBlock = { segments: [], children: [], allows: [] };
+    const root: MatchBlock = { segments: [], children: [], allows: [], functions: [] };
     while (!this.atPunct('}')) {
-      this.parseMatchInto(root);
+      if (this.atIdent('function')) {
+        root.functions.push(this.parseFunction());
+      } else {
+        this.parseMatchInto(root);
+      }
     }
     this.expectPunct('}');
     return root;
+  }
+
+  /** Parse `function name(p1, p2) { let x = e; … return e; }`. */
+  private parseFunction(): FunctionDef {
+    this.expectIdent('function');
+    const name = this.expectIdentValue();
+    this.expectPunct('(');
+    const params: string[] = [];
+    if (!this.atPunct(')')) {
+      params.push(this.expectIdentValue());
+      while (this.atPunct(',')) {
+        this.expectPunct(',');
+        params.push(this.expectIdentValue());
+      }
+    }
+    this.expectPunct(')');
+    this.expectPunct('{');
+    const lets: { name: string; value: Expr }[] = [];
+    while (this.atIdent('let')) {
+      this.expectIdent('let');
+      const bindName = this.expectIdentValue();
+      this.expectPunct('=');
+      const value = this.parseExpression();
+      this.expectPunct(';');
+      lets.push({ name: bindName, value });
+    }
+    this.expectIdent('return');
+    const body = this.parseExpression();
+    this.expectPunct(';');
+    this.expectPunct('}');
+    return { name, params, lets, body };
   }
 
   /** Parse a `match /path/segments { ... }` block as a child of
@@ -284,16 +349,18 @@ class Parser {
     this.expectIdent('match');
     const segments = this.parsePath();
     this.expectPunct('{');
-    const block: MatchBlock = { segments, children: [], allows: [] };
+    const block: MatchBlock = { segments, children: [], allows: [], functions: [] };
     while (!this.atPunct('}')) {
       if (this.atIdent('match')) {
         this.parseMatchInto(block);
       } else if (this.atIdent('allow')) {
         block.allows.push(this.parseAllow());
+      } else if (this.atIdent('function')) {
+        block.functions.push(this.parseFunction());
       } else {
         const t = this.peek();
         throw new SyntaxError(
-          `Expected 'match' or 'allow' inside match block at offset ${t.pos}, got "${describeToken(t)}".`,
+          `Expected 'match', 'allow', or 'function' inside match block at offset ${t.pos}, got "${describeToken(t)}".`,
         );
       }
     }
@@ -440,6 +507,24 @@ class Parser {
         const index = this.parseExpression();
         this.expectPunct(']');
         target = { kind: 'index', target, index };
+      } else if (this.atPunct('(')) {
+        // Call — user-defined functions are invoked by bare name.
+        if (target.kind !== 'ident') {
+          throw new SyntaxError(
+            `Call expression at offset ${this.peek().pos} must target a plain function name.`,
+          );
+        }
+        this.expectPunct('(');
+        const args: Expr[] = [];
+        if (!this.atPunct(')')) {
+          args.push(this.parseExpression());
+          while (this.atPunct(',')) {
+            this.expectPunct(',');
+            args.push(this.parseExpression());
+          }
+        }
+        this.expectPunct(')');
+        target = { kind: 'call', name: target.name, args };
       } else {
         return target;
       }
@@ -532,7 +617,23 @@ export function parseStorageRules(source: string): StorageRules {
   const tokens = tokenize(source);
   const parser = new Parser(tokens);
   const root = parser.parseService();
+  resolveFunctions(root, new Map());
   return { _root: root };
+}
+
+/**
+ * Resolve each block's visible-function map (lexical scoping): a block
+ * sees its ancestors' functions plus its own, with an inner declaration
+ * shadowing an outer one of the same name. Each function's body is bound
+ * to its declaring block's map so a call evaluates in declaration-site
+ * scope regardless of where it is called from.
+ */
+function resolveFunctions(block: MatchBlock, parent: FunctionMap): void {
+  const map: FunctionMap = new Map(parent);
+  for (const fn of block.functions) map.set(fn.name, fn);
+  block.visibleFuncs = map;
+  for (const fn of block.functions) fn.declScope = map;
+  for (const child of block.children) resolveFunctions(child, map);
 }
 
 /**
@@ -632,9 +733,29 @@ export function evaluateStorageRules(
         const grantVerbs = new Set(rule.verbs.flatMap(expandVerb));
         const applies = [...requestVerbs].some((v) => grantVerbs.has(v));
         if (!applies) continue;
-        const result = rule.condition
-          ? truthy(evalExpr(rule.condition, input, newParams))
-          : true;
+        let result: boolean;
+        try {
+          result = rule.condition
+            ? truthy(evalExpr(rule.condition, {
+                input,
+                params: newParams,
+                locals: {},
+                funcs: block.visibleFuncs ?? new Map(),
+                depth: 0,
+              }))
+            : true;
+        } catch (err) {
+          // Any function-evaluation failure (undefined function, wrong
+          // arity, depth exceeded, error inside a body) denies this rule
+          // with a reason that names the function — never a false allow.
+          if (err instanceof RuleEvalError) {
+            reasons.push(
+              `match ${formatPath(block.segments)} ${input.request.method}: ${err.message}`,
+            );
+            continue;
+          }
+          throw err;
+        }
         if (result) return true;
         reasons.push(
           `match ${formatPath(block.segments)} ${input.request.method}: condition false`,
@@ -713,54 +834,88 @@ function truthy(v: unknown): boolean {
 }
 
 /**
+ * Raised when a user-defined function cannot be evaluated (undefined,
+ * wrong arity, call depth exceeded, or an error surfacing from within a
+ * body). Caught at the condition boundary and converted into a
+ * deny-with-reason so a function failure NEVER produces a false allow,
+ * matching production Storage, where evaluation errors deny.
+ */
+class RuleEvalError extends Error {}
+
+/**
+ * Production Storage caps function call depth (documented limit 20) and
+ * effectively disallows recursion. We enforce a hard cap that errors
+ * (→ deny) rather than looping forever.
+ */
+const MAX_CALL_DEPTH = 20;
+
+/** Everything an expression needs to evaluate. */
+interface EvalCtx {
+  input: EvaluationInput;
+  /** Path wildcards from the enclosing match. Empty inside a function
+   *  body: caller wildcards do not leak in except via arguments. */
+  params: Record<string, string | string[]>;
+  /** Function parameter and `let` bindings for the current body. */
+  locals: Record<string, unknown>;
+  /** Functions callable from the current scope. */
+  funcs: FunctionMap;
+  /** Current call depth (0 at an allow condition). */
+  depth: number;
+}
+
+/**
  * Walk an `Expr` against the bindings + path params. The error
  * model is intentionally Lax: an undefined member access returns
  * `undefined` rather than throwing (mirrors what Firestore rules
  * do — a missing `resource.size` against a freshly-created object
  * is normal). `undefined` is falsy under `truthy`.
+ *
+ * The one place errors ARE raised is user-defined function calls
+ * (`RuleEvalError`): a failure there must deny, not fall through to a
+ * potentially-truthy value.
  */
-function evalExpr(
-  expr: Expr,
-  input: EvaluationInput,
-  params: Record<string, string | string[]>,
-): unknown {
+function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
   switch (expr.kind) {
     case 'literal':
       return expr.value;
     case 'ident': {
-      if (expr.name === 'request') return buildRequestObject(input);
-      if (expr.name === 'resource') return input.resource;
-      if (expr.name in params) return params[expr.name];
+      // Local (param / let) bindings win over globals and path params.
+      if (expr.name in ctx.locals) return ctx.locals[expr.name];
+      if (expr.name === 'request') return buildRequestObject(ctx.input);
+      if (expr.name === 'resource') return ctx.input.resource;
+      if (expr.name in ctx.params) return ctx.params[expr.name];
       return undefined;
     }
     case 'member': {
-      const t = evalExpr(expr.target, input, params);
+      const t = evalExpr(expr.target, ctx);
       if (t === null || t === undefined) return undefined;
       const obj = t as Record<string, unknown>;
       return obj[expr.name];
     }
     case 'index': {
-      const t = evalExpr(expr.target, input, params);
+      const t = evalExpr(expr.target, ctx);
       if (t === null || t === undefined) return undefined;
-      const idx = evalExpr(expr.index, input, params);
+      const idx = evalExpr(expr.index, ctx);
       const obj = t as Record<string | number, unknown>;
       return obj[idx as string];
     }
+    case 'call':
+      return evalCall(expr, ctx);
     case 'unary':
-      return !truthy(evalExpr(expr.arg, input, params));
+      return !truthy(evalExpr(expr.arg, ctx));
     case 'binary': {
       // Short-circuit && / || so half-undefined chains don't trip
       // (e.g. `request.auth != null && request.auth.uid == 'a'`).
       if (expr.op === '&&') {
-        const l = evalExpr(expr.left, input, params);
-        return truthy(l) ? evalExpr(expr.right, input, params) : l;
+        const l = evalExpr(expr.left, ctx);
+        return truthy(l) ? evalExpr(expr.right, ctx) : l;
       }
       if (expr.op === '||') {
-        const l = evalExpr(expr.left, input, params);
-        return truthy(l) ? l : evalExpr(expr.right, input, params);
+        const l = evalExpr(expr.left, ctx);
+        return truthy(l) ? l : evalExpr(expr.right, ctx);
       }
-      const l = evalExpr(expr.left, input, params);
-      const r = evalExpr(expr.right, input, params);
+      const l = evalExpr(expr.left, ctx);
+      const r = evalExpr(expr.right, ctx);
       switch (expr.op) {
         // Firebase rules treat `null` and `undefined` as
         // equivalent (helpful for `request.resource == null` on
@@ -779,6 +934,51 @@ function evalExpr(
       }
     }
   }
+}
+
+/**
+ * Evaluate a user-defined function call. Arguments are evaluated in the
+ * CALLER's context, then bound to the function's parameters; the body
+ * (with any `let` bindings) is evaluated in the function's own lexical
+ * scope with fresh locals — caller path wildcards are not visible except
+ * through the arguments passed. Every failure mode throws `RuleEvalError`
+ * so the caller denies with a function-naming reason.
+ */
+function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown {
+  const fn = ctx.funcs.get(expr.name);
+  if (!fn) {
+    throw new RuleEvalError(`undefined function ${expr.name}()`);
+  }
+  if (fn.params.length !== expr.args.length) {
+    throw new RuleEvalError(
+      `function ${expr.name}() expects ${fn.params.length} argument(s), got ${expr.args.length}`,
+    );
+  }
+  const depth = ctx.depth + 1;
+  if (depth > MAX_CALL_DEPTH) {
+    throw new RuleEvalError(
+      `function ${expr.name}() exceeded max call depth ${MAX_CALL_DEPTH}`,
+    );
+  }
+  // Arguments: caller context.
+  const argVals = expr.args.map((a) => evalExpr(a, ctx));
+  const locals: Record<string, unknown> = {};
+  fn.params.forEach((p, i) => {
+    locals[p] = argVals[i];
+  });
+  const bodyCtx: EvalCtx = {
+    input: ctx.input,
+    params: {}, // no dynamic-scope leakage of caller wildcards
+    locals,
+    funcs: fn.declScope ?? new Map(),
+    depth,
+  };
+  // `let` bindings evaluated in order; each is visible to the next and
+  // to the return expression (they share the `locals` object).
+  for (const b of fn.lets) {
+    locals[b.name] = evalExpr(b.value, bodyCtx);
+  }
+  return evalExpr(fn.body, bodyCtx);
 }
 
 function cmp(a: unknown, b: unknown): number {
