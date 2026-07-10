@@ -582,11 +582,14 @@ service cloud.firestore {
     match /getMockedAllow/{id} {
       allow create: if get(/databases/$(database)/documents/cfg/site).data.flag == true;
     }
-    // mocked doc: resource carries id → ALLOW
+    // mocked doc: production CANNOT express resource identity (.id) via a
+    // function mock — the API returns "Property id is undefined on
+    // object." → DENY. Kept as a documented witness of the limitation.
     match /getResourceIdAllow/{id} {
       allow create: if get(/databases/$(database)/documents/cfg/site).id == 'site';
     }
-    // mocked doc: resource carries __name__ as a Path → ALLOW
+    // mocked doc: same limitation for __name__ — a mocked get() result has
+    // no resource identity attached, so this also errors → DENY.
     match /getResourceNameAllow/{id} {
       allow create: if get(/databases/$(database)/documents/cfg/site).__name__
         == /databases/$(database)/documents/cfg/site;
@@ -642,8 +645,12 @@ service cloud.firestore {
       ],
     },
     {
-      description: "get(mocked).id == 'site' → ALLOW (resource identity)",
-      expectation: 'ALLOW',
+      // Production cannot express resource identity (.id) through a
+      // function mock: get(mocked).id errors with "Property id is
+      // undefined on object." → DENY. This case documents that API
+      // limitation rather than testing an achievable ALLOW.
+      description: "get(mocked).id == 'site' → DENY (mocked get() has no resource identity in production)",
+      expectation: 'DENY',
       method: 'create',
       path: 'getResourceIdAllow/d6',
       auth: { uid: 'alice' },
@@ -653,8 +660,9 @@ service cloud.firestore {
       ],
     },
     {
-      description: 'get(mocked).__name__ == path literal → ALLOW',
-      expectation: 'ALLOW',
+      // Same limitation as above, for __name__.
+      description: 'get(mocked).__name__ == path literal → DENY (mocked get() has no resource identity in production)',
+      expectation: 'DENY',
       method: 'create',
       path: 'getResourceNameAllow/d7',
       auth: { uid: 'alice' },

@@ -130,7 +130,10 @@ describe('buildFunctionMock', () => {
     expect(api.result).toEqual({ value: { data: { role: 'admin' } } });
   });
 
-  test('wraps exists mock with true result', () => {
+  test('wraps exists mock with true result as a bool value, not a map', () => {
+    // exists() returns bool; the production Rules Test API rejects a
+    // map-shaped mock result for it with "Type error. Received: [map]
+    // Expected: [bool]", which silently resolves to DENY.
     const mock: FunctionMock = {
       function: 'exists',
       path: 'users/alice',
@@ -138,17 +141,17 @@ describe('buildFunctionMock', () => {
     };
     const api = buildFunctionMock(mock);
     expect(api.function).toBe('exists');
-    expect(api.result).toEqual({ value: { data: {} } });
+    expect(api.result).toEqual({ value: true });
   });
 
-  test('wraps exists mock with false as undefined result', () => {
+  test('wraps exists mock with false result as a bool value', () => {
     const mock: FunctionMock = {
       function: 'exists',
       path: 'users/bob',
       result: false,
     };
     const api = buildFunctionMock(mock);
-    expect(api.result).toBeUndefined();
+    expect(api.result).toEqual({ value: false });
   });
 });
 
