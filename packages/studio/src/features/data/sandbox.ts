@@ -86,6 +86,42 @@ export function listDocumentsForBrowse(
   return env.listDocuments(collectionPath).map(({ path, phantom }) => ({ path, phantom }));
 }
 
+/**
+ * Collect every STORED document path in the keyspace: root collections walked
+ * recursively through the phantom-inclusive `listDocuments` seam, so docs
+ * under "missing" parents are reached (a `getDocs` walk would skip the
+ * phantom and orphan everything beneath it). Phantoms are traversed but not
+ * collected — there is nothing stored to delete. Per-collection failures are
+ * reported, not thrown, so one bad branch doesn't abort the sweep ("clear
+ * sandbox" semantics — see `useStudioClear`).
+ */
+export async function collectAllDocPaths(
+  handles: Pick<
+    StudioDataHandles,
+    'listRootCollections' | 'listSubcollections' | 'listDocuments'
+  >,
+): Promise<{ docPaths: string[]; errors: string[] }> {
+  const docPaths: string[] = [];
+  const errors: string[] = [];
+  const walk = async (collPath: string): Promise<void> => {
+    try {
+      const entries = await handles.listDocuments(collPath);
+      for (const entry of entries) {
+        if (entry.phantom !== true) docPaths.push(entry.path);
+        for (const sub of await handles.listSubcollections(entry.path)) {
+          await walk(`${entry.path}/${sub}`);
+        }
+      }
+    } catch (e) {
+      errors.push(`list ${collPath}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  for (const collId of handles.listRootCollections()) {
+    await walk(collId);
+  }
+  return { docPaths, errors };
+}
+
 /** Build the handle bundle for a freshly-created sandbox. */
 function makeHandles(sandbox: Sandbox): StudioDataHandles {
   const app = initializeApp({ sandbox });
