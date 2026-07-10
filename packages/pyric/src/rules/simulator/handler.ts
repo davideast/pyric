@@ -377,6 +377,7 @@ function buildContext(
   functions: FunctionDef[],
   pathVariables: Record<string, string>,
   getDoc?: (path: string) => Record<string, unknown> | null,
+  batchProjection?: Map<string, Record<string, unknown> | null>,
 ): SimulationContext {
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
@@ -496,6 +497,9 @@ function buildContext(
     afterStatePath: fullPath,
     afterState: projectedAfter,
     existsAfter,
+    // getafter-batch fix — shared batch/transaction projection, when the
+    // caller supplied one. Absent for single-op evaluation.
+    ...(batchProjection ? { batchProjection } : {}),
   };
 }
 
@@ -509,7 +513,20 @@ export class SimulateFirestoreRulesHandler {
   simulate(
     source: string,
     testCases: TestCase[],
-    opts?: { getDoc?: (path: string) => Record<string, unknown> | null },
+    opts?: {
+      getDoc?: (path: string) => Record<string, unknown> | null;
+      /**
+       * getafter-batch fix — shared post-commit projection for a batch or
+       * transaction. Keyed by normalized relative path (same shape as
+       * `getDoc`'s input); value is the post-write document, or `null` for
+       * a path the batch/transaction deletes. Every per-op simulate() call
+       * for the SAME batch/transaction passes the SAME map, built once by
+       * the caller (LocalEnvironment.batch()/transaction()) up front —
+       * mirrors how the RTDB rules projection covers a multi-path update
+       * in one shared tree. Omit for single-op evaluation.
+       */
+      batchProjection?: Map<string, Record<string, unknown> | null>;
+    },
   ): TestFirestoreRulesResult {
     // Parse rules. Give the empty-input case a distinct, actionable
     // error — agents that see "Failed to parse rules source" otherwise
@@ -641,7 +658,7 @@ export class SimulateFirestoreRulesHandler {
       for (const match of matches) {
         const allFunctions = [...match.parentFunctions, ...match.block.functions];
         const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(tc, allFunctions, pathVars, opts?.getDoc);
+        const ctx = buildContext(tc, allFunctions, pathVars, opts?.getDoc, opts?.batchProjection);
 
         const blockPath = renderBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx);

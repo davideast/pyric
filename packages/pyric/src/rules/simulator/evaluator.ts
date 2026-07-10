@@ -89,6 +89,26 @@ export interface SimulationContext {
   afterStatePath: Path;
   afterState: Record<string, unknown> | null;
   existsAfter: boolean;
+  /**
+   * Batch/transaction sibling-write projection (getafter-batch fix).
+   *
+   * `afterState`/`afterStatePath` above only describe the ONE document
+   * this simulate() call is evaluating a rule for. In production,
+   * `getAfter(path)` sees the post-commit state of the ENTIRE atomic
+   * batch/transaction, not just the current write — a rule on doc A can
+   * read what doc B will become once the whole batch lands. Callers that
+   * evaluate a multi-op batch/transaction build ONE projected map up
+   * front (normalized relative path → post-write data, or `null` for a
+   * doc the batch deletes) covering every op in the group, and pass the
+   * SAME map into every per-op simulate() call. Keyed the same way as
+   * `mockDocuments` (normalized relative path, no `/databases/.../documents/`
+   * prefix). A path absent from this map was not written by the batch —
+   * `getAfter` on it falls through to `get()` (current committed data),
+   * matching production. Single-op writes (execute()) omit this map
+   * entirely, so `getAfter` on any path but the op's own target falls
+   * through to `get()` exactly as before.
+   */
+  batchProjection?: Map<string, Record<string, unknown> | null>;
   /** Optional per-rule expression-trace recorder. When set, the evaluator
    *  wraps every `evaluate()` call and records the sub-expression tree;
    *  when absent (the default), the evaluator is unchanged. The handler
@@ -793,8 +813,13 @@ function evaluateFunctionCall(
     case 'getAfter': {
       // Item 7 — projected post-write state.
       // For the document being written (matches request.path), return the
-      // afterState. For unrelated paths, fall through to get() — the write
-      // under evaluation doesn't affect them.
+      // afterState. getafter-batch fix: for a SIBLING doc written earlier
+      // (or later) in the same atomic batch/transaction, consult the
+      // shared batchProjection map so the rule sees that write too — matches
+      // production, where getAfter() reflects the whole batch's post-commit
+      // state, not just the current op. Only once neither applies do we
+      // fall through to get() (current committed data) for a doc the batch
+      // doesn't touch.
       const argVal = evaluate(args[0], ctx, scope);
       const pathStr = String(argVal);
       if (pathStr === ctx.afterStatePath.toString()) {
@@ -805,16 +830,29 @@ function evaluateFunctionCall(
         }
         return makeGetResource(normalizePath(pathStr, ctx), ctx.afterState);
       }
+      const normalized = normalizePath(pathStr, ctx);
+      if (ctx.batchProjection?.has(normalized)) {
+        const projected = ctx.batchProjection.get(normalized)!;
+        if (projected === null) {
+          throw new EvalError(`getAfter() of non-existent document '${pathStr}' (guard with existsAfter() first)`);
+        }
+        return makeGetResource(normalized, projected);
+      }
       return resolveGet(pathStr, ctx);
     }
     case 'existsAfter': {
       // Item 7 — projected existence after the write.
       // Same dispatch shape as getAfter: target path uses ctx.existsAfter,
-      // other paths fall through to exists().
+      // sibling batch writes consult batchProjection, other paths fall
+      // through to exists().
       const argVal = evaluate(args[0], ctx, scope);
       const pathStr = String(argVal);
       if (pathStr === ctx.afterStatePath.toString()) {
         return ctx.existsAfter;
+      }
+      const normalized = normalizePath(pathStr, ctx);
+      if (ctx.batchProjection?.has(normalized)) {
+        return ctx.batchProjection.get(normalized) !== null;
       }
       return resolveExists(pathStr, ctx);
     }

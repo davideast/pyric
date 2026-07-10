@@ -2069,6 +2069,7 @@ export class LocalEnvironment {
   private runSimulate(
     testCases: TestCase[],
     bypassRules: boolean | undefined,
+    batchProjection?: Map<string, DocumentData | null>,
   ): TestFirestoreRulesResult {
     if (bypassRules) {
       const results = testCases.map((tc) => adminBypassResult(tc.description));
@@ -2079,7 +2080,31 @@ export class LocalEnvironment {
     }
     return this.simulator.simulate(this.rulesSource, testCases, {
       getDoc: (path) => this.state.get(path),
+      ...(batchProjection ? { batchProjection } : {}),
     });
+  }
+
+  /**
+   * getafter-batch fix — build the shared post-commit projection for an
+   * atomic batch/transaction, ONCE, before evaluating any per-op rule.
+   * Every op in `testCases` gets folded in: `create`/`update` project to
+   * the full post-write document (already merged by `buildTestCase`),
+   * `delete` projects to `null` (doc gone). `get`/`list` ops don't write
+   * and are skipped — they never change what `getAfter` should see.
+   *
+   * Passing the SAME map into every per-op `simulate()` call for the group
+   * is what lets doc A's rule see doc B's pending write via `getAfter(B)`
+   * — mirrors the RTDB rules multi-path projection (one shared tree built
+   * up front, read by every path's rule eval) applied to Firestore's
+   * per-document `getAfter()`.
+   */
+  private buildBatchProjection(testCases: TestCase[]): Map<string, DocumentData | null> {
+    const projection = new Map<string, DocumentData | null>();
+    for (const tc of testCases) {
+      if (tc.method === 'get' || tc.method === 'list') continue;
+      projection.set(tc.path, tc.method === 'delete' ? null : (tc.data ?? {}));
+    }
+    return projection;
   }
 
   // ═══ Single operation (rules evaluated) ═══
@@ -2553,7 +2578,18 @@ export class LocalEnvironment {
       }
     }
 
-    // Evaluate rules for each operation against CURRENT state (no cross-visibility)
+    // Evaluate rules for each operation. `request`/`resource` (the doc's
+    // OWN pre/post state) still resolve against CURRENT pre-batch state —
+    // no cross-visibility there, matching how request.resource.data works
+    // in production. `getAfter()` on a SIBLING doc is different: it must
+    // see this batch's other pending writes, so we build one shared
+    // post-commit projection up front (getafter-batch fix) and hand the
+    // same map to every op's simulate() call below.
+    const batchTestCases = resolvedOps.map((op) =>
+      this.buildTestCase({ method: op.method, path: op.path, auth, data: op.data }, serverTime),
+    );
+    const batchProjection = this.buildBatchProjection(batchTestCases);
+
     let allAllowed = true;
     for (let i = 0; i < resolvedOps.length; i++) {
       const op = resolvedOps[i]!;
@@ -2562,10 +2598,10 @@ export class LocalEnvironment {
       // so consumers see the user's INTENT (with FieldValue.* markers),
       // not the materialized values.
       const preData = operations[i]?.data;
-      const testCase = this.buildTestCase({ method: op.method, path: op.path, auth, data: op.data }, serverTime);
+      const testCase = batchTestCases[i]!;
       const evalAt = Date.now();
       const evalStart = performance.now();
-      const simResult = this.runSimulate([testCase], bypassRules);
+      const simResult = this.runSimulate([testCase], bypassRules, batchProjection);
       const evalMs = performance.now() - evalStart;
 
       if (!simResult.success) {
@@ -3015,6 +3051,21 @@ export class LocalEnvironment {
     }
 
     // ─── Step 5 — per-op rules evaluation against pre-tx state ───────
+    // getafter-batch fix: build the shared post-commit projection ONCE for
+    // the whole transaction (same approach as batch(), same helper) so
+    // `getAfter()` on a sibling write-in-progress doc sees this
+    // transaction's other pending writes, not just its own.
+    const txTestCases = resolvedOps.map((op) => {
+      const exists = this.state.get(op.path) !== null;
+      const ruleMethod = (op.method === 'set'
+        ? exists
+          ? 'update'
+          : 'create'
+        : op.method) as 'create' | 'update' | 'delete';
+      return this.buildTestCase({ method: ruleMethod, path: op.path, auth, data: op.data }, serverTime);
+    });
+    const txProjection = this.buildBatchProjection(txTestCases);
+
     const writeResults: TransactionResult<R>['writes'] = [];
     let allAllowed = true;
     for (let i = 0; i < resolvedOps.length; i++) {
@@ -3035,13 +3086,10 @@ export class LocalEnvironment {
         : op.method) as 'create' | 'update' | 'delete';
       const priorDoc = snapshot[op.path] ?? null;
 
-      const testCase = this.buildTestCase(
-        { method: ruleMethod, path: op.path, auth, data: op.data },
-        serverTime,
-      );
+      const testCase = txTestCases[i]!;
       const evalAt = Date.now();
       const evalStart = performance.now();
-      const sim = this.runSimulate([testCase], options.bypassRules);
+      const sim = this.runSimulate([testCase], options.bypassRules, txProjection);
       const evalMs = performance.now() - evalStart;
 
       if (!sim.success) {
