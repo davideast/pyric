@@ -7,6 +7,7 @@ import {
   getDoc,
   getDocs,
   limit,
+  onSnapshot,
   query,
   setDoc,
   startAfter,
@@ -42,6 +43,7 @@ export type FirestoreApi = Pick<
   | 'getDoc'
   | 'getDocs'
   | 'limit'
+  | 'onSnapshot'
   | 'query'
   | 'setDoc'
   | 'startAfter'
@@ -55,6 +57,7 @@ const inProcessFirestoreApi: FirestoreApi = {
   getDoc,
   getDocs,
   limit,
+  onSnapshot,
   query,
   setDoc,
   startAfter,

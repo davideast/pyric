@@ -17,6 +17,7 @@ export {
   type FieldType,
   type VectorView,
 } from './types.js';
+export { firestoreValuesEqual } from './valueEquality.js';
 export {
   defaultFieldEditors,
   mergeFieldEditors,

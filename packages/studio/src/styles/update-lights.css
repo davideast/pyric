@@ -1,0 +1,77 @@
+/** Shared transient update treatment for headless Firestore + RTDB rows. */
+[data-pyric-update='added'] {
+  --pyric-update-light: var(--update-added-bg);
+  --pyric-update-ink: var(--update-added-ink);
+}
+
+[data-pyric-update='modified'] {
+  --pyric-update-light: var(--update-modified-bg);
+  --pyric-update-ink: var(--update-modified-ink);
+}
+
+[data-pyric-update][data-pyric-update-cycle='0'] {
+  animation: pyric-update-light-a 1.2s ease-out;
+}
+
+[data-pyric-update][data-pyric-update-cycle='1'] {
+  animation: pyric-update-light-b 1.2s ease-out;
+}
+
+[data-pyric-update][data-pyric-update-cycle='0'] :is(
+    .fs-doctree__key,
+    .fs-doctree__value,
+    [data-rtdb-key],
+    [data-rtdb-value]
+  ) {
+  animation: pyric-update-text-a 1.2s ease-out;
+}
+
+[data-pyric-update][data-pyric-update-cycle='1'] :is(
+    .fs-doctree__key,
+    .fs-doctree__value,
+    [data-rtdb-key],
+    [data-rtdb-value]
+  ) {
+  animation: pyric-update-text-b 1.2s ease-out;
+}
+
+@keyframes pyric-update-light-a {
+  from {
+    background-color: var(--pyric-update-light);
+    color: var(--pyric-update-ink);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+/* A distinct animation name lets a second update restart before the first
+   animation finishes, while keeping the visual treatment identical. */
+@keyframes pyric-update-light-b {
+  from {
+    background-color: var(--pyric-update-light);
+    color: var(--pyric-update-ink);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes pyric-update-text-a {
+  from {
+    color: var(--pyric-update-ink);
+  }
+}
+
+@keyframes pyric-update-text-b {
+  from {
+    color: var(--pyric-update-ink);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-pyric-update],
+  [data-pyric-update] * {
+    animation: none !important;
+  }
+}

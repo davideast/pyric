@@ -11,7 +11,7 @@ import {
   sandbox as sandboxOps,
 } from 'pyric/firestore';
 import { useDocumentList } from '../../../src/firestore/hooks/useDocumentList.js';
-import { renderHook, waitFor } from '../../helpers/render-hook.js';
+import { act, renderHook, waitFor } from '../../helpers/render-hook.js';
 
 const OPEN_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -59,5 +59,40 @@ describe('useDocumentList.createDocument — onExisting semantics', () => {
     // A genuinely new id still writes under 'fail'.
     await result.current.createDocument('carol', { v: 3 }, { onExisting: 'fail' });
     expect((await getDoc(doc(firestore, 'users/carol'))).data()).toEqual({ v: 3 });
+  });
+});
+
+describe('useDocumentList live mode', () => {
+  it('delivers external document updates without a manual refresh', async () => {
+    const firestore = makeFirestore();
+    await setDoc(doc(firestore, 'scores/alice'), { score: 1 });
+    const scoresRef = collection(firestore, 'scores');
+    const { result } = renderHook(() =>
+      useDocumentList({ collection: scoresRef, mode: 'live' }),
+    );
+    await waitFor(() => expect(result.current.documents[0]?.data()).toEqual({ score: 1 }));
+
+    await act(async () => {
+      await setDoc(doc(firestore, 'scores/alice'), { score: 2 });
+    });
+
+    await waitFor(() => expect(result.current.documents[0]?.data()).toEqual({ score: 2 }));
+  });
+
+  it('starts a new comparison baseline when load-more re-subscribes', async () => {
+    const firestore = makeFirestore();
+    await setDoc(doc(firestore, 'scores/alice'), { score: 1 });
+    await setDoc(doc(firestore, 'scores/bob'), { score: 2 });
+    const scoresRef = collection(firestore, 'scores');
+    const { result } = renderHook(() =>
+      useDocumentList({ collection: scoresRef, mode: 'live', pageSize: 1 }),
+    );
+    await waitFor(() => expect(result.current.documents.length).toBe(1));
+    const initialGeneration = result.current.subscriptionGeneration;
+
+    act(() => result.current.loadMore());
+
+    await waitFor(() => expect(result.current.documents.length).toBe(2));
+    expect(result.current.subscriptionGeneration).toBeGreaterThan(initialGeneration);
   });
 });

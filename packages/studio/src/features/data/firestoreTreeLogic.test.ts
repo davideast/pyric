@@ -3,9 +3,11 @@ import { asVectorView, initState, vectorPreview } from '@pyric/ui/firestore';
 import {
   containerPreview,
   fieldPath,
+  firestoreRowIdentity,
   rowLabel,
   shouldSkipDeleteConfirm,
   siblingKeyTaken,
+  firestoreDataUpdateEntries,
 } from './firestoreTreeLogic.js';
 
 // The real `@pyric/ui` vector helpers — `containerPreview` takes them as
@@ -113,5 +115,68 @@ describe('fieldPath', () => {
     const tagsId = tree.childIds[tree.rootId][0];
     const secondId = tree.childIds[tagsId][1];
     expect(fieldPath(tree, secondId)).toBe('tags[1]');
+  });
+});
+
+describe('firestoreDataUpdateEntries', () => {
+  it('fingerprints leaf values and only the direct shape of containers', () => {
+    const data = { profile: { name: 'Ada', tags: ['one', 'two'] } };
+    const entries = firestoreDataUpdateEntries(
+      data,
+      (value) =>
+        Array.isArray(value)
+          ? 'array'
+          : value !== null && typeof value === 'object'
+            ? 'map'
+            : typeof value === 'string'
+              ? 'string'
+              : 'number',
+    );
+    const { tree } = initState(data);
+    const profileId = tree.childIds[tree.rootId][0];
+    const nameId = tree.childIds[profileId][0];
+    const tagsId = tree.childIds[profileId][1];
+    const secondTagId = tree.childIds[tagsId][1];
+
+    expect(entries.get(firestoreRowIdentity(tree, profileId))).toEqual([
+      'map',
+      ['name', 'tags'],
+    ]);
+    expect(entries.get(firestoreRowIdentity(tree, nameId))).toEqual(['string', 'Ada']);
+    expect(entries.get(firestoreRowIdentity(tree, tagsId))).toEqual([
+      'array',
+      ['0', '1'],
+    ]);
+    expect(entries.get(firestoreRowIdentity(tree, secondTagId))).toEqual([
+      'string',
+      'two',
+    ]);
+  });
+
+  it('keeps literal dotted and bracketed field names distinct from nesting', () => {
+    const data = {
+      'a.b': 'literal dot',
+      a: { b: 'nested dot' },
+      'tags[0]': 'literal bracket',
+      tags: ['nested bracket'],
+    };
+    const entries = firestoreDataUpdateEntries(data, (value) =>
+      Array.isArray(value)
+        ? 'array'
+        : value !== null && typeof value === 'object'
+          ? 'map'
+          : 'string',
+    );
+    const { tree } = initState(data);
+    const identities = Object.values(tree.nodes)
+      .filter((node) => node.parentId !== null && node.type === 'string')
+      .map((node) => firestoreRowIdentity(tree, node.id));
+
+    expect(new Set(identities).size).toBe(4);
+    expect(
+      identities.map(
+        (identity) => (entries.get(identity) as readonly unknown[] | undefined)?.[1],
+      ),
+    ).toEqual(['literal dot', 'nested dot', 'literal bracket', 'nested bracket']);
   });
 });

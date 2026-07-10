@@ -116,6 +116,21 @@ describe('<DocumentList>', () => {
     expect(picked?.id).toBe('second');
   });
 
+  it('marks a live document row when its data changes after the baseline', () => {
+    const { container, rerender } = render(
+      <DocumentList documents={[fakeSnap('a', { score: 1 })]} updateScope="things" />,
+    );
+    expect(container.querySelector('[data-pyric-update]')).toBeNull();
+
+    rerender(
+      <DocumentList documents={[fakeSnap('a', { score: 2 })]} updateScope="things" />,
+    );
+
+    expect(
+      container.querySelector('[data-pyric-document-entry]')?.getAttribute('data-pyric-update'),
+    ).toBe('modified');
+  });
+
   it('switches to virtualized rendering above the threshold', () => {
     const docs = Array.from({ length: 25 }, (_, i) =>
       fakeSnap(`doc-${i}`, { i }),
