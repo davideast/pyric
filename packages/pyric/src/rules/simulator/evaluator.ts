@@ -994,10 +994,21 @@ function evaluateMethodCall(
       case 'hasAll': return obj.hasAll(argValues[0] as string[] | FirestoreSet);
       case 'hasAny': return obj.hasAny(argValues[0] as string[] | FirestoreSet);
       case 'size': return obj.size();
-      // Set algebra (Item 5.1) — per REBUILD_PLAN type table.
-      case 'difference': return obj.difference(argValues[0] as string[] | FirestoreSet);
-      case 'union': return obj.union(argValues[0] as string[] | FirestoreSet);
-      case 'intersection': return obj.intersection(argValues[0] as string[] | FirestoreSet);
+      // Set.difference/union/intersection: the sim CAN compute these (see
+      // FirestoreSet.difference/union/intersection), but oracle capture
+      // shows production denies every call that reaches them — these
+      // methods don't behave as modeled in the real Firestore Rules CEL
+      // dialect (see triage: set-algebra-difference-union-intersection /
+      // list-methods-concat-removeall-toset packs, both false-ALLOW
+      // against a prod DENY). Abstain rather than emit a confident wrong
+      // verdict; do not "fix" this by re-deriving semantics without a
+      // fresh oracle capture that actually isolates correct behavior.
+      case 'difference':
+      case 'union':
+      case 'intersection':
+        throw new UnsupportedError(
+          `Set.${method}() is not faithfully modeled by the simulator (oracle capture shows production denies calls that reach it) — abstaining rather than guessing`,
+        );
     }
   }
 
