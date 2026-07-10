@@ -1,56 +1,83 @@
-# HIERARCHY (v2 proposal, for step-3 iteration)
+# HIERARCHY (v3 proposal, for step-3 iteration)
 
-Still a draft to argue with. v2 folds in your correction: pure verbs hide what people search by. A developer thinks in services. They need auth, they need to store a document, they need to put a file somewhere. The nav has to answer that on sight. So the middle of the journey becomes service-shaped, while the frame stays the journey and the leaves stay verbs.
+Canonical draft. Supersedes v2. Still ours to argue with.
 
-What changed from v1:
+## What changed from v2
 
-- **Build is now service-shaped.** Four doorways a reader recognizes: users, data, realtime data, files. Each is still written as outcomes, but a person scanning for "auth" or "storage" lands immediately.
-- **Storage got real outcomes** instead of hiding in the experimental page.
-- **The Firestore-vs-RTDB overlap** gets an explicit "which one" page.
-- **The agent doorway got concrete.** Not "work with an agent" in the abstract. Set up MCP. Set up Claude Code, Cursor, Codex. Here are the skills.
-- **Skills are in, both ways.** As a feature (install them into your agent) and as source knowledge (they teach the behavior and list the Pyric moves). They weave into the service and rules doorways and get a home in the agent section.
+Your four calls, plus the novelty research, reshaped it:
 
-The nav is grouped, so each section stays short and scannable.
+- **A narrative overview page opens the docs.** Not titled "What is Pyric." The page IS the narrative, a concise read that explains what this is and what you get. It leads with "build your thing and get it right," and lets the deeper why reveal itself.
+- **Rules became a wing, not a doorway.** It now holds the engine, the standard library, the patterns, the limits that actually bite, verdict-stream debugging, and the auditing skills. The standard library lives inside the wing for now; we reconsider after the first pass.
+- **The gallery is a layer, not the front.** Most people do not know rules are brutally hard for games, and they do not care. They want their thing done well. So "What's possible" sits deep in the rules wing, where the Firebase-literate find it and are impressed, and where it never blocks the person just trying to ship.
+- **`PATTERNS.md` becomes first-class content**, ported from firebase-agent-sdk and written up, because the standard library already leans on it.
+- **The knowledge assets finally have a home** (in the rules wing), so the best material Pyric has stops living only in source.
+
+The governing frame did not change. Outcomes first, service-shaped where people search by service, the agent as the ambient second reader, nouns only in Reference at the bottom.
 
 ---
 
 ## The left nav, top to bottom
 
 ```
+Overview                              (the narrative page)
+
 GET STARTED
   Start building
 
-BUILD  (what can I do with each service)
+BUILD
   Sign in and manage users            Auth            v1
   Store and query data                Firestore       v1
   Sync realtime data                  Realtime DB     experimental
   Store files                         Storage         experimental
-  Which data service should I use?    Firestore vs RTDB
+  Which data service should I use?
 
-MAKE IT SOLID
-  Secure it with rules                Rules           v1
-  See what's happening                observability
-  Shape your data                     seed/snapshot/reset/replay
+SECURE & DEBUG  (the rules wing)
+  Secure it with rules                overview
+  Simulate and lint before you deploy
+  Write a rules test suite
+  Read a denial and understand it
+  The rules standard library
+  Rules patterns
+  The limits that actually bite
+  Audit your rules and data
+  What's possible                     (the gallery)
+
+OBSERVE & SHAPE
+  See what's happening
+  Shape your data
 
 SHIP & TEST
-  Ship to production                  deploy / verify
-  Test in Node                        node / admin
+  Ship to production
+  Test in Node
 
 WORK WITH AN AGENT
   Set up your agent                   MCP, Claude Code, Cursor, Codex
-  What your agent can do              the tool surface
-  Skills                              install + catalog
-  Watch and review                    Prototype + events
+  What your agent can do
+  Skills
+  Watch and review
 
 TRUST
-  How we know it matches Firebase     conformance
-  What's experimental                 RTDB + Storage, honestly
+  How we know it matches Firebase
+  What's experimental
 
 REFERENCE
   pyric  ·  pyric-admin  ·  pyric-tools
 ```
 
-Six sections. The services are visible where a person looks for them, under a header that still reads as a verb ("Build"). The cross-cutting behaviors that are not tied to one service stay as their own outcomes. Package names appear once, at the bottom.
+---
+
+## Overview  (the narrative page)
+
+Not a table of contents. A short, well-written read that a person finishes knowing what this is and why they want it. The shape, in beats:
+
+1. **What it is, in a breath.** Firebase that runs in your browser. Your `firebase/*` code runs against a local backend in dev and real Firebase in prod, unchanged.
+2. **The hook.** One command, no account, no project, no emulator. A full Firebase stack in the first ten seconds.
+3. **What you build with it.** Real auth, real data, real rules, seen working locally, then shipped.
+4. **The quiet why, for whoever keeps reading.** It focuses on the hard parts. It knows the things about Firebase that are not written down, and it hands them to you and your agent as tools, so the hard thing starts on the far side of the hard part. Forward-deployed expertise, in your own words, never a brag.
+
+Leads reader-first. The person who just wants to ship gets everything they need in the first two beats. The person who keeps reading discovers the depth. `[new; draws from NOVELTY.md, kept concise and humble]`
+
+**Title options to pick from:** "Overview," "The short version," "What you get," "Start here." Not "What is Pyric."
 
 ---
 
@@ -61,98 +88,85 @@ Six sections. The services are visible where a person looks for them, under a he
 - Your backend in one command `[reuse: pyric-tools/tutorials/getting-started]`
 - Scaffold a new app `[reuse: init template docs]`
 - Add Pyric to an app you already have `[reuse: how-to/use-the-vite-plugin, tutorials/server-adoption]`
-- What just happened (the swap, in one page) `[new, short]`
-- *And from an agent:* one flag and it can drive this too (teaser to the agent section) `[new, short]`
-
-**Maturity:** core.
+- What just happened (the swap, one page) `[new, short]`
+- *And from an agent:* one flag and it can drive this too `[new, short]`
 
 ---
 
 ## BUILD
 
-### Sign in and manage users  (Auth, v1)
-**Promise:** sign users in the way your app needs, and shape who they are.
-- Sign users in (anonymous, email and password, Google popup and redirect) `[reuse: pyric/auth/reference]` `[new how-to]`
-- Manage users in the sandbox (seed users, set claims, switch the current user) `[reuse: auth sandbox driver]` `[new]`
-- Design an identity model (UID-to-data, custom claims, roles) `[skill: firebase-auth-model]` `[new from skill]`
-- How identity reaches your rules (cross-link to Secure it with rules) `[reuse: sandbox identity explanation]`
-- *And from an agent:* design or audit the auth model for you `[skill: firebase-auth-model]`
+Service-shaped, so a person searching for auth or storage lands on sight. Each is written as outcomes. Detail carried from v2; unchanged except the agent notes now name the specific tool or skill.
 
-**Maturity:** v1 and loud. This is where Auth finally gets the how-to and explanation pages it lacks today (it has 5 pages, reference-only).
-
-### Store and query data  (Firestore, v1)
-**Promise:** write the Firestore code you know, run it locally, shaped like production.
-- Read and write documents `[reuse: firestore/how-to, tutorials]`
-- Query your data (where, orderBy, limit, aggregations) `[reuse: firestore/how-to/build-queries]`
-- Keep the UI live with onSnapshot `[reuse: firestore/how-to/use-onsnapshot]`
-- Run a transaction `[reuse: firestore/how-to/run-a-transaction]`
-- Design queries and the indexes they need `[skill: firestore-query-indexes]` `[reuse + skill]`
-- *And from an agent:* shape queries and extract indexes `[skill: firestore-query-indexes]`
-
-**Maturity:** v1 and the draw.
-
-### Sync realtime data  (Realtime Database, experimental)
-**Promise:** store and sync a live tree of data.
-- Store and read realtime data `[reuse: pyric/database docs]`
-- Model your RTDB tree (paths, fan-out, denormalized reads, .indexOn) `[skill: rtdb-data-model]` `[new from skill]`
-- Validated writes (check shape and rules before writing) `[reuse: rtdb_validated_write]`
-- Clearly labeled experimental; links to What's experimental.
-- *And from an agent:* model the tree and validate writes `[skill: rtdb-data-model]`
-
-**Maturity:** experimental. Present, useful, honestly marked.
-
-### Store files  (Storage, experimental)
-**Promise:** put files in a bucket and get them back, with rules on them.
-- Upload and download a file `[reuse: storage/tutorials/upload-and-download]`
-- List and delete files `[reuse: storage/how-to/list-and-delete]`
-- Round-trip metadata `[reuse: storage/how-to/round-trip-metadata]`
-- Enforce storage rules `[reuse: storage/how-to/enforce-rules]`
-- Clearly labeled experimental; links to What's experimental.
-
-**Maturity:** experimental. This is the doorway that did not exist before; Storage had no outcome home.
-
-### Which data service should I use?
-**Promise:** a straight answer to Firestore versus Realtime Database.
-- The one-page decision (query power and structure vs simple low-latency sync) `[new, short]`
-
-**Maturity:** connective. Small but load-bearing, because the overlap is a real question.
+- **Sign in and manage users** (Auth, v1). Sign users in; manage users in the sandbox; design an identity model `[skill: firebase-auth-model]`; how identity reaches your rules. Auth finally earns real how-to and explanation pages.
+- **Store and query data** (Firestore, v1). Read and write; query; live snapshots; transactions; design queries and the indexes they need `[skill: firestore-query-indexes]`.
+- **Sync realtime data** (RTDB, experimental). Store and read; model the tree `[skill: rtdb-data-model]`; validated writes. Labeled experimental.
+- **Store files** (Storage, experimental). Upload and download; list and delete; metadata; enforce storage rules. Labeled experimental.
+- **Which data service should I use?** The one-page Firestore-vs-RTDB answer.
 
 ---
 
-## MAKE IT SOLID
+## SECURE & DEBUG  (the rules wing)
 
-### Secure it with rules  (Rules, v1)
+This is the wing the novelty research demanded. It is the strongest thing Pyric does, and it gets the room. It is not a lecture on rules. It is "get your rules right, prove it, and debug them with precision," with the depth waiting for whoever needs it.
+
+### Secure it with rules  (wing overview)
 **Promise:** prove a user can touch only their own data, before you deploy.
+The landing that orients the wing and shows the core loop: write, simulate, see the verdict, deploy. `[reuse: pyric/rules overview]`
+
+### Simulate and lint before you deploy
+**Promise:** catch the error before Firebase gives you an opaque 400 or 403.
 - Simulate a request's verdict `[reuse: rules/how-to/simulate-locally]`
 - Lint your rules `[reuse: rules/how-to/lint-source]`
-- Write a rules test suite `[reuse: rules/tutorials/write-a-test-suite]`
-- Read a denial and understand it `[reuse: sandbox denial explanation]`
+- The linter catches JS-in-rules mistakes and the real limits (short, points to "the limits that actually bite") `[new from linter, hallucination detector]`
+
+### Write a rules test suite
+**Promise:** rules you can trust because they are tested, in-process and in CI.
+- `[reuse: rules/tutorials/write-a-test-suite, how-to/test-against-firebase-rules-test-api]`
+
+### Read a denial and understand it
+**Promise:** never debug a bare permission-denied again.
+- The verdict on every operation, with the rule and data that decided it `[reuse: sandbox denial explanation + event stream]`
 - Compare two rulesets for weakening `[reuse: rules/how-to/compare-for-weakening]`
-- Audit Firestore rules for holes `[skill: firestore-rules-audit]`
+
+### The rules standard library
+**Promise:** reusable, tested rule building blocks, and an import the rules language does not have.
+- What the standard library is, and `import { isMyTurn } from 'turns'` `[reuse: STDLIB.md, stdlib-modules.ts]`
+- The modules that break the "you can't do that in rules" assumptions: rate-limiting (`timing`), cross-document batch integrity (`atomic`), state machines (`transitions`), membership and spaces `[new from stdlib]`
+- Inside the wing for now; revisit whether it earns top-level presence after the first pass.
+
+### Rules patterns
+**Promise:** the techniques the hard rules are built from.
+- Config document, path blocking, piece-type-agnostic lookup, unique gates, and the rest `[new: port PATTERNS.md from firebase-agent-sdk, write up as first-class content]`
+
+### The limits that actually bite
+**Promise:** the Firestore rules limits Google does not document, so your rules compile the first time.
+- Source size, chain depth, let bindings, get() count, and the non-deterministic runtime budget with its flaky zone `[new from linter thresholds, LINTER_SPEC]`
+- Why the emulator does not save you here `[new from retrospective]`
+
+### Audit your rules and data
+**Promise:** find the holes before someone else does.
+- Audit Firestore rules `[skill: firestore-rules-audit]`
 - Author and audit RTDB rules `[skill: rtdb-security-rules]`
 - Audit the whole project's posture `[skill: firebase-audit]`
-- *And from an agent:* simulate before writing, audit on demand `[skills above]`
+- *And from an agent:* all three, on demand.
 
-**Maturity:** v1 and headline. The 28-page rules tree re-hangs here, plus three skills that make it agent-drivable.
+### What's possible  (the gallery)
+**Promise:** proof, for the reader who thinks the claims are too big.
+- Chess, checkers, connect four, US tax code, and a live tic-tac-toe, all in pure rules `[new: firebase-agent-sdk/examples]`
+- Framed as what the tools make an agent capable of, not as the hero. Deep in the wing on purpose. The person shipping a CRUD app never has to see it; the Firebase nerd finds it and is impressed.
 
-### See what's happening  (observability)
-**Promise:** watch every read, write, and denial live, with no log lines.
-- Watch traffic live in Studio `[reuse: pyric dev --ui]` `[partly new]`
-- Read the event stream yourself `[reuse: sandbox/how-to/observe-events]`
-- Inspect a denial `[reuse: sandbox/explanation/every-op-is-a-request]`
-- Build your own monitor `[reuse: sandbox/tutorials/build-a-traffic-monitor]`
+---
 
-**Maturity:** core.
+## OBSERVE & SHAPE
 
-### Shape your data  (state)
+### See what's happening
+**Promise:** watch every read, write, and denial live, no log lines.
+- Watch traffic live in Studio; read the event stream yourself; inspect a denial; build your own monitor `[reuse: sandbox observe/traffic]`
+
+### Shape your data
 **Promise:** seed, snapshot, reset, and replay the backend like source.
-- Seed a scenario `[reuse: sandbox/how-to/seed-data-and-rules]`
-- Snapshot it and serve it back `[reuse: pyric snapshot, tools/how-to/promote-to-fixture]`
-- Reset between tests `[reuse: sandbox/how-to/reset-between-tests]`
-- Replay a captured session `[reuse: sandbox/how-to/replay-events]`
-- *And from an agent:* seed and reset as tools `[new, short]`
-
-**Maturity:** core.
+- Seed a scenario; snapshot and serve it back; reset between tests; replay a captured session; switch users `[reuse: sandbox state how-tos, pyric snapshot]`
+- *And from an agent:* seed and reset as tools.
 
 ---
 
@@ -160,117 +174,61 @@ Six sections. The services are visible where a person looks for them, under a he
 
 ### Ship to production
 **Promise:** the same code goes live, and you learn what changes before prod does.
-- The dev-to-prod build (production keeps real firebase) `[reuse: vite build flavors]`
-- Deploy your rules `[reuse: deploy/how-to/deploy-firestore-rules]`
-- Deploy indexes from your query shapes `[reuse: deploy/how-to/deploy-indexes]`
-- Verify what flips before prod does `[reuse: tools/how-to/verify-against-captured-session]`
-- Deploy hosting and functions `[reuse: deploy/how-to/*]`
-- Sign in for deploys `[reuse: deploy credential how-tos]`
-
-**Maturity:** core. The 27-page deploy tree re-hangs here.
+- The dev-to-prod build; deploy rules; deploy indexes from your query shapes; verify what flips before prod does; deploy hosting and functions; sign in for deploys `[reuse: deploy tree, verify]`
+- Set up the project itself: enable auth providers, authorize OAuth domains, provision database and storage `[new from control-plane research]`
 
 ### Test in Node
 **Promise:** the same backend in tests and scripts, no browser, admin shape when needed.
-- Test against the sandbox in Node `[reuse: sandbox/tutorials/use-in-a-test-harness]`
-- Use the admin shape (one setup line) `[reuse: pyric-admin/firestore tree]`
-- Share one backend across app, Node, and agent `[reuse: remote sandbox]` `[partly new]`
-- A nod to verify as a testing move (cross-link to Ship) `[reuse]`
-
-**Maturity:** client-in-Node core; admin uneven by service, taught at the seam.
+- Test against the sandbox in Node; use the admin shape (one line); share one backend across app, Node, and agent; a nod to verify `[reuse: sandbox test harness, pyric-admin]`
 
 ---
 
 ## WORK WITH AN AGENT
 
-### Set up your agent
-**Promise:** get an agent driving the sandbox in a few minutes, in the tool you already use.
-- What MCP gives you here (one bridge, the whole backend) `[reuse: bridge README]`
-- Claude Code (the plugin and `pyric-start`) `[reuse: pyric-plugin, tutorials/wire-claude-code]`
-- Cursor `[new, short]`
-- Codex `[new, short]`
-- Any other MCP client `[reuse: bridge docs]`
+The agent is the ambient second reader everywhere, and this is its home. Every "and from an agent" note across the docs points here.
 
-**Maturity:** core to the story. Per-client recipes are the concrete need you named.
-
-### What your agent can do
-**Promise:** the backend as a tool surface, taught by capability not by tool name.
-- Read, write, and query as tools `[reuse: agent-tools.md]`
-- Simulate rules and run a stateful session `[reuse: firestore_simulator_*]`
-- Inspect and discover what exists `[reuse: sandbox_inspect, discover]`
-- Deploy over REST `[reuse: deploy tools]`
-
-**Maturity:** core, newest ground; honest that the surface is wide and consolidating.
-
-### Skills
-**Promise:** teach your agent to do the hard Firebase things right, with Pyric.
-- What a skill is and how to install it `[reuse: .agents/skills, pyric-plugin/skills]`
-- The catalog: auth models, query and index design, Firestore rules audits, RTDB data models, RTDB rules, whole-project audits `[reuse: the six domain skills]`
-
-**Maturity:** core. Each skill also links back to the service or rules doorway it serves.
-
-### Watch and review
-**Promise:** see what the agent did and check it.
-- The Prototype console `[reuse: studio Prototype]` `[partly new]`
-- Review through the event stream `[reuse: sandbox events]`
-
-**Maturity:** core.
+- **Set up your agent.** What MCP gives you; Claude Code (the plugin and `pyric-start`); Cursor; Codex; any MCP client `[reuse: bridge, wire-claude-code, pyric-plugin]`
+- **What your agent can do.** The backend as a tool surface, by capability: read/write/query, simulate rules, run a stateful session, inspect and discover, deploy and operate `[reuse: agent-tools.md]`
+- **Skills.** What a skill is, how to install it, and the catalog: auth models, query and index design, rules audits, RTDB data models, RTDB rules, whole-project audits `[reuse: .agents/skills, pyric-plugin/skills]`
+- **Watch and review.** The Prototype console and the event stream `[reuse: studio Prototype, events]`
 
 ---
 
 ## TRUST
 
-### How we know it matches Firebase  (conformance doorway)
-**Promise:** the "behaves like Firebase" claim is tested, not asserted, and here is the receipt.
-- The claim and how it is proven (oracle, observations, CI replay) `[reuse: docs/conformance/how-to-run-the-conformance-system]`
-- Read the compatibility matrices (into Reference) `[reuse: COMPAT set]`
-- What a divergence means `[new, short]`
-
-### What's experimental
-**Promise:** one honest page on what is not yet v1.
-- Realtime Database: what works, what does not, why `[reuse: database COMPAT]`
-- Storage: same `[reuse: storage COMPAT]`
-- What experimental costs you, and when it graduates `[new, short]`
+- **How we know it matches Firebase.** The claim and how it is proven: oracle observations, CI replay, the rules parity harness against the live Rules Test API. What a divergence means `[reuse: conformance docs, corrected to include rules parity]`
+- **What's experimental.** One honest page: Realtime Database, Storage, what experimental costs you, and when it graduates `[reuse: COMPAT headers]`
 
 ---
 
 ## REFERENCE  (the one noun section)
 Per package, for the reader who already knows what they want.
-- **pyric** — Web SDK (firestore, auth, database, storage), sandbox runtime, rules engine, COMPAT matrices. `[reuse: reference/* + feature-matrix + COMPAT]`
-- **pyric-admin** — admin surface and the sandbox/prod seam. `[reuse: pyric-admin reference]`
-- **pyric-tools** — CLI, deploy API, MCP tool catalog. `[reuse: cli.md, deploy reference, agent-tools.md]`
+- **pyric** — Web SDK, sandbox runtime, rules engine, COMPAT matrices.
+- **pyric-admin** — admin surface and the sandbox/prod seam.
+- **pyric-tools** — CLI, deploy API, MCP tool catalog.
 
 `@pyric/ui` keeps its own component docs, out of scope here.
 
 ---
 
-## Skills, mapped
+## The writing debt, now that the wing is real
 
-Each domain skill is content twice: a feature you install, and knowledge a human page draws from. Where each lands:
+Re-shelving existing prose covers a lot, but the rules wing and the overview carry most of the new writing. Bounded and specific:
 
-| Skill | Serves doorway | As feature | As source for the page |
-|---|---|---|---|
-| `firebase-auth-model` | Sign in and manage users | "your agent can design your identity model" | Design an identity model |
-| `firestore-query-indexes` | Store and query data / Ship | "your agent shapes queries and indexes" | Design queries and the indexes they need |
-| `firestore-rules-audit` | Secure it with rules | "your agent audits rules" | Audit Firestore rules for holes |
-| `rtdb-security-rules` | Secure it with rules | "your agent authors RTDB rules" | Author and audit RTDB rules |
-| `rtdb-data-model` | Sync realtime data | "your agent models the tree" | Model your RTDB tree |
-| `firebase-audit` | Secure it with rules | "your agent audits the whole project" | Audit the whole project's posture |
-
-Internal-only skills, not user product docs: `writing-documentation-with-diataxis` (we use it to write these pages in step 4), `readme-bookstore-test`, `playground-prompts`.
+- The **Overview** narrative page.
+- The rules wing's new pages: the standard library writeup, **the ported and written-up PATTERNS.md**, "the limits that actually bite," and the linter/denial connective tissue.
+- The **gallery** page (mostly curation of existing examples).
+- **Auth** how-to and explanation pages (v1 but thin today).
+- The **Storage and RTDB** outcome pages.
+- The per-client **agent setup** recipes and the **skills catalog**.
+- The **project-setup** (enablement) pages under Ship.
+- The short **"and from an agent"** notes, each naming a specific tool. Six domain skills are first drafts of six of these.
 
 ---
 
-## What changes mechanically
+## Still open (small now)
 
-Same two options as v1. Recommendation unchanged: re-map the generator's nav plan (`packages/site-docs/scripts/port-content.ts` `GROUPS`) to hang existing slugs under the new doorways, then write the `[new]` pages. The prose is good; the shelving is the problem. The new writing is bounded: Auth how-tos, the four Storage and RTDB outcome pages, the "which data service" and "what just happened" connective pages, the per-client agent setup recipes, the skills catalog page, and the short "and from an agent" notes. The six domain skills are drafts of six of those pages already.
-
----
-
-## Open for iteration
-
-- **Grouping headers.** GET STARTED / BUILD / MAKE IT SOLID / SHIP & TEST / WORK WITH AN AGENT / TRUST / REFERENCE. Right labels, right order?
-- **Storage and RTDB placement.** In BUILD with an experimental tag, as drafted. Or held out of BUILD until they graduate, with only the What's experimental page? You leaned toward the honest label, this follows that.
-- **The agent section's size.** Four doorways. Is "Watch and review" its own page or a section of "What your agent can do"?
-- **Skills: catalog page vs woven only.** Drafted as both a catalog page and per-doorway callouts. Too much surface, or right?
-- **Auth vs Firestore order in BUILD.** Auth is the gate, Firestore is the draw. Which comes first?
-- **"Which data service" page.** Standalone entry, or a section inside "Store and query data"?
+- After the first pass: does the standard library graduate out of the rules wing to its own top-level presence?
+- Overview page title (options listed above).
+- Grouping-header labels: GET STARTED / BUILD / SECURE & DEBUG / OBSERVE & SHAPE / SHIP & TEST / WORK WITH AN AGENT / TRUST / REFERENCE. Right words?
+- Does "Set up the project itself" (enablement) belong under Ship, or does it want its own small doorway given how much the control plane can do?
