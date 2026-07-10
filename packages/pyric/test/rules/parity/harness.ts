@@ -28,14 +28,13 @@ import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
 import type { TestCase, TestFirestoreRulesResult } from '../../../src/rules/test/spec.js';
 
 // ─── Pack types ────────────────────────────────────────────────────────────
+//
+// The `Pack` shape now lives in the conformance corpus
+// (scripts/oracle/rules-corpus/firestore/types.ts). Re-exported here so the
+// existing parity importers keep resolving `Pack` from the harness while the
+// definition has a single home shared with the capture runner and replay suite.
 
-export interface Pack {
-  id: string;
-  fm: string;        // failure-mode / ledger tag (e.g. 'RULES-B3')
-  rationale: string; // one-line: why this pack should reveal something
-  rules: string;
-  cases: TestCase[];
-}
+export type { Pack } from '../../../../../scripts/oracle/rules-corpus/firestore/index.ts';
 
 export type Decision = 'ALLOW' | 'DENY';
 /**
