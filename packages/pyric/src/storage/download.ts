@@ -92,7 +92,7 @@ export async function deleteObject(
   enforceRules(service, {
     request: {
       auth: target.context.auth,
-      method: 'write',
+      method: 'delete',
       path: ref.fullPath,
     },
     resource: resourceFromStored(existing),
@@ -139,7 +139,7 @@ async function fetchBlob(
   enforceRules(service, {
     request: {
       auth: target.context.auth,
-      method: 'read',
+      method: 'get',
       path: ref.fullPath,
     },
     resource: resourceFromStored(existing),

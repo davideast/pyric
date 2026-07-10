@@ -137,7 +137,7 @@ export async function getMetadata(ref: StorageReference): Promise<FullMetadata> 
   enforceRules(service, {
     request: {
       auth: target.context.auth,
-      method: 'read',
+      method: 'get',
       path: ref.fullPath,
     },
     resource: resourceFromStored(stored),
@@ -180,7 +180,9 @@ export async function updateMetadata(
   enforceRules(service, {
     request: {
       auth: target.context.auth,
-      method: 'write',
+      // updateMetadata always targets an existing object (it throws
+      // object-not-found below when absent), so the verb is `update`.
+      method: 'update',
       path: ref.fullPath,
       // The patched view drives `request.resource` for size /
       // contentType / metadata rule checks. Custom metadata is

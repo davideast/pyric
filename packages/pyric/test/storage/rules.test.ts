@@ -67,14 +67,24 @@ describe('parseStorageRules', () => {
     ).toThrow();
   });
 
-  it('rejects unsupported verbs in the v1 scope subset', () => {
+  it('parses the granular verbs (get/list/create/update/delete)', () => {
     expect(() =>
       parseStorageRules(`service firebase.storage {
         match /b/{bucket}/o {
-          match /x/{id} { allow get: if true; }
+          match /x/{id} { allow get, list, create, update, delete: if true; }
         }
       }`),
-    ).toThrow(/Unsupported verb "get"/);
+    ).not.toThrow();
+  });
+
+  it('rejects verbs outside the storage grammar', () => {
+    expect(() =>
+      parseStorageRules(`service firebase.storage {
+        match /b/{bucket}/o {
+          match /x/{id} { allow query: if true; }
+        }
+      }`),
+    ).toThrow(/Unsupported verb "query"/);
   });
 
   it('rejects unterminated strings', () => {
@@ -263,6 +273,128 @@ describe('evaluateStorageRules — metadata bindings (#764)', () => {
   });
 });
 
+// ─── Granular verbs (get/list/create/update/delete) ──────────────
+//
+// Production Storage semantics:
+//   - `read`  is the umbrella for `get` + `list`.
+//   - `write` is the umbrella for `create` + `update` + `delete`.
+//   - A granular grant covers ONLY its own verb.
+//   - Deny-by-default: a verb with no applicable grant is denied.
+
+describe('evaluateStorageRules — granular verbs', () => {
+  const path = 'b/pyric-default/o/files/f1.bin';
+
+  function evalVerb(source: string, method: string) {
+    const rules = parseStorageRules(source);
+    return evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: method as never, path },
+      resource: null,
+    }).allowed;
+  }
+
+  function ruleset(allow: string): string {
+    return `service firebase.storage {
+      match /b/{bucket}/o {
+        match /files/{fileId} { ${allow} }
+      }
+    }`;
+  }
+
+  it('read is an umbrella granting both get and list', () => {
+    const src = ruleset('allow read: if true;');
+    expect(evalVerb(src, 'get')).toBe(true);
+    expect(evalVerb(src, 'list')).toBe(true);
+  });
+
+  it('write is an umbrella granting create, update, and delete', () => {
+    const src = ruleset('allow write: if true;');
+    expect(evalVerb(src, 'create')).toBe(true);
+    expect(evalVerb(src, 'update')).toBe(true);
+    expect(evalVerb(src, 'delete')).toBe(true);
+  });
+
+  it('allow get grants get but NOT list', () => {
+    const src = ruleset('allow get: if true;');
+    expect(evalVerb(src, 'get')).toBe(true);
+    expect(evalVerb(src, 'list')).toBe(false);
+  });
+
+  it('allow list grants list but NOT get', () => {
+    const src = ruleset('allow list: if true;');
+    expect(evalVerb(src, 'list')).toBe(true);
+    expect(evalVerb(src, 'get')).toBe(false);
+  });
+
+  it('allow create grants create but NOT update or delete', () => {
+    const src = ruleset('allow create: if true;');
+    expect(evalVerb(src, 'create')).toBe(true);
+    expect(evalVerb(src, 'update')).toBe(false);
+    expect(evalVerb(src, 'delete')).toBe(false);
+  });
+
+  it('allow update grants update but NOT create or delete', () => {
+    const src = ruleset('allow update: if true;');
+    expect(evalVerb(src, 'update')).toBe(true);
+    expect(evalVerb(src, 'create')).toBe(false);
+    expect(evalVerb(src, 'delete')).toBe(false);
+  });
+
+  it('allow delete grants delete but NOT create or update', () => {
+    const src = ruleset('allow delete: if true;');
+    expect(evalVerb(src, 'delete')).toBe(true);
+    expect(evalVerb(src, 'create')).toBe(false);
+    expect(evalVerb(src, 'update')).toBe(false);
+  });
+
+  it('parses and honors a comma-separated verb list (allow get, list)', () => {
+    const src = ruleset('allow get, list: if true;');
+    expect(evalVerb(src, 'get')).toBe(true);
+    expect(evalVerb(src, 'list')).toBe(true);
+    expect(evalVerb(src, 'create')).toBe(false);
+  });
+
+  it('mixes granular grants: create allowed, update/delete denied', () => {
+    const src = ruleset('allow create: if request.auth != null; allow get: if true;');
+    expect(evalVerb(src, 'create')).toBe(true);
+    expect(evalVerb(src, 'get')).toBe(true);
+    expect(evalVerb(src, 'update')).toBe(false);
+    expect(evalVerb(src, 'delete')).toBe(false);
+    expect(evalVerb(src, 'list')).toBe(false);
+  });
+
+  it('deny-by-default: a verb with no applicable grant is denied', () => {
+    const src = ruleset('allow get: if true;');
+    const rules = parseStorageRules(src);
+    const r = evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: 'delete' as never, path },
+      resource: null,
+    });
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.length).toBeGreaterThan(0);
+    // The reason names the verb that was actually evaluated.
+    expect(r.reasons.join(' ')).toContain('delete');
+  });
+
+  it('create-vs-update discriminates on object existence (nonexistent → create)', () => {
+    // Grant only create; the create verb (nonexistent object) is allowed,
+    // the update verb (existing object) is denied — the caller supplies
+    // the verb based on the resource-exists fact.
+    const src = ruleset('allow create: if true;');
+    // create: request.resource present, resource (existing) null
+    const rules = parseStorageRules(src);
+    const asCreate = evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: 'create' as never, path, resource: { size: 1 } },
+      resource: null,
+    });
+    const asUpdate = evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: 'update' as never, path, resource: { size: 1 } },
+      resource: { size: 1 },
+    });
+    expect(asCreate.allowed).toBe(true);
+    expect(asUpdate.allowed).toBe(false);
+  });
+});
+
 // ─── Operation integration tests ──────────────────────────────────
 
 function authedStorage(label: string, auth: { uid: string } | null) {
@@ -431,6 +563,43 @@ describe('metadata-based authorization threads through real ops (#764)', () => {
     });
     const anon = metadataStorage(sandbox, dbName, null);
     await expect(getBlob(ref(anon, path))).rejects.toThrow(/unauthorized/);
+  });
+});
+
+describe('granular verbs thread through real ops (create vs update)', () => {
+  // Only `create` is granted: the first upload to a fresh path (a
+  // create) succeeds; a second upload over the now-existing object (an
+  // update) is denied. The caller classifies the op by object existence.
+  const CREATE_ONLY = `
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{fileId} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null;
+    }
+  }
+}`;
+
+  const path = 'b/pyric-default/o/files/f1.json';
+
+  it('allows the initial create but denies an overwrite update', async () => {
+    const sandbox = initializeSandbox({});
+    const dbName = uniqueDbName('granular-create-only');
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), { dbName, rules: CREATE_ONLY });
+    // First upload = create → allowed.
+    await uploadBytes(ref(alice, path), new Blob(['{}']), { contentType: 'application/json' });
+    // Second upload over the existing object = update → denied.
+    await expect(
+      uploadBytes(ref(alice, path), new Blob(['{"v":2}']), { contentType: 'application/json' }),
+    ).rejects.toThrow(/unauthorized/);
+  });
+
+  it('denies a delete when only create/read are granted', async () => {
+    const sandbox = initializeSandbox({});
+    const dbName = uniqueDbName('granular-no-delete');
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), { dbName, rules: CREATE_ONLY });
+    await uploadBytes(ref(alice, path), new Blob(['{}']), { contentType: 'application/json' });
+    await expect(deleteObject(ref(alice, path))).rejects.toThrow(/unauthorized/);
   });
 });
 
