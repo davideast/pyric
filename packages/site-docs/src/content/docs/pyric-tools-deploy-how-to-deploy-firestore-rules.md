@@ -3,7 +3,7 @@ title: "How to deploy Firestore rules"
 navLabel: "Deploy Firestore rules"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 21
+order: 49
 ---
 # How to deploy Firestore rules
 

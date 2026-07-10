@@ -3,7 +3,7 @@ title: "Feature matrix — pyric/auth vs firebase/auth"
 navLabel: "Feature matrix"
 group: "pyric / auth"
 section: "Reference"
-order: 132
+order: 160
 ---
 # Feature matrix — `pyric/auth` vs `firebase/auth`
 

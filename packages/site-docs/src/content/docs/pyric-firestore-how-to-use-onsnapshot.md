@@ -3,7 +3,7 @@ title: "How to use onSnapshot"
 navLabel: "Use onSnapshot"
 group: "pyric / firestore"
 section: "How-to"
-order: 49
+order: 77
 ---
 # How to use `onSnapshot`
 

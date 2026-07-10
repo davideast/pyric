@@ -2,7 +2,7 @@
 title: "Value wrapper design"
 group: "pyric / rules"
 section: "Explanation"
-order: 87
+order: 115
 ---
 # Value wrapper design
 

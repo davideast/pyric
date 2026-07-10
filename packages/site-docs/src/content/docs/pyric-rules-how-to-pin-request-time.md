@@ -3,7 +3,7 @@ title: "How to pin request.time for deterministic tests"
 navLabel: "Pin request.time"
 group: "pyric / rules"
 section: "How-to"
-order: 67
+order: 95
 ---
 # How to pin `request.time` for deterministic tests
 

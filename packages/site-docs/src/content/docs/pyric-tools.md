@@ -3,7 +3,7 @@ title: "pyric-tools"
 navLabel: "Overview"
 group: "pyric-tools"
 section: ""
-order: 1
+order: 29
 ---
 # pyric-tools documentation
 

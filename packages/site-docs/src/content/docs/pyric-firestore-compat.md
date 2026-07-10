@@ -3,7 +3,7 @@ title: "pyric/firestore compatibility matrix"
 navLabel: "Compatibility matrix"
 group: "pyric / firestore"
 section: "Compat"
-order: 60
+order: 88
 ---
 <!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

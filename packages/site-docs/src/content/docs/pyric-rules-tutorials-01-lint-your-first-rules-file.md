@@ -2,7 +2,7 @@
 title: "Lint your first rules file"
 group: "pyric / rules"
 section: "Tutorials"
-order: 62
+order: 90
 ---
 # Lint your first rules file
 

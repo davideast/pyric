@@ -3,7 +3,7 @@ title: "Why two backends behind one surface"
 navLabel: "Two backends, one surface"
 group: "pyric / firestore"
 section: "Explanation"
-order: 59
+order: 87
 ---
 # Why two backends behind one surface
 

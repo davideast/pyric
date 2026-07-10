@@ -2,7 +2,7 @@
 title: "Tool factories"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 37
+order: 65
 ---
 # Tool factories
 

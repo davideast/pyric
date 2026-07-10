@@ -3,7 +3,7 @@ title: "How to migrate from firebase/firestore"
 navLabel: "Migrate from Firestore"
 group: "pyric / firestore"
 section: "How-to"
-order: 46
+order: 74
 ---
 # How to migrate from `firebase/firestore`
 

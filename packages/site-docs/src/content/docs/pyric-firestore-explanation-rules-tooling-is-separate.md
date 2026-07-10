@@ -3,7 +3,7 @@ title: "Why rules tooling lives in a sibling package"
 navLabel: "Rules tooling is separate"
 group: "pyric / firestore"
 section: "Explanation"
-order: 57
+order: 85
 ---
 # Why rules tooling lives in a sibling package
 

@@ -3,7 +3,7 @@ title: "Feature matrix — pyric/firestore vs firebase/firestore"
 navLabel: "Feature matrix"
 group: "pyric / firestore"
 section: "Reference"
-order: 52
+order: 80
 ---
 # Feature matrix — `pyric/firestore` vs `firebase/firestore`
 

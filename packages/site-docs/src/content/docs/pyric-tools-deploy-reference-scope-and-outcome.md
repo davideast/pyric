@@ -3,7 +3,7 @@ title: "ProjectScope, Outcome, AdminApiError"
 navLabel: "Scope and Outcome"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 36
+order: 64
 ---
 # `ProjectScope`, `Outcome`, `AdminApiError`
 

@@ -2,7 +2,7 @@
 title: "<ObjectInspector>"
 group: "@pyric/ui"
 section: "Storage"
-order: 171
+order: 199
 ---
 # `<ObjectInspector>`
 
