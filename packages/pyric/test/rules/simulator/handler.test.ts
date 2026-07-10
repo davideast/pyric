@@ -1251,4 +1251,147 @@ service cloud.firestore {
       expect(granting?.matchPath).toBe('/items/{id}');
     });
   });
+
+  // ═══ resource is null on create (pre-write doc does not exist) ═══
+  //
+  // Production truth: on a `create`, the target document does not exist yet,
+  // so the top-level `resource` is null — any field access (`resource.data`,
+  // `resource.id`, `resource.__name__`) errors and the rule DENYs. The
+  // simulator previously synthesized a `resource` (empty data + a derived
+  // id/__name__) on create, producing a FALSE-ALLOW for the extremely common
+  // ownership/existence idioms below. `request.resource` (the INCOMING
+  // proposed data) is a DIFFERENT value and must stay populated on create.
+  describe('resource is null on create', () => {
+    const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Ownership check against the PRE-WRITE doc — the classic false-allow.
+    match /owned/{id} {
+      allow create: if resource.data.owner == request.auth.uid;
+    }
+    // resource.id on create.
+    match /byId/{id} {
+      allow create: if resource.id == id;
+    }
+    // resource.__name__ on create.
+    match /byName/{id} {
+      allow create: if resource.__name__ == request.path;
+    }
+    // request.resource (INCOMING data) MUST still work on create.
+    match /incoming/{id} {
+      allow create: if request.resource.data.owner == request.auth.uid;
+    }
+    // Existing-doc reads on update/delete must be UNREGRESSED.
+    match /docs/{id} {
+      allow update: if resource.data.owner == request.auth.uid;
+      allow delete: if resource.data.owner == request.auth.uid;
+      allow get: if resource.data.owner == request.auth.uid;
+    }
+  }
+}`;
+
+    test('resource.data ownership on create DENIES (resource is null pre-write)', () => {
+      const r = handler.simulate(RULES, [{
+        description: 'resource.data.owner on create',
+        expectation: 'DENY',
+        method: 'create',
+        path: 'owned/d1',
+        auth: { uid: 'alice' },
+        data: { owner: 'alice' }, // incoming says alice, but resource is null → DENY
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      expect(r.data.results[0].decision).toBe('DENY');
+      expect(r.data.results[0].state).toBe('PASSED');
+    });
+
+    test('resource.id on create DENIES (resource is null pre-write)', () => {
+      const r = handler.simulate(RULES, [{
+        description: 'resource.id on create',
+        expectation: 'DENY',
+        method: 'create',
+        path: 'byId/d2',
+        auth: { uid: 'alice' },
+        data: {},
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      expect(r.data.results[0].decision).toBe('DENY');
+    });
+
+    test('resource.__name__ on create DENIES (resource is null pre-write)', () => {
+      const r = handler.simulate(RULES, [{
+        description: 'resource.__name__ on create',
+        expectation: 'DENY',
+        method: 'create',
+        path: 'byName/d3',
+        auth: { uid: 'alice' },
+        data: {},
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      expect(r.data.results[0].decision).toBe('DENY');
+    });
+
+    test('request.resource (incoming data) is UNAFFECTED on create — ALLOW', () => {
+      const r = handler.simulate(RULES, [{
+        description: 'request.resource.data.owner on create',
+        expectation: 'ALLOW',
+        method: 'create',
+        path: 'incoming/d4',
+        auth: { uid: 'alice' },
+        data: { owner: 'alice' },
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      expect(r.data.results[0].decision).toBe('ALLOW');
+      expect(r.data.results[0].state).toBe('PASSED');
+    });
+
+    test('resource reflects the existing doc on update — UNREGRESSED ALLOW', () => {
+      const r = handler.simulate(RULES, [{
+        description: 'resource.data.owner on update',
+        expectation: 'ALLOW',
+        method: 'update',
+        path: 'docs/d5',
+        auth: { uid: 'alice' },
+        resource: { owner: 'alice' },
+        data: { owner: 'alice' },
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      expect(r.data.results[0].decision).toBe('ALLOW');
+      expect(r.data.results[0].state).toBe('PASSED');
+    });
+
+    test('resource reflects the existing doc on delete — UNREGRESSED ALLOW', () => {
+      const r = handler.simulate(RULES, [{
+        description: 'resource.data.owner on delete',
+        expectation: 'ALLOW',
+        method: 'delete',
+        path: 'docs/d6',
+        auth: { uid: 'alice' },
+        resource: { owner: 'alice' },
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      expect(r.data.results[0].decision).toBe('ALLOW');
+      expect(r.data.results[0].state).toBe('PASSED');
+    });
+
+    test('resource reflects the existing doc on get — UNREGRESSED ALLOW', () => {
+      const r = handler.simulate(RULES, [{
+        description: 'resource.data.owner on get',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'docs/d7',
+        auth: { uid: 'alice' },
+        resource: { owner: 'alice' },
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      expect(r.data.results[0].decision).toBe('ALLOW');
+      expect(r.data.results[0].state).toBe('PASSED');
+    });
+  });
 });

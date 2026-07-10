@@ -1238,14 +1238,16 @@ service cloud.firestore {
         && request.query is map
         && request.query.size() == 0;
     }
-    // resource.id matches the path's last segment
-    match /resourceIdAllow/{id} {
+    // resource.id on a CREATE: production makes resource null (the target
+    // doc does not exist pre-write), so resource.id errors and it DENYs.
+    match /resourceIdOnCreateDeny/{id} {
       allow create: if request.auth != null
         && resource.id == id
         && resource.id is string;
     }
-    // resource.__name__ matches request.path
-    match /resourceNameAllow/{id} {
+    // resource.__name__ on a CREATE: same, resource is null pre-write, so
+    // resource.__name__ errors and it DENYs.
+    match /resourceNameOnCreateDeny/{id} {
       allow create: if request.auth != null
         && resource.__name__ == request.path
         && resource.__name__ is path;
@@ -1283,18 +1285,22 @@ service cloud.firestore {
       data: {},
     },
     {
-      description: 'resource.id matches binding ALLOW',
-      expectation: 'ALLOW',
+      // On a create the target doc does not exist yet, so `resource` is
+      // null and `resource.id` errors → DENY. (Was mis-stated as ALLOW; the
+      // sim previously synthesized a resource identity — a false-allow.)
+      description: 'resource.id on create → DENY (resource is null pre-write)',
+      expectation: 'DENY',
       method: 'create',
-      path: 'resourceIdAllow/d4',
+      path: 'resourceIdOnCreateDeny/d4',
       auth: { uid: 'alice' },
       data: {},
     },
     {
-      description: 'resource.__name__ == request.path ALLOW',
-      expectation: 'ALLOW',
+      // Same as above for __name__: `resource` is null on create → DENY.
+      description: 'resource.__name__ on create → DENY (resource is null pre-write)',
+      expectation: 'DENY',
       method: 'create',
-      path: 'resourceNameAllow/d5',
+      path: 'resourceNameOnCreateDeny/d5',
       auth: { uid: 'alice' },
       data: {},
     },
