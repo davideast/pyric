@@ -26,6 +26,12 @@ interface ValidateFailure {
   node: RtdbNode;
   rule: RtdbRuleExpression;
   bindings: Record<string, string>;
+  /** True when this "failure" is a simulator gap (the grammar could not
+   *  parse the `.validate` expression) rather than a genuine `false`
+   *  evaluation. A real failure found anywhere in the tree always takes
+   *  priority over an unsupported one (AND-semantics: a confirmed DENY
+   *  is stronger evidence than an abstention). */
+  unsupported?: boolean;
 }
 
 /** Own-enumerable keys of a snapshot's object value; empty for non-objects. */
@@ -73,12 +79,19 @@ function findWriteLocationNode(
  * `.validate` on the post-write value at the write location and at every
  * descendant present in that value; unlike `.read`/`.write` these rules do
  * NOT cascade — ALL must evaluate true, and a single failure denies the
- * whole write. Nodes whose proposed value is null (a delete) are skipped,
- * and an unparseable `.validate` expression is skipped rather than denied
- * (never flip a prod-legal write to a sandbox denial over a rule the
- * grammar can't reason about). Ancestor `.validate` rules ABOVE the write
- * location are not evaluated. Returns the first failing node, or `null`
- * when every applicable `.validate` passes.
+ * whole write. Nodes whose proposed value is null (a delete) are skipped.
+ *
+ * An unparseable `.validate` expression is a simulator gap, not a pass:
+ * production would still evaluate it and may reject the write, so treating
+ * it as "no rule" would be a fidelity lie. It is reported as `unsupported`
+ * (an abstention) rather than fabricated as either ALLOW or DENY — mirrors
+ * the Firestore simulator's posture where an `UnsupportedError` never
+ * counts as a real evaluation. A genuine `false` found anywhere in the
+ * tree still wins over an unsupported node elsewhere (a confirmed DENY is
+ * stronger evidence than an abstention). Ancestor `.validate` rules ABOVE
+ * the write location are not evaluated. Returns the first real failure,
+ * else the first unsupported node, else `null` when every applicable
+ * `.validate` passes.
  */
 function findFailingValidate(
   node: RtdbNode,
@@ -87,49 +100,60 @@ function findFailingValidate(
   bindings: Record<string, string>,
   buildContext: ContextBuilder,
 ): ValidateFailure | null {
-  // A null proposed value is a delete — RTDB does not validate deletes.
-  if (!newData.exists()) return null;
+  let firstUnsupported: ValidateFailure | null = null;
 
-  const rule = node.validate;
-  if (rule && rule.parsed.valid) {
-    const match = grammar.match(rule.raw.trim());
-    const result = evaluateExpression(match, buildContext(data, newData, bindings));
-    if (!result) return { node, rule, bindings };
-  }
+  function walk(
+    node: RtdbNode,
+    data: DataSnapshot,
+    newData: DataSnapshot,
+    bindings: Record<string, string>,
+  ): ValidateFailure | null {
+    // A null proposed value is a delete — RTDB does not validate deletes.
+    if (!newData.exists()) return null;
 
-  for (const child of node.children) {
-    const childSegments = child.path.split('/').filter(Boolean);
-    if (childSegments.length === 0) continue;
+    const rule = node.validate;
+    if (rule) {
+      if (!rule.parsed.valid) {
+        if (!firstUnsupported) {
+          firstUnsupported = { node, rule, bindings, unsupported: true };
+        }
+      } else {
+        const match = grammar.match(rule.raw.trim());
+        const result = evaluateExpression(match, buildContext(data, newData, bindings));
+        if (!result) return { node, rule, bindings };
+      }
+    }
 
-    const lastSegment = childSegments[childSegments.length - 1];
-    const isPathVar = lastSegment.startsWith('$');
+    for (const child of node.children) {
+      const childSegments = child.path.split('/').filter(Boolean);
+      if (childSegments.length === 0) continue;
 
-    if (isPathVar) {
-      // Bind the path variable to each key actually present in the new
-      // data — a `$var` node validates every child of the written value.
-      for (const key of snapshotChildKeys(newData)) {
-        const failure = findFailingValidate(
-          child,
-          data.child(key),
-          newData.child(key),
-          { ...bindings, [lastSegment]: key },
-          buildContext,
-        );
+      const lastSegment = childSegments[childSegments.length - 1];
+      const isPathVar = lastSegment.startsWith('$');
+
+      if (isPathVar) {
+        // Bind the path variable to each key actually present in the new
+        // data — a `$var` node validates every child of the written value.
+        for (const key of snapshotChildKeys(newData)) {
+          const failure = walk(
+            child,
+            data.child(key),
+            newData.child(key),
+            { ...bindings, [lastSegment]: key },
+          );
+          if (failure) return failure;
+        }
+      } else {
+        const failure = walk(child, data.child(lastSegment), newData.child(lastSegment), bindings);
         if (failure) return failure;
       }
-    } else {
-      const failure = findFailingValidate(
-        child,
-        data.child(lastSegment),
-        newData.child(lastSegment),
-        bindings,
-        buildContext,
-      );
-      if (failure) return failure;
     }
+
+    return null;
   }
 
-  return null;
+  const realFailure = walk(node, data, newData, bindings);
+  return realFailure ?? firstUnsupported;
 }
 
 /**
@@ -305,10 +329,22 @@ export class SimulateHandler {
         };
       };
 
+      // Tracks the first ancestor whose `.write`/`.read` rule the grammar
+      // couldn't parse. Unlike `.validate`, `.write`/`.read` rules cascade
+      // (any ancestor granting `true` wins), so an unparseable rule is not
+      // simply "no rule here" — production would still evaluate it and
+      // might grant on it. If no ancestor grants and no real deny is
+      // found either, this reported as `unsupported` rather than a
+      // fabricated deny.
+      let firstUnsupportedAncestor: AncestorMatch | undefined;
+
       for (const ancestor of ancestors) {
         const ruleExpr: RtdbRuleExpression | undefined = ancestor.node[operation];
         if (!ruleExpr) continue;
-        if (!ruleExpr.parsed.valid) continue;
+        if (!ruleExpr.parsed.valid) {
+          if (!firstUnsupportedAncestor) firstUnsupportedAncestor = ancestor;
+          continue;
+        }
 
         const ancestorSegments = pathSegments.slice(0, ancestor.depth).join('/');
         const dataAtAncestor = rootData.child(ancestorSegments);
@@ -342,9 +378,12 @@ export class SimulateHandler {
                 success: true,
                 data: {
                   allowed: false,
+                  unsupported: failure.unsupported === true,
                   matchedPath: failure.node.path,
                   matchedRule: failure.rule.raw,
-                  reason: 'Validation rule evaluated to false',
+                  reason: failure.unsupported
+                    ? `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw} — not evaluated; production may reject this write.`
+                    : 'Validation rule evaluated to false',
                   pathVariableBindings: failure.bindings,
                 },
               };
@@ -363,7 +402,25 @@ export class SimulateHandler {
         }
       }
 
-      // No ancestor rule evaluated to true. Use the deepest match for the denial.
+      // No ancestor rule evaluated to true. If an ancestor's rule couldn't
+      // be parsed, we can't rule out that production would have granted on
+      // it — report the gap instead of fabricating a deny.
+      if (firstUnsupportedAncestor) {
+        const rule = firstUnsupportedAncestor.node[operation] as RtdbRuleExpression;
+        return {
+          success: true,
+          data: {
+            allowed: false,
+            unsupported: true,
+            matchedPath: firstUnsupportedAncestor.node.path,
+            matchedRule: rule.raw,
+            reason: `'${operation}' rule at '${firstUnsupportedAncestor.node.path}' contains an expression the simulator cannot evaluate: ${rule.raw} — not evaluated; production may reject or allow this ${operation}.`,
+            pathVariableBindings: firstUnsupportedAncestor.pathVariableBindings,
+          },
+        };
+      }
+
+      // Use the deepest match for the denial.
       const deepest = ancestors[ancestors.length - 1];
       const deepestRule = deepest.node[operation];
 

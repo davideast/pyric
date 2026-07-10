@@ -33,6 +33,10 @@ export const SimulateErrorCode = z.enum([
 
 export const SimulationResultSchema = z.object({
   allowed: z.boolean(),
+  /** True when this outcome is a simulator gap — an unparseable/unevaluable
+   *  rule expression the engine abstained on rather than genuinely denied.
+   *  `allowed` is always `false` alongside this (abstain, never grant). */
+  unsupported: z.boolean().optional(),
   matchedPath: z.string(),
   matchedRule: z.string(),
   reason: z.string(),

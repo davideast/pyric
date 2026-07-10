@@ -187,6 +187,42 @@ describe('SimulateHandler', () => {
       expect(result.data.matchedPath).toBe('/');
     }
   });
+
+  test('an unparseable .write rule is reported unsupported, not silently skipped', () => {
+    // An ancestor `.write` the grammar can't parse must not be treated as
+    // "no rule here" — production would still evaluate it and might grant
+    // on it. No other ancestor grants, so this must surface as a reported
+    // gap rather than a fabricated deny.
+    const expr = (raw: string, valid = true) => ({
+      raw,
+      parsed: { raw, valid, errors: [], warnings: [], referencedIdentifiers: [] },
+    });
+    const badWriteIR: RtdbIR = {
+      service: 'realtime-database',
+      databaseUrl: 'https://test.firebaseio.com',
+      rules: {
+        path: '/',
+        pathVariables: [],
+        exists: true,
+        write: expr('!! not parseable @@', false),
+        children: [{ path: '/data', pathVariables: [], exists: true, children: [] }],
+      },
+    };
+    const result = handler.execute(badWriteIR, {
+      operation: 'write',
+      path: '/data',
+      auth: { uid: 'user1', token: {} },
+      mockData: {},
+      newData: 1,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.allowed).toBe(false);
+      expect(result.data.unsupported).toBe(true);
+      expect(result.data.matchedPath).toBe('/');
+      expect(result.data.reason).toContain('!! not parseable @@');
+    }
+  });
 });
 
 // ── .validate enforcement on the write path (non-cascading) ────────────
@@ -395,9 +431,12 @@ describe('SimulateHandler — .validate (write path)', () => {
     expect(result.success && result.data.allowed).toBe(true);
   });
 
-  test('an unparseable .validate is skipped, never denied', () => {
+  test('an unparseable .validate is reported unsupported, not silently passed', () => {
     // A `.validate` the grammar can't reason about must not flip a
-    // prod-legal write into a sandbox denial (the reverse-divergence trap).
+    // prod-legal write into a fabricated sandbox denial, and it must not
+    // silently pass either — production would still evaluate it and may
+    // reject the write. It is a reported simulator gap: `allowed: false`,
+    // `unsupported: true`, naming the rule path and the construct.
     const badIR = ir(
       node({
         path: '/',
@@ -412,7 +451,77 @@ describe('SimulateHandler — .validate (write path)', () => {
       mockData: {},
       newData: { anything: 1 },
     });
-    expect(result.success && result.data.allowed).toBe(true);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.allowed).toBe(false);
+      expect(result.data.unsupported).toBe(true);
+      expect(result.data.matchedPath).toBe('/entry');
+      expect(result.data.reason).toContain('/entry');
+      expect(result.data.reason).toContain('!! not parseable @@');
+    }
+  });
+
+  test('a real deny elsewhere still wins over an unsupported .validate', () => {
+    // AND-semantics: a confirmed failing .validate is stronger evidence
+    // than an abstention, so it must be reported (not masked by the gap).
+    const mixedIR = ir(
+      node({
+        path: '/',
+        write: expr('auth !== null'),
+        children: [
+          node({
+            path: '/entry',
+            children: [
+              node({ path: '/entry/a', validate: expr('!! not parseable @@', false) }),
+              node({ path: '/entry/b', validate: expr('newData.isString()') }),
+            ],
+          }),
+        ],
+      }),
+    );
+    const result = handler.execute(mixedIR, {
+      operation: 'write',
+      path: '/entry',
+      auth: authed,
+      mockData: {},
+      newData: { a: 1, b: 123 }, // b fails: not a string
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.allowed).toBe(false);
+      expect(result.data.unsupported).toBeFalsy();
+      expect(result.data.matchedPath).toBe('/entry/b');
+    }
+  });
+
+  test('a parseable failing .validate still denies as today', () => {
+    const result = handler.execute(structureIR, {
+      operation: 'write',
+      path: '/entry',
+      auth: authed,
+      mockData: {},
+      newData: { title: 't' }, // missing `body`
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.allowed).toBe(false);
+      expect(result.data.unsupported).toBeFalsy();
+    }
+  });
+
+  test('a parseable passing .validate still allows as today', () => {
+    const result = handler.execute(structureIR, {
+      operation: 'write',
+      path: '/entry',
+      auth: authed,
+      mockData: {},
+      newData: { title: 't', body: 'b' },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.allowed).toBe(true);
+      expect(result.data.unsupported).toBeFalsy();
+    }
   });
 });
 
