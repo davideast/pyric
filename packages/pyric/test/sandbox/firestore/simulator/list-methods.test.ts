@@ -8,6 +8,10 @@
  *
  * The parity-stress pack `list-methods-concat-removeall-toset` provides
  * the prod-comparison receipt (gated on FIREBASE_SA_BASE64).
+ *
+ * toSet().difference()/.union()/.intersection() chaining is not exercised
+ * here — the simulator abstains (UNSUPPORTED) on those three FirestoreSet
+ * methods; see test/rules/simulator/set-algebra-abstain.test.ts.
  */
 import { describe, test, expect } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules';
@@ -168,26 +172,11 @@ describe('List.toSet', () => {
     );
   });
 
-  test('toSet result supports difference (chaining 5.1 + 5.2)', () => {
-    expectAllow(
-      "request.resource.data.a.toSet().difference(['a']).hasOnly(['b','c'])",
-      { a: ['a', 'b', 'c', 'a'] },
-    );
-  });
-
-  test('toSet result supports union', () => {
-    expectAllow(
-      "request.resource.data.a.toSet().union(['d']).size() == 4",
-      { a: ['a', 'b', 'c'] },
-    );
-  });
-
-  test('toSet result supports intersection', () => {
-    expectAllow(
-      "request.resource.data.a.toSet().intersection(['b','c','x']).hasOnly(['b','c'])",
-      { a: ['a', 'b', 'c'] },
-    );
-  });
+  // toSet().difference()/.union()/.intersection() chaining is NOT covered
+  // here. The simulator abstains (UNSUPPORTED) on all three set-algebra
+  // methods regardless of what materialized the Set — see
+  // test/rules/simulator/set-algebra-abstain.test.ts ("List.toSet().difference()
+  // abstains" covers the toSet() chaining case specifically).
 
   test('toSet on empty list', () => {
     expectAllow(
