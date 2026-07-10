@@ -1,0 +1,20 @@
+{
+  "name": "rules-firestore-list-methods-concat-removeall-toset",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Firestore Rules Test API verdicts for corpus pack \"list-methods-concat-removeall-toset\" (Item 5.2). Sim must implement List.concat/removeAll/toSet; pre-fix all three threw UnsupportedError.",
+  "observedAt": "2026-07-10T22:41:18.638Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "list concat → size 4 ALLOW": "ALLOW",
+    "list concat preserves order ALLOW": "ALLOW",
+    "list concat does NOT dedupe ALLOW": "ALLOW",
+    "list removeAll basic ALLOW": "ALLOW",
+    "list removeAll removes all occurrences ALLOW": "ALLOW",
+    "list removeAll empty arg → identity ALLOW": "ALLOW",
+    "list toSet dedupes ALLOW": "ALLOW",
+    "list toSet().difference chain (5.1 wiring) ALLOW": "DENY",
+    "list concat with wrong expected size DENY": "DENY"
+  }
+}
