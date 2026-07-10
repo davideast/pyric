@@ -121,25 +121,14 @@ test('a Firestore write via the worker port is visible to a second, independent 
   expect((result.read.value as { marker?: string } | null)?.marker).toBe(marker);
 });
 
-test.fail(
-  'KNOWN GAP: a write does not reliably survive a full page reload (SharedWorker teardown races the IDB flush)',
+test(
+  'a write survives a full page reload (IndexedDB durability through SharedWorker teardown)',
   async ({ page }) => {
-    // STILL OPEN as of the recompose-on-main pass (2026-07-09). #62 ("acked
-    // writes now durable before reply") IS merged to main and this build
-    // includes it (buildWorkerCtx + sandbox.enablePersistence, awaited flush
-    // before ack for admin.setDocument) — yet a write acked over the worker
-    // port is NOT found after a full reload in the composed static site.
-    // Reproduced directly against dist/site: the write acks ok:true, the IDB
-    // databases exist (pyric-shared-worker, …), and even with 3s of settle
-    // before the reload and 4s after, the post-reload read comes back
-    // value:null. So the durable-write path (#62) is in place but the
-    // restore-from-IDB-on-reboot path in the composed worker bundle does not
-    // rehydrate user writes — a pyric-tools serve/worker persistence issue,
-    // out of scope for the site composition to fix. The seed (init.json) is
-    // re-applied on every boot, so demo data is always present regardless.
-    //
-    // `test.fail(...)` keeps this documented + runnable (green suite) and will
-    // flip loudly the moment reboot-restore starts working.
+    // Closed by main's persistence work (durable acked writes in #62,
+    // then the RTDB/event-history durability stack): an acked write now
+    // survives a full reload of the composed static site, so this
+    // asserts it for real. IDB is the only durable tier here
+    // (init.json ships persist: false).
     await page.goto('/');
     await page.waitForTimeout(1000);
 
