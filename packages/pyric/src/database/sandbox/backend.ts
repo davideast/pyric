@@ -638,7 +638,18 @@ export class RtdbBackend {
       }
       // Check every path under the rules engine. ANY denial fails the
       // entire update — the multi-path atomicity contract.
+      //
+      // A multi-path update is atomic: every path's `.write`/`.validate`
+      // rules must see `newData` reflecting the ENTIRE projected post-update
+      // tree (all paths applied together), not just its own leaf. Pass the
+      // full update set so the simulator builds one shared projection — a
+      // rule on `/a` that reads a sibling `/b` written in the same update
+      // must see `/b`'s new value.
       const mock = this.tree.snapshot() as Record<string, unknown>;
+      const updates = Object.entries(expanded).map(([absPath, value]) => ({
+        path: absPath,
+        value,
+      }));
       for (const [absPath, value] of Object.entries(expanded)) {
         const at = Date.now();
         const before = this.tree.read(absPath);
@@ -646,6 +657,7 @@ export class RtdbBackend {
           auth,
           mockData: mock,
           newData: value,
+          updates,
         });
         const common = {
           at,

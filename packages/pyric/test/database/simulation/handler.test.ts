@@ -644,3 +644,270 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
     if (denied.success) expect(denied.data.allowed).toBe(false);
   });
 });
+
+// ── atomic multi-path update projection ─────────────────────────────────
+//
+// An atomic multi-path `update()` (the `{ "/a/b": 1, "/c/d": 2 }` shape)
+// applies every listed path together. Production RTDB evaluates each
+// written path's rules against a `newData` reflecting the ENTIRE projected
+// post-update tree — all paths merged — while still checking each path's
+// rules individually. Evaluating leaf-by-leaf (each path against only its
+// own new value) is a wrong-verdict bug: a rule on path A that depends on a
+// sibling path B written in the SAME update sees B as absent, flipping a
+// legal write to a false DENY. The `updates` field carries the full update
+// set so the simulator builds one shared projection.
+describe('SimulateHandler — atomic multi-path update projection', () => {
+  const handler = new SimulateHandler();
+
+  const expr = (raw: string): RtdbNode['write'] => ({
+    raw,
+    parsed: { raw, valid: true, errors: [], warnings: [], referencedIdentifiers: [] },
+  });
+
+  const node = (partial: Partial<RtdbNode> & { path: string }): RtdbNode => ({
+    pathVariables: [],
+    exists: true,
+    children: [],
+    ...partial,
+  });
+
+  const ir = (rules: RtdbNode): RtdbIR => ({
+    service: 'realtime-database',
+    databaseUrl: 'https://test.firebaseio.com',
+    rules,
+  });
+
+  const authed = { uid: 'alice', token: {} };
+
+  // `.write` on the messages path depends on a sibling `meta/count` under
+  // the SAME room; the room's `/meta` subtree is write-open so the second
+  // leaf lands on its own merit.
+  const siblingDepIR = ir(
+    node({
+      path: '/',
+      children: [
+        node({
+          path: '/rooms',
+          children: [
+            node({
+              path: '/rooms/$roomId',
+              pathVariables: ['$roomId'],
+              children: [
+                node({
+                  path: '/rooms/$roomId/messages',
+                  pathVariables: ['$roomId'],
+                  write: expr("newData.parent().child('meta/count').exists()"),
+                }),
+                node({
+                  path: '/rooms/$roomId/meta',
+                  pathVariables: ['$roomId'],
+                  write: expr('true'),
+                }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    }),
+  );
+
+  test('(a) ALLOWS a path whose rule depends on a sibling path written in the SAME update', () => {
+    // Old leaf-by-leaf behavior: `/rooms/room1/messages` was projected with
+    // ONLY its own value, so `meta/count` looked absent → false DENY.
+    const updates = [
+      { path: '/rooms/room1/messages', value: { m1: 'hi' } },
+      { path: '/rooms/room1/meta/count', value: 1 },
+    ];
+    const result = handler.execute(siblingDepIR, {
+      operation: 'write',
+      path: '/rooms/room1/messages',
+      auth: authed,
+      mockData: {},
+      newData: { m1: 'hi' },
+      updates,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.allowed).toBe(true);
+  });
+
+  test('(b) DENIES the same path when the depended-on sibling is NOT part of the update', () => {
+    // No `updates` (or a single-path update): the projection contains only
+    // the messages write, `meta/count` is genuinely absent → correct DENY.
+    const result = handler.execute(siblingDepIR, {
+      operation: 'write',
+      path: '/rooms/room1/messages',
+      auth: authed,
+      mockData: {},
+      newData: { m1: 'hi' },
+      updates: [{ path: '/rooms/room1/messages', value: { m1: 'hi' } }],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.allowed).toBe(false);
+  });
+
+  test('(b2) characterizes the OLD leaf-by-leaf behavior — a single-path projection of the depended-on path denies', () => {
+    // With no `updates` the handler projects only `path`/`newData`. This is
+    // exactly what the pre-fix fan-out did for EVERY path, which is why the
+    // legal cross-path write in (a) used to falsely deny.
+    const result = handler.execute(siblingDepIR, {
+      operation: 'write',
+      path: '/rooms/room1/messages',
+      auth: authed,
+      mockData: {},
+      newData: { m1: 'hi' },
+    });
+    expect(result.success && result.data.allowed).toBe(false);
+  });
+
+  test('(c) evaluates .validate against the shared projected tree', () => {
+    const validateExpr = (raw: string): RtdbNode['validate'] => ({
+      raw,
+      parsed: { raw, valid: true, errors: [], warnings: [], referencedIdentifiers: [] },
+    });
+    const validateIR = ir(
+      node({
+        path: '/',
+        write: expr('true'),
+        children: [
+          node({
+            path: '/rooms',
+            children: [
+              node({
+                path: '/rooms/$roomId',
+                pathVariables: ['$roomId'],
+                children: [
+                  node({
+                    path: '/rooms/$roomId/messages',
+                    pathVariables: ['$roomId'],
+                    // A message may only be written when the room's total is
+                    // present in the same atomic update.
+                    validate: validateExpr("newData.parent().child('meta/count').exists()"),
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const allowed = handler.execute(validateIR, {
+      operation: 'write',
+      path: '/rooms/room1/messages',
+      auth: authed,
+      mockData: {},
+      newData: { m1: 'hi' },
+      updates: [
+        { path: '/rooms/room1/messages', value: { m1: 'hi' } },
+        { path: '/rooms/room1/meta/count', value: 1 },
+      ],
+    });
+    expect(allowed.success && allowed.data.allowed).toBe(true);
+
+    const denied = handler.execute(validateIR, {
+      operation: 'write',
+      path: '/rooms/room1/messages',
+      auth: authed,
+      mockData: {},
+      newData: { m1: 'hi' },
+      updates: [{ path: '/rooms/room1/messages', value: { m1: 'hi' } }],
+    });
+    expect(denied.success && denied.data.allowed).toBe(false);
+  });
+
+  test('(d) a denied path in the update returns allowed=false (caller rejects the whole atomic batch)', () => {
+    // The fan-out throws on the first denied path so nothing applies; at the
+    // handler level the denied path surfaces as allowed=false.
+    const ownedIR = ir(
+      node({
+        path: '/',
+        children: [
+          node({
+            path: '/users',
+            children: [
+              node({
+                path: '/users/$uid',
+                pathVariables: ['$uid'],
+                write: expr('auth.uid === $uid'),
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+    const updates = [
+      { path: '/users/alice/name', value: 'Alice' },
+      { path: '/users/bob/name', value: 'Bob' },
+    ];
+    const ownPath = handler.execute(ownedIR, {
+      operation: 'write',
+      path: '/users/alice/name',
+      auth: authed,
+      mockData: {},
+      newData: 'Alice',
+      updates,
+    });
+    expect(ownPath.success && ownPath.data.allowed).toBe(true);
+
+    const otherPath = handler.execute(ownedIR, {
+      operation: 'write',
+      path: '/users/bob/name',
+      auth: authed,
+      mockData: {},
+      newData: 'Bob',
+      updates,
+    });
+    expect(otherPath.success && otherPath.data.allowed).toBe(false);
+  });
+
+  test('(e) an ANCESTOR rule over deep paths sees the full merged projection of all update paths', () => {
+    // `.write` at `/rooms/$roomId` requires both `a` and `b` present in the
+    // post-write room. Two deep paths under the common ancestor supply them
+    // in one update; evaluating either deep path, the ancestor rule (rooted
+    // at the room) must see both.
+    const ancestorIR = ir(
+      node({
+        path: '/',
+        children: [
+          node({
+            path: '/rooms',
+            children: [
+              node({
+                path: '/rooms/$roomId',
+                pathVariables: ['$roomId'],
+                write: expr("newData.hasChildren(['a', 'b'])"),
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+    const updates = [
+      { path: '/rooms/room1/a', value: 1 },
+      { path: '/rooms/room1/b', value: 2 },
+    ];
+    for (const target of ['/rooms/room1/a', '/rooms/room1/b']) {
+      const result = handler.execute(ancestorIR, {
+        operation: 'write',
+        path: target,
+        auth: authed,
+        mockData: {},
+        newData: target.endsWith('/a') ? 1 : 2,
+        updates,
+      });
+      expect(result.success && result.data.allowed).toBe(true);
+    }
+
+    // Without the sibling in the update, the ancestor rule denies — only one
+    // of the two required children is present.
+    const partial = handler.execute(ancestorIR, {
+      operation: 'write',
+      path: '/rooms/room1/a',
+      auth: authed,
+      mockData: {},
+      newData: 1,
+      updates: [{ path: '/rooms/room1/a', value: 1 }],
+    });
+    expect(partial.success && partial.data.allowed).toBe(false);
+  });
+});

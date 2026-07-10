@@ -75,6 +75,13 @@ export interface EvalContext {
   mockData: Record<string, unknown>;
   /** Proposed value at `path` for write/validate ops. Ignored for read. */
   newData?: unknown;
+  /**
+   * All paths written together in one atomic multi-path `update()`. When
+   * set, the simulator projects every listed path onto a single post-write
+   * tree so `path`'s rules see `newData` reflecting its sibling paths in the
+   * same update. Omit for single-path writes.
+   */
+  updates?: { path: string; value: unknown }[];
 }
 
 export class RulesEvaluator {
@@ -143,6 +150,7 @@ export class RulesEvaluator {
       auth: normalisedAuth,
       mockData: ctx.mockData,
       newData: ctx.newData,
+      updates: ctx.updates,
     });
     if (!result.success) {
       if (result.error.code === 'NO_MATCHING_RULE') {
