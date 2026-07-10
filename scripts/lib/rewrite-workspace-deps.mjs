@@ -71,6 +71,26 @@ for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
   }
 }
 
+// Strip unreleased subpath exports at pack time. A package.json may list
+// climbing-surface subpaths (CDD: code merged to main, surface not yet
+// graduated) under "pyricUnreleasedExports". The repo keeps the exports so
+// suites and the climb lane can import the mirrors; the PUBLISHED tarball
+// omits them, and subpath-only ESM makes an unexported subpath unimportable.
+// Cleared at graduation.
+if (Array.isArray(pkg.pyricUnreleasedExports) && pkg.exports) {
+  const stripped = [];
+  for (const sub of pkg.pyricUnreleasedExports) {
+    if (sub in pkg.exports) {
+      delete pkg.exports[sub];
+      stripped.push(sub);
+    }
+  }
+  delete pkg.pyricUnreleasedExports;
+  if (stripped.length > 0) {
+    console.error(`  stripped unreleased exports from ${pkg.name}: ${stripped.join(', ')}`);
+  }
+}
+
 if (unresolved.length > 0) {
   console.error(`✗ rewrite-workspace-deps: unresolved workspace: refs in ${pkg.name}:`);
   for (const u of unresolved) console.error(`    ${u}`);
