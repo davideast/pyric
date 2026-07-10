@@ -35,6 +35,19 @@ export const surfaceDescriptors: SurfaceDescriptor[] = [
   // `observationExceptions` below (the replay suite enforces coverage
   // structurally).
   { surface: 'firestore', registry: firestoreRegistry, observationPrefix: 'rules-firestore-' },
+  // `rules-storage-` observations are captures of the production Storage Rules
+  // Test API replaying the conformance corpus in
+  // `scripts/oracle/rules-corpus/storage/`. They are produced on-demand by
+  // `scripts/oracle/run-rules-storage.ts` (credentialed; see the runner). No
+  // captures exist yet — this staging branch fabricates none — and the stale
+  // storage matrix rows (#96/#104) are reconciled only AFTER capture proves the
+  // new truth, so this descriptor only teaches the validator that
+  // `rules-storage-` is a recognized observation filename prefix. It reuses the
+  // existing `storage` registry — it adds NO new COMPAT.md doc and NO matrix
+  // rows. Any captured observation will then need either a matrix row citing it
+  // or an entry in `observationExceptions` (the replay suite enforces coverage
+  // structurally).
+  { surface: 'storage', registry: storageRegistry, observationPrefix: 'rules-storage-' },
 ];
 
 /** One registry per generated COMPAT.md doc (shared registries deduped). */
