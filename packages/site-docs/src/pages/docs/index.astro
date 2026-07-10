@@ -1,44 +1,387 @@
 ---
-import { withBase } from '../../lib/docs';
-const target = withBase('/docs/overview/');
+import '../../styles/site.css';
+import { withBase, STUDIO_TABS } from '../../lib/docs';
+
+// The docs doorstep. A visitor who just arrived is curious but not yet
+// invested: every section below answers one question in one glance,
+// borrowing landing-page moves (one message per viewport, big hero,
+// receipt strip, two clear doors) without becoming a landing page.
+// The five-minute prose version stays at /docs/overview/.
+const quickstart = withBase('/docs/start-building/');
+const agent = withBase('/docs/set-up-your-agent/');
+const overview = withBase('/docs/overview/');
 ---
 
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="refresh" content={`0; url=${target}`} />
-    <link rel="canonical" href={target} />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pyric docs</title>
-    <style>
-      /* This page exists only long enough to forward to the Overview.
-         It paints as a quiet docs-colored frame, never a readable
-         interstitial; the link is the no-refresh fallback, revealed
-         only after a beat. */
-      html {
-        background: #16161a;
-        color: #72728a;
-        font: 14px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-      }
-      a {
-        color: inherit;
-        opacity: 0;
-        animation: reveal 0s 1.5s forwards;
-      }
-      @keyframes reveal {
-        to {
-          opacity: 1;
-        }
-      }
-    </style>
+    <meta
+      name="description"
+      content="Firebase that runs in your browser. Your firebase/* code against a local backend in development, real Firebase in production."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
-    <p><a href={target}>Open the Pyric docs</a></p>
+    <header class="studio__bar">
+      <div class="studio__bar-inner">
+        <a class="studio__brand" href={withBase('/')} aria-label="Pyric Studio">Pyric</a>
+        <nav class="studio__nav" aria-label="Studio tabs">
+          {
+            STUDIO_TABS.map((tab) => (
+              <a
+                class="studio__nav-tab"
+                href={withBase(tab.path)}
+                aria-current={tab.id === 'docs' ? 'page' : undefined}
+              >
+                {tab.label}
+              </a>
+            ))
+          }
+        </nav>
+      </div>
+    </header>
+
+    <main class="funnel">
+      <!-- 1 · What is this? -->
+      <section class="funnel-hero">
+        <h1>Firebase that runs in your&nbsp;browser</h1>
+        <p class="funnel-sub">
+          Your <code>firebase/*</code> code, unchanged, against a backend that lives in the tab.
+          In production it talks to real Firebase. Production never knows.
+        </p>
+        <div class="funnel-doors">
+          <a class="funnel-btn funnel-btn--primary" href={quickstart}>Start building</a>
+          <a class="funnel-btn" href={agent}>Set up your agent</a>
+        </div>
+        <p class="funnel-quiet">
+          Prefer prose? <a href={overview}>The five-minute read.</a>
+        </p>
+      </section>
+
+      <!-- 2 · How hard is it? -->
+      <section class="funnel-block">
+        <pre
+          class="funnel-term"><code><span class="t-dim">$</span> npm i -g pyric-tools
+<span class="t-dim">$</span> npx pyric dev</code></pre>
+        <p class="funnel-cap">No account. No project. No emulator. A working backend before your coffee is warm.</p>
+      </section>
+
+      <!-- 3 · Do I already know this? -->
+      <section class="funnel-block">
+        <h2>You already know the API</h2>
+        <pre class="funnel-term"><code>npm i pyric       <span class="t-dim">===</span> npm i firebase
+npm i pyric-admin <span class="t-dim">===</span> npm i firebase-admin
+npm i pyric-tools <span class="t-dim">===</span> npm i firebase-tools</code></pre>
+        <p class="funnel-cap">
+          The same imports, the same calls, mirrored one to one. Nothing new to learn before the first write lands.
+        </p>
+      </section>
+
+      <!-- 4 · Why do I care? Three outcomes, one line of proof each. -->
+      <section class="funnel-grid">
+        <a class="funnel-card" href={withBase('/docs/secure-it-with-rules/')}>
+          <h3>Prove your rules before you deploy</h3>
+          <p>Every operation returns a verdict, and a denial names the rule that said no.</p>
+          <pre><code><span class="t-deny">deny</span> notes/n1 <span class="t-dim">· Rule #1 (write)</span></code></pre>
+        </a>
+        <a class="funnel-card" href={withBase('/docs/see-whats-happening/')}>
+          <h3>Watch every read and write, live</h3>
+          <p>The backend is an event stream. No log lines, no guessing.</p>
+          <pre><code><span class="t-ok">allow</span> set notes/n1 <span class="t-dim">· alice · 1.4ms</span></code></pre>
+        </a>
+        <a class="funnel-card" href={agent}>
+          <h3>Hand the whole backend to your agent</h3>
+          <p>One flag exposes it over MCP. Nothing it does leaves your machine.</p>
+          <pre><code><span class="t-dim">$</span> npx pyric dev --bridge</code></pre>
+        </a>
+      </section>
+
+      <!-- 5 · Is it real? The receipts. -->
+      <section class="funnel-receipts">
+        <p class="funnel-receipts-line">
+          "Behaves like Firebase" is tested, not asserted: probes run against production, their
+          recorded behavior replays in CI on every change.
+        </p>
+        <div class="funnel-dots">
+          <a href={withBase('/docs/pyric-firestore-compat/')}><span class="dot dot--ok"></span>Firestore</a>
+          <a href={withBase('/docs/pyric-auth-compat/')}><span class="dot dot--ok"></span>Auth</a>
+          <a href={withBase('/docs/secure-it-with-rules/')}><span class="dot dot--ok"></span>Rules</a>
+          <a href={withBase('/docs/pyric-database-compat/')}><span class="dot dot--exp"></span>Realtime DB</a>
+          <a href={withBase('/docs/pyric-storage-compat/')}><span class="dot dot--exp"></span>Storage</a>
+        </div>
+        <p class="funnel-quiet">
+          Green is conformance-held. Hollow is <a href={withBase('/docs/whats-experimental/')}>experimental, honestly</a>.
+        </p>
+      </section>
+
+      <!-- 6 · The door, again. -->
+      <section class="funnel-close">
+        <a class="funnel-btn funnel-btn--primary" href={quickstart}>Start building</a>
+      </section>
+    </main>
   </body>
 </html>
+
+<style>
+  .funnel {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 0 var(--gutter) 6rem;
+    display: grid;
+    gap: 5rem;
+  }
+
+  /* ── Hero ─ one message, huge ─────────────────────────────────── */
+  .funnel-hero {
+    padding-top: clamp(3rem, 10vh, 6rem);
+    text-align: center;
+    display: grid;
+    gap: 1.25rem;
+    justify-items: center;
+  }
+
+  .funnel-hero h1 {
+    margin: 0;
+    font-size: clamp(2.25rem, 6vw, 3.5rem);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    text-wrap: balance;
+  }
+
+  .funnel-sub {
+    margin: 0;
+    max-width: 34rem;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--muted);
+    text-wrap: balance;
+  }
+
+  .funnel-sub code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    color: var(--ink);
+  }
+
+  .funnel-doors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    justify-content: center;
+    margin-top: var(--space-2);
+  }
+
+  .funnel-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.625rem 1.25rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--line-2);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--ink);
+    text-decoration: none;
+    transition: border-color 0.12s, background-color 0.12s;
+  }
+
+  .funnel-btn:hover {
+    border-color: var(--faint);
+  }
+
+  .funnel-btn--primary {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--bg);
+  }
+
+  .funnel-btn--primary:hover {
+    opacity: 0.9;
+  }
+
+  .funnel-quiet {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--faint);
+  }
+
+  .funnel-quiet a {
+    color: var(--muted);
+  }
+
+  /* ── Terminal moments ─────────────────────────────────────────── */
+  .funnel-block {
+    display: grid;
+    gap: var(--space-3);
+    justify-items: center;
+    text-align: center;
+  }
+
+  .funnel-block h2 {
+    margin: 0 0 var(--space-2);
+    font-size: 1.375rem;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+
+  .funnel-term {
+    margin: 0;
+    width: 100%;
+    max-width: 34rem;
+    background: var(--code-bg, #0f0f17);
+    border: 1px solid var(--line);
+    border-radius: 0.625rem;
+    padding: var(--space-4) var(--space-5);
+    overflow-x: auto;
+    text-align: left;
+  }
+
+  .funnel-term code {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.9;
+    color: var(--ink);
+    font-variant-ligatures: none;
+  }
+
+  .funnel-cap {
+    margin: 0;
+    max-width: 30rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+    text-wrap: balance;
+  }
+
+  .t-dim {
+    color: var(--faint);
+  }
+
+  .t-ok {
+    color: var(--diff-add);
+  }
+
+  .t-deny {
+    color: var(--diff-remove);
+  }
+
+  /* ── Outcome cards ────────────────────────────────────────────── */
+  .funnel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+    gap: var(--space-4);
+  }
+
+  .funnel-card {
+    display: grid;
+    gap: var(--space-2);
+    align-content: start;
+    padding: var(--space-5);
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    text-decoration: none;
+    transition: border-color 0.12s;
+  }
+
+  .funnel-card:hover {
+    border-color: var(--line-2);
+  }
+
+  .funnel-card h3 {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--ink);
+  }
+
+  .funnel-card p {
+    margin: 0;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
+  .funnel-card pre {
+    margin: var(--space-1) 0 0;
+    overflow-x: auto;
+  }
+
+  .funnel-card code {
+    font-family: var(--font-mono);
+    font-size: 0.71875rem;
+    color: var(--muted);
+    white-space: nowrap;
+    font-variant-ligatures: none;
+  }
+
+  /* ── Receipts ─────────────────────────────────────────────────── */
+  .funnel-receipts {
+    display: grid;
+    gap: var(--space-4);
+    justify-items: center;
+    text-align: center;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: var(--space-6) 0;
+  }
+
+  .funnel-receipts-line {
+    margin: 0;
+    max-width: 36rem;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--muted);
+    text-wrap: balance;
+  }
+
+  .funnel-dots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    justify-content: center;
+  }
+
+  .funnel-dots a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.8125rem;
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  .funnel-dots a:hover {
+    color: var(--muted);
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .dot--ok {
+    background: var(--diff-add);
+  }
+
+  .dot--exp {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--faint);
+  }
+
+  /* ── Close ────────────────────────────────────────────────────── */
+  .funnel-close {
+    display: grid;
+    justify-items: center;
+  }
+</style>
