@@ -46,7 +46,7 @@
  * rather than matched by a `startsWith` rule, so the trust path stays a lookup.
  */
 
-export type CensusSurface = 'app' | 'auth' | 'firestore' | 'database' | 'storage';
+export type CensusSurface = 'app' | 'auth' | 'ai' | 'firestore' | 'database' | 'storage';
 
 /**
  * `out-of-scope`  — genuinely cannot be modeled by the sandbox: internal
@@ -127,6 +127,36 @@ const authDenials: DenyEntry[] = [
   // mirrored (see registry/auth.ts) and are intentionally NOT deny-listed.
 ];
 
+// ── firebase/ai → pyric/ai ────────────────────────────────────────────────
+// Grounded in the surface inventory's draft denylist table
+// (docs/conformance/ai/surface-inventory.md, "## Draft denylist"): the 17
+// denied runtime value exports of the installed @firebase/ai@2.12.0, in four
+// groups (Imagen, Live API, server-side templates, hybrid/on-device).
+const aiDenials: DenyEntry[] = [
+  ...deny('ai', 'Imagen is deprecated upstream; all Imagen models shut down as early as June 2026 (upstream 2.11.0 deprecation).', [
+    'getImagenModel', 'ImagenModel', 'ImagenImageFormat', 'ImagenAspectRatio',
+    'ImagenPersonFilterLevel', 'ImagenSafetyFilterLevel',
+  ]),
+  ...deny('ai', 'Imagen (deprecated, June 2026 shutdown) plus server-side templates (public preview, server-stored templates the sandbox does not host).', [
+    'getTemplateImagenModel', 'TemplateImagenModel',
+  ]),
+  ...deny('ai', 'Live API is a separate bidirectional websocket protocol in public preview; not part of the mirrored REST plane.', [
+    'getLiveGenerativeModel', 'LiveGenerativeModel', 'LiveSession', 'LiveResponseType',
+  ]),
+  ...deny('ai', 'Live API browser audio helper (microphone, autoplay policies); websocket protocol in public preview.', [
+    'startAudioConversation',
+  ]),
+  ...deny('ai', 'Server-side templates are public preview and depend on server-stored templates the sandbox does not host.', [
+    'getTemplateGenerativeModel', 'TemplateGenerativeModel',
+  ]),
+  ...deny('ai', 'Hybrid/on-device inference depends on Chrome window.LanguageModel; browser-only, not mirrorable server-side.', [
+    'InferenceMode',
+  ]),
+  ...deny('ai', 'Hybrid/on-device inference marker; set client-side by the SDK, never on the wire (ticket #93); meaningless without the denied hybrid mode.', [
+    'InferenceSource',
+  ]),
+];
+
 // ── firebase/firestore → pyric/firestore ──────────────────────────────────
 // Grounded in the firestore registry deny-list table (registry/firestore.ts,
 // "## Deny-list (intentionally NOT shimmed)").
@@ -198,6 +228,7 @@ const storageDenials: DenyEntry[] = [
 export const surfaceDenylist: DenyEntry[] = [
   ...appDenials,
   ...authDenials,
+  ...aiDenials,
   ...firestoreDenials,
   ...databaseDenials,
   ...storageDenials,
