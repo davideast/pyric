@@ -9,7 +9,7 @@
   ],
   "description": "functionCall part shape under toolConfig mode ANY. The fact that args arrives as a parsed JSON object (not a string) is the load-bearing difference from OpenAI-shaped tool_calls. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:15.744Z",
-  "fbSdkVersion": "2.12.0",
+  "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",

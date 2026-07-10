@@ -7,7 +7,7 @@
   ],
   "description": "countTokens raw envelope on the GoogleAI backend, called twice with an identical payload to record whether token counting is deterministic. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:04.278Z",
-  "fbSdkVersion": "2.12.0",
+  "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
