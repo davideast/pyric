@@ -1,7 +1,9 @@
 {
   "name": "ai-error-empty-contents",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "ai#error-empty-contents"
+  ],
   "description": "Error envelope when contents is an empty array. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:04.708Z",
   "fbSdkVersion": "2.12.0",

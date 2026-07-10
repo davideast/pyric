@@ -1,3 +1,4 @@
+import { aiRegistry } from './ai.ts';
 import { authRegistry } from './auth.ts';
 import { firestoreRegistry } from './firestore.ts';
 import { rtdbRegistry } from './rtdb.ts';
@@ -11,6 +12,7 @@ import type { CompatibilityRow, CompatibilitySurfaceRegistry, SurfaceDescriptor 
  * but keep distinct observation filename prefixes.
  */
 export const surfaceDescriptors: SurfaceDescriptor[] = [
+  { surface: 'ai', registry: aiRegistry, observationPrefix: 'ai-', conformanceSuite: 'scripts/compat/conformance/ai' },
   { surface: 'auth', registry: authRegistry, observationPrefix: 'auth-' },
   { surface: 'firestore', registry: firestoreRegistry, observationPrefix: 'firestore-' },
   { surface: 'rtdb', registry: rtdbRegistry, observationPrefix: 'rtdb-' },

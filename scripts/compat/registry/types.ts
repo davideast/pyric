@@ -1,4 +1,4 @@
-export type Surface = 'auth' | 'firestore' | 'rtdb' | 'rtdb-modular' | 'storage';
+export type Surface = 'ai' | 'auth' | 'firestore' | 'rtdb' | 'rtdb-modular' | 'storage';
 
 /**
  * Typed conformance status. Rendering (the ✓/⚠/✗/—/? glyphs in the
