@@ -67,20 +67,32 @@ function renderBlockPath(block: MatchBlock): string {
 }
 
 /**
- * Given a document path like "chess/game1", find the matching match block
- * in the AST. Resolves wildcards and binds path variables.
+ * Given a document path like "chess/game1", find EVERY match block in the
+ * AST whose path pattern fully resolves the request path. Resolves
+ * wildcards and binds path variables per block.
+ *
+ * Why every block, not the first: production Firestore OR-combines `allow`
+ * statements across ALL overlapping `match` blocks. When two sibling
+ * blocks both match a path (e.g. `match /docs/{doc}` and a sibling
+ * `match /{document=**}`), the request is granted if EITHER block's
+ * applicable allow evaluates true — there is no first-match-wins and no
+ * way for one block to revoke another's grant. Returning only the first
+ * match (the previous behavior) produced a false DENY whenever the first
+ * block in source order denied but a later overlapping block would have
+ * allowed. Each returned block carries its OWN wildcard bindings, so a
+ * block's variable names bind independently of its siblings.
  *
  * When `recorder` is supplied, every block the function considers
  * (matched or not) is logged as a `PathResolutionEntry`. Tests +
  * `debug_firestore_rules` rely on this trace; production callers can
  * omit it and pay zero cost.
  */
-function resolveMatch(
+function collectMatches(
   block: MatchBlock,
   pathSegments: string[],
   parentFunctions: FunctionDef[],
   recorder?: PathResolutionRecorder,
-): MatchResult | null {
+): MatchResult[] {
   const allFunctions = [...parentFunctions, ...block.functions];
 
   // Check if this block's path pattern matches the remaining segments
@@ -133,12 +145,14 @@ function resolveMatch(
       matched: false,
       reason: failureReason,
     });
-    return null;
+    return [];
   }
 
   const remaining = pathSegments.slice(consumed);
 
-  // If all segments consumed, this block matches directly
+  // If all segments consumed, this block matches directly. Its own allow
+  // rules apply to the document at this path; nested children can't match
+  // (there are no remaining segments for them to consume), so we stop here.
   if (remaining.length === 0) {
     recorder?.push({
       ...(block.loc ? { line: block.loc.line } : {}),
@@ -148,42 +162,35 @@ function resolveMatch(
       bindings,
       matched: true,
     });
-    return { block, pathVariables: bindings, parentFunctions: allFunctions };
+    return [{ block, pathVariables: bindings, parentFunctions: allFunctions }];
   }
 
-  // Otherwise, try children
+  // Otherwise descend into EVERY child and collect all matches — this block
+  // is a container for the deeper document, so its own allow rules do NOT
+  // apply, but multiple children (and their descendants) may each match and
+  // must all be OR-combined.
+  const results: MatchResult[] = [];
   for (const child of block.children) {
-    const childResult = resolveMatch(child, remaining, allFunctions, recorder);
-    if (childResult) {
-      // Parent recorded as a successful "partial" match — the child
-      // completed the resolution. Record THIS block as matched too;
-      // bindings merge happens below.
-      recorder?.push({
-        ...(block.loc ? { line: block.loc.line } : {}),
-        blockPath: renderBlockPath(block),
-        matchedSegments: consumed,
-        totalSegments: pattern.length,
-        bindings,
-        matched: true,
-      });
-      // Merge parent bindings
+    for (const childResult of collectMatches(child, remaining, allFunctions, recorder)) {
+      // Merge this block's bindings into each descendant match.
       childResult.pathVariables = { ...bindings, ...childResult.pathVariables };
-      return childResult;
+      results.push(childResult);
     }
   }
 
-  // Block consumed its own segments but no child block covered the
-  // remaining request segments. Record + bail.
+  // Record THIS block's own attempt: matched (as a container) when at least
+  // one descendant completed the resolution, else the near-miss reason.
   recorder?.push({
     ...(block.loc ? { line: block.loc.line } : {}),
     blockPath: renderBlockPath(block),
     matchedSegments: consumed,
     totalSegments: pattern.length,
     bindings,
-    matched: false,
-    reason: 'no-matching-child',
+    ...(results.length > 0
+      ? { matched: true }
+      : { matched: false, reason: 'no-matching-child' as const }),
   });
-  return null;
+  return results;
 }
 
 // ═══ Operation mapping ═══
@@ -560,13 +567,16 @@ export class SimulateFirestoreRulesHandler {
       // start matching from its children directly.
       const pathSegments = tc.path.split('/').filter(Boolean);
       const rootFunctions = ast.service.match.functions;
-      let match: MatchResult | null = null;
+      // Collect EVERY match block that resolves this path (not just the
+      // first). Production OR-combines allows across all overlapping
+      // blocks, so we must evaluate them all. Order is preserved in source
+      // order for deterministic, readable traces.
+      let matches: MatchResult[] = [];
       // Fresh recorder per test case so each `TestResult.pathResolution`
       // captures only its own resolution attempts.
       const pathRecorder = new PathResolutionRecorder();
       for (const child of ast.service.match.children) {
-        match = resolveMatch(child, pathSegments, rootFunctions, pathRecorder);
-        if (match) break;
+        matches.push(...collectMatches(child, pathSegments, rootFunctions, pathRecorder));
       }
       // `list` targets a COLLECTION, but rules match blocks are document-
       // level: real Firestore evaluates a query against the doc block with
@@ -577,20 +587,19 @@ export class SimulateFirestoreRulesHandler {
       // list paths (`menuItems/any`) keep resolving on the first attempt,
       // so existing call sites are unaffected. (RULES-LIST parity pack.)
       let syntheticListDoc = false;
-      if (!match && tc.method === 'list') {
+      if (matches.length === 0 && tc.method === 'list') {
         const widened = [...pathSegments, '__hypothetical_doc__'];
         for (const child of ast.service.match.children) {
-          match = resolveMatch(child, widened, rootFunctions, pathRecorder);
-          if (match) break;
+          matches.push(...collectMatches(child, widened, rootFunctions, pathRecorder));
         }
-        if (match) syntheticListDoc = true;
+        if (matches.length > 0) syntheticListDoc = true;
       }
       const pathResolution: PathResolutionTrace = {
         requestPath: tc.path,
         attempts: pathRecorder.attempts,
       };
 
-      if (!match) {
+      if (matches.length === 0) {
         // No match block at all → production default-DENY. Expectation
         // 'DENY' agrees → PASSED; expectation 'ALLOW' disagrees → FAILED.
         const state = tc.expectation === 'DENY' ? 'PASSED' : 'FAILED';
@@ -607,17 +616,50 @@ export class SimulateFirestoreRulesHandler {
         continue;
       }
 
-      // Build context — `rootBindings` carries the root-match wildcards
-      // (e.g. `db` or `database`) so `$(name)` interpolation inside
-      // get()/exists() paths resolves regardless of which name the
-      // ruleset chose. Child match bindings override on collision (a
-      // child rule that shadows the name wins inside that scope).
-      const allFunctions = [...match.parentFunctions, ...match.block.functions];
-      const pathVars = { ...rootBindings, ...match.pathVariables };
-      const ctx = buildContext(tc, allFunctions, pathVars, opts?.getDoc);
+      // OR-combine every matching block. Production grants the request if
+      // ANY matching block's applicable allow evaluates true; there is no
+      // first-match-wins and no way for one block to revoke another's
+      // grant. So we evaluate each block independently and short-circuit on
+      // the first ALLOW. Each block builds its OWN context with its OWN
+      // wildcard bindings (`rootBindings` carries the root-match wildcards
+      // like `db`/`database` so `$(name)` interpolation inside
+      // get()/exists() paths resolves; the block's own bindings override on
+      // collision). Every rule-evaluation entry is tagged with its block's
+      // path so a multi-block DENY trace stays unambiguous.
+      //
+      // Decision combine: ALLOW (any block) > UNSUPPORTED (any block
+      // abstained on a sim gap, and nothing granted) > DENY (default —
+      // nothing matched or nothing granted). ALLOW wins even over an
+      // UNSUPPORTED sibling: a definite grant is not weakened by a sim gap
+      // elsewhere. Only when NO block grants do we escalate to UNSUPPORTED,
+      // so the agent sees "sim couldn't decide" rather than a false DENY.
+      let decision: Decision = 'DENY';
+      const trace: RuleEvaluation[] = [];
+      const notes: string[] = [];
+      let sawUnsupported = false;
+      let grantingBlockPath: string | undefined;
+      for (const match of matches) {
+        const allFunctions = [...match.parentFunctions, ...match.block.functions];
+        const pathVars = { ...rootBindings, ...match.pathVariables };
+        const ctx = buildContext(tc, allFunctions, pathVars, opts?.getDoc);
 
-      // Evaluate rules
-      const { decision, trace, notes } = evaluateRules(match.block, tc.method, ctx);
+        const blockPath = renderBlockPath(match.block);
+        const res = evaluateRules(match.block, tc.method, ctx);
+        for (const entry of res.trace) entry.matchPath = blockPath;
+        trace.push(...res.trace);
+        notes.push(...res.notes);
+
+        if (res.decision === 'ALLOW') {
+          decision = 'ALLOW';
+          grantingBlockPath = blockPath;
+          break;
+        }
+        if (res.decision === 'UNSUPPORTED') sawUnsupported = true;
+      }
+      if (decision !== 'ALLOW' && sawUnsupported) decision = 'UNSUPPORTED';
+      if (decision === 'ALLOW' && grantingBlockPath) {
+        notes.push(`Allowed by match block '${grantingBlockPath}'`);
+      }
       if (syntheticListDoc) {
         notes.push(
           `list on collection path '${tc.path}' evaluated against the document-level match block (document wildcard hypothetical, resource undefined) — emulator-faithful`,

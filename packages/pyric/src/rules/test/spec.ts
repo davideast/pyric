@@ -168,6 +168,16 @@ export interface RuleEvaluation {
   /** 1-indexed source line of the `allow` keyword. Populated when the
    *  rule's `loc` was set by the parser. */
   line?: number;
+  /**
+   * Source-rendered path of the `match` block this rule belongs to, e.g.
+   * `'/docs/{docId}'` or `'/{document=**}'`. Populated when the request
+   * path matches MORE THAN ONE overlapping `match` block: allows OR-combine
+   * across every matching block (production semantics — there is no
+   * first-match-wins), so a DENY trace can carry entries from several
+   * blocks. This field keeps them unambiguous — which block did this rule
+   * live in. Absent for the common single-block case.
+   */
+  matchPath?: string;
   /** Human-readable diagnostic — populated for `UNSUPPORTED` (which sim
    *  surface is missing) and `ERROR` (which runtime error caused the
    *  rule to abort). */
@@ -212,9 +222,13 @@ export interface PathResolutionEntry {
    *  the overall match failed — the partial bindings are still
    *  diagnostic). */
   bindings: Record<string, string>;
-  /** True only for the block that fully resolved (no remaining
-   *  request segments AND every nested match either completed or
-   *  wasn't needed). */
+  /** True for a block that fully resolved (no remaining request
+   *  segments AND every nested match either completed or wasn't
+   *  needed). MULTIPLE entries may be `matched: true` in one trace:
+   *  a request path can match several overlapping `match` blocks
+   *  (e.g. `/docs/{doc}` and a sibling `/{document=**}`), and every
+   *  matching block's allows OR-combine. Container blocks whose
+   *  children completed the resolution are also flagged matched. */
   matched: boolean;
   /** Why the resolver moved on. Absent when `matched: true`.
    *   - `'literal-mismatch'` — a literal segment in the block
@@ -230,8 +244,9 @@ export interface PathResolutionTrace {
   /** The request path that was resolved, verbatim from `TestCase.path`. */
   requestPath: string;
   /** One entry per match block the resolver considered, in the
-   *  order it tried them. `attempts[i].matched: true` marks the
-   *  winning block — at most one per trace. */
+   *  order it tried them. `attempts[i].matched: true` marks a
+   *  block that fully resolved; one or more per trace, since
+   *  overlapping blocks all match and OR-combine. */
   attempts: PathResolutionEntry[];
 }
 
