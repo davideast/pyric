@@ -61,10 +61,13 @@ describe('Function mock translation', () => {
     await handler.execute(MOCK_APP, SOURCE, [tc]);
     const apiMock = captured.get().testSuite.testCases[0].functionMocks[0];
     expect(apiMock.function).toBe('exists');
-    expect(apiMock.result).toEqual({ value: { data: {} } });
+    // exists() returns bool; production rejects a map-shaped result for it
+    // ("Type error. Received: [map] Expected: [bool]"), which silently
+    // resolves to DENY. Must be a bool value, not a map.
+    expect(apiMock.result).toEqual({ value: true });
   });
 
-  test('exists mock with false produces undefined result', async () => {
+  test('exists mock with false produces false bool result', async () => {
     const captured = captureBody();
     const tc: TestCase = {
       description: 'not exists',
@@ -76,7 +79,7 @@ describe('Function mock translation', () => {
     };
     await handler.execute(MOCK_APP, SOURCE, [tc]);
     const apiMock = captured.get().testSuite.testCases[0].functionMocks[0];
-    expect(apiMock.result).toBeUndefined();
+    expect(apiMock.result).toEqual({ value: false });
   });
 
   test('mock path gets normalized with database prefix', async () => {

@@ -390,7 +390,7 @@ export interface ApiTestCase {
 export interface ApiFunctionMock {
   function: 'get' | 'exists';
   args: Array<{ exactValue: string }>;
-  result: { value: { data: Record<string, unknown> } } | undefined;
+  result: { value: { data: Record<string, unknown> } } | { value: boolean } | undefined;
 }
 
 // ---- Path normalization ----
@@ -472,10 +472,13 @@ export function buildFunctionMock(mock: FunctionMock): ApiFunctionMock {
   if (mock.function === 'get') {
     result.result = { value: { data: mock.result as Record<string, unknown> } };
   } else {
-    // exists → true means doc exists (return some data), false means no result
-    result.result = mock.result === true
-      ? { value: { data: {} } }
-      : undefined;
+    // exists() returns a bool, not a map. Sending the map shape used for
+    // get() here — { value: { data: {} } } / undefined — makes the
+    // production Rules Test API reject the mock with "Type error.
+    // Received: [map] Expected: [bool]", which silently resolves to DENY
+    // and poisons every observation that mocks exists() to true.
+    // Live-verified fix: emit a bool value directly.
+    result.result = { value: mock.result === true };
   }
 
   return result;
