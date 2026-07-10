@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pyric ai chat</title>
+    <style>
+      :root {
+        --ink: #1b1b1f;
+        --muted: #6b6b76;
+        --line: #e4e4ea;
+        --user: #eef1ff;
+        --tool: #fff7e6;
+        --error: #b3261e;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        min-height: 100dvh;
+        max-width: 44rem;
+        margin-inline: auto;
+        padding: 1rem;
+        gap: 1rem;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 0.75rem;
+      }
+      header h1 { font-size: 1.1rem; margin: 0; }
+      header .spacer { flex: 1; }
+      #engine-label { font-size: 0.8rem; color: var(--muted); }
+      select {
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 0.2rem 0.4rem;
+        border: 1px solid var(--line);
+        border-radius: 0.4rem;
+        background: white;
+      }
+      #messages {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        overflow-y: auto;
+        min-height: 0;
+      }
+      .msg {
+        padding: 0.55rem 0.8rem;
+        border-radius: 0.6rem;
+        max-width: 85%;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        line-height: 1.45;
+      }
+      .msg[data-role="user"] { background: var(--user); align-self: flex-end; }
+      .msg[data-role="model"] { background: #f6f6f8; align-self: flex-start; }
+      .msg[data-role="tool"] {
+        background: var(--tool);
+        align-self: flex-start;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 0.8rem;
+      }
+      .msg.error { color: var(--error); background: #fdeceb; }
+      form {
+        display: flex;
+        gap: 0.5rem;
+        border-top: 1px solid var(--line);
+        padding-top: 0.75rem;
+      }
+      input[type="text"] {
+        flex: 1;
+        font: inherit;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+      }
+      button {
+        font: inherit;
+        font-size: 0.9rem;
+        padding: 0.5rem 0.9rem;
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        background: white;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      #status { font-size: 0.75rem; color: var(--muted); min-height: 1em; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>pyric ai chat</h1>
+      <span id="engine-label"></span>
+      <span class="spacer"></span>
+      <label id="engine-picker">
+        engine
+        <select id="engine">
+          <option value="scripted">scripted</option>
+          <option value="local">local model</option>
+        </select>
+      </label>
+    </header>
+
+    <div id="messages" aria-live="polite"></div>
+
+    <div>
+      <p id="status"></p>
+      <form id="composer">
+        <input id="input" type="text" placeholder="Say something" autocomplete="off" />
+        <button id="send" type="submit">Send</button>
+        <button id="weather" type="button">Weather tool demo</button>
+      </form>
+    </div>
+
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

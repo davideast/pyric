@@ -635,6 +635,29 @@ describe('openai engine (mocked fetch)', () => {
     expect(seen).toEqual(['qwen3', 'fallback-model', 'some-model']);
   });
 
+  it('default fetch never runs with the engine as its receiver (browser Illegal invocation guard)', async () => {
+    // Regression guard for the serve e2e finding (test/e2e/ai-demo.pw.ts in
+    // pyric-tools): `options.fetch ?? fetch` stored the global BARE, so
+    // `this.fetchImpl(...)` invoked fetch with the engine as `this` — an
+    // Illegal invocation in browsers and workers (Node tolerates it, which is
+    // why only a real SharedWorker surfaced it). The default must be a
+    // wrapper that calls the global with a neutral receiver.
+    const receivers: unknown[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = async function (this: unknown, ..._args: unknown[]) {
+      receivers.push(this);
+      return Response.json(upstreamUnary);
+    } as typeof fetch;
+    try {
+      const engine = new OpenAiEngine({ baseUrl: 'http://up/v1' });
+      await engine.generateContent(userReq('hi'), MODEL);
+      expect(receivers).toHaveLength(1);
+      expect(receivers[0]).not.toBe(engine);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it('decorates the translated envelope wire-true: responseId, modelVersion, serviceTier, signed parts', async () => {
     const engine = new OpenAiEngine({
       baseUrl: 'http://up/v1',
