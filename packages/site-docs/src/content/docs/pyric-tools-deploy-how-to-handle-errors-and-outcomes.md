@@ -3,13 +3,13 @@ title: "How to handle AdminApiError and Outcome failures"
 navLabel: "Handle errors and outcomes"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 25
+order: 57
 ---
 # How to handle `AdminApiError` and `Outcome` failures
 
 This guide shows you how to react to failures from `pyric-tools/deploy`. Two error shapes turn up depending on whether you called a primitive (throws) or an orchestrator (returns).
 
-## Primitives — catch `AdminApiError`
+## Primitives: catch `AdminApiError`
 
 Primitives map one REST call to one TypeScript function. They throw on any non-2xx:
 ```ts
@@ -32,7 +32,7 @@ try {
 ```
 `e.body` is the upstream response body, capped at 8 KiB. For 400s from the rules API, that's where the parser error message lives.
 
-## Orchestrators — branch on `outcome.code`
+## Orchestrators: branch on `outcome.code`
 
 Orchestrators bucket failures into structured codes. The `Outcome` shape is uniform across operations:
 ```ts
@@ -57,7 +57,7 @@ if (outcome.ok) {
   }
 }
 ```
-Each orchestrator widens the union with its own coded values (see [Error codes by operation](../pyric-tools-deploy-reference-error-codes/)). The two universal codes — `'permission-denied'` and `'unknown'` — always appear.
+Each orchestrator widens the union with its own coded values (see [Error codes by operation](../pyric-tools-deploy-reference-error-codes/)). The two universal codes (`'permission-denied'` and `'unknown'`) always appear.
 
 ## Handle `partial` from batch orchestrators
 
@@ -73,7 +73,7 @@ if (!outcome.ok && outcome.partial) {
   }
 }
 ```
-Use `partial` to either retry just the failed entries or to give the user a useful "12 of 30 succeeded" report.
+Use `partial` to either retry only the failed entries or give the user a useful "12 of 30 succeeded" report.
 
 ## Translate exceptions to outcomes in your own code
 
@@ -89,7 +89,7 @@ async function deployMyRules(scope: ProjectScope, source: string) {
   });
 }
 ```
-The result is an `Outcome<{ source: string }, 'not-found'>` — `AdminApiError` is bucketed automatically based on HTTP status.
+The result is an `Outcome<{ source: string }, 'not-found'>`: `AdminApiError` is bucketed automatically based on HTTP status.
 
 ## Don't conflate transport with auth
 

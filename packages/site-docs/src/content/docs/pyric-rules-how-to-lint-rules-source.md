@@ -3,11 +3,11 @@ title: "How to lint a rules source"
 navLabel: "Lint a rules source"
 group: "pyric / rules"
 section: "How-to"
-order: 66
+order: 94
 ---
 # How to lint a rules source
 
-This guide shows you how to lint a Firestore rules source and act on the result.
+Lint a Firestore rules source, read the result, and gate a deploy on it. Everything here runs in-process.
 
 ## Lint a string
 ```ts
@@ -19,7 +19,7 @@ const result = lintFirestoreRules(source);
 
 ## Branch on parse error first
 
-A parse error means "this isn't a ruleset yet" — different category from any lint warning. Check it before reading warnings:
+A parse error means "this isn't a ruleset yet", a different category from any lint warning. Check it before reading warnings:
 ```ts
 const result = lintFirestoreRules(source);
 if (result.parseError) {
@@ -50,7 +50,7 @@ Pass the previously-deployed source as `options.previousSource`. The linter acti
 const result = lintFirestoreRules(newSource, { previousSource: oldSource });
 const weakened = result.warnings.filter((w) => w.rule === 'RULES_WEAKENED');
 ```
-`RULES_WEAKENED` is a `warning`, not an `error` — there are legitimate reasons to delete a predicate (refactor, dedupe). The signal is "review this", not "block the deploy".
+`RULES_WEAKENED` is a `warning`, not an `error`. There are legitimate reasons to delete a predicate (refactor, dedupe). The signal is "review this", not "block the deploy".
 
 ## Activate `REQUEST_TIME_NOT_PINNED`
 

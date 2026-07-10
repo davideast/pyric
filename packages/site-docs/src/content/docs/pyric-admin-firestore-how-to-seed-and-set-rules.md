@@ -3,7 +3,7 @@ title: "How to seed and set rules"
 navLabel: "Seed and set rules"
 group: "pyric-admin / firestore"
 section: "How-to"
-order: 143
+order: 168
 ---
 # How to seed and set rules
 
@@ -29,7 +29,7 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
   throw new Error('rules failed to lint');
 }
 ```
-`setRules` returns the `LintResult` from `pyric/rules`. Check warnings before treating the deploy as successful. If the source has parse errors, the rules are *not* swapped — `setRules` is consistent with `LocalEnvironment.deployRules` on that point.
+`setRules` returns the `LintResult` from `pyric/rules`. Check warnings before treating the deploy as successful. If the source has parse errors, the rules are *not* swapped (`setRules` is consistent with `LocalEnvironment.deployRules` on that point).
 
 ## Seed initial data
 ```ts
@@ -48,9 +48,9 @@ The return value is the lint of the preserved ruleset, for shape consistency wit
 
 ## Seed bypasses rules
 
-`seed` writes through `LocalEnvironment.seed` — it does not go through the rules engine. Use this when your fixture documents would be denied by the rules you're testing (admin docs, audit logs, fixed system records).
+`seed` writes through `LocalEnvironment.seed`: it does not go through the rules engine. Use this when your fixture documents would be denied by the rules you're testing (admin docs, audit logs, fixed system records).
 
-For tests where you want the seed itself to evaluate under rules — for example, to verify that "even with admin auth, this collection can't be written to" — use `db.collection(...).doc(...).set(...)` calls under an admin-shaped context instead.
+For tests where you want the seed itself to evaluate under rules (for example, to verify that "even with admin auth, this collection can't be written to"), use `db.collection(...).doc(...).set(...)` calls under an admin-shaped context instead.
 
 ## Order matters
 
@@ -79,7 +79,7 @@ beforeEach(() => {
 
 ## Snapshot for round-tripping
 
-The `snapshot()` method on the handle is a pair with `seed` — capture, restore:
+The `snapshot()` method on the handle is a pair with `seed`: capture, restore.
 ```ts
 const before = adminDb.snapshot();
 // ... destructive operation

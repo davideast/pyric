@@ -3,7 +3,7 @@ title: "How to deploy Firestore indexes"
 navLabel: "Deploy Firestore indexes"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 20
+order: 52
 ---
 # How to deploy Firestore indexes
 
@@ -56,7 +56,7 @@ The validator runs synchronously and never touches the network, so a config buil
 
 ## Handle partial failures
 
-When a 403 hits mid-batch, `deployAll` aborts and returns `{ ok: false, code: 'permission-denied', partial }`. `partial` carries the operations that did start before the failure plus their `perIndex` entries — you can present the user with "12 started, 4 not attempted" instead of pretending nothing happened.
+When a 403 hits mid-batch, `deployAll` aborts and returns `{ ok: false, code: 'permission-denied', partial }`. `partial` carries the operations that did start before the failure plus their `perIndex` entries. You can present the user with "12 started, 4 not attempted" instead of pretending nothing happened.
 
 For non-403 per-index failures, the batch continues. Final result is `{ ok: false, code: 'create-failed' }` with `perIndex` showing which entries succeeded and which failed.
 
@@ -72,7 +72,7 @@ const op = await firestore.indexes.create(scope, {
 
 console.log('Started operation:', op.name);
 ```
-This is the primitive — it throws `AdminApiError` on non-2xx instead of returning an outcome.
+This is the primitive: it throws `AdminApiError` on non-2xx instead of returning an outcome.
 
 ## Wait for a build to finish
 
@@ -86,7 +86,7 @@ if (status.ok) {
   console.error(`[${status.code}] ${status.message}`);
 }
 ```
-Build times depend on collection size — small collections take seconds, large ones can take hours. Poll on a backoff loop, or surface the operation name to the user and let them check the Firebase Console.
+Build times depend on collection size: small collections take seconds, large ones can take hours. Poll on a backoff loop, or surface the operation name to the user and let them check the Firebase Console.
 
 ## Required IAM
 
@@ -94,5 +94,5 @@ The service account / signed-in user needs `datastore.indexes.create` and `datas
 
 ## Where to look next
 
-- For the index wire shape, see [`firestore` namespace — index wire shapes](../pyric-tools-deploy-reference-firestore-namespace/#index-wire-shapes).
-- For all the error codes the outcomes can return, see [Error codes by operation — Firestore indexes](../pyric-tools-deploy-reference-error-codes/#firestore-indexes).
+- For the index wire shape, see [`firestore` namespace: index wire shapes](../pyric-tools-deploy-reference-firestore-namespace/#index-wire-shapes).
+- For all the error codes the outcomes can return, see [Error codes by operation: Firestore indexes](../pyric-tools-deploy-reference-error-codes/#firestore-indexes).

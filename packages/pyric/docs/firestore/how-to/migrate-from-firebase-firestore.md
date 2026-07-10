@@ -1,10 +1,10 @@
-# How to migrate from `firebase/firestore`
+# How to use `pyric/firestore` in existing code
 
-This guide shows you how to swap `firebase/firestore` for `pyric/firestore` in an existing codebase.
+Point an existing codebase at the sandbox by importing `pyric/firestore` where it imports `firebase/firestore`. Your Firestore code stays your Firestore code.
 
 ## Two import changes
 
-The minimum migration is two import edits.
+The minimum change is two import edits.
 
 ### Before
 
@@ -47,13 +47,13 @@ The function names and signatures match. Application code calling these function
 - All types: `Firestore`, `DocumentReference`, `CollectionReference`, `Query`, `DocumentSnapshot`, `QueryDocumentSnapshot`, `QuerySnapshot`, `DocumentChange`, `DocumentChangeType`, `SnapshotMetadata`, `WriteBatch`, `Transaction`, `Unsubscribe`.
 - Converters: `withConverter`.
 
-If your existing code imports a name from `firebase/firestore` and it's not in the list, file an issue — the surface should be complete.
+If your existing code imports a name from `firebase/firestore` and it's not in the list, file an issue. The surface should be complete.
 
 ## What is different
 
 ### `Firestore` is opaque
 
-`pyric/firestore`'s `Firestore` is `{ readonly [TARGET_SYMBOL]: Target }`. Don't read or modify properties on it directly — pass it to free functions instead. Application code that just calls `getFirestore(app)` and forwards the handle is fine.
+`pyric/firestore`'s `Firestore` is `{ readonly [TARGET_SYMBOL]: Target }`. Don't read or modify properties on it directly. Pass it to free functions instead. Application code that only calls `getFirestore(app)` and forwards the handle is fine.
 
 ### Sandbox-only operations exist
 
@@ -63,15 +63,15 @@ If your existing code imports a name from `firebase/firestore` and it's not in t
 
 `snap.metadata.fromCache` and `snap.metadata.hasPendingWrites` are always `false` on the sandbox backend. Code that branches on these flags will see one branch only when running against the sandbox.
 
-This matters for code that displays "syncing..." or "offline" UI. The branches don't fire in tests — they're not a regression, just an inert path.
+This matters for code that displays "syncing..." or "offline" UI. The branches don't fire in tests. That's not a regression, only an inert path.
 
 ### Listener semantics
 
-Sandbox listeners re-evaluate when rules change (via `sandbox.setRules`). Prod listeners don't — they keep their original rule context until detached and re-attached. Tests that exercise this difference need to choose which behaviour they want to assert.
+Sandbox listeners re-evaluate when rules change (via `sandbox.setRules`). Prod listeners don't; they keep their original rule context until detached and re-attached. Tests that exercise this difference need to choose which behaviour they want to assert.
 
 ## Side-by-side imports
 
-Two strategies for codebases that want both surfaces during a transition.
+Two strategies for codebases that want both surfaces at once.
 
 ### Strategy 1: aliased import
 
@@ -85,13 +85,13 @@ const wrapped = getFirestore(app);              // new path through pyric/firest
 
 ### Strategy 2: module-level swap
 
-Migrate one file at a time. Each file imports exclusively from one source. Less mixing, less risk of confusion.
+Swap one file at a time. Each file imports exclusively from one source. Less mixing, less risk of confusion.
 
 ## What to do about the bundle
 
 Adding `pyric/firestore` adds the package's own surface plus `pyric/sandbox` and `pyric-admin` (transitively). The prod-backend code path still bottoms out at `firebase/firestore`, so the upstream SDK is still in the bundle.
 
-For browser bundles where size matters, the bundler will tree-shake the sandbox-side code if your build only ever reaches the prod backend. Verify with `bundle analysis` to confirm — modern bundlers handle this correctly but the cost is worth confirming for production bundles.
+For browser bundles where size matters, the bundler will tree-shake the sandbox-side code if your build only ever reaches the prod backend. Modern bundlers handle this correctly, but it's worth confirming with a bundle analysis for production builds.
 
 ## Where to look next
 

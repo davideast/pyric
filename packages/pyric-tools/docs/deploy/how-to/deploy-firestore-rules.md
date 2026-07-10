@@ -1,6 +1,6 @@
 # How to deploy Firestore rules
 
-This guide shows you how to deploy a Firestore rules source through `pyric-tools/deploy`. Choose the approach that matches your situation — a one-shot replace, an idempotent ensure, or a manual flow.
+This guide shows you how to deploy a Firestore rules source through `pyric-tools/deploy`. Choose the approach that matches your situation: a one-shot replace, an idempotent ensure, or a manual flow.
 
 ## Replace the whole ruleset
 
@@ -34,7 +34,7 @@ The two-step server flow (create ruleset, PATCH release) is hidden behind the si
 
 ## Add a rule snippet idempotently
 
-When you want a particular rule snippet to exist in the deployed ruleset — possibly merging into an existing one, possibly writing a fresh template if no rules exist yet:
+When you want a particular rule snippet to exist in the deployed ruleset, whether by merging into an existing one or writing a fresh template if no rules exist yet:
 
 ```ts
 import { firestore, recipes } from 'pyric-tools/deploy';
@@ -52,13 +52,13 @@ if (outcome.ok) {
 
 | Status | What happened |
 |---|---|
-| `'fresh'` | No deployed ruleset existed — `freshTemplate` was deployed. |
-| `'merged'` | Existing ruleset didn't contain `marker` — `snippet` was injected and deployed. |
-| `'already-configured'` | Existing ruleset already contains `marker` — no-op. |
+| `'fresh'` | No deployed ruleset existed. `freshTemplate` was deployed. |
+| `'merged'` | Existing ruleset didn't contain `marker`. `snippet` was injected and deployed. |
+| `'already-configured'` | Existing ruleset already contains `marker`. No-op. |
 
 ## Write your own recipe
 
-A recipe is just a `{ marker, snippet, freshTemplate }` triple:
+A recipe is a `{ marker, snippet, freshTemplate }` triple:
 
 ```ts
 import { firestore } from 'pyric-tools/deploy';
@@ -84,7 +84,7 @@ service cloud.firestore {
 await firestore.rules.ensure(scope, myRecipe);
 ```
 
-The `marker` should be a substring unique to your snippet — `ensure` uses it to detect whether the rule is already present.
+The `marker` should be a substring unique to your snippet. `ensure` uses it to detect whether the rule is already present.
 
 ## Check without deploying
 

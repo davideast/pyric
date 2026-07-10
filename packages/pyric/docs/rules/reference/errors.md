@@ -41,9 +41,9 @@ These extend `Error` and are thrown synchronously during expression evaluation. 
 
 ### `EvalError`
 
-Real evaluation failure — type mismatch, missing field, division by zero. Carries an optional `expr: Expression` for the failing AST node.
+Real evaluation failure: type mismatch, missing field, division by zero. Carries an optional `expr: Expression` for the failing AST node.
 
-The handler catches `EvalError` and treats it as that rule denying — matching production's "runtime errors deny" behaviour. A test case where every rule denied via `EvalError` lands in `DENY` (not `UNSUPPORTED`).
+The handler catches `EvalError` and treats it as that rule denying, matching production's "runtime errors deny" behaviour. A test case where every rule denied via `EvalError` lands in `DENY` (not `UNSUPPORTED`).
 
 ### `UnsupportedError` extends `EvalError`
 
@@ -68,7 +68,7 @@ Thrown by `tokenize` / `parse` in the sentinel expression DSL. Carry a `Position
 
 ## Handler results
 
-The handlers (`SimulateFirestoreRulesHandler`, `TestFirestoreRulesHandler`, the modules resolver) never throw for expected failure modes — they return `Outcome`-shaped objects:
+The handlers (`SimulateFirestoreRulesHandler`, `TestFirestoreRulesHandler`, the modules resolver) never throw for expected failure modes. They return `Outcome`-shaped objects:
 
 ```ts
 type Result<T> =
@@ -78,20 +78,20 @@ type Result<T> =
 
 ### Simulator `error.code` values
 
-- `PARSE_FAILED` — the source did not parse.
+- `PARSE_FAILED`: the source did not parse.
 
 ### Rules Test API client `error.code` values
 
-- `PARSE_FAILED` — the source did not parse (the API surfaced issues instead of running tests).
-- `PERMISSION_DENIED` — service account lacks `firebaserules.releases.test`. `recoverable: false`.
-- `INVALID_REQUEST` — 400 from the API. `recoverable: true`.
-- `RULES_ERROR` — the API returned source-level issues. `recoverable: true`.
-- `FETCH_FAILED` — network or unexpected non-2xx. `recoverable` depends on the underlying cause.
+- `PARSE_FAILED`: the source did not parse (the API surfaced issues instead of running tests).
+- `PERMISSION_DENIED`: service account lacks `firebaserules.releases.test`. `recoverable: false`.
+- `INVALID_REQUEST`: 400 from the API. `recoverable: true`.
+- `RULES_ERROR`: the API returned source-level issues. `recoverable: true`.
+- `FETCH_FAILED`: network or unexpected non-2xx. `recoverable` depends on the underlying cause.
 
 ### Modules resolver `error.code` values
 
-- `PARSE_FAILED` — source did not parse.
-- `NOT_MODULE_SOURCE` — version is not `'2+modules'`.
-- `UNKNOWN_MODULE` — module name not found in stdlib, `modules` map, or `basePath`.
-- `UNKNOWN_FUNCTION` — module exists but the imported function is not exported (or doesn't exist at all — the message disambiguates).
-- `DUPLICATE_FUNCTION` — same function exported by two modules, or collision with a source-defined function.
+- `PARSE_FAILED`: source did not parse.
+- `NOT_MODULE_SOURCE`: version is not `'2+modules'`.
+- `UNKNOWN_MODULE`: module name not found in stdlib, `modules` map, or `basePath`.
+- `UNKNOWN_FUNCTION`: module exists but the imported function is not exported (or doesn't exist at all; the message disambiguates).
+- `DUPLICATE_FUNCTION`: same function exported by two modules, or collision with a source-defined function.

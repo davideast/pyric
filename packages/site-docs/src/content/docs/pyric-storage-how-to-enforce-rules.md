@@ -3,7 +3,7 @@ title: "How to enforce Storage rules"
 navLabel: "Enforce Storage rules"
 group: "pyric / storage"
 section: "How-to"
-order: 117
+order: 142
 ---
 # How to enforce Storage rules
 
@@ -31,12 +31,12 @@ const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
   rules: RULES,
 });
 ```
-The `rules` source is parsed eagerly — malformed source throws a `SyntaxError` at handle construction. After config, every operation evaluates against the rules.
+The `rules` source is parsed eagerly: malformed source throws a `SyntaxError` at handle construction. After config, every operation evaluates against the rules.
 
 ## The `request.resource == null` carve-out
 
 Notice this in the rule:
-```
+```rules
 allow write: if request.auth != null
              && (request.resource == null
                  || (request.resource.size < 10 * 1024 * 1024
@@ -46,15 +46,21 @@ allow write: if request.auth != null
 
 The pattern is standard in production Storage rules. Match it.
 
-## Operations match `read` and `write`
+## Operations match umbrella and granular verbs
 
-| Function | Verb |
-|---|---|
-| `getBytes`, `getBlob`, `getMetadata` | `read` |
-| `uploadBytes`, `uploadString`, `updateMetadata`, `deleteObject` | `write` |
-| `listAll` | (not currently gated — see [implementation scope](../pyric-storage-explanation-implementation-scope/)) |
+| Function | Umbrella verb | Granular verb |
+|---|---|---|
+| `getBytes`, `getBlob`, `getMetadata` | `read` | `get` |
+| `uploadBytes`, `uploadString` (new path) | `write` | `create` |
+| `uploadBytes`, `uploadString` (existing path), `updateMetadata` | `write` | `update` |
+| `deleteObject` | `write` | `delete` |
+| `listAll` | `read`, evaluated against the listed folder path (see [List and delete](../pyric-storage-how-to-list-and-delete/)) | `list` |
 
-The granular verbs (`get`, `list`, `create`, `update`, `delete`) are deferred. Currently the parser rejects them.
+Write rules with the umbrella verbs (`read`/`write`) when the distinction doesn't matter, or the granular verbs when it does — production semantics either way.
+
+## Served mode enforces rules too
+
+Under `pyric dev`, rules load into the served worker at boot and gate every operation the same as the in-process sandbox. Unlike `firestore.rules` and `database.rules.json`, `storage.rules` doesn't hot-reload — editing it while the dev server is running requires a restart to take effect.
 
 ## Switching users to test rules
 ```ts
@@ -73,7 +79,7 @@ try {
 ```
 The rules engine sees `request.auth.uid == 'alice'` in the first call and `request.auth == null` in the second.
 
-The `rules` option only takes effect on the *first* `getStorageSandbox` call per sandbox — subsequent calls return the cached handle. The cached handle's rules apply uniformly to every user via that sandbox.
+The `rules` option only takes effect on the *first* `getStorageSandbox` call per sandbox. Subsequent calls return the cached handle, and its rules apply uniformly to every user via that sandbox.
 
 ## Catching denials
 

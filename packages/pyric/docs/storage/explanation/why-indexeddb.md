@@ -4,7 +4,7 @@
 
 ## What we needed
 
-The driving consumer is the playground: a browser app that lets users iterate on Firebase data + rules in-page. The session archive lives in the browser too — completed sessions stored locally, optionally uploaded to production later.
+The driving consumer is the playground: a browser app that lets users iterate on Firebase data + rules in-page. The session archive lives in the browser too, completed sessions stored locally and optionally uploaded to production later.
 
 That meant three constraints:
 
@@ -18,11 +18,11 @@ IndexedDB ticks all three. It's the only browser API that's both standardised an
 
 ### `localStorage`
 
-Synchronous, capped at ~5–10 MB, strings only. A 1 MB JSON session would dominate the quota immediately. Ruled out.
+Synchronous, capped at roughly 5 to 10 MB, strings only. A 1 MB JSON session would dominate the quota immediately. Ruled out.
 
 ### The Cache API
 
-Better quota, persistent, async — but designed for HTTP request/response pairs. Storing arbitrary objects via it requires shoehorning a `Request` and `Response` around every blob. The fit is wrong.
+Better quota, persistent, async, but designed for HTTP request/response pairs. Storing arbitrary objects via it requires shoehorning a `Request` and `Response` around every blob. The fit is wrong.
 
 ### In-memory only
 
@@ -33,7 +33,7 @@ Simplest. Fast. Lost on every reload. The playground UX depended on persistence;
 Newer, more file-system-shaped, persistent. We didn't pick it because:
 
 - Browser support is recent. IndexedDB is universal.
-- The API is less ergonomic for "store a blob with metadata keyed by path" — OPFS wants directories, sync access handles, more ceremony.
+- The API is less ergonomic for "store a blob with metadata keyed by path". OPFS wants directories, sync access handles, more ceremony.
 - IndexedDB's transaction model maps cleanly to Storage operations (each upload is one tx, each download is one tx).
 
 OPFS is a future option if IndexedDB hits limits. For now, IndexedDB is doing the job.
@@ -63,7 +63,7 @@ IndexedDB's transaction model is single-writer-per-store. Two simultaneous `uplo
 
 ### Lifetime
 
-IndexedDB persists until the user clears site data. Sandbox `reset()` does *not* clear it — `reset()` is about the sandbox's in-memory state, not the storage backend. To wipe a storage handle's data, build a new sandbox with a different `dbName`, or call `deleteObject` per item.
+IndexedDB persists until the user clears site data. Sandbox `reset()` does *not* clear it: `reset()` is about the sandbox's in-memory state, not the storage backend. To wipe a storage handle's data, build a new sandbox with a different `dbName`, or call `deleteObject` per item.
 
 This separation is deliberate but occasionally surprising. The README and the [`StorageOptions`](../reference/storage-options.md) page call out the `dbName` idiom for test isolation.
 
@@ -71,12 +71,12 @@ This separation is deliberate but occasionally surprising. The README and the [`
 
 The IndexedDB path runs in browsers and in test runners that emulate IndexedDB (Bun has reasonable polyfills; Vitest with `happy-dom` or `jsdom` works). It does not run in plain Node.
 
-If you need the sandbox to work in plain Node, the prod path (`getStorageProd(app)`) is the answer — but that uses real Cloud Storage, not an in-memory alternative. A pure-Node sandbox backend is not in scope today.
+If you need the sandbox to work in plain Node, the prod path (`getStorageProd(app)`) is the answer, but that uses real Cloud Storage, not an in-memory alternative. A pure-Node sandbox backend is not in scope today.
 
 ## Where this leaves us
 
 IndexedDB hits the constraints, the data layout is simple, the API maps naturally to Storage operations. The few rough edges (quota errors, browser-only) are bounded and documented.
 
-If the package grows beyond the session-archive use case — into large-file workflows, multi-GB sets, server-side stores — the backend choice will probably split. The sandbox handle would gain an in-memory option for tests; a hypothetical filesystem option for Node-side use. The API shape stays the same.
+If the package grows beyond the session-archive use case (into large-file workflows, multi-GB sets, server-side stores) the backend choice will probably split. The sandbox handle would gain an in-memory option for tests; a hypothetical filesystem option for Node-side use. The API shape stays the same.
 
 For now, IndexedDB is what the v1 scope needs.

@@ -28,6 +28,30 @@
   gap: var(--space-2);
   border-bottom: 1px solid var(--line);
   padding-bottom: 10px;
+  /* One row, always: labels never wrap into multi-line buttons. On
+     narrow screens the row scrolls, with an edge fade instead of a
+     hard clip (the end padding sits under the fade at full scroll). */
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.traffic__tabs::-webkit-scrollbar {
+  display: none;
+}
+.traffic__tabs > * {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+@media (max-width: 760px) {
+  .traffic__tabs {
+    scroll-snap-type: x proximity;
+    padding-right: 28px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+  .traffic__tabs > * {
+    scroll-snap-align: start;
+  }
 }
 .traffic__tab {
   appearance: none;
@@ -345,6 +369,16 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.traffic__filters::-webkit-scrollbar {
+  display: none;
+}
+.traffic__filters > * {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .traffic__filters-label {
   color: var(--faint);

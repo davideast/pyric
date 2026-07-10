@@ -1,0 +1,116 @@
+{
+  "name": "firestore-rules",
+  "displayName": "Firestore Security Rules",
+  "scopeName": "source.firestore-rules",
+  "fileTypes": ["rules"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#allow-methods" },
+    { "include": "#builtin-functions" },
+    { "include": "#builtin-namespaces" },
+    { "include": "#language-variables" },
+    { "include": "#wildcards" },
+    { "include": "#constants" },
+    { "include": "#numbers" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.firestore-rules", "match": "//.*$" },
+        {
+          "name": "comment.block.firestore-rules",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.firestore-rules",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "name": "constant.character.escape.firestore-rules", "match": "\\\\." }]
+        },
+        {
+          "name": "string.quoted.double.firestore-rules",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "name": "constant.character.escape.firestore-rules", "match": "\\\\." }]
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.firestore-rules",
+          "match": "\\b(rules_version|service|match|allow|function|if|else|return|let|import|from|as)\\b"
+        }
+      ]
+    },
+    "allow-methods": {
+      "comment": "The grant list after `allow`: read/write and their fine-grained forms, only when followed by a comma, colon, or semicolon so `get(...)` the function is not captured.",
+      "patterns": [
+        {
+          "name": "entity.name.function.method.firestore-rules",
+          "match": "\\b(read|write|get|list|create|update|delete)\\b(?=\\s*[,:;])"
+        }
+      ]
+    },
+    "builtin-functions": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.firestore-rules",
+          "match": "\\b(get|exists|getAfter|debug)\\b(?=\\s*\\()"
+        }
+      ]
+    },
+    "builtin-namespaces": {
+      "patterns": [
+        {
+          "name": "support.class.builtin.firestore-rules",
+          "match": "\\b(math|duration|timestamp|latlng|hashing)\\b(?=\\.)"
+        }
+      ]
+    },
+    "language-variables": {
+      "patterns": [
+        {
+          "name": "variable.language.firestore-rules",
+          "match": "\\b(request|resource)\\b"
+        }
+      ]
+    },
+    "wildcards": {
+      "comment": "Path wildcards: {noteId}, {db}, {path=**}.",
+      "patterns": [
+        {
+          "name": "variable.parameter.wildcard.firestore-rules",
+          "match": "\\{[A-Za-z_$][A-Za-z0-9_$]*(=\\*\\*)?\\}"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        { "name": "constant.language.firestore-rules", "match": "\\b(true|false|null)\\b" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.firestore-rules", "match": "\\b[0-9]+(\\.[0-9]+)?\\b" }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.word.firestore-rules", "match": "\\b(in|is)\\b" },
+        {
+          "name": "keyword.operator.firestore-rules",
+          "match": "==|!=|>=|<=|&&|\\|\\||[+\\-*/%<>!?:]"
+        }
+      ]
+    }
+  }
+}

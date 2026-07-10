@@ -1,6 +1,6 @@
 # How to use sandbox-only operations
 
-This guide shows you how to deploy rules, seed data, and dump state — operations that only work against the sandbox backend.
+Deploy rules, seed data, and dump state: three operations that only work against the sandbox backend.
 
 ## Deploy rules
 
@@ -21,7 +21,7 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
 }
 ```
 
-`setRules` returns the `LintResult` from `pyric/rules`. Source with parse errors is not swapped — check warnings.
+`setRules` returns the `LintResult` from `pyric/rules`. Source with parse errors is not swapped, so check the warnings.
 
 ## Seed data
 
@@ -41,7 +41,7 @@ const state = sandbox.snapshotState(db);
 console.log(state);  // { 'notes/n1': {...}, 'notes/n2': {...} }
 ```
 
-Reads every stored document. Independent of rules. The returned object is a structural clone — mutating it does not affect the sandbox.
+Reads every stored document. Independent of rules. The returned object is a structural clone, so mutating it does not affect the sandbox.
 
 ## Avoid the name collision
 
@@ -59,7 +59,7 @@ Alias on import to keep the local-variable name (`sandbox`) free for the result 
 
 ## Why these aren't on the handle
 
-The `Firestore` handle from `pyric/firestore` is opaque — `interface Firestore { readonly [TARGET_SYMBOL]: Target }`. Adding methods to it would deviate from the upstream `firebase/firestore`'s `Firestore` shape and break the swap-in contract.
+The `Firestore` handle from `pyric/firestore` is opaque: `interface Firestore { readonly [TARGET_SYMBOL]: Target }`. Adding methods to it would deviate from the upstream `firebase/firestore`'s `Firestore` shape and break the swap-in contract.
 
 The namespace export keeps the handle shape pure while still providing sandbox-only operations. See [Sandbox-only operations](../reference/sandbox-ops.md#why-setrules-lives-here-not-on-the-handle) for the longer rationale.
 

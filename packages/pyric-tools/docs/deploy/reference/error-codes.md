@@ -12,8 +12,8 @@ This page lists every coded error value an orchestrator can return.
 
 These two appear in every `Outcome` union:
 
-- **`'permission-denied'`** — upstream returned 401 or 403, *or* the token resolver itself failed with an `AdminApiError` of that status.
-- **`'unknown'`** — anything else. Network failures, DNS errors, unexpected non-2xx, exceptions from non-fetch code paths.
+- **`'permission-denied'`**: upstream returned 401 or 403, *or* the token resolver itself failed with an `AdminApiError` of that status.
+- **`'unknown'`**: anything else. Network failures, DNS errors, unexpected non-2xx, exceptions from non-fetch code paths.
 
 ## Hosting
 
@@ -35,7 +35,7 @@ NETWORK_ERROR             — transport-level fetch failure
 
 `REWRITE_TARGET_NOT_FOUND` is distinct from `FINALIZE_FAILED` because Hosting validates rewrite targets at finalize time only. The split lets callers retry the deploy after the function lands without re-bundling the whole site.
 
-`CHANNEL_FAILED` always fires before any version is created — a channel deploy ensures the channel first, so a bad channel id costs zero uploads. 403s and network failures during the ensure keep their generic codes (`PERMISSION_DENIED`, `NETWORK_ERROR`).
+`CHANNEL_FAILED` always fires before any version is created. A channel deploy ensures the channel first, so a bad channel id costs zero uploads. 403s and network failures during the ensure keep their generic codes (`PERMISSION_DENIED`, `NETWORK_ERROR`).
 
 ### `EnsureSiteResult` *(create vs ensure)*
 
@@ -84,7 +84,7 @@ create-failed      — one or more indexes returned non-2xx (non-403, non-409)
 unknown            — anything else
 ```
 
-On `ok: false`, `partial` carries the operations that did succeed before the failure. Callers can either retry just the failed entries or surface the partial success to the user.
+On `ok: false`, `partial` carries the operations that did succeed before the failure. Callers can either retry only the failed entries or surface the partial success to the user.
 
 ### `GetIndexStatusOutcome.code`
 
@@ -103,7 +103,7 @@ permission-denied  — get-or-create returned 401 / 403
 unknown            — anything else
 ```
 
-The orchestrator probes for an existing database first, so `'already-exists'` is a success state — not an error.
+The orchestrator probes for an existing database first, so `'already-exists'` is a success state, not an error.
 
 ## Tool handlers
 

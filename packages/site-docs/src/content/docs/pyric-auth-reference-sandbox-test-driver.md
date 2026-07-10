@@ -1,13 +1,13 @@
 ---
-title: "Sandbox test driver — pyric/auth/sandbox.*"
+title: "Sandbox test driver: pyric/auth/sandbox.*"
 navLabel: "Sandbox test driver"
 group: "pyric / auth"
 section: "Reference"
-order: 133
+order: 156
 ---
-# Sandbox test driver — `pyric/auth/sandbox.*`
+# Sandbox test driver: `pyric/auth/sandbox.*`
 
-The `sandbox` export is `pyric/auth`'s test-driver namespace. It mirrors `pyric/firestore`'s `sandbox.setRules` / `sandbox.seedDocuments` pattern — methods exist only for sandbox-backed `Auth` handles and throw `failed-precondition` against a prod handle.
+The `sandbox` export is `pyric/auth`'s test-driver namespace. It mirrors `pyric/firestore`'s `sandbox.setRules` / `sandbox.seedDocuments` pattern: methods exist only for sandbox-backed `Auth` handles and throw `failed-precondition` against a prod handle.
 ```ts
 import { sandbox as authSandbox } from 'pyric/auth';
 ```
@@ -40,7 +40,7 @@ Emits to `onAuthStateChanged` / `onIdTokenChanged` subscribers and writes throug
 
 ## `sandbox.mockSignInResult(auth, result)`
 
-Pre-stage the result that the next matching `signInWithPopup` / `signInWithCredential` call returns. The mock is **one-shot** — consumed by the next call with the matching `providerId`. Stage again for repeat tests.
+Pre-stage the result that the next matching `signInWithPopup` / `signInWithCredential` call returns. The mock is **one-shot**, consumed by the next call with the matching `providerId`. Stage again for repeat tests.
 ```ts
 authSandbox.mockSignInResult(auth, {
   user: makeGoogleUser('uid-1', 'a@example.com'),
@@ -105,10 +105,10 @@ try {
   }
 }
 ```
-`sandbox.mockSignInResult` additionally throws `'invalid-argument'` if `result.providerId` is missing — the mock registry is keyed on `providerId`, so an unkeyed mock can't be matched.
+`sandbox.mockSignInResult` additionally throws `'invalid-argument'` if `result.providerId` is missing. The mock registry is keyed on `providerId`, so an unkeyed mock can't be matched.
 
 ---
 
 ## What's NOT a test driver
 
-The `firebase/auth` SDK has no equivalent of these methods, so they're sandbox-only. The agent's deployed `appSource` must never import the `sandbox` namespace — keep it in the runner harness (the `code` artifact in playground), not in app code. The deploy adapter's metafile gate rejects any prod bundle containing `@pyric/*`.
+The `firebase/auth` SDK has no equivalent of these methods, so they're sandbox-only. The agent's deployed `appSource` must never import the `sandbox` namespace. Keep it in the runner harness (the `code` artifact in playground), not in app code. The deploy adapter's metafile gate rejects any prod bundle containing `@pyric/*`.

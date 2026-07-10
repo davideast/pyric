@@ -50,7 +50,7 @@ const unsubscribe = onSnapshot(db.doc('notes/n1'), {
 
 ## Handle stream errors
 
-When a listener is silently terminated by a rule denial — most commonly during re-evaluation after a `setRules` — the `error` handler fires once and the listener stops:
+When a listener is silently terminated by a rule denial (most commonly during re-evaluation after a `setRules`), the `error` handler fires once and the listener stops:
 
 ```ts
 onSnapshot(db.doc('locked-by-rules/x'), {
@@ -61,7 +61,7 @@ onSnapshot(db.doc('locked-by-rules/x'), {
 
 Once-per-stream: after `error` fires, no further `next` or `error` callbacks happen on this listener. To resume watching, register a new listener.
 
-For host-level error handling without each listener registering its own callback, subscribe to `sandbox.onSnapshotError(...)` — see [Observe denials and stream errors](../../../sandbox/docs/how-to/observe-denials.md) in `pyric/sandbox`.
+For host-level error handling without each listener registering its own callback, subscribe to `sandbox.onSnapshotError(...)`. See [Observe denials and stream errors](../../../sandbox/docs/how-to/observe-denials.md) in `pyric/sandbox`.
 
 ## Clean up in React `useEffect`
 
@@ -78,7 +78,7 @@ Returning `unsubscribe` from the effect tells React to call it when the componen
 
 ## Why `metadata.fromCache` is always `false`
 
-`SnapshotMetadata` is part of the Web-SDK shape: `metadata.fromCache` and `metadata.hasPendingWrites`. The sandbox has neither a cache nor a pending-writes window — every fire is fresh, every write is synchronous — so both fields are always `false`.
+`SnapshotMetadata` is part of the Web-SDK shape: `metadata.fromCache` and `metadata.hasPendingWrites`. The sandbox has neither a cache nor a pending-writes window (every fire is fresh, every write is synchronous), so both fields are always `false`.
 
 If your production code branches on these flags, the sandbox's behaviour is conservatively "always fresh, never pending". Tests that depend on the branches firing differently need the emulator or live Firestore.
 

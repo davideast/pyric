@@ -2,7 +2,7 @@
 title: "Public API"
 group: "pyric / rules"
 section: "Reference"
-order: 72
+order: 100
 ---
 # Public API
 
@@ -32,15 +32,15 @@ Run the structural validator over a parsed AST. See [Validator findings](../pyri
 
 ### Types
 
-- `FirestoreRules` — root of the AST: `{ version, imports, service }`.
-- `MatchBlock` — `{ path, functions, allows, children }`.
-- `AllowRule` — `{ operations, condition }`.
-- `FunctionDef` — `{ name, parameters, exported, lets, body }`.
-- `Expression` — discriminated union of every expression node. See [AST reference](../pyric-rules-reference-ast/).
-- `PathSegment` — `{ type: 'literal' | 'wildcard' | 'recursive', ... }`.
-- `ParseError` — `{ line, column, offset, expected, actual, message }`.
-- `ParseResult` — `{ valid, errors, parseError? }`.
-- `ValidationFinding` — `{ code, severity, path, operation?, message }`.
+- `FirestoreRules`: root of the AST: `{ version, imports, service }`.
+- `MatchBlock`: `{ path, functions, allows, children }`.
+- `AllowRule`: `{ operations, condition }`.
+- `FunctionDef`: `{ name, parameters, exported, lets, body }`.
+- `Expression`: discriminated union of every expression node. See [AST reference](../pyric-rules-reference-ast/).
+- `PathSegment`: `{ type: 'literal' | 'wildcard' | 'recursive', ... }`.
+- `ParseError`: `{ line, column, offset, expected, actual, message }`.
+- `ParseResult`: `{ valid, errors, parseError? }`.
+- `ValidationFinding`: `{ code, severity, path, operation?, message }`.
 
 ## Linter
 
@@ -50,17 +50,17 @@ Run the linter. `LintResult` has `warnings`, `metrics`, and optional `parseError
 
 `LintOptions`:
 
-- `testCases?: TestCase[]` — activates `REQUEST_TIME_NOT_PINNED`.
-- `previousSource?: string` — activates `RULES_WEAKENED`.
+- `testCases?: TestCase[]`: activates `REQUEST_TIME_NOT_PINNED`.
+- `previousSource?: string`: activates `RULES_WEAKENED`.
 
 See [Lint rules](../pyric-rules-reference-lint-rules/) for every rule code, threshold, and severity.
 
 ### Types
 
-- `LintResult` — `{ warnings, metrics, parseError? }`.
-- `LintWarning` — `{ rule, severity, message, location?, fix? }`.
-- `LintOptions` — see above.
-- `RulesMetrics` — `{ sourceSize, functionCount, allowRuleCount, maxChainDepth, maxChainOp, maxLetBindings, maxLetBindingsFunction, maxCallDepth, maxEstimatedExpressions, getCallCount }`.
+- `LintResult`: `{ warnings, metrics, parseError? }`.
+- `LintWarning`: `{ rule, severity, message, location?, fix? }`.
+- `LintOptions`: see above.
+- `RulesMetrics`: `{ sourceSize, functionCount, allowRuleCount, maxChainDepth, maxChainOp, maxLetBindings, maxLetBindingsFunction, maxCallDepth, maxEstimatedExpressions, getCallCount }`.
 
 ## Modules resolver
 
@@ -78,8 +78,8 @@ Convert a module name (possibly relative) into a safe identifier-prefix. Used to
 
 ### Types
 
-- `ResolveResult` — `{ success: true; data: { resolved, modules } } | { success: false; error }`.
-- `ResolveOptions` — `{ basePath?, modules? }`.
+- `ResolveResult`: `{ success: true; data: { resolved, modules } } | { success: false; error }`.
+- `ResolveOptions`: `{ basePath?, modules? }`.
 
 ## Simulator
 
@@ -107,7 +107,7 @@ Thrown by the evaluator when it hits a feature it doesn't yet implement. Caught 
 
 ### Types
 
-- `SimulationContext` — `{ request, resource, mockDocuments, pathVariables, functions, database, afterStatePath, afterState, existsAfter }`. See [Simulator context](../pyric-rules-reference-simulator-context/).
+- `SimulationContext`: `{ request, resource, mockDocuments, pathVariables, functions, database, afterStatePath, afterState, existsAfter }`. See [Simulator context](../pyric-rules-reference-simulator-context/).
 
 ### `class MapDiff` and `class FirestoreSet`
 
@@ -123,7 +123,7 @@ Helpers used by `request.resource.data.diff(resource.data)` and the `keys()` fam
 ### `class ExpressionLexError`
 ### `class ExpressionParseError`
 
-The sentinel expression engine — used by `pyric/sandbox` to resolve `{ $expr: '...' }` wrappers in declarative writes. See [The sentinel expression engine](../pyric-rules-explanation-sentinel-expression-engine/).
+The sentinel expression engine, used by `pyric/sandbox` to resolve `{ $expr: '...' }` wrappers in declarative writes. See [The sentinel expression engine](../pyric-rules-explanation-sentinel-expression-engine/).
 
 ## Value wrappers
 
@@ -152,11 +152,11 @@ Calls Google's Firebase Rules Test API.
 
 ### Types
 
-- `TestCase` — see [`TestCase` schema](../pyric-rules-reference-test-case-schema/).
-- `TestResult` — `{ description, expectation, state, debugMessages }`.
-- `TestFirestoreRulesResult` — `{ success: true; data: { passed, failed, unsupported, results } } | { success: false; error }`.
-- `FunctionMock` — `{ function: 'get' | 'exists', path, result }`.
-- `const TestCaseSchema` — the underlying Zod schema for `TestCase`.
+- `TestCase`: see [`TestCase` schema](../pyric-rules-reference-test-case-schema/).
+- `TestResult`: `{ description, expectation, state, debugMessages }`.
+- `TestFirestoreRulesResult`: `{ success: true; data: { passed, failed, unsupported, results } } | { success: false; error }`.
+- `FunctionMock`: `{ function: 'get' | 'exists', path, result }`.
+- `const TestCaseSchema`: the underlying Zod schema for `TestCase`.
 
 ## Tool factories
 
@@ -171,7 +171,7 @@ Returns:
 
 `FirestoreRulesToolDeps`:
 
-- `scope?: ProjectScope` — credentials for the Rules Test API.
+- `scope?: ProjectScope`: credentials for the Rules Test API.
 
 ### `createFirestoreSimulatorTools(deps: FirestoreSimulatorToolDeps): ToolHandler[]`
 
@@ -179,4 +179,4 @@ Slice 8 scaffold. Returns an empty array today; the full seven-tool family lands
 
 `FirestoreSimulatorToolDeps`:
 
-- `resolveSandbox: () => LocalEnvironment | Promise<LocalEnvironment>` — per-dispatch resolver returning the session-scoped sandbox environment.
+- `resolveSandbox: () => LocalEnvironment | Promise<LocalEnvironment>`: per-dispatch resolver returning the session-scoped sandbox environment.

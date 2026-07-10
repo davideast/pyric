@@ -3,12 +3,12 @@ title: "How to promote sandbox state to a committable fixture"
 navLabel: "Promote sandbox state"
 group: "pyric-tools"
 section: "How-to"
-order: 8
+order: 40
 ---
 # How to promote sandbox state to a committable fixture
 
-You have been working in the sandbox interactively — signing in test users,
-creating documents — and you want to commit that state so teammates, tests, and
+You have been working in the sandbox interactively (signing in test users,
+creating documents) and you want to commit that state so teammates, tests, and
 CI all start from the same place. `pyric snapshot` promotes the lived sandbox
 state into a single fixture file that `pyric verify` and `pyric dev --seed`
 can consume.
@@ -21,7 +21,7 @@ reference](../pyric-tools-reference-cli/).
 
 ## Build up the state
 
-Run a persisted dev server and use the app — sign in, write documents, whatever you
+Run a persisted dev server and use the app: sign in, write documents, whatever you
 want the fixture to capture:
 ```sh
 pyric dev --persist
@@ -59,7 +59,7 @@ The fixture is a plain JSON file meant to live in your repository:
 git add fixtures/onboarding.json
 git commit -m "Add onboarding fixture"
 ```
-User passwords are **redacted by default** — `.pyric/` is gitignored, but a
+User passwords are **redacted by default**: `.pyric/` is gitignored, but a
 promoted fixture is not, so committing raw passwords would leak them. The
 redaction sentinel round-trips through seeding, so re-serving still works
 (popup and helper sign-in need no password).
@@ -69,7 +69,7 @@ explicitly:
 ```sh
 pyric snapshot --out local-fixture.json --include-passwords
 ```
-Only do this for trusted, local fixtures — never commit a fixture produced this
+Only do this for trusted, local fixtures. Never commit a fixture produced this
 way.
 
 ## Re-seed from the fixture

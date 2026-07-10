@@ -22,9 +22,9 @@ These match Firebase / gRPC conventions so production-shaped `catch (e) { if (e.
 
 Caller passed something the API does not accept. Common cases:
 
-- `sandbox.withAuth(undefined)` — say `withAuth(null)` explicitly.
-- `sandbox.withAuth({ uid: '' })` — UID must be non-empty.
-- `sandbox.withAuth({ uid: 'x', token: 'oops' })` — `token` must be an object.
+- `sandbox.withAuth(undefined)`: say `withAuth(null)` explicitly.
+- `sandbox.withAuth({ uid: '' })`: UID must be non-empty.
+- `sandbox.withAuth({ uid: 'x', token: 'oops' })`: `token` must be an object.
 - Hand-rolled `Sandbox` handle passed to a service factory (via `getInternalEnv` from `/internal`).
 
 Errors of this kind carry `remediation` text explaining the fix.
@@ -33,13 +33,13 @@ Errors of this kind carry `remediation` text explaining the fix.
 
 Rules denied the operation. The `denialContext` field is populated with:
 
-- `auth` — the identity that was active.
-- `reasons` — the simulator's debug messages (one per evaluated rule).
-- `request` — the eval-time `request.*` shape (method, path, resource data).
-- `resource` — the eval-time `resource.*` (existing doc, exists flag).
-- `rule` (best-effort) — line and expression source.
+- `auth`: the identity that was active.
+- `reasons`: the simulator's debug messages (one per evaluated rule).
+- `request`: the eval-time `request.*` shape (method, path, resource data).
+- `resource`: the eval-time `resource.*` (existing doc, exists flag).
+- `rule` (best-effort): line and expression source.
 
-See the [`SandboxEvent` reference](./sandbox-event.md) — `DenialContext` mirrors the `kind: 'request' && result: 'deny'` event shape.
+See the [`SandboxEvent` reference](./sandbox-event.md). `DenialContext` mirrors the `kind: 'request' && result: 'deny'` event shape.
 
 ### `'not-found'`
 
@@ -65,7 +65,7 @@ A transaction was aborted, typically because its callback threw. The thrown erro
 
 ### `'unavailable'`
 
-Reserved. Not currently emitted — no network stream to drop. May appear if a future service has a transport.
+Reserved. Not currently emitted; there is no network stream to drop. May appear if a future service has a transport.
 
 ## Sandbox-specific codes
 
@@ -73,11 +73,11 @@ These don't have a production analog. They exist so callers can distinguish "the
 
 ### `'unimplemented'`
 
-The sandbox doesn't yet model a feature your rule uses. Returned from the simulator's `UnsupportedError` channel surfaced through this code. For most agent workflows the right response is to route the offending case to the live Firebase Rules Test API — see [`pyric/rules`](../../rules/explanation/simulator-vs-rules-test-api.md).
+The sandbox doesn't yet model a feature your rule uses. Returned from the simulator's `UnsupportedError` channel surfaced through this code. For most agent workflows the right response is to route the offending case to the live Firebase Rules Test API; see [`pyric/rules`](../../rules/explanation/simulator-vs-rules-test-api.md).
 
 ### `'not-seeded'`
 
-An operation was issued before `LocalEnvironment.seed` provided rules. The default state is empty, with no rules — most operations will deny under default-deny semantics, but some surfaces (admin reads, listing operations) raise this code instead so it's obvious the sandbox hasn't been initialised.
+An operation was issued before `LocalEnvironment.seed` provided rules. The default state is empty, with no rules. Most operations will deny under default-deny semantics, but some surfaces (admin reads, listing operations) raise this code instead so it's obvious the sandbox hasn't been initialised.
 
 ### `'rules-not-loaded'`
 
@@ -110,9 +110,9 @@ The exact field set depends on the operation:
 | Operation | `request` | `resource` |
 |---|---|---|
 | `get` | method=`'get'`, path | data + exists for the existing doc |
-| `list` | method=`'list'`, path | — (collection ops; resource not modelled per-doc) |
+| `list` | method=`'list'`, path | none (collection ops; resource not modelled per-doc) |
 | `create` | method=`'create'`, path, resourceData | data=`null`, exists=`false` |
 | `update` | method=`'update'`, path, resourceData | data + exists for the existing doc |
 | `delete` | method=`'delete'`, path | data + exists for the existing doc |
 
-`resourceData` reflects the post-sentinel-resolution payload — what the rule actually saw on `request.resource.data`.
+`resourceData` reflects the post-sentinel-resolution payload: what the rule actually saw on `request.resource.data`.

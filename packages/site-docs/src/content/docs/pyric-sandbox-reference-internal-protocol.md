@@ -3,13 +3,13 @@ title: "The /internal adapter protocol"
 navLabel: "The /internal protocol"
 group: "pyric / sandbox"
 section: "Reference"
-order: 104
+order: 130
 ---
 # The `/internal` adapter protocol
 
 The `pyric/sandbox/internal` sub-path is the **adapter-only** surface. Service-adapter packages (`pyric-admin`, `pyric/firestore`, future `pyric/auth`) consume it to reach the underlying `LocalEnvironment` and related primitives.
 
-It is **not** part of the public API. The shape is subject to change without breaking-change semantics across `pyric/sandbox` versions. External adapter authors should not depend on it directly. When the protocol stabilises — after the multi-service architecture lands — it will be promoted.
+It is **not** part of the public API. The shape is subject to change without breaking-change semantics across `pyric/sandbox` versions. External adapter authors should not depend on it directly. When the protocol stabilises (after the multi-service architecture lands) it will be promoted.
 
 ## What lives there
 ```ts
@@ -19,22 +19,22 @@ The major surfaces:
 
 ### `getInternalEnv(sandbox): LocalEnvironment`
 
-Given a `Sandbox` produced by `initializeSandbox()`, return its `LocalEnvironment`. Throws `SandboxError('invalid-argument')` for hand-rolled `Sandbox` handles — adapters can rely on this to reject malformed input early.
+Given a `Sandbox` produced by `initializeSandbox()`, return its `LocalEnvironment`. Throws `SandboxError('invalid-argument')` for hand-rolled `Sandbox` handles, so adapters can rely on it to reject malformed input early.
 
 ### `LocalEnvironment`
 
 The runtime substrate. Methods adapters use most:
 
-- `execute(operation)` — run a single operation, evaluating rules.
-- `executeBatch(operations)` — atomic batch.
-- `runTransaction(callback)` — transaction with read tracking.
-- `seed({ rules, documents })` — bulk-load state.
-- `deployRules(source)` — swap rules and re-evaluate live listeners.
-- `addSnapshotListener({ kind, path?, collection?, auth, onSnapshot, onError? })` — register a Firestore-shaped listener.
-- `getDocument`, `listDocuments`, `listRootCollections`, `listSubcollections` — admin reads.
-- `snapshot()` — Firestore-only state capture.
-- `onRequest`, `onWrite`, `onSnapshotDelivery`, `onSnapshotSuppressed`, `onListenerLifecycle`, `onSnapshotError`, `onDenial` — internal channels. `SandboxImpl` subscribes to each and re-emits the resulting payloads through the public `Sandbox.onEvent` as a `SandboxEvent` discriminated union. Adapters typically don't tap these directly; consume through `Sandbox.onEvent` instead.
-- `dispose()` — drop listener registries.
+- `execute(operation)`: run a single operation, evaluating rules.
+- `executeBatch(operations)`: atomic batch.
+- `runTransaction(callback)`: transaction with read tracking.
+- `seed({ rules, documents })`: bulk-load state.
+- `deployRules(source)`: swap rules and re-evaluate live listeners.
+- `addSnapshotListener({ kind, path?, collection?, auth, onSnapshot, onError? })`: register a Firestore-shaped listener.
+- `getDocument`, `listDocuments`, `listRootCollections`, `listSubcollections`: admin reads.
+- `snapshot()`: Firestore-only state capture.
+- `onRequest`, `onWrite`, `onSnapshotDelivery`, `onSnapshotSuppressed`, `onListenerLifecycle`, `onSnapshotError`, `onDenial`: internal channels. `SandboxImpl` subscribes to each and re-emits the resulting payloads through the public `Sandbox.onEvent` as a `SandboxEvent` discriminated union. Adapters typically don't tap these directly; consume through `Sandbox.onEvent` instead.
+- `dispose()`: drop listener registries.
 
 ### `EventLog`
 
@@ -100,7 +100,7 @@ When a method on `LocalEnvironment` starts to look like an application-facing AP
 
 The `/internal` index uses `export * from '../firestore/local-environment.js'`
 and similar to forward every public symbol from the moved files. This is
-deliberate — `pyric-admin` reaches in for a long tail of helper symbols, and
+deliberate. `pyric-admin` reaches in for a long tail of helper symbols, and
 listing each one by hand creates maintenance churn.
 
 The downside is that adding a new export in a moved file silently propagates through `/internal`. Adapter packages should treat the `/internal` surface as "everything currently in those files" and not as "exactly these named symbols".

@@ -2,7 +2,7 @@
 title: "<DeleteSelectionWithConfirm>"
 group: "@pyric/ui"
 section: "Storage"
-order: 169
+order: 200
 ---
 # `<DeleteSelectionWithConfirm>`
 

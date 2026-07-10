@@ -1,6 +1,6 @@
 # How to inspect rules through the AST
 
-This guide shows you how to parse rules into a typed AST and walk the tree for custom analysis — building bespoke lint rules, generating documentation, or extracting structural facts the built-in linter doesn't surface.
+Parse rules into a typed AST and walk the tree for custom analysis: bespoke lint rules, generated documentation, or structural facts the built-in linter doesn't surface.
 
 ## Parse to AST
 
@@ -49,8 +49,8 @@ walk(ast.service.match);
 A `PathPattern` is `{ raw: string, segments: PathSegment[] }`. Each segment is one of three shapes:
 
 - `{ type: 'literal', value: 'users' }`
-- `{ type: 'wildcard', name: 'uid' }` — for `{uid}`
-- `{ type: 'recursive', name: 'document' }` — for `{document=**}`
+- `{ type: 'wildcard', name: 'uid' }`: for `{uid}`
+- `{ type: 'recursive', name: 'document' }`: for `{document=**}`
 
 Branch on `seg.type` rather than parsing `raw`:
 
@@ -118,7 +118,7 @@ const fns = parseFunctions(`
 if (fns) console.log(fns[0].name); // 'isAdmin'
 ```
 
-`parseFunctions` wraps the input in a minimal `rules_version='2'` shell and returns just the parsed `FunctionDef[]`, or `null` if parsing failed.
+`parseFunctions` wraps the input in a minimal `rules_version='2'` shell and returns only the parsed `FunctionDef[]`, or `null` if parsing failed.
 
 ## Where to look next
 

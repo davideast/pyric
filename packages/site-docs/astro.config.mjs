@@ -1,4 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'astro/config';
+
+// Security Rules TextMate grammar — Shiki has no built-in language for
+// Firestore rules, so code fences tagged ```rules use this one.
+const firestoreRules = JSON.parse(
+  readFileSync(new URL('./src/lib/firestore-rules.tmLanguage.json', import.meta.url), 'utf8'),
+);
 import rehypeDocs from './src/lib/rehype-docs.mjs';
 
 /**
@@ -44,6 +51,7 @@ export default defineConfig({
     shikiConfig: {
       theme: 'one-dark-pro',
       wrap: false,
+      langs: [{ ...firestoreRules, aliases: ['rules'] }],
     },
   },
 });

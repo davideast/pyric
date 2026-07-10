@@ -84,11 +84,11 @@ Every handler's `execute` returns:
 }
 ```
 
-The `ok` flag reflects the underlying outcome's success — `Outcome.ok` for orchestrators, "no exception thrown" for primitives. The `summary` is suitable for agent-visible logs; `data` is the structured payload.
+The `ok` flag reflects the underlying outcome's success: `Outcome.ok` for orchestrators, "no exception thrown" for primitives. The `summary` is suitable for agent-visible logs; `data` is the structured payload.
 
 ## Cancellation
 
-Per pre-mortem M8, every handler checks `ctx.signal.aborted` before starting work. This prevents a deploy from *starting* when the agent has already cancelled. It does not abort a deploy already in flight — the underlying namespace primitives don't currently plumb `AbortSignal` through their fetch calls. Wave B (the `firebase-admin` → REST rewrite) is the natural place to thread signals end-to-end.
+Per pre-mortem M8, every handler checks `ctx.signal.aborted` before starting work. This prevents a deploy from *starting* when the agent has already cancelled. It does not abort a deploy already in flight. The underlying namespace primitives don't currently plumb `AbortSignal` through their fetch calls. Wave B (the `firebase-admin` → REST rewrite) is the natural place to thread signals end-to-end.
 
 ## Registering with a registry
 

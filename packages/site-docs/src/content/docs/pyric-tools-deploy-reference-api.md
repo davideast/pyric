@@ -2,7 +2,7 @@
 title: "Public API"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 28
+order: 60
 ---
 # Public API
 
@@ -51,14 +51,14 @@ Build a `ProjectScope` from a service-account JSON. Accepts:
 - A literal JSON string starting with `{`.
 - A base64-encoded JSON string prefixed with `base64:`.
 
-The returned scope's `resolveToken` is memoised internally — callers don't need their own caching layer.
+The returned scope's `resolveToken` is memoised internally. Callers don't need their own caching layer.
 
 ### `memoizeTtl(resolver, opts?): () => Promise<string>`
 
 TTL memoiser for resolver functions. Two overloads:
 
-- **Plain string resolver** — `() => Promise<string>` plus `opts.ttlMs` (required).
-- **Structured token resolver** — `() => Promise<{ token, expiresIn? }>`. Parses `expiresIn` (seconds) and refreshes at 90% of TTL by default.
+- **Plain string resolver**: `() => Promise<string>` plus `opts.ttlMs` (required).
+- **Structured token resolver**: `() => Promise<{ token, expiresIn? }>`. Parses `expiresIn` (seconds) and refreshes at 90% of TTL by default.
 
 See [Token caching and `memoizeTtl`](../pyric-tools-deploy-explanation-token-caching/).
 
@@ -78,7 +78,7 @@ Standard wrapper for the resolver + try/catch shape primitives use. Buckets `Adm
 - `404` → `'not-found'`
 - Other non-2xx → `'unknown'`
 
-Other thrown errors (network, DNS) bucket as `'unknown'` — not `'permission-denied'`, to avoid mis-labelling transport failures as IAM issues.
+Other thrown errors (network, DNS) bucket as `'unknown'`, not `'permission-denied'`, to avoid mis-labelling transport failures as IAM issues.
 
 ## Namespaces
 
@@ -118,7 +118,7 @@ Realtime Database rules primitives. See [`rtdb` namespace](../pyric-tools-deploy
 
 Paste-in templates for `firestore.rules.ensure`:
 
-- `recipes.pyricSessions` — multi-tenant playground session-archive recipe.
+- `recipes.pyricSessions`: multi-tenant playground session-archive recipe.
 
 ## Tool factories
 
@@ -156,8 +156,8 @@ Returns one handler:
 
 ### Types
 
-- `ProjectScopedDeps` — `{ scope: ProjectScope }`.
-- `DeployToolData` — keyed map from tool name to the concrete `data` shape its `execute` returns.
+- `ProjectScopedDeps`: `{ scope: ProjectScope }`.
+- `DeployToolData`: keyed map from tool name to the concrete `data` shape its `execute` returns.
 
 See [Tool factories](../pyric-tools-deploy-reference-tool-factories/).
 

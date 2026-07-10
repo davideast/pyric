@@ -47,6 +47,7 @@ import {
 import { join, resolve, dirname, relative, posix, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import GithubSlugger from 'github-slugger';
+import { SUPERSEDED } from './superseded';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const siteRoot = resolve(here, '..');
@@ -82,7 +83,8 @@ const DIATAXIS: SectionSpec[] = [
   { label: 'How-to', path: 'how-to' },
   { label: 'Reference', path: 'reference' },
   { label: 'Explanation', path: 'explanation' },
-  { label: 'Compat', path: 'COMPAT.md' },
+  // COMPAT.md files are claimed by the Compatibility guide group below,
+  // not by the per-service reference trees.
 ];
 
 const GROUPS: GroupSpec[] = [
@@ -105,7 +107,11 @@ const GROUPS: GroupSpec[] = [
   { pkg: 'pyric', label: 'pyric / storage', dir: 'storage', sections: DIATAXIS },
   { pkg: 'pyric', label: 'pyric / auth', dir: 'auth', sections: DIATAXIS },
   { pkg: 'pyric', label: 'pyric / database', dir: 'database', sections: DIATAXIS },
+  { pkg: 'pyric-admin', label: 'pyric-admin / app', dir: 'app', sections: DIATAXIS },
   { pkg: 'pyric-admin', label: 'pyric-admin / firestore', dir: 'firestore', sections: DIATAXIS },
+  { pkg: 'pyric-admin', label: 'pyric-admin / auth', dir: 'auth', sections: DIATAXIS },
+  { pkg: 'pyric-admin', label: 'pyric-admin / database', dir: 'database', sections: DIATAXIS },
+  { pkg: 'pyric-admin', label: 'pyric-admin / storage', dir: 'storage', sections: DIATAXIS },
   {
     pkg: 'ui',
     label: '@pyric/ui',
@@ -123,6 +129,113 @@ const GROUPS: GroupSpec[] = [
 
 function docsRoot(pkg: string): string {
   return join(repoRoot, 'packages', pkg, 'docs');
+}
+
+/* ── The guide: the outcome-first rewrite (docs/site-rewrite/content) ─ */
+//
+// The guide pages are authored WITH front matter (title, navLabel,
+// outcome, status) and link each other relatively (../secure/x.md).
+// They port ahead of the package groups so the nav reads guide-first,
+// reference below — the HIERARCHY.md plan. Slug = bare file name
+// (no package prefix; clash-checked like everything else). `outcome`
+// becomes the emitted `description` (llms.txt / index.json).
+
+const guideRoot = join(repoRoot, 'docs', 'site-rewrite', 'content');
+
+/** Superseded package pages (scripts/superseded.ts), by absolute path:
+ *  skipped by the port, and links to them rewrite to the guide slug. */
+const supersededByAbs = new Map<string, string>(
+  Object.entries(SUPERSEDED).map(([rel, slug]) => [join(repoRoot, rel), slug]),
+);
+
+interface GuideGroupSpec {
+  /** Nav group label (disclosure summary). */
+  label: string;
+  /** Dir relative to guideRoot ('' = the root itself). */
+  dir: string;
+  /** Files in nav order — explicit, never readdir order. */
+  files: string[];
+}
+
+const GUIDE_GROUPS: GuideGroupSpec[] = [
+  { label: 'Overview', dir: '', files: ['overview.md'] },
+  {
+    label: 'Get started',
+    dir: 'get-started',
+    files: ['start-building.md', 'how-the-swap-works.md'],
+  },
+  {
+    label: 'Build',
+    dir: 'build',
+    files: [
+      'sign-in-and-manage-users.md',
+      'store-and-query-data.md',
+      'sync-realtime-data.md',
+      'store-files.md',
+      'which-data-service.md',
+    ],
+  },
+  {
+    label: 'Secure & debug',
+    dir: 'secure',
+    files: [
+      'secure-it-with-rules.md',
+      'simulate-and-lint.md',
+      'write-a-rules-test-suite.md',
+      'read-a-denial.md',
+      'rules-standard-library.md',
+      'rules-patterns.md',
+      'rtdb-rules-in-typescript.md',
+      'limits-that-bite.md',
+      'audit-your-rules.md',
+      'whats-possible.md',
+    ],
+  },
+  {
+    label: 'Observe & shape',
+    dir: 'observe',
+    files: ['see-whats-happening.md', 'shape-your-data.md'],
+  },
+  {
+    label: 'Ship & test',
+    dir: 'ship',
+    files: ['ship-to-production.md', 'set-up-the-project.md', 'test-in-node.md'],
+  },
+  {
+    label: 'Work with an agent',
+    dir: 'agent',
+    files: [
+      'set-up-your-agent.md',
+      'what-your-agent-can-do.md',
+      'skills.md',
+      'watch-and-review.md',
+    ],
+  },
+  {
+    label: 'Trust',
+    dir: 'trust',
+    files: ['how-we-know-it-matches-firebase.md', 'whats-experimental.md'],
+  },
+];
+
+/** Guide files the port ignores (review scaffolding, not pages). */
+const GUIDE_IGNORE = new Set(['README.md']);
+
+/** Parse a leading YAML front-matter block (string values only — the
+ *  guide's authoring schema). Returns {} and the untouched body when
+ *  there is none. */
+function parseFrontmatter(raw: string): {
+  fm: Record<string, string>;
+  body: string;
+} {
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+  if (!m) return { fm: {}, body: raw };
+  const fm: Record<string, string> = {};
+  for (const line of m[1].split('\n')) {
+    const kv = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
+    if (kv) fm[kv[1]] = kv[2].replace(/^"(.*)"$/, '$1').trim();
+  }
+  return { fm, body: raw.slice(m[0].length) };
 }
 
 /** Slug for a source file: pkg id + docs-root-relative path, lowercased,
@@ -181,7 +294,7 @@ const NAV_ALIASES: Record<string, string> = {
   'pyric-sandbox-how-to-use-admin-reads': 'Use admin reads',
   'pyric-tools-deploy-how-to-bundle-and-deploy-a-function': 'Bundle & deploy a function',
   'pyric-tools-how-to-serve-persistence-and-multi-tab': 'Persistence & multi-tab',
-  'pyric-firestore-how-to-migrate-from-firebase-firestore': 'Migrate from Firestore',
+  'pyric-firestore-how-to-migrate-from-firebase-firestore': 'Use in existing code',
   'pyric-rules-explanation-agent-failure-modes': 'Agent failure modes',
   'pyric-rules-explanation-sentinel-expression-engine': 'Sentinel expression engine',
   'pyric-tools-deploy-explanation-primitives-vs-orchestrators':
@@ -273,6 +386,10 @@ interface Page {
   order: number;
   title: string;
   navLabel?: string;
+  /** llms.txt / index.json one-liner (guide pages: the `outcome`). */
+  description?: string;
+  /** Guide pages author their own front matter; strip it at emit. */
+  stripFm?: boolean;
 }
 
 function mdFilesIn(dir: string): string[] {
@@ -288,6 +405,7 @@ const bySlug = new Map<string, Page>();
 let order = 1;
 
 function addPage(src: string, group: GroupSpec, section: string) {
+  if (supersededByAbs.has(src)) return; // replaced by a guide page
   const slug = slugFor(group.pkg, src);
   const title = titleOf(src);
   const clash = bySlug.get(slug);
@@ -300,6 +418,69 @@ function addPage(src: string, group: GroupSpec, section: string) {
     order: order++,
     title: section === '' ? shortTitle(title) : title,
     navLabel: section === '' ? 'Overview' : navLabelFor(slug, title),
+  };
+  pages.push(page);
+  bySrc.set(src, page);
+  bySlug.set(slug, page);
+}
+
+/** Add one guide page: slug from the bare file name, title/navLabel/
+ *  description from its own front matter (title falls back to the h1). */
+function addGuidePage(src: string, groupLabel: string) {
+  const { fm } = parseFrontmatter(readFileSync(src, 'utf8'));
+  const slug = posix.basename(src, '.md').toLowerCase();
+  const clash = bySlug.get(slug);
+  if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
+  const page: Page = {
+    src,
+    slug,
+    group: groupLabel,
+    section: '',
+    order: order++,
+    title: fm.title ?? titleOf(src),
+    navLabel: fm.navLabel,
+    description: fm.outcome,
+    stripFm: true,
+  };
+  pages.push(page);
+  bySrc.set(src, page);
+  bySlug.set(slug, page);
+}
+
+// Guide first: the nav renders groups in `order` order, so the
+// outcome-first sections sit above the package reference groups.
+for (const group of GUIDE_GROUPS) {
+  for (const file of group.files) {
+    const p = resolve(guideRoot, group.dir, file);
+    if (!existsSync(p)) throw new Error(`guide page missing: ${p}`);
+    addGuidePage(p, group.label);
+  }
+}
+
+// The compatibility matrices, right after the guide: the per-service
+// conformance tables are the receipt behind the Trust pages and matter
+// to agents especially, so they stay itemized in the nav rather than
+// folding into the Reference shelf. Slugs are unchanged (slugFor).
+const COMPAT_PAGES: { file: string; label: string }[] = [
+  { file: 'firestore/COMPAT.md', label: 'Firestore' },
+  { file: 'auth/COMPAT.md', label: 'Auth' },
+  { file: 'database/COMPAT.md', label: 'Realtime Database' },
+  { file: 'storage/COMPAT.md', label: 'Storage' },
+];
+for (const c of COMPAT_PAGES) {
+  const src = join(docsRoot('pyric'), c.file);
+  if (!existsSync(src)) throw new Error(`compat matrix missing: ${src}`);
+  const slug = slugFor('pyric', src);
+  const clash = bySlug.get(slug);
+  if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
+  const page: Page = {
+    src,
+    slug,
+    group: 'Compatibility',
+    section: '',
+    order: order++,
+    title: titleOf(src),
+    navLabel: c.label,
   };
   pages.push(page);
   bySrc.set(src, page);
@@ -330,8 +511,15 @@ function* walkMd(dir: string): Generator<string> {
 }
 for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {
   for (const f of walkMd(docsRoot(pkg))) {
-    if (!bySrc.has(f)) throw new Error(`unclaimed source doc: ${f}`);
+    if (!bySrc.has(f) && !supersededByAbs.has(f)) {
+      throw new Error(`unclaimed source doc: ${f}`);
+    }
   }
+}
+// Same strictness for the guide tree (README.md is review scaffolding).
+for (const f of walkMd(guideRoot)) {
+  if (GUIDE_IGNORE.has(posix.basename(f))) continue;
+  if (!bySrc.has(f)) throw new Error(`unclaimed guide page: ${f}`);
 }
 
 /* ── Markdown helpers (fence-aware) ────────────────────────────────── */
@@ -489,6 +677,15 @@ function rewriteLinks(page: Page, body: string): string {
           const fragment = rawFragment?.replace(/^user-content-/, '');
           const resolved = resolveTarget(srcDir, path);
           if (!resolved) {
+            // A link to a superseded page follows the replacement.
+            const clean = decodeURI(path);
+            for (const cand of [resolve(srcDir, clean), resolve(srcDir, clean.replace(/^(\.\/)?docs\//, ''))]) {
+              const slug = supersededByAbs.get(cand) ?? supersededByAbs.get(`${cand}.md`);
+              if (slug) {
+                stats.rewritten++;
+                return `[${label}](../${slug}/)`;
+              }
+            }
             stats.unlinked++;
             unlinkedLog.push(`${page.slug}: ${target}`);
             return label;
@@ -507,6 +704,159 @@ function rewriteLinks(page: Page, body: string): string {
     .join('');
 }
 
+/* ── Compatibility row lists ───────────────────────────────────────── */
+//
+// The COMPAT matrices are authored as markdown tables, and a table is
+// the wrong display for them: a one-glyph status column between two
+// prose columns never aligns, and the probe text fights the behavior
+// text for width. On Compatibility pages the port rewrites each
+// `# | Behavior | Status | Probe [| …]` table into a row list — status
+// dot, number, behavior, probe on its own muted line. Tables with any
+// other header (the status legend, the target tables) pass through
+// untouched. The generator can adopt this shape natively later; until
+// then the port owns the transform.
+
+const STATUS_META: Record<string, { key: string; label: string }> = {
+  '✓': { key: 'ok', label: 'Conforming' },
+  '⚠': { key: 'diverged', label: 'Diverged (documented)' },
+  '✗': { key: 'bug', label: 'Bug' },
+  '—': { key: 'unsupported', label: 'Unsupported' },
+  '?': { key: 'unverified', label: 'Unverified' },
+};
+
+/** Inline markdown → HTML for a table cell: code, links, bold, em.
+ *  Escapes everything else. Enough for the COMPAT cells, which use
+ *  exactly that subset. */
+function mdInlineHtml(md: string): string {
+  let s = md
+    .trim()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  return s;
+}
+
+/** Split a markdown table row into cells (escaped pipes survive). */
+function splitRow(line: string): string[] {
+  const inner = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  return inner.split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, '|'));
+}
+
+function transformCompatTables(body: string): string {
+  return splitFences(body)
+    .map((part) => {
+      if (part.isFence) return part.text;
+      const lines = part.text.split('\n');
+      const out: string[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const isHeader =
+          /^\s*\|/.test(line) &&
+          i + 1 < lines.length &&
+          /^\s*\|[\s:|-]+\|?\s*$/.test(lines[i + 1]);
+        if (isHeader) {
+          const header = splitRow(line).map((h) => h.trim().toLowerCase());
+          const col = (name: string) => header.findIndex((h) => h === name || h.startsWith(name));
+          const iNum = col('#');
+          const iBeh = col('behavior');
+          const iSt = col('status');
+          const iPr = col('probe');
+          const iMeaning = col('meaning');
+          // The status legend becomes the key for the dots: one compact
+          // line per status, same dot the rows use.
+          if (iBeh < 0 && iSt >= 0 && iMeaning >= 0) {
+            let j = i + 2;
+            const html: string[] = ['<div class="compat-key">'];
+            while (j < lines.length && /^\s*\|/.test(lines[j])) {
+              const cells = splitRow(lines[j]);
+              const glyph = (cells[iSt] ?? '').trim();
+              const meta = STATUS_META[glyph];
+              if (meta) {
+                html.push(
+                  `<span class="compat-key-item"><span class="compat-dot" data-status="${meta.key}"></span>${mdInlineHtml(
+                    (cells[iMeaning] ?? '').trim(),
+                  )}</span>`,
+                );
+              }
+              j++;
+            }
+            html.push('</div>');
+            out.push(html.join('\n'));
+            i = j - 1;
+            continue;
+          }
+          if (iBeh >= 0 && iSt >= 0) {
+            let j = i + 2;
+            const rows: string[][] = [];
+            while (j < lines.length && /^\s*\|/.test(lines[j])) {
+              rows.push(splitRow(lines[j]));
+              j++;
+            }
+            const html: string[] = ['<div class="compat-list">'];
+            for (const cells of rows) {
+              const status = (cells[iSt] ?? '').trim();
+              // A status may carry a qualifier ("✓ (wrap)"): the glyph
+              // drives the dot, the rest joins the evidence.
+              const glyph = status.slice(0, 1);
+              const meta = STATUS_META[status] ?? STATUS_META[glyph];
+              const qualifier = meta && status.length > 1 ? status.slice(1).trim() : '';
+              const num = iNum >= 0 ? (cells[iNum] ?? '').trim() : '';
+              const probe = iPr >= 0 ? (cells[iPr] ?? '').trim() : '';
+              const extras = cells
+                .map((c, k) => ({ c, k }))
+                .filter(({ k }) => ![iNum, iBeh, iSt, iPr].includes(k))
+                .map(({ c }) => c.trim())
+                .filter(Boolean);
+              // The scan line is dot + behavior, nothing else. Evidence
+              // (probe, qualifier, notes) hides behind a native
+              // disclosure; rows without evidence render as plain rows.
+              const dot = meta
+                ? `<span class="compat-dot" data-status="${meta.key}" role="img" aria-label="${meta.label}" title="${meta.label}"></span>`
+                : `<span class="compat-status">${mdInlineHtml(status)}</span>`;
+              const scanLine = [
+                `<span class="compat-num">${mdInlineHtml(num)}</span>`,
+                dot,
+                `<span class="compat-behavior">${mdInlineHtml(cells[iBeh] ?? '')}</span>`,
+              ].join('');
+              const evidence = [
+                probe ? `<div class="compat-probe">${mdInlineHtml(probe)}</div>` : '',
+                qualifier ? `<div class="compat-note">${mdInlineHtml(qualifier)}</div>` : '',
+                ...extras.map((ex) => `<div class="compat-note">${mdInlineHtml(ex)}</div>`),
+              ]
+                .filter(Boolean)
+                .join('\n');
+              if (evidence) {
+                html.push(
+                  `<details class="compat-row" data-status="${meta?.key ?? 'unknown'}">`,
+                  `<summary class="compat-line">${scanLine}</summary>`,
+                  `<div class="compat-evidence">${evidence}</div>`,
+                  '</details>',
+                );
+              } else {
+                html.push(
+                  `<div class="compat-row" data-status="${meta?.key ?? 'unknown'}">`,
+                  `<div class="compat-line">${scanLine}</div>`,
+                  '</div>',
+                );
+              }
+            }
+            html.push('</div>');
+            out.push(html.join('\n'));
+            i = j - 1;
+            continue;
+          }
+        }
+        out.push(line);
+      }
+      return out.join('\n');
+    })
+    .join('');
+}
+
 /* ── Emit ──────────────────────────────────────────────────────────── */
 
 function yamlQuote(s: string): string {
@@ -518,7 +868,10 @@ for (const stale of readdirSync(outDir)) {
 }
 
 for (const page of pages) {
-  const body = rewriteLinks(page, readFileSync(page.src, 'utf8'));
+  const raw = readFileSync(page.src, 'utf8');
+  const source = page.stripFm ? parseFrontmatter(raw).body : raw;
+  let body = rewriteLinks(page, source);
+  if (page.group === 'Compatibility') body = transformCompatTables(body);
   const fm = [
     '---',
     `title: ${yamlQuote(page.title)}`,
@@ -528,6 +881,7 @@ for (const page of pages) {
     `group: ${yamlQuote(page.group)}`,
     `section: ${yamlQuote(page.section)}`,
     `order: ${page.order}`,
+    ...(page.description ? [`description: ${yamlQuote(page.description)}`] : []),
     '---',
     '',
   ].join('\n');

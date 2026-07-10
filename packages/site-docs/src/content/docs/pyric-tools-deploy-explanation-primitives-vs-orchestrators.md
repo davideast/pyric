@@ -3,7 +3,7 @@ title: "Primitives throw, orchestrators return"
 navLabel: "Primitives vs. orchestrators"
 group: "pyric-tools / deploy"
 section: "Explanation"
-order: 38
+order: 70
 ---
 # Primitives throw, orchestrators return
 
@@ -36,7 +36,7 @@ Two different consumers want different things, and the two shapes are useful for
 - They might surface the raw upstream error body to a developer-facing log.
 - They want to compose primitives manually into a workflow that doesn't fit any orchestrator we provide.
 
-`AdminApiError` carries `status` and `body` — every signal the upstream API gave us. Throwing it propagates through `await` chains naturally.
+`AdminApiError` carries `status` and `body`: every signal the upstream API gave us. Throwing it propagates through `await` chains naturally.
 
 **Orchestrator consumers** want a single shape:
 
@@ -68,7 +68,7 @@ A new orchestrator is worth adding when:
 
 A new orchestrator is *not* worth adding when:
 
-- It would just rename a primitive call.
+- It would only rename a primitive call.
 - The bucketing it adds is the same as `withResolvedScope` would produce.
 - Consumers genuinely want the underlying `AdminApiError.body` and an `Outcome.message: string` would lose information.
 
@@ -76,11 +76,11 @@ The convention errs on the side of keeping the primitive API small. If you're no
 
 ## Mixing the two
 
-Calling a primitive from inside a `try` inside an orchestrator is normal. Calling a primitive directly when you want exception-based control flow is also normal. The two shapes coexist — they aren't a deprecation path.
+Calling a primitive from inside a `try` inside an orchestrator is normal. Calling a primitive directly when you want exception-based control flow is also normal. The two shapes coexist. They aren't a deprecation path.
 
-What's *not* fine is wrapping a primitive's throw inside a custom orchestrator just to feel orchestrator-shaped, then re-throwing inside the catch. Either own the bucketing and produce a real `Outcome`, or let the primitive's exception propagate.
+What's *not* fine is wrapping a primitive's throw inside a custom orchestrator for the sake of feeling orchestrator-shaped, then re-throwing inside the catch. Either own the bucketing and produce a real `Outcome`, or let the primitive's exception propagate.
 
-## Tool handlers — a third shape
+## Tool handlers: a third shape
 
 Tool factories produce a third surface: `ToolHandler.execute` returns `{ ok, summary, data }`. This is the agent-facing shape, and it sits on top of whichever underlying call the handler dispatches.
 

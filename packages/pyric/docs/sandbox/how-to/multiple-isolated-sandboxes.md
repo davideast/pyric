@@ -1,6 +1,6 @@
 # How to run multiple isolated sandboxes in parallel
 
-This guide shows you how to keep multiple sandboxes alive at once — for fleet tests, multi-tenant simulations, or any workload that needs more than one isolated environment.
+Keep multiple sandboxes alive at once, for fleet tests, multi-tenant simulations, or any workload that needs more than one isolated environment.
 
 ## Sandboxes are fully isolated
 
@@ -40,7 +40,7 @@ async function runScenario(scenarioName: string) {
 await Promise.all(scenarios.map(runScenario));
 ```
 
-Each scenario gets its own sandbox. `dispose` at the end is defensive — once the variable goes out of scope, the garbage collector will reclaim the sandbox anyway. `dispose` matters when listeners are involved, because subscribers might keep the sandbox reachable longer than you intended.
+Each scenario gets its own sandbox. `dispose` at the end is defensive. Once the variable goes out of scope, the garbage collector will reclaim the sandbox anyway. `dispose` matters when listeners are involved, because subscribers might keep the sandbox reachable longer than you intended.
 
 ## Cost considerations
 
@@ -73,7 +73,7 @@ The rules text is shared (by reference); the underlying state is per-sandbox.
 
 ## Vitest / Bun test parallelism
 
-Test runners that run files in parallel processes (Vitest, Bun's default) handle isolation automatically — each test file gets its own process with its own module state. Sandboxes created in different files cannot leak into each other.
+Test runners that run files in parallel processes (Vitest, Bun's default) handle isolation automatically. Each test file gets its own process with its own module state. Sandboxes created in different files cannot leak into each other.
 
 Test runners that share a process across files (Vitest with `fileParallelism: false`, Jest with `--runInBand`) need per-test sandboxes if tests within the same file might run concurrently. The default per-file isolation usually suffices.
 

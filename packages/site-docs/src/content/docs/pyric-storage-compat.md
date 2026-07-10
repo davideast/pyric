@@ -1,9 +1,9 @@
 ---
 title: "pyric/storage compatibility matrix"
-navLabel: "Compatibility matrix"
-group: "pyric / storage"
-section: "Compat"
-order: 129
+navLabel: "Storage"
+group: "Compatibility"
+section: ""
+order: 33
 ---
 <!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
@@ -26,13 +26,13 @@ attributes failures).
 
 ## Status legend
 
-| Status | Meaning |
-|---|---|
-| ✓ | **Conforming** — sandbox matches prod, locked by a passing probe |
-| ⚠ | **Diverged (documented)** — intentional difference with a written reason |
-| ✗ | **Bug** — should match prod but doesn't; failing probe pins it |
-| — | **Unsupported** — not implemented yet (deliberately or pending) |
-| ? | **Unverified** — claim from docs that we haven't yet observed prod-side |
+<div class="compat-key">
+<span class="compat-key-item"><span class="compat-dot" data-status="ok"></span><strong>Conforming</strong> — sandbox matches prod, locked by a passing probe</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="diverged"></span><strong>Diverged (documented)</strong> — intentional difference with a written reason</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="bug"></span><strong>Bug</strong> — should match prod but doesn't; failing probe pins it</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="unsupported"></span><strong>Unsupported</strong> — not implemented yet (deliberately or pending)</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="unverified"></span><strong>Unverified</strong> — claim from docs that we haven't yet observed prod-side</span>
+</div>
 
 Probe references: `unit:<file>` means a Bun test under
 `packages/pyric/test/storage/<file>`. `oracle:<name>` cites an observation
@@ -63,196 +63,540 @@ matrix has to cover:
 
 ## `getStorageSandbox(target, options?)` / `getStorageProd(app, options?)` — initializer
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 1 | `getStorageSandbox(ctx)` returns a tagged sandbox-target handle (frozen identity) | ✓ | `unit:service.test.ts` |
-| 2 | `getStorageSandbox(sandbox)` wraps a bare Sandbox with an anonymous context (`auth: null`) | ✓ | `unit:service.test.ts` |
-| 3 | `getStorageProd(app)` returns a tagged prod-target handle | ✓ | `unit:prod-target.test.ts` |
-| 4 | Two `getStorageSandbox(ctx)` calls on the same context return the SAME wrapper (identity-stable) | ✓ | `unit:service.test.ts` ("returns the same handle for repeated calls on the same context") |
-| 4a | Two `getStorageSandbox(sandbox)` calls on a bare `Sandbox` return the SAME wrapper (identity-stable) | ✓ | ST-B3 fixed: `withAuth(null)` mints a fresh context per call, so the per-context cache missed and bare-Sandbox calls returned different handles. A `Sandbox`-keyed cache makes the convenience path stable, matching the docstring. Probe: `unit:service.test.ts` ("ST-B3: returns the same handle for repeated bare-Sandbox calls"). |
-| 5 | Two different `SandboxContext`s on the same `Sandbox` get DIFFERENT handles but share the underlying `StorageService` (IDB) | ✓ | `unit:service.test.ts` ("shares the underlying StorageService across contexts on the same sandbox") |
-| 6 | `options.bucket` round-trips on metadata records; v1 has a single implicit bucket but the field is preserved | ✓ | `unit:service.test.ts` ("records the bucket value on the handle") |
-| 7 | `options.dbName` honored on the FIRST call per `Sandbox`; second-call overrides ignored | ✓ | `unit:service.test.ts` ("dbName only takes effect on the sandbox's first getStorage call") |
-| 8 | `options.rules` parsed eagerly — malformed rules throw `SyntaxError` at config time | ✓ | `unit:rules.test.ts` (parse errors propagate from `parseStorageRules`) |
-| 9 | Handle dispatch by `TARGET_SYMBOL` brand — ops route to their owning target | ✓ | `unit:prod-target.test.ts` ("getStorageService throws — service is sandbox-only") |
-| 10 | Unrecognized handle (not produced by a factory) → `TypeError` "not a FirebaseStorage handle" | ✓ | `unit:prod-target.test.ts` ("throws TypeError on objects without TARGET_SYMBOL") |
-| 11 | Prod handle: `bucket` field sourced from the SDK's resolved bucket (so `gs://` overrides round-trip) | ✓ | implicit in `unit:prod-target.test.ts` |
-| 12 | `getStorageSandbox(undefined)` / bare-call default-to-sandbox in playground preview | — | not yet wired — mirror of the `getFirestore` wrap (auth #4 / firestore #4) |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">1</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorageSandbox(ctx)</code> returns a tagged sandbox-target handle (frozen identity)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">2</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorageSandbox(sandbox)</code> wraps a bare Sandbox with an anonymous context (<code>auth: null</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">3</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorageProd(app)</code> returns a tagged prod-target handle</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Two <code>getStorageSandbox(ctx)</code> calls on the same context return the SAME wrapper (identity-stable)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("returns the same handle for repeated calls on the same context")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">4a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Two <code>getStorageSandbox(sandbox)</code> calls on a bare <code>Sandbox</code> return the SAME wrapper (identity-stable)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ST-B3 fixed: <code>withAuth(null)</code> mints a fresh context per call, so the per-context cache missed and bare-Sandbox calls returned different handles. A <code>Sandbox</code>-keyed cache makes the convenience path stable, matching the docstring. Probe: <code>unit:service.test.ts</code> ("ST-B3: returns the same handle for repeated bare-Sandbox calls").</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">5</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Two different <code>SandboxContext</code>s on the same <code>Sandbox</code> get DIFFERENT handles but share the underlying <code>StorageService</code> (IDB)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("shares the underlying StorageService across contexts on the same sandbox")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">6</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>options.bucket</code> round-trips on metadata records; v1 has a single implicit bucket but the field is preserved</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("records the bucket value on the handle")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">7</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>options.dbName</code> honored on the FIRST call per <code>Sandbox</code>; second-call overrides ignored</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("dbName only takes effect on the sandbox's first getStorage call")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">8</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>options.rules</code> parsed eagerly — malformed rules throw <code>SyntaxError</code> at config time</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> (parse errors propagate from <code>parseStorageRules</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">9</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Handle dispatch by <code>TARGET_SYMBOL</code> brand — ops route to their owning target</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code> ("getStorageService throws — service is sandbox-only")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">10</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Unrecognized handle (not produced by a factory) → <code>TypeError</code> "not a FirebaseStorage handle"</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code> ("throws TypeError on objects without TARGET_SYMBOL")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">11</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod handle: <code>bucket</code> field sourced from the SDK's resolved bucket (so <code>gs://</code> overrides round-trip)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">implicit in <code>unit:prod-target.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">12</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>getStorageSandbox(undefined)</code> / bare-call default-to-sandbox in playground preview</span></summary>
+<div class="compat-evidence"><div class="compat-probe">not yet wired — mirror of the <code>getFirestore</code> wrap (auth #4 / firestore #4)</div></div>
+</details>
+</div>
 
 ## `ref(storage[, path])` / `ref(parent, path)` — reference constructor
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 13 | `ref(storage)` returns the root ref — `fullPath === ''`, `name === ''`, `parent === null`, `root === self` | ✓ | `unit:reference.test.ts` ("root reference has empty fullPath, null parent, and equal root") |
-| 14 | `ref(storage, 'sessions/s1.json')` populates `fullPath`, `name` (last segment), `parent` (path without last segment) | ✓ | `unit:reference.test.ts` ("ref(storage, path) populates fullPath and name from the last segment") |
-| 15 | Path normalization: leading slashes stripped (`/sessions/s1` → `sessions/s1`) | ✓ | `unit:reference.test.ts` ("normalizes leading/trailing/double slashes") |
-| 16 | Path normalization: trailing slashes stripped | ✓ | `unit:reference.test.ts` |
-| 17 | Path normalization: repeated internal slashes collapsed (`a//b` → `a/b`) | ✓ | `unit:reference.test.ts` |
-| 18 | `ref(parent, child)` joins relative to parent's `fullPath` | ✓ | `unit:reference.test.ts` ("ref(parent, child) joins relative to the parent") |
-| 19 | `parent` chain walks back to root (each `.parent` strips one segment until empty, then `null`) | ✓ | `unit:reference.test.ts` ("parent traversal walks back to root") |
-| 20 | `root` accessor returns the bucket-root ref regardless of starting depth | ✓ | `unit:reference.test.ts` |
-| 21 | `toString()` returns `gs://<bucket>/<fullPath>` | ✓ | `unit:reference.test.ts` ("toString returns gs://bucket/path") |
-| 22 | Reference identity: two `ref(s, 'a/b')` calls are equal-by-`toString` but NOT `===` (value objects, not interned) | ✓ | (implicit in `unit:reference.test.ts` parent-chain test — each `.parent` returns a fresh object) |
-| 23 | Prod refs proxy the underlying `firebase/storage` ref via a WeakMap; `parent` / `root` recursively wrap to keep target consistent | ✓ | `unit:prod-target.test.ts` (delegation pattern documented in `reference.ts`) |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">13</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>ref(storage)</code> returns the root ref — <code>fullPath === ''</code>, <code>name === ''</code>, <code>parent === null</code>, <code>root === self</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("root reference has empty fullPath, null parent, and equal root")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">14</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>ref(storage, 'sessions/s1.json')</code> populates <code>fullPath</code>, <code>name</code> (last segment), <code>parent</code> (path without last segment)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("ref(storage, path) populates fullPath and name from the last segment")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">15</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Path normalization: leading slashes stripped (<code>/sessions/s1</code> → <code>sessions/s1</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("normalizes leading/trailing/double slashes")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">16</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Path normalization: trailing slashes stripped</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">17</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Path normalization: repeated internal slashes collapsed (<code>a//b</code> → <code>a/b</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">18</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>ref(parent, child)</code> joins relative to parent's <code>fullPath</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("ref(parent, child) joins relative to the parent")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">19</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>parent</code> chain walks back to root (each <code>.parent</code> strips one segment until empty, then <code>null</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("parent traversal walks back to root")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">20</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>root</code> accessor returns the bucket-root ref regardless of starting depth</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">21</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>toString()</code> returns <code>gs://&lt;bucket&gt;/&lt;fullPath&gt;</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("toString returns gs://bucket/path")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">22</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Reference identity: two <code>ref(s, 'a/b')</code> calls are equal-by-<code>toString</code> but NOT <code>===</code> (value objects, not interned)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">(implicit in <code>unit:reference.test.ts</code> parent-chain test — each <code>.parent</code> returns a fresh object)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">23</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod refs proxy the underlying <code>firebase/storage</code> ref via a WeakMap; <code>parent</code> / <code>root</code> recursively wrap to keep target consistent</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code> (delegation pattern documented in <code>reference.ts</code>)</div></div>
+</details>
+</div>
 
 ## `uploadBytes(ref, data, metadata?)` — write blob
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 24 | Accepts `Blob` payload; returns `UploadResult` with populated `metadata` | ✓ | `unit:reference.test.ts` ("accepts a Blob and round-trips through getBlob") |
-| 25 | Accepts `Uint8Array` payload | ✓ | `unit:reference.test.ts` ("accepts a Uint8Array") |
-| 26 | Accepts `ArrayBuffer` payload | ✓ | `unit:reference.test.ts` ("accepts an ArrayBuffer") |
-| 27 | ContentType precedence: caller's `metadata.contentType` > `Blob.type` > `application/octet-stream` | ✓ | `unit:reference.test.ts` ("metadata.contentType overrides the Blob's intrinsic type" + "falls back to application/octet-stream when no type is supplied") |
-| 28 | `Blob.type === ''` (no intrinsic type) falls through to `application/octet-stream`, NOT to `''` | ✓ | `unit:reference.test.ts` ("falls back to application/octet-stream when no type is supplied") |
-| 29 | `customMetadata` round-trips through the upload pipeline | ✓ | `unit:reference.test.ts` ("round-trips customMetadata") + `unit:metadata.test.ts` |
-| 30 | Empty `Blob.type` rewrap: when caller hint differs from `Blob.type`, the blob is re-wrapped with the caller's type (same bytes) | ✓ | implicit in `unit:reference.test.ts` ("metadata.contentType overrides the Blob's intrinsic type") |
-| 31 | Throws `storage/invalid-root-operation` when called on the root reference | ✓ | `unit:reference.test.ts` ("throws on root reference") |
-| 32 | Returned `metadata.fullPath` matches the ref's `fullPath` | ✓ | `unit:reference.test.ts` |
-| 33 | Returned `metadata.size` matches the input blob's byte length | ✓ | `unit:reference.test.ts` |
-| 34 | Returned `metadata.bucket` matches the storage handle's bucket | ✓ | `unit:reference.test.ts` |
-| 35 | Replaces any existing object at the path (overwrite, not append) | ? | sandbox semantics in `persistence.ts` use `put`; no explicit overwrite test |
-| 36 | Prod: round-trips uploaded bytes through `getDownloadURL` + fetch (byte-for-byte equality) | ✓ (prod-only) | oracle: `scripts/oracle/observations/storage-upload-bytes-roundtrip.json` (against blockingfun, fb-js-sdk 12.13.0: 6-byte payload → uploadBytes → getDownloadURL → HTTPS fetch → `bytesMatch: true`, `urlIsHttps: true`, `bodyLen === payloadLen === 6`). Sandbox doesn't ship `getDownloadURL` (row #51 is `—`); the round-trip is observed prod-side only. |
-| 37 | Returned `metadata.contentType` matches what the caller hinted (when set) | ✓ | `unit:reference.test.ts` + oracle: `scripts/oracle/observations/storage-upload-then-getmetadata.json` (`contentType: 'application/octet-stream'` round-trip against blockingfun, fb-js-sdk 12.13.0; `contentTypeMatches: true`) |
-| 38 | Returned `metadata.generation` / `metageneration` are stringified counters (`'1'` after fresh upload) | ✓ | `unit:metadata.test.ts` |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">24</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Accepts <code>Blob</code> payload; returns <code>UploadResult</code> with populated <code>metadata</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("accepts a Blob and round-trips through getBlob")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">25</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Accepts <code>Uint8Array</code> payload</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("accepts a Uint8Array")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">26</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Accepts <code>ArrayBuffer</code> payload</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("accepts an ArrayBuffer")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">27</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">ContentType precedence: caller's <code>metadata.contentType</code> &gt; <code>Blob.type</code> &gt; <code>application/octet-stream</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("metadata.contentType overrides the Blob's intrinsic type" + "falls back to application/octet-stream when no type is supplied")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">28</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>Blob.type === ''</code> (no intrinsic type) falls through to <code>application/octet-stream</code>, NOT to <code>''</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("falls back to application/octet-stream when no type is supplied")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">29</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>customMetadata</code> round-trips through the upload pipeline</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("round-trips customMetadata") + <code>unit:metadata.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">30</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Empty <code>Blob.type</code> rewrap: when caller hint differs from <code>Blob.type</code>, the blob is re-wrapped with the caller's type (same bytes)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">implicit in <code>unit:reference.test.ts</code> ("metadata.contentType overrides the Blob's intrinsic type")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">31</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> when called on the root reference</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws on root reference")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">32</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returned <code>metadata.fullPath</code> matches the ref's <code>fullPath</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">33</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returned <code>metadata.size</code> matches the input blob's byte length</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">34</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returned <code>metadata.bucket</code> matches the storage handle's bucket</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="unverified">
+<summary class="compat-line"><span class="compat-num">35</span><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-behavior">Replaces any existing object at the path (overwrite, not append)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">sandbox semantics in <code>persistence.ts</code> use <code>put</code>; no explicit overwrite test</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">36</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: round-trips uploaded bytes through <code>getDownloadURL</code> + fetch (byte-for-byte equality)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-upload-bytes-roundtrip.json</code> (against blockingfun, fb-js-sdk 12.13.0: 6-byte payload → uploadBytes → getDownloadURL → HTTPS fetch → <code>bytesMatch: true</code>, <code>urlIsHttps: true</code>, <code>bodyLen === payloadLen === 6</code>). Sandbox doesn't ship <code>getDownloadURL</code> (row #51 is <code>—</code>); the round-trip is observed prod-side only.</div>
+<div class="compat-note">(prod-only)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">37</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returned <code>metadata.contentType</code> matches what the caller hinted (when set)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> + oracle: <code>scripts/oracle/observations/storage-upload-then-getmetadata.json</code> (<code>contentType: 'application/octet-stream'</code> round-trip against blockingfun, fb-js-sdk 12.13.0; <code>contentTypeMatches: true</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">38</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returned <code>metadata.generation</code> / <code>metageneration</code> are stringified counters (<code>'1'</code> after fresh upload)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code></div></div>
+</details>
+</div>
 
 ## `uploadString(ref, value, format?, metadata?)` — write string-form
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 39 | `format='raw'` (default): UTF-8 encodes the string; `contentType` defaults to `text/plain;charset=utf-8` | ✓ | `unit:reference.test.ts` ("raw format encodes UTF-8 and defaults contentType to text/plain") |
-| 40 | `format='base64'`: decodes payload bytes from standard base64 | ✓ | `unit:reference.test.ts` ("base64 format decodes payload bytes") |
-| 41 | Sandbox: `format='base64url'` (or any unknown format) rejected with `storage/invalid-format` naming the bad format. Prod: `base64url` is ACCEPTED (upload succeeds); a genuinely-unrecognized format throws `storage/unknown` | ⚠ | divergence, both halves oracle-locked by `scripts/oracle/observations/storage-uploadstring-unknown-format.json`: prod accepts `base64url` (`base64urlOk: true`) and throws `storage/unknown` for an unrecognized format — not `storage/invalid-format`. The v1 sandbox ships only `raw`/`base64`/`data_url` (matches `StringFormat`) and throws `storage/invalid-format` for anything else (ST-B3 replaced the old mis-parse-as-data_url behavior). Both sides pinned in `oracle-conformance.test.ts`; sandbox code path documented in `upload.ts`'s `decodeString`. Implementing base64url decoding is still one line in `decodeString`. |
-| 42 | `format='data_url'`: parses `data:<mime>;base64,<payload>`, infers `contentType` from prefix | ✓ | `unit:reference.test.ts` ("data_url format infers contentType from the prefix") |
-| 43 | `format='data_url'` with non-base64 payload: percent-decodes the body | ✓ | (covered by `decodeString` else-branch; no explicit test for the URL-encoded form yet) |
-| 44 | Caller's `metadata.contentType` beats data_url inference | ✓ | `unit:reference.test.ts` ("caller metadata.contentType beats data_url inference") |
-| 45 | Malformed `data_url` (no comma / doesn't start with `data:`) throws `TypeError` with "data_url format" message | ✓ | `unit:reference.test.ts` ("throws on malformed data_url") |
-| 46 | Prod: `uploadString(ref, value, 'base64')` round-trips via `getDownloadURL` + fetch | ✓ (prod-only) | oracle: `scripts/oracle/observations/storage-uploadstring-base64-roundtrip.json` (`'aGVsbG8='` → `'hello'` against blockingfun, fb-js-sdk 12.13.0; `textMatches: true`) |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">39</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>format='raw'</code> (default): UTF-8 encodes the string; <code>contentType</code> defaults to <code>text/plain;charset=utf-8</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("raw format encodes UTF-8 and defaults contentType to text/plain")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">40</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>format='base64'</code>: decodes payload bytes from standard base64</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("base64 format decodes payload bytes")</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">41</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Sandbox: <code>format='base64url'</code> (or any unknown format) rejected with <code>storage/invalid-format</code> naming the bad format. Prod: <code>base64url</code> is ACCEPTED (upload succeeds); a genuinely-unrecognized format throws <code>storage/unknown</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">divergence, both halves oracle-locked by <code>scripts/oracle/observations/storage-uploadstring-unknown-format.json</code>: prod accepts <code>base64url</code> (<code>base64urlOk: true</code>) and throws <code>storage/unknown</code> for an unrecognized format — not <code>storage/invalid-format</code>. The v1 sandbox ships only <code>raw</code>/<code>base64</code>/<code>data_url</code> (matches <code>StringFormat</code>) and throws <code>storage/invalid-format</code> for anything else (ST-B3 replaced the old mis-parse-as-data_url behavior). Both sides pinned in <code>oracle-conformance.test.ts</code>; sandbox code path documented in <code>upload.ts</code>'s <code>decodeString</code>. Implementing base64url decoding is still one line in <code>decodeString</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">42</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>format='data_url'</code>: parses <code>data:&lt;mime&gt;;base64,&lt;payload&gt;</code>, infers <code>contentType</code> from prefix</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("data_url format infers contentType from the prefix")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">43</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>format='data_url'</code> with non-base64 payload: percent-decodes the body</span></summary>
+<div class="compat-evidence"><div class="compat-probe">(covered by <code>decodeString</code> else-branch; no explicit test for the URL-encoded form yet)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">44</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Caller's <code>metadata.contentType</code> beats data_url inference</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("caller metadata.contentType beats data_url inference")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">45</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Malformed <code>data_url</code> (no comma / doesn't start with <code>data:</code>) throws <code>TypeError</code> with "data_url format" message</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws on malformed data_url")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">46</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: <code>uploadString(ref, value, 'base64')</code> round-trips via <code>getDownloadURL</code> + fetch</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-uploadstring-base64-roundtrip.json</code> (<code>'aGVsbG8='</code> → <code>'hello'</code> against blockingfun, fb-js-sdk 12.13.0; <code>textMatches: true</code>)</div>
+<div class="compat-note">(prod-only)</div></div>
+</details>
+</div>
 
 ## `uploadBytesResumable(ref, data, metadata?)` — resumable upload + task observers
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 47 | Exported by `firebase/storage`; returns an `UploadTask` with `pause()` / `resume()` / `cancel()` | — | not implemented in `pyric/storage` — out of scope for the v1 v1 scope per `index.ts` |
-| 48 | `task.on('state_changed', next, error, complete)` fires `next` with `{bytesTransferred, totalBytes, state}` snapshots | — | not implemented |
-| 49 | `task.pause()` flips `state` to `'paused'`; `task.resume()` continues | — | not implemented |
-| 50 | `task.cancel()` rejects the upload with `storage/canceled` | — | not implemented |
+<div class="compat-list">
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">47</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Exported by <code>firebase/storage</code>; returns an <code>UploadTask</code> with <code>pause()</code> / <code>resume()</code> / <code>cancel()</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">not implemented in <code>pyric/storage</code> — out of scope for the v1 v1 scope per <code>index.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">48</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>task.on('state_changed', next, error, complete)</code> fires <code>next</code> with <code>{bytesTransferred, totalBytes, state}</code> snapshots</span></summary>
+<div class="compat-evidence"><div class="compat-probe">not implemented</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">49</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>task.pause()</code> flips <code>state</code> to <code>'paused'</code>; <code>task.resume()</code> continues</span></summary>
+<div class="compat-evidence"><div class="compat-probe">not implemented</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">50</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>task.cancel()</code> rejects the upload with <code>storage/canceled</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">not implemented</div></div>
+</details>
+</div>
 
 ## `getDownloadURL(ref)` — read URL
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 51 | Exported by `firebase/storage`; returns a token-signed HTTPS URL that fetches the blob | — | not implemented in `pyric/storage` — out of scope per `index.ts` (no browser-renderable URL in the IDB sandbox) |
-| 52 | Throws `storage/object-not-found` for missing objects | — | not implemented; oracle would lock prod's error shape if we ever add it |
+<div class="compat-list">
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">51</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Exported by <code>firebase/storage</code>; returns a token-signed HTTPS URL that fetches the blob</span></summary>
+<div class="compat-evidence"><div class="compat-probe">not implemented in <code>pyric/storage</code> — out of scope per <code>index.ts</code> (no browser-renderable URL in the IDB sandbox)</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">52</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Throws <code>storage/object-not-found</code> for missing objects</span></summary>
+<div class="compat-evidence"><div class="compat-probe">not implemented; oracle would lock prod's error shape if we ever add it</div></div>
+</details>
+</div>
 
 ## `getBytes(ref, maxDownloadSize?)` — read as ArrayBuffer
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 53 | Returns the blob's contents as an `ArrayBuffer` | ✓ | `unit:reference.test.ts` ("accepts a Uint8Array" round-trip via `getBytes`) |
-| 54 | Throws `storage/object-not-found` when no object exists at the path | ✓ | `unit:reference.test.ts` ("throws storage/object-not-found for missing paths") + oracle: `scripts/oracle/observations/storage-delete-then-get-throws.json` (against blockingfun, fb-js-sdk 12.13.0: upload → delete → `getDownloadURL` on the deleted ref throws `FirebaseError` with `code: 'storage/object-not-found'`) |
-| 55 | Throws when `blob.size > maxDownloadSize` with `.code` exposed | ⚠ | code-divergence (ST-B1): sandbox now throws a `StorageError` with `.code === 'storage/quota-exceeded'` (was a plain `Error` with the code only in the message). Prod's client-side cap throws `FirebaseError` with `code: 'storage/invalid-argument'` — the codes still differ, but both now expose `.code`. Probe: `unit:error-codes.test.ts` ("quota-exceeded when the blob exceeds maxDownloadSizeBytes"). Documented in `download.ts`. Aligning the code value to `invalid-argument` is deferred pending an oracle capture of prod's exact shape. |
-| 56 | Just-under-cap reads succeed and return the full byte length | ✓ | `unit:reference.test.ts` ("honors maxDownloadSizeBytes when the blob is too large") |
-| 57 | Throws `storage/invalid-root-operation` when called on the root reference | ✓ | `unit:reference.test.ts` ("throws invalid-root-operation on root reads") |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">53</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns the blob's contents as an <code>ArrayBuffer</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("accepts a Uint8Array" round-trip via <code>getBytes</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">54</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>storage/object-not-found</code> when no object exists at the path</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws storage/object-not-found for missing paths") + oracle: <code>scripts/oracle/observations/storage-delete-then-get-throws.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload → delete → <code>getDownloadURL</code> on the deleted ref throws <code>FirebaseError</code> with <code>code: 'storage/object-not-found'</code>)</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">55</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Throws when <code>blob.size &gt; maxDownloadSize</code> with <code>.code</code> exposed</span></summary>
+<div class="compat-evidence"><div class="compat-probe">code-divergence (ST-B1): sandbox now throws a <code>StorageError</code> with <code>.code === 'storage/quota-exceeded'</code> (was a plain <code>Error</code> with the code only in the message). Prod's client-side cap throws <code>FirebaseError</code> with <code>code: 'storage/invalid-argument'</code> — the codes still differ, but both now expose <code>.code</code>. Probe: <code>unit:error-codes.test.ts</code> ("quota-exceeded when the blob exceeds maxDownloadSizeBytes"). Documented in <code>download.ts</code>. Aligning the code value to <code>invalid-argument</code> is deferred pending an oracle capture of prod's exact shape.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">56</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Just-under-cap reads succeed and return the full byte length</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("honors maxDownloadSizeBytes when the blob is too large")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">57</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> when called on the root reference</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws invalid-root-operation on root reads")</div></div>
+</details>
+</div>
 
 ## `getBlob(ref, maxDownloadSize?)` — read as Blob
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 58 | Returns the stored bytes wrapped as a `Blob` (with `.type` from metadata) | ✓ | `unit:reference.test.ts` ("accepts a Blob and round-trips through getBlob") |
-| 59 | Throws `storage/object-not-found` for missing paths | ✓ | `unit:reference.test.ts` ("throws storage/object-not-found for missing paths") |
-| 60 | Honors `maxDownloadSize` same as `getBytes` | ✓ | (shared `fetchBlob` helper in `download.ts`) |
-| 61 | Root-ref read throws `storage/invalid-root-operation` | ✓ | shared via `guardNonRoot` in `download.ts` |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">58</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns the stored bytes wrapped as a <code>Blob</code> (with <code>.type</code> from metadata)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("accepts a Blob and round-trips through getBlob")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">59</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>storage/object-not-found</code> for missing paths</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws storage/object-not-found for missing paths")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">60</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Honors <code>maxDownloadSize</code> same as <code>getBytes</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">(shared <code>fetchBlob</code> helper in <code>download.ts</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">61</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Root-ref read throws <code>storage/invalid-root-operation</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">shared via <code>guardNonRoot</code> in <code>download.ts</code></div></div>
+</details>
+</div>
 
 ## `getStream(ref, maxDownloadSize?)` — Node-specific
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 62 | Exported by `firebase/storage` (Node entry only); returns a Node `Readable` | — | not implemented in `pyric/storage` — browser-shaped v1 scope, no Node-stream variant |
+<div class="compat-list">
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">62</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Exported by <code>firebase/storage</code> (Node entry only); returns a Node <code>Readable</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">not implemented in <code>pyric/storage</code> — browser-shaped v1 scope, no Node-stream variant</div></div>
+</details>
+</div>
 
 ## `deleteObject(ref)` — delete
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 63 | Removes both the blob AND the metadata atomically (post-delete `getBlob` throws `object-not-found`) | ✓ | `unit:reference.test.ts` ("removes both blob and metadata") |
-| 64 | Sandbox: no-op on missing path (does NOT throw) | ⚠ | divergence: sandbox is no-op via `persistence.ts`'s `delete`. Prod's `deleteObject` on a missing path throws `storage/object-not-found`. Oracle-locked: `scripts/oracle/observations/storage-delete-missing-throws.json` (`code: 'storage/object-not-found'`, `name: 'FirebaseError'` against blockingfun, fb-js-sdk 12.13.0). Both sides pinned in `oracle-conformance.test.ts`; documented in `download.ts`. |
-| 65 | Throws `storage/invalid-root-operation` on the root reference | ✓ | `unit:reference.test.ts` ("throws invalid-root-operation on root") |
-| 66 | Prod: a successful `deleteObject` followed by `getDownloadURL` on the same ref throws `storage/object-not-found` | ✓ (prod-only) | oracle: `scripts/oracle/observations/storage-delete-then-get-throws.json` (against blockingfun, fb-js-sdk 12.13.0: upload + delete succeed, then `getDownloadURL` throws `code: 'storage/object-not-found'`, message `"Firebase Storage: Object '…' does not exist."`, `isFirebaseError: true`) |
-| 67 | Sandbox: writes-then-delete leaves no metadata (post-delete `getMetadata` throws `object-not-found`) | ✓ | follows from #63 + `getMetadata` |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">63</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Removes both the blob AND the metadata atomically (post-delete <code>getBlob</code> throws <code>object-not-found</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("removes both blob and metadata")</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">64</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Sandbox: no-op on missing path (does NOT throw)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">divergence: sandbox is no-op via <code>persistence.ts</code>'s <code>delete</code>. Prod's <code>deleteObject</code> on a missing path throws <code>storage/object-not-found</code>. Oracle-locked: <code>scripts/oracle/observations/storage-delete-missing-throws.json</code> (<code>code: 'storage/object-not-found'</code>, <code>name: 'FirebaseError'</code> against blockingfun, fb-js-sdk 12.13.0). Both sides pinned in <code>oracle-conformance.test.ts</code>; documented in <code>download.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">65</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> on the root reference</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws invalid-root-operation on root")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">66</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: a successful <code>deleteObject</code> followed by <code>getDownloadURL</code> on the same ref throws <code>storage/object-not-found</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-delete-then-get-throws.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload + delete succeed, then <code>getDownloadURL</code> throws <code>code: 'storage/object-not-found'</code>, message <code>"Firebase Storage: Object '…' does not exist."</code>, <code>isFirebaseError: true</code>)</div>
+<div class="compat-note">(prod-only)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">67</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Sandbox: writes-then-delete leaves no metadata (post-delete <code>getMetadata</code> throws <code>object-not-found</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">follows from #63 + <code>getMetadata</code></div></div>
+</details>
+</div>
 
 ## `listAll(ref)` — list all children under a ref
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 68 | Returns `ListResult` with `items` (direct child files) + `prefixes` (sub-folder refs) + `nextPageToken: undefined` | ✓ | `unit:list.test.ts` |
-| 69 | Empty bucket → both arrays empty, `nextPageToken: undefined` | ✓ | `unit:list.test.ts` ("returns empty arrays on an empty bucket") |
-| 70 | Direct children only — does NOT recurse into grandchildren as items | ✓ | `unit:list.test.ts` ("does not recurse into grandchildren as items") |
-| 71 | Sub-folders surface as `prefixes` and are deduplicated (many files under one folder → ONE prefix entry) | ✓ | `unit:list.test.ts` ("promotes sub-folders into prefixes (deduplicated)") |
-| 72 | `items` sorted by path (IDB key order, lexicographic) | ✓ | `unit:list.test.ts` ("lists direct children of a folder") |
-| 73 | `prefixes` sorted lexicographically by `fullPath` (for determinism) | ✓ | `unit:list.test.ts` (root-scan example asserts `configs` < `sessions`) |
-| 74 | The scanned ref itself is NEVER included in `items` (even when an object exists at the exact prefix path) | ✓ | `unit:list.test.ts` ("does not include the scanned ref itself") |
-| 75 | `listAll(ref(storage))` (root) scans the entire bucket | ✓ | `unit:list.test.ts` ("listAll on the root scans the entire bucket") |
-| 76 | Items expose the full `StorageReference` shape (storage, bucket, name, parent) | ✓ | `unit:list.test.ts` ("items expose the StorageReference shape") |
-| 77 | Prod: items + prefixes shape matches sandbox after `N` uploads under a directory | ✓ | oracle: `scripts/oracle/observations/storage-listall-shape.json` (against blockingfun, fb-js-sdk 12.13.0: 3 direct children + 1 grandchild → `items` has all 3 direct children sorted, `prefixes` has the single sub-folder, `itemCount: 3`, `prefixCount: 1`, `threeDirectChildren: true`, `oneSubPrefix: true`) |
-| 77a | `listAll` enforces rules: `read` permission on the scanned prefix path governs list (Firebase: `read` covers download AND list), denied prefix → `storage/unauthorized` | ✓ | ST-B2 fixed: `list.ts` now calls `enforceRules` with `method: 'read'` on the listed prefix (was a silent bypass — a denied tree was still fully enumerable). With no rules configured the check is a no-op. Probe: `unit:list-rules.test.ts` ("denies an anonymous listAll of a tree the rules protect" / "allows an authed listAll"). Note: a `read` rule scoped to `match /sessions/{id}` does NOT grant list on `/sessions` — the folder needs its own read rule, matching prod; the session-archive demo ruleset adds `match /sessions { allow read }`. |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">68</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>ListResult</code> with <code>items</code> (direct child files) + <code>prefixes</code> (sub-folder refs) + <code>nextPageToken: undefined</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">69</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Empty bucket → both arrays empty, <code>nextPageToken: undefined</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("returns empty arrays on an empty bucket")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">70</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Direct children only — does NOT recurse into grandchildren as items</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("does not recurse into grandchildren as items")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">71</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Sub-folders surface as <code>prefixes</code> and are deduplicated (many files under one folder → ONE prefix entry)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("promotes sub-folders into prefixes (deduplicated)")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">72</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>items</code> sorted by path (IDB key order, lexicographic)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("lists direct children of a folder")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">73</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>prefixes</code> sorted lexicographically by <code>fullPath</code> (for determinism)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> (root-scan example asserts <code>configs</code> &lt; <code>sessions</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">74</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The scanned ref itself is NEVER included in <code>items</code> (even when an object exists at the exact prefix path)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("does not include the scanned ref itself")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">75</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>listAll(ref(storage))</code> (root) scans the entire bucket</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("listAll on the root scans the entire bucket")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">76</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Items expose the full <code>StorageReference</code> shape (storage, bucket, name, parent)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:list.test.ts</code> ("items expose the StorageReference shape")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">77</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: items + prefixes shape matches sandbox after <code>N</code> uploads under a directory</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-listall-shape.json</code> (against blockingfun, fb-js-sdk 12.13.0: 3 direct children + 1 grandchild → <code>items</code> has all 3 direct children sorted, <code>prefixes</code> has the single sub-folder, <code>itemCount: 3</code>, <code>prefixCount: 1</code>, <code>threeDirectChildren: true</code>, <code>oneSubPrefix: true</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">77a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>listAll</code> enforces rules: <code>read</code> permission on the scanned prefix path governs list (Firebase: <code>read</code> covers download AND list), denied prefix → <code>storage/unauthorized</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">ST-B2 fixed: <code>list.ts</code> now calls <code>enforceRules</code> with <code>method: 'read'</code> on the listed prefix (was a silent bypass — a denied tree was still fully enumerable). With no rules configured the check is a no-op. Probe: <code>unit:list-rules.test.ts</code> ("denies an anonymous listAll of a tree the rules protect" / "allows an authed listAll"). Note: a <code>read</code> rule scoped to <code>match /sessions/{id}</code> does NOT grant list on <code>/sessions</code> — the folder needs its own read rule, matching prod; the session-archive demo ruleset adds <code>match /sessions { allow read }</code>.</div></div>
+</details>
+</div>
 
 ## `list(ref, options?)` — paginated list
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 78 | Exported by `firebase/storage`; accepts `{ maxResults, pageToken }`, returns a `ListResult` with `nextPageToken` set when more pages remain | — | not implemented in `pyric/storage` — pagination deferred per `list.ts` (the `ListResult.nextPageToken` field is kept optional so consumer code that handles pagination doesn't have to special-case the sandbox) |
+<div class="compat-list">
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">78</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Exported by <code>firebase/storage</code>; accepts <code>{ maxResults, pageToken }</code>, returns a <code>ListResult</code> with <code>nextPageToken</code> set when more pages remain</span></summary>
+<div class="compat-evidence"><div class="compat-probe">not implemented in <code>pyric/storage</code> — pagination deferred per <code>list.ts</code> (the <code>ListResult.nextPageToken</code> field is kept optional so consumer code that handles pagination doesn't have to special-case the sandbox)</div></div>
+</details>
+</div>
 
 ## `getMetadata(ref)` / `updateMetadata(ref, metadata)` — metadata ops
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 79 | `getMetadata(ref)` returns the same `FullMetadata` shape `uploadBytes` produced | ✓ | `unit:metadata.test.ts` ("returns the FullMetadata uploadBytes wrote") |
-| 80 | `getMetadata(ref)` throws `storage/object-not-found` for missing paths | ✓ | `unit:metadata.test.ts` ("throws object-not-found for missing paths") |
-| 81 | `getMetadata(ref)` throws `storage/invalid-root-operation` on the root | ✓ | `unit:metadata.test.ts` ("throws invalid-root-operation on the root reference") |
-| 82 | `updateMetadata(ref, patch)` replaces the listed client-settable fields wholesale (per Firebase semantics) | ✓ | `unit:metadata.test.ts` ("replaces settable fields, bumps metageneration, refreshes updated") |
-| 83 | `updateMetadata` bumps `metageneration` by 1 on each call | ✓ | `unit:metadata.test.ts` |
-| 84 | `updateMetadata` refreshes `updated` to the call moment; `timeCreated` and `generation` stay pinned | ✓ | `unit:metadata.test.ts` |
-| 85 | `updateMetadata` preserves the blob bytes (only metadata changes) | ✓ | `unit:metadata.test.ts` ("leaves the blob content untouched") |
-| 86 | `updateMetadata` with `undefined` field values preserves the prior value (does NOT clear it) | ⚠ | divergence: prod accepts `null` to explicitly clear a field. Sandbox doesn't model `null`-clear (per `metadata.ts` doc comment). Documented; not probe-locked. |
-| 87 | `updateMetadata` throws `storage/object-not-found` for missing paths | ✓ | `unit:metadata.test.ts` ("throws object-not-found when the path is missing") |
-| 88 | `updateMetadata` throws `storage/invalid-root-operation` on the root | ✓ | `unit:metadata.test.ts` ("throws invalid-root-operation on the root reference") |
-| 89 | Prod: `getMetadata` after `uploadBytes` returns `contentType` and `size` matching what was uploaded | ✓ (prod-only) | oracle: `scripts/oracle/observations/storage-upload-then-getmetadata.json` (against blockingfun, fb-js-sdk 12.13.0: upload 128-byte payload with `contentType: 'application/octet-stream'`, getMetadata returns `metadataSize: 128`, `metadataContentType: 'application/octet-stream'`, `metadataBucket: 'blockingfun.firebasestorage.app'`, `metadataMetageneration: '1'`, `fullPathMatches: true`) |
-| 90 | Prod: `updateMetadata({customMetadata: {...}})` round-trips through a follow-up `getMetadata` | ✓ (prod-only) | oracle: `scripts/oracle/observations/storage-update-metadata-roundtrip.json` (against blockingfun, fb-js-sdk 12.13.0: post-update `getMetadata` returns the exact `customMetadata` object, `metageneration` bumps `'1'` → `'2'`, `customSurvived: true`, `metagenerationBumped: true`) |
-| 91 | `FullMetadata.md5Hash` populated on uploads | ⚠ | divergence: sandbox does NOT compute `md5Hash`. Oracle-locked: `scripts/oracle/observations/storage-upload-then-getmetadata.json` confirms prod sets `md5Hash` (`hasMd5Hash: true` after a vanilla `uploadBytes`). Both sides pinned in `oracle-conformance.test.ts`. Aligning the sandbox is a one-spot fix in `upload.ts`'s `buildStoredMetadata`. |
-| 92 | `FullMetadata.ref` lazy population (prod populates lazily) | — | not modeled in `pyric/storage` — `metadata.ts` explicitly omits `ref` from `FullMetadata` |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">79</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getMetadata(ref)</code> returns the same <code>FullMetadata</code> shape <code>uploadBytes</code> produced</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("returns the FullMetadata uploadBytes wrote")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">80</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getMetadata(ref)</code> throws <code>storage/object-not-found</code> for missing paths</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("throws object-not-found for missing paths")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">81</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getMetadata(ref)</code> throws <code>storage/invalid-root-operation</code> on the root</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("throws invalid-root-operation on the root reference")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">82</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>updateMetadata(ref, patch)</code> replaces the listed client-settable fields wholesale (per Firebase semantics)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("replaces settable fields, bumps metageneration, refreshes updated")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">83</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>updateMetadata</code> bumps <code>metageneration</code> by 1 on each call</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">84</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>updateMetadata</code> refreshes <code>updated</code> to the call moment; <code>timeCreated</code> and <code>generation</code> stay pinned</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">85</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>updateMetadata</code> preserves the blob bytes (only metadata changes)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("leaves the blob content untouched")</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">86</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>updateMetadata</code> with <code>undefined</code> field values preserves the prior value (does NOT clear it)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">divergence: prod accepts <code>null</code> to explicitly clear a field. Sandbox doesn't model <code>null</code>-clear (per <code>metadata.ts</code> doc comment). Documented; not probe-locked.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">87</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>updateMetadata</code> throws <code>storage/object-not-found</code> for missing paths</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("throws object-not-found when the path is missing")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">88</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>updateMetadata</code> throws <code>storage/invalid-root-operation</code> on the root</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:metadata.test.ts</code> ("throws invalid-root-operation on the root reference")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">89</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: <code>getMetadata</code> after <code>uploadBytes</code> returns <code>contentType</code> and <code>size</code> matching what was uploaded</span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-upload-then-getmetadata.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload 128-byte payload with <code>contentType: 'application/octet-stream'</code>, getMetadata returns <code>metadataSize: 128</code>, <code>metadataContentType: 'application/octet-stream'</code>, <code>metadataBucket: 'blockingfun.firebasestorage.app'</code>, <code>metadataMetageneration: '1'</code>, <code>fullPathMatches: true</code>)</div>
+<div class="compat-note">(prod-only)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">90</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: <code>updateMetadata({customMetadata: {...}})</code> round-trips through a follow-up <code>getMetadata</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-update-metadata-roundtrip.json</code> (against blockingfun, fb-js-sdk 12.13.0: post-update <code>getMetadata</code> returns the exact <code>customMetadata</code> object, <code>metageneration</code> bumps <code>'1'</code> → <code>'2'</code>, <code>customSurvived: true</code>, <code>metagenerationBumped: true</code>)</div>
+<div class="compat-note">(prod-only)</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">91</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>FullMetadata.md5Hash</code> populated on uploads</span></summary>
+<div class="compat-evidence"><div class="compat-probe">divergence: sandbox does NOT compute <code>md5Hash</code>. Oracle-locked: <code>scripts/oracle/observations/storage-upload-then-getmetadata.json</code> confirms prod sets <code>md5Hash</code> (<code>hasMd5Hash: true</code> after a vanilla <code>uploadBytes</code>). Both sides pinned in <code>oracle-conformance.test.ts</code>. Aligning the sandbox is a one-spot fix in <code>upload.ts</code>'s <code>buildStoredMetadata</code>.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">92</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>FullMetadata.ref</code> lazy population (prod populates lazily)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">not modeled in <code>pyric/storage</code> — <code>metadata.ts</code> explicitly omits <code>ref</code> from <code>FullMetadata</code></div></div>
+</details>
+</div>
 
 ## `connectStorageEmulator(storage, host, port)` — emulator hook
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 93 | Exported by `firebase/storage`; reroutes a `FirebaseStorage` handle to a local emulator | — | not implemented in `pyric/storage` — the sandbox IS the local-target alternative; emulator parity is out of scope per `index.ts` |
+<div class="compat-list">
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">93</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Exported by <code>firebase/storage</code>; reroutes a <code>FirebaseStorage</code> handle to a local emulator</span></summary>
+<div class="compat-evidence"><div class="compat-probe">not implemented in <code>pyric/storage</code> — the sandbox IS the local-target alternative; emulator parity is out of scope per <code>index.ts</code></div></div>
+</details>
+</div>
 
 ## Rules — `parseStorageRules` / `evaluateStorageRules` / `getStorage(ctx, { rules })`
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 94 | `parseStorageRules(source)` returns an opaque handle | ✓ | `unit:rules.test.ts` ("parses the canonical session-archive ruleset") |
-| 95 | `parseStorageRules` rejects non-`firebase.storage` service headers | ✓ | `unit:rules.test.ts` ("rejects unknown service header") |
-| 96 | `parseStorageRules` rejects unsupported granular verbs (`get`/`list`/`create`/`update`/`delete`) — only `read`/`write` in the v1 scope subset | ⚠ | divergence: prod accepts all six. Sandbox v1 limits to the two-verb model per `rules.ts` doc comment. |
-| 97 | `parseStorageRules` rejects unterminated string literals with `SyntaxError` | ✓ | `unit:rules.test.ts` ("rejects unterminated strings") |
-| 98 | `evaluateStorageRules` matches `match /sessions/{id} { allow read: if request.auth != null; }` for an authed read | ✓ | `unit:rules.test.ts` ("allows authenticated reads of /sessions/{id}") |
-| 99 | `evaluateStorageRules` denies anonymous reads when the rule requires `request.auth != null` | ✓ | `unit:rules.test.ts` ("denies anonymous reads") |
-| 100 | `evaluateStorageRules` supports `request.resource.size < N` constraints (with arithmetic literals like `10 * 1024 * 1024`) | ✓ | `unit:rules.test.ts` ("allows JSON writes under 10MB") |
-| 101 | `evaluateStorageRules` supports `request.resource.contentType == '<mime>'` constraints | ✓ | `unit:rules.test.ts` (mime constraint inside the session-archive ruleset) |
-| 102 | Multi-segment wildcard `{allPaths=**}` matches zero-or-more remaining segments | ✓ | `unit:rules.test.ts` (parser + evaluator both honor the `**` form) |
-| 103 | Path-parameter binding (`{sessionId}`) accessible inside the `if` expression | ✓ | `unit:rules.test.ts` |
-| 104 | `request.time`, `matches()` regex, function definitions, granular verbs | — | deliberately out of scope per `rules.ts` doc comment |
-| 105 | Op-level enforcement: `uploadBytes` against a denied path throws `storage/unauthorized` on sandbox / `storage/unauthorized` on prod, `.code` exposed on both | ✓ | ST-B1 fixed: sandbox now throws a `StorageError` (see `src/storage/errors.ts`) whose `.code === 'storage/unauthorized'` — matching prod's `FirebaseError.code`. Probe: `unit:error-codes.test.ts` ("unauthorized when rules deny the operation"). Residual divergence (documented, not a `.code` gap): the sandbox `StorageError.name` is `'StorageError'` (plain `Error` subclass, same shape as Firestore's `SandboxError`) where prod reports `name: 'FirebaseError'` / `isFirebaseError: true`, and the message wording differs (sandbox embeds the matched-rule reason chain). Oracle-locked: `scripts/oracle/observations/storage-rules-denied-error-code.json` (against blockingfun, fb-js-sdk 12.13.0: `code: 'storage/unauthorized'`, message `"Firebase Storage: User does not have permission to access '<path>'."`, `name: 'FirebaseError'`, `isFirebaseError: true`). |
-| 106 | `getMetadata` against a denied path throws `storage/unauthorized` | ✓ | `unit:rules.test.ts` (operation-integration section) |
-| 107 | `updateMetadata` against a denied path throws `storage/unauthorized` | ✓ | `unit:rules.test.ts` |
-| 108 | `deleteObject` against a denied path throws `storage/unauthorized` | ✓ | `unit:rules.test.ts` |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">94</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>parseStorageRules(source)</code> returns an opaque handle</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("parses the canonical session-archive ruleset")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">95</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>parseStorageRules</code> rejects non-<code>firebase.storage</code> service headers</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("rejects unknown service header")</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">96</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>parseStorageRules</code> rejects unsupported granular verbs (<code>get</code>/<code>list</code>/<code>create</code>/<code>update</code>/<code>delete</code>) — only <code>read</code>/<code>write</code> in the v1 scope subset</span></summary>
+<div class="compat-evidence"><div class="compat-probe">divergence: prod accepts all six. Sandbox v1 limits to the two-verb model per <code>rules.ts</code> doc comment.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">97</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>parseStorageRules</code> rejects unterminated string literals with <code>SyntaxError</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("rejects unterminated strings")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">98</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>evaluateStorageRules</code> matches <code>match /sessions/{id} { allow read: if request.auth != null; }</code> for an authed read</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("allows authenticated reads of /sessions/{id}")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">99</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>evaluateStorageRules</code> denies anonymous reads when the rule requires <code>request.auth != null</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("denies anonymous reads")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">100</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>evaluateStorageRules</code> supports <code>request.resource.size &lt; N</code> constraints (with arithmetic literals like <code>10 <em> 1024 </em> 1024</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("allows JSON writes under 10MB")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">101</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>evaluateStorageRules</code> supports <code>request.resource.contentType == '&lt;mime&gt;'</code> constraints</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> (mime constraint inside the session-archive ruleset)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">102</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Multi-segment wildcard <code>{allPaths=**}</code> matches zero-or-more remaining segments</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> (parser + evaluator both honor the <code>**</code> form)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">103</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Path-parameter binding (<code>{sessionId}</code>) accessible inside the <code>if</code> expression</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">104</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>request.time</code>, <code>matches()</code> regex, function definitions, granular verbs</span></summary>
+<div class="compat-evidence"><div class="compat-probe">deliberately out of scope per <code>rules.ts</code> doc comment</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">105</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Op-level enforcement: <code>uploadBytes</code> against a denied path throws <code>storage/unauthorized</code> on sandbox / <code>storage/unauthorized</code> on prod, <code>.code</code> exposed on both</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ST-B1 fixed: sandbox now throws a <code>StorageError</code> (see <code>src/storage/errors.ts</code>) whose <code>.code === 'storage/unauthorized'</code> — matching prod's <code>FirebaseError.code</code>. Probe: <code>unit:error-codes.test.ts</code> ("unauthorized when rules deny the operation"). Residual divergence (documented, not a <code>.code</code> gap): the sandbox <code>StorageError.name</code> is <code>'StorageError'</code> (plain <code>Error</code> subclass, same shape as Firestore's <code>SandboxError</code>) where prod reports <code>name: 'FirebaseError'</code> / <code>isFirebaseError: true</code>, and the message wording differs (sandbox embeds the matched-rule reason chain). Oracle-locked: <code>scripts/oracle/observations/storage-rules-denied-error-code.json</code> (against blockingfun, fb-js-sdk 12.13.0: <code>code: 'storage/unauthorized'</code>, message <code>"Firebase Storage: User does not have permission to access '&lt;path&gt;'."</code>, <code>name: 'FirebaseError'</code>, <code>isFirebaseError: true</code>).</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">106</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getMetadata</code> against a denied path throws <code>storage/unauthorized</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> (operation-integration section)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">107</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>updateMetadata</code> against a denied path throws <code>storage/unauthorized</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">108</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>deleteObject</code> against a denied path throws <code>storage/unauthorized</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code></div></div>
+</details>
+</div>
 
 ## `sandbox.*` (sandbox-only test driver)
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 109 | `getStorageService(storage)` returns the backing `StorageService` for sandbox handles (sandbox-only escape hatch for tests) | ✓ | `unit:service.test.ts` |
-| 110 | `getStorageService` on a prod-target handle throws `Error: …sandbox-only` | ✓ | `unit:prod-target.test.ts` ("throws — service is sandbox-only") |
-| 111 | `targetOf(storage)` returns the discriminated `Target` (sandbox / prod) | ✓ | `unit:service.test.ts` |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">109</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorageService(storage)</code> returns the backing <code>StorageService</code> for sandbox handles (sandbox-only escape hatch for tests)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">110</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorageService</code> on a prod-target handle throws <code>Error: …sandbox-only</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code> ("throws — service is sandbox-only")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">111</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>targetOf(storage)</code> returns the discriminated <code>Target</code> (sandbox / prod)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
+</details>
+</div>
 
 ## Visible gaps / open questions
 

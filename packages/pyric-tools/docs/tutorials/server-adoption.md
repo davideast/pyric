@@ -1,6 +1,6 @@
-# Server adoption — run your firebase-admin app on the pyric sandbox
+# Run your firebase-admin app on the pyric sandbox
 
-You have an existing Node server that uses `firebase-admin` — Realtime
+You have an existing Node server that uses `firebase-admin`: Realtime
 Database, Auth, Storage. By the end of this tutorial it runs against the
 **pyric in-browser sandbox** with **zero code changes**: no pyric imports,
 no config edits, no emulator suite, no Firebase project.
@@ -11,13 +11,13 @@ Takes about five minutes.
 
 - **Node ≥ 22.15** for full coverage. ESM-only apps work on earlier 22.x,
   but rewriting CJS `require('firebase-admin')` needs 22.15's sync module
-  hooks (older Nodes print a warning and skip CJS — see
+  hooks (older Nodes print a warning and skip CJS, see
   [Troubleshooting](#troubleshooting)).
 - A server using `firebase-admin` (RTDB / Auth / Storage). A
-  `firebase.json` is optional — without one, `pyric dev` warns and serves
+  `firebase.json` is optional: without one, `pyric dev` warns and serves
   the current directory.
 
-## Step 1 — Install
+## Step 1: Install
 
 ```bash
 npm i -D pyric-tools pyric-admin pyric
@@ -28,7 +28,7 @@ Three packages, one job each: `pyric-tools` is the CLI + Node loader,
 `firebase-admin/*` and `firebase/*` imports resolve to at dev time. None
 of them appear in your app code.
 
-## Step 2 — Run it
+## Step 2: Run it
 
 ```bash
 npx pyric dev
@@ -38,7 +38,7 @@ npx pyric dev
 script** with the environment activated (or run an explicit command:
 `npx pyric dev -- node server.mjs`). Whenever it runs your server,
 `pyric dev` also mounts the WebSocket relay the server's Firebase
-calls travel through — no extra flag needed.
+calls travel through, no extra flag needed.
 
 Your server needs nothing pyric-shaped. This works as-is:
 
@@ -94,10 +94,10 @@ prefixed with `[dev]`:
 [dev] api listening on http://localhost:8080
 ```
 
-(The `register: active` line appears once per Node process — `npm run
+(The `register: active` line appears once per Node process; `npm run
 dev` is itself a Node process, so seeing it twice is normal.)
 
-A browser tab on <http://localhost:3473> auto-opens — **it is the
+A browser tab on <http://localhost:3473> auto-opens: **it is the
 backend**, so keep it open. Now:
 
 ```bash
@@ -112,17 +112,17 @@ writes it (`--ui` implies `--bridge`).
 
 ## How it works
 
-Three small pieces, no magic:
+Three small pieces, nothing hidden:
 
-1. **Activator** — `pyric dev` runs your dev command with
+1. **Activator**: `pyric dev` runs your dev command with
    `PYRIC_SANDBOX=remote:<serve url>` set and
    `--import pyric-tools/register` appended to `NODE_OPTIONS`.
-2. **Loader** — `pyric-tools/register` rewrites module resolution:
+2. **Loader**: `pyric-tools/register` rewrites module resolution:
    `firebase-admin/*` → `pyric-admin/*` and `firebase/*` → `pyric/*`,
    every subpath 1:1. Without `PYRIC_SANDBOX` it is completely inert, and
    `pyric-admin`'s bare `initializeApp()` delegates straight to the real
-   `firebase-admin` — same code, prod behavior.
-3. **Bridge** — each Firebase call becomes an op relayed over a local
+   `firebase-admin`: same code, prod behavior.
+3. **Bridge**: each Firebase call becomes an op relayed over a local
    WebSocket to `pyric dev`, then into the browser tab, where the sandbox
    runs in a SharedWorker. Your server, the page's `firebase/*` code,
    Studio, and any MCP agent all operate on the **same** backend.
@@ -137,9 +137,9 @@ every tab and server calls fail fast with guidance (never a silent no-op).
 | **Realtime Database** | `ref().get/set/update/remove/push`, `once('value')`, `on('value')` live listeners; `update()` is a real multi-path update; `push().key` is sync | other event types (`child_added`, …), queries (`orderBy*`, `limitTo*`, …), `transaction`, `onDisconnect`, priorities |
 | **Auth (admin)** | `createUser`, `updateUser` (displayName / email / password / disabled / emailVerified), `deleteUser`, `listUsers`, `getUser` / `getUserByEmail`, `setCustomUserClaims`, `createCustomToken` / `verifyIdToken` | `getUserByPhoneNumber`, bulk ops (`getUsers`, `deleteUsers`, `importUsers`), session cookies, action links, provider configs, `revokeRefreshTokens` |
 | **Storage** | `file().save/download/delete/exists` up to **8 MiB per object**, `getSignedUrl` (local stub), single default bucket | streams (`createReadStream`/`createWriteStream`), resumable uploads, named buckets, copy/move, ACL/IAM |
-| **Firestore (admin)** | — | everything (coming; see below) |
+| **Firestore (admin)** | none | everything (coming; see below) |
 
-Behavior notes you will actually hit — each error below is quoted from a
+Behavior notes you will actually hit. Each error below is quoted from a
 real run:
 
 - **Firestore admin isn't relayed yet.** `getFirestore()` on the sandbox
@@ -147,7 +147,7 @@ real run:
   remote sandbox — the bridge currently carries Realtime Database and
   Auth. Use pyric/firestore in the browser (or the MCP Firestore tools)
   until remote Firestore lands.` Your browser code's `firebase/firestore`
-  is fully supported — only the server-side admin arm is pending.
+  is fully supported: only the server-side admin arm is pending.
 - **Storage is single-bucket.** `bucket('other')` throws:
   `pyric-admin/storage: the remote (browser) sandbox has a single bucket —
   bucket('other') cannot be isolated. Use bucket() (the default
@@ -157,22 +157,22 @@ real run:
   resumable transfers are not supported on the sandbox backend; split the
   object or keep it under the cap.` `createReadStream`/`createWriteStream`
   throw with the same remedy (`use file.download() (≤ 8 MiB) instead`).
-- **`getSignedUrl` is a deterministic local stub** — it returns
+- **`getSignedUrl` is a deterministic local stub**: it returns
   `pyric-sandbox-storage://pyric-default/<path>?expires=…&action=…` and
   the sandbox does **not** serve that URL. It exists so code that
   round-trips signed URLs (logs, fixtures) sees a stable shape.
 - **Tokens are sandbox-local.** `createCustomToken` mints a deterministic
   sandbox token and `verifyIdToken` only accepts tokens minted by a pyric
-  sandbox — not real Firebase JWTs.
+  sandbox: not real Firebase JWTs.
 - **`getUser`/`getUserByEmail` go through `listUsers`** plus a client-side
-  filter — fine at sandbox scale, worth knowing if you list thousands of
+  filter, fine at sandbox scale, worth knowing if you list thousands of
   users in a loop.
 - **Missing downloads match prod's message shape:** `No such object:
   pyric-default/missing.bin`, so `catch` blocks that string-match keep
   working. `file.delete()` on a missing object is a no-op.
 
 Everything unsupported **throws a remediating error** naming what to do
-instead — nothing silently no-ops.
+instead; nothing silently no-ops.
 
 ## Escape hatches
 
@@ -194,7 +194,7 @@ With no dev server running you get: ``no running `pyric dev --bridge`
 found (looked for .pyric/serve.json in <cwd> and the default ports) —
 start your dev server with the bridge enabled and retry.``
 
-**Explicit wiring for tests** — when you want pyric identifiers on
+**Explicit wiring for tests**: when you want pyric identifiers on
 purpose instead of env-var routing:
 
 ```ts
@@ -213,7 +213,7 @@ An explicit config always bypasses the environment, so pyric-aware test
 code keeps full control even under `pyric dev`.
 
 **Production guard.** Under `NODE_ENV=production` both the loader and
-`pyric-admin` refuse to route to a sandbox — the loader prints
+`pyric-admin` refuse to route to a sandbox: the loader prints
 `pyric-tools/register: refusing to activate under NODE_ENV=production —
 firebase-admin/firebase imports are NOT rewritten.` and your app talks to
 real Firebase. Set `PYRIC_SANDBOX_FORCE=1` to override (dev/CI only).
@@ -221,25 +221,25 @@ real Firebase. Set `PYRIC_SANDBOX_FORCE=1` to override (dev/CI only).
 ## Troubleshooting
 
 - **`no browser tab is connected to the sandbox — open http://localhost:3473
-  in a browser and retry.`** — the backend is browser-resident. Open the
+  in a browser and retry.`** The backend is browser-resident. Open the
   printed URL (auto-open is suppressed under `--json`, `--no-open`, no
   TTY, and CI). The failure isn't latched: the next call retries. A
-  server that fires Firebase calls at boot can race the tab load — the
+  server that fires Firebase calls at boot can race the tab load: the
   first request after the tab is open succeeds.
 - **`Unknown method: … — the running sandbox may predate this feature;
-  restart pyric dev and reload the browser tab.`** — a SharedWorker
+  restart pyric dev and reload the browser tab.`** A SharedWorker
   survives serve restarts and can't hot-update. Restart `pyric dev`,
   then close/reload every tab of the app so the new worker loads.
 - **Always use the printed URL.** `http://localhost:3473` and
   `http://127.0.0.1:3473` are *different browser origins* with separate
-  SharedWorkers — opening the wrong one splits your backend in two.
+  SharedWorkers: opening the wrong one splits your backend in two.
 - **Where's my data?** Ephemeral by default: it lives in the browser
   worker, survives tab reloads, and stops being served the moment no page
   is open. `pyric dev --persist` additionally writes a committable
   `.pyric/state/state.json` (Firestore docs + auth users) restored on the
-  next run — see the [CLI reference](../reference/cli.md#pyric-dev).
-- **`this Node version lacks module.registerHooks (needs >= 22.15)`** —
-  on older Nodes ESM imports are still rewritten but CJS
+  next run, see the [CLI reference](../reference/cli.md#pyric-dev).
+- **`this Node version lacks module.registerHooks (needs >= 22.15)`** On
+  older Nodes ESM imports are still rewritten but CJS
   `require('firebase-admin')` is not, so a CJS app half-connects. Upgrade
   Node to ≥ 22.15.
 

@@ -3,7 +3,7 @@ title: "How to register deploy tools with an agent"
 navLabel: "Register deploy tools"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 27
+order: 59
 ---
 # How to register deploy tools with an agent
 
@@ -63,7 +63,7 @@ The double-`ok` (one from `ToolResult`, one from `Outcome`) reflects the two lay
 
 ## Scope only the tools the agent should have
 
-Each factory is independent — give the agent only the surfaces it needs. A read-only agent might get just `firestore_get_rules` and `firestore_get_index_status`:
+Each factory is independent. Give the agent only the surfaces it needs. A read-only agent might get only `firestore_get_rules` and `firestore_get_index_status`:
 ```ts
 const all = createFirestoreDeployTools(deps);
 const readonly = all.filter((h) =>
@@ -81,7 +81,7 @@ for (const h of decorated) registry.register(h);
 ```
 ## Cancellation
 
-Every handler checks `ctx.signal.aborted` before starting work. This prevents a deploy from *starting* when the agent has already cancelled. It doesn't abort a deploy already in flight — the underlying primitives don't yet plumb `AbortSignal` through their fetch calls.
+Every handler checks `ctx.signal.aborted` before starting work. This prevents a deploy from *starting* when the agent has already cancelled. It doesn't abort a deploy already in flight. The underlying primitives don't yet plumb `AbortSignal` through their fetch calls.
 
 ## Where to look next
 

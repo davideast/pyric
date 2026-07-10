@@ -3,7 +3,7 @@ title: "How to verify your rules against a captured session"
 navLabel: "Verify rules against prod"
 group: "pyric-tools"
 section: "How-to"
-order: 11
+order: 43
 ---
 # How to verify your rules against a captured session
 
@@ -14,7 +14,7 @@ swap to prod" safe: *will the rules I'm about to ship break what I built?*
 
 ## Capture a session, then verify
 
-Capture is on by default in `pyric dev`, so the loop is just three steps.
+Capture is on by default in `pyric dev`, so the loop has three steps.
 
 1. Start the sandbox. The session is written to `.pyric/last-session.json` as
    you go:
@@ -23,7 +23,7 @@ Capture is on by default in `pyric dev`, so the loop is just three steps.
    ```
    (Pass `--no-capture` to disable the recording.)
 
-2. Exercise your app against the running sandbox — sign in, create documents,
+2. Exercise your app against the running sandbox: sign in, create documents,
    run the journeys you care about. Every write is recorded.
 
 3. Replay the latest capture against the rules you intend to deploy:
@@ -136,7 +136,7 @@ pyric verify journeys/ --rules firestore=firestore.rules
 ```
 Add `--json` for machine-readable output to feed into a dashboard or gate.
 
-A minimal CI step — fail the build if any captured journey would break under
+A minimal CI step: fail the build if any captured journey would break under
 the rules being shipped:
 ```yaml
 - name: Verify rules against captured journeys

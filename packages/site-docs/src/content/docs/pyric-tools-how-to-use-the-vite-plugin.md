@@ -3,23 +3,23 @@ title: "Use the Vite plugin (pyric-tools/vite)"
 navLabel: "Use the Vite plugin"
 group: "pyric-tools"
 section: "How-to"
-order: 10
+order: 42
 ---
 # Use the Vite plugin (`pyric-tools/vite`)
 
 The `pyricSandbox()` Vite plugin gives a **source-driven** app the same
-`firebase/*` → pyric-sandbox swap that `pyric dev` gives a **static** app —
+`firebase/*` → pyric-sandbox swap that `pyric dev` gives a **static** app,
 without leaving your normal `vite dev` loop (HMR, source maps, your own
 router/UI stack). Your app's `firebase/*` imports stay exactly as written; the
 plugin swaps them at Vite's module-resolution layer. A plain `vite build` keeps
 the real firebase package; only `vite dev` and an explicit sandbox build
-(`vite build --mode development`) run the swap — see
+(`vite build --mode development`) run the swap. See
 [Two build flavors](#two-build-flavors-production-vs-sandbox).
 
 ## Plugin or `pyric dev`? (they're complementary)
 
-Both do the identical thing — run your unmodified `firebase/*` against an
-in-browser pyric sandbox with your `firestore.rules` enforced — but at different
+Both do the identical thing: run your unmodified `firebase/*` against an
+in-browser pyric sandbox with your `firestore.rules` enforced, but at different
 points in your toolchain. Pick by how your app is built:
 
 | | `pyricSandbox()` Vite plugin | `pyric dev` |
@@ -36,7 +36,7 @@ a pre-built or no-build app, reach for [`pyric dev`](../pyric-tools-how-to-serve
 > rules, runs the sandbox in a **SharedWorker** (one backend shared across tabs,
 > durable in IndexedDB), supports opt-in on-disk **persistence**, **seeding**, and
 > session **capture**, and can mount the **MCP bridge** (`bridge: true`) so an
-> external agent drives the same sandbox — the same surface `pyric dev` gives a
+> external agent drives the same sandbox, the same surface `pyric dev` gives a
 > static app, in one Vite plugin.
 
 ## Prerequisites
@@ -70,7 +70,7 @@ With no options, the plugin discovers your rules from `firebase.json`'s
 
 ### Options
 
-`pyricSandbox(options?)` — all optional:
+`pyricSandbox(options?)`: all optional.
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
@@ -78,9 +78,9 @@ With no options, the plugin discovers your rules from `firebase.json`'s
 | `root` | `string` | Vite's own `root` | Project directory used to discover `firebase.json` and resolve `rules`. |
 | `persist` | `boolean` | `false` | Persist sandbox data + test users to `.pyric/state/state.json` so they survive reloads and restarts. Off = ephemeral. |
 | `fresh` | `boolean` | `false` | With `persist`: discard the existing state file and re-seed from scratch. |
-| `seed` | `string` | — | Path to a seed file: a `"collection/doc" → fields` JSON map, **or** a `pyric snapshot` state-file. Applied at page init; lived state wins once it exists. |
+| `seed` | `string` | none | Path to a seed file: a `"collection/doc" → fields` JSON map, **or** a `pyric snapshot` state-file. Applied at page init; lived state wins once it exists. |
 | `capture` | `boolean` | `true` | Write the live session to `.pyric/last-session.json` for `pyric verify`. Pass `false` to suppress. |
-| `bridge` | `boolean \| { project?, disableAuditLog? }` | `false` | Mount the **MCP bridge** so an external agent can drive the sandbox. `true` ⇒ defaults; the object form sets the audit project / disables the audit log. The agent shares the **same SharedWorker sandbox** as your app (and Studio) — see [Drive the sandbox from an agent](#drive-the-sandbox-from-an-agent-bridge). |
+| `bridge` | `boolean \| { project?, disableAuditLog? }` | `false` | Mount the **MCP bridge** so an external agent can drive the sandbox. `true` ⇒ defaults; the object form sets the audit project / disables the audit log. The agent shares the **same SharedWorker sandbox** as your app (and Studio). See [Drive the sandbox from an agent](#drive-the-sandbox-from-an-agent-bridge). |
 | `swapInBuild` | `boolean` | mode-based | Force whether `vite build` runs the swap, overriding the mode default. Unset: swap for any non-`production` mode. `true` = always a sandbox build; `false` = always real firebase in builds. `vite dev` is unaffected. See [Two build flavors](#two-build-flavors-production-vs-sandbox). |
 ```ts
 // Point at a non-default rules file, and persist + seed the sandbox
@@ -98,21 +98,21 @@ npm run dev   # i.e. vite dev
 ```
 Now `vite dev` serves your app against the in-process pyric sandbox:
 
-- Your app's `firebase/*` imports are **unchanged** — the plugin swaps
+- Your app's `firebase/*` imports are **unchanged**: the plugin swaps
   `firebase/app`, `firebase/auth`, and `firebase/firestore` to pyric's adapters
   at resolution time. You never import anything from pyric in app code.
 - Your `firestore.rules` are **deployed at page load**: the plugin injects a
   small init module into the served HTML, and that module deploys your rules
   before your app code runs.
 - The Firebase config you pass to `initializeApp(config)` is
-  **accepted but ignored** in dev. No project, no credentials, no network —
+  **accepted but ignored** in dev. No project, no credentials, no network:
   the sandbox stands in for the real backend. (That same config flows through
   untouched to your production build; see [Two build flavors](#two-build-flavors-production-vs-sandbox).)
 
 ### Rules hot-reload on save
 
 Edit your `firestore.rules` and save. The plugin watches the file (through
-Vite's own watcher — no second file watcher) and **re-deploys the rules in
+Vite's own watcher, no second file watcher) and **re-deploys the rules in
 place**, with no page reload. You'll see a line like:
 ```
   ↻ [pyric] rules reloaded (a1b2c3d4e5f6)
@@ -131,7 +131,7 @@ talks to **one** backend, so a write in one tab shows up live in another, and th
 data is held in IndexedDB (it survives a refresh). If the browser lacks
 `SharedWorker`, the plugin falls back to a per-tab in-page sandbox automatically.
 
-That IndexedDB data is still **browser-local** — it doesn't land in your repo. To
+That IndexedDB data is still **browser-local**: it doesn't land in your repo. To
 make data + test users durable across restarts (and committable), turn on
 `persist`:
 ```ts
@@ -139,19 +139,19 @@ pyricSandbox({ persist: true });          // writes .pyric/state/state.json
 pyricSandbox({ persist: true, fresh: true }); // wipe + re-seed this run
 ```
 To preload data, point `seed` at a `"collection/doc" → fields` map or a file from
-`pyric snapshot`. With `persist`, the seed applies only on the first run — after
+`pyric snapshot`. With `persist`, the seed applies only on the first run. After
 that, **lived state wins**:
 ```ts
 pyricSandbox({ seed: 'seed.json' });
 ```
-The persistence model — the `.pyric/state` file, `persist` vs `fresh`, and how
-seed precedence works — is identical to `pyric dev` and documented in depth in
+The persistence model (the `.pyric/state` file, `persist` vs `fresh`, and how
+seed precedence works) is identical to `pyric dev` and documented in depth in
 [Persistence and multi-tab](../pyric-tools-how-to-serve-persistence-and-multi-tab/).
 
 ## Drive the sandbox from an agent (`bridge`)
 
 Turn on `bridge` and the plugin mounts the **MCP bridge** on Vite's own dev
-origin — so an external agent (Claude Code, Cursor, any MCP client) can read and
+origin, so an external agent (Claude Code, Cursor, any MCP client) can read and
 write the *same* sandbox your app is using, live, while you keep `vite dev`:
 ```ts
 pyricSandbox({ bridge: true });
@@ -162,11 +162,11 @@ This adds three routes on your dev server's port (no sidecar process):
 
 | Route | What it is |
 |---|---|
-| `POST /__pyric/mcp` | MCP over streamable HTTP — point your agent here |
+| `POST /__pyric/mcp` | MCP over streamable HTTP, point your agent here |
 | `GET /__pyric/health` | bridge health JSON |
 | `WS /__pyric/sandbox` | the page's bridge peer, routing to the SharedWorker (wired automatically) |
 
-Connect from Claude Code with the **pyric Claude Code plugin** — it runs a bundled
+Connect from Claude Code with the **pyric Claude Code plugin**: it runs a bundled
 stdio proxy that auto-discovers the running bridge from `.pyric/serve.json` (no
 fixed port, no `claude mcp add`). The [Wire Claude Code](../pyric-tools-tutorials-wire-claude-code/)
 tutorial walks the agent-side setup end to end.
@@ -176,7 +176,7 @@ plugin injects the bridge URL into the served init payload), and your agent can
 then seed, query, undo/redo, and audit the sandbox the page is running on.
 
 > **One shared sandbox.** The bridge routes the agent's tool-calls *through* the
-> **SharedWorker** — the same backend your app and (if enabled) Pyric Studio use.
+> **SharedWorker**: the same backend your app and (if enabled) Pyric Studio use.
 > Agent writes show up live in your open tab and in Studio, and vice versa; there
 > is no separate agent sandbox. The agent still reaches the worker through an open
 > page, so keep a tab open while it works.
@@ -192,11 +192,11 @@ the build **mode**:
 
 | Command | Mode | Output |
 |---|---|---|
-| `vite build` | `production` (default) | ships the **real `firebase` package** — your production artifact |
+| `vite build` | `production` (default) | ships the **real `firebase` package**, your production artifact |
 | `vite build --mode development` | any non-`production` mode | a **sandbox build** that bundles pyric's in-page adapters instead of the SDK |
 
 A plain `vite build` means there is **no separate "graduation" step**. The
-Firebase config you passed to `initializeApp` — ignored by the sandbox in dev —
+Firebase config you passed to `initializeApp` (ignored by the sandbox in dev)
 is the *same* config your built app uses to talk to real Firebase in production.
 Dev and prod are one toolchain: `vite dev` and the sandbox build run on the
 sandbox, `vite build` runs on Firebase, and your source never changes between
@@ -207,7 +207,7 @@ them.
 `vite build --mode development` produces a **self-contained bundle** whose
 `firebase/*` imports are already swapped to pyric's in-page adapters, plus a
 sandbox init chunk (the runtime bootstrap and the sign-in helper) that shares
-one runtime with your app — nothing to intercept or inject at load time, so you
+one runtime with your app, nothing to intercept or inject at load time, so you
 can preview a bundled build under `pyric dev` (which sees the marker and skips
 its own runtime injection for these pages):
 ```bash
@@ -218,8 +218,8 @@ The output carries a **sandbox-build marker** in `index.html`
 (`<meta name="pyric-sandbox-build">`). The marker makes the flavor unmistakable:
 
 - `pyric dev` **trusts** a marked dist and serves it (it skips the inlined-SDK
-  scan — a swapped bundle has no real SDK to find).
-- `pyric deploy hosting` **refuses** a marked dist — a sandbox build must never
+  scan; a swapped bundle has no real SDK to find).
+- `pyric deploy hosting` **refuses** a marked dist: a sandbox build must never
   reach production.
 
 To force the build behavior regardless of mode, pass `swapInBuild` to the
@@ -230,7 +230,7 @@ plugin: `pyricSandbox({ swapInBuild: true })` always produces a sandbox build,
 
 `pyric dev`'s import map can only remap **bare** `firebase/*` specifiers. A plain
 `vite build` inlines the real SDK into the app chunk, leaving nothing to
-intercept — the page would reach live Google endpoints with the sandbox's fake
+intercept: the page would reach live Google endpoints with the sandbox's fake
 credentials. Rather than serve that silently, `pyric dev` **hard-refuses** a dist
 that bundles the real SDK and points you at the two ways forward: run plain
 `pyric dev` (the child dev-server flow, plugin active), or rebuild with
@@ -239,7 +239,7 @@ that bundles the real SDK and points you at the two ways forward: run plain
 ## Library imports are swapped too (transitive deps)
 
 The swap happens at resolution time, *before* bundling, so it also catches
-libraries that import `firebase/*` on your behalf — `react-firebase-hooks`,
+libraries that import `firebase/*` on your behalf: `react-firebase-hooks`,
 `reactfire`, and similar. When such a library does
 `import { getFirestore } from 'firebase/firestore'`, that import resolves to the
 sandbox adapter exactly as your own code does. The library transparently runs on
@@ -250,33 +250,33 @@ pre-bundles `node_modules` with esbuild; left alone, the optimizer would pre-bak
 a library's `firebase/*` import to the *real* firebase before the plugin's
 resolver ever runs. The plugin mirrors its swap into the optimizer's esbuild pass
 (and excludes the served `firebase/*` modules from pre-bundling) so the optimizer
-and the dev resolver agree. You don't configure any of this — adding the plugin
-is enough — but it's why the swap reaches dependencies, not just your own code.
+and the dev resolver agree. You don't need to configure any of this: adding the
+plugin is enough. But it's why the swap reaches dependencies, not just your own code.
 
 ## Limitations
 
 What the plugin does and doesn't cover:
 
 - **Libraries that reach into Firebase internals throw at import.** The swap
-  mirrors Firebase's **public modular surface** — what your app and most
-  data-layer libraries use. A library that reaches into Firebase *internals* —
-  `@firebase/component`, `_getProvider`, app component registration (e.g.
-  `firebaseui`, parts of `@angular/fire`) — falls outside that surface and
+  mirrors Firebase's **public modular surface**: what your app and most
+  data-layer libraries use. A library that reaches into Firebase *internals*
+  (`@firebase/component`, `_getProvider`, app component registration, e.g.
+  `firebaseui`, parts of `@angular/fire`) falls outside that surface and
   **throws at import**. This is inherent to mirroring the public API; `pyric
   serve` has the same ceiling.
 
 - **Only `firebase/app`, `firebase/auth`, and `firebase/firestore` are swapped.**
   Other subpaths (`firebase/storage`, `firebase/database`) resolve to the real
-  package — the same surface `pyric dev` covers today.
+  package: the same surface `pyric dev` covers today.
 
 - **The agent reaches the sandbox through an open page.** `pyricSandbox({ bridge: true })`
-  routes the agent's tool-calls through the SharedWorker — the same backend your
-  app and Studio use — but the worker lives in the browser, so a tab must stay
+  routes the agent's tool-calls through the SharedWorker (the same backend your
+  app and Studio use), but the worker lives in the browser, so a tab must stay
   open for the agent to act. (`pyric dev --bridge` has the same shape.)
 
 ## Troubleshooting
 
-**`pyric-tools/vite: pyric is not built …`** — the plugin needs pyric's compiled
+**`pyric-tools/vite: pyric is not built …`** The plugin needs pyric's compiled
 output to read Firebase's public surface. In a monorepo checkout, build pyric
 first (e.g. `bun run build`). An installed `pyric-tools` from npm ships built, so
 you'll only hit this developing against a source checkout.
@@ -288,8 +288,8 @@ package in this release.
 
 ## See also
 
-- [Persistence and multi-tab with `pyric dev`](../pyric-tools-how-to-serve-persistence-and-multi-tab/)
-  — the static-app analog; the worker/persist/seed model is identical to the plugin's.
-- [Getting started](../pyric-tools-tutorials-getting-started/) — the end-to-end scaffold →
+- [Persistence and multi-tab with `pyric dev`](../pyric-tools-how-to-serve-persistence-and-multi-tab/):
+  the static-app analog; the worker/persist/seed model is identical to the plugin's.
+- [Getting started](../start-building/): the end-to-end scaffold →
   serve → agent loop.
 - [Why an in-browser backend is *not* Firestore offline persistence](../pyric-sandbox-explanation-local-backend-vs-firestore-offline/).

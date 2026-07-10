@@ -3,7 +3,7 @@ title: "How to bundle and deploy a Cloud Function"
 navLabel: "Bundle & deploy a function"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 19
+order: 51
 ---
 # How to bundle and deploy a Cloud Function
 
@@ -38,7 +38,7 @@ if (result.success) {
   }
 }
 ```
-`deployLocal` does three things: zips the source via `bundleFunctionSource`, uploads it, and creates each function in turn. The same source bundle deploys to every function in the array — one upload, multiple creates.
+`deployLocal` does three things: zips the source via `bundleFunctionSource`, uploads it, and creates each function in turn. The same source bundle deploys to every function in the array: one upload, multiple creates.
 
 ## What gets bundled
 
@@ -74,7 +74,7 @@ The zip layout must match what Cloud Build's buildpack expects: a `package.json`
 
 ## Make a function publicly invokable
 
-Set `invoker: 'public'` on the function config. After the function lands, the package issues `grantPublicInvoker` automatically. If that grant fails (most commonly because the service account lacks `roles/iam.serviceAccountUser`), the deploy completes but returns `IAM_GRANT_FAILED` — the function exists but is private.
+Set `invoker: 'public'` on the function config. After the function lands, the package issues `grantPublicInvoker` automatically. If that grant fails (most commonly because the service account lacks `roles/iam.serviceAccountUser`), the deploy completes but returns `IAM_GRANT_FAILED`. The function exists but is private.
 
 For more control, omit `invoker` (defaults to `'private'`) and call `functions.grantPublicInvoker(scope, ...)` separately.
 
@@ -100,6 +100,6 @@ The simplest grant is **Firebase Admin** + **Service Account User**.
 
 ## Where to look next
 
-- For the full `FunctionDeployConfig` field list, see [`functions` namespace — `FunctionDeployConfig`](../pyric-tools-deploy-reference-functions-namespace/#functiondeployconfig).
+- For the full `FunctionDeployConfig` field list, see [`functions` namespace: `FunctionDeployConfig`](../pyric-tools-deploy-reference-functions-namespace/#functiondeployconfig).
 - For routing URLs to the deployed function, see [Deploy Hosting rewrites](../pyric-tools-deploy-how-to-deploy-hosting-rewrites/).
-- For the matching error codes, see [Error codes by operation — Cloud Functions](../pyric-tools-deploy-reference-error-codes/#cloud-functions).
+- For the matching error codes, see [Error codes by operation: Cloud Functions](../pyric-tools-deploy-reference-error-codes/#cloud-functions).

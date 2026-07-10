@@ -24,8 +24,10 @@ const { crumbs } = Astro.props;
           {i > 0 ? <span class="docs-breadcrumbs-sep" aria-hidden="true">/</span> : null}
           {i === crumbs.length - 1 ? (
             <span aria-current="page">{crumb.label}</span>
-          ) : (
+          ) : crumb.href || crumb.anchorId ? (
             <a href={crumb.href ?? `#${crumb.anchorId}`}>{crumb.label}</a>
+          ) : (
+            <span>{crumb.label}</span>
           )}
         </li>
       ))

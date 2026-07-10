@@ -2,13 +2,13 @@
 title: "pyric-tools/bridge"
 group: "pyric-tools"
 section: "Bridge"
-order: 14
+order: 46
 ---
 # `pyric-tools/bridge`
 
 Bridge between an external MCP client (Claude Code, Cursor) and a browser-resident pyric sandbox.
 
-Most users never install this directly — they install `pyric` which surfaces the bridge through the `pyric` CLI. This package is the implementation underneath.
+Most users never install this directly. They install `pyric`, which surfaces the bridge through the `pyric` CLI. This package is the implementation underneath.
 
 ## What this does
 
@@ -18,9 +18,9 @@ external MCP client ──HTTP MCP──► pyric bridge (Node) ◄──WebSock
 ```
 The bridge process exposes:
 
-- `POST /mcp` — MCP-over-HTTP using `@modelcontextprotocol/sdk`.
-- `GET /sandbox` (WebSocket Upgrade) — the browser tab connects here.
-- `GET /health` — diagnostic endpoint returning `{ mode, sandboxConnected, ... }`.
+- `POST /mcp`: MCP-over-HTTP using `@modelcontextprotocol/sdk`.
+- `GET /sandbox` (WebSocket Upgrade): the browser tab connects here.
+- `GET /health`: diagnostic endpoint returning `{ mode, sandboxConnected, ... }`.
 
 Bound to `127.0.0.1` only.
 
@@ -37,8 +37,8 @@ Conditional exports route to the right bundle based on runtime:
   }
 }
 ```
-- **Node** (`import { ... } from 'pyric-tools/bridge'`) — gets `createBridge`, `startServer`. (The Vite integration is `pyricSandbox({ bridge })` in `pyric-tools/vite`.)
-- **Browser** — gets `connectBridge`.
+- **Node** (`import { ... } from 'pyric-tools/bridge'`): gets `createBridge`, `startServer`. (The Vite integration is `pyricSandbox({ bridge })` in `pyric-tools/vite`.)
+- **Browser**: gets `connectBridge`.
 
 The wire format (shared types) lives in `protocol.ts` and is referenced from both bundles.
 
@@ -49,8 +49,8 @@ The bridge is started in one of two modes; switching requires restart.
 pyric bridge                          # sandbox mode (default)
 pyric bridge --mode prod              # prod mode (requires GOOGLE_APPLICATION_CREDENTIALS)
 ```
-- **Sandbox mode** — data-plane tool calls forward to the connected browser. Sandbox-management tools (undo, redo, events) are available. Control-plane tools (deploy rules etc.) are NOT registered.
-- **Prod mode** — data-plane tool calls execute in Node against real Firebase via the Admin SDK. Sandbox-management tools are NOT registered. Control-plane tools ARE registered.
+- **Sandbox mode**: data-plane tool calls forward to the connected browser. Sandbox-management tools (undo, redo, events) are available. Control-plane tools (deploy rules etc.) are NOT registered.
+- **Prod mode**: data-plane tool calls execute in Node against real Firebase via the Admin SDK. Sandbox-management tools are NOT registered. Control-plane tools ARE registered.
 
 The mode is visible in `/health` and in every tool result's metadata so the MCP client (and the human reading the conversation) can always see which target was hit.
 
@@ -62,7 +62,7 @@ const handle = await startServer({ mode: 'sandbox', port: 5174 });
 // later
 await handle.stop();
 ```
-For Vite users, the bridge is folded into the `pyricSandbox` plugin — one plugin
+For Vite users, the bridge is folded into the `pyricSandbox` plugin: one plugin
 does the `firebase/*` → sandbox swap **and** the bridge:
 ```ts
 // vite.config.ts
@@ -92,5 +92,5 @@ if (import.meta.env.DEV) {
 ```
 ## See also
 
-- `pyric` — the parent package that ships the `pyric` CLI.
-- [`pyric-tools` docs](../pyric-tools/) — CLI and library entry points.
+- `pyric`: the parent package that ships the `pyric` CLI.
+- [`pyric-tools` docs](../pyric-tools/): CLI and library entry points.

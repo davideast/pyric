@@ -3,11 +3,11 @@ title: "How to use admin reads to assert in tests"
 navLabel: "Use admin reads"
 group: "pyric / sandbox"
 section: "How-to"
-order: 100
+order: 126
 ---
 # How to use admin reads to assert in tests
 
-This guide shows you how to use `sandbox.admin` to verify state in tests without writing rules that permit your test fixture.
+Use `sandbox.admin` to verify state in tests without writing rules that permit your test fixture.
 
 ## The problem
 
@@ -18,7 +18,7 @@ await aliceDb.collection('notes').doc('n1').set({ title: 'hello' });
 const snap = await aliceDb.collection('notes').doc('n1').get();
 expect(snap.exists).toBe(true);
 ```
-The `aliceDb.get` evaluates `allow read` against `alice`'s identity. If your read rule rejects this — for example, because it requires the doc to be in a specific status — the assertion will fail even though the write succeeded. You can't tell whether the bug is in the write or in the read rule.
+The `aliceDb.get` evaluates `allow read` against `alice`'s identity. If your read rule rejects this (for example, because it requires the doc to be in a specific status), the assertion will fail even though the write succeeded. You can't tell whether the bug is in the write or in the read rule.
 
 ## The fix
 
@@ -50,7 +50,7 @@ for (const { path, data } of docs) {
   console.log(path, data);
 }
 ```
-The result includes **phantom** parents — synthesised entries for paths that have descendants but no stored data of their own. Phantom records carry `phantom: true` and `data: {}`:
+The result includes **phantom** parents: synthesised entries for paths that have descendants but no stored data of their own. Phantom records carry `phantom: true` and `data: {}`:
 ```ts
 // Wrote rooms/alpha/messages/m1 directly. List 'rooms':
 const rooms = sandbox.admin.listDocuments('rooms');
@@ -72,7 +72,7 @@ expect(snap.firestore).toEqual({
   'users/alice': { name: 'Alice' },
 });
 ```
-Useful for round-tripping (capture before, restore after a destructive operation) and for diagnostic dumps when a test fails. The returned object is a structural clone — mutating it does not affect the sandbox.
+Useful for round-tripping (capture before, restore after a destructive operation) and for diagnostic dumps when a test fails. The returned object is a structural clone; mutating it does not affect the sandbox.
 
 ## Where to look next
 

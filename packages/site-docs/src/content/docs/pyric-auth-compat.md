@@ -1,9 +1,9 @@
 ---
 title: "pyric/auth compatibility matrix"
-navLabel: "Compatibility matrix"
-group: "pyric / auth"
-section: "Compat"
-order: 134
+navLabel: "Auth"
+group: "Compatibility"
+section: ""
+order: 31
 ---
 <!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
@@ -18,13 +18,13 @@ attributes failures).
 
 ## Status legend
 
-| Status | Meaning |
-|---|---|
-| ✓ | **Conforming** — sandbox matches prod, locked by a passing probe |
-| ⚠ | **Diverged (documented)** — intentional difference with a written reason |
-| ✗ | **Bug** — should match prod but doesn't; failing probe pins it |
-| — | **Unsupported** — not implemented yet (deliberately or pending) |
-| ? | **Unverified** — claim from docs that we haven't yet observed prod-side |
+<div class="compat-key">
+<span class="compat-key-item"><span class="compat-dot" data-status="ok"></span><strong>Conforming</strong> — sandbox matches prod, locked by a passing probe</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="diverged"></span><strong>Diverged (documented)</strong> — intentional difference with a written reason</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="bug"></span><strong>Bug</strong> — should match prod but doesn't; failing probe pins it</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="unsupported"></span><strong>Unsupported</strong> — not implemented yet (deliberately or pending)</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="unverified"></span><strong>Unverified</strong> — claim from docs that we haven't yet observed prod-side</span>
+</div>
 
 Probe references: `playground:<name>` means a fixture under
 `packages/playground/scripts/fixtures/<name>.tsx`. `unit:<file>`
@@ -34,162 +34,432 @@ means a Bun test in `packages/auth/test/<file>`.
 
 ## `getAuth(target)` — initializer
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 1 | Returns a stable `Auth` handle for repeat calls with the same target — idempotent on BOTH the sandbox target (per-sandbox WeakMap) and the prod target (per-resolved-`fb.Auth` WeakMap; previously the prod wrapper was minted fresh per call) | ✓ | `unit:sandbox-anonymous.test.ts` (sandbox) + `unit:prod-getauth-memo.test.ts` (prod, locks AUTH-B6) |
-| 2 | `getAuth(sandbox)` dispatches to the sandbox backend | ✓ | `unit:sandbox-anonymous.test.ts` |
-| 3 | `getAuth(app)` dispatches to the production backend | ? | (no prod test harness yet) |
-| 4 | `getAuth(undefined)` — wrapped in the playground preview to default to the sandbox; raw call delegates to prod which throws `app/no-app` | ✓ (wrap) | `playground:firestore-bare-getfirestore` (mirrors the `getFirestore` wrap from #397) + oracle: `scripts/oracle/observations/auth-bare-getauth-no-default-app.json` (`code: 'app/no-app'` against blockingfun, fb-js-sdk 12.13.0 — confirms prod throw shape) |
-| 5 | `auth.currentUser` is a live getter, not a snapshot — reads through to the backend on every access | ✓ | implicit in `unit:sandbox-anonymous.test.ts` |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">1</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns a stable <code>Auth</code> handle for repeat calls with the same target — idempotent on BOTH the sandbox target (per-sandbox WeakMap) and the prod target (per-resolved-<code>fb.Auth</code> WeakMap; previously the prod wrapper was minted fresh per call)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code> (sandbox) + <code>unit:prod-getauth-memo.test.ts</code> (prod, locks AUTH-B6)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">2</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getAuth(sandbox)</code> dispatches to the sandbox backend</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="unverified">
+<summary class="compat-line"><span class="compat-num">3</span><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-behavior"><code>getAuth(app)</code> dispatches to the production backend</span></summary>
+<div class="compat-evidence"><div class="compat-probe">(no prod test harness yet)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getAuth(undefined)</code> — wrapped in the playground preview to default to the sandbox; raw call delegates to prod which throws <code>app/no-app</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>playground:firestore-bare-getfirestore</code> (mirrors the <code>getFirestore</code> wrap from #397) + oracle: <code>scripts/oracle/observations/auth-bare-getauth-no-default-app.json</code> (<code>code: 'app/no-app'</code> against blockingfun, fb-js-sdk 12.13.0 — confirms prod throw shape)</div>
+<div class="compat-note">(wrap)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">5</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>auth.currentUser</code> is a live getter, not a snapshot — reads through to the backend on every access</span></summary>
+<div class="compat-evidence"><div class="compat-probe">implicit in <code>unit:sandbox-anonymous.test.ts</code></div></div>
+</details>
+</div>
 
 ## `signInAnonymously(auth)` — anonymous
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 6 | Returns `UserCredential` with `providerId: null`, `operationType: 'signIn'`, and a `User` with `isAnonymous: true`, `email: null`, `displayName: null` | ✓ | `unit:sandbox-anonymous.test.ts`, `playground:auth-anonymous` (bundled) + `playground:auth-row-6-anon-credential-shape` (one-claim) + oracle: `scripts/oracle/observations/auth-anonymous-credential-providerid.json` (`providerId: null` against blockingfun, fb-js-sdk 12.13.0). Prior matrix language said `providerId: 'anonymous'`; corrected after empirical observation. Sandbox aligned to prod in the same commit. |
-| 7 | Auto-generates a uid for fresh sign-ins (sandbox format: `anonymous-{N}`) | ⚠ format | `unit:sandbox-anonymous.test.ts` — prod uids are 28-char base64-ish; sandbox uses a readable counter for debuggability |
-| 8 | If an anonymous user is already signed in, returns the SAME user (no fresh uid mint) | ✓ | `unit:sandbox-anonymous.test.ts` ("idempotent while signed in") — fix from #399 |
-| 9 | After `signOut`, a subsequent `signInAnonymously` mints a fresh uid | ✓ | `unit:sandbox-anonymous.test.ts`, `playground:auth-anonymous` (bundled) + `playground:auth-row-9-anon-fresh-uid-after-signout` (one-claim) |
-| 10 | Fires `onAuthStateChanged` exactly once per state transition (no same-value double-fire) | ✓ | `unit:sandbox-listeners.test.ts`, `playground:auth-anonymous` (bundled) + `playground:auth-row-10-onauthstatechanged-one-per-transition` (one-claim) — fix from #399 + oracle: `scripts/oracle/observations/auth-row-10-onauthstatechanged-one-per-transition.json` (against blockingfun, fb-js-sdk 12.13.0: subscribe → 1 initial null fire → `signInAnonymously` → +1 → `signOut` → +1 → `signInAnonymously` → +1. `eachTransitionFiredExactlyOnce: true` — every transition produces exactly one fire) |
-| 11 | Writes through to `sandbox.currentUser` so rules engines see `request.auth.uid` | ✓ | `unit:sandbox-anonymous.test.ts`, `playground:auth-anonymous` (bundled) + `playground:auth-row-11-anon-uid-visible-to-rules` (one-claim) |
-| 12 | Anonymous users persist across page reload via configured `Persistence` (prod only — sandbox has no persistence layer) | ⚠ | divergence: sandbox memory only; within one tab the user persists, across reload they don't |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">6</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>UserCredential</code> with <code>providerId: null</code>, <code>operationType: 'signIn'</code>, and a <code>User</code> with <code>isAnonymous: true</code>, <code>email: null</code>, <code>displayName: null</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code>, <code>playground:auth-anonymous</code> (bundled) + <code>playground:auth-row-6-anon-credential-shape</code> (one-claim) + oracle: <code>scripts/oracle/observations/auth-anonymous-credential-providerid.json</code> (<code>providerId: null</code> against blockingfun, fb-js-sdk 12.13.0). Prior matrix language said <code>providerId: 'anonymous'</code>; corrected after empirical observation. Sandbox aligned to prod in the same commit.</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">7</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Auto-generates a uid for fresh sign-ins (sandbox format: <code>anonymous-{N}</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code> — prod uids are 28-char base64-ish; sandbox uses a readable counter for debuggability</div>
+<div class="compat-note">format</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">8</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">If an anonymous user is already signed in, returns the SAME user (no fresh uid mint)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code> ("idempotent while signed in") — fix from #399</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">9</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After <code>signOut</code>, a subsequent <code>signInAnonymously</code> mints a fresh uid</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code>, <code>playground:auth-anonymous</code> (bundled) + <code>playground:auth-row-9-anon-fresh-uid-after-signout</code> (one-claim)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">10</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires <code>onAuthStateChanged</code> exactly once per state transition (no same-value double-fire)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code>, <code>playground:auth-anonymous</code> (bundled) + <code>playground:auth-row-10-onauthstatechanged-one-per-transition</code> (one-claim) — fix from #399 + oracle: <code>scripts/oracle/observations/auth-row-10-onauthstatechanged-one-per-transition.json</code> (against blockingfun, fb-js-sdk 12.13.0: subscribe → 1 initial null fire → <code>signInAnonymously</code> → +1 → <code>signOut</code> → +1 → <code>signInAnonymously</code> → +1. <code>eachTransitionFiredExactlyOnce: true</code> — every transition produces exactly one fire)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">11</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Writes through to <code>sandbox.currentUser</code> so rules engines see <code>request.auth.uid</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code>, <code>playground:auth-anonymous</code> (bundled) + <code>playground:auth-row-11-anon-uid-visible-to-rules</code> (one-claim)</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">12</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Anonymous users persist across page reload via configured <code>Persistence</code> (prod only — sandbox has no persistence layer)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">divergence: sandbox memory only; within one tab the user persists, across reload they don't</div></div>
+</details>
+</div>
 
 ## `signInWithEmailAndPassword(auth, email, password)` — password
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 13 | Returns `UserCredential` with `providerId: null` (NOT `'password'` — only OAuth/phone responses carry a providerId; upstream `providerIdForResponse` returns null for email/password), `operationType: 'signIn'`, and a `User` with the stored uid + email | ✓ | `unit:sandbox-email-password.test.ts` + oracle: `scripts/oracle/observations/auth-createUser-operationType.json` (`providerId: null` against blockingfun, fb-js-sdk 12.13.0). Prior matrix language said `providerId: 'password'`; corrected after the oracle contradicted it (AUTH-B2). |
-| 14 | Throws `auth/user-not-found` when the email isn't seeded / hasn't been created | ✓ | `unit:sandbox-email-password.test.ts` + oracle: `scripts/oracle/observations/auth-user-not-found-error-code.json` (`code: 'auth/user-not-found'` against blockingfun, fb-js-sdk 12.13.0; matches sandbox) |
-| 15 | Throws `auth/wrong-password` when the password doesn't match | ✓ | `unit:sandbox-email-password.test.ts`, `playground:auth-email-password` (bundled) + `playground:auth-row-15-wrong-password-rejects` (one-claim) + oracle: `scripts/oracle/observations/auth-wrong-password-error-code.json` (`code: 'auth/wrong-password'` against blockingfun, fb-js-sdk 12.13.0; matches sandbox) |
-| 15a | An EMPTY password throws `auth/missing-password` (message "A non-empty password must be provided"), fired before the user-DB lookup so it can't be used to enumerate seeded emails. Upstream maps the `MISSING_PASSWORD` server error (`core/errors.ts:92,282,563`). ⚠ best-known semantics — message text not yet captured against a live project (STOP-flagged for an oracle pass; the `.code` is the load-bearing part). | ⚠ | `unit:sandbox-cluster-b9-b12.test.ts` (locks AUTH-B11) |
-| 16 | Re-signing in after `signOut` returns the **same** uid (passwords persist within the sandbox lifetime) | ✓ | `playground:auth-email-password` (bundled) + `playground:auth-row-16-resignin-same-uid` (one-claim) |
-| 17 | Fires `onAuthStateChanged` with the new user once | ✓ | `unit:sandbox-listeners.test.ts` + oracle: `scripts/oracle/observations/auth-row-17-signin-email-password-fires-once.json` (against blockingfun, fb-js-sdk 12.13.0: createUser → signOut → subscribe (1 initial null fire) → `signInWithEmailAndPassword` → `firesForSignIn: 1` with the signed-in uid, `lastFireUidMatches: true`) |
-| 18 | Email validation (RFC 5322ish) — rejects empty, missing `@`, missing local-part, missing domain with `auth/invalid-email`. Runs on both `signInWithEmailAndPassword` and `createUserWithEmailAndPassword` before any user-DB lookup, so consumers shipping malformed input see the same error sandbox vs prod. | ✓ | `unit:sandbox-email-password.test.ts` + oracle: `scripts/oracle/observations/auth-row-18-invalid-email-error-code.json` (`code: 'auth/invalid-email'`, message `Firebase: Error (auth/invalid-email).` against blockingfun, fb-js-sdk 12.13.0) |
-| 19 | Password strength requirements — rejects passwords shorter than 6 chars with `auth/weak-password` on `createUserWithEmailAndPassword`. Strength is NOT enforced on `signInWithEmailAndPassword` so previously-seeded weak passwords still let the user in (matches prod's separation of registration vs sign-in). | ✓ | `unit:sandbox-email-password.test.ts` + oracle: `scripts/oracle/observations/auth-row-19-weak-password-error-code.json` (`code: 'auth/weak-password'`, message `Firebase: Password should be at least 6 characters (auth/weak-password).` against blockingfun, fb-js-sdk 12.13.0; matrix language "≥6 chars per prod default" empirically confirmed) |
-| 69 | Disabled accounts (`sandbox.updateUser(…, {disabled: true})`) reject sign-in with `auth/user-disabled` and prod's documented message (`The user account has been disabled by an administrator.`). Sandbox checks disabled BEFORE the password compare (anti-probing); the exact prod ordering of disabled-vs-wrong-password needs an oracle capture | ✓ code / ? ordering | `unit:sandbox-user-admin.test.ts` ("disabled users") |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">13</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>UserCredential</code> with <code>providerId: null</code> (NOT <code>'password'</code> — only OAuth/phone responses carry a providerId; upstream <code>providerIdForResponse</code> returns null for email/password), <code>operationType: 'signIn'</code>, and a <code>User</code> with the stored uid + email</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-email-password.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-createUser-operationType.json</code> (<code>providerId: null</code> against blockingfun, fb-js-sdk 12.13.0). Prior matrix language said <code>providerId: 'password'</code>; corrected after the oracle contradicted it (AUTH-B2).</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">14</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>auth/user-not-found</code> when the email isn't seeded / hasn't been created</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-email-password.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-user-not-found-error-code.json</code> (<code>code: 'auth/user-not-found'</code> against blockingfun, fb-js-sdk 12.13.0; matches sandbox)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">15</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>auth/wrong-password</code> when the password doesn't match</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-email-password.test.ts</code>, <code>playground:auth-email-password</code> (bundled) + <code>playground:auth-row-15-wrong-password-rejects</code> (one-claim) + oracle: <code>scripts/oracle/observations/auth-wrong-password-error-code.json</code> (<code>code: 'auth/wrong-password'</code> against blockingfun, fb-js-sdk 12.13.0; matches sandbox)</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">15a</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">An EMPTY password throws <code>auth/missing-password</code> (message "A non-empty password must be provided"), fired before the user-DB lookup so it can't be used to enumerate seeded emails. Upstream maps the <code>MISSING_PASSWORD</code> server error (<code>core/errors.ts:92,282,563</code>). ⚠ best-known semantics — message text not yet captured against a live project (STOP-flagged for an oracle pass; the <code>.code</code> is the load-bearing part).</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-cluster-b9-b12.test.ts</code> (locks AUTH-B11)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">16</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Re-signing in after <code>signOut</code> returns the <strong>same</strong> uid (passwords persist within the sandbox lifetime)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>playground:auth-email-password</code> (bundled) + <code>playground:auth-row-16-resignin-same-uid</code> (one-claim)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">17</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires <code>onAuthStateChanged</code> with the new user once</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-17-signin-email-password-fires-once.json</code> (against blockingfun, fb-js-sdk 12.13.0: createUser → signOut → subscribe (1 initial null fire) → <code>signInWithEmailAndPassword</code> → <code>firesForSignIn: 1</code> with the signed-in uid, <code>lastFireUidMatches: true</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">18</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Email validation (RFC 5322ish) — rejects empty, missing <code>@</code>, missing local-part, missing domain with <code>auth/invalid-email</code>. Runs on both <code>signInWithEmailAndPassword</code> and <code>createUserWithEmailAndPassword</code> before any user-DB lookup, so consumers shipping malformed input see the same error sandbox vs prod.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-email-password.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-18-invalid-email-error-code.json</code> (<code>code: 'auth/invalid-email'</code>, message <code>Firebase: Error (auth/invalid-email).</code> against blockingfun, fb-js-sdk 12.13.0)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">19</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Password strength requirements — rejects passwords shorter than 6 chars with <code>auth/weak-password</code> on <code>createUserWithEmailAndPassword</code>. Strength is NOT enforced on <code>signInWithEmailAndPassword</code> so previously-seeded weak passwords still let the user in (matches prod's separation of registration vs sign-in).</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-email-password.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-19-weak-password-error-code.json</code> (<code>code: 'auth/weak-password'</code>, message <code>Firebase: Password should be at least 6 characters (auth/weak-password).</code> against blockingfun, fb-js-sdk 12.13.0; matrix language "≥6 chars per prod default" empirically confirmed)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">69</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Disabled accounts (<code>sandbox.updateUser(…, {disabled: true})</code>) reject sign-in with <code>auth/user-disabled</code> and prod's documented message (<code>The user account has been disabled by an administrator.</code>). Sandbox checks disabled BEFORE the password compare (anti-probing); the exact prod ordering of disabled-vs-wrong-password needs an oracle capture</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> ("disabled users")</div>
+<div class="compat-note">code / ? ordering</div></div>
+</details>
+</div>
 
 ## `createUserWithEmailAndPassword(auth, email, password)` — register
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 20 | Creates a new user, signs them in automatically (currentUser becomes the new user) | ✓ | `playground:auth-email-password` (bundled) + `playground:auth-row-20-create-user-auto-signs-in` (one-claim), `unit:sandbox-email-password.test.ts` |
-| 21 | Returns `UserCredential` with `operationType: 'signIn'` (NOT `'register'` — matches prod) | ✓ | `unit:sandbox-email-password.test.ts` + oracle: `scripts/oracle/observations/auth-createUser-operationType.json` (`operationType: 'signIn'` against blockingfun, fb-js-sdk 12.13.0; matches sandbox) |
-| 22 | Throws `auth/email-already-in-use` when the email is already registered | ✓ | `unit:sandbox-email-password.test.ts` + oracle: `scripts/oracle/observations/auth-email-already-in-use-error-code.json` (`code: 'auth/email-already-in-use'` against blockingfun, fb-js-sdk 12.13.0; matches sandbox) |
-| 23 | The created user has `isAnonymous: false`, `email: <input>`, `displayName: null` | ✓ | `unit:sandbox-email-password.test.ts` + `playground:auth-row-23-create-user-shape` (one-claim) |
-| 24 | Fires `onAuthStateChanged` with the new user once | ✓ | `unit:sandbox-listeners.test.ts` + oracle: `scripts/oracle/observations/auth-row-24-createuser-fires-once.json` (against blockingfun, fb-js-sdk 12.13.0: subscribe (1 initial null fire) → `createUserWithEmailAndPassword` → `firesForCreate: 1` with the newly-created uid, `lastFireUidMatches: true`) |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">20</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Creates a new user, signs them in automatically (currentUser becomes the new user)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>playground:auth-email-password</code> (bundled) + <code>playground:auth-row-20-create-user-auto-signs-in</code> (one-claim), <code>unit:sandbox-email-password.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">21</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>UserCredential</code> with <code>operationType: 'signIn'</code> (NOT <code>'register'</code> — matches prod)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-email-password.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-createUser-operationType.json</code> (<code>operationType: 'signIn'</code> against blockingfun, fb-js-sdk 12.13.0; matches sandbox)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">22</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>auth/email-already-in-use</code> when the email is already registered</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-email-password.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-email-already-in-use-error-code.json</code> (<code>code: 'auth/email-already-in-use'</code> against blockingfun, fb-js-sdk 12.13.0; matches sandbox)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">23</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The created user has <code>isAnonymous: false</code>, <code>email: &lt;input&gt;</code>, <code>displayName: null</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-email-password.test.ts</code> + <code>playground:auth-row-23-create-user-shape</code> (one-claim)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">24</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires <code>onAuthStateChanged</code> with the new user once</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-24-createuser-fires-once.json</code> (against blockingfun, fb-js-sdk 12.13.0: subscribe (1 initial null fire) → <code>createUserWithEmailAndPassword</code> → <code>firesForCreate: 1</code> with the newly-created uid, <code>lastFireUidMatches: true</code>)</div></div>
+</details>
+</div>
 
 ## `signOut(auth)`
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 25 | Sets `currentUser` to `null` synchronously after resolution | ✓ | `playground:auth-anonymous` (bundled) + `playground:auth-row-25-signout-currentuser-null` (one-claim), `unit:sandbox-anonymous.test.ts` + oracle: `scripts/oracle/observations/auth-row-25-signout-currentuser-null-sync.json` (`currentUserIsNullSync: true` against blockingfun, fb-js-sdk 12.13.0 — `auth.currentUser` read in the synchronous continuation immediately after `await signOut(auth)` is already `null`, with no microtask/macrotask required to settle) |
-| 26 | Fires `onAuthStateChanged` with `null` exactly once | ✓ | `unit:sandbox-listeners.test.ts`, `playground:auth-anonymous` (bundled) + `playground:auth-row-26-signout-fires-null-once` (one-claim) + oracle: `scripts/oracle/observations/auth-row-26-signout-fires-null-once.json` (against blockingfun, fb-js-sdk 12.13.0: subscribe (1 initial null fire) → `signInAnonymously` → `signOut` → `firesForSignOut: 1` with `lastFireUidWasNull: true`) |
-| 27 | Idempotent — `signOut` on already-signed-out user is a no-op (no listener fire) | ✓ | `playground:auth-signout-idempotent` + oracle-confirmed: `scripts/oracle/observations/auth-signout-idempotent.json` (`threw: false, redundantSignOutFiredListener: false` against blockingfun) |
-| 28 | Clears the active session's persistence in prod; sandbox has no persistence | ⚠ | divergence: same memory-only constraint as the anonymous persistence row |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">25</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Sets <code>currentUser</code> to <code>null</code> synchronously after resolution</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>playground:auth-anonymous</code> (bundled) + <code>playground:auth-row-25-signout-currentuser-null</code> (one-claim), <code>unit:sandbox-anonymous.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-25-signout-currentuser-null-sync.json</code> (<code>currentUserIsNullSync: true</code> against blockingfun, fb-js-sdk 12.13.0 — <code>auth.currentUser</code> read in the synchronous continuation immediately after <code>await signOut(auth)</code> is already <code>null</code>, with no microtask/macrotask required to settle)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">26</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires <code>onAuthStateChanged</code> with <code>null</code> exactly once</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code>, <code>playground:auth-anonymous</code> (bundled) + <code>playground:auth-row-26-signout-fires-null-once</code> (one-claim) + oracle: <code>scripts/oracle/observations/auth-row-26-signout-fires-null-once.json</code> (against blockingfun, fb-js-sdk 12.13.0: subscribe (1 initial null fire) → <code>signInAnonymously</code> → <code>signOut</code> → <code>firesForSignOut: 1</code> with <code>lastFireUidWasNull: true</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">27</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Idempotent — <code>signOut</code> on already-signed-out user is a no-op (no listener fire)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>playground:auth-signout-idempotent</code> + oracle-confirmed: <code>scripts/oracle/observations/auth-signout-idempotent.json</code> (<code>threw: false, redundantSignOutFiredListener: false</code> against blockingfun)</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">28</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Clears the active session's persistence in prod; sandbox has no persistence</span></summary>
+<div class="compat-evidence"><div class="compat-probe">divergence: same memory-only constraint as the anonymous persistence row</div></div>
+</details>
+</div>
 
 ## `onAuthStateChanged(auth, observer)`
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 29 | Fires immediately on subscribe with the current value (microtask-deferred) | ✓ | `unit:sandbox-listeners.test.ts` + oracle: `scripts/oracle/observations/auth-row-29-onauthstatechanged-initial-fire-timing.json` (`firedSynchronously: 0, firedAfterMicrotask: 1` against blockingfun, fb-js-sdk 12.13.0 — initial fire does NOT arrive in the synchronous tick of `onAuthStateChanged(...)`; it lands after the first microtask flush) |
-| 30 | Fires on every subsequent identity change | ✓ | `unit:sandbox-listeners.test.ts`, `playground:auth-anonymous` + oracle: `scripts/oracle/observations/auth-row-30-onauthstatechanged-fires-on-every-transition.json` (against blockingfun, fb-js-sdk 12.13.0: subscribe → `signIn` → `signOut` → `signIn` → `signOut`, each of the 4 transitions produced exactly 1 fire; `eachTransitionFiredExactlyOnce: true`) |
-| 30a | Dedups by uid: a same-uid update (profile-shape change, or a same-uid re-sign-in) does NOT re-fire `onAuthStateChanged` — only an actual uid change does. Mirrors upstream `notifyAuthListeners`'s `lastNotifiedUid` gate (`auth_impl.ts:718-723`). (`onIdTokenChanged` still fires on those same-uid updates — see row 38a.) | ✓ | `unit:sandbox-uid-dedup.test.ts` (locks AUTH-B7 / B8) |
-| 31 | **No duplicate fire** when subscribe is followed by a synchronous `setCurrentUser` — dedup ensures observer sees the new value once, not twice. Sandbox-only concern: prod has no synchronous state-change API, so the dedup window can't be exercised against the cloud SDK; subscribe-then-async-signIn naturally fires twice (initial + new value) because the microtask between them flushes the initial fire | ✓ | `unit:sandbox-listeners.test.ts` (regression test from #399), `playground:auth-anonymous` + oracle baseline: `scripts/oracle/observations/auth-row-31-onauthstatechanged-no-dup-on-sync-transition.json` (against blockingfun, fb-js-sdk 12.13.0: subscribe + async `signInAnonymously` in the same tick produces `totalFires: 2` — `{uid: null, ts: 0}` then `{uid: <user>, ts: ~400ms}`. Confirms prod cannot exhibit the same-tick race; the dedup behavior remains a sandbox-only property) |
-| 32 | Returned `Unsubscribe` removes the observer; subsequent state changes do NOT fire it | ✓ | `unit:sandbox-listeners.test.ts`, `playground:auth-listener-unsub` (bundled) + `playground:auth-row-32-unsubscribe-stops-fires` (one-claim) + oracle: `scripts/oracle/observations/auth-row-32-unsubscribe-stops-fires.json` (against blockingfun, fb-js-sdk 12.13.0: subscribe → 1 fire on `signInAnonymously` → call `unsub()` → `signOut` + `signInAnonymously` + `signOut` produce zero further fires; `postUnsubFires: 0, unsubscribeStoppedFires: true`) |
-| 33 | Multiple subscribers all fire on each change | ✓ | `unit:sandbox-listeners.test.ts` + oracle: `scripts/oracle/observations/auth-row-33-multiple-subscribers-all-fire.json` (against blockingfun, fb-js-sdk 12.13.0: two subscribers registered back-to-back each see 1 initial null fire, +1 on `signInAnonymously`, +1 on `signOut`; `bothFiredOnSignIn: true, bothFiredOnSignOut: true`) |
-| 33a | Registry is array-backed (matches upstream `util/subscribe.ts`): the SAME observer fn registered N times produces N independent registrations that each fire, and one `Unsubscribe` removes exactly one registration. A resubscribe of a previously-unsubscribed fn fires its initial value again. (Per-registration initial-fire bookkeeping, not a shared per-observer dedup.) | ✓ | `unit:sandbox-listener-registry.test.ts` (locks AUTH-B3 + AUTH-B4) |
-| 34 | Unsubscribing during emission does not skip remaining subscribers (snapshotted iteration) | ✓ | `unit:sandbox-listeners.test.ts` |
-| 35 | A throwing observer doesn't block other observers from firing | ✓ | `unit:sandbox-listeners.test.ts` + oracle: `scripts/oracle/observations/auth-row-35-throwing-observer-doesnt-block-others.json` (`secondObserverContinuedFiring: true` against blockingfun, fb-js-sdk 12.13.0 — observer #1 throws on every call, observer #2 still counts the initial fire AND the post-sign-in fire) |
-| 36 | Observer object form (`{next, error, complete}`) works alongside the function form | ✓ | `unit:sandbox-listeners.test.ts` + oracle: `scripts/oracle/observations/auth-row-36-observer-object-form-works.json` (against blockingfun, fb-js-sdk 12.13.0: one observer as `NextFn`, another as `{next, error, complete}`. Both forms see 1 initial null fire, +1 on `signInAnonymously`, +1 on `signOut`; `bothFormsFiredOnSignIn: true, bothFormsFiredOnSignOut: true`) |
-| 37 | Setting the same user twice does NOT double-fire (structural-equality no-op). Sandbox-internal `setCurrentUser` claim; the prod analog is `signInAnonymously` called twice in a row (per fix #399, the second call returns the same user). | ✓ | `unit:sandbox-listeners.test.ts` + oracle: `scripts/oracle/observations/auth-row-37-same-user-no-double-fire.json` (against blockingfun, fb-js-sdk 12.13.0: first `signInAnonymously` fires the listener once; second call returns the same uid (`sameUserAcrossCalls: true`) and does NOT produce a fresh fire (`secondSignInProducedFire: false`). Prod also recognizes the same-user no-op) |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">29</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires immediately on subscribe with the current value (microtask-deferred)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-29-onauthstatechanged-initial-fire-timing.json</code> (<code>firedSynchronously: 0, firedAfterMicrotask: 1</code> against blockingfun, fb-js-sdk 12.13.0 — initial fire does NOT arrive in the synchronous tick of <code>onAuthStateChanged(...)</code>; it lands after the first microtask flush)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">30</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires on every subsequent identity change</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code>, <code>playground:auth-anonymous</code> + oracle: <code>scripts/oracle/observations/auth-row-30-onauthstatechanged-fires-on-every-transition.json</code> (against blockingfun, fb-js-sdk 12.13.0: subscribe → <code>signIn</code> → <code>signOut</code> → <code>signIn</code> → <code>signOut</code>, each of the 4 transitions produced exactly 1 fire; <code>eachTransitionFiredExactlyOnce: true</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">30a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Dedups by uid: a same-uid update (profile-shape change, or a same-uid re-sign-in) does NOT re-fire <code>onAuthStateChanged</code> — only an actual uid change does. Mirrors upstream <code>notifyAuthListeners</code>'s <code>lastNotifiedUid</code> gate (<code>auth_impl.ts:718-723</code>). (<code>onIdTokenChanged</code> still fires on those same-uid updates — see row 38a.)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-uid-dedup.test.ts</code> (locks AUTH-B7 / B8)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">31</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><strong>No duplicate fire</strong> when subscribe is followed by a synchronous <code>setCurrentUser</code> — dedup ensures observer sees the new value once, not twice. Sandbox-only concern: prod has no synchronous state-change API, so the dedup window can't be exercised against the cloud SDK; subscribe-then-async-signIn naturally fires twice (initial + new value) because the microtask between them flushes the initial fire</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code> (regression test from #399), <code>playground:auth-anonymous</code> + oracle baseline: <code>scripts/oracle/observations/auth-row-31-onauthstatechanged-no-dup-on-sync-transition.json</code> (against blockingfun, fb-js-sdk 12.13.0: subscribe + async <code>signInAnonymously</code> in the same tick produces <code>totalFires: 2</code> — <code>{uid: null, ts: 0}</code> then <code>{uid: &lt;user&gt;, ts: ~400ms}</code>. Confirms prod cannot exhibit the same-tick race; the dedup behavior remains a sandbox-only property)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">32</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returned <code>Unsubscribe</code> removes the observer; subsequent state changes do NOT fire it</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code>, <code>playground:auth-listener-unsub</code> (bundled) + <code>playground:auth-row-32-unsubscribe-stops-fires</code> (one-claim) + oracle: <code>scripts/oracle/observations/auth-row-32-unsubscribe-stops-fires.json</code> (against blockingfun, fb-js-sdk 12.13.0: subscribe → 1 fire on <code>signInAnonymously</code> → call <code>unsub()</code> → <code>signOut</code> + <code>signInAnonymously</code> + <code>signOut</code> produce zero further fires; <code>postUnsubFires: 0, unsubscribeStoppedFires: true</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">33</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Multiple subscribers all fire on each change</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-33-multiple-subscribers-all-fire.json</code> (against blockingfun, fb-js-sdk 12.13.0: two subscribers registered back-to-back each see 1 initial null fire, +1 on <code>signInAnonymously</code>, +1 on <code>signOut</code>; <code>bothFiredOnSignIn: true, bothFiredOnSignOut: true</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">33a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Registry is array-backed (matches upstream <code>util/subscribe.ts</code>): the SAME observer fn registered N times produces N independent registrations that each fire, and one <code>Unsubscribe</code> removes exactly one registration. A resubscribe of a previously-unsubscribed fn fires its initial value again. (Per-registration initial-fire bookkeeping, not a shared per-observer dedup.)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listener-registry.test.ts</code> (locks AUTH-B3 + AUTH-B4)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">34</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Unsubscribing during emission does not skip remaining subscribers (snapshotted iteration)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">35</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">A throwing observer doesn't block other observers from firing</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-35-throwing-observer-doesnt-block-others.json</code> (<code>secondObserverContinuedFiring: true</code> against blockingfun, fb-js-sdk 12.13.0 — observer #1 throws on every call, observer #2 still counts the initial fire AND the post-sign-in fire)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">36</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Observer object form (<code>{next, error, complete}</code>) works alongside the function form</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-36-observer-object-form-works.json</code> (against blockingfun, fb-js-sdk 12.13.0: one observer as <code>NextFn</code>, another as <code>{next, error, complete}</code>. Both forms see 1 initial null fire, +1 on <code>signInAnonymously</code>, +1 on <code>signOut</code>; <code>bothFormsFiredOnSignIn: true, bothFormsFiredOnSignOut: true</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">37</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Setting the same user twice does NOT double-fire (structural-equality no-op). Sandbox-internal <code>setCurrentUser</code> claim; the prod analog is <code>signInAnonymously</code> called twice in a row (per fix #399, the second call returns the same user).</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-37-same-user-no-double-fire.json</code> (against blockingfun, fb-js-sdk 12.13.0: first <code>signInAnonymously</code> fires the listener once; second call returns the same uid (<code>sameUserAcrossCalls: true</code>) and does NOT produce a fresh fire (<code>secondSignInProducedFire: false</code>). Prod also recognizes the same-user no-op)</div></div>
+</details>
+</div>
 
 ## `onIdTokenChanged(auth, observer)`
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 38 | Fires on user change (sandbox shares the auth-state path) | ✓ | `unit:sandbox-listeners.test.ts` + oracle: `scripts/oracle/observations/auth-row-38-onidtokenchanged-fires-on-user-change.json` (against blockingfun, fb-js-sdk 12.13.0: subscribe → 1 initial fire (null) → `signInAnonymously` → +1 (user₁) → `signOut` → +1 (null) → `signInAnonymously` → +1 (user₂ with fresh uid). Every identity transition produces exactly one fire, matching `onAuthStateChanged`) |
-| 38a | Fires on EVERY sign-in, including a same-uid re-sign-in (no `signOut` first) — which mints a fresh token, so a subsequent `getIdToken()` returns a new string. Mirrors upstream `notifyAuthListeners`, which calls `idTokenSubscription.next` on every identity update (`auth_impl.ts:716`). `onAuthStateChanged` stays silent on the same-uid case (row 30a). | ✓ | `unit:sandbox-uid-dedup.test.ts` (locks AUTH-B8) |
-| 39 | Fires on token refresh (`getIdToken(true)`) | ✓ | `unit:sandbox-token-refresh.test.ts` — was ⚠ (documented divergence); aligned to prod in commit on branch `claude/close-auth-token-refresh` — sandbox now mints a fresh token on forceRefresh and fires `onIdTokenChanged` (NOT `onAuthStateChanged`, since identity is unchanged). Oracle: `scripts/oracle/observations/auth-onidtokenchanged-force-refresh.json` defines the target shape (`refreshFiredListener: true` against blockingfun; subscribe → null fire → `signInAnonymously` → +1 → `getIdToken(true)` → +1 for a total of 3 fires). |
-| 40 | Initial-fire semantics match `onAuthStateChanged` | ✓ | `unit:sandbox-listeners.test.ts` + oracle: `scripts/oracle/observations/auth-row-40-onidtokenchanged-matches-onauthstatechanged-initial-fire.json` (against blockingfun, fb-js-sdk 12.13.0: subscribing both listeners in the same tick yields `sync: {auth: 0, idToken: 0}` → `microtask: {auth: 1, idToken: 1}` → no further fires. Both listeners share the microtask-deferred initial-fire timing) |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">38</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires on user change (sandbox shares the auth-state path)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-38-onidtokenchanged-fires-on-user-change.json</code> (against blockingfun, fb-js-sdk 12.13.0: subscribe → 1 initial fire (null) → <code>signInAnonymously</code> → +1 (user₁) → <code>signOut</code> → +1 (null) → <code>signInAnonymously</code> → +1 (user₂ with fresh uid). Every identity transition produces exactly one fire, matching <code>onAuthStateChanged</code>)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">38a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires on EVERY sign-in, including a same-uid re-sign-in (no <code>signOut</code> first) — which mints a fresh token, so a subsequent <code>getIdToken()</code> returns a new string. Mirrors upstream <code>notifyAuthListeners</code>, which calls <code>idTokenSubscription.next</code> on every identity update (<code>auth_impl.ts:716</code>). <code>onAuthStateChanged</code> stays silent on the same-uid case (row 30a).</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-uid-dedup.test.ts</code> (locks AUTH-B8)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">39</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires on token refresh (<code>getIdToken(true)</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-token-refresh.test.ts</code> — was ⚠ (documented divergence); aligned to prod in commit on branch <code>claude/close-auth-token-refresh</code> — sandbox now mints a fresh token on forceRefresh and fires <code>onIdTokenChanged</code> (NOT <code>onAuthStateChanged</code>, since identity is unchanged). Oracle: <code>scripts/oracle/observations/auth-onidtokenchanged-force-refresh.json</code> defines the target shape (<code>refreshFiredListener: true</code> against blockingfun; subscribe → null fire → <code>signInAnonymously</code> → +1 → <code>getIdToken(true)</code> → +1 for a total of 3 fires).</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">40</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Initial-fire semantics match <code>onAuthStateChanged</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code> + oracle: <code>scripts/oracle/observations/auth-row-40-onidtokenchanged-matches-onauthstatechanged-initial-fire.json</code> (against blockingfun, fb-js-sdk 12.13.0: subscribing both listeners in the same tick yields <code>sync: {auth: 0, idToken: 0}</code> → <code>microtask: {auth: 1, idToken: 1}</code> → no further fires. Both listeners share the microtask-deferred initial-fire timing)</div></div>
+</details>
+</div>
 
 ## `setPersistence(auth, persistence)`
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 41 | Accepts `inMemoryPersistence` / `browserSessionPersistence` / `browserLocalPersistence` markers without throwing | ✓ | `unit:types.test.ts` |
-| 42 | Returns `Promise<void>` | ✓ | `unit:types.test.ts` |
-| 43 | Actually changes where the auth state is persisted | ⚠ | divergence: sandbox is a no-op. Prod respects the marker. |
-| 43a | An unrecognized persistence marker (not one of the three) is rejected with `auth/argument-error` on the prod backend, rather than silently coerced to LOCAL | ✓ | `unit:sandbox-cluster-b9-b12.test.ts` (locks AUTH-B12) |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">41</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Accepts <code>inMemoryPersistence</code> / <code>browserSessionPersistence</code> / <code>browserLocalPersistence</code> markers without throwing</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:types.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">42</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>Promise&lt;void&gt;</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:types.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">43</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Actually changes where the auth state is persisted</span></summary>
+<div class="compat-evidence"><div class="compat-probe">divergence: sandbox is a no-op. Prod respects the marker.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">43a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">An unrecognized persistence marker (not one of the three) is rejected with <code>auth/argument-error</code> on the prod backend, rather than silently coerced to LOCAL</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-cluster-b9-b12.test.ts</code> (locks AUTH-B12)</div></div>
+</details>
+</div>
 
 ## `signInWithPopup(auth, provider)` / `signInWithCredential(auth, credential)`
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 44 | Returns the pre-staged `UserCredential` registered via `sandbox.mockSignInResult(auth, …)` | ✓ | `unit:sandbox-providers.test.ts` |
-| 45 | Throws `auth/no-mock-configured` when no mock is pre-staged | ✓ | `unit:sandbox-providers.test.ts` |
-| 46 | Mock is consumed after one read (subsequent call without a fresh stage throws again) | ✓ | `unit:sandbox-providers.test.ts` |
-| 47 | After successful sign-in, `currentUser` becomes the mock's `user`, listeners fire | ✓ | `unit:sandbox-providers.test.ts` |
-| 47a | The credential's rich `User` (email / displayName / isAnonymous) survives the transition — popup/redirect/credential/`setUser` do NOT clobber it down to the bare `AuthState`; `cred.user === auth.currentUser` (reference identity, matches upstream `_updateCurrentUser(userCredential.user)`) | ✓ | `unit:sandbox-user-identity.test.ts` (locks AUTH-B1) |
-| 48 | Opens a popup window in prod | ⚠ | divergence: sandbox skips the popup; mock pre-stage replaces the popup result |
-| 49 | Cancels with `auth/popup-closed-by-user` when the user dismisses the popup (prod) | — | not modeled — would require the host to expose a "cancel" affordance on the mock |
-| 70 | Provider-flow sign-ins (popup / redirect / credential) record the flow's `providerId` on the identity in the user DB (upsert for unknown uids; append-if-missing for known ones) and reject disabled accounts with `auth/user-disabled` before any state change | ✓ | `unit:sandbox-user-admin.test.ts` ("provider tracking", "disabled users") — provider recording is sandbox bookkeeping for `listIdentities`/`listUsers`; prod's auto-link semantics are narrower (same-email Google auto-link only) and not modeled |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">44</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns the pre-staged <code>UserCredential</code> registered via <code>sandbox.mockSignInResult(auth, …)</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">45</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>auth/no-mock-configured</code> when no mock is pre-staged</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">46</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Mock is consumed after one read (subsequent call without a fresh stage throws again)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">47</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After successful sign-in, <code>currentUser</code> becomes the mock's <code>user</code>, listeners fire</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">47a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The credential's rich <code>User</code> (email / displayName / isAnonymous) survives the transition — popup/redirect/credential/<code>setUser</code> do NOT clobber it down to the bare <code>AuthState</code>; <code>cred.user === auth.currentUser</code> (reference identity, matches upstream <code>_updateCurrentUser(userCredential.user)</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-identity.test.ts</code> (locks AUTH-B1)</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">48</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Opens a popup window in prod</span></summary>
+<div class="compat-evidence"><div class="compat-probe">divergence: sandbox skips the popup; mock pre-stage replaces the popup result</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">49</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Cancels with <code>auth/popup-closed-by-user</code> when the user dismisses the popup (prod)</span></summary>
+<div class="compat-evidence"><div class="compat-probe">not modeled — would require the host to expose a "cancel" affordance on the mock</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">70</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Provider-flow sign-ins (popup / redirect / credential) record the flow's <code>providerId</code> on the identity in the user DB (upsert for unknown uids; append-if-missing for known ones) and reject disabled accounts with <code>auth/user-disabled</code> before any state change</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> ("provider tracking", "disabled users") — provider recording is sandbox bookkeeping for <code>listIdentities</code>/<code>listUsers</code>; prod's auto-link semantics are narrower (same-email Google auto-link only) and not modeled</div></div>
+</details>
+</div>
 
 ## `signInWithRedirect` / `getRedirectResult` / resolver seam
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 49a | `signInWithRedirect(auth, provider, resolver?)` resolves the flow (per-call resolver → injected → one-shot mock → `auth/argument-error`), signs the user in, and stashes the credential for one `getRedirectResult` | ✓ | `unit:sandbox-resolver.test.ts` |
-| 49b | `getRedirectResult(auth)` returns the stashed credential once, then `null` (one-shot, matches prod) | ✓ | `unit:sandbox-resolver.test.ts` |
-| 49c | `sandbox.setAuthFlowResolver(auth, resolver \| null)` installs / clears the popup/redirect resolver (the analog of browser `getAuth` wiring `browserPopupRedirectResolver`) | ✓ | `unit:sandbox-resolver.test.ts` |
-| 49d | `sandbox.listIdentities(auth)` snapshots every seeded/created identity for a host account-picker (sandbox-only — no `firebase/auth` equivalent) | ✓ | `unit:sandbox-resolver.test.ts` |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">49a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>signInWithRedirect(auth, provider, resolver?)</code> resolves the flow (per-call resolver → injected → one-shot mock → <code>auth/argument-error</code>), signs the user in, and stashes the credential for one <code>getRedirectResult</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-resolver.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">49b</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getRedirectResult(auth)</code> returns the stashed credential once, then <code>null</code> (one-shot, matches prod)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-resolver.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">49c</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.setAuthFlowResolver(auth, resolver | null)</code> installs / clears the popup/redirect resolver (the analog of browser <code>getAuth</code> wiring <code>browserPopupRedirectResolver</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-resolver.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">49d</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.listIdentities(auth)</code> snapshots every seeded/created identity for a host account-picker (sandbox-only — no <code>firebase/auth</code> equivalent)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-resolver.test.ts</code></div></div>
+</details>
+</div>
 
 ## `Auth` surface + error shape
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 49e | `auth.signOut()` method form works alongside the free `signOut(auth)` function (`firebase/auth`'s `Auth` exposes both) (AUTH-GAP) | ✓ | `unit:auth-gap-surface.test.ts` |
-| 49f | Sandbox auth errors are real `FirebaseError` instances (`err instanceof FirebaseError`) carrying the prod message wrapper `Firebase: <message> (<auth/...>).` — e.g. `Firebase: Error (auth/invalid-email).`, matching the oracle (AUTH-GAP) | ✓ | `unit:auth-gap-surface.test.ts` |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">49e</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>auth.signOut()</code> method form works alongside the free <code>signOut(auth)</code> function (<code>firebase/auth</code>'s <code>Auth</code> exposes both) (AUTH-GAP)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:auth-gap-surface.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">49f</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Sandbox auth errors are real <code>FirebaseError</code> instances (<code>err instanceof FirebaseError</code>) carrying the prod message wrapper <code>Firebase: &lt;message&gt; (&lt;auth/...&gt;).</code> — e.g. <code>Firebase: Error (auth/invalid-email).</code>, matching the oracle (AUTH-GAP)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:auth-gap-surface.test.ts</code></div></div>
+</details>
+</div>
 
 ## Provider classes (`GoogleAuthProvider`, `EmailAuthProvider`, etc.)
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 50 | Exports the same constructor signatures as `firebase/auth` for each provider | ✓ | type-only smoke in `unit:types.test.ts` |
-| 51 | `Provider.credential(...)` static factories produce `AuthCredential`-shaped objects | ✓ | `unit:sandbox-providers.test.ts` |
-| 52 | `GoogleAuthProvider.providerId === 'google.com'` (and per-provider analogs) | ✓ | `unit:sandbox-providers.test.ts` |
-| 53 | Custom scopes / params / language code | — | sandbox ignores; prod forwards |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">50</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Exports the same constructor signatures as <code>firebase/auth</code> for each provider</span></summary>
+<div class="compat-evidence"><div class="compat-probe">type-only smoke in <code>unit:types.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">51</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>Provider.credential(...)</code> static factories produce <code>AuthCredential</code>-shaped objects</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">52</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>GoogleAuthProvider.providerId === 'google.com'</code> (and per-provider analogs)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">53</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Custom scopes / params / language code</span></summary>
+<div class="compat-evidence"><div class="compat-probe">sandbox ignores; prod forwards</div></div>
+</details>
+</div>
 
 ## `User` methods
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 54 | `user.getIdToken()` returns a stable opaque token in sandbox (`sandbox-id-token-…`) | ✓ | `unit:sandbox-anonymous.test.ts` |
-| 55 | `user.getIdToken(true)` (forceRefresh) returns a NEW token; subsequent `getIdToken(false)` returns the cached new token | ✓ | `unit:sandbox-token-refresh.test.ts` — was ⚠ (documented divergence); aligned to prod in commit on branch `claude/close-auth-token-refresh` — sandbox now mints a fresh token on forceRefresh and fires `onIdTokenChanged`. Oracle: `scripts/oracle/observations/auth-getidtoken-force-refresh.json` defines the target shape (`forceRefreshReturnedDifferentString: true`, `token1EqualsToken2: true` against blockingfun — the refreshed token is cached, so a subsequent non-forced read returns it, not yet another fresh one). Sandbox tokens stay `sandbox-id-token-<uid>-<hash>` strings; prod's are real JWTs. |
-| 56 | `user.getIdTokenResult()` returns claims | ✓ | `unit:sandbox-providers.test.ts` (custom-claims path) |
-| 57 | `user.uid`, `user.email`, `user.displayName`, `user.isAnonymous` reflect the source | ✓ | `playground:auth-anonymous`, `playground:auth-email-password` |
-| 58 | `user.emailVerified` — present on every sandbox-minted `User` (default `false`; sandbox has no verification flow). Prod passes the real value through (no longer stripped). The admin record (`sandbox.listUsers`) carries it too | ✓ | `unit:auth-gap-surface.test.ts` (locks AUTH-GAP) |
-| 58a | `user.photoURL` / `user.phoneNumber` — present (sandbox default `null`; prod passes through, no longer stripped) | ✓ | `unit:auth-gap-surface.test.ts` |
-| 58b | `user.providerId` (aggregate, `'firebase'`) + `user.providerData: UserInfo[]` — sandbox synthesizes one provider entry for non-anonymous users, empty for anonymous; prod passes the real array through (no longer stripped). The admin record carries the emulator-shaped `providerUserInfo` | ✓ | `unit:auth-gap-surface.test.ts` |
-| 59 | `user.metadata.creationTime` / `lastSignInTime` | — | client `User.metadata` not exposed (AUTH-GAP); the admin record carries `createdAt`/`lastLoginAt` (ISO) |
-| 68 | `IdTokenResult.signInProvider` reflects the session's provider per flow (`'anonymous'` / `'password'` / `'google.com'` / …); claims include the reserved `firebase.sign_in_provider` (custom claims can't shadow it) | ✓ | `unit:sandbox-user-admin.test.ts` ("IdTokenResult.signInProvider") — prod shape is documented SDK behavior; no oracle capture yet |
-| 75 | Custom-claims changes (`sandbox.updateUser` / re-seed) reach an active session on the next FORCED token refresh, not immediately — claims are read live from the user DB at mint time (prod's refresh-propagation story; AUTH-B10) | ✓ | `unit:sandbox-user-admin.test.ts`, `unit:sandbox-cluster-b9-b12.test.ts` |
-| 61 | `user.reload()` / `user.delete()` / `user.toJSON()` / `user.refreshToken` / `user.tenantId` | — | not modeled by the sandbox; documented in the deny-list rather than synthesized (AUTH-GAP) |
-| 62 | `updateProfile(user, {displayName, photoURL})` | — | not implemented |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">54</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>user.getIdToken()</code> returns a stable opaque token in sandbox (<code>sandbox-id-token-…</code>)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">55</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>user.getIdToken(true)</code> (forceRefresh) returns a NEW token; subsequent <code>getIdToken(false)</code> returns the cached new token</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-token-refresh.test.ts</code> — was ⚠ (documented divergence); aligned to prod in commit on branch <code>claude/close-auth-token-refresh</code> — sandbox now mints a fresh token on forceRefresh and fires <code>onIdTokenChanged</code>. Oracle: <code>scripts/oracle/observations/auth-getidtoken-force-refresh.json</code> defines the target shape (<code>forceRefreshReturnedDifferentString: true</code>, <code>token1EqualsToken2: true</code> against blockingfun — the refreshed token is cached, so a subsequent non-forced read returns it, not yet another fresh one). Sandbox tokens stay <code>sandbox-id-token-&lt;uid&gt;-&lt;hash&gt;</code> strings; prod's are real JWTs.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">56</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>user.getIdTokenResult()</code> returns claims</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code> (custom-claims path)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">57</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>user.uid</code>, <code>user.email</code>, <code>user.displayName</code>, <code>user.isAnonymous</code> reflect the source</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>playground:auth-anonymous</code>, <code>playground:auth-email-password</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">58</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>user.emailVerified</code> — present on every sandbox-minted <code>User</code> (default <code>false</code>; sandbox has no verification flow). Prod passes the real value through (no longer stripped). The admin record (<code>sandbox.listUsers</code>) carries it too</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:auth-gap-surface.test.ts</code> (locks AUTH-GAP)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">58a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>user.photoURL</code> / <code>user.phoneNumber</code> — present (sandbox default <code>null</code>; prod passes through, no longer stripped)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:auth-gap-surface.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">58b</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>user.providerId</code> (aggregate, <code>'firebase'</code>) + <code>user.providerData: UserInfo[]</code> — sandbox synthesizes one provider entry for non-anonymous users, empty for anonymous; prod passes the real array through (no longer stripped). The admin record carries the emulator-shaped <code>providerUserInfo</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:auth-gap-surface.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">59</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>user.metadata.creationTime</code> / <code>lastSignInTime</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">client <code>User.metadata</code> not exposed (AUTH-GAP); the admin record carries <code>createdAt</code>/<code>lastLoginAt</code> (ISO)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">68</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>IdTokenResult.signInProvider</code> reflects the session's provider per flow (<code>'anonymous'</code> / <code>'password'</code> / <code>'google.com'</code> / …); claims include the reserved <code>firebase.sign_in_provider</code> (custom claims can't shadow it)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> ("IdTokenResult.signInProvider") — prod shape is documented SDK behavior; no oracle capture yet</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">75</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Custom-claims changes (<code>sandbox.updateUser</code> / re-seed) reach an active session on the next FORCED token refresh, not immediately — claims are read live from the user DB at mint time (prod's refresh-propagation story; AUTH-B10)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code>, <code>unit:sandbox-cluster-b9-b12.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">61</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>user.reload()</code> / <code>user.delete()</code> / <code>user.toJSON()</code> / <code>user.refreshToken</code> / <code>user.tenantId</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">not modeled by the sandbox; documented in the deny-list rather than synthesized (AUTH-GAP)</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">62</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>updateProfile(user, {displayName, photoURL})</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">not implemented</div></div>
+</details>
+</div>
 
 ## `sandbox.*` (sandbox-only test driver)
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 63 | `sandbox.seedUsers(auth, [{uid, email, password, displayName?, customClaims?, providerId?}])` seeds the user DB; `providerId` defaults to `'password'` | ✓ | `unit:sandbox-test-driver.test.ts`, `unit:sandbox-user-admin.test.ts` |
-| 63a | Re-seeding an existing uid OVERWRITES it: a new email drops the stale email→record mapping (the old email no longer signs in), and re-seeded `customClaims` are LIVE — a held `User`'s `getIdToken(true)` reflects the new claims rather than the claims frozen at mint time | ✓ | `unit:sandbox-cluster-b9-b12.test.ts` (locks AUTH-B9 + AUTH-B10) |
-| 64 | `sandbox.setUser(auth, user)` / `sandbox.setUser(auth, null)` directly switches identity. Bypasses the `disabled` check and does NOT bump `lastLoginAt` (not a real sign-in) | ✓ | `unit:sandbox-test-driver.test.ts` |
-| 65 | `sandbox.mockSignInResult(auth, {providerId, user, …})` pre-stages a popup/credential result | ✓ | `unit:sandbox-providers.test.ts` |
-| 66 | All `sandbox.*` methods throw `failed-precondition` on prod-backed handles | ✓ | `unit:sandbox-test-driver.test.ts`, `unit:sandbox-user-admin.test.ts` |
-| 67 | `sandbox.reset()` (host-side, via `Sandbox.reset()`) clears auth state and fires sign-out | ✓ | `unit:sandbox-listeners.test.ts` |
-| 71 | `sandbox.listIdentities(auth)` returns the REAL provider per identity — `providerId` primary label (`'anonymous'` for anonymous users) + emulator-shaped `providerUserInfo` array; anonymous users included | ✓ | `unit:sandbox-user-admin.test.ts` ("provider tracking") — fixes the pre-epic mislabeling (`'password'`/`'anonymous'` only) |
-| 72 | `sandbox.createSignInCredential(auth, {providerId, uid \| spec})` mints backend-owned credentials for host-driven flows: `{uid}` picks an existing identity (`auth/user-not-found` for unknown uids); `{spec}` upserts (same-email reuse; default uid `'<providerId>:<email>'`; no password). Tokens route through the backend token cache | ✓ | `unit:sandbox-user-admin.test.ts` ("sandbox.createSignInCredential") |
-| 73 | User-admin CRUD: `sandbox.listUsers` / `createUser` (no sign-in; `auth/uid-already-exists`, `auth/email-already-in-use`, `auth/invalid-email`, `auth/weak-password`) / `updateUser` (displayName incl. null-clear, email re-key, password + provider link, customClaims wholesale replace, disabled, emailVerified) / `deleteUser` / `clearUsers`. Deletion/clear/disable do NOT terminate active sessions (prod parity). Record shape: `{uid, email, displayName, phoneNumber, photoUrl, customClaims, providerUserInfo, isAnonymous, disabled, emailVerified, createdAt, lastLoginAt}` with ISO timestamps | ✓ | `unit:sandbox-user-admin.test.ts` (CRUD describes) |
-| 74 | `sandbox.subscribeUsers(auth, cb)` fires a coarse no-payload callback on every user-DB mutation (seed/create/update/delete/clear, provider links, lastLoginAt bumps); no initial fire; throwing listeners isolated; unsubscribe stops fires | ✓ | `unit:sandbox-user-admin.test.ts` ("sandbox.subscribeUsers") |
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">63</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.seedUsers(auth, [{uid, email, password, displayName?, customClaims?, providerId?}])</code> seeds the user DB; <code>providerId</code> defaults to <code>'password'</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-test-driver.test.ts</code>, <code>unit:sandbox-user-admin.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">63a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Re-seeding an existing uid OVERWRITES it: a new email drops the stale email→record mapping (the old email no longer signs in), and re-seeded <code>customClaims</code> are LIVE — a held <code>User</code>'s <code>getIdToken(true)</code> reflects the new claims rather than the claims frozen at mint time</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-cluster-b9-b12.test.ts</code> (locks AUTH-B9 + AUTH-B10)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">64</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.setUser(auth, user)</code> / <code>sandbox.setUser(auth, null)</code> directly switches identity. Bypasses the <code>disabled</code> check and does NOT bump <code>lastLoginAt</code> (not a real sign-in)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-test-driver.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">65</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.mockSignInResult(auth, {providerId, user, …})</code> pre-stages a popup/credential result</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">66</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">All <code>sandbox.*</code> methods throw <code>failed-precondition</code> on prod-backed handles</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-test-driver.test.ts</code>, <code>unit:sandbox-user-admin.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">67</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.reset()</code> (host-side, via <code>Sandbox.reset()</code>) clears auth state and fires sign-out</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">71</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.listIdentities(auth)</code> returns the REAL provider per identity — <code>providerId</code> primary label (<code>'anonymous'</code> for anonymous users) + emulator-shaped <code>providerUserInfo</code> array; anonymous users included</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> ("provider tracking") — fixes the pre-epic mislabeling (<code>'password'</code>/<code>'anonymous'</code> only)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">72</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.createSignInCredential(auth, {providerId, uid | spec})</code> mints backend-owned credentials for host-driven flows: <code>{uid}</code> picks an existing identity (<code>auth/user-not-found</code> for unknown uids); <code>{spec}</code> upserts (same-email reuse; default uid <code>'&lt;providerId&gt;:&lt;email&gt;'</code>; no password). Tokens route through the backend token cache</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> ("sandbox.createSignInCredential")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">73</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User-admin CRUD: <code>sandbox.listUsers</code> / <code>createUser</code> (no sign-in; <code>auth/uid-already-exists</code>, <code>auth/email-already-in-use</code>, <code>auth/invalid-email</code>, <code>auth/weak-password</code>) / <code>updateUser</code> (displayName incl. null-clear, email re-key, password + provider link, customClaims wholesale replace, disabled, emailVerified) / <code>deleteUser</code> / <code>clearUsers</code>. Deletion/clear/disable do NOT terminate active sessions (prod parity). Record shape: <code>{uid, email, displayName, phoneNumber, photoUrl, customClaims, providerUserInfo, isAnonymous, disabled, emailVerified, createdAt, lastLoginAt}</code> with ISO timestamps</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> (CRUD describes)</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">74</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.subscribeUsers(auth, cb)</code> fires a coarse no-payload callback on every user-DB mutation (seed/create/update/delete/clear, provider links, lastLoginAt bumps); no initial fire; throwing listeners isolated; unsubscribe stops fires</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> ("sandbox.subscribeUsers")</div></div>
+</details>
+</div>
 
 ## Deny-list (intentionally NOT shimmed)
 

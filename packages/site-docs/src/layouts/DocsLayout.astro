@@ -92,6 +92,13 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
     </div>
 
     <script>
+      // On narrow screens the tab row scrolls; make sure the active tab
+      // (Docs, rightmost) is on screen instead of hidden off the edge.
+      document
+        .querySelector('.studio__nav [aria-current="page"]')
+        ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    </script>
+    <script>
       // Current-section highlight: watch the article's h2/h3s and mark
       // the TOC link of the topmost visible one. Cheap on purpose —
       // one observer, no scroll listeners.

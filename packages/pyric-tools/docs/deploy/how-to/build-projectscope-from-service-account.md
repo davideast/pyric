@@ -34,7 +34,7 @@ If the SA already lives in memory as a JSON string:
 const scope = await fromServiceAccount(rawJsonString);
 ```
 
-The function detects this by looking at the first non-whitespace character — a `{` means parse as JSON, otherwise treat as a path.
+The function detects this by looking at the first non-whitespace character: a `{` means parse as JSON, otherwise treat as a path.
 
 ## Required IAM
 

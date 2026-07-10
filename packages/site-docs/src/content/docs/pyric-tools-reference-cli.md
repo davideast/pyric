@@ -2,12 +2,12 @@
 title: "pyric CLI reference"
 group: "pyric-tools"
 section: "Reference"
-order: 12
+order: 44
 ---
 # `pyric` CLI reference
 
 The complete command + flag surface of the `pyric` binary. This is the
-authoritative source for flags, defaults, and exit codes — guides and tutorials
+authoritative source for flags, defaults, and exit codes: guides and tutorials
 link here rather than restating them.
 
 Run `pyric --help` for the same surface inline, or `pyric --version`.
@@ -56,15 +56,15 @@ is unavailable). `firestore.rules` is deployed and hot-reloaded over SSE.
 | `--port <n>` | `3473` | Port to serve on ("FIRE" on a phone keypad); scans forward when taken. |
 | `--host <h>` | `localhost` | Host to bind. |
 | `--persist` | off | Persist sandbox state (docs + auth users) to a committable `.pyric/state/state.json`. Once a state file exists it wins; `--seed` then applies only into an empty sandbox. (On the SharedWorker path data is already durable in IndexedDB; this adds the on-disk, shareable copy.) |
-| `--fresh` | off | Requires `--persist` — errors otherwise (there's no state file to discard). Discards the existing state file and re-seeds from scratch. Does **not** clear the browser's IndexedDB, so a browser tab with existing sandbox data keeps it and writes it right back into the new file; also clear site data (or use a private window) for a full reset. |
-| `--seed <file>` | — | Load a `"collection/doc" → fields` JSON map admin-style before app code runs. Also accepts a `pyric snapshot` state file (detected by its `version` key) — seeds docs + auth users. Applies only into an empty sandbox: if it already holds restored/lived data (a state file, or IndexedDB from an earlier session even without `--persist`), the seed is skipped and a console line explains why. |
+| `--fresh` | off | Requires `--persist`: errors otherwise (there's no state file to discard). Discards the existing state file and re-seeds from scratch. Does **not** clear the browser's IndexedDB, so a browser tab with existing sandbox data keeps it and writes it right back into the new file; also clear site data (or use a private window) for a full reset. |
+| `--seed <file>` | none | Load a `"collection/doc" → fields` JSON map admin-style before app code runs. Also accepts a `pyric snapshot` state file (detected by its `version` key), seeds docs + auth users. Applies only into an empty sandbox: if it already holds restored/lived data (a state file, or IndexedDB from an earlier session even without `--persist`), the seed is skipped and a console line explains why. |
 | `--no-capture` | capture on | Disable the session capture. By default pyric dev writes `.pyric/last-session.json` for `pyric verify` to replay. Captures use `pyric.verify.fixture.v1`, with one event timeline and per-service Firestore/RTDB rules + state blocks. |
 | `--no-watch` | watch on | Disable `firestore.rules` hot-reload. |
 | `--no-open` | auto-open on | Don't auto-open the browser. (Auto-open is already suppressed under `--json`, no TTY, and CI.) |
 | `--no-cache` | cache on | Rebuild the served SDK + worker bundles instead of using `~/.pyric/serve-cache`. |
 | `--bridge` | off | Also mount the MCP bridge on the dev-server origin (`/__pyric/mcp`). `--project` labels health/audit. |
-| `--allowed-host <h,…>` | — | Extra `Host` headers to accept past the DNS-rebinding guard (`localhost`/`127.0.0.1` always allowed). |
-| `--only hosting` | — | Accepted for firebase-serve parity (hosting is all v1 serves). |
+| `--allowed-host <h,…>` | none | Extra `Host` headers to accept past the DNS-rebinding guard (`localhost`/`127.0.0.1` always allowed). |
+| `--only hosting` | none | Accepted for firebase-serve parity (hosting is all v1 serves). |
 | `--json` | off | One machine line on stdout (`{url, port, mcpUrl, rulesHash, persist, restoredDocs, restoredUsers}`); banner → stderr. Readiness probe: `GET <url>/__pyric/init.json` → 200. |
 
 Persistence, multi-tab, and SharedWorker behaviour are covered in
@@ -90,8 +90,8 @@ re-serves (docs + auth users).
 
 | Flag | Default | Description |
 |---|---|---|
-| `--out <file>` | — | Output path for the fixture. |
-| `--port <n>` | — | Port of the live `pyric dev` to read from. |
+| `--out <file>` | none | Output path for the fixture. |
+| `--port <n>` | none | Port of the live `pyric dev` to read from. |
 | `--force` | off | Overwrite an existing output file. |
 | `--include-passwords` | redacted | Keep auth-user passwords in the fixture (default: redacted). Trusted/local fixtures only. |
 | `--json` | off | Machine output on stdout. |
@@ -161,9 +161,9 @@ real Firebase project (guarded). See [bridge](../pyric-tools-bridge/).
 |---|---|---|
 | `--mode <sandbox\|prod>` | `sandbox` | `prod` requires credentials **and** interactive confirmation (or `--non-interactive`). |
 | `--port <n>` | `5174` | Port to bind on `127.0.0.1`. Env: `PYRIC_PORT`. |
-| `--project <id>` | — | Project id surfaced in `/health` + audit log. Required for `--mode prod`. Env: `PYRIC_PROJECT`. |
-| `--auto-approve <list>` | — | Prod mode: comma-separated tool names that skip confirmation. |
-| `--require-confirm <list>` | — | Prod mode: tool names forced to always prompt. |
+| `--project <id>` | none | Project id surfaced in `/health` + audit log. Required for `--mode prod`. Env: `PYRIC_PROJECT`. |
+| `--auto-approve <list>` | none | Prod mode: comma-separated tool names that skip confirmation. |
+| `--require-confirm <list>` | none | Prod mode: tool names forced to always prompt. |
 | `--require-confirm-all` | off | Prod mode: force every tool (including reads) to prompt. |
 | `--confirm-timeout <ms>` | `45000` | Prod mode: per-prompt timeout. |
 | `--non-interactive` | off | Run prod mode without a TTY (CI). |
@@ -176,7 +176,7 @@ real Firebase project (guarded). See [bridge](../pyric-tools-bridge/).
 
 Deploy to a real Firebase project. Each target has its own surface (selectors,
 agent I/O via `--schema` / `--json`, preview channels for hosting). The full
-deploy documentation lives in [`../deploy/`](../pyric-tools-deploy/) — including the
+deploy documentation lives in [`../deploy/`](../pyric-tools-deploy/), including the
 [CLI agent I/O reference](../pyric-tools-deploy-reference-cli-agent-io/).
 
 `pyric deploy database` reads `firebase.json.database.rules` as a Realtime
@@ -186,7 +186,7 @@ single default instance discovery via the RTDB management API.
 
 ### `pyric hosting:channel:deploy <channelId> [--expires <ttl>]`
 
-Mirror of `deploy hosting --channel <channelId>` (firebase-tools spelling) —
+Mirror of `deploy hosting --channel <channelId>` (firebase-tools spelling):
 identical behaviour. See [deploy to a preview channel](../pyric-tools-deploy-how-to-deploy-to-a-preview-channel/).
 
 ---

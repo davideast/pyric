@@ -12,7 +12,7 @@ bun init -y
 bun add pyric/sandbox pyric/storage
 ```
 
-## Step 1 — Set up the sandbox + storage
+## Step 1: Set up the sandbox + storage
 
 Create `archive.ts`:
 
@@ -43,7 +43,7 @@ console.log('Storage ready with session-archive rules.');
 
 Run `bun run archive.ts`. You should see `Storage ready with session-archive rules.`
 
-## Step 2 — Upload a session
+## Step 2: Upload a session
 
 ```ts
 const sessionBytes = new TextEncoder().encode(JSON.stringify({
@@ -66,7 +66,7 @@ console.log('Uploaded:', result.metadata.fullPath, result.metadata.size, 'bytes'
 
 Output: `Uploaded: sessions/gen-123 <some number> bytes`.
 
-## Step 3 — List the archive
+## Step 3: List the archive
 
 ```ts
 const items = await listAll(ref(alice, 'sessions'));
@@ -75,9 +75,9 @@ console.log('Sessions in archive:', items.items.map((i) => i.name));
 
 Output: `Sessions in archive: [ 'gen-123' ]`.
 
-Add more uploads and re-run — they appear in the list.
+Add more uploads and re-run. They appear in the list.
 
-## Step 4 — Download a session
+## Step 4: Download a session
 
 ```ts
 const blob = await getBlob(ref(alice, 'sessions/gen-123'));
@@ -88,7 +88,7 @@ console.log('Downloaded session:', parsed);
 
 Output: the JSON you uploaded, round-tripped intact.
 
-## Step 5 — Try an anonymous upload
+## Step 5: Try an anonymous upload
 
 ```ts
 const anon = getStorageSandbox(sandbox.withAuth(null), { rules: SESSION_ARCHIVE_RULES });
@@ -112,7 +112,7 @@ try {
 
 Output: `Anonymous denied: ...`. The rule's `request.auth != null` clause fails for the unauthenticated context, the engine denies, the package throws `FirebaseError` with code `storage/unauthenticated`.
 
-## Step 6 — Try an oversized upload
+## Step 6: Try an oversized upload
 
 ```ts
 const tenMb = new Uint8Array(11 * 1024 * 1024);  // 11 MiB
@@ -133,7 +133,7 @@ try {
 
 Output: `Oversize denied: ...`. The rule's `request.resource.size < 10 * 1024 * 1024` check fails, the engine denies. `storage/unauthorized` (different from `unauthenticated`) signals "you're signed in but you can't do this".
 
-## Step 7 — Delete
+## Step 7: Delete
 
 ```ts
 await deleteObject(ref(alice, 'sessions/gen-123'));
@@ -152,6 +152,6 @@ The delete works under the `request.resource == null` carve-out: the rule's writ
 
 ## Where to go next
 
-- Swap the backend to real Firebase Storage — see [Switch between sandbox and prod backends](../how-to/switch-backends.md).
-- Round-trip custom metadata — see [Round-trip metadata](../how-to/round-trip-metadata.md).
-- Read about what's deferred from this v1 scope — see [Implementation scope and deferred features](../explanation/implementation-scope.md).
+- Swap the backend to real Firebase Storage: see [Switch between sandbox and prod backends](../how-to/switch-backends.md).
+- Round-trip custom metadata: see [Round-trip metadata](../how-to/round-trip-metadata.md).
+- Read about what's deferred from this v1 scope: see [Implementation scope and deferred features](../explanation/implementation-scope.md).

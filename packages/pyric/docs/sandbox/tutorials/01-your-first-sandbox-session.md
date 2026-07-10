@@ -1,6 +1,6 @@
 # Your first sandbox session
 
-In this tutorial you will create a sandbox, deploy a tiny set of rules, write a document as one user, deny a read as another, and inspect the result. By the end you'll have seen the three core ideas — `Sandbox`, `SandboxContext`, `SandboxError` — work together in one short script.
+Create a sandbox, deploy a tiny set of rules, write a document as one user, deny a read as another, and inspect the result. By the end you'll have seen the three core ideas (`Sandbox`, `SandboxContext`, `SandboxError`) work together in one short script.
 
 No Firebase project, no network, no setup beyond an `npm install`.
 
@@ -8,7 +8,7 @@ No Firebase project, no network, no setup beyond an `npm install`.
 
 A standalone script that creates a sandbox, runs three operations against it, and prints what happened.
 
-## Step 1 — Set up
+## Step 1: Set up
 
 ```bash
 mkdir sandbox-tutorial && cd sandbox-tutorial
@@ -18,7 +18,7 @@ bun add pyric/sandbox pyric-admin
 
 `pyric-admin` gives us the Admin-SDK-shaped data plane that sits on top of the sandbox. (You could use `pyric/firestore` for the modular Web shape instead; the choice doesn't matter for this tutorial.)
 
-## Step 2 — Create the sandbox and deploy rules
+## Step 2: Create the sandbox and deploy rules
 
 Create `session.ts`:
 
@@ -47,7 +47,7 @@ console.log('Sandbox ready, rules deployed.');
 Notice three things:
 
 - `initializeSandbox()` takes no arguments. Identity comes later, via `withAuth`.
-- The admin context uses a custom `token.admin` claim. The rule doesn't check for it here — we'll use it shortly when we want to bypass user-shape rules.
+- The admin context uses a custom `token.admin` claim. The rule doesn't check for it here; we'll use it shortly when we want to bypass user-shape rules.
 - `setRules` is part of `pyric-admin`'s handle, not the sandbox itself. The sandbox is identity-agnostic; deploying rules is conceptually identity-agnostic too, but the surface lives on the data-plane adapter for ergonomics.
 
 Run it:
@@ -58,7 +58,7 @@ bun run session.ts
 
 You should see `Sandbox ready, rules deployed.` and nothing else.
 
-## Step 3 — Write as one user, read as another
+## Step 3: Write as one user, read as another
 
 Add to `session.ts`:
 
@@ -86,9 +86,9 @@ Alice sees: { ownerId: "alice", title: "My first note" }
 Bob sees: { ownerId: "alice", title: "My first note" }
 ```
 
-Both reads succeed because the rule says `allow read: if request.auth != null` — any signed-in user can read any note. The two contexts share data; they differ only in the identity rules evaluate under.
+Both reads succeed because the rule says `allow read: if request.auth != null`. Any signed-in user can read any note. The two contexts share data; they differ only in the identity rules evaluate under.
 
-## Step 4 — Watch a denial
+## Step 4: Watch a denial
 
 Add:
 
@@ -121,9 +121,9 @@ Bob was denied.
 
 The write rule is `request.auth.uid == request.resource.data.ownerId`. Bob's `auth.uid` is `'bob'`; the proposed payload's `ownerId` is `'alice'`. They don't match, the rule denies, the SDK throws `SandboxError` with `code: 'permission-denied'`.
 
-`denialContext` carries the full eval-time payload — what the rule saw, why it said no. Real Firebase strips this server-side for security; the sandbox can show it because it's a development tool.
+`denialContext` carries the full eval-time payload: what the rule saw, why it said no. Production Firebase strips this server-side for security; the sandbox can show it because it's a development tool.
 
-## Step 5 — Use admin reads to confirm state
+## Step 5: Use admin reads to confirm state
 
 Add:
 
@@ -141,7 +141,7 @@ Actual data: { ownerId: "alice", title: "My first note" }
 
 This is how you assert state in tests without worrying about whether your test fixture's identity can read what you want to verify.
 
-## Step 6 — Watch a reset
+## Step 6: Watch a reset
 
 Add at the end:
 
@@ -158,7 +158,7 @@ After reset: null
 Alice context still works: true
 ```
 
-`reset` wipes data, rules, listeners — but the `alice` and `bob` contexts still work. Their sandbox reference is stable; the underlying environment was replaced. The next operation through `alice` would evaluate against the fresh environment (and would fail because rules are gone — default-deny applies).
+`reset` wipes data, rules, and listeners, but the `alice` and `bob` contexts still work. Their sandbox reference is stable; the underlying environment was replaced. The next operation through `alice` would evaluate against the fresh environment (and would fail because rules are gone, so default-deny applies).
 
 ## What you have learned
 
@@ -171,6 +171,6 @@ Alice context still works: true
 
 ## What to do next
 
-- Run the same pattern across a test suite — see [Use the sandbox in a test harness](./02-use-the-sandbox-in-a-test-harness.md).
-- Render denials in a UI without try/catch — see [Observe sandbox events](../how-to/observe-events.md).
-- Pick between the two adapter shapes — see [Pick between `pyric-admin` and `pyric/firestore`](../how-to/pick-an-adapter.md).
+- Run the same pattern across a test suite: [Use the sandbox in a test harness](./02-use-the-sandbox-in-a-test-harness.md).
+- Render denials in a UI without try/catch: [Observe sandbox events](../how-to/observe-events.md).
+- Pick between the two adapter shapes: [Pick between `pyric-admin` and `pyric/firestore`](../how-to/pick-an-adapter.md).

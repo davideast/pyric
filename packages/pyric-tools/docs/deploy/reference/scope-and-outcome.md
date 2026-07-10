@@ -13,8 +13,8 @@ interface ProjectScope {
 
 Project-level credentials. One scope object instead of `(token, projectId, …)` signatures everywhere.
 
-- **`projectId`** — stable identity for the life of the scope. Frozen at construction time when built via `fromServiceAccount`.
-- **`resolveToken`** — host's promise to deliver a fresh-enough OAuth access token with the `https://www.googleapis.com/auth/firebase` and `https://www.googleapis.com/auth/cloud-platform` scopes. Callers invoke per-dispatch — hosts that care about cost wrap the resolver in `memoizeTtl`.
+- **`projectId`**: stable identity for the life of the scope. Frozen at construction time when built via `fromServiceAccount`.
+- **`resolveToken`**: host's promise to deliver a fresh-enough OAuth access token with the `https://www.googleapis.com/auth/firebase` and `https://www.googleapis.com/auth/cloud-platform` scopes. Callers invoke per-dispatch. Hosts that care about cost wrap the resolver in `memoizeTtl`.
 
 ### Building a scope
 
@@ -47,8 +47,8 @@ type Outcome<TData, TErrCode extends string = never> =
 
 Returned by orchestrators. Two universal error codes:
 
-- **`'permission-denied'`** — auth or IAM failure. Returned when the upstream API responds 401 or 403, or when the resolver itself rejects with an `AdminApiError` of that status.
-- **`'unknown'`** — anything else, including network failures, DNS errors, and any non-`AdminApiError` exception. Deliberately *not* bucketed as `'permission-denied'` — that would mis-label transport failures as IAM issues.
+- **`'permission-denied'`**: auth or IAM failure. Returned when the upstream API responds 401 or 403, or when the resolver itself rejects with an `AdminApiError` of that status.
+- **`'unknown'`**: anything else, including network failures, DNS errors, and any non-`AdminApiError` exception. Deliberately *not* bucketed as `'permission-denied'`, since that would mis-label transport failures as IAM issues.
 
 Each orchestrator widens the union with its own coded error values (`'not-found'`, `'invalid-config'`, `'create-failed'`, `'merge-failed'`, etc.). See [Error codes by operation](./error-codes.md).
 
@@ -67,7 +67,7 @@ class AdminApiError extends Error {
 }
 ```
 
-`status` lets callers branch on permission (`401` / `403`), not-found (`404`), conflict (`409`), etc. `body` is the upstream payload — capped at 8 KiB so a misbehaving proxy returning a multi-megabyte HTML error page doesn't balloon error chains.
+`status` lets callers branch on permission (`401` / `403`), not-found (`404`), conflict (`409`), etc. `body` is the upstream payload, capped at 8 KiB so a misbehaving proxy returning a multi-megabyte HTML error page doesn't balloon error chains.
 
 ### Catching directly
 
@@ -93,6 +93,6 @@ try {
 
 ### Why throw from primitives
 
-Primitives are intentionally low-level — they map one REST call to one TypeScript function. Throwing lets callers reach for finer-grained error handling than an `Outcome` union allows (an HTTP status, the full body). Orchestrators wrap primitives in `withResolvedScope` to translate thrown errors into `Outcome` shapes for callers that want one shape across all operations.
+Primitives are intentionally low-level: they map one REST call to one TypeScript function. Throwing lets callers reach for finer-grained error handling than an `Outcome` union allows (an HTTP status, the full body). Orchestrators wrap primitives in `withResolvedScope` to translate thrown errors into `Outcome` shapes for callers that want one shape across all operations.
 
 See [Primitives throw, orchestrators return](../explanation/primitives-vs-orchestrators.md) for the design rationale.

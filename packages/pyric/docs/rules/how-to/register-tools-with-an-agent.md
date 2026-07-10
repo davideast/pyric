@@ -1,8 +1,8 @@
 # How to register rules tools with an agent
 
-This guide shows you how to expose the rules surface as tool handlers for an `@inbrowser/agent` registry — so an LLM-driven agent can lint, simulate, and test rules through structured tool calls.
+Expose the rules surface as tool handlers for an `@inbrowser/agent` registry, so an LLM-driven agent can lint, simulate, and test rules through structured tool calls.
 
-## Without project credentials — lint / resolve / simulate
+## Without project credentials: lint / resolve / simulate
 
 `createFirestoreRulesTools()` returns three handlers:
 
@@ -21,7 +21,7 @@ registry.list().map((h) => h.name);
 
 These are pure-local: no network, no credentials, safe to expose anywhere.
 
-## With a `ProjectScope` — also expose live testing
+## With a `ProjectScope`: also expose live testing
 
 Pass a `ProjectScope` and a fourth handler appears: `firestore_test_rules`, which calls Google's Rules Test API.
 
@@ -67,7 +67,7 @@ The `ToolResult` shape is uniform across handlers: `{ ok, summary, data }`. Look
 
 ## Stateful simulator tools (Slice 8 scaffold)
 
-`createFirestoreSimulatorTools({ resolveSandbox })` is the entry point for the seven-tool simulator family that operates against a session-scoped `LocalEnvironment` from `pyric/sandbox`. It currently returns an empty array — the full implementation lands as consumers ask for it. The factory shape and dependency contract are stable; only the handlers are pending.
+`createFirestoreSimulatorTools({ resolveSandbox })` is the entry point for the seven-tool simulator family that operates against a session-scoped `LocalEnvironment` from `pyric/sandbox`. It currently returns an empty array. The full implementation lands as consumers ask for it. The factory shape and dependency contract are stable; only the handlers are pending.
 
 ```ts
 import { createFirestoreSimulatorTools } from 'pyric/rules/node';
@@ -78,9 +78,9 @@ const tools = createFirestoreSimulatorTools({
 });
 ```
 
-The `resolveSandbox` resolver fires per dispatch — hosts that reset or swap the sandbox transparently get a fresh environment without re-registering tools.
+The `resolveSandbox` resolver fires per dispatch, so hosts that reset or swap the sandbox transparently get a fresh environment without re-registering tools.
 
 ## Where to look next
 
-- For the public tool names, parameters, and the result shape, see [Public API reference — Tool factories](../reference/api.md#tool-factories).
+- For the public tool names, parameters, and the result shape, see [Tool factories in the API reference](../reference/api.md#tool-factories).
 - For `ToolHandler`, `createToolRegistry`, and `createDispatch`, see the [`@inbrowser/agent` package](../../../agent/README.md).

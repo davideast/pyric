@@ -122,6 +122,24 @@ body {
   border-bottom-color: var(--ink);
 }
 
+/* Narrow screens: the tab row scrolls. Make that legible instead of a
+   hard clip: snap points per tab, and an edge fade standing in for the
+   hidden scrollbar. The nav's own end padding sits under the fade at
+   full scroll, so no tab text ever fades. */
+@media (max-width: 760px) {
+  .studio__nav {
+    scroll-snap-type: x proximity;
+    padding-right: 28px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+
+  .studio__nav-tab {
+    scroll-snap-align: start;
+  }
+}
+
+
 /* ── Docs grid: nav | content | TOC, centred on the bar's column ───
    Rails are sized to their content with a max (`minmax(…, Npx)`); the
    content column flexes between them (`minmax(0, 1fr)`) and is itself
@@ -168,21 +186,54 @@ body {
   padding-bottom: var(--space-6);
   display: grid;
   align-content: start;
-  gap: var(--space-4);
+  gap: var(--space-3);
   font-size: 0.8125rem;
   line-height: 1.5;
 }
 
+/* A single-page group renders as a direct link at header weight —
+   same rhythm and states as everything else. */
+.docs-nav-toplink {
+  display: flex;
+  align-items: center;
+  min-height: 2.125rem;
+  padding: var(--space-1) var(--space-3);
+  border-radius: 0.375rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  transition: background-color 0.12s;
+}
+
+.docs-nav-toplink:hover {
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+
+.docs-nav-toplink[aria-current='page'] {
+  background: var(--panel);
+}
+
+/* Group header: same size and left edge as the items it owns —
+   hierarchy is carried by weight and ink vs muted, never by a second
+   type treatment. One quiet chevron on the right is the only
+   disclosure affordance. */
 .docs-nav-group > summary {
   cursor: pointer;
   list-style: none;
-  padding: 0.3125rem 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro, 10.5px);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-micro, 0.06em);
-  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 2.125rem; /* same rhythm as the items */
+  padding: var(--space-1) var(--space-3);
+  border-radius: 0.375rem;
+  font-weight: 600;
+  color: var(--ink);
+  transition: background-color 0.12s;
+}
+
+.docs-nav-group > summary:hover {
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
 }
 
 .docs-nav-group > summary::-webkit-details-marker {
@@ -190,16 +241,15 @@ body {
 }
 
 .docs-nav-group > summary::after {
-  content: ' +';
+  content: '›';
+  display: inline-block;
   color: var(--faint);
-}
-
-.docs-nav-group[open] > summary {
-  color: var(--ink);
+  font-weight: 400;
+  transition: transform 0.12s;
 }
 
 .docs-nav-group[open] > summary::after {
-  content: ' −';
+  transform: rotate(90deg);
 }
 
 /* Real space between sections — visibly more than the item-to-item
@@ -208,7 +258,7 @@ body {
 .docs-nav-group-body {
   display: grid;
   gap: var(--space-5);
-  padding: var(--space-2) 0 var(--space-4);
+  padding: var(--space-1) 0 var(--space-2);
 }
 
 /* Section headings ("Tutorials" / "How-to" / …) are near-ink and
@@ -264,8 +314,14 @@ body {
   background: color-mix(in srgb, var(--panel) 70%, transparent);
 }
 
-.docs-nav a[aria-current='page'] {
+/* Selected state: the full-width pill carries selection; ancestor
+   selection (the Reference link while reading one of its pages) keeps
+   the ink without the fill. */
+.docs-nav a[aria-current] {
   color: var(--ink);
+}
+
+.docs-nav a[aria-current='page'] {
   background: var(--panel);
   font-weight: 500;
 }
@@ -689,18 +745,29 @@ a.external-link::after {
   overflow-x: auto;
 }
 
+/* Tables carry almost no chrome: hairline row separators only — no
+   vertical rules, no outer box, no header fill. Content-sized, never
+   stretched to the text column; the scroll wrapper owns overflow. Code
+   chips and headers never break mid-token (the wonky two-line cell),
+   they push the table into its horizontal scroller instead. */
 .prose table {
-  width: 100%;
+  width: auto;
   border-collapse: collapse;
   font-size: 0.875rem;
 }
 
 .prose th,
 .prose td {
-  border: 1px solid var(--line);
-  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 0.5rem 2rem 0.5rem 0;
   text-align: left;
   vertical-align: top;
+}
+
+.prose th:last-child,
+.prose td:last-child {
+  padding-right: 0;
 }
 
 .prose th {
@@ -709,7 +776,161 @@ a.external-link::after {
   text-transform: uppercase;
   letter-spacing: var(--tracking-micro, 0.06em);
   color: var(--muted);
-  background: var(--panel);
+  white-space: nowrap;
+  border-bottom-color: var(--line-2);
+}
+
+.prose td code {
+  white-space: nowrap;
+}
+
+/* Code renders exactly what you typed: no ligatures turning != into a
+   single glyph in a language where the token is the point. */
+pre,
+code,
+kbd,
+samp {
+  font-variant-ligatures: none;
+}
+
+/* ── Conformance rows ─ the compat matrices as a scannable list ─────
+   (port-content.ts rewrites the `# | Behavior | Status | Probe` tables
+   into this shape). The scan line is dot + behavior, nothing else.
+   Evidence (probe, notes) hides behind a native disclosure — one click
+   away, never in the way. The legend becomes the key for the dots. */
+.prose .compat-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  margin: 1rem 0;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+
+.prose .compat-key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.prose .compat-list {
+  margin: 1rem 0;
+}
+
+.prose .compat-line {
+  display: grid;
+  grid-template-columns: 2.5rem 0.75rem 1fr auto;
+  column-gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-2) 0;
+}
+
+.prose .compat-row {
+  border-bottom: 1px solid var(--line);
+}
+
+.prose .compat-row:last-child {
+  border-bottom: 0;
+}
+
+/* Disclosure affordance: a faint chevron on rows that carry evidence. */
+.prose summary.compat-line {
+  cursor: pointer;
+  list-style: none;
+}
+
+.prose summary.compat-line::-webkit-details-marker {
+  display: none;
+}
+
+.prose summary.compat-line::after {
+  content: '›';
+  color: var(--faint);
+  transition: transform 0.12s;
+}
+
+.prose details[open] > summary.compat-line::after {
+  transform: rotate(90deg);
+}
+
+.prose .compat-num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--faint);
+  text-align: right;
+  padding-top: 2px;
+}
+
+.prose .compat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+
+/* In the rows (top-aligned grid) the dot optically centers on the
+   first line of the behavior; in the key the flexbox centers it. */
+.prose .compat-line .compat-dot {
+  margin-top: 0.45em;
+}
+
+.prose .compat-dot[data-status='ok'] {
+  background: var(--diff-add);
+}
+
+.prose .compat-dot[data-status='diverged'] {
+  background: var(--accent);
+}
+
+.prose .compat-dot[data-status='bug'] {
+  background: var(--diff-remove);
+}
+
+.prose .compat-dot[data-status='unsupported'] {
+  background: var(--line-2);
+}
+
+.prose .compat-dot[data-status='unverified'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--faint);
+}
+
+.prose .compat-status {
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+}
+
+.prose .compat-behavior {
+  font-size: 0.875rem;
+}
+
+.prose .compat-evidence {
+  margin: 0 0 var(--space-2) calc(2.5rem + 0.75rem + 2 * var(--space-3));
+}
+
+.prose .compat-probe,
+.prose .compat-note {
+  margin-top: 2px;
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.prose .compat-probe {
+  font-family: var(--font-mono);
+}
+
+/* Quiet code inside compat rows: plain mono, no chip chrome — the
+   bordered pills are what made the list read as busy. */
+.prose .compat-list code,
+.prose .compat-key code {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
 }
 
 /* Heading anchors need room under the sticky bar. */

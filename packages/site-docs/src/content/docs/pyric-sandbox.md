@@ -3,17 +3,17 @@ title: "pyric/sandbox"
 navLabel: "Overview"
 group: "pyric / sandbox"
 section: ""
-order: 89
+order: 117
 ---
 # `pyric/sandbox`
 
-In-process Firebase sandbox — the foundation every other `@pyric/*` data-plane package plugs into. Holds documents, rules, and listener state for a single isolated environment. Identity-agnostic by design; every operation flows through a `SandboxContext` that names the auth identity it should evaluate under.
+An in-process Firebase sandbox, the foundation every other `@pyric/*` data-plane package plugs into. It holds documents, rules, and listener state for a single isolated environment. It is identity-agnostic by design: every operation flows through a `SandboxContext` that names the auth identity it should evaluate under.
 
 Three concepts:
 
-- **`Sandbox`** — the data + rules + lifecycle handle. One per isolated environment. Also the observability surface: `onDenial`, `onSnapshotError`, and `onRequest` emit traffic events; `reset`, `dispose`, and `snapshot` manage lifecycle.
-- **`SandboxContext`** — an immutable `(sandbox, auth)` pair. Service handles (`pyric-admin`, `pyric/firestore`) accept this.
-- **`SandboxError`** — a typed error family covering both Firebase-aligned codes (`permission-denied`, `not-found`) and sandbox-specific ones (`unimplemented`, `not-seeded`).
+- **`Sandbox`**: the data + rules + lifecycle handle. One per isolated environment. Also the observability surface: `onDenial`, `onSnapshotError`, and `onRequest` emit traffic events, while `reset`, `dispose`, and `snapshot` manage lifecycle.
+- **`SandboxContext`**: an immutable `(sandbox, auth)` pair. Service handles (`pyric-admin`, `pyric/firestore`) accept this.
+- **`SandboxError`**: a typed error family covering both Firebase-aligned codes (`permission-denied`, `not-found`) and sandbox-specific ones (`unimplemented`, `not-seeded`).
 
 The sandbox does *not* ship the data-plane API itself. The Admin-SDK-shaped surface lives in `pyric-admin`; the modular Web-SDK surface lives in `pyric/firestore`. This package is the substrate they share.
 
@@ -58,12 +58,12 @@ Documentation is organised under [`docs/`](../pyric-sandbox/) following the [Dia
 ### Starting points by role
 
 - **First time here?** Run [Your first sandbox session](../pyric-sandbox-tutorials-01-your-first-sandbox-session/).
-- **Writing tests?** Read [Use the sandbox in a test harness](../pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness/).
+- **Writing tests?** Read [Use the sandbox in a test harness](../test-in-node/).
 - **Building an adapter?** See [The `/internal` adapter protocol](../pyric-sandbox-explanation-internal-adapter-protocol/).
 
 ## Position in the Pyric stack
 
-`pyric/sandbox` is the **runtime substrate**. It does not depend on `pyric-admin`, `pyric/firestore`, or any other adapter — they depend on it. Rules tooling lives in `pyric/rules` (imported by the sandbox for `SimulateFirestoreRulesHandler`). Control-plane operations live in `pyric-tools/deploy`. See [Why this package exists](../pyric-sandbox-explanation-why-this-package-exists/).
+`pyric/sandbox` is the **runtime substrate**. It does not depend on `pyric-admin`, `pyric/firestore`, or any other adapter. They depend on it. Rules tooling lives in `pyric/rules` (imported by the sandbox for `SimulateFirestoreRulesHandler`). Control-plane operations live in `pyric-tools/deploy`. See [Why this package exists](../pyric-sandbox-explanation-why-this-package-exists/).
 
 ## Licence
 

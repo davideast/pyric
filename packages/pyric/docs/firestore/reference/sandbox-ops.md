@@ -25,7 +25,7 @@ Returns the `LintResult` from `pyric/rules`. Source with parse-level errors is n
 
 After a successful swap, every active snapshot listener re-evaluates under the new rules. See [Listener re-evaluation on `deployRules`](../../../sandbox/docs/explanation/listener-re-evaluation.md).
 
-On prod, import `firestore` from `pyric-tools/deploy` and call `firestore.rules.deploy(...)` — that hits Firebase's rules API.
+On prod, import `firestore` from `pyric-tools/deploy` and call `firestore.rules.deploy(...)`. That hits Firebase's rules API.
 
 ## `sandbox.seedDocuments(db, documents): LintResult`
 
@@ -40,7 +40,7 @@ sandbox.seedDocuments(db, {
 
 The active ruleset is preserved. Return value is the lint of the existing rules for shape consistency with `setRules`.
 
-On prod, populate data via writes — there's no bulk-seed API.
+On prod, populate data via writes. There's no bulk-seed API.
 
 ## `sandbox.snapshotState(db): Record<string, DocumentData>`
 
@@ -53,7 +53,7 @@ console.log(state['notes/n1']);  // { ownerId: 'alice', title: 'first' }
 
 The returned object is a structural clone. Mutating it does not affect the sandbox.
 
-On prod, this surface doesn't exist — there's no efficient "dump every doc" API in Firebase's data plane.
+On prod, this surface doesn't exist. There's no efficient "dump every doc" API in Firebase's data plane.
 
 ## Why a namespace export
 

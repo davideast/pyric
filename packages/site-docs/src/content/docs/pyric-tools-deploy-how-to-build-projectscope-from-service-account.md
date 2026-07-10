@@ -3,7 +3,7 @@ title: "How to build a ProjectScope from a service account"
 navLabel: "Scope from service account"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 18
+order: 50
 ---
 # How to build a `ProjectScope` from a service account
 
@@ -33,7 +33,7 @@ If the SA already lives in memory as a JSON string:
 ```ts
 const scope = await fromServiceAccount(rawJsonString);
 ```
-The function detects this by looking at the first non-whitespace character — a `{` means parse as JSON, otherwise treat as a path.
+The function detects this by looking at the first non-whitespace character: a `{` means parse as JSON, otherwise treat as a path.
 
 ## Required IAM
 

@@ -106,6 +106,40 @@ export async function navGroups(): Promise<NavGroup[]> {
   return groups;
 }
 
+/**
+ * The guide groups — the outcome-first sections the left nav renders in
+ * full. Everything else is reference: the nav collapses each of those
+ * groups to a single link (its overview page) under one "Reference"
+ * disclosure, so the sidebar reads as a guide, not a manual. The pages
+ * themselves are unaffected: still built, still in llms.txt, index.json,
+ * and search, still reachable from their overview and in-page links.
+ * Must match the porter's GUIDE_GROUPS labels (scripts/port-content.ts).
+ */
+export const GUIDE_GROUP_LABELS: ReadonlySet<string> = new Set([
+  'Overview',
+  'Get started',
+  'Build',
+  'Secure & debug',
+  'Observe & shape',
+  'Ship & test',
+  'Work with an agent',
+  'Trust',
+  'Compatibility',
+]);
+
+export function isGuideGroup(label: string): boolean {
+  return GUIDE_GROUP_LABELS.has(label);
+}
+
+/** A reference group's nav entry point: its overview (section '') page,
+ *  else its first page. */
+export function groupLanding(group: NavGroup): DocEntry {
+  return (
+    group.sections.find((s) => s.section === '')?.entries[0] ??
+    group.sections[0].entries[0]
+  );
+}
+
 /** id-safe slug of an arbitrary nav label ("pyric-tools / deploy" -> "pyric-tools-deploy"). */
 function slugifyId(s: string): string {
   return s
@@ -166,7 +200,12 @@ export async function breadcrumbsFor(entry: DocEntry): Promise<Breadcrumb[]> {
     crumbs.push({
       label: entry.data.section,
       href: null,
-      anchorId: sectionAnchorId(entry.data.group, entry.data.section),
+      // Reference groups collapse to one link in the nav (DocsNav), so
+      // their section headings have no anchor to jump to — the crumb
+      // renders as plain text there. Guide pages never carry a section.
+      anchorId: isGuideGroup(entry.data.group)
+        ? sectionAnchorId(entry.data.group, entry.data.section)
+        : null,
     });
   }
   crumbs.push({ label: navLabel(entry), href: null, anchorId: null });

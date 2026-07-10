@@ -4,7 +4,7 @@ Fifteen modules ship with `pyric/rules`. Each module is a `.rules` file living u
 
 Use them by setting `rules_version = '2+modules'` and adding import statements:
 
-```
+```rules
 import { isAuthenticated, isOwner } from 'auth';
 import { hasOnly } from 'validation';
 ```
@@ -93,7 +93,7 @@ State-machine enforcement.
 
 ## `geometry`
 
-Movement-game validation via a config-document lookup. The caller must pass the config data (from a `get()` call) as the parameter — no implicit dependencies.
+Movement-game validation via a config-document lookup. The caller must pass the config data (from a `get()` call) as the parameter. No implicit dependencies.
 
 | Function | Returns |
 |---|---|
@@ -102,7 +102,7 @@ Movement-game validation via a config-document lookup. The caller must pass the 
 
 Usage:
 
-```
+```rules
 import { validSimpleMove, validJumpMove } from 'geometry';
 
 function config() {
@@ -117,7 +117,7 @@ match /games/{gameId} {
 
 ## Importing private functions
 
-Functions in a module that aren't marked `export` are still inlined by the resolver — but renamed with a module prefix (`{module}__{name}`) so they don't collide with source-defined functions or with private helpers in other modules. You can't import a private function by name; doing so produces `UNKNOWN_FUNCTION` with a message that explains the function exists but isn't exported.
+Functions in a module that aren't marked `export` are still inlined by the resolver, but renamed with a module prefix (`{module}__{name}`) so they don't collide with source-defined functions or with private helpers in other modules. You can't import a private function by name; doing so produces `UNKNOWN_FUNCTION` with a message that explains the function exists but isn't exported.
 
 ## Overriding a stdlib module
 

@@ -2,7 +2,7 @@
 title: "TestCase schema"
 group: "pyric / rules"
 section: "Reference"
-order: 78
+order: 106
 ---
 # `TestCase` schema
 
@@ -20,19 +20,19 @@ What the rule should decide for this request. The case `PASSED` when the simulat
 
 ### `method: 'get' | 'list' | 'create' | 'update' | 'delete'`
 
-The Firestore method under test. Note that the rules engine also recognises the coarser `read` (= `get` ∪ `list`) and `write` (= `create` ∪ `update` ∪ `delete`) groupings in `allow` statements — those resolve automatically.
+The Firestore method under test. Note that the rules engine also recognises the coarser `read` (= `get` ∪ `list`) and `write` (= `create` ∪ `update` ∪ `delete`) groupings in `allow` statements. Those resolve automatically.
 
 ### `path: string`
 
 Document path relative to the database, e.g. `'users/alice'` or `'admin/config/secrets/api-keys'`. Leading slashes are tolerated.
 
-For `method: 'list'` the path may also be a COLLECTION path (e.g. `'menuItems'`): the simulator evaluates the document-level match block with the document wildcard hypothetical and `resource` undefined — the emulator's query semantics. A note on the result records when this widening applied. Doc-style list paths keep working unchanged.
+For `method: 'list'` the path may also be a COLLECTION path (e.g. `'menuItems'`): the simulator evaluates the document-level match block with the document wildcard hypothetical and `resource` undefined, matching the emulator's query semantics. A note on the result records when this widening applied. Doc-style list paths keep working unchanged.
 
 ## Optional fields
 
 ### `auth: { uid: string; token?: Record<string, unknown> } | null`
 
-Auth context. Omit (or set `null`) for an unauthenticated request — `request.auth` will be `null`. `token` populates `request.auth.token`, which is where custom claims land.
+Auth context. Omit (or set `null`) for an unauthenticated request, and `request.auth` will be `null`. `token` populates `request.auth.token`, which is where custom claims land.
 
 ### `data: Record<string, unknown>`
 
@@ -52,7 +52,7 @@ interface FunctionMock {
   result: Record<string, unknown> | boolean;          // doc data for get; boolean for exists
 }
 ```
-For `get`, supply the document data. For `exists`, supply `true` (the mock will produce a document) or `false` (no result, the rule will see absence). Paths are relative — the simulator handles the `/databases/(default)/documents/` prefix.
+For `get`, supply the document data. For `exists`, supply `true` (the mock will produce a document) or `false` (no result, the rule will see absence). Paths are relative. The simulator handles the `/databases/(default)/documents/` prefix.
 
 ### `query: ListQuery`
 
@@ -64,7 +64,7 @@ interface ListQuery {
   orderBy?: string;
 }
 ```
-Unset fields read as `null` from rules. If your rule reads `request.query.limit`, set it — otherwise `null < 100` evaluates to `false` and the rule silently denies.
+Unset fields read as `null` from rules. If your rule reads `request.query.limit`, set it. Otherwise `null < 100` evaluates to `false` and the rule silently denies.
 
 ### `requestTime: string`
 
@@ -90,7 +90,7 @@ type WriteMode =
 
 ## Server-timestamp sentinels in `data`
 
-When your write payload contains a server-timestamp sentinel — exactly `{ __type: 'serverTimestamp' }` — the simulator resolves every occurrence to the same `Timestamp` instance (matching `request.time`). Use the exported `SERVER_TIMESTAMP` constant for clarity:
+When your write payload contains a server-timestamp sentinel (exactly `{ __type: 'serverTimestamp' }`), the simulator resolves every occurrence to the same `Timestamp` instance (matching `request.time`). Use the exported `SERVER_TIMESTAMP` constant for clarity:
 ```ts
 import { SERVER_TIMESTAMP } from 'pyric/rules';
 

@@ -223,6 +223,24 @@ a.studio__nav-tab {
   border-bottom-color: var(--ink);
 }
 
+/* Narrow screens: the tab row scrolls. Make that legible instead of a
+   hard clip: snap points per tab, and an edge fade standing in for the
+   hidden scrollbar. The nav's own end padding sits under the fade at
+   full scroll, so no tab text ever fades. */
+@media (max-width: 760px) {
+  .studio__nav {
+    scroll-snap-type: x proximity;
+    padding-right: 28px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+
+  .studio__nav-tab {
+    scroll-snap-align: start;
+  }
+}
+
+
 /* Status cluster: a flex row of chips, gap-spaced; each chip is
    container-agnostic (L4). Health renders by exception only. */
 .studio__status {

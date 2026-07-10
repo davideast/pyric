@@ -12,7 +12,7 @@ interface StorageOptions {
 
 ## `bucket`
 
-The bucket identifier recorded in `metadata.bucket` on upload. v1 has a single implicit bucket — passing different values doesn't isolate data, but it round-trips through metadata.
+The bucket identifier recorded in `metadata.bucket` on upload. v1 has a single implicit bucket: passing different values doesn't isolate data, but it round-trips through metadata.
 
 Default: a stable internal value (`pyric-default` historically).
 
@@ -32,7 +32,7 @@ Only takes effect on the **first** `getStorageSandbox` call per `Sandbox`. Subse
 
 ## `rules`
 
-Storage rules source, parsed eagerly at config time. Malformed sources throw a `SyntaxError` from the parser before the handle is returned — fail fast.
+Storage rules source, parsed eagerly at config time. Malformed sources throw a `SyntaxError` from the parser before the handle is returned. Fail fast.
 
 ```ts
 const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
@@ -50,7 +50,7 @@ const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
 
 Only takes effect on the **first** call per `Sandbox`. Subsequent calls return the cached handle with the original rules. To change rules, build a new sandbox.
 
-If `rules` is omitted, the storage handle accepts every operation (anonymous and authenticated alike). Useful for non-rule-related tests but explicitly insecure — set rules whenever the test is about access control.
+If `rules` is omitted, the storage handle accepts every operation (anonymous and authenticated alike). Useful for non-rule-related tests but explicitly insecure. Set rules whenever the test is about access control.
 
 See [Storage rules subset](./rules-subset.md) for the supported grammar.
 

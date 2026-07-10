@@ -1,6 +1,6 @@
 # Build a traffic monitor
 
-In this tutorial you will build a tiny event monitor over the sandbox. You'll subscribe to `sandbox.onEvent`, see allowed and denied operations stream through, watch listener attaches and snapshot deliveries fire on the same channel, then filter the stream by `kind`. By the end you'll have run a working monitor against a real sandbox and felt the unified event shape through your fingers.
+Build a tiny event monitor over the sandbox. You'll subscribe to `sandbox.onEvent`, see allowed and denied operations stream through, watch listener attaches and snapshot deliveries fire on the same channel, then filter the stream by `kind`. By the end you'll have run a working monitor against a real sandbox and felt the unified event shape through your fingers.
 
 This tutorial assumes you've completed [Your first sandbox session](./01-your-first-sandbox-session.md) and have `pyric/sandbox` + `pyric-admin` installed.
 
@@ -22,7 +22,7 @@ A standalone script that prints a live, terminal-friendly event log:
 
 No Firebase project, no network, no UI framework. ~70 lines of code total.
 
-## Step 1 — Set up
+## Step 1: Set up
 
 ```bash
 mkdir traffic-tutorial && cd traffic-tutorial
@@ -32,7 +32,7 @@ bun add pyric/sandbox pyric-admin
 
 Create `monitor.ts`.
 
-## Step 2 — Subscribe before anything happens
+## Step 2: Subscribe before anything happens
 
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
@@ -105,9 +105,9 @@ Run it now: `bun run monitor.ts`. You'll see one line:
 subscribed.
 ```
 
-The subscription is live, but nothing is happening yet. That's the point — `onEvent` is purely an observation channel; subscribing doesn't cause work, it just attaches a listener.
+The subscription is live, but nothing is happening yet. That's the point. `onEvent` is purely an observation channel; subscribing doesn't cause work, it attaches a listener and waits.
 
-## Step 3 — Make some traffic
+## Step 3: Make some traffic
 
 Append to `monitor.ts`:
 
@@ -153,9 +153,9 @@ subscribed.
 [#9] session_boundary phase=dispose priorOpCount=8
 ```
 
-Every observable thing that happened — from listener attach through the per-op rules eval through committed writes through snapshot delivery through teardown — flowed through one subscription.
+Every observable thing that happened, from listener attach through the per-op rules eval through committed writes through snapshot delivery through teardown, flowed through one subscription.
 
-## Step 4 — Filter by kind
+## Step 4: Filter by kind
 
 The unified channel is great for "see everything", but most consumers want a slice. Replace `sandbox.onEvent(print)` with a filtered subscription:
 
@@ -168,11 +168,11 @@ sandbox.onEvent((ev) => {
 
 Re-run. The only events that print are denials. Try other filters:
 
-- `ev.kind === 'snapshot_delivery'` — just the deliveries hitting the user callback.
-- `ev.kind === 'request' && ev.origin === 'user'` — user-initiated requests only, no listener re-evals.
-- `ev.kind === 'write'` — every committed write, with `priorState`/`nextState` for diff rendering.
+- `ev.kind === 'snapshot_delivery'`: only the deliveries hitting the user callback.
+- `ev.kind === 'request' && ev.origin === 'user'`: user-initiated requests only, no listener re-evals.
+- `ev.kind === 'write'`: every committed write, with `priorState`/`nextState` for diff rendering.
 
-## Step 5 — Survive a reset
+## Step 5: Survive a reset
 
 The subscription stays attached across `sandbox.reset()`. Replace the script's tail with:
 
@@ -201,7 +201,7 @@ The `session_boundary` event fires before the underlying env swaps. Consumers pe
 
 - Subscribed to `onEvent` and received six distinct kinds of events.
 - Filtered by kind to recover the older per-channel slices (denials, snapshot errors).
-- Observed listener lifecycle, snapshot deliveries, and session boundaries — surfaces the prior three-channel API didn't expose.
+- Observed listener lifecycle, snapshot deliveries, and session boundaries: surfaces the prior three-channel API didn't expose.
 
 ## Next steps
 

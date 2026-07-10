@@ -3,7 +3,7 @@ title: "How to provision a Firestore database"
 navLabel: "Provision a database"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 26
+order: 58
 ---
 # How to provision a Firestore database
 
@@ -68,5 +68,5 @@ Both are subsumed by Owner / Editor / Firebase Admin.
 
 ## Where to look next
 
-- For the `ProvisionDatabaseOutcome` shape and options, see [`firestore` namespace — `databases`](../pyric-tools-deploy-reference-firestore-namespace/#firestoredatabases).
-- For the matching error codes, see [Error codes by operation — Firestore databases](../pyric-tools-deploy-reference-error-codes/#firestore-databases).
+- For the `ProvisionDatabaseOutcome` shape and options, see [`firestore` namespace: `databases`](../pyric-tools-deploy-reference-firestore-namespace/#firestoredatabases).
+- For the matching error codes, see [Error codes by operation: Firestore databases](../pyric-tools-deploy-reference-error-codes/#firestore-databases).

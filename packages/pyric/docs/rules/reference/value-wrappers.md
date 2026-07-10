@@ -44,7 +44,7 @@ Methods exposed to rules (via `callMethod`): `date`, `day`, `dayOfWeek`, `dayOfY
 
 Binary ops: `==`, `!=`, `<`, `<=`, `>`, `>=` against another `Timestamp`; `+`/`-` against a `Duration` returning a new `Timestamp`; `-` against another `Timestamp` returning a `Duration`.
 
-Internal storage uses signed `seconds` and non-negative `nanos` (protobuf convention). `equals` is a field-compare — two timestamps with the same epoch but different sub-second precision are equal only if both `seconds` and `nanos` match.
+Internal storage uses signed `seconds` and non-negative `nanos` (protobuf convention). `equals` is a field-compare: two timestamps with the same epoch but different sub-second precision are equal only if both `seconds` and `nanos` match.
 
 ## `Path`
 
@@ -62,7 +62,7 @@ class Path extends RulesValue {
 }
 ```
 
-Methods: standard accessors. `bindings` is the wildcard map from the matched path pattern — `request.path.<name>` returns `bindings[name]` for `<name>` that was a wildcard in the match path. Without bindings, named-field access returns `null`.
+Methods: standard accessors. `bindings` is the wildcard map from the matched path pattern. `request.path.<name>` returns `bindings[name]` for `<name>` that was a wildcard in the match path. Without bindings, named-field access returns `null`.
 
 ## `Reference`
 

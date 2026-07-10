@@ -29,7 +29,7 @@ Use this for:
 
 - **Round-tripping**: capture snapshot before a destructive test, restore after.
 - **Diagnostic dumps**: log the full state when a test fails.
-- **Cross-checks**: assert against the whole state, not just specific docs.
+- **Cross-checks**: assert against the whole state, not individual docs.
 
 The snapshot is a structural clone of the state at call time. Mutating the returned object does not affect the sandbox.
 
@@ -43,7 +43,7 @@ interface SandboxAdmin {
 }
 ```
 
-Available on `sandbox.admin`. Identity-agnostic — admin reads aren't gated on auth, so they live on the sandbox (not on a context).
+Available on `sandbox.admin`. Identity-agnostic: admin reads aren't gated on auth, so they live on the sandbox (not on a context).
 
 ### `getDocument(path)`
 
@@ -70,7 +70,7 @@ const docs = sandbox.admin.listDocuments('users');
 
 ### Phantom documents
 
-`listDocuments` includes **phantom** records — synthesised parent docs that have descendants but no stored data of their own. These match what a live Firestore listing would expose for nested collections:
+`listDocuments` includes **phantom** records: synthesised parent docs that have descendants but no stored data of their own. These match what a live Firestore listing would expose for nested collections:
 
 ```ts
 // Wrote 'rooms/alpha/messages/m1' directly. Now list rooms:
@@ -84,6 +84,6 @@ The `phantom: true` flag lets test code distinguish "this doc was explicitly wri
 
 ## Why this surface is on the root sandbox
 
-Both `snapshot()` and `admin` are presented on `Sandbox`, not `SandboxContext`. The reason is conceptual rather than mechanical: a context exists to carry identity, and admin reads are explicitly identity-agnostic. Putting them on contexts would invite confused calls like `aliceCtx.admin.getDocument(...)` which read like "alice's admin view" — but admin reads are not anyone's view, they're a backdoor for tests.
+Both `snapshot()` and `admin` are presented on `Sandbox`, not `SandboxContext`. The reason is conceptual rather than mechanical: a context exists to carry identity, and admin reads are explicitly identity-agnostic. Putting them on contexts would invite confused calls like `aliceCtx.admin.getDocument(...)` which read like "alice's admin view". Admin reads are not anyone's view. They're a backdoor for tests.
 
 When other services land (Auth, Storage, Realtime Database), the admin surface namespaces by service: `admin.firestore.getDocument`, `admin.storage.getObject`. The flat shape in v1 is preserved during that transition so existing call sites don't break.

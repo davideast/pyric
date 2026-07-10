@@ -10,7 +10,7 @@ Primitives throw `AdminApiError` on non-2xx; orchestrators return `Outcome`-shap
 
 ## `firestore.rules`
 
-### `fetch(scope): Promise<string | null>` *(primitive — throws)*
+### `fetch(scope): Promise<string | null>` *(primitive, throws)*
 
 Fetch the deployed Firestore rules source for the project. Returns `null` for greenfield projects that have no `cloud.firestore` release yet.
 
@@ -18,7 +18,7 @@ Fetch the deployed Firestore rules source for the project. Returns `null` for gr
 const current = await firestore.rules.fetch(scope);
 ```
 
-### `deploy(scope, source): Promise<void>` *(primitive — throws)*
+### `deploy(scope, source): Promise<void>` *(primitive, throws)*
 
 Deploy a rules source. Two-step server flow: create a new ruleset, then PATCH the release to point at it. Throws on any non-2xx.
 
@@ -74,7 +74,7 @@ Three branches:
 
 ## `firestore.indexes`
 
-### `create(scope, entry, options?): Promise<IndexOperation>` *(primitive — throws)*
+### `create(scope, entry, options?): Promise<IndexOperation>` *(primitive, throws)*
 
 Create a single composite index. Returns the long-running-operation handle.
 

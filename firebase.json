@@ -8,13 +8,32 @@
       "**/node_modules/**"
     ],
     "rewrites": [
-      { "source": "**", "destination": "/index.html" }
+      {
+        "source": "/docs/**",
+        "destination": "/docs/index.html"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
     ],
     "headers": [
       {
         "source": "**/*.md",
         "headers": [
-          { "key": "Content-Type", "value": "text/markdown; charset=utf-8" }
+          {
+            "key": "Content-Type",
+            "value": "text/markdown; charset=utf-8"
+          }
+        ]
+      },
+      {
+        "source": "/docs/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
         ]
       }
     ]

@@ -1,12 +1,12 @@
 # Public API
 
-Every symbol re-exported from `pyric/sandbox`. The `/internal` sub-path is documented separately — see [The `/internal` adapter protocol](./internal-protocol.md).
+Every symbol re-exported from `pyric/sandbox`. The `/internal` sub-path is documented separately; see [The `/internal` adapter protocol](./internal-protocol.md).
 
 ## Entry point
 
 ### `initializeSandbox(config?: SandboxConfig): Sandbox`
 
-Create a new sandbox with no identity attached. Pass `SandboxConfig` is reserved for future service-agnostic options; today it must be `{}` or omitted.
+Create a new sandbox with no identity attached. `SandboxConfig` is reserved for future service-agnostic options; today it must be `{}` or omitted.
 
 ```ts
 const sandbox = initializeSandbox();
@@ -85,7 +85,7 @@ See [`SandboxSnapshot` and admin reads](./snapshot-and-admin.md).
 
 ### `SandboxEvent`
 
-Discriminated union of every event the sandbox emits to `onEvent` subscribers — six kinds covering rule evaluations, committed writes, snapshot deliveries, suppressed re-evals, listener lifecycle, and session boundaries. See [`SandboxEvent` reference](./sandbox-event.md).
+Discriminated union of every event the sandbox emits to `onEvent` subscribers: six kinds covering rule evaluations, committed writes, snapshot deliveries, suppressed re-evals, listener lifecycle, and session boundaries. See [`SandboxEvent` reference](./sandbox-event.md).
 
 ### `DenialContext`
 
@@ -105,8 +105,8 @@ new SandboxError({ code, message, denialContext?, remediation? });
 Properties:
 
 - `code: SandboxErrorCode`
-- `denialContext?: DenialContext` — populated for `permission-denied`.
-- `remediation?: string` — optional human-readable guidance, appended to `.message`.
+- `denialContext?: DenialContext`: populated for `permission-denied`.
+- `remediation?: string`: optional human-readable guidance, appended to `.message`.
 
 ### `type SandboxErrorCode`
 
@@ -124,7 +124,7 @@ See [`SandboxError` codes](./error-codes.md).
 
 ### `class SandboxContextImpl implements SandboxContext`
 
-The concrete `SandboxContext` class. Exported so service factories can `instanceof`-check it. Consumers don't construct it directly — go through `sandbox.withAuth(...)`.
+The concrete `SandboxContext` class. Exported so service factories can `instanceof`-check it. Consumers don't construct it directly; go through `sandbox.withAuth(...)`.
 
 ## What is not exported here
 
