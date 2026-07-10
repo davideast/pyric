@@ -2,7 +2,7 @@
 
 Install `pyric/rules`, write a small rules file with a deliberate problem in it, and use the linter to find that problem. By the end you will have seen the parse → lint cycle end-to-end, and you will know what a `LintWarning` looks like in practice.
 
-This tutorial assumes you have Node.js 18+ or Bun 1.x available. No Firebase project is required. Everything runs in-process.
+This tutorial assumes you have Node.js 22+ or Bun 1.x available. No Firebase project is required. Everything runs in-process.
 
 ## What you will build
 

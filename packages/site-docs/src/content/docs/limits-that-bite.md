@@ -53,7 +53,7 @@ The runtime expression budget is shared across all the allow rules of a match bl
 
 ## The linter remembers so you don't
 
-`npx pyric rules:lint` carries every number above as a threshold and reports the specific function, chain, or rule that crosses it, with a fix. It runs in-process, no deploy, so the first time production sees your rules they already fit. From an agent, the same check is `firestore_lint_rules`, and it runs before every deploy the agent attempts.
+`pyric rules:lint` carries every number above as a threshold and reports the specific function, chain, or rule that crosses it, with a fix. It runs in-process, no deploy, so the first time production sees your rules they already fit. From an agent, the same check is `firestore_lint_rules`, and it runs before every deploy the agent attempts.
 
 One honest note. The Firebase emulator does not reproduce the cross-rule budget and does not enforce these thresholds at production values. Rules that pass there can still fail to deploy, or deny at runtime. The numbers on this page were measured against production because that is where they apply.
 

@@ -9,7 +9,7 @@ status: draft
 
 ```bash
 npm i -g pyric-tools
-npx pyric dev
+pyric dev
 ```
 
 That is a full Firebase backend, running inside the browser tab you are about to open. No account. No cloud project. No emulator, no Java, no port to babysit.
@@ -22,9 +22,9 @@ No app yet? Scaffold one.
 
 ```bash
 mkdir hello-pyric && cd hello-pyric
-npx pyric init --template web
+pyric init --template web
 npm install
-npx pyric dev
+pyric dev
 ```
 
 Open <http://localhost:3473>. The scaffold is a small posts app with canonical `firebase/app`, `firebase/auth`, and `firebase/firestore` imports, owner-based rules, and a seed file with two posts already in it. Sign in and create a post. It appears.
@@ -33,7 +33,7 @@ Now prove the rules are real. Open `firestore.rules`, change the posts rule to `
 
 Put the rule back and the posts return. That loop, edit rules and watch real enforcement respond, is the loop everything else builds on.
 
-Building a script or a test suite instead of a page? `npx pyric init --template node` scaffolds the Node shape.
+Building a script or a test suite instead of a page? `pyric init --template node` scaffolds the Node shape.
 
 ## Add Pyric to an app you already have
 
@@ -70,7 +70,7 @@ The sandbox runs in a SharedWorker, so every tab shares one backend and a write 
 One flag gives your agent the same backend:
 
 ```bash
-npx pyric dev --bridge
+pyric dev --bridge
 ```
 
 `--bridge` mounts an MCP endpoint on the dev server, and any MCP client (Claude Code, Cursor, Codex) can seed data, run queries, and check rules verdicts against the exact sandbox your tabs are using. [Set up your agent](../agent/set-up-your-agent.md) walks through each client.
