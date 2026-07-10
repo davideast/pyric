@@ -17,12 +17,12 @@ import type { TestCase } from 'pyric/rules';
 
 const sim = new SimulateFirestoreRulesHandler();
 
-function rules(condition: string, matchPath = 'docs/{id}'): string {
+function rules(condition: string, matchPath = 'docs/{id}', op = 'create'): string {
   return `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /${matchPath} {
-      allow create: if ${condition};
+      allow ${op}: if ${condition};
     }
   }
 }`;
@@ -35,6 +35,24 @@ function tc(condition: string, expectation: 'ALLOW' | 'DENY', path = 'docs/d1'):
     method: 'create',
     path,
     auth: { uid: 'u1' },
+    data: {},
+  };
+}
+
+// resource is null on `create` (the document doesn't exist yet pre-write —
+// see rules-sim-resource-on-create). Tests that assert resource.id /
+// resource.__name__ resolve to the existing document's identity exercise
+// `update` instead, with `resource` set to the existing document data —
+// this is the mechanism other simulator tests use to populate `resource`
+// (see adversarial.test.ts).
+function tcExisting(condition: string, expectation: 'ALLOW' | 'DENY', path = 'docs/d1'): TestCase {
+  return {
+    description: condition,
+    expectation,
+    method: 'update',
+    path,
+    auth: { uid: 'u1' },
+    resource: {},
     data: {},
   };
 }
@@ -86,24 +104,24 @@ describe('request.query — Item 6', () => {
 describe('resource.id — Item 6', () => {
   test("resource.id == 'd1' for path docs/d1", () => {
     const r = sim.simulate(
-      rules("resource.id == 'd1'"),
-      [tc('resource.id matches', 'ALLOW')],
+      rules("resource.id == 'd1'", 'docs/{id}', 'update'),
+      [tcExisting('resource.id matches', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
 
   test("resource.id is string", () => {
     const r = sim.simulate(
-      rules("resource.id is string"),
-      [tc('resource.id typed', 'ALLOW')],
+      rules("resource.id is string", 'docs/{id}', 'update'),
+      [tcExisting('resource.id typed', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
 
   test("resource.id matches nested path's last segment", () => {
     const r = sim.simulate(
-      rules("resource.id == 'p99'", 'users/{uid}/posts/{pid}'),
-      [{ ...tc("nested resource.id", 'ALLOW'), path: 'users/alice/posts/p99' }],
+      rules("resource.id == 'p99'", 'users/{uid}/posts/{pid}', 'update'),
+      [{ ...tcExisting("nested resource.id", 'ALLOW'), path: 'users/alice/posts/p99' }],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
@@ -120,24 +138,24 @@ describe('resource.id — Item 6', () => {
 describe('resource.__name__ — Item 6', () => {
   test("resource.__name__ is path", () => {
     const r = sim.simulate(
-      rules("resource.__name__ is path"),
-      [tc('__name__ typed as path', 'ALLOW')],
+      rules("resource.__name__ is path", 'docs/{id}', 'update'),
+      [tcExisting('__name__ typed as path', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
 
   test("resource.__name__ equals request.path", () => {
     const r = sim.simulate(
-      rules("resource.__name__ == request.path"),
-      [tc('__name__ matches request.path', 'ALLOW')],
+      rules("resource.__name__ == request.path", 'docs/{id}', 'update'),
+      [tcExisting('__name__ matches request.path', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
 
   test("resource.__name__ equals the literal", () => {
     const r = sim.simulate(
-      rules("resource.__name__ == /databases/$(database)/documents/docs/d1"),
-      [tc('__name__ matches literal', 'ALLOW')],
+      rules("resource.__name__ == /databases/$(database)/documents/docs/d1", 'docs/{id}', 'update'),
+      [tcExisting('__name__ matches literal', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
@@ -147,16 +165,16 @@ describe('Globals — composability', () => {
   test('resource.id used in path-variable comparison', () => {
     // Combines path-variable binding with resource.id (both should be 'd1')
     const r = sim.simulate(
-      rules("resource.id == id"),
-      [tc('resource.id == id binding', 'ALLOW')],
+      rules("resource.id == id", 'docs/{id}', 'update'),
+      [tcExisting('resource.id == id binding', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
 
   test('rule using both request.path and resource.id together', () => {
     const r = sim.simulate(
-      rules("request.path is path && resource.id == 'd1' && request.query is map"),
-      [tc('all three globals', 'ALLOW')],
+      rules("request.path is path && resource.id == 'd1' && request.query is map", 'docs/{id}', 'update'),
+      [tcExisting('all three globals', 'ALLOW')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });
