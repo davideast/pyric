@@ -14,6 +14,7 @@ export type CompatStatus =
 
 export type Automation =
   | 'oracle-backed'
+  | 'shape-backed'
   | 'unit-backed'
   | 'type-backed'
   | 'sandbox-only'
