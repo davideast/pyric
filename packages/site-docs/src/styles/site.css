@@ -791,13 +791,9 @@ samp {
 
 .prose .compat-key-item {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-2);
   white-space: nowrap;
-}
-
-.prose .compat-key-item .compat-dot {
-  align-self: center;
 }
 
 .prose .compat-list {
@@ -851,9 +847,15 @@ samp {
 .prose .compat-dot {
   width: 8px;
   height: 8px;
-  margin-top: 0.45em;
   border-radius: 50%;
   background: var(--muted);
+  flex-shrink: 0;
+}
+
+/* In the rows (top-aligned grid) the dot optically centers on the
+   first line of the behavior; in the key the flexbox centers it. */
+.prose .compat-line .compat-dot {
+  margin-top: 0.45em;
 }
 
 .prose .compat-dot[data-status='ok'] {
