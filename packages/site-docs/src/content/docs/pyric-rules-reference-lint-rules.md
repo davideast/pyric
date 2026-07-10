@@ -2,7 +2,7 @@
 title: "Lint rules"
 group: "pyric / rules"
 section: "Reference"
-order: 102
+order: 103
 ---
 # Lint rules
 

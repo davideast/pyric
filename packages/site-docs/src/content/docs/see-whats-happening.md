@@ -3,7 +3,7 @@ title: "Watch every read, write, and denial live"
 navLabel: "Traffic & rule verdicts"
 group: "Observe & shape"
 section: ""
-order: 18
+order: 19
 description: "See every operation your backend performs, with its rules verdict, without writing a log line."
 ---
 

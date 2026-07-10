@@ -2,7 +2,7 @@
 title: "RTDB rules tooling"
 group: "pyric / database"
 section: "Reference"
-order: 158
+order: 161
 ---
 # RTDB rules tooling
 
@@ -264,14 +264,23 @@ user-mode data operations.
 canonical constraints-only package path is `pyric/rules/rtdb/constraints`.
 `pyric/rules/rtdb-constraints` remains available as a compatibility alias.
 
-The helper groups are:
+The complete builder catalog, with the exact expression each helper
+produces, lives in [constraints.md](../pyric-database-reference-constraints/). At a glance the
+groups are:
 
 - boolean composition: `expr`, `all`, `any`, `not`, `deny`, `always`, `allow`
-- auth and ownership predicates: `authenticated`, `ownPath`, `ownField`
+- auth, ownership, and state atoms: `authenticated`, `ownPath`, `ownField`,
+  `isNew`, `immutable`, `immutableSelf`, `rootExists`, `rootEquals`
 - schema predicates: `hasChildren`, `hasChild`, `fieldIsString`,
   `fieldIsNumber`, `fieldIsBoolean`, `fieldEnum`
+- data navigation and comparison: `dataVal`, `newDataVal`, `dataExists`,
+  `newDataExists`, `newDataIs`, `dataParentVal`, `newDataParentVal`,
+  `newDataParentExists`, `eq`, `neq`, `gt`, `lte`, and the `AUTH_UID`
+  segment constant
 - policy helpers: `pathOwnerOnly`, `fieldOwnerOnly`, `ownerOrNew`,
   `hasRole`, `isMember`, `required`, `transition`
+- game primitives: `turnGuard`, `flip`, `winCheckHelper`
+- assembly: `defineRtdbRules`, `ruleset`, `schemaRules`
 
 ### `PathDef`
 ```ts
@@ -289,6 +298,7 @@ interface PathDef {
 enums, literals, unions of supported types, nested objects, and optional fields.
 Unsupported Zod types throw during compilation.
 
-Game-oriented helpers such as `turnGuard`, `flip`, and `winCheckHelper` remain
-exported for compatibility. Treat them as recipes rather than the primary
-constraints API.
+The game primitives (`turnGuard`, `flip`, `winCheckHelper`) are
+first-class exports with spec-pinned output; the deployed tic-tac-toe
+ruleset is built on them. Their semantics are in
+[constraints.md](../pyric-database-reference-constraints/).

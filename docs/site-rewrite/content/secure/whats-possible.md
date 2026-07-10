@@ -52,7 +52,7 @@ A return whose math is wrong is not invalid data. It is a permission denial.
 
 ## Tic-tac-toe, live
 
-A deployed, playable browser app on Realtime Database rules. Turn enforcement, per-cell board integrity, and win verification all live in the ruleset, so the winner field only accepts a value when the claimed winning line actually exists on the board. The ruleset is generated from a typed constraint DSL and deployed over REST.
+A deployed, playable browser app on Realtime Database rules. Turn enforcement, per-cell board integrity, and win verification all live in the ruleset, so the winner field only accepts a value when the claimed winning line actually exists on the board. The ruleset is generated from typed constraints ([RTDB rules in TypeScript](../secure/rtdb-rules-in-typescript.md)) and deployed over REST.
 
 ## Calibration, not a feature list
 

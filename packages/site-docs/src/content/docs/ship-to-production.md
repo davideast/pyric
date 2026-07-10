@@ -3,7 +3,7 @@ title: "The same code goes live"
 navLabel: "Ship to production"
 group: "Ship & test"
 section: ""
-order: 20
+order: 21
 description: "Deploy rules, indexes, hosting, and functions, and learn what would change before production does."
 ---
 

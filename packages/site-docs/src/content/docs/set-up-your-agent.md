@@ -3,7 +3,7 @@ title: "Point your agent at the sandbox"
 navLabel: "Set up your agent"
 group: "Work with an agent"
 section: ""
-order: 23
+order: 24
 description: "Connect Claude Code, Cursor, Codex, or any MCP client to your backend in minutes."
 ---
 

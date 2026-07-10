@@ -2,7 +2,7 @@
 title: "The 2+modules extension"
 group: "pyric / rules"
 section: "Explanation"
-order: 113
+order: 114
 ---
 # The `2+modules` extension
 

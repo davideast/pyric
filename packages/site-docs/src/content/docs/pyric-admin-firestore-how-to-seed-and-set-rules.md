@@ -3,7 +3,7 @@ title: "How to seed and set rules"
 navLabel: "Seed and set rules"
 group: "pyric-admin / firestore"
 section: "How-to"
-order: 163
+order: 168
 ---
 # How to seed and set rules
 

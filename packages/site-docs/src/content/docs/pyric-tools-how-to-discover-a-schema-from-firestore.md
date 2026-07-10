@@ -3,7 +3,7 @@ title: "How to infer a schema from an existing Firestore"
 navLabel: "Infer a schema"
 group: "pyric-tools"
 section: "How-to"
-order: 38
+order: 39
 ---
 # How to infer a schema from an existing Firestore
 

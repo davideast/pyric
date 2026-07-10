@@ -3,7 +3,7 @@ title: "Teach your agent the hard Firebase things"
 navLabel: "Skills"
 group: "Work with an agent"
 section: ""
-order: 25
+order: 26
 description: "Packaged expert procedures for the problems that need a method, not more tools."
 ---
 

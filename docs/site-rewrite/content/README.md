@@ -23,6 +23,7 @@ Every page of the new docs, written to WRITING-BRIEF.md against HIERARCHY.md v3.
 | Read a denial | `secure/read-a-denial.md` | new |
 | The rules standard library | `secure/rules-standard-library.md` | new (from STDLIB.md) |
 | Rules patterns | `secure/rules-patterns.md` | new (ported from firebase-agent-sdk skills) |
+| RTDB rules in TypeScript | `secure/rtdb-rules-in-typescript.md` | new (constraints DSL) |
 | The limits that actually bite | `secure/limits-that-bite.md` | new (from LINTER_SPEC + linter thresholds) |
 | Audit your rules and data | `secure/audit-your-rules.md` | new (from the audit skills) |
 | What's possible | `secure/whats-possible.md` | new (the gallery) |

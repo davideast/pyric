@@ -24,7 +24,7 @@ Construct a write batch. Chain `.set`, `.update`, `.delete`, `.commit`.
 
 ### `runTransaction<R>(fn, opts?): Promise<R>`
 
-Run a transaction. The callback receives a `Transaction` object with `.get`, `.getAll`, `.set`, `.update`, `.delete`, `.create`. Reads inside the callback are tracked for read-after-write detection.
+Run a transaction. The callback receives a `Transaction` object with `.get` (ref or query), `.set`, `.update`, `.delete`. Reads inside the callback are tracked for read-after-write detection.
 
 `opts` is accepted for shape parity with `firebase-admin/firestore`'s `OperationOptions`. The sandbox ignores per-op options that don't apply.
 

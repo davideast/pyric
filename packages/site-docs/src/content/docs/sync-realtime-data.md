@@ -73,4 +73,4 @@ The `rtdb-data-model` skill designs the tree the way this page describes, starti
 
 ## Where to go next
 
-Not sure the tree is the right home for this data? [Which data service should I use?](../which-data-service/) is the one-page answer. When the paths are settled, [secure it with rules](../secure-it-with-rules/).
+Not sure the tree is the right home for this data? [Which data service should I use?](../which-data-service/) is the one-page answer. When the paths are settled, write the rules that hold them in TypeScript: [RTDB rules in TypeScript](../rtdb-rules-in-typescript/).

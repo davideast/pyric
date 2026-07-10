@@ -2,7 +2,7 @@
 title: "<ObjectBrowser>"
 group: "@pyric/ui"
 section: "Storage"
-order: 190
+order: 201
 ---
 # `<ObjectBrowser>`
 

@@ -2,7 +2,7 @@
 title: "<TrafficDetail>"
 group: "@pyric/ui"
 section: "Traffic"
-order: 199
+order: 210
 ---
 # `<TrafficDetail>`
 

@@ -3,7 +3,7 @@ title: "How to write a batch"
 navLabel: "Write a batch"
 group: "pyric-admin / firestore"
 section: "How-to"
-order: 166
+order: 171
 ---
 # How to write a batch
 

@@ -55,7 +55,7 @@ export const rules = defineRtdbRules({
 
 ## Check the document
 
-Add a small check script:
+Save a small check script as `database.rules.check.ts`:
 
 ```ts
 import { rules } from './database.rules.js';
@@ -82,7 +82,7 @@ on warnings.
 
 ## Simulate a write
 
-Add one simulation:
+Save one simulation as `database.rules.simulate.ts`:
 
 ```ts
 import { rules } from './database.rules.js';

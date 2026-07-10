@@ -3,7 +3,7 @@ title: "Find the holes before someone else does"
 navLabel: "Audit your rules and data"
 group: "Secure & debug"
 section: ""
-order: 16
+order: 17
 description: "Get an evidence-backed answer to who can access what, with every serious finding proven by a simulation."
 ---
 
@@ -29,7 +29,7 @@ Critical findings are proven with `firestore_simulate_rules` runs that vary the 
 
 ## Audit your Realtime Database rules
 
-RTDB fails differently: access cascades downward. A `.read: true` near the root silently exposes every descendant, and a restrictive child cannot revoke what a permissive parent granted. The `rtdb-security-rules` skill walks every cascade from the root, so the effective access at each path is stated rather than assumed.
+RTDB fails differently: access cascades downward. (Authoring those rules from typed constraints is its own page: [RTDB rules in TypeScript](../rtdb-rules-in-typescript/).) A `.read: true` near the root silently exposes every descendant, and a restrictive child cannot revoke what a permissive parent granted. The `rtdb-security-rules` skill walks every cascade from the root, so the effective access at each path is stated rather than assumed.
 
 It also keeps the two semantics that trip people straight:
 
