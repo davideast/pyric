@@ -25,6 +25,7 @@
  */
 import * as fb from 'firebase/storage';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './rules.js';
@@ -46,11 +47,22 @@ export type StringFormat = 'raw' | 'base64' | 'data_url';
  * Throws when the reference targets the root (`fullPath === ''`) —
  * uploads need a non-empty path, matching Firebase's
  * `invalid-root-operation` precondition.
+ *
+ * `provenance` (host-only) is the op's {@link EventProvenance} bound at
+ * ISSUE time by the worker host — `actor`/`authLens` threaded EXPLICITLY
+ * onto the emitted `service_mutation` event. Storage dispatch is async
+ * (the awaits above), so it escapes the sandbox's synchronous
+ * ambient-provenance window (`runWithProvenance`); the window has already
+ * closed by the time this emit runs. Passing provenance through the call
+ * binds it immutably to THIS op, so concurrent uploads from different
+ * issuers can never swap actors. `service: 'storage'` always wins. Omitted
+ * ⇒ the app-session default (a served-app write stays untagged).
  */
 export async function uploadBytes(
   ref: StorageReference,
   data: Blob | Uint8Array | ArrayBuffer,
   metadata?: SettableMetadata,
+  provenance?: EventProvenance,
 ): Promise<UploadResult> {
   guardNonRoot(ref, 'uploadBytes');
   const target = targetOf(ref.storage);
@@ -99,7 +111,7 @@ export async function uploadBytes(
           overwrite: existing != null,
         },
       }),
-      { service: 'storage' },
+      { ...provenance, service: 'storage' },
     );
   } catch {
     // Observational — never let event emission break a storage write.
