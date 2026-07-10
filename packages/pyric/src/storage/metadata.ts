@@ -17,6 +17,7 @@
  */
 import * as fb from 'firebase/storage';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './rules.js';
@@ -157,10 +158,16 @@ export async function getMetadata(ref: StorageReference): Promise<FullMetadata> 
  * place. To explicitly clear a field, the JS SDK accepts `null` —
  * we don't model that in the v1 scope to keep the patch logic simple.
  * Documented for Slice 9's deferred-features section.
+ *
+ * `provenance` (host-only): op {@link EventProvenance} bound at ISSUE time,
+ * threaded EXPLICITLY onto the emitted `metadata_update` event. Emit runs
+ * after the backend awaits, escaping the sandbox's synchronous
+ * ambient-provenance window — see the note on `uploadBytes`.
  */
 export async function updateMetadata(
   ref: StorageReference,
   patch: SettableMetadata,
+  provenance?: EventProvenance,
 ): Promise<FullMetadata> {
   guardNonRoot(ref, 'updateMetadata');
   const target = targetOf(ref.storage);
@@ -208,7 +215,7 @@ export async function updateMetadata(
           after: next,
           detail: { bucket: ref.bucket },
         }),
-        { service: 'storage' },
+        { ...provenance, service: 'storage' },
       );
     } catch {
       // Observational — never let event emission break a metadata update.

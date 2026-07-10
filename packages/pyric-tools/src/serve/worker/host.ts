@@ -88,7 +88,7 @@ import {
   type Query,
   type SetOptions,
 } from 'pyric/firestore';
-import type { Sandbox, PersistenceBackend, AuthLens } from 'pyric/sandbox';
+import type { Sandbox, PersistenceBackend, AuthLens, EventProvenance } from 'pyric/sandbox';
 // The canonical value codec (same module the protocol's read path uses) —
 // write payloads rehydrate host-side so marker-shaped scalars from the JSON
 // relay legs are STORED as real wrapper instances (see prepareWriteData).
@@ -1384,8 +1384,10 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
       // Byte upload (remote sandbox, slice 2). Decode-end size cap: reject an
       // oversized base64 string BEFORE materializing its bytes, then re-check
       // the exact decoded length. Rules enforce under the op's lens; the
-      // upload emits `service_mutation` events, so server writes get Studio
-      // provenance for free.
+      // upload emits `service_mutation` events. Storage dispatch is async, so
+      // the event escapes the ambient-provenance window `handleMessage` opened;
+      // thread the op's provenance EXPLICITLY so a Studio-issued write is
+      // attributable end to end (issue #84 item 3).
       try {
         if (msg.dataB64.length > MAX_STORAGE_OP_B64_LENGTH) {
           throw storagePayloadTooLarge(
@@ -1402,6 +1404,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
           storageRef(storage, msg.path),
           bytes,
           toSettableMetadata(msg),
+          opProvenance(msg),
         );
         // FullMetadata — plain JSON, relay-safe.
         ok(port, msg.id, result.metadata);
@@ -1439,9 +1442,11 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
       // `pyric/storage`'s sandbox delete is idempotent (no-op on missing) —
       // matching the pyric-admin local arm's delete semantics. Rules enforce
       // `write` under the op's lens; deletes emit `service_mutation` events.
+      // Async dispatch escapes the ambient window — thread provenance
+      // explicitly (issue #84 item 3).
       try {
         const storage = lensStorage(ctx, msg.actAs);
-        await storageDeleteObject(storageRef(storage, msg.path));
+        await storageDeleteObject(storageRef(storage, msg.path), opProvenance(msg));
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -1694,33 +1699,50 @@ export async function handleMessage(
   port: PortLike,
   msg: InboundMessage,
 ): Promise<void> {
-  // Op provenance, stamped MECHANICALLY at dispatch:
-  //   - `actor`: a client that DECLARED itself the issuer (`issuer: 'studio'`,
-  //     stamped by Studio's worker client — see `setOpIssuer` in client.ts)
-  //     gets `actor: { kind: 'studio' }`. Bridge-relayed frames are forwarded
-  //     verbatim without the stamp (client.ts `relayWorkerOp`), so remote
-  //     admin/agent traffic is never mislabeled as Studio's.
-  //   - `authLens`: the op's EFFECTIVE lens (`msg.actAs`) is stamped whenever
-  //     present — independent of issuer declaration, because admin is admin
-  //     regardless of who asked (an agent tool relay's admin op must classify
-  //     as a rules BYPASS in Traffic, not as a rules allow). Without this,
-  //     Firestore admin-lens ops carried no lens on their events and
-  //     `verdictFor` mislabeled the bypass as ALLOW (the RTDB/Firestore
-  //     asymmetry the traffic-metrics work flagged).
-  // Events an emitter already stamped win over the window (stampProvenance
-  // semantics: the event's own field always beats the ambient default).
-  const issuer = (msg as { issuer?: 'studio' }).issuer;
-  const actAs = (msg as { actAs?: AuthLens }).actAs;
-  if ((issuer === 'studio' || actAs) && ctx.sandbox.runWithProvenance) {
-    return ctx.sandbox.runWithProvenance(
-      {
-        ...(issuer === 'studio' ? { actor: { kind: 'studio' } } : {}),
-        ...(actAs ? { authLens: actAs } : {}),
-      },
-      () => dispatchMessage(ctx, port, msg),
-    );
+  // Op provenance, bound at dispatch by `opProvenance` (see its docs). Opened
+  // as the sandbox's SYNCHRONOUS ambient window so firestore/rtdb/auth emits —
+  // which run inside `dispatchMessage` before any await — pick it up. Storage
+  // ops emit AFTER async awaits, outside this window, so they thread the same
+  // provenance EXPLICITLY instead (see `handleOp`'s storage cases). Without the
+  // lens on admin ops, `verdictFor` mislabeled a rules BYPASS as ALLOW (the
+  // RTDB/Firestore asymmetry the traffic-metrics work flagged).
+  const prov = opProvenance(msg);
+  if (prov && ctx.sandbox.runWithProvenance) {
+    return ctx.sandbox.runWithProvenance(prov, () => dispatchMessage(ctx, port, msg));
   }
   return dispatchMessage(ctx, port, msg);
+}
+
+/**
+ * Op provenance from an inbound message, bound at ISSUE time. The single
+ * source of truth for both the SYNCHRONOUS ambient-provenance window
+ * (firestore/rtdb/auth emit inside it) and the EXPLICIT thread that storage
+ * ops need (their emits run after async awaits, outside any window — see
+ * `handleOp`'s storage cases and `uploadBytes`'s provenance note).
+ *
+ *   - `actor`: a client that DECLARED itself the issuer (`issuer: 'studio'`,
+ *     stamped by Studio's worker client — `setOpIssuer` in client.ts) gets
+ *     `actor: { kind: 'studio' }`. Bridge-relayed frames are forwarded
+ *     verbatim without the stamp (client.ts `relayWorkerOp`), so remote
+ *     admin/agent traffic is never mislabeled as Studio's.
+ *   - `authLens`: the op's EFFECTIVE lens (`msg.actAs`) whenever present —
+ *     independent of issuer, because admin is admin regardless of who asked
+ *     (an agent tool relay's admin op must classify as a rules BYPASS in
+ *     Traffic, not a rules allow).
+ *
+ * Returns `undefined` for a plain served-app op (no issuer, no lens) so the
+ * event keeps the app-session default — a served-app op stays untagged.
+ * Events an emitter already stamped win over these defaults (stampProvenance
+ * semantics: the event's own field beats the ambient/threaded default).
+ */
+function opProvenance(msg: InboundMessage): EventProvenance | undefined {
+  const issuer = (msg as { issuer?: 'studio' }).issuer;
+  const actAs = (msg as { actAs?: AuthLens }).actAs;
+  if (issuer !== 'studio' && !actAs) return undefined;
+  return {
+    ...(issuer === 'studio' ? { actor: { kind: 'studio' } } : {}),
+    ...(actAs ? { authLens: actAs } : {}),
+  };
 }
 
 async function dispatchMessage(
