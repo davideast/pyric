@@ -1,0 +1,50 @@
+{
+  "name": "ai-error-bad-api-key",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Error envelope for an invalid API key. detailTypes is recorded as a set: the messaging effort found details ordering is not stable across cases. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
+  "observedAt": "2026-07-10T01:47:04.583Z",
+  "fbSdkVersion": "2.12.0",
+  "projectId": "genkit-idx",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "httpStatus": 400,
+    "isJson": true,
+    "errorKeySet": [
+      "code",
+      "details",
+      "message",
+      "status"
+    ],
+    "errorCode": 400,
+    "errorStatus": "INVALID_ARGUMENT",
+    "detailTypes": [
+      "type.googleapis.com/google.rpc.ErrorInfo",
+      "type.googleapis.com/google.rpc.LocalizedMessage"
+    ],
+    "messageText": "API key not valid. Please pass a valid API key.",
+    "raw": {
+      "error": {
+        "code": 400,
+        "message": "API key not valid. Please pass a valid API key.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            "reason": "API_KEY_INVALID",
+            "domain": "googleapis.com",
+            "metadata": {
+              "service": "firebasevertexai.googleapis.com"
+            }
+          },
+          {
+            "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+            "locale": "en-US",
+            "message": "API key not valid. Please pass a valid API key."
+          }
+        ]
+      }
+    }
+  }
+}

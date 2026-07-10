@@ -1,0 +1,61 @@
+{
+  "name": "ai-function-call-shape",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "functionCall part shape under toolConfig mode ANY. The fact that args arrives as a parsed JSON object (not a string) is the load-bearing difference from OpenAI-shaped tool_calls. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
+  "observedAt": "2026-07-10T01:47:15.744Z",
+  "fbSdkVersion": "2.12.0",
+  "projectId": "genkit-idx",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "httpStatus": 200,
+    "functionCallPartPresent": true,
+    "functionCallKeySet": [
+      "args",
+      "id",
+      "name"
+    ],
+    "functionCallName": "get_weather",
+    "argsIsObjectNotString": true,
+    "finishReason": "STOP",
+    "raw": {
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "get_weather",
+                  "args": {
+                    "city": "Paris"
+                  },
+                  "id": "vrsQR5pS"
+                },
+                "thoughtSignature": "EjQKMgERTTIPWvGLR+NlDNq/YZLo1k7WYq3v4nYRrBRqFt3uJ5G2IWh+89izbwcJgGK8r5Ib"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0,
+          "finishMessage": "Model generated function call(s)."
+        }
+      ],
+      "usageMetadata": {
+        "promptTokenCount": 51,
+        "candidatesTokenCount": 16,
+        "totalTokenCount": 67,
+        "promptTokensDetails": [
+          {
+            "modality": "TEXT",
+            "tokenCount": 51
+          }
+        ],
+        "serviceTier": "standard"
+      },
+      "modelVersion": "gemini-3.1-flash-lite",
+      "responseId": "GU9QasmFAdHi_uMP-5OhsQg"
+    }
+  }
+}

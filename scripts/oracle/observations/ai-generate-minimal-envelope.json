@@ -1,0 +1,73 @@
+{
+  "name": "ai-generate-minimal-envelope",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Raw wire envelope of a minimal generateContent on the GoogleAI backend. Facts are the key sets and enum values; generated text in raw is a nondeterministic sample. Note: candidate `index` and `inferenceSource` are ABSENT on the wire (the SDK adds them client-side), and usageMetadata carries `serviceTier`, which the SDK typings do not declare. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
+  "observedAt": "2026-07-10T01:47:03.455Z",
+  "fbSdkVersion": "2.12.0",
+  "projectId": "genkit-idx",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "topLevelKeySet": [
+      "candidates",
+      "modelVersion",
+      "responseId",
+      "usageMetadata"
+    ],
+    "candidateKeySet": [
+      "content",
+      "finishReason",
+      "index"
+    ],
+    "candidateHasIndexOnWire": true,
+    "contentRole": "model",
+    "contentKeySet": [
+      "parts",
+      "role"
+    ],
+    "finishReason": "STOP",
+    "usageKeySet": [
+      "candidatesTokenCount",
+      "promptTokenCount",
+      "promptTokensDetails",
+      "serviceTier",
+      "totalTokenCount"
+    ],
+    "usageServiceTierPresent": true,
+    "modelVersionPresent": true,
+    "modelVersion": "gemini-3.1-flash-lite",
+    "responseIdPresent": true,
+    "raw": {
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "pyric",
+                "thoughtSignature": "EjQKMgERTTIPmjdiRuKoOniEhPR1SeGNqk+aFs+sJZsaub0SW4dxEA7wdHELAFbJGiuYAjEW"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }
+      ],
+      "usageMetadata": {
+        "promptTokenCount": 9,
+        "candidatesTokenCount": 2,
+        "totalTokenCount": 11,
+        "promptTokensDetails": [
+          {
+            "modality": "TEXT",
+            "tokenCount": 9
+          }
+        ],
+        "serviceTier": "standard"
+      },
+      "modelVersion": "gemini-3.1-flash-lite",
+      "responseId": "F09QaqF484389Q_aq4GxDA"
+    }
+  }
+}
