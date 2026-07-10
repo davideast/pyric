@@ -8,6 +8,10 @@ import type { SimulateResult } from './spec.js';
 interface AncestorMatch {
   node: RtdbNode;
   pathVariableBindings: Record<string, string>;
+  /** Number of `path` segments consumed to reach this node from the root —
+   *  i.e. this ancestor's own location, used to root `data`/`newData` at
+   *  the rule's location rather than at the operation's target path. */
+  depth: number;
 }
 
 /** Builds the evaluation context for a rule at a given node — supplied by
@@ -137,8 +141,9 @@ function collectAncestors(
   node: RtdbNode,
   pathSegments: string[],
   bindings: Record<string, string>,
+  depth = 0,
 ): AncestorMatch[] {
-  const ancestors: AncestorMatch[] = [{ node, pathVariableBindings: { ...bindings } }];
+  const ancestors: AncestorMatch[] = [{ node, pathVariableBindings: { ...bindings }, depth }];
 
   if (pathSegments.length === 0) return ancestors;
 
@@ -153,13 +158,42 @@ function collectAncestors(
       const newBindings = isPathVar
         ? { ...bindings, [lastSegment]: pathSegments[0] }
         : { ...bindings };
-      const deeper = collectAncestors(child, pathSegments.slice(1), newBindings);
+      const deeper = collectAncestors(child, pathSegments.slice(1), newBindings, depth + 1);
       ancestors.push(...deeper);
       return ancestors;
     }
   }
 
   return ancestors;
+}
+
+/**
+ * Return a new tree equal to `root` but with the value at `segments`
+ * replaced by `value` (a `null`/`undefined` value deletes the node, same
+ * as an RTDB write of `null`). Used to build the post-write tree so that
+ * `newData` at an ANCESTOR of the write location reflects the merged
+ * result at that ancestor's own path, not just the raw payload at the
+ * deepest write path.
+ */
+function withValueAt(root: unknown, segments: string[], value: unknown): unknown {
+  if (segments.length === 0) return value ?? null;
+
+  const [head, ...rest] = segments;
+  const currentObj: Record<string, unknown> =
+    root !== null && typeof root === 'object' && !Array.isArray(root)
+      ? { ...(root as Record<string, unknown>) }
+      : {};
+
+  const existingChild = Object.hasOwn(currentObj, head) ? currentObj[head] : null;
+  const childValue = withValueAt(existingChild, rest, value);
+
+  if (childValue === null || childValue === undefined) {
+    delete currentObj[head];
+  } else {
+    currentObj[head] = childValue;
+  }
+
+  return currentObj;
 }
 
 export class SimulateHandler {
@@ -196,9 +230,24 @@ export class SimulateHandler {
       const ancestors = collectAncestors(rootNode, pathSegments, {});
 
       // Walk from root down. First ancestor whose rule evaluates to true wins.
+      //
+      // `data`/`newData` must be rooted at EACH ancestor's own location —
+      // not at the operation's target path — matching live RTDB semantics:
+      // a rule declared at `/rooms/$roomId` sees `data`/`newData` as the
+      // snapshot AT `/rooms/$roomId`, even when the write is deeper (e.g.
+      // `/rooms/$roomId/title`). Rooting everything at the deepest write
+      // path instead makes ancestor rules see "no data" (since the
+      // deepest path usually doesn't exist yet), which silently satisfies
+      // `!data.exists()`-style escape hatches and produces a false ALLOW.
       const rootData = new DataSnapshot(mockData, '/');
-      const dataAtPath = rootData.child(path.slice(1));
-      const newDataSnap = new DataSnapshot(newData ?? null, path);
+      // Post-write tree: mockData with `newData` merged in at the write
+      // path. Reads don't have a "post-write" state, so leave it as-is.
+      const mergedRoot =
+        operation === 'read' ? mockData : withValueAt(mockData, pathSegments, newData ?? null);
+      const mergedRootData = new DataSnapshot(mergedRoot, '/');
+
+      const dataAtPath = rootData.child(pathSegments.join('/'));
+      const newDataSnap = mergedRootData.child(pathSegments.join('/'));
 
       const buildContext: ContextBuilder = (data, newDataArg, bindings) => {
         const pvBindings: Record<string, string> = {};
@@ -221,10 +270,14 @@ export class SimulateHandler {
         if (!ruleExpr) continue;
         if (!ruleExpr.parsed.valid) continue;
 
+        const ancestorSegments = pathSegments.slice(0, ancestor.depth).join('/');
+        const dataAtAncestor = rootData.child(ancestorSegments);
+        const newDataAtAncestor = mergedRootData.child(ancestorSegments);
+
         const match = grammar.match(ruleExpr.raw.trim());
         const result = evaluateExpression(
           match,
-          buildContext(dataAtPath, newDataSnap, ancestor.pathVariableBindings),
+          buildContext(dataAtAncestor, newDataAtAncestor, ancestor.pathVariableBindings),
         );
 
         if (Boolean(result)) {

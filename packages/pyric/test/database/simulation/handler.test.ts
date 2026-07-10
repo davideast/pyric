@@ -415,3 +415,232 @@ describe('SimulateHandler — .validate (write path)', () => {
     expect(result.success && result.data.allowed).toBe(true);
   });
 });
+
+// ── `data`/`newData` rooting at the RULE's own location ─────────────────
+//
+// Live RTDB roots `data`/`newData` at the location of the RULE being
+// evaluated, not at the operation's target path. A rule declared on an
+// ANCESTOR of a deeper write/read must see `data`/`newData` as the
+// snapshot at the ancestor's own location — not at the deeper path, and
+// not "no data" just because the deeper path itself is empty. Getting
+// this wrong is a false-ALLOW bug class: an ancestor rule like
+// `data.child('owner').val() === auth.uid || !data.exists()` is meant as
+// "owner check, but allow creating a brand-new room" — rooting `data` at
+// the deep write path instead of the room's own path makes `data.exists()`
+// false for every write below an existing room, so the `!data.exists()`
+// escape hatch fires even though the room (and its `owner`) already exist.
+describe('SimulateHandler — data/newData rooted at rule location', () => {
+  const handler = new SimulateHandler();
+
+  const expr = (raw: string): RtdbNode['read'] => ({
+    raw,
+    parsed: { raw, valid: true, errors: [], warnings: [], referencedIdentifiers: [] },
+  });
+
+  const node = (partial: Partial<RtdbNode> & { path: string }): RtdbNode => ({
+    pathVariables: [],
+    exists: true,
+    children: [],
+    ...partial,
+  });
+
+  const ir = (rules: RtdbNode): RtdbIR => ({
+    service: 'realtime-database',
+    databaseUrl: 'https://test.firebaseio.com',
+    rules,
+  });
+
+  test('an ancestor .write rooted with an owner-or-new-doc escape hatch denies writes under an EXISTING doc owned by someone else', () => {
+    // `.write` at `/rooms/$roomId` — `data` must be the snapshot at
+    // `/rooms/$roomId` (with `owner: 'bob'`), not at the deep write path
+    // `/rooms/room1/title` (which has no value and so looks "not exists").
+    const ownerOrNewIR = ir(
+      node({
+        path: '/',
+        children: [
+          node({
+            path: '/rooms',
+            children: [
+              node({
+                path: '/rooms/$roomId',
+                pathVariables: ['$roomId'],
+                write: expr("data.child('owner').val() === auth.uid || !data.exists()"),
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const mockData = { rooms: { room1: { owner: 'bob', title: 'old' } } };
+
+    // mallory is not the owner of the EXISTING room1 — must be denied.
+    const denied = handler.execute(ownerOrNewIR, {
+      operation: 'write',
+      path: '/rooms/room1/title',
+      auth: { uid: 'mallory', token: {} },
+      mockData,
+      newData: 'hijacked',
+    });
+    expect(denied.success).toBe(true);
+    if (denied.success) expect(denied.data.allowed).toBe(false);
+
+    // bob IS the owner — allowed.
+    const allowed = handler.execute(ownerOrNewIR, {
+      operation: 'write',
+      path: '/rooms/room1/title',
+      auth: { uid: 'bob', token: {} },
+      mockData,
+      newData: 'new title',
+    });
+    expect(allowed.success).toBe(true);
+    if (allowed.success) expect(allowed.data.allowed).toBe(true);
+
+    // Nobody owns a room that doesn't exist yet — the `!data.exists()`
+    // escape hatch still legitimately allows creating a brand-new room.
+    const created = handler.execute(ownerOrNewIR, {
+      operation: 'write',
+      path: '/rooms/room2/title',
+      auth: { uid: 'mallory', token: {} },
+      mockData,
+      newData: 'brand new room',
+    });
+    expect(created.success).toBe(true);
+    if (created.success) expect(created.data.allowed).toBe(true);
+  });
+
+  test('a rule reading data.child(...) at the rule location sees the correct nested value regardless of write depth', () => {
+    const readIR = ir(
+      node({
+        path: '/',
+        children: [
+          node({
+            path: '/rooms',
+            children: [
+              node({
+                path: '/rooms/$roomId',
+                pathVariables: ['$roomId'],
+                read: expr("data.child('visibility').val() === 'public'"),
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const mockData = { rooms: { room1: { visibility: 'private', messages: { m1: 'hi' } } } };
+
+    const denied = handler.execute(readIR, {
+      operation: 'read',
+      path: '/rooms/room1/messages/m1',
+      auth: null,
+      mockData,
+    });
+    expect(denied.success).toBe(true);
+    if (denied.success) expect(denied.data.allowed).toBe(false);
+
+    const publicMockData = { rooms: { room1: { visibility: 'public', messages: { m1: 'hi' } } } };
+    const allowed = handler.execute(readIR, {
+      operation: 'read',
+      path: '/rooms/room1/messages/m1',
+      auth: null,
+      mockData: publicMockData,
+    });
+    expect(allowed.success).toBe(true);
+    if (allowed.success) expect(allowed.data.allowed).toBe(true);
+  });
+
+  test('newData at an ancestor rule reflects the merged post-write value at that ancestor location, not the raw payload at the deep write path', () => {
+    // `.write` at `/rooms/$roomId` checks `newData.child('locked').val()`
+    // — the post-write value of the ROOM, which must still show
+    // `locked: true` (untouched by a write to a sibling field) rather than
+    // being computed from the raw write payload at the deep path.
+    const lockedIR = ir(
+      node({
+        path: '/',
+        children: [
+          node({
+            path: '/rooms',
+            children: [
+              node({
+                path: '/rooms/$roomId',
+                pathVariables: ['$roomId'],
+                write: expr("newData.child('locked').val() !== true"),
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const mockData = { rooms: { room1: { locked: true, title: 'old' } } };
+
+    // Writing just `/title` on a locked room: the merged post-write room
+    // still has `locked: true`, so the rule must deny.
+    const denied = handler.execute(lockedIR, {
+      operation: 'write',
+      path: '/rooms/room1/title',
+      auth: { uid: 'anyone', token: {} },
+      mockData,
+      newData: 'new title',
+    });
+    expect(denied.success).toBe(true);
+    if (denied.success) expect(denied.data.allowed).toBe(false);
+
+    // An unlocked room allows the same write.
+    const unlockedMockData = { rooms: { room1: { locked: false, title: 'old' } } };
+    const allowed = handler.execute(lockedIR, {
+      operation: 'write',
+      path: '/rooms/room1/title',
+      auth: { uid: 'anyone', token: {} },
+      mockData: unlockedMockData,
+      newData: 'new title',
+    });
+    expect(allowed.success).toBe(true);
+    if (allowed.success) expect(allowed.data.allowed).toBe(true);
+  });
+
+  test('newData.parent() from a nested write resolves through the merged tree, not just the written subtree', () => {
+    // A `.validate` at a deep node using `newData.parent()` must be able
+    // to see sibling fields merged from the pre-write tree.
+    const expr2 = (raw: string): RtdbNode['validate'] => ({
+      raw,
+      parsed: { raw, valid: true, errors: [], warnings: [], referencedIdentifiers: [] },
+    });
+    const parentIR = ir(
+      node({
+        path: '/',
+        write: expr('auth !== null'),
+        children: [
+          node({
+            path: '/rooms',
+            children: [
+              node({
+                path: '/rooms/$roomId',
+                pathVariables: ['$roomId'],
+                children: [
+                  node({
+                    path: '/rooms/$roomId/title',
+                    pathVariables: ['$roomId'],
+                    validate: expr2("newData.parent().child('locked').val() !== true"),
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const mockData = { rooms: { room1: { locked: true, title: 'old' } } };
+    const denied = handler.execute(parentIR, {
+      operation: 'write',
+      path: '/rooms/room1/title',
+      auth: { uid: 'anyone', token: {} },
+      mockData,
+      newData: 'new title',
+    });
+    expect(denied.success).toBe(true);
+    if (denied.success) expect(denied.data.allowed).toBe(false);
+  });
+});
