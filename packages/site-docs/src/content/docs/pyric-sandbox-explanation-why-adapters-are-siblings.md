@@ -3,7 +3,7 @@ title: "Why service adapters live in sibling packages"
 navLabel: "Why adapters are siblings"
 group: "pyric / sandbox"
 section: "Explanation"
-order: 144
+order: 143
 ---
 # Why service adapters live in sibling packages
 

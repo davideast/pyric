@@ -3,7 +3,7 @@ title: "Use the Vite plugin (pyric-tools/vite)"
 navLabel: "Use the Vite plugin"
 group: "pyric-tools"
 section: "How-to"
-order: 42
+order: 41
 ---
 # Use the Vite plugin (`pyric-tools/vite`)
 
@@ -290,6 +290,6 @@ package in this release.
 
 - [Persistence and multi-tab with `pyric dev`](../pyric-tools-how-to-serve-persistence-and-multi-tab/)
   — the static-app analog; the worker/persist/seed model is identical to the plugin's.
-- [Getting started](../pyric-tools-tutorials-getting-started/) — the end-to-end scaffold →
+- [Getting started](../start-building/) — the end-to-end scaffold →
   serve → agent loop.
 - [Why an in-browser backend is *not* Firestore offline persistence](../pyric-sandbox-explanation-local-backend-vs-firestore-offline/).

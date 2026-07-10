@@ -3,7 +3,7 @@ title: "How to build queries with where, orderBy, limit"
 navLabel: "Build queries"
 group: "pyric / firestore"
 section: "How-to"
-order: 77
+order: 76
 ---
 # How to build queries with `where`, `orderBy`, `limit`
 

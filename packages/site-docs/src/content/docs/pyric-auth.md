@@ -3,7 +3,7 @@ title: "pyric/auth"
 navLabel: "Overview"
 group: "pyric / auth"
 section: ""
-order: 160
+order: 159
 ---
 # `pyric/auth`
 

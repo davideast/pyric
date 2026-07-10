@@ -20,6 +20,7 @@
  *    file in dist, and fragment links point at real element ids.
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { SUPERSEDED } from './superseded';
 import { join, dirname, resolve, relative, posix, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -91,6 +92,9 @@ for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {
   let count = 0;
   let missing = 0;
   for (const file of walkMd(docsRoot)) {
+    // Pages the guide replaced outright are deliberately not built
+    // (scripts/superseded.ts) — links to them redirect to the guide.
+    if (SUPERSEDED[relative(repoRoot, file).split(sep).join('/')]) continue;
     count++;
     const segs = relative(docsRoot, file)
       .split(sep)

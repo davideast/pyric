@@ -2,7 +2,7 @@
 title: "Storage rules subset"
 group: "pyric / storage"
 section: "Reference"
-order: 155
+order: 154
 ---
 # Storage rules subset
 

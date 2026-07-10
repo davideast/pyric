@@ -3,7 +3,7 @@ title: "How to inspect rules through the AST"
 navLabel: "Inspect rules via the AST"
 group: "pyric / rules"
 section: "How-to"
-order: 96
+order: 95
 ---
 # How to inspect rules through the AST
 

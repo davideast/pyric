@@ -3,7 +3,7 @@ title: "How to run multiple isolated sandboxes in parallel"
 navLabel: "Run isolated sandboxes"
 group: "pyric / sandbox"
 section: "How-to"
-order: 124
+order: 123
 ---
 # How to run multiple isolated sandboxes in parallel
 

@@ -3,7 +3,7 @@ title: "How to switch between sandbox and prod backends"
 navLabel: "Switch backends"
 group: "pyric / storage"
 section: "How-to"
-order: 151
+order: 150
 ---
 # How to switch between sandbox and prod backends
 

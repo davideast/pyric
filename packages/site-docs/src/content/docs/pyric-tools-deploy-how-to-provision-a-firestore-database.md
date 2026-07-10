@@ -3,7 +3,7 @@ title: "How to provision a Firestore database"
 navLabel: "Provision a database"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 58
+order: 57
 ---
 # How to provision a Firestore database
 

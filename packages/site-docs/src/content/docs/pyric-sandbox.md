@@ -3,7 +3,7 @@ title: "pyric/sandbox"
 navLabel: "Overview"
 group: "pyric / sandbox"
 section: ""
-order: 120
+order: 119
 ---
 # `pyric/sandbox`
 

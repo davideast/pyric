@@ -3,7 +3,7 @@ title: "@pyric/ui"
 navLabel: "Overview"
 group: "@pyric/ui"
 section: ""
-order: 182
+order: 181
 ---
 # `@pyric/ui` docs
 

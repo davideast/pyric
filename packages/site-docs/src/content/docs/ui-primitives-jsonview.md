@@ -2,7 +2,7 @@
 title: "<JsonView>"
 group: "@pyric/ui"
 section: "Primitives"
-order: 186
+order: 185
 ---
 # `<JsonView>`
 

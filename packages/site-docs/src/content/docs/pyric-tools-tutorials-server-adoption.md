@@ -3,7 +3,7 @@ title: "Server adoption — run your firebase-admin app on the pyric sandbox"
 navLabel: "Server adoption"
 group: "pyric-tools"
 section: "Tutorials"
-order: 35
+order: 34
 ---
 # Server adoption — run your firebase-admin app on the pyric sandbox
 
@@ -241,6 +241,6 @@ real Firebase. Set `PYRIC_SANDBOX_FORCE=1` to override (dev/CI only).
 - **Every `pyric dev` flag** (`--persist`, `--seed`, `--ui`, `--json`, …):
   the [CLI reference](../pyric-tools-reference-cli/).
 - **New app instead of an existing one:**
-  [getting started](../pyric-tools-tutorials-getting-started/).
+  [getting started](../start-building/).
 - **Let an agent drive the same sandbox** over MCP:
   [wire-claude-code.md](../pyric-tools-tutorials-wire-claude-code/).

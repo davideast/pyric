@@ -3,7 +3,7 @@ title: "Persistence and multi-tab with pyric dev"
 navLabel: "Persistence & multi-tab"
 group: "pyric-tools"
 section: "How-to"
-order: 41
+order: 40
 ---
 # Persistence and multi-tab with `pyric dev`
 
@@ -182,4 +182,4 @@ the [CLI reference](../pyric-tools-reference-cli/).
 
 - [Why an in-browser backend is *not* Firestore offline persistence](../pyric-sandbox-explanation-local-backend-vs-firestore-offline/)
   — why multi-tab + persistence here avoid the distributed-systems complexity.
-- [Getting started](../pyric-tools-tutorials-getting-started/) — scaffold → serve → agent.
+- [Getting started](../start-building/) — scaffold → serve → agent.

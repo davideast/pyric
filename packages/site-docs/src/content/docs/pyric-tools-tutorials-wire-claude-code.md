@@ -3,13 +3,13 @@ title: "Wire Claude Code to your pyric sandbox (manual MCP wiring)"
 navLabel: "Wire Claude Code"
 group: "pyric-tools"
 section: "Tutorials"
-order: 36
+order: 35
 ---
 # Wire Claude Code to your pyric sandbox (manual MCP wiring)
 
 > **Most users want the plugin instead.** `claude plugin install` +
 > `/pyric:pyric-start` does everything below automatically — see
-> [getting-started.md](../pyric-tools-tutorials-getting-started/). This tutorial is the
+> [getting-started.md](../start-building/). This tutorial is the
 > manual path: wiring Claude Code to a bridge yourself, e.g. for a
 > sandbox embedded in your own dev server, a custom port layout, or an
 > MCP client other than Claude Code.

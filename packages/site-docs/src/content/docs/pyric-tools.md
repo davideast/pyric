@@ -13,7 +13,7 @@ look up, understand.
 
 ## Tutorials — learning by doing
 
-- [Getting started](../pyric-tools-tutorials-getting-started/) — scaffold → dev → plugin →
+- [Getting started](../start-building/) — scaffold → dev → plugin →
   agent, end to end.
 - [Wire Claude Code (manual MCP)](../pyric-tools-tutorials-wire-claude-code/) — bridges,
   custom ports, other MCP clients.

@@ -3,7 +3,7 @@ title: "Identity is a context, not a sandbox"
 navLabel: "Identity is a context"
 group: "pyric / sandbox"
 section: "Explanation"
-order: 140
+order: 139
 ---
 # Identity is a context, not a sandbox
 

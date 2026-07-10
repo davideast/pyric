@@ -2,7 +2,7 @@
 title: "rtdb namespace"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 67
+order: 66
 ---
 # `rtdb` namespace
 

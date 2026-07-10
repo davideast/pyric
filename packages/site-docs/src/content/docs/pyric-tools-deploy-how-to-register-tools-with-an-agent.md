@@ -3,7 +3,7 @@ title: "How to register deploy tools with an agent"
 navLabel: "Register deploy tools"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 59
+order: 58
 ---
 # How to register deploy tools with an agent
 

@@ -3,7 +3,7 @@ title: "How to reset between tests"
 navLabel: "Reset between tests"
 group: "pyric / sandbox"
 section: "How-to"
-order: 128
+order: 127
 ---
 # How to reset between tests
 

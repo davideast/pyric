@@ -3,7 +3,7 @@ title: "Use the sandbox in a test harness"
 navLabel: "Sandbox in a test harness"
 group: "pyric / sandbox"
 section: "Tutorials"
-order: 122
+order: 121
 ---
 # Use the sandbox in a test harness
 

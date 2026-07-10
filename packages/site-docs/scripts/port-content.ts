@@ -47,6 +47,7 @@ import {
 import { join, resolve, dirname, relative, posix, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import GithubSlugger from 'github-slugger';
+import { SUPERSEDED } from './superseded';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const siteRoot = resolve(here, '..');
@@ -136,6 +137,12 @@ function docsRoot(pkg: string): string {
 // becomes the emitted `description` (llms.txt / index.json).
 
 const guideRoot = join(repoRoot, 'docs', 'site-rewrite', 'content');
+
+/** Superseded package pages (scripts/superseded.ts), by absolute path:
+ *  skipped by the port, and links to them rewrite to the guide slug. */
+const supersededByAbs = new Map<string, string>(
+  Object.entries(SUPERSEDED).map(([rel, slug]) => [join(repoRoot, rel), slug]),
+);
 
 interface GuideGroupSpec {
   /** Nav group label (disclosure summary). */
@@ -393,6 +400,7 @@ const bySlug = new Map<string, Page>();
 let order = 1;
 
 function addPage(src: string, group: GroupSpec, section: string) {
+  if (supersededByAbs.has(src)) return; // replaced by a guide page
   const slug = slugFor(group.pkg, src);
   const title = titleOf(src);
   const clash = bySlug.get(slug);
@@ -498,7 +506,9 @@ function* walkMd(dir: string): Generator<string> {
 }
 for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {
   for (const f of walkMd(docsRoot(pkg))) {
-    if (!bySrc.has(f)) throw new Error(`unclaimed source doc: ${f}`);
+    if (!bySrc.has(f) && !supersededByAbs.has(f)) {
+      throw new Error(`unclaimed source doc: ${f}`);
+    }
   }
 }
 // Same strictness for the guide tree (README.md is review scaffolding).
@@ -662,6 +672,15 @@ function rewriteLinks(page: Page, body: string): string {
           const fragment = rawFragment?.replace(/^user-content-/, '');
           const resolved = resolveTarget(srcDir, path);
           if (!resolved) {
+            // A link to a superseded page follows the replacement.
+            const clean = decodeURI(path);
+            for (const cand of [resolve(srcDir, clean), resolve(srcDir, clean.replace(/^(\.\/)?docs\//, ''))]) {
+              const slug = supersededByAbs.get(cand) ?? supersededByAbs.get(`${cand}.md`);
+              if (slug) {
+                stats.rewritten++;
+                return `[${label}](../${slug}/)`;
+              }
+            }
             stats.unlinked++;
             unlinkedLog.push(`${page.slug}: ${target}`);
             return label;
