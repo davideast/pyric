@@ -13,7 +13,7 @@ One connection and your agent has the whole backend as tools. It can read and wr
 
 The seam is one endpoint. `pyric dev --bridge` mounts an MCP server on your dev server at `/__pyric/mcp`, and every client below connects to it, directly or through a small stdio proxy that finds it for you.
 ```bash
-npx pyric dev --bridge
+pyric dev --bridge
 ```
 One requirement to know up front: the sandbox lives inside the served page, so keep the app open in a browser tab while the agent works. If data tools return nothing, the page is not open. Open it and try again.
 
@@ -27,11 +27,11 @@ Then, inside Claude Code, run `/pyric:pyric-start`. It scaffolds a project if yo
 
 Prefer manual wiring? Register the stdio server:
 ```bash
-claude mcp add pyric -- npx pyric mcp
+claude mcp add pyric -- npx pyric-tools mcp
 ```
 `pyric mcp` attaches to a running `pyric dev --bridge` by reading the `.pyric/serve.json` pointer the dev server writes. If nothing is running, it hosts a headless sandbox of its own and persists it to `.pyric/state/headless.json`. Or, if you pin the port, point Claude Code at the HTTP endpoint directly:
 ```bash
-npx pyric dev --bridge --port 5173
+pyric dev --bridge --port 5173
 claude mcp add pyric --transport http --url http://localhost:5173/__pyric/mcp
 ```
 First thing to ask: "Inspect the sandbox." One tool call comes back with the current rules, a lint summary, a document census, and recent denials.
@@ -42,7 +42,7 @@ Cursor reads MCP servers from `.cursor/mcp.json`. Use the stdio server so the po
 ```json
 {
   "mcpServers": {
-    "pyric": { "command": "npx", "args": ["pyric", "mcp"] }
+    "pyric": { "command": "npx", "args": ["pyric-tools", "mcp"] }
   }
 }
 ```
@@ -54,7 +54,7 @@ Same shape, Codex config. In `~/.codex/config.toml`:
 ```toml
 [mcp_servers.pyric]
 command = "npx"
-args = ["pyric", "mcp"]
+args = ["pyric-tools", "mcp"]
 ```
 Start `pyric dev --bridge`, open the app, and ask it to inspect the sandbox.
 
@@ -62,7 +62,7 @@ Start `pyric dev --bridge`, open the app, and ask it to inspect the sandbox.
 
 The generic recipe is two options, and every client above is one of them applied:
 
-- **stdio**: run `npx pyric mcp` as the server command. It finds the running dev server, or hosts a headless sandbox when there is none.
+- **stdio**: run `npx pyric-tools mcp` as the server command (or bare `pyric mcp` if you installed the CLI globally). It finds the running dev server, or hosts a headless sandbox when there is none.
 - **HTTP**: point the client at `http://localhost:<port>/__pyric/mcp` on a running `pyric dev --bridge`.
 
 Whatever your client's config file looks like, one of those two lines is the whole setup. Then ask it to inspect the sandbox and read what comes back.
@@ -73,7 +73,7 @@ One option in `vite.config.ts` makes your own `vite dev` the bridge:
 ```ts
 plugins: [pyricSandbox({ bridge: true })],
 ```
-Do not start a second `pyric dev` next to it. Two servers means two sandboxes, and your agent will be working in the one you are not looking at. The endpoints are the same, `/__pyric/mcp` on Vite's port, and `npx pyric mcp` finds it the same way.
+Do not start a second `pyric dev` next to it. Two servers means two sandboxes, and your agent will be working in the one you are not looking at. The endpoints are the same, `/__pyric/mcp` on Vite's port, and `npx pyric-tools mcp` finds it the same way.
 
 ## Where to go next
 

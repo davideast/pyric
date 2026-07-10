@@ -14,7 +14,7 @@ Pyric is Firestore, Auth, Realtime Database, Storage, and the Security Rules eng
 That is the whole trick, and it starts with one command.
 ```bash
 npm i -g pyric-tools
-npx pyric dev
+pyric dev
 ```
 No account. No cloud project. No emulator, no Java, no port to babysit. You have a full Firebase stack before your coffee is warm, and it behaves like the real one because that claim is tested, not assumed. Pyric runs probes against production Firebase, records what actually happens, and replays every recorded behavior against itself in CI. When it diverges from Firebase, that is a documented row or a bug, never a surprise.
 

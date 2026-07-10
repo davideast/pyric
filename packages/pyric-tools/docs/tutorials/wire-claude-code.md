@@ -21,7 +21,7 @@ Should take ~10 minutes.
 
 - An existing Firebase app already retrofitted to use pyric, i.e. you've replaced the relevant `firebase/*` imports with `@pyric/*` adapter SDKs and your app boots against `initializeSandbox()` in dev. (If you haven't done the retrofit yet, do that first: see the per-package READMEs under `packages/*/README.md`.)
 - Claude Code installed and working. Verify with `claude --version`.
-- Node 18+ and `npm` / `bun`. This tutorial uses `npm` in commands; `bun` works equivalently.
+- Node 22+ and `npm` / `bun`. This tutorial uses `npm` in commands; `bun` works equivalently.
 
 ## Step 1: Install pyric
 

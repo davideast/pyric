@@ -13,20 +13,26 @@ Takes about five minutes. You do not need a Firebase account.
 
 ## Prerequisites
 
-- Node 18+ and `npm` (or `bun` — commands are equivalent).
+- Node 22+ and `npm` (or `bun` — commands are equivalent).
 - For step 4: Claude Code installed (`claude --version` works).
 
 ## Step 1 — Scaffold an app
 
+Install the CLI globally, then scaffold:
+
 ```bash
+npm i -g pyric-tools            # installs the `pyric` command
 mkdir hello-pyric && cd hello-pyric
-npx pyric init --template web
+pyric init --template web
 ```
+
+(No global install? `npx pyric-tools init --template web` works the same way,
+package by package.)
 
 `init` writes a small app with **canonical Firebase imports**
 (`firebase/app`, `firebase/auth`, `firebase/firestore` — no pyric imports
 in app code), a `firestore.rules` file, a `firebase.json`, a seed file,
-and adds `pyric-tools` as a devDependency. Then install:
+and adds `pyric-tools` as a devDependency. Then install the app's deps:
 
 ```bash
 npm install
@@ -35,7 +41,7 @@ npm install
 ## Step 2 — Serve it on the sandbox
 
 ```bash
-npx pyric dev
+pyric dev
 ```
 
 Open <http://localhost:3473>. You'll see the scaffold app with two seeded
@@ -62,7 +68,7 @@ the browser — so it **survives a refresh by default**. Add `--persist` for a
 committable, git-trackable copy on disk:
 
 ```bash
-npx pyric dev --persist   # also writes .pyric/state/state.json
+pyric dev --persist       # also writes .pyric/state/state.json
 ```
 
 `--fresh` discards the on-disk state; `--seed <file>` loads a fixture set on
@@ -103,7 +109,7 @@ bridge into the *same sandbox* you're looking at, and the rules
 edit deploys live. You can inspect what it did with:
 
 ```bash
-npx pyric snapshot        # dump sandbox state to a file
+pyric snapshot            # dump sandbox state to a file
 ```
 
 ## You now have

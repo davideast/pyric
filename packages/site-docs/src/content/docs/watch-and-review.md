@@ -15,7 +15,7 @@ An agent you cannot see is an agent you cannot trust. Pyric makes the agent's wo
 
 Start the sandbox with Studio on:
 ```bash
-npx pyric dev --ui
+pyric dev --ui
 ```
 Studio opens at `/__pyric/ui/`, and its Prototype tab is an agent playground running against the shared sandbox. The same sandbox your app tab uses, the same one your MCP client drives.
 

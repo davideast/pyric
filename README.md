@@ -45,8 +45,9 @@ Install the CLI in an existing Firebase app or a new one:
 
 ```bash
 npm i -g pyric-tools            # installs the `pyric` command
-npx pyric init --template web   # scaffold, or just run pyric dev in an existing app
-npx pyric dev
+pyric init --template web       # scaffold, or skip this in an existing app
+npm install                     # install the scaffolded app's deps
+pyric dev
 ```
 
 `pyric dev` serves the app against the in-process sandbox. The app's own `firebase/*` imports resolve to the sandbox during development; nothing in the application source changes. The sandbox holds data, identities, and rules, and everything it does is observable through the mechanisms below.
