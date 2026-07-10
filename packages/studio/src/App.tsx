@@ -158,6 +158,14 @@ function Shell() {
     if (onHome) setCommandOpen(false);
   }, [onHome]);
 
+  // On narrow screens the tab row scrolls; keep the active tab on
+  // screen when the route changes instead of letting it sit off-edge.
+  useEffect(() => {
+    document
+      .querySelector('.studio__nav [aria-current="page"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [active]);
+
   return (
     <div className="studio" data-surface={active}>
       <header className="studio__bar">

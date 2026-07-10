@@ -122,6 +122,24 @@ body {
   border-bottom-color: var(--ink);
 }
 
+/* Narrow screens: the tab row scrolls. Make that legible instead of a
+   hard clip: snap points per tab, and an edge fade standing in for the
+   hidden scrollbar. The nav's own end padding sits under the fade at
+   full scroll, so no tab text ever fades. */
+@media (max-width: 760px) {
+  .studio__nav {
+    scroll-snap-type: x proximity;
+    padding-right: 28px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+
+  .studio__nav-tab {
+    scroll-snap-align: start;
+  }
+}
+
+
 /* ── Docs grid: nav | content | TOC, centred on the bar's column ───
    Rails are sized to their content with a max (`minmax(…, Npx)`); the
    content column flexes between them (`minmax(0, 1fr)`) and is itself
