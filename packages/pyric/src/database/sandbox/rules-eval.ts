@@ -52,8 +52,17 @@ export function permissionDenied(): Error {
  * matching RTDB's implicit-deny default ("nothing matched → no
  * permission"). The wrapper itself stays neutral so admin-mode callers
  * (which bypass rules entirely) can use a different fold.
+ *
+ * `'unsupported'` is a distinct third outcome: the simulator hit a rule
+ * expression it cannot parse/evaluate and abstained rather than granting
+ * or denying. It is folded to deny by user-mode callers (same as
+ * `'no-rule'` — abstain, never grant) but reported separately on the
+ * event stream so Studio's traffic view can show it as a simulator gap
+ * instead of a real rules decision. Matches the Firestore simulator's
+ * posture: `UNSUPPORTED` never counts as a real evaluation and never
+ * grants access.
  */
-export type RuleCheck = 'allow' | 'deny' | 'no-rule';
+export type RuleCheck = 'allow' | 'deny' | 'no-rule' | 'unsupported';
 
 export interface RuleEvaluationDetails {
   check: RuleCheck;
@@ -160,6 +169,16 @@ export class RulesEvaluator {
         reasons: [result.error.message],
         errorCode: result.error.code,
         errorMessage: result.error.message,
+      };
+    }
+    if (result.data.unsupported) {
+      return {
+        check: 'unsupported',
+        reasons: [`${result.data.matchedPath} ${operation} UNSUPPORTED: ${result.data.reason}`],
+        matchedPath: result.data.matchedPath,
+        matchedRule: result.data.matchedRule,
+        reason: result.data.reason,
+        pathVariableBindings: result.data.pathVariableBindings,
       };
     }
     return {
