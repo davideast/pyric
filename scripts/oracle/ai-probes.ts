@@ -17,7 +17,9 @@
  * (URL construction and headers from @firebase/ai requests/request.ts), NOT
  * the SDK itself: the SDK decorates responses client-side (adds candidate
  * `index`, `inferenceSource`) and would contaminate wire truth. `fbSdkVersion`
- * records the @firebase/ai version whose request shape these probes replicate.
+ * records the installed umbrella `firebase` version (the convention the
+ * observation version guard enforces); the @firebase/ai request shape these
+ * probes replicate is that umbrella's pinned ai subpackage.
  *
  * rowIds are empty: the ai surface is pre-admission (climbing under CDD,
  * map #92); registry rows land at admission (#100) and cite these captures.
@@ -42,8 +44,8 @@ const { apiKey, projectId } = config;
 
 const fbPkg = JSON.parse(
   readFileSync(fileURLToPath(import.meta.resolve('firebase/package.json')), 'utf8'),
-) as { version: string; dependencies: Record<string, string> };
-const fbSdkVersion = fbPkg.dependencies['@firebase/ai'];
+) as { version: string };
+const fbSdkVersion = fbPkg.version;
 
 const API_VERSION = 'v1beta';
 const BASE = `https://firebasevertexai.googleapis.com/${API_VERSION}/projects/${projectId}`;

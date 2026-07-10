@@ -12,7 +12,7 @@
   ],
   "description": "Raw SSE framing of streamGenerateContent?alt=sse. Every event is `data: <complete GenerateContentResponse JSON>`; separator and which chunks carry finishReason/usageMetadata are the framing contract a mirror must reproduce. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:04.018Z",
-  "fbSdkVersion": "2.12.0",
+  "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",

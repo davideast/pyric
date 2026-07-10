@@ -6,7 +6,7 @@
   ],
   "description": "A full function-calling round trip is accepted when the model functionCall turn is threaded back verbatim from a real response, preserving thoughtSignature (see ai-error-fncall-missing-thought-signature for the rejection without it). rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
   "observedAt": "2026-07-10T01:47:16.974Z",
-  "fbSdkVersion": "2.12.0",
+  "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "apiVersion": "v1beta",
   "model": "gemini-flash-lite-latest",
@@ -22,7 +22,7 @@
           "content": {
             "parts": [
               {
-                "text": "The weather in Paris is clear with a temperature of 22°C.",
+                "text": "The weather in Paris is clear with a temperature of 22\u00b0C.",
                 "thoughtSignature": "EjQKMgERTTIPevU90Ul2ojBMEUvswVEQtpH2CCkaYfhCK46N4QViRsL43qnucf+qpsd7e0Nd"
               }
             ],
