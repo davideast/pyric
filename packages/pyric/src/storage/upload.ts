@@ -69,7 +69,10 @@ export async function uploadBytes(
   enforceRules(service, {
     request: {
       auth: target.context.auth,
-      method: 'write',
+      // A write to a nonexistent object is a `create`; a write over an
+      // existing one is an `update`. The resource-exists fact (`existing`)
+      // makes the distinction the granular verbs need.
+      method: existing ? 'update' : 'create',
       path: ref.fullPath,
       resource: requestResourceFor({
         size: stored.size,

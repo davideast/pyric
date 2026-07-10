@@ -71,6 +71,9 @@ export { parseStorageRules, evaluateStorageRules } from './rules.js';
 export type {
   StorageRules,
   StorageMethod,
+  StorageVerb,
+  StorageRequestMethod,
+  StorageGrantVerb,
   StorageAuth,
   StorageRequest,
   StorageResource,

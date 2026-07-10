@@ -18,8 +18,11 @@
  *   - Nested `match` blocks with path segments:
  *       literal (`sessions`), parameter (`{sessionId}`), and
  *       multi-segment wildcard (`{allPaths=**}`)
- *   - `allow read | write : if <expr>;` (other granular verbs
- *     defer)
+ *   - `allow <verb>[, <verb>]* : if <expr>;` where verb is one of
+ *     the coarse umbrellas (`read`, `write`) or the granular verbs
+ *     (`get`, `list`, `create`, `update`, `delete`). `read` grants
+ *     get + list; `write` grants create + update + delete; a granular
+ *     grant covers only its own verb.
  *   - Expressions:
  *       literals: number, string, boolean, null
  *       identifiers: `request`, `resource`, plus path parameters
@@ -31,8 +34,7 @@
  * Out of scope (mirrors the survey + plan): `request.time`,
  * `matches()`/regex, function definitions, `customMetadata.<field>`
  * deep access (use bracket form against `resource.metadata` when
- * really needed), the granular verbs `get | list | create | update
- * | delete`. Hooks for adding them later live at the obvious
+ * really needed). Hooks for adding more live at the obvious
  * extension seams in the parser + evaluator.
  */
 
@@ -40,8 +42,42 @@
 // Public types
 // ═══════════════════════════════════════════════════════════════
 
-/** Method abstraction the operation layer hands to the evaluator. */
+/** Coarse permission umbrellas. `read` covers get + list; `write`
+ *  covers create + update + delete. */
 export type StorageMethod = 'read' | 'write';
+
+/** Granular operation verbs. Production Storage maps each operation to
+ *  exactly one of these:
+ *    download / getMetadata      → get
+ *    list                        → list
+ *    upload to NONEXISTENT path  → create
+ *    upload / updateMetadata over
+ *      an EXISTING object        → update
+ *    delete                      → delete
+ */
+export type StorageVerb = 'get' | 'list' | 'create' | 'update' | 'delete';
+
+/** What a caller records as the request's operation. Callers pass the
+ *  precise granular verb; the coarse forms remain accepted so the
+ *  umbrella semantics are symmetric. */
+export type StorageRequestMethod = StorageMethod | StorageVerb;
+
+/** A verb token that may appear in an `allow` clause. */
+export type StorageGrantVerb = StorageMethod | StorageVerb;
+
+/**
+ * Expand a coarse umbrella verb into its granular sub-verbs; a granular
+ * verb expands to itself. This is the single definition of the
+ * read→{get,list} / write→{create,update,delete} semantics, used by both
+ * the request side and the grant side of matching.
+ */
+function expandVerb(verb: StorageGrantVerb | StorageRequestMethod): StorageVerb[] {
+  switch (verb) {
+    case 'read': return ['get', 'list'];
+    case 'write': return ['create', 'update', 'delete'];
+    default: return [verb];
+  }
+}
 
 /** Identity passed in with the request. `null` is anonymous. */
 export interface StorageAuth {
@@ -52,7 +88,7 @@ export interface StorageAuth {
 /** Inbound request bindings the rules see. */
 export interface StorageRequest {
   auth: StorageAuth | null;
-  method: StorageMethod;
+  method: StorageRequestMethod;
   /** Path of the object the request targets. */
   path: string;
   /** Per-Firebase: on writes, `request.resource` describes the
@@ -103,7 +139,7 @@ type PathSegment =
   | { kind: 'wildcard'; name: string };
 
 interface AllowRule {
-  verbs: StorageMethod[];
+  verbs: StorageGrantVerb[];
   condition: Expr | null;
 }
 
@@ -130,7 +166,12 @@ type Token =
 
 const KEYWORDS = new Set([
   'service', 'match', 'allow', 'if', 'true', 'false', 'null',
-  'read', 'write',
+  'read', 'write', 'get', 'list', 'create', 'update', 'delete',
+]);
+
+/** Verb tokens accepted in an `allow` clause. */
+const GRANT_VERBS = new Set<StorageGrantVerb>([
+  'read', 'write', 'get', 'list', 'create', 'update', 'delete',
 ]);
 const MULTI_CHAR_OPS = ['==', '!=', '<=', '>=', '&&', '||'];
 
@@ -301,7 +342,7 @@ class Parser {
   /** Parse `allow <verb>[, <verb>]*: if <expr>;` */
   private parseAllow(): AllowRule {
     this.expectIdent('allow');
-    const verbs: StorageMethod[] = [];
+    const verbs: StorageGrantVerb[] = [];
     verbs.push(this.parseVerb());
     while (this.atPunct(',')) {
       this.expectPunct(',');
@@ -317,11 +358,13 @@ class Parser {
     return { verbs, condition };
   }
 
-  private parseVerb(): StorageMethod {
+  private parseVerb(): StorageGrantVerb {
     const t = this.expect('ident');
-    if (t.value === 'read' || t.value === 'write') return t.value;
+    if (GRANT_VERBS.has(t.value as StorageGrantVerb)) {
+      return t.value as StorageGrantVerb;
+    }
     throw new SyntaxError(
-      `Unsupported verb "${t.value}" at offset ${t.pos}. V1 scope supports only 'read' and 'write'; the granular forms (get/list/create/update/delete) defer to follow-up work.`,
+      `Unsupported verb "${t.value}" at offset ${t.pos}. Storage rules support read, write, get, list, create, update, and delete.`,
     );
   }
 
@@ -557,6 +600,11 @@ export function evaluateStorageRules(
   const pathSegments = splitPath(input.request.path);
   const reasons: string[] = [];
 
+  // The operation's verb, reduced to its granular set. A coarse
+  // request method expands to its sub-verbs so umbrella semantics are
+  // symmetric; a precise granular verb expands to itself.
+  const requestVerbs = new Set(expandVerb(input.request.method));
+
   /**
    * Walk a match block. `remaining` is the still-unmatched part of
    * the request path; `params` are the bindings accumulated so far.
@@ -578,13 +626,18 @@ export function evaluateStorageRules(
     // rules. (Or if a wildcard absorbed the remainder.)
     if (left.length === 0) {
       for (const rule of block.allows) {
-        if (!rule.verbs.includes(input.request.method)) continue;
+        // A grant applies when the operation's verb falls within the
+        // grant's verbs after coarse→granular expansion. `allow read`
+        // covers get + list; `allow get` covers only get.
+        const grantVerbs = new Set(rule.verbs.flatMap(expandVerb));
+        const applies = [...requestVerbs].some((v) => grantVerbs.has(v));
+        if (!applies) continue;
         const result = rule.condition
           ? truthy(evalExpr(rule.condition, input, newParams))
           : true;
         if (result) return true;
         reasons.push(
-          `match ${formatPath(block.segments)} ${rule.verbs.join(', ')}: condition false`,
+          `match ${formatPath(block.segments)} ${input.request.method}: condition false`,
         );
       }
     }
