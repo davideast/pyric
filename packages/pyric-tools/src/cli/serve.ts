@@ -23,7 +23,7 @@ import {
   materializeStudioUi,
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
-import { loadProjectDatabaseRules, loadProjectRules, watchProjectRules } from '../serve/rules.js';
+import { loadProjectDatabaseRules, loadProjectRules, loadProjectStorageRules, watchProjectRules } from '../serve/rules.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { createEventHub, createPyricNamespace, injectServeTags, type InitPayload } from '../serve/namespace.js';
 import { createStateStore, STATE_FILE_VERSION, type PyricStateFile } from '../serve/state-store.js';
@@ -207,6 +207,11 @@ export async function startServe(opts: {
   // always serves the live version.
   const loaded = await loadProjectRules(opts.cwd, config);
   const loadedDatabase = await loadProjectDatabaseRules(opts.cwd, config);
+  // Storage rules deploy ONCE at boot — see the `storageRules` doc on
+  // `InitPayload`: `pyric/storage` only honors rules on the FIRST storage
+  // call per Sandbox, so unlike firestore/database rules there is no live
+  // "live" box to swap here; a storage.rules edit needs a restart.
+  const loadedStorage = await loadProjectStorageRules(opts.cwd, config);
   const live = {
     rules: loaded.rules,
     rulesHash: loaded.rulesHash,
@@ -336,6 +341,8 @@ export async function startServe(opts: {
     databaseRules: live.databaseRules,
     databaseRulesHash: live.databaseRulesHash,
     databaseUrl: live.databaseUrl,
+    storageRules: loadedStorage.rules,
+    storageRulesHash: loadedStorage.rulesHash,
     bridgeUrl: mount && origin.port > 0 ? mount.wsUrl(origin) : null,
     // Precedence: once a state file exists, the lived state is the truth —
     // --seed applies only on the first (state-less) run.
@@ -483,6 +490,12 @@ export async function startServe(opts: {
     loadedDatabase.rules
       ? `✔ rules    ${loadedDatabase.sourcePath} → deployed to the RTDB sandbox (hash ${loadedDatabase.rulesHash})`
       : `• rules    no database.rules — RTDB sandbox runs with default rules`,
+  );
+  logger.info(
+    loadedStorage.rules
+      ? `✔ rules    ${loadedStorage.sourcePath} → deployed to the storage sandbox (hash ${loadedStorage.rulesHash}; ` +
+        `edits require a restart — storage rules do not hot-reload)`
+      : `• rules    no storage.rules — storage sandbox runs open (no rules configured)`,
   );
   if (uiUrl) {
     logger.info(`✔ studio   Pyric Studio: ${uiUrl}`);

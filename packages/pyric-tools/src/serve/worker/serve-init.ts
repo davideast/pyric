@@ -30,6 +30,7 @@
 import { getFirestore, sandbox as sandboxOps } from 'pyric/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database/modular';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
+import { getStorageSandbox } from 'pyric/storage';
 import type { PersistenceBackend } from 'pyric/sandbox';
 import { initializeSandbox, serializeToBuckets, bundleRecords, parseBundle } from 'pyric/sandbox';
 import { primeEventHistory } from 'pyric/sandbox/internal';
@@ -85,6 +86,13 @@ export function setupWorkerHotReload(
  *  stops the capture event subscription (worker teardown / re-init). */
 export interface ServeInitResult {
   rulesDeployed: boolean;
+  /** Whether storage rules were deployed at boot. Storage rules are
+   *  honored only on the FIRST `pyric/storage` call per Sandbox
+   *  (see `getStorageSandbox`'s `StorageOptions.rules` doc) — so unlike
+   *  `rulesDeployed`/database rules this never flips true→false→true
+   *  across a session; it is decided once, here, before any storage op
+   *  runs. */
+  storageRulesDeployed: boolean;
   seededDocs: number;
   seededUsers: number;
   captureEnabled: boolean;
@@ -133,6 +141,7 @@ export function applyServeInit(
 ): ServeInitResult {
   const result: ServeInitResult = {
     rulesDeployed: false,
+    storageRulesDeployed: false,
     seededDocs: 0,
     seededUsers: 0,
     captureEnabled: false,
@@ -166,6 +175,21 @@ export function applyServeInit(
       status: 'active',
       messages: [],
     };
+  }
+
+  // 1b. Storage rules — deployed ONCE, here, before any storage op can run.
+  //     `pyric/storage`'s `getStorageSandbox` only honors a `rules` option on
+  //     the FIRST call per Sandbox (later differing rules throw — a
+  //     deliberate silent-rules-wipe guard, see StorageOptions.rules). This
+  //     call IS that first call: `ensureStorage`/`lensStorage` in host.ts
+  //     always open storage with no `rules` option, so whichever call opens
+  //     the service first wins — making this the sanctioned place to
+  //     configure it. `payload.storageRules` is null when the project has no
+  //     storage.rules, matching the same open-by-default posture as no
+  //     firestore.rules / no database.rules.
+  if (payload.storageRules) {
+    getStorageSandbox(ctx.sandbox, { rules: payload.storageRules });
+    result.storageRulesDeployed = true;
   }
 
   // A seed fixture applies only into an empty home — checked ONCE, before

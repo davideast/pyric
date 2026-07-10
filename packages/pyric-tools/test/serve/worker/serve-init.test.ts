@@ -9,6 +9,7 @@
  * a network.
  */
 
+import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import {
   handleMessage,
@@ -28,6 +29,7 @@ import {
 } from '../../../src/serve/worker/serve-init.js';
 import type { InitPayload } from '../../../src/serve/namespace.js';
 import type { OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
+import { bytesToBase64 } from '../../../src/serve/worker/protocol.js';
 import { sandbox as authOps } from 'pyric/auth';
 import {
   initializeSandbox,
@@ -78,6 +80,23 @@ const RTDB_RULES = {
     '.write': true,
   },
 };
+
+// NOTE: like storage-ops.test.ts, storage rules are written WITHOUT the
+// /b/{bucket}/o wrapper — pyric/storage's evaluator matches against the
+// reference's raw fullPath.
+const DENY_ALL_STORAGE_RULES = `
+service firebase.storage {
+  match /{allPaths=**} {
+    allow read, write: if false;
+  }
+}`;
+
+const OWNER_ONLY_STORAGE_RULES = `
+service firebase.storage {
+  match /users/{uid}/{file} {
+    allow read, write: if request.auth.uid == uid;
+  }
+}`;
 
 async function makeCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
@@ -175,6 +194,69 @@ describe('applyServeInit — rules', () => {
     const result = applyServeInit(ctx, { ...basePayload, rules: 'this is not valid rules {{' }, { fetch: recordingFetch() });
     expect(result.rulesDeployed).toBe(false);
     expect(result.rulesParseError).not.toBeNull();
+  });
+});
+
+describe('applyServeInit — storage rules', () => {
+  it('deploys storage.rules at boot: a deny-all ruleset denies an upload through the worker', async () => {
+    const ctx = await makeCtx();
+    const result = applyServeInit(
+      ctx,
+      { ...basePayload, storageRules: DENY_ALL_STORAGE_RULES },
+      { fetch: recordingFetch() },
+    );
+    expect(result.storageRulesDeployed).toBe(true);
+
+    const port = fakePort();
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 's1',
+      method: 'storage.putBytes',
+      path: 'locked/x',
+      dataB64: bytesToBase64(new TextEncoder().encode('hello')),
+    });
+    const res = getRes(port, 's1');
+    expect(res.ok).toBe(false);
+    expect((res as ResMessage & { ok: false }).error.code).toBe('storage/unauthorized');
+  });
+
+  it('an allowed op passes through when rules permit it (owner-only, acting as the owner)', async () => {
+    const ctx = await makeCtx();
+    const result = applyServeInit(
+      ctx,
+      { ...basePayload, storageRules: OWNER_ONLY_STORAGE_RULES },
+      { fetch: recordingFetch() },
+    );
+    expect(result.storageRulesDeployed).toBe(true);
+
+    const port = fakePort();
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 's2',
+      method: 'storage.putBytes',
+      path: 'users/ada/notes.txt',
+      dataB64: bytesToBase64(new TextEncoder().encode('mine')),
+      actAs: { mode: 'as', uid: 'ada' },
+    });
+    const res = getRes(port, 's2');
+    expect(res.ok).toBe(true);
+  });
+
+  it('no storage.rules configured: matches Firestore/RTDB\'s open-by-default posture', async () => {
+    const ctx = await makeCtx();
+    const result = applyServeInit(ctx, { ...basePayload, storageRules: null }, { fetch: recordingFetch() });
+    expect(result.storageRulesDeployed).toBe(false);
+
+    const port = fakePort();
+    await handleMessage(ctx, port, {
+      t: 'op',
+      id: 's3',
+      method: 'storage.putBytes',
+      path: 'anything/goes',
+      dataB64: bytesToBase64(new TextEncoder().encode('open')),
+    });
+    const res = getRes(port, 's3');
+    expect(res.ok).toBe(true);
   });
 });
 
