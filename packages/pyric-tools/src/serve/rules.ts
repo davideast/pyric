@@ -14,6 +14,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { lintFirestoreRules, resolveModulesBrowser } from 'pyric/rules';
+import { parseStorageRules } from 'pyric/storage';
 import type { FirebaseJson } from '../cli/firebase-json.js';
 import { parseRtdbRulesJson } from '../rtdb/rules-json.js';
 
@@ -23,6 +24,14 @@ export interface LoadedRules {
   rules: string | null;
   rulesHash: string | null;
   /** Where it came from (diagnostics + the P3 watcher target). */
+  sourcePath: string | null;
+}
+
+export interface LoadedStorageRules {
+  /** Plain storage-rules source ready for the sandbox, or null when the
+   *  project has no storage rules file configured/present. */
+  rules: string | null;
+  rulesHash: string | null;
   sourcePath: string | null;
 }
 
@@ -99,6 +108,57 @@ export async function loadProjectRules(
   return { rules, rulesHash: rulesHashOf(rules), sourcePath: path };
 }
 
+/**
+ * Validate a raw storage-rules source. `pyric/storage`'s parser throws a
+ * plain `SyntaxError` (no line/col like the firestore lint path) — wrap it
+ * into the same actionable "fix before serving" message shape.
+ */
+export function prepareStorageRulesSource(raw: string, sourcePath: string): string {
+  try {
+    parseStorageRules(raw);
+  } catch (e) {
+    throw new Error(
+      `pyric dev: ${sourcePath} failed to parse: ${e instanceof Error ? e.message : String(e)} — fix the rules before serving.`,
+    );
+  }
+  return raw;
+}
+
+/**
+ * Load the project's storage rules per `firebase.json` (`storage.rules`
+ * path — the block may be a single object or an array of per-bucket
+ * entries; v1 has one implicit bucket, so the FIRST entry with a `rules`
+ * path wins, defaulting to `storage.rules` in cwd when the block is absent
+ * but the file exists). Missing file with no explicit config → `{ rules:
+ * null }` (serving without storage rules is fine — same posture as
+ * `loadProjectRules`). Missing file that IS explicitly configured → throw
+ * (the project says it should exist).
+ */
+export async function loadProjectStorageRules(
+  cwd: string,
+  config: FirebaseJson | null,
+): Promise<LoadedStorageRules> {
+  const block = config?.storage;
+  const entries = block ? (Array.isArray(block) ? block : [block]) : [];
+  const configured = entries.find((e) => e && typeof e === 'object' && e.rules)?.rules;
+  const rel = configured ?? 'storage.rules';
+  const path = isAbsolute(rel) ? rel : join(cwd, rel);
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      if (configured) {
+        throw new Error(`pyric dev: firebase.json points storage.rules at ${path}, but it does not exist.`);
+      }
+      return { rules: null, rulesHash: null, sourcePath: null };
+    }
+    throw e;
+  }
+  const rules = prepareStorageRulesSource(raw, path);
+  return { rules, rulesHash: rulesHashOf(rules), sourcePath: path };
+}
+
 export async function loadProjectDatabaseRules(
   cwd: string,
   config: FirebaseJson | null,
@@ -156,6 +216,35 @@ export function watchProjectRules(
   onError: (message: string) => void,
   debounceMs = 150,
 ): FSWatcher {
+  return watchRulesFile(sourcePath, prepareRulesSource, onChange, onError, debounceMs);
+}
+
+/**
+ * Watch a project's storage.rules file, same contract as
+ * {@link watchProjectRules} but validating via `pyric/storage`'s parser.
+ */
+export function watchProjectStorageRules(
+  sourcePath: string,
+  onChange: (next: { rules: string; rulesHash: string }) => void,
+  onError: (message: string) => void,
+  debounceMs = 150,
+): FSWatcher {
+  return watchRulesFile(sourcePath, prepareStorageRulesSource, onChange, onError, debounceMs);
+}
+
+/**
+ * Shared watch implementation. Broken intermediate saves are LOGGED and
+ * skipped — the last-good ruleset stays live (the write_file lesson: never
+ * replace a working ruleset with un-evaluatable source). Debounced; returns
+ * the watcher for shutdown.
+ */
+function watchRulesFile(
+  sourcePath: string,
+  prepare: (raw: string, sourcePath: string) => string,
+  onChange: (next: { rules: string; rulesHash: string }) => void,
+  onError: (message: string) => void,
+  debounceMs: number,
+): FSWatcher {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const watcher = watch(sourcePath, () => {
     if (timer) clearTimeout(timer);
@@ -163,7 +252,7 @@ export function watchProjectRules(
       void readFile(sourcePath, 'utf8').then(
         (raw) => {
           try {
-            const rules = prepareRulesSource(raw, sourcePath);
+            const rules = prepare(raw, sourcePath);
             onChange({ rules, rulesHash: rulesHashOf(rules) });
           } catch (e) {
             onError(e instanceof Error ? e.message : String(e));

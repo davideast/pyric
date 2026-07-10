@@ -65,6 +65,7 @@ export type DocumentEditorAction =
   | { type: 'addArrayEntry'; parentId: string; childType: FieldType }
   | { type: 'remove'; nodeId: string }
   | { type: 'reset' }
+  | { type: 'replaceData'; data: Record<string, unknown> }
   /** Mark one node touched (dispatched on blur). Doesn't change any
    *  value — only gates error display for consumers that check it. */
   | { type: 'touch'; nodeId: string }

@@ -1,4 +1,5 @@
 import type { EventService, Sandbox, SandboxEvent } from 'pyric/sandbox';
+import { getStorageSandbox } from 'pyric/storage';
 import { isRtdbRulesJson } from '../rtdb/rules-json.js';
 
 export const VERIFY_FIXTURE_SCHEMA = 'pyric.verify.fixture.v1' as const;
@@ -11,6 +12,11 @@ export interface VerifyFirestoreRulesBlock {
 export interface VerifyRtdbRulesBlock {
   format: 'rtdb.rules.json';
   json: { rules: Record<string, unknown> };
+}
+
+export interface VerifyStorageRulesBlock {
+  format: 'storage.rules';
+  source: string;
 }
 
 export interface PyricVerifyFixture {
@@ -43,7 +49,10 @@ export interface PyricVerifyFixture {
       };
     };
     storage?: {
-      rules?: { format: 'storage.rules'; source: string };
+      /** RULES TEXT ONLY — captured object state is a separate, larger
+       *  redesign (persistence.ts's IDB blob store) and is deliberately
+       *  left untouched here. `state` stays `null` until that lands. */
+      rules: VerifyStorageRulesBlock;
       state: unknown;
     };
     [service: string]: unknown;
@@ -57,6 +66,10 @@ export interface BuildVerifyFixtureInput {
   rtdbRules?: { rules: Record<string, unknown> } | null;
   rtdbState?: unknown;
   rtdbDatabaseUrl?: string | null;
+  /** Currently-deployed storage rules text. RULES ONLY — there is no
+   *  `storageState` input; captured storage OBJECTS are a separate,
+   *  larger redesign left untouched by this fixture. */
+  storageRules?: string | null;
   authState?: {
     users?: unknown[];
     currentUser?: unknown;
@@ -102,6 +115,20 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
     };
   }
 
+  if (
+    input.storageRules != null ||
+    events.some((event) => eventService(event) === 'storage')
+  ) {
+    services.storage = {
+      rules: {
+        format: 'storage.rules',
+        source: input.storageRules ?? '',
+      },
+      // RULES TEXT ONLY (scope note above) — objects are never captured.
+      state: null,
+    };
+  }
+
   const authUsers = input.authState?.users;
   const currentUser = input.authState?.currentUser ?? input.sandbox.currentUser;
   if ((authUsers && authUsers.length > 0) || currentUser != null) {
@@ -144,6 +171,9 @@ export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
   if (services.rtdb !== undefined) {
     assertRtdbService(services.rtdb);
   }
+  if (services.storage !== undefined) {
+    assertStorageService(services.storage);
+  }
   if (services.auth !== undefined && !isVerifyFixtureObject(services.auth)) {
     throw new Error('fixture.services.auth must be an object.');
   }
@@ -182,6 +212,38 @@ function assertRtdbService(value: unknown): void {
   if (!isVerifyFixtureObject(value.state) || !('tree' in value.state)) {
     throw new Error('fixture.services.rtdb.state.tree is required.');
   }
+}
+
+function assertStorageService(value: unknown): void {
+  if (!isVerifyFixtureObject(value)) throw new Error('fixture.services.storage must be an object.');
+  if (
+    !isVerifyFixtureObject(value.rules) ||
+    value.rules.format !== 'storage.rules' ||
+    typeof value.rules.source !== 'string'
+  ) {
+    throw new Error('fixture.services.storage.rules must contain storage.rules source.');
+  }
+}
+
+/**
+ * Re-deploy a fixture's captured storage rules into a sandbox's storage
+ * evaluator. RULES TEXT ONLY, mirroring the capture-side scope note: this
+ * never touches storage OBJECTS (persistence.ts's IDB blob store) — only
+ * `fixture.services.storage.rules.source` is applied.
+ *
+ * Storage rules are honored only on the FIRST `getStorageSandbox` call per
+ * `Sandbox` (see `storage/service.ts`), so this must run before any other
+ * code opens the storage service on `sandbox` — exactly the same ordering
+ * constraint firestore/rtdb rules already have at restore time. A no-op
+ * when the fixture carries no storage block.
+ */
+export function restoreStorageRulesFromFixture(
+  fixture: PyricVerifyFixture,
+  sandbox: Sandbox,
+): void {
+  const source = fixture.services.storage?.rules?.source;
+  if (source === undefined) return;
+  getStorageSandbox(sandbox, { rules: source });
 }
 
 function eventService(event: SandboxEvent): EventService {

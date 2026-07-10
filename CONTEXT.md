@@ -1,12 +1,15 @@
 # Pyric - Context Document
 
-Last updated: 2026-07-07. Ported from the previous
-`firebase-agent-sdk` context and refreshed against current `main`.
+Last updated: 2026-07-09. Ported from the previous
+`firebase-agent-sdk` context and refreshed against current `main` after the
+npm alpha launch.
 
-This is a Bun-managed monorepo for **Pyric: Firebase for agents**. The repo has
-continued moving after the migration: the playground is now a private workspace
-package, Realtime Database support is much deeper, `pyric-tools` has a verify
-surface, and `pyric dev` embeds both Studio and Playground UI assets.
+This is a Bun-managed monorepo for **Pyric: Firebase for agents**. `pyric`,
+`pyric-admin`, `pyric-tools`, and `@pyric/ui` published their first npm alpha
+on 2026-07-09. The public site (pyric.dev) and a generated docs site are now
+part of the repo, `pyric serve` was renamed `pyric dev`, and the sandbox
+persistence model gained browser-IndexedDB worker-mode defaults across
+Firestore, Auth, RTDB, and Storage.
 
 The old repo context is still useful for intent, but several names, paths, and
 release assumptions are stale in the current repository.
@@ -24,7 +27,7 @@ release assumptions are stale in the current repository.
 9. [CI And Setup](#ci-and-setup)
 10. [Docs, Skills, And Plugin](#docs-skills-and-plugin)
 11. [Known Stale Or Different](#known-stale-or-different)
-12. [Pre-NPM Assessment](#pre-npm-assessment)
+12. [Release State](#release-state)
 13. [Verification Probes](#verification-probes)
 
 ## What This Project Is
@@ -76,22 +79,28 @@ packages/
   pyric-tools     pyric-tools        CLI, bridge, dev server, deploy, verify
   ui              @pyric/ui          Headless React components and hooks
   studio          @pyric/studio      Local sandbox console served by --ui
+  site-docs       @pyric/site-docs   Astro docs site over every package's docs
 ```
+
+`packages/site-docs` is new since the previous refresh: an Astro static-site
+generator that composes every `packages/<pkg>/docs` directory into one browsable
+docs site, plus `/llms.txt` and `/docs/index.json`.
 
 Current test count from `find packages -name "*.test.ts" -o -name "*.test.tsx"`:
 
 | Package | Test files |
 |---|---:|
-| `@pyric/playground` | 113 |
-| `pyric` | 243 |
-| `pyric-tools` | 96 |
-| `@pyric/ui` | 66 |
-| `pyric-admin` | 33 |
-| `@pyric/studio` | 16 |
-| **Total** | **567** |
+| `@pyric/playground` | 95 |
+| `pyric` | 252 |
+| `pyric-tools` | 117 |
+| `@pyric/ui` | 82 |
+| `pyric-admin` | 39 |
+| `@pyric/studio` | 29 |
+| **Total** | **614** |
 
 The root `test` script runs `pyric`, `pyric-admin`, `pyric-tools`, `@pyric/ui`,
-and `@pyric/studio`. It does not run the large `@pyric/playground` test suite.
+and `@pyric/studio`. It does not run the large `@pyric/playground` test suite
+or `@pyric/site-docs`'s own test/audit suite.
 
 The root `overrides.firebase` pins `firebase` to `12.13.0`, while publishable
 package manifests generally declare `firebase` as `^12.12.0` or `^12.13.0`.
@@ -132,7 +141,7 @@ playground source of truth is now `packages/playground`.
 
 ### `pyric`
 
-Version: `0.1.0-alpha.7`. ESM-only, subpath-only, Node `>=22`.
+Version: `0.1.0-alpha.8`, published to npm. ESM-only, subpath-only, Node `>=22`.
 
 Exports:
 
@@ -161,7 +170,8 @@ Dependencies include `@inbrowser/agent@0.4.0`, `firebase`, `firebase-admin`,
 
 ### `pyric-admin`
 
-Version: `0.0.0`. ESM-only, subpath-only, Node `>=22`.
+Version: `0.1.0-alpha.8`, published to npm (lockstep with `pyric`). ESM-only,
+subpath-only, Node `>=22`.
 
 Exports:
 
@@ -176,20 +186,24 @@ It depends on `pyric` and `firebase-admin`. Sandbox backends route into
 
 ### `pyric-tools`
 
-Version: `0.1.0-alpha.7`. ESM-only, Node `>=22`, binary name `pyric`.
+Version: `0.1.0-alpha.8`, published to npm (lockstep with `pyric`). ESM-only,
+Node `>=22`, binary name `pyric`.
 
 Exports:
 
 | Subpath | Purpose |
 |---|---|
 | `pyric-tools/deploy` | Programmatic Firebase deploy/control-plane helpers. |
+| `pyric-tools/register` | Register/registry composition entry point. |
 | `pyric-tools/registry` | MCP/tool registry composition. |
 | `pyric-tools/credentials` | Credential abstractions shared by tools. |
 | `pyric-tools/credentials/node` | Node credential resolvers/stores. |
 | `pyric-tools/verify` | Captured-session replay, fixture, and case derivation APIs. |
 | `pyric-tools/bridge` | Conditional server/client bridge export. |
+| `pyric-tools/bridge/client` | Client-only bridge surface. |
 | `pyric-tools/discover` | Firestore structure discovery. |
 | `pyric-tools/auth` | Identity Toolkit provider/domain tools. |
+| `pyric-tools/remote` | Remote sandbox dispatch (Firestore, Auth, RTDB, Storage) over the bridge WS. |
 | `pyric-tools/vite` | Vite integration. |
 | `pyric-tools/serve/worker` | Browser-safe SharedWorker client surface for served Studio/Playground. |
 
@@ -198,7 +212,8 @@ conditions, but no CommonJS `require` condition.
 
 ### `@pyric/ui`
 
-Version: `0.0.0`. ESM-only, Node `>=22`, React `>=19`.
+Version: `0.1.0-alpha.8`, published to npm (lockstep with `pyric`). ESM-only,
+Node `>=22`, React `>=19`.
 
 Exports:
 
@@ -207,6 +222,7 @@ Exports:
 - `@pyric/ui/primitives`
 - `@pyric/ui/firestore`
 - `@pyric/ui/firestore/hooks`
+- `@pyric/ui/rtdb`
 - `@pyric/ui/storage`
 - `@pyric/ui/storage/hooks`
 - `@pyric/ui/traffic`
@@ -236,6 +252,17 @@ The root build produces the Studio app with base `/__pyric/ui/` and copies it
 into `packages/pyric-tools/dist/serve/studio-ui/` so `pyric-tools` ships the UI
 inside its `dist` file set.
 
+Feature surface lives under `packages/studio/src/features/`: History-API
+routing, a Home tab with an activity feed and a command palette (⌘K, live
+resource typeahead including Firestore subcollections/collection groups), a
+Firestore document tree with a composable create modal, an RTDB console-form
+tree viewer, per-user Auth provider editing against the canonical
+`FEDERATED_PROVIDER_IDS` from `pyric/auth`, a Storage browser, a Traffic view
+(Timeline / Billable metrics / Subscriptions & Rules tabs with provenance
+filtering), and a Rules Inspector where both allow and deny rows expand
+in place with matched-rule source, a sub-expression evaluation trace, and
+`?inspect=<id>` deep links.
+
 ### `@pyric/playground`
 
 Version: `0.0.1`. Private workspace package.
@@ -247,6 +274,25 @@ evals, and embedded Studio integration.
 It is not exported as a public package. The root build produces the Playground
 app with base `/__pyric/playground/` and copies it into
 `packages/pyric-tools/dist/serve/playground-ui/`.
+
+### `@pyric/site-docs`
+
+Version: `0.0.1`. Private workspace package, not published.
+
+Purpose: an Astro static-site generator that scans every `packages/<pkg>/docs`
+directory and composes it into one browsable docs site, with a directory-format
+tree and flat `.md` twins per page, an `/llms.txt` summary, a `/docs/index.json`
+search index, and a rhythm-audit page (`_rhythm`) backed by a Playwright suite
+in its own tests.
+
+The docs site is built twice from the same source:
+
+- As the public docs section of pyric.dev (`scripts/build-site.sh`).
+- Embedded into `pyric-tools` and served locally by `pyric dev --ui` at
+  `/__pyric/ui/docs/`, with a `DOCS_BASE=/__pyric/ui/` env var parameterizing
+  the base path (see `scripts/build.sh`). The Studio header's Docs tab probes
+  `<base>/docs/index.json` at runtime and only renders the tab when a docs
+  build was actually composed alongside it.
 
 ## Architecture
 
@@ -280,6 +326,44 @@ The important alpha split:
   public-alpha utility surfaces. They may change quickly, but they still must
   install, type-resolve, and import correctly from published tarballs.
 
+### Persistence model
+
+`pyric dev`'s default sandbox target runs in a SharedWorker with browser
+IndexedDB as the state home. It is acked-means-committed: the worker awaits
+the IndexedDB commit before acknowledging any mutating op, for Firestore,
+Auth, and (as of 2026-07-09) RTDB, which is now registered as a
+`PersistableService` alongside the others. Storage keeps its own always-on
+IndexedDB store, separate from the shared persistence registry. Event history
+rehydrates at worker boot from the capture file over `GET /__pyric/capture`
+(instance-id guarded and capped).
+
+Flags on `pyric dev` layer on top of that default:
+
+- `--persist` mirrors state to `.pyric/state/state.json` on disk, primed once
+  at boot.
+- `--seed FILE` applies a seed only into an otherwise-empty home (a guardrail
+  against clobbering live state).
+- `--fresh` requires `--persist` (a hard error without it) and discards the
+  existing state file, but does not clear browser IndexedDB.
+
+The coverage matrix for these interactions lives in
+`packages/pyric-tools/docs/how-to/serve-persistence-and-multi-tab.md`. A
+further persistence-API redesign (three explicit state homes — memory,
+browser, file — a `--reset` handshake, and storage unification) is designed
+but not built; treat it as direction, not shipped behavior.
+
+### Sandbox-build mode
+
+The Vite plugin (`pyric-tools/vite`) swaps `firebase/*` imports for the Pyric
+sandbox shim always in `vite dev`, and in `vite build` whenever `mode !=
+production` (or the `swapInBuild` plugin option is set). Builds produced this
+way carry a marker (`packages/pyric-tools/src/serve/sandbox-marker.ts`).
+`pyric dev` hard-refuses to serve a bundle that inlines the real Firebase SDK,
+and `pyric deploy hosting` refuses to deploy a marked sandbox build. Marked
+pages get meta-only sandbox injection at serve time — the bundle itself owns
+the runtime. `pyric dev` also ships a fallback favicon for served apps that
+don't provide one.
+
 ## CLI Surface
 
 The binary is `pyric` from `pyric-tools`.
@@ -288,8 +372,10 @@ Documented subcommands include:
 
 - `pyric init [dir]`
 - `pyric bridge`
-- `pyric dev`
-- `pyric snapshot`
+- `pyric dev [--port N] [--host H] [--ui] [--bridge] [--seed FILE] [--persist]
+  [--fresh] [--no-run] [--no-watch] [--no-open] [--no-capture] [--no-cache]
+  [--json] [-- <cmd>]`
+- `pyric snapshot [--out=FILE]`
 - `pyric verify [fixture|dir]`
 - `pyric verify cases [fixture]`
 - `pyric deploy <rules|indexes|database|hosting|functions>`
@@ -301,6 +387,12 @@ Documented subcommands include:
 - `pyric database:rules:simulate`
 - `pyric auth:configure-provider <id> <enabled>`
 - `pyric auth:manage-domains <add|remove|list> [domain]`
+
+`pyric serve` was renamed `pyric dev`; there is no `serve` alias. Default port
+is 3473 ("FIRE" on a phone keypad), and it scans forward when taken. `pyric
+dev` wraps a child dev-script runner by default; `--no-run` skips running a
+child command for users with their own process manager (`--json` implies
+`--no-run`).
 
 The current CLI docs live under `packages/pyric-tools/docs/reference/cli.md`.
 
@@ -328,23 +420,17 @@ over built packages. The packaging gate packs tarballs, rewrites leftover
 `workspace:*` dependencies, installs into a fresh consumer project, checks
 runtime assets, smokes subpath imports, and verifies the CLI binary.
 
-Important current caveat: `scripts/packaging-test.sh` still keeps manual
-subpath arrays and says to keep them in sync with `package.json` exports. On
-this main snapshot those arrays lag the package manifests. Examples:
+Previously the runtime-smoke subpath lists in `scripts/packaging-test.sh` were
+hand-maintained and had drifted behind package manifests (a P0 fixed before
+launch). They are now derived at run time from each package's
+`package.json` `exports` map (`exported_subpaths()` in that script), so the
+smoke test cannot drift behind newly added public exports again.
 
-- `pyric` package exports include `pyric/firestore-values`,
-  `pyric/database/modular`, and `pyric/rules/rtdb/constraints`, but the manual
-  runtime-smoke list does not include all of them.
-- `pyric-tools` package exports include `registry`, `credentials`,
-  `credentials/node`, `verify`, and `serve/worker`, but the manual list only
-  includes a subset.
-- `@pyric/ui` package exports include `events`, `events/hooks`, `rules`, and
-  `rules/hooks`, but the manual list omits them.
-
-That does not mean the package necessarily fails to build: static manifest lint
-can still catch many export/dist/type problems. It does mean the consumer
-runtime smoke does not actually hit every advertised subpath, contrary to the
-comment at the top of the script.
+`scripts/pack-packages.sh` also swaps the root `README.md` into
+`packages/pyric`, `packages/pyric-admin`, and `packages/pyric-tools` at pack
+time (copy, not symlink, restored after), so the npm-facing README for those
+three packages is the repo root README rather than the in-repo package doc.
+`scripts/publish-alpha.sh <version>` drives the actual `npm publish` step.
 
 ## Compatibility And Oracle Gates
 
@@ -357,6 +443,7 @@ Current root scripts:
 - `compat:report`
 - `compat:validate`
 - `compat:audit`
+- `compat:census`
 - `compat:oracle-versions`
 - `compat:oracle-check`
 
@@ -375,7 +462,9 @@ bun run build
 bun test
 bun run lint:manifest
 bun run test:packaging
-bun run test:install-matrix
+bash scripts/install-matrix.sh npm   # the bare `bun run test:install-matrix`
+                                      # script has no default PM and errors;
+                                      # CI runs it once per npm/pnpm/bun
 ```
 
 Network-sensitive or live Firebase checks live behind oracle/deploy/credential
@@ -397,13 +486,17 @@ Package docs:
 - `packages/studio/README.md`
 - `packages/playground/README.md`
 
+`packages/site-docs` builds all of the `docs/` directories above (plus the
+root README) into one generated site, served both at pyric.dev and embedded
+into `pyric dev --ui` (see [Package Surfaces](#package-surfaces)).
+
 Repo-local skills:
 
 - `.agents/skills/playground-prompts`
 - `.agents/skills/firebase-auth-model`
 
-The `playground-prompts` skill still references `examples/playground-next`; it
-should now point at `packages/playground`.
+(See [Known Stale Or Different](#known-stale-or-different) for a stale path
+reference in `playground-prompts`.)
 
 The Claude Code plugin remains under `pyric-plugin/`.
 
@@ -418,54 +511,51 @@ port:
   public API priority except where `pyric-tools` embeds it as a runtime asset.
 - `pyric` now exposes RTDB modular/rules paths that were not present in the
   earlier migration snapshot.
-- `pyric-tools` now exposes `pyric-tools/verify` and ships more RTDB deploy and
-  serve support.
+- `pyric-tools` now exposes `pyric-tools/verify`, `pyric-tools/remote`,
+  `pyric-tools/register`, and ships more RTDB deploy and serve support.
 - `scripts/build.sh` comments still list four packages even though the build now
-  also builds/embeds Studio and Playground apps.
+  also builds/embeds Studio, Playground, and the docs site.
 - Several comments and docs still cite missing `plans/...` files.
 - Several docs/comments still use dissolved old names such as `@pyric/rtdb`,
   `@pyric/firestore-rules`, `@pyric/deploy`, `@pyric/auth`, and
   `@pyric/sandbox`. Some are harmless historical comments; some should be
-  migrated to current import paths before broad documentation polish.
-- `pyric-admin`, `@pyric/ui`, and `@pyric/studio` are still versioned `0.0.0`.
-  That may be intentional alpha bookkeeping, but it should be deliberate before
-  npm publication.
+  migrated to current import paths before broad documentation polish. The RTDB
+  compat registry (`scripts/compat/registry/rtdb.ts`) is the largest remaining
+  concentration of `@pyric/rtdb` prose.
+- `.agents/skills/playground-prompts/SKILL.md` still references
+  `examples/playground-next`; it should point at `packages/playground`.
+- `@pyric/studio` is still versioned `0.0.0` (it is not published, so this is
+  plausibly intentional, but it is the last unpublished package still on
+  `0.0.0`; `pyric-admin` and `@pyric/ui` moved to `0.1.0-alpha.8` at launch).
 
-## Pre-NPM Assessment
+## Release State
 
-The latest main does not change the launch priority shape; it sharpens it.
+`pyric`, `pyric-admin`, `pyric-tools`, and `@pyric/ui` published their first
+npm alpha on 2026-07-09, all at `0.1.0-alpha.8`, lockstep-versioned. Both the
+`alpha` and `latest` dist-tags point at `0.1.0-alpha.8`.
 
-Alpha is a good stance for API stability. It lets exported non-mirrored surfaces
-such as `pyric-tools/serve/worker` remain public-alpha without a pre-launch
-architecture refactor. But alpha does not lower the bar for package mechanics:
-published tarballs still need to install, import, type-resolve, include runtime
-assets, and document their instability honestly.
+- License: Apache-2.0. `LICENSE` lives at the repo root and is copied into
+  each publishable package directory (`packages/pyric`, `packages/pyric-admin`,
+  `packages/pyric-tools`, `packages/ui`).
+- Package metadata: all four publishable packages set `homepage` to
+  `https://pyric.dev`, `repository` to `davideast/pyric` with a per-package
+  `directory`, and `bugs` to the GitHub issues URL.
+- `scripts/pack-packages.sh` swaps the root README into `pyric`, `pyric-admin`,
+  and `pyric-tools` at pack time (the root README is the npm-facing doc for
+  those three; `@pyric/ui` keeps its own package README).
+- `scripts/publish-alpha.sh <version>` drives the publish step.
+- The packaging runtime-smoke subpath drift called out in earlier snapshots of
+  this doc is fixed: `scripts/packaging-test.sh` now derives its subpath list
+  from each package's `package.json` `exports` at run time instead of keeping
+  a hand-maintained array.
 
-Recommended pre-npm P0:
-
-1. Make the packaging runtime-smoke subpath list derive from package manifests,
-   or update it exactly and keep it mechanically checked.
-2. Decide package versions intentionally, especially `pyric-admin@0.0.0` next
-   to `pyric@0.1.0-alpha.7` and `pyric-tools@0.1.0-alpha.7`.
-3. Ensure shipped READMEs say the libraries are alpha and non-mirrored exported
-   APIs are experimental.
-4. Run build, manifest lint, packaging test, install matrix, and the relevant
-   package tests from a clean tree.
-5. Confirm the embedded Studio and Playground asset checks cover the current
-   `dist/serve/studio-ui` and `dist/serve/playground-ui` layout.
-
-Recommended P1 after first npm alpha:
+Recommended next work (not launch-blocking):
 
 - Build the shared mirror ledger / export contract so package exports,
   compatibility docs, oracle evidence, and runtime smoke coverage stop drifting.
 - Add characterization tests before any SharedWorker data-plane refactor.
-
-Recommended P3 / defer:
-
-- Playground preview import architecture, because `@pyric/playground` is
-  private and additive.
-- Studio data-source cleanup, unless it blocks the served UI.
-- Large documentation rename sweeps outside shipped package READMEs.
+- Decide whether `@pyric/studio` should move off `0.0.0` even though it stays
+  unpublished, for internal version-tracking consistency.
 
 ## Verification Probes
 
@@ -476,11 +566,12 @@ git status --short --branch
 jq '.workspaces' package.json
 for f in packages/*/package.json; do jq -r '.name + " " + (.version // "private")' "$f"; done
 find packages -name '*.test.ts' -o -name '*.test.tsx' | awk -F/ '{count[$2]++} END {for (p in count) print p, count[p]}' | sort
+npm view pyric dist-tags
 rg -n 'playground-next' .agents packages docs examples scripts README.md package.json
 rg -n 'plans/' .agents packages docs examples scripts README.md package.json
 rg -n '@pyric/(auth|firestore|firestore-rules|rtdb|database|deploy|sandbox|storage)' packages docs examples scripts README.md .agents
 bun run build
 bun run lint:manifest
 bun run test:packaging
-bun run test:install-matrix
+bash scripts/install-matrix.sh npm
 ```

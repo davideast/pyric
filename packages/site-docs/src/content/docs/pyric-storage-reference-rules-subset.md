@@ -38,17 +38,17 @@ Path variables bind to the surrounding scope: `uid` from the parent match is in 
 
 ## Allow conditions
 
-Both the umbrella verbs and the granular verbs work, matching production semantics:
+Coarse umbrellas and granular verbs, matching production Storage semantics.
 
-- `allow read: if <expr>` matches `getBytes`, `getBlob`, `getMetadata`.
-- `allow write: if <expr>` matches `uploadBytes`, `uploadString`, `updateMetadata`, `deleteObject`.
-- `allow get: if <expr>` — reads a single object (`getBytes`, `getBlob`, `getMetadata`).
-- `allow list: if <expr>` — `listAll` against the matched prefix.
-- `allow create: if <expr>` — `uploadBytes` / `uploadString` against a path with no existing object.
-- `allow update: if <expr>` — `uploadBytes` / `uploadString` against a path with an existing object, or `updateMetadata`.
-- `allow delete: if <expr>` — `deleteObject`.
+- `allow read: if <expr>` — the umbrella for `get` + `list`.
+- `allow write: if <expr>` — the umbrella for `create` + `update` + `delete`.
+- `allow get` — `getBlob` / `getBytes` / `getMetadata`.
+- `allow list` — `listAll`.
+- `allow create` — `uploadBytes` / `uploadString` to a path with no existing object.
+- `allow update` — `uploadBytes` / `uploadString` over an existing object, and `updateMetadata`.
+- `allow delete` — `deleteObject`.
 
-`read` is the umbrella for `get` + `list`; `write` is the umbrella for `create` + `update` + `delete` — same as production. A rule can mix umbrella and granular verbs across sibling `match` blocks.
+A granular grant covers only its own verb: `allow get` does not grant `list`, and `allow create` does not grant `update` or `delete`. Verbs may be comma-separated in one clause (`allow get, list: if <expr>`). A verb with no applicable grant is denied.
 
 ## Rule functions
 

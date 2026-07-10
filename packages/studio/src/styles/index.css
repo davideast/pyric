@@ -17,6 +17,7 @@
  */
 
 @import "./tokens.css";
+@import "./update-lights.css";
 @import "tailwindcss";
 
 /**

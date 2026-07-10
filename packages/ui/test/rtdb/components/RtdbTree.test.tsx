@@ -144,12 +144,17 @@ describe('RtdbTree: rendering + lazy expansion', () => {
   it('live updates flow into the visible subtree', async () => {
     const { api } = makeFakeApi(seed);
     const { container } = render(<Viewer api={api} />);
+    expect(container.querySelector('[data-pyric-update]')).toBeNull();
     await act(async () => {
       await api.set('/version', 3);
     });
     expect(container.querySelector('[data-rtdb-kind="leaf"] [data-rtdb-value]')!.textContent).toBe(
       '3',
     );
+    const versionRow = Array.from(container.querySelectorAll('[data-rtdb-row]')).find(
+      (row) => row.querySelector('[data-rtdb-key]')?.textContent === 'version',
+    );
+    expect(versionRow?.getAttribute('data-pyric-update')).toBe('modified');
   });
 
   it('renders an empty root as the classic `<root>: null` leaf row', () => {

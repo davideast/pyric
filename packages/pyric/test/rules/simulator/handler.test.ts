@@ -600,10 +600,12 @@ service cloud.firestore {
       expect(attempts.every(a => !a.matched && a.reason === 'literal-mismatch')).toBe(true);
     });
 
-    test('multiple siblings: first match short-circuits, later siblings are NOT recorded', () => {
-      // The resolver stops at the first match. Later siblings don't
-      // get attempted (or recorded) — the agent's near-miss list
-      // should not include blocks the resolver never considered.
+    test('multiple siblings: ALL are considered (no first-match short-circuit in resolution)', () => {
+      // Overlapping-match semantics: the resolver evaluates EVERY sibling
+      // block, not just the first that matches, because allows OR-combine
+      // across all matching blocks. Here `/alpha/{x}` matches and
+      // `/beta/{y}` is a literal-mismatch — but both appear in the trace
+      // so the agent's near-miss list is complete.
       const TWO_SIBLINGS = `rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
@@ -624,11 +626,12 @@ service cloud.firestore {
       expect(r.success).toBe(true);
       if (!r.success) return;
       const attempts = r.data.results[0].pathResolution!.attempts;
-      expect(attempts.length).toBe(1);
-      expect(attempts[0].blockPath).toBe('/alpha/{x}');
-      expect(attempts[0].matched).toBe(true);
-      // `/beta/{y}` was never tried — confirm it's not in the trace.
-      expect(attempts.find(a => a.blockPath === '/beta/{y}')).toBeUndefined();
+      const alpha = attempts.find(a => a.blockPath === '/alpha/{x}');
+      const beta = attempts.find(a => a.blockPath === '/beta/{y}');
+      expect(alpha?.matched).toBe(true);
+      // `/beta/{y}` IS recorded now — it was considered, and reasoned out.
+      expect(beta?.matched).toBe(false);
+      expect(beta?.reason).toBe('literal-mismatch');
     });
 
     test('request-shorter fires at a literal segment too (not just wildcards)', () => {
@@ -1082,5 +1085,170 @@ service cloud.firestore {
     }]);
     expect(r.success).toBe(true);
     if (r.success) expect(r.data.results[0].state).toBe('PASSED'); // DENY (limitation) matches
+  });
+
+  describe('overlapping match blocks — allows OR-combine (firestore.overlapping-match-or)', () => {
+    // Production Firestore semantics: when MULTIPLE match blocks match the
+    // same document path, the request is allowed if ANY matching block's
+    // applicable allow evaluates true. Allows OR-combine across all matching
+    // blocks — there is NO first-match-wins, and no block can revoke a grant
+    // made by another block. The simulator previously stopped at the first
+    // matching block in source order, producing a FALSE DENY whenever an
+    // earlier block denied but a later overlapping block would have allowed
+    // (a security-relevant divergence: agents would harden a rule that
+    // production already permits, or miss that a `{document=**}` catch-all
+    // silently opens a path). These cases pin the OR-combine contract.
+
+    test('second block allows what the first denies — production ALLOWS', () => {
+      // `/docs/{doc}` (source-first) denies for this request; the sibling
+      // catch-all `/{document=**}` allows. OR-combine → ALLOW. Under the old
+      // first-match-wins resolver this was a false DENY.
+      const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{doc} {
+      allow read: if false;
+    }
+    match /{document=**} {
+      allow read: if true;
+    }
+  }
+}`;
+      const r = handler.simulate(RULES, [{
+        description: 'first denies, second (catch-all) allows',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'docs/d1',
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      const result = r.data.results[0];
+      expect(result.decision).toBe('ALLOW');
+      expect(result.state).toBe('PASSED');
+    });
+
+    test('reverse source order — first block allows, later denies — still ALLOWS', () => {
+      // Same two blocks, order flipped: the catch-all comes first and
+      // allows. The verdict must not depend on source order — either
+      // ordering grants, because a deny cannot revoke an allow.
+      const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read: if true;
+    }
+    match /docs/{doc} {
+      allow read: if false;
+    }
+  }
+}`;
+      const r = handler.simulate(RULES, [{
+        description: 'catch-all first allows, specific denies',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'docs/d1',
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      expect(r.data.results[0].decision).toBe('ALLOW');
+      expect(r.data.results[0].state).toBe('PASSED');
+    });
+
+    test('nested {document=**} catch-all overlaps a specific match', () => {
+      // A recursive wildcard block matches paths of any depth. Here it
+      // overlaps the specific `/rooms/{room}/msgs/{msg}` block. The specific
+      // block denies (wrong owner); the catch-all grants admins. Deep path
+      // must resolve BOTH blocks and OR-combine to ALLOW.
+      const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{room}/msgs/{msg} {
+      allow read: if request.auth.uid == resource.data.owner;
+    }
+    match /{path=**} {
+      allow read: if request.auth.token.admin == true;
+    }
+  }
+}`;
+      const r = handler.simulate(RULES, [{
+        description: 'admin reads via catch-all despite specific-block deny',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'rooms/r1/msgs/m1',
+        auth: { uid: 'someoneElse', token: { admin: true } },
+        resource: { owner: 'owner1' },
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      expect(r.data.results[0].decision).toBe('ALLOW');
+      expect(r.data.results[0].state).toBe('PASSED');
+    });
+
+    test('DENY requires NO matching block to allow — both blocks deny → DENY', () => {
+      // Deny-by-default is preserved: when every matching block's applicable
+      // allow evaluates false, the request is denied. Both the specific
+      // block and the catch-all deny this request.
+      const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{doc} {
+      allow read: if false;
+    }
+    match /{document=**} {
+      allow read: if request.auth != null;
+    }
+  }
+}`;
+      const r = handler.simulate(RULES, [{
+        description: 'neither block grants — deny',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'docs/d1',
+        auth: null,
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      const result = r.data.results[0];
+      expect(result.decision).toBe('DENY');
+      expect(result.state).toBe('PASSED');
+      // The DENY trace carries entries from BOTH evaluated blocks, each
+      // tagged with the block it came from so the report is unambiguous.
+      const blockPaths = result.trace.map(e => e.matchPath).sort();
+      expect(blockPaths).toEqual(['/docs/{doc}', '/{document=**}']);
+      expect(result.trace.every(e => e.verdict === 'DENY')).toBe(true);
+    });
+
+    test('each block binds its OWN wildcard names independently', () => {
+      // The two overlapping blocks name the SAME path segment differently
+      // (`{doc}` vs `{id}`). Each block's condition reads its own wildcard;
+      // resolution must bind per-block, not leak one block's names into the
+      // other. The first block denies (compares to a non-matching literal);
+      // the second allows because `id` binds to the actual segment.
+      const RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{doc} {
+      allow read: if doc == 'nope';
+    }
+    match /items/{id} {
+      allow read: if id == 'real1';
+    }
+  }
+}`;
+      const r = handler.simulate(RULES, [{
+        description: 'per-block wildcard binding',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'items/real1',
+      }]);
+      expect(r.success).toBe(true);
+      if (!r.success) return;
+      const result = r.data.results[0];
+      expect(result.decision).toBe('ALLOW');
+      expect(result.state).toBe('PASSED');
+      // The granting entry is the `{id}` block; its `id` bound to 'real1'.
+      const granting = result.trace.find(e => e.verdict === 'ALLOW');
+      expect(granting?.matchPath).toBe('/items/{id}');
+    });
   });
 });

@@ -40,6 +40,9 @@ export interface UseDocumentEditorResult extends DocumentEditorState {
   remove: (nodeId: string) => void;
   /** Restore the tree to its initial state. Clears `isDirty`. */
   reset: () => void;
+  /** Replace the editor with a newly delivered snapshot and adopt it as the
+   * clean baseline. Intended for live document viewers. */
+  replaceData: (data: Record<string, unknown>) => void;
   /** Mark one node touched (dispatch on blur). Gates error display —
    *  a freshly-added row stays quiet until the user leaves it. */
   touch: (nodeId: string) => void;
@@ -58,10 +61,10 @@ export interface UseDocumentEditorResult extends DocumentEditorState {
  * their own tree using the returned state.
  *
  * The hook builds its tree from `initial` on first mount. Changing
- * `initial` later does NOT rebuild the tree — call `reset()` and
- * re-initialize if you need that semantics (or remount the hook).
- * This matches the firebase-tools-ui pattern of treating the
- * editor as a stateful workspace.
+ * `initial` later does NOT rebuild the tree; live viewers explicitly call
+ * `replaceData()` when a newer snapshot should become the clean baseline.
+ * This matches the firebase-tools-ui pattern of treating the editor as a
+ * stateful workspace while still allowing snapshot-driven reconciliation.
  */
 export function useDocumentEditor(
   options: UseDocumentEditorOptions = {},
@@ -105,6 +108,10 @@ export function useDocumentEditor(
     [],
   );
   const reset = useCallback(() => dispatch({ type: 'reset' }), []);
+  const replaceData = useCallback(
+    (data: Record<string, unknown>) => dispatch({ type: 'replaceData', data }),
+    [],
+  );
   const touch = useCallback(
     (nodeId: string) => dispatch({ type: 'touch', nodeId }),
     [],
@@ -129,6 +136,7 @@ export function useDocumentEditor(
       addArrayEntry,
       remove,
       reset,
+      replaceData,
       touch,
       touchAll,
       toData,
@@ -144,6 +152,7 @@ export function useDocumentEditor(
       addArrayEntry,
       remove,
       reset,
+      replaceData,
       touch,
       touchAll,
       toData,

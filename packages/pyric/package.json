@@ -1,7 +1,16 @@
 {
   "name": "pyric",
   "version": "0.1.0-alpha.8",
+  "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davideast/pyric.git",
+    "directory": "packages/pyric"
+  },
+  "bugs": {
+    "url": "https://github.com/davideast/pyric/issues"
+  },
   "description": "Firebase for agents \u2014 modular Web SDK adapters (firestore, auth, database, storage) with swappable sandbox/prod backends, plus rules tooling and in-process sandbox. Mirrors firebase.",
   "type": "module",
   "exports": {
@@ -80,7 +89,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "inline-grammar": "bun run scripts/inline-grammar.ts",

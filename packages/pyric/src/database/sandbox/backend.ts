@@ -39,9 +39,22 @@ import { resolveSentinels } from './sentinels.js';
 import {
   RulesEvaluator,
   permissionDenied,
+  type RuleCheck,
   type RuleEvaluationDetails,
 } from './rules-eval.js';
 import { executeQuery, type QueryRow, type QuerySpec } from './query.js';
+
+/**
+ * Maps a non-`'allow'` rule check to the event-stream `result` value.
+ * `'unsupported'` (a simulator gap) is surfaced distinctly from a real
+ * `'deny'` so Studio's traffic view can tell "the rules engine said no"
+ * apart from "the rules engine couldn't tell" — but both still deny the
+ * operation itself (abstain, never grant), matching the Firestore
+ * simulator's posture.
+ */
+function denyResultFor(check: RuleCheck): 'deny' | 'unsupported' {
+  return check === 'unsupported' ? 'unsupported' : 'deny';
+}
 import { normalizeWrite, coerceArrays } from './normalize.js';
 
 /**
@@ -516,7 +529,7 @@ export class RtdbBackend {
       mockData: this.tree.snapshot() as Record<string, unknown>,
     });
     if (evaluation.check !== 'allow') {
-      this.emitOperation(auth, 'get', path, 'deny', evaluation, {
+      this.emitOperation(auth, 'get', path, denyResultFor(evaluation.check), evaluation, {
         at,
         durationMs: Date.now() - at,
         resourceBefore: { data: before, exists: before !== null },
@@ -571,7 +584,7 @@ export class RtdbBackend {
     const resourceBefore = { data: before, exists: before !== null };
     const resourceAfter = { data: resolved, exists: resolved !== null };
     if (evaluation.check !== 'allow') {
-      this.emitOperation(auth, op, path, 'deny', evaluation, {
+      this.emitOperation(auth, op, path, denyResultFor(evaluation.check), evaluation, {
         at,
         durationMs: Date.now() - at,
         request: { data: value, resourceData: value },
@@ -638,7 +651,18 @@ export class RtdbBackend {
       }
       // Check every path under the rules engine. ANY denial fails the
       // entire update — the multi-path atomicity contract.
+      //
+      // A multi-path update is atomic: every path's `.write`/`.validate`
+      // rules must see `newData` reflecting the ENTIRE projected post-update
+      // tree (all paths applied together), not just its own leaf. Pass the
+      // full update set so the simulator builds one shared projection — a
+      // rule on `/a` that reads a sibling `/b` written in the same update
+      // must see `/b`'s new value.
       const mock = this.tree.snapshot() as Record<string, unknown>;
+      const updates = Object.entries(expanded).map(([absPath, value]) => ({
+        path: absPath,
+        value,
+      }));
       for (const [absPath, value] of Object.entries(expanded)) {
         const at = Date.now();
         const before = this.tree.read(absPath);
@@ -646,6 +670,7 @@ export class RtdbBackend {
           auth,
           mockData: mock,
           newData: value,
+          updates,
         });
         const common = {
           at,
@@ -659,7 +684,7 @@ export class RtdbBackend {
           detail: { multiPath: true, rootPath: canonicalPath(path) },
         };
         if (evaluation.check !== 'allow') {
-          this.emitOperation(auth, 'update', absPath, 'deny', evaluation, common);
+          this.emitOperation(auth, 'update', absPath, denyResultFor(evaluation.check), evaluation, common);
           throw permissionDenied();
         }
         this.emitOperation(auth, 'update', absPath, 'allow', evaluation, common);
@@ -722,7 +747,7 @@ export class RtdbBackend {
         detail: { multiPath: false, rootPath: canonicalPath(path), key: k },
       };
       if (evaluation.check !== 'allow') {
-        this.emitOperation(auth, 'update', sub, 'deny', evaluation, common);
+        this.emitOperation(auth, 'update', sub, denyResultFor(evaluation.check), evaluation, common);
         throw permissionDenied();
       }
       this.emitOperation(auth, 'update', sub, 'allow', evaluation, common);
@@ -781,7 +806,7 @@ export class RtdbBackend {
       mockData: this.tree.snapshot() as Record<string, unknown>,
     });
     if (evaluation.check !== 'allow') {
-      this.emitOperation(auth, 'listen', path, 'deny', evaluation, {
+      this.emitOperation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
         at,
         durationMs: Date.now() - at,
         request: query ? { query } : undefined,
@@ -880,7 +905,7 @@ export class RtdbBackend {
       mockData: this.tree.snapshot() as Record<string, unknown>,
     });
     if (evaluation.check !== 'allow') {
-      this.emitOperation(auth, 'get', path, 'deny', evaluation, {
+      this.emitOperation(auth, 'get', path, denyResultFor(evaluation.check), evaluation, {
         at,
         durationMs: Date.now() - at,
         request: { query: spec },
@@ -1113,7 +1138,7 @@ export class RtdbBackend {
         newData: resolved,
       });
       if (evaluation.check !== 'allow') {
-        this.emitOperation(auth, 'transaction', path, 'deny', evaluation, {
+        this.emitOperation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {
           at,
           durationMs: Date.now() - at,
           origin: 'transaction',
@@ -1166,7 +1191,7 @@ export class RtdbBackend {
       newData: resolved,
     });
     if (evaluation.check !== 'allow') {
-      this.emitOperation(auth, 'transaction', path, 'deny', evaluation, {
+      this.emitOperation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {
         at,
         durationMs: Date.now() - at,
         origin: 'transaction',
@@ -1259,7 +1284,7 @@ export class RtdbBackend {
       mockData: this.tree.snapshot() as Record<string, unknown>,
     });
     if (evaluation.check !== 'allow') {
-      this.emitOperation(auth, 'listen', path, 'deny', evaluation, {
+      this.emitOperation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
         at,
         durationMs: Date.now() - at,
         origin: 'listener',

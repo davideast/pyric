@@ -1,7 +1,16 @@
 {
   "name": "@pyric/ui",
   "version": "0.1.0-alpha.8",
+  "license": "Apache-2.0",
   "homepage": "https://pyric.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davideast/pyric.git",
+    "directory": "packages/ui"
+  },
+  "bugs": {
+    "url": "https://github.com/davideast/pyric/issues"
+  },
   "description": "Headless React data-admin components and hooks for Firebase apps built on pyric. Same components work in sandbox (pyric/firestore against pyric/sandbox) and production (firebase/firestore against real Firebase) via a single Firestore handle prop. Ships zero visual styling \u2014 consumers bring their own design system via className + data-* attributes.",
   "type": "module",
   "exports": {
@@ -68,7 +77,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",

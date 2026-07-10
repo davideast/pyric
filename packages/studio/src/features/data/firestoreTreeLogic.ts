@@ -7,7 +7,72 @@
  * them into JSX + row state.
  */
 
-import type { EditorTree, FieldNode, VectorView } from '@pyric/ui/firestore';
+import type {
+  EditorTree,
+  FieldNode,
+  FieldType,
+  VectorView,
+} from '@pyric/ui/firestore';
+
+type FirestoreRowSegment = ['field', string] | ['index', number];
+
+function encodeFirestoreRowSegments(segments: readonly FirestoreRowSegment[]): string {
+  return JSON.stringify(segments);
+}
+
+/** Build one comparison fingerprint per rendered Firestore row. Container
+ * fingerprints include only their direct child shape, so a leaf update does
+ * not light every ancestor; additions/removals still light the parent row. */
+export function firestoreDataUpdateEntries(
+  data: Record<string, unknown>,
+  infer: (value: unknown) => FieldType,
+): ReadonlyMap<string, unknown> {
+  const entries = new Map<string, unknown>();
+
+  const visit = (value: unknown, segments: FirestoreRowSegment[]) => {
+    const type = infer(value);
+    const identity = encodeFirestoreRowSegments(segments);
+    if (type === 'map') {
+      const record = value as Record<string, unknown>;
+      const keys = Object.keys(record).sort();
+      entries.set(identity, [type, keys]);
+      for (const key of keys) {
+        visit(record[key], [...segments, ['field', key]]);
+      }
+      return;
+    }
+    if (type === 'array') {
+      const values = value as unknown[];
+      entries.set(identity, [type, values.map((_, index) => String(index))]);
+      values.forEach((child, index) => visit(child, [...segments, ['index', index]]));
+      return;
+    }
+    entries.set(identity, [type, value]);
+  };
+
+  for (const [key, value] of Object.entries(data)) {
+    visit(value, [['field', key]]);
+  }
+  return entries;
+}
+
+/** Collision-free identity for update/expansion state. Unlike the display
+ * path, typed segments distinguish literal dots/brackets from nesting. */
+export function firestoreRowIdentity(tree: EditorTree, nodeId: string): string {
+  const segments: FirestoreRowSegment[] = [];
+  let current: FieldNode | undefined = tree.nodes[nodeId];
+  while (current && current.parentId != null) {
+    const parent: FieldNode | undefined = tree.nodes[current.parentId];
+    if (!parent) break;
+    if (parent.type === 'array') {
+      segments.unshift(['index', (tree.childIds[parent.id] ?? []).indexOf(current.id)]);
+    } else {
+      segments.unshift(['field', current.key ?? '']);
+    }
+    current = parent;
+  }
+  return encodeFirestoreRowSegments(segments);
+}
 
 /**
  * Path from the tree root to a node, for `[data-pyric-field-path]` hooks on

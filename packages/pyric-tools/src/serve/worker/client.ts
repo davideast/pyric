@@ -2198,10 +2198,12 @@ export async function getBlob(reference: ClientStorageReference): Promise<Blob> 
 // Backed by the base64 `storage.putBytes` / `storage.getBytes` /
 // `storage.deleteObject` ops (remote sandbox, slice 2). No `actAs` lens is
 // attached: page callers run under the worker's page storage handle (same
-// model as `listAll`/`getMetadata` above). Storage rules apply only when the
-// HOST configured them on the sandbox's storage service — the served worker
-// currently configures none, so worker-mode storage is effectively open
-// today; the admin lens matters for embedding/test hosts that pre-open the
+// model as `listAll`/`getMetadata` above). Storage rules apply when the
+// HOST configured them on the sandbox's storage service — the served
+// worker's `applyServeInit` (serve-init.ts) does this at boot, before any op
+// can reach the host, so worker-mode storage enforces the project's
+// storage.rules the same as Firestore/RTDB (open only when the project has
+// none); the admin lens matters for embedding/test hosts that pre-open the
 // service with rules. Raw payloads are capped at 8 MiB
 // (`MAX_STORAGE_OP_BYTES`) — same cap the host enforces.
 

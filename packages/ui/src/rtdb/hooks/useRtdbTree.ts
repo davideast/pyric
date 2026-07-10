@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import type { RtdbApi } from '../rtdbApi.js';
-import { normalizeRtdbPath } from '../values.js';
+import {
+  normalizeRtdbPath,
+  rtdbUpdateEntries,
+  rtdbValuesEqual,
+} from '../values.js';
+import {
+  useUpdateHighlights,
+  type UpdateHighlight,
+} from '../../primitives/hooks/useUpdateHighlights.js';
 import {
   initialRtdbTree,
   isRtdbPathExpanded,
@@ -32,6 +40,7 @@ export interface RtdbTreeController {
   childrenAt(path: string): RtdbVisibleChildren;
   toggle(path: string): void;
   showMore(path: string): void;
+  updateAt(path: string): UpdateHighlight | undefined;
 }
 
 /**
@@ -49,6 +58,16 @@ export function useRtdbTree(
   const pageSize = options.pageSize ?? RTDB_DEFAULT_PAGE_SIZE;
   const normalized = normalizeRtdbPath(path);
   const [state, dispatch] = useReducer(rtdbTreeReducer, normalized, initialRtdbTree);
+  const updateEntries = useMemo(
+    () => rtdbUpdateEntries(state.value, state.path),
+    [state.path, state.value],
+  );
+  const updates = useUpdateHighlights({
+    scope: state.path,
+    entries: updateEntries,
+    equals: rtdbValuesEqual,
+    ready: state.status === 'live',
+  });
 
   // Keep the reducer's view root in lockstep with the prop BEFORE the
   // subscription effect below re-runs, so a snapshot for the new root never
@@ -97,9 +116,22 @@ export function useRtdbTree(
     (p: string) => dispatch({ type: 'show-more', path: p, pageSize }),
     [pageSize],
   );
+  const updateAt = useCallback(
+    (p: string) => updates.get(normalizeRtdbPath(p)),
+    [updates],
+  );
 
   return useMemo(
-    () => ({ state, pageSize, valueAt, isExpanded, childrenAt, toggle, showMore }),
-    [state, pageSize, valueAt, isExpanded, childrenAt, toggle, showMore],
+    () => ({
+      state,
+      pageSize,
+      valueAt,
+      isExpanded,
+      childrenAt,
+      toggle,
+      showMore,
+      updateAt,
+    }),
+    [state, pageSize, valueAt, isExpanded, childrenAt, toggle, showMore, updateAt],
   );
 }

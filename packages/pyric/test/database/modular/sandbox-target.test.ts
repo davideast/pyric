@@ -236,6 +236,61 @@ describe('update — multi-path atomic (matrix row #23)', () => {
     // deny reads for the other-user path.)
     expect(rtdbSandbox.snapshotState(aliceDb)).toEqual({});
   });
+
+  it('a path whose rule depends on a sibling written in the SAME update is allowed (atomic projection)', async () => {
+    // A multi-path update is atomic: every path's rules see `newData`
+    // reflecting the ENTIRE projected post-update tree. Here `/rooms/r1/
+    // messages` may only be written when the room's `meta/count` is present;
+    // the same update supplies it. Leaf-by-leaf evaluation would project the
+    // messages path alone, see `meta/count` absent, and falsely deny.
+    const { db } = setup();
+    rtdbSandbox.setRules(db, {
+      rules: {
+        rooms: {
+          $roomId: {
+            messages: {
+              '.write': "newData.parent().child('meta/count').exists()",
+            },
+            meta: { '.write': 'true' },
+          },
+        },
+      },
+    });
+    await update(ref(db, '/'), {
+      '/rooms/r1/messages/m1': 'hi',
+      '/rooms/r1/meta/count': 1,
+    });
+    expect(rtdbSandbox.snapshotState(db)).toEqual({
+      rooms: { r1: { messages: { m1: 'hi' }, meta: { count: 1 } } },
+    });
+  });
+
+  it('denies the whole update when a path depends on a sibling that is NOT in the update', async () => {
+    const { db } = setup();
+    rtdbSandbox.setRules(db, {
+      rules: {
+        rooms: {
+          $roomId: {
+            messages: {
+              '.write': "newData.parent().child('meta/count').exists()",
+            },
+            meta: { '.write': 'true' },
+          },
+        },
+      },
+    });
+    let threw = false;
+    try {
+      // Only the messages path is written; `meta/count` is absent, so the
+      // messages rule denies and the whole atomic update rejects.
+      await update(ref(db, '/'), { '/rooms/r1/messages/m1': 'hi' });
+    } catch (e) {
+      threw = true;
+      expect((e as Error & { code: string }).code).toBe('PERMISSION_DENIED');
+    }
+    expect(threw).toBe(true);
+    expect(rtdbSandbox.snapshotState(db)).toEqual({});
+  });
 });
 
 describe('push (oracle: rtdb-push-autoid-format)', () => {
