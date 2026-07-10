@@ -41,7 +41,7 @@ Conformance numbers today (rows / conforming):
 | Realtime Database | 170 | 144 | experimental |
 | Storage | 111 | 92 | experimental |
 
-Rules and Sandbox have no COMPAT matrix. They are the tooling and the harness, not a mirrored SDK.
+Sandbox has no COMPAT matrix (it is the harness). Rules is NOT unverified, though. Correction to an earlier draft of this doc: the rules simulator has its own conformance, just not centralized in a COMPAT.md. It runs a parity harness (`packages/pyric/test/rules/parity/`) and a corpus (`packages/pyric/test/rules/corpus/`, with `valid`/`invalid`/`edge-cases`) against the live Firebase Rules Test API in CI (`.github/workflows/simulator-parity.yml`, the `parity-stress` job, gated on a service-account secret). The corpus and the game-rules fixtures (`test/fixtures/firestore-game-rules`) double as both a conformance gate and a driver of new rules knowledge. See NOVELTY.md.
 
 ---
 

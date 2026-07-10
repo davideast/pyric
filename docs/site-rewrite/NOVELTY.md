@@ -54,6 +54,57 @@ And you compose them with an import the rules language cannot do on its own. `im
 
 ---
 
+## The compounding, proven
+
+Here is the part that turns a feature list into a thesis. The library was used to build the library, and the difference it made is on the record with numbers.
+
+The chess retrospective (`firebase-agent-sdk/plans/chess-v1-vs-v2-retrospective.md`) tells it plainly. Chess got built twice. The first time was the hard way, before the tools existed: five deploy attempts, three compile failures, two runtime failures, roughly two hours, most of it spent debugging opaque `400` and `403` errors with no message. That pain is where the empirical limits were discovered. It is also where a longstanding assumption got overturned, the "thirty to thirty-seven kilobyte practical limit" the team had believed for months turned out to be wrong, an artifact of chain depth correlating with size. The real source limit is two hundred fifty-six kilobytes, found by isolating the variable and probing production.
+
+Then they built the linter from that hard-won knowledge and rebuilt chess. The second time: one deploy attempt, zero compile failures, zero runtime failures, about ten minutes. First try.
+
+That is the whole argument in one table. Two hours to ten minutes. Five attempts to one. And the key line from the retrospective: the linter did not just find the issues faster, it prevented them from existing, because the v2 generator was written with the verified limits as constraints from the start. The tools did not speed up the work. They changed what the work was.
+
+This is the compounding point made concrete. A raw model builds chess-in-rules the two-hour way, if it can at all. A model with these tools builds it the ten-minute way. The gap is the product.
+
+### The origin story is the same story
+
+Pyric did not start as "Firebase in the browser." It started as a set of better agent tools for Firebase, called firebase-agent-sdk. The path from there to here is a chain of one thing making the next thing obvious:
+
+1. Build a Security Rules validator and parser, so rules could be tools an agent calls.
+2. That made the chess attempt possible, and the chess attempt demanded a Simulator to evaluate rules without deploying.
+3. The Simulator needed a place to run against, which became the LocalEnvironment abstraction.
+4. The LocalEnvironment was worth a real SDK wrapper.
+5. The SDK wrapper ran in a browser demo.
+6. The browser demo was the lightbulb. Firebase, running in the page.
+
+The sandbox that headlines the product today was discovered by building the tools, not designed up front. That is not a fun fact for an About page. It is the proof of the thesis. The tools were good enough at hard Firebase work that using them revealed the product.
+
+### The parity harness is a tool and a catalyst at once
+
+Correcting my own inventory: the rules simulator is conformance-checked. Not in a COMPAT matrix, but through a parity harness and a corpus (`packages/pyric/test/rules/parity/`, `packages/pyric/test/rules/corpus/` with valid, invalid, and edge-case rulesets) that run against the live Firebase Rules Test API in CI. Every rules variant, passing and failing, is saved with its known outcome.
+
+The interesting part is that this harness is both things at once. It is a tool that does not exist elsewhere, a rules-conformance gate calibrated against production. And it is a catalyst, because building the corpus is how the knowledge gets driven out in the first place. You cannot save "every rules variant with its known outcome" without discovering the outcomes, and discovering them is the expertise. The harness is the flywheel. Running it produces knowledge, and the knowledge sharpens the tools, and the sharper tools make the next hard thing tractable.
+
+### What the emulator cannot do
+
+The retrospective is blunt about the alternative, and it matters for positioning. The Firebase Emulator does not reproduce the cross-rule budget, which was the single hardest bug in chess v1. It does not enforce the let-binding limit at the production threshold. It needs Java, its lifecycle is flaky, and it is a heavyweight dependency wrong for a headless agent. Pyric's linter runs in-process, has zero dependencies, is calibrated against production, and catches the exact failure modes that cost the time. It is not a lighter emulator. It covers the painful parts the emulator never did.
+
+---
+
+## The gallery: what the tools make possible
+
+The case for "the hard parts" is not theoretical. It is a shelf of working artifacts, all built in pure security rules with these tools (`firebase-agent-sdk/examples/`):
+
+- **Chess** — every piece, sliding-piece path blocking, check detection across sixteen pieces, pins, checkmate as an emergent state. Deployed to production, seventeen tests passing.
+- **Checkers** — the lookup-document pattern that started it, jump-and-capture geometry, with a UI.
+- **Connect Four** — win-line detection and lobby lifecycle in rules.
+- **US tax code** — yes, real. Tax bracket logic expressed as Firestore rules. The most unlikely proof that "rules can't do that" is usually wrong.
+- **Tic-tac-toe, live** — a fully deployed playable app, rules and all.
+
+This is the "what is possible" gallery. Not the homepage hero, but the thing the rules wing points to when a reader thinks the claims are too big. You do not argue that rules are more capable than people think. You show them chess and tax code and let them conclude it.
+
+---
+
 ## Layer two, the instruments (what does not exist elsewhere)
 
 A catalog of the capabilities that are novel, not mirrored. Each of these is a reason someone reaches for Pyric that has nothing to do with "avoid a live project."
@@ -143,9 +194,16 @@ The hierarchy in HIERARCHY.md v2 survives this, but it needs to grow the rules w
 
 ---
 
-## Open questions this raises
+## Decisions and open questions
 
-1. Do we make "teaching Firebase better than the docs" an explicit, visible promise, or do we let the reader discover it? It is a strong claim. It is also true.
-2. Does the rules standard library get its own top-level presence, or live inside the rules wing?
-3. How much of the "makes your agent good" argument goes in the docs versus the marketing site and the README? The narrative is a landing-page thesis as much as a docs one.
-4. Do we show the chess result? It is the single most convincing artifact and also the most niche. A "what is possible" gallery, or a case study, or left as a legend?
+Two are settled by your call:
+
+- **Say it without saying it.** We do not claim "better than the official docs." We prove "this library focuses on the hard parts" through the concrete parts, the limits, the linter, the stdlib, the parity harness, and let the reader conclude it. This is the writing voice and the stance both.
+- **Show the gallery.** Not just chess. Chess, checkers, connect four, US tax code, and a live tic-tac-toe. A "what is possible" gallery the rules wing points to, framed as what the tools make an agent capable of, not as the hero.
+
+Still open:
+
+1. Does the rules standard library get its own top-level presence, or live inside the rules wing?
+2. How much of the "the library built itself" origin story goes on the landing page versus a docs narrative? It is the strongest single argument for the thesis, and it is a story, which is landing-page shaped.
+3. Where does the gallery live, its own top-level "What's possible" section, or a shelf inside the rules wing?
+4. The `PATTERNS.md` gap: port it from firebase-agent-sdk, or write it fresh as first-class docs content? It is the technique library the stdlib already leans on.
