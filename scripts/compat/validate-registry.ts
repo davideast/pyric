@@ -15,6 +15,7 @@ const allowedStatus = new Set<CompatStatus>([
 
 const allowedAutomation = new Set<Automation>([
   'oracle-backed',
+  'shape-backed',
   'unit-backed',
   'type-backed',
   'sandbox-only',
