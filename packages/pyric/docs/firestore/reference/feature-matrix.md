@@ -1,4 +1,4 @@
-# Feature matrix — `pyric/firestore` vs `firebase/firestore`
+# Feature matrix — `pyric/firestore` coverage of `firebase/firestore`
 
 Side-by-side coverage of the modular Web SDK surface. Use this to
 decide what's safe to write in code that has to run against both

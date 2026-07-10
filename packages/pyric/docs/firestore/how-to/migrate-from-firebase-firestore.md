@@ -1,10 +1,10 @@
-# How to migrate from `firebase/firestore`
+# How to use `pyric/firestore` in existing code
 
-This guide shows you how to swap `firebase/firestore` for `pyric/firestore` in an existing codebase.
+This guide shows you how to point an existing codebase at the sandbox by importing `pyric/firestore` where it imports `firebase/firestore`. Your Firestore code stays your Firestore code.
 
 ## Two import changes
 
-The minimum migration is two import edits.
+The minimum change is two import edits.
 
 ### Before
 

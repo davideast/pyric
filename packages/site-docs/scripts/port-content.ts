@@ -281,7 +281,7 @@ const NAV_ALIASES: Record<string, string> = {
   'pyric-sandbox-how-to-use-admin-reads': 'Use admin reads',
   'pyric-tools-deploy-how-to-bundle-and-deploy-a-function': 'Bundle & deploy a function',
   'pyric-tools-how-to-serve-persistence-and-multi-tab': 'Persistence & multi-tab',
-  'pyric-firestore-how-to-migrate-from-firebase-firestore': 'Migrate from Firestore',
+  'pyric-firestore-how-to-migrate-from-firebase-firestore': 'Use in existing code',
   'pyric-rules-explanation-agent-failure-modes': 'Agent failure modes',
   'pyric-rules-explanation-sentinel-expression-engine': 'Sentinel expression engine',
   'pyric-tools-deploy-explanation-primitives-vs-orchestrators':

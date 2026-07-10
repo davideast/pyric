@@ -1,11 +1,11 @@
 ---
-title: "Feature matrix — pyric/auth vs firebase/auth"
+title: "Feature matrix — pyric/auth coverage of firebase/auth"
 navLabel: "Feature matrix"
 group: "pyric / auth"
 section: "Reference"
 order: 160
 ---
-# Feature matrix — `pyric/auth` vs `firebase/auth`
+# Feature matrix — `pyric/auth` coverage of `firebase/auth`
 
 Side-by-side coverage of the modular Web SDK Auth surface. Use this to decide what's safe to write in code that has to run against both the pyric sandbox and prod Firebase.
 

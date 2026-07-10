@@ -6,6 +6,8 @@ import {
   slugOf,
   groupAnchorId,
   sectionAnchorId,
+  isGuideGroup,
+  groupLanding,
 } from '../lib/docs';
 import DocsSearch from './DocsSearch.astro';
 
@@ -22,6 +24,14 @@ interface Props {
 const { currentSlug, variant = 'primary' } = Astro.props;
 const groups = await navGroups();
 
+/** The nav is a guide, not a manual: guide groups render in full; every
+ *  reference group collapses to one link (its overview page) under a
+ *  single Reference disclosure. Reference pages stay built, searchable,
+ *  and listed in llms.txt/index.json — they are reachable from their
+ *  overview and from in-page links, just not itemized in the sidebar. */
+const guideGroups = groups.filter((g) => isGuideGroup(g.group));
+const referenceGroups = groups.filter((g) => !isGuideGroup(g.group));
+
 /** Only the group holding the current page starts open — everything
  *  else is tertiary and stays behind its disclosure. */
 function holdsCurrent(group: (typeof groups)[number]): boolean {
@@ -29,12 +39,14 @@ function holdsCurrent(group: (typeof groups)[number]): boolean {
     s.entries.some((e) => slugOf(e) === currentSlug),
   );
 }
+
+const referenceHoldsCurrent = referenceGroups.some(holdsCurrent);
 ---
 
 <nav class="docs-nav" aria-label="Documentation">
   <DocsSearch />
   {
-    groups.map((group) => (
+    guideGroups.map((group) => (
       <details
         class="docs-nav-group"
         id={variant === 'primary' ? groupAnchorId(group.group) : undefined}
@@ -75,5 +87,37 @@ function holdsCurrent(group: (typeof groups)[number]): boolean {
         </div>
       </details>
     ))
+  }
+  {
+    referenceGroups.length > 0 && (
+      <details
+        class="docs-nav-group"
+        id={variant === 'primary' ? groupAnchorId('Reference') : undefined}
+        open={referenceHoldsCurrent}
+      >
+        <summary>Reference</summary>
+        <div class="docs-nav-group-body">
+          <div class="docs-nav-section">
+            <ul>
+              {referenceGroups.map((group) => {
+                const landing = groupLanding(group);
+                return (
+                  <li>
+                    <a
+                      href={docPath(landing)}
+                      aria-current={
+                        holdsCurrent(group) ? 'true' : undefined
+                      }
+                    >
+                      {group.group}
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      </details>
+    )
   }
 </nav>
