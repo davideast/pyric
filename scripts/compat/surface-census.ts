@@ -37,6 +37,7 @@ interface MirrorPair {
 const mirrorPairs: MirrorPair[] = [
   { surface: 'app', upstream: 'firebase/app', mirrors: ['pyric/app'] },
   { surface: 'auth', upstream: 'firebase/auth', mirrors: ['pyric/auth'] },
+  { surface: 'ai', upstream: 'firebase/ai', mirrors: ['pyric/ai'] },
   { surface: 'firestore', upstream: 'firebase/firestore', mirrors: ['pyric/firestore'] },
   { surface: 'database', upstream: 'firebase/database', mirrors: ['pyric/database/modular', 'pyric/database'] },
   { surface: 'storage', upstream: 'firebase/storage', mirrors: ['pyric/storage'] },

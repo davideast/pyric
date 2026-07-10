@@ -57,7 +57,16 @@ export function lastUserText(req: GenerateContentRequest): string {
 }
 
 function isRawEnvelope(respond: ScriptRespond): respond is RawEnvelope {
-  return 'candidates' in respond && Array.isArray((respond as RawEnvelope).candidates);
+  if ('candidates' in respond && Array.isArray((respond as { candidates?: unknown }).candidates)) {
+    return true;
+  }
+  // A blocked-prompt capture is a complete wire envelope with
+  // `promptFeedback` and no candidates — replay it verbatim too.
+  return (
+    'promptFeedback' in respond &&
+    typeof (respond as { promptFeedback?: unknown }).promptFeedback === 'object' &&
+    (respond as { promptFeedback?: unknown }).promptFeedback !== null
+  );
 }
 
 export class ScriptedEngine implements AnswerEngine {
@@ -78,7 +87,7 @@ export class ScriptedEngine implements AnswerEngine {
     const opts = this.opts(req, model);
     const respond = this.take(req);
     if (respond === undefined) {
-      return this.synth.text(defaultText(req), opts);
+      return specialDefault(this.synth, req, opts) ?? this.synth.text(defaultText(req), opts);
     }
     if (isRawEnvelope(respond)) return structuredClone(respond);
     return this.expandUnary(respond, opts);
@@ -91,6 +100,13 @@ export class ScriptedEngine implements AnswerEngine {
 
     return (async function* stream(): AsyncGenerator<WireChunk> {
       if (respond === undefined) {
+        const special = specialDefault(synth, req, opts);
+        if (special) {
+          // A shaped default (JSON / forced functionCall) is one complete
+          // envelope — a single-chunk stream, like a raw capture.
+          yield special;
+          return;
+        }
         yield* synth.chunks([defaultText(req)], opts);
         return;
       }
@@ -168,4 +184,72 @@ function expandNonError(
 /** Zero-config default: deterministic and obviously synthetic. */
 function defaultText(req: GenerateContentRequest): string {
   return `pyric scripted response for: ${lastUserText(req).slice(0, 40)}`;
+}
+
+/**
+ * Zero-config defaults that must honor the REQUEST'S declared shape
+ * (production always does; a plain synthesized sentence would violate the
+ * caller's own contract):
+ *
+ *   - `toolConfig.functionCallingConfig.mode: 'ANY'` forces a functionCall —
+ *     the synthesizer answers with the first allowed/declared function and
+ *     deterministic args derived from its parameter schema.
+ *   - `generationConfig.responseMimeType: 'application/json'` yields a text
+ *     part that parses as JSON conforming to `responseSchema`
+ *     (`ai-structured-output-shape`).
+ *
+ * Returns undefined when the plain deterministic text default applies.
+ */
+function specialDefault(
+  synth: Synthesizer,
+  req: GenerateContentRequest,
+  opts: SynthesizeOptions,
+): WireResponse | undefined {
+  const callingConfig = req.toolConfig?.functionCallingConfig;
+  if (callingConfig?.mode === 'ANY') {
+    const declarations = (req.tools ?? []).flatMap((tool) => tool.functionDeclarations ?? []);
+    const name = callingConfig.allowedFunctionNames?.[0] ?? declarations[0]?.name ?? 'function';
+    const declared = declarations.find((decl) => decl.name === name);
+    const sample = valueForSchema(declared?.parameters);
+    const args =
+      sample !== null && typeof sample === 'object' && !Array.isArray(sample)
+        ? (sample as Record<string, unknown>)
+        : {};
+    return synth.functionCall(name, args, opts);
+  }
+  if (req.generationConfig?.responseMimeType === 'application/json') {
+    return synth.json(valueForSchema(req.generationConfig.responseSchema), opts);
+  }
+  return undefined;
+}
+
+/**
+ * Deterministic sample value conforming to a (JSON-normalized) response
+ * schema — the zero-config stand-in for real structured output. Obviously
+ * synthetic values ('pyric', 1, true), stable across calls.
+ */
+export function valueForSchema(schema: unknown): unknown {
+  if (schema === null || typeof schema !== 'object') return {};
+  const s = schema as Record<string, unknown>;
+  if (Array.isArray(s.anyOf) && s.anyOf.length > 0) return valueForSchema(s.anyOf[0]);
+  const declaredType = typeof s.type === 'string' ? s.type.toLowerCase() : 'object';
+  switch (declaredType) {
+    case 'string':
+      return Array.isArray(s.enum) && s.enum.length > 0 ? s.enum[0] : 'pyric';
+    case 'integer':
+    case 'number':
+      return 1;
+    case 'boolean':
+      return true;
+    case 'array':
+      return [valueForSchema(s.items)];
+    case 'object': {
+      const out: Record<string, unknown> = {};
+      const properties = (s.properties ?? {}) as Record<string, unknown>;
+      for (const key of Object.keys(properties)) out[key] = valueForSchema(properties[key]);
+      return out;
+    }
+    default:
+      return {};
+  }
 }

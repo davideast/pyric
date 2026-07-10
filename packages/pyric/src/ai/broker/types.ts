@@ -147,15 +147,22 @@ export type ScriptShorthand =
   | { json: unknown }
   | { functionCall: { name: string; args: Record<string, unknown> } }
   | { chunks: string[] }
-  /** Keys mirror the wire error envelope: numeric `code`, string `status`. */
-  | { error: { code: number; message: string; status: string } };
+  /** Keys mirror the wire error envelope: numeric `code`, string `status`,
+   *  optional `details` (the captured `@type`d detail objects ride through). */
+  | { error: { code: number; message: string; status: string; details?: Array<Record<string, unknown>> } };
 
 /**
  * A raw Gemini envelope — an observation's `behavior.raw` pastes in
  * directly (captures are the corpus). Discriminated from shorthands
- * structurally by the presence of `candidates`.
+ * structurally by the presence of `candidates` OR `promptFeedback`:
+ * a blocked-prompt capture is a valid wire envelope that carries
+ * `promptFeedback` and no candidates at all.
  */
-export type RawEnvelope = WireResponse & { candidates: WireCandidate[] };
+export type RawEnvelope = WireResponse &
+  (
+    | { candidates: WireCandidate[] }
+    | { promptFeedback: NonNullable<WireResponse['promptFeedback']> }
+  );
 
 export type ScriptRespond = ScriptShorthand | RawEnvelope;
 
