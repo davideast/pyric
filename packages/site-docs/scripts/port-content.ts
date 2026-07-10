@@ -125,6 +125,106 @@ function docsRoot(pkg: string): string {
   return join(repoRoot, 'packages', pkg, 'docs');
 }
 
+/* ── The guide: the outcome-first rewrite (docs/site-rewrite/content) ─ */
+//
+// The guide pages are authored WITH front matter (title, navLabel,
+// outcome, status) and link each other relatively (../secure/x.md).
+// They port ahead of the package groups so the nav reads guide-first,
+// reference below — the HIERARCHY.md plan. Slug = bare file name
+// (no package prefix; clash-checked like everything else). `outcome`
+// becomes the emitted `description` (llms.txt / index.json).
+
+const guideRoot = join(repoRoot, 'docs', 'site-rewrite', 'content');
+
+interface GuideGroupSpec {
+  /** Nav group label (disclosure summary). */
+  label: string;
+  /** Dir relative to guideRoot ('' = the root itself). */
+  dir: string;
+  /** Files in nav order — explicit, never readdir order. */
+  files: string[];
+}
+
+const GUIDE_GROUPS: GuideGroupSpec[] = [
+  { label: 'Overview', dir: '', files: ['overview.md'] },
+  {
+    label: 'Get started',
+    dir: 'get-started',
+    files: ['start-building.md', 'what-just-happened.md'],
+  },
+  {
+    label: 'Build',
+    dir: 'build',
+    files: [
+      'sign-in-and-manage-users.md',
+      'store-and-query-data.md',
+      'sync-realtime-data.md',
+      'store-files.md',
+      'which-data-service.md',
+    ],
+  },
+  {
+    label: 'Secure & debug',
+    dir: 'secure',
+    files: [
+      'secure-it-with-rules.md',
+      'simulate-and-lint.md',
+      'write-a-rules-test-suite.md',
+      'read-a-denial.md',
+      'rules-standard-library.md',
+      'rules-patterns.md',
+      'limits-that-bite.md',
+      'audit-your-rules.md',
+      'whats-possible.md',
+    ],
+  },
+  {
+    label: 'Observe & shape',
+    dir: 'observe',
+    files: ['see-whats-happening.md', 'shape-your-data.md'],
+  },
+  {
+    label: 'Ship & test',
+    dir: 'ship',
+    files: ['ship-to-production.md', 'set-up-the-project.md', 'test-in-node.md'],
+  },
+  {
+    label: 'Work with an agent',
+    dir: 'agent',
+    files: [
+      'set-up-your-agent.md',
+      'what-your-agent-can-do.md',
+      'skills.md',
+      'watch-and-review.md',
+    ],
+  },
+  {
+    label: 'Trust',
+    dir: 'trust',
+    files: ['how-we-know-it-matches-firebase.md', 'whats-experimental.md'],
+  },
+];
+
+/** Guide files the port ignores (review scaffolding, not pages). */
+const GUIDE_IGNORE = new Set(['README.md']);
+
+/** Parse a leading YAML front-matter block (string values only — the
+ *  guide's authoring schema). Returns {} and the untouched body when
+ *  there is none. */
+function parseFrontmatter(raw: string): {
+  fm: Record<string, string>;
+  body: string;
+} {
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+  if (!m) return { fm: {}, body: raw };
+  const fm: Record<string, string> = {};
+  for (const line of m[1].split('\n')) {
+    const kv = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
+    if (kv) fm[kv[1]] = kv[2].replace(/^"(.*)"$/, '$1').trim();
+  }
+  return { fm, body: raw.slice(m[0].length) };
+}
+
 /** Slug for a source file: pkg id + docs-root-relative path, lowercased,
  *  separators → '-', README segment dropped. Unique by assertion. */
 function slugFor(pkg: string, absFile: string): string {
@@ -273,6 +373,10 @@ interface Page {
   order: number;
   title: string;
   navLabel?: string;
+  /** llms.txt / index.json one-liner (guide pages: the `outcome`). */
+  description?: string;
+  /** Guide pages author their own front matter; strip it at emit. */
+  stripFm?: boolean;
 }
 
 function mdFilesIn(dir: string): string[] {
@@ -306,6 +410,39 @@ function addPage(src: string, group: GroupSpec, section: string) {
   bySlug.set(slug, page);
 }
 
+/** Add one guide page: slug from the bare file name, title/navLabel/
+ *  description from its own front matter (title falls back to the h1). */
+function addGuidePage(src: string, groupLabel: string) {
+  const { fm } = parseFrontmatter(readFileSync(src, 'utf8'));
+  const slug = posix.basename(src, '.md').toLowerCase();
+  const clash = bySlug.get(slug);
+  if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
+  const page: Page = {
+    src,
+    slug,
+    group: groupLabel,
+    section: '',
+    order: order++,
+    title: fm.title ?? titleOf(src),
+    navLabel: fm.navLabel,
+    description: fm.outcome,
+    stripFm: true,
+  };
+  pages.push(page);
+  bySrc.set(src, page);
+  bySlug.set(slug, page);
+}
+
+// Guide first: the nav renders groups in `order` order, so the
+// outcome-first sections sit above the package reference groups.
+for (const group of GUIDE_GROUPS) {
+  for (const file of group.files) {
+    const p = resolve(guideRoot, group.dir, file);
+    if (!existsSync(p)) throw new Error(`guide page missing: ${p}`);
+    addGuidePage(p, group.label);
+  }
+}
+
 for (const group of GROUPS) {
   const groupDir = resolve(docsRoot(group.pkg), group.dir);
   for (const spec of group.sections) {
@@ -332,6 +469,11 @@ for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {
   for (const f of walkMd(docsRoot(pkg))) {
     if (!bySrc.has(f)) throw new Error(`unclaimed source doc: ${f}`);
   }
+}
+// Same strictness for the guide tree (README.md is review scaffolding).
+for (const f of walkMd(guideRoot)) {
+  if (GUIDE_IGNORE.has(posix.basename(f))) continue;
+  if (!bySrc.has(f)) throw new Error(`unclaimed guide page: ${f}`);
 }
 
 /* ── Markdown helpers (fence-aware) ────────────────────────────────── */
@@ -518,7 +660,9 @@ for (const stale of readdirSync(outDir)) {
 }
 
 for (const page of pages) {
-  const body = rewriteLinks(page, readFileSync(page.src, 'utf8'));
+  const raw = readFileSync(page.src, 'utf8');
+  const source = page.stripFm ? parseFrontmatter(raw).body : raw;
+  const body = rewriteLinks(page, source);
   const fm = [
     '---',
     `title: ${yamlQuote(page.title)}`,
@@ -528,6 +672,7 @@ for (const page of pages) {
     `group: ${yamlQuote(page.group)}`,
     `section: ${yamlQuote(page.section)}`,
     `order: ${page.order}`,
+    ...(page.description ? [`description: ${yamlQuote(page.description)}`] : []),
     '---',
     '',
   ].join('\n');
