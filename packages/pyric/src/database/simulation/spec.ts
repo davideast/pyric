@@ -9,6 +9,18 @@ export const SimulationInputSchema = z.object({
   ]),
   mockData: z.record(z.unknown()),
   newData: z.unknown().optional(),
+  /**
+   * The full set of paths written together in one atomic multi-path
+   * `update()` (the `{ "/a/b": 1, "/c/d": 2 }` shape). When present, the
+   * simulator projects EVERY listed path onto a single post-write tree and
+   * evaluates `path`'s rules against that shared projection — so a rule on
+   * one written path sees `newData` reflecting its sibling paths in the
+   * same update. Omit for single-path writes (the simulator then projects
+   * only `path`/`newData`). Each path is absolute (root-relative).
+   */
+  updates: z
+    .array(z.object({ path: z.string().min(1).startsWith('/'), value: z.unknown() }))
+    .optional(),
 });
 export type SimulationInput = z.infer<typeof SimulationInputSchema>;
 

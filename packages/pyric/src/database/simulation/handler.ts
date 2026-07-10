@@ -196,6 +196,41 @@ function withValueAt(root: unknown, segments: string[], value: unknown): unknown
   return currentObj;
 }
 
+/**
+ * Build the single post-write tree that a write/validate evaluation sees as
+ * `newData`.
+ *
+ * For a single-path write this is just `withValueAt(base, targetSegments,
+ * targetNewData)`. For an atomic multi-path `update()` — where `updates`
+ * lists every path written together — this folds `withValueAt` over EVERY
+ * listed path so the projection reflects the ENTIRE update applied at once.
+ * Each written path's rules are then evaluated against this shared tree,
+ * matching production RTDB: a multi-path update is atomic, so a rule on one
+ * written path sees `newData` for its sibling paths in the same update.
+ *
+ * Evaluating each path leaf-by-leaf against only its own new value (the old
+ * behavior) is a wrong-verdict bug: a rule that depends on a sibling path
+ * written in the same update sees that sibling as absent, flipping legal
+ * writes to a false DENY (and the reverse for `!exists()`-style escape
+ * hatches, a false ALLOW).
+ */
+function projectPostWriteTree(
+  base: unknown,
+  targetSegments: string[],
+  targetNewData: unknown,
+  updates: readonly { path: string; value?: unknown }[] | undefined,
+): unknown {
+  if (!updates || updates.length === 0) {
+    return withValueAt(base, targetSegments, targetNewData ?? null);
+  }
+  let root = base;
+  for (const update of updates) {
+    const segments = update.path.split('/').filter(Boolean);
+    root = withValueAt(root, segments, update.value ?? null);
+  }
+  return root;
+}
+
 export class SimulateHandler {
   execute(ir: RtdbIR | null, rawInput: unknown): SimulateResult {
     if (!ir) {
@@ -221,7 +256,7 @@ export class SimulateHandler {
       };
     }
 
-    const { operation, path, auth, mockData, newData } = parsed.data;
+    const { operation, path, auth, mockData, newData, updates } = parsed.data;
 
     try {
       const pathSegments = path.split('/').filter(Boolean);
@@ -240,10 +275,15 @@ export class SimulateHandler {
       // deepest path usually doesn't exist yet), which silently satisfies
       // `!data.exists()`-style escape hatches and produces a false ALLOW.
       const rootData = new DataSnapshot(mockData, '/');
-      // Post-write tree: mockData with `newData` merged in at the write
-      // path. Reads don't have a "post-write" state, so leave it as-is.
+      // Post-write tree: mockData with the proposed write merged in. Reads
+      // don't have a "post-write" state, so leave it as-is. For an atomic
+      // multi-path `update()` (`updates` present) the projection reflects
+      // EVERY path written together, so this path's rules see `newData` for
+      // its sibling paths in the same update.
       const mergedRoot =
-        operation === 'read' ? mockData : withValueAt(mockData, pathSegments, newData ?? null);
+        operation === 'read'
+          ? mockData
+          : projectPostWriteTree(mockData, pathSegments, newData, updates);
       const mergedRootData = new DataSnapshot(mergedRoot, '/');
 
       const dataAtPath = rootData.child(pathSegments.join('/'));
