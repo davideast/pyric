@@ -39,6 +39,7 @@ import * as esbuild from 'esbuild';
 
 /** Modules the import map serves. Keys are the bare specifiers app code uses. */
 export const SDK_MODULES = [
+  'firebase/ai',
   'firebase/app',
   'firebase/auth',
   'firebase/firestore',
@@ -61,6 +62,7 @@ export function defaultSdkEntries(): Record<string, string> {
     throw new Error(`pyric dev: missing SDK entry '${name}' next to ${here}`);
   };
   return {
+    ai: pick('ai'),
     app: pick('app'),
     auth: pick('auth'),
     firestore: pick('firestore'),
@@ -210,15 +212,37 @@ export function collectFirebaseBindings(distDir: string): Map<string, Set<string
  * never takes the real prod path, so the inert result is never consumed. (The
  * loud provenance banner remains the "this is not the real SDK" signal.)
  */
-export function stubModuleSource(_specifier: string, names: ReadonlySet<string>): string {
+export function stubModuleSource(specifier: string, names: ReadonlySet<string>): string {
   const deny = `const deny = new Proxy(function () {}, {
   apply() { return deny; },
   construct() { return deny; },
   get() { return deny; },
 });
 export default deny;`;
-  const named = [...names].map((n) => `export const ${n} = deny;`).join('\n');
-  return `${deny}\n${named}\n`;
+  // `firebase/app`'s FirebaseError is the ONE stub binding pyric SUBCLASSES
+  // at runtime (`pyric/ai`'s AIError, `pyric/auth`'s sandbox backend). A class
+  // extending the inert proxy is broken — `super()` hits the construct trap,
+  // which returns the SHARED proxy, so every instance IS the same object and
+  // own fields (`.code`) are unreadable. Emit a real minimal FirebaseError
+  // (code + message + customData, name 'FirebaseError' — the upstream shape)
+  // so subclass instances behave; everything else stays inert.
+  const real =
+    specifier === 'firebase/app' && names.has('FirebaseError')
+      ? `export class FirebaseError extends Error {
+  constructor(code, message, customData) {
+    super(message);
+    this.code = code;
+    this.customData = customData;
+    this.name = 'FirebaseError';
+    Object.setPrototypeOf(this, FirebaseError.prototype);
+  }
+}`
+      : '';
+  const named = [...names]
+    .filter((n) => !(real && n === 'FirebaseError'))
+    .map((n) => `export const ${n} = deny;`)
+    .join('\n');
+  return `${deny}\n${real ? `${real}\n` : ''}${named}\n`;
 }
 
 // ─── plugins ──────────────────────────────────────────────────────────
@@ -315,7 +339,7 @@ export interface BundleResult {
 }
 
 /** Bump when bundler logic changes in a way that must invalidate caches. */
-const BUNDLER_REV = 3; // 3: collect firebase namespace members + inert (non-throwing) stub
+const BUNDLER_REV = 4; // 4: firebase/ai entry + real FirebaseError in the firebase/app stub
 
 export function cacheKey(opts: BundleOptions, version: string): string {
   const h = createHash('sha256');

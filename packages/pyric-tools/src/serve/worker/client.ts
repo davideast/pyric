@@ -84,6 +84,7 @@ import type {
   SerializedIdTokenResult,
   AuthPersistenceMode,
   ResolvedIdentity,
+  AiEngineConfigWire,
 } from './protocol.js';
 import type { PolicyRequest } from './protocol.js';
 import {
@@ -243,6 +244,7 @@ function wirePort(port: MessagePort): void {
         const err = new Error(msg.error.message) as Error & {
           code: string;
           denialContext?: unknown;
+          aiEnvelope?: unknown;
         };
         err.code = msg.error.code;
         // Structured denial context (spike gap 6): re-attach so consumers —
@@ -250,6 +252,12 @@ function wirePort(port: MessagePort): void {
         // same shape a local SandboxError carries.
         if (msg.error.denialContext !== undefined) {
           err.denialContext = msg.error.denialContext;
+        }
+        // AI wire error envelope (pyric/ai): re-attach so the served
+        // `firebase/ai` entry can mint the exact SDK AIError decoration the
+        // in-process plane applies (see entries/ai.ts).
+        if (msg.error.aiEnvelope !== undefined) {
+          err.aiEnvelope = msg.error.aiEnvelope;
         }
         pending.reject(err);
       }
@@ -260,10 +268,11 @@ function wirePort(port: MessagePort): void {
       // "signed out" payload, not an error, so guard the __error sniff.
       const value = (msg.value ?? {}) as Record<string, unknown>;
       if (value.__error) {
-        const errPayload = value.__error as { code: string; message: string; denialContext?: unknown };
-        const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown };
+        const errPayload = value.__error as { code: string; message: string; denialContext?: unknown; aiEnvelope?: unknown };
+        const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown; aiEnvelope?: unknown };
         err.code = errPayload.code;
         if (errPayload.denialContext !== undefined) err.denialContext = errPayload.denialContext;
+        if (errPayload.aiEnvelope !== undefined) err.aiEnvelope = errPayload.aiEnvelope;
         // Surface an unobserved listener error instead of swallowing it — the
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).
@@ -2290,4 +2299,118 @@ export async function deleteObject(reference: ClientStorageReference): Promise<v
   await rpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.deleteObject', path: reference.fullPath,
   });
+}
+
+// ─── AI ops (pyric/ai over the worker — cdd-deltas #98.3) ──────────────────
+//
+// The served `firebase/ai` entry (entries/ai.ts) plugs these three functions
+// in as the mirror's AnswerEngine on the worker path, so the page keeps the
+// full `pyric/ai` surface (GenerativeModel / ChatSession / Schema) while
+// ANSWERING happens in the worker host's broker — in-process with the ONE
+// shared sandbox (#98.1), whose unified event stream Studio consumes.
+// Requests/responses are the plain Gemini-wire JSON the broker speaks; no
+// codec round-trip. `engine` rides each message but is honored only on the
+// worker's FIRST ai op (broker creation — see AiEngineConfigWire).
+
+/** Parameters shared by the three AI ops. */
+export interface AiOpParams {
+  /** Model resource the mirror resolved (e.g. `models/gemini-flash-lite-latest`). */
+  model: string;
+  /** Plain Gemini-wire request JSON. */
+  request: Record<string, unknown>;
+  /** First-op engine config — see {@link AiEngineConfigWire}. */
+  engine?: AiEngineConfigWire;
+}
+
+/** Unary `generateContent` against the worker's broker. Resolves with the
+ *  complete WireResponse envelope; rejects with an Error carrying `.code`
+ *  (and `.aiEnvelope` when the broker answered a wire error envelope). */
+export async function aiGenerateContent(
+  db: ClientDb,
+  params: AiOpParams,
+): Promise<Record<string, unknown>> {
+  return (await rpc(db.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'ai.generateContent',
+    model: params.model,
+    request: params.request,
+    ...(params.engine !== undefined ? { engine: params.engine } : {}),
+  })) as Record<string, unknown>;
+}
+
+/** Unary `countTokens` against the worker's broker (deterministic). */
+export async function aiCountTokens(
+  db: ClientDb,
+  params: AiOpParams,
+): Promise<Record<string, unknown>> {
+  return (await rpc(db.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'ai.countTokens',
+    model: params.model,
+    request: params.request,
+    ...(params.engine !== undefined ? { engine: params.engine } : {}),
+  })) as Record<string, unknown>;
+}
+
+/**
+ * Streamed `generateContent` over an AI stream SUBSCRIPTION: chunks arrive
+ * as `{ chunk }` snaps in order, the terminal `{ done: true }` snap ends the
+ * iteration, and a snap `__error` throws (with `.code` / `.aiEnvelope`).
+ * The host auto-unsubs on done; the generator additionally sends `unsub` on
+ * teardown so early consumer abandonment cancels the worker-side pump (the
+ * done/unsub race is a benign no-op on the host).
+ */
+export async function* aiStreamGenerateContent(
+  db: ClientDb,
+  params: AiOpParams,
+): AsyncGenerator<Record<string, unknown>> {
+  const subId = nextSubId();
+  type QueueItem =
+    | { kind: 'chunk'; chunk: Record<string, unknown> }
+    | { kind: 'done' }
+    | { kind: 'error'; error: unknown };
+  const queue: QueueItem[] = [];
+  let notify: (() => void) | null = null;
+  const push = (item: QueueItem): void => {
+    queue.push(item);
+    notify?.();
+    notify = null;
+  };
+
+  _snapSubs.set(subId, {
+    next: (raw) => {
+      const v = (raw ?? {}) as { chunk?: Record<string, unknown>; done?: boolean };
+      if (v.done) push({ kind: 'done' });
+      else push({ kind: 'chunk', chunk: v.chunk ?? {} });
+    },
+    error: (err) => push({ kind: 'error', error: err }),
+  });
+
+  db.port.postMessage({
+    t: 'sub',
+    subId,
+    target: { service: 'ai', op: 'streamGenerateContent' },
+    model: params.model,
+    request: params.request,
+    ...(params.engine !== undefined ? { engine: params.engine } : {}),
+  } satisfies InboundMessage);
+
+  try {
+    for (;;) {
+      while (queue.length === 0) {
+        await new Promise<void>((resolve) => {
+          notify = resolve;
+        });
+      }
+      const item = queue.shift()!;
+      if (item.kind === 'error') throw item.error;
+      if (item.kind === 'done') return;
+      yield item.chunk;
+    }
+  } finally {
+    _snapSubs.delete(subId);
+    db.port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+  }
 }

@@ -166,6 +166,52 @@ export type AggregateFieldDescriptor =
 /** Spec passed on the `aggregate` op — aliases become the result's keys. */
 export type AggregateSpecDescriptor = Record<string, AggregateFieldDescriptor>;
 
+// ─── AI wire shapes (cdd-deltas #98 — pyric/ai under pyric dev) ────────────
+
+/**
+ * JSON-safe engine config for the worker host's AiBroker — the wire form of
+ * `pyric/ai`'s `EngineConfig` (cdd-deltas #98.4: engine choice + model mapping
+ * are per-sandbox config on the ai mirror). Differences from the mirror type:
+ *
+ *   - `openai.baseUrl` is OPTIONAL here: absent means the serve default —
+ *     the same-origin `/__pyric/ai-proxy` route (#98.2), so the browser
+ *     openai engine reaches a localhost upstream with zero CORS setup.
+ *   - `openai.fetch` (test injection) never crosses the port.
+ *   - `scripted.script` entries are the PLAIN authoring shapes (string/regex
+ *     matchers + JSON responds). Predicate matchers are functions and cannot
+ *     cross the port — structured clone rejects them LOUDLY (DataCloneError),
+ *     never silently. Author predicates host-side (ctx.aiEngine) instead.
+ *
+ * The config is honored on the FIRST ai op only (the broker is per-sandbox
+ * and created once — mirroring `getAI`'s first-call-wins idempotence).
+ */
+export type AiEngineConfigWire =
+  | { kind: 'scripted'; script?: Array<Record<string, unknown>> }
+  | {
+      kind: 'openai';
+      /** OpenAI-compatible base URL. Absent ⇒ serve's `/__pyric/ai-proxy`. */
+      baseUrl?: string;
+      /** Catch-all upstream model when `modelMap` has no entry. */
+      model?: string;
+      /** Explicit Gemini-model-id → upstream-model mapping. */
+      modelMap?: Record<string, string>;
+    };
+
+/**
+ * Wire form of the Gemini error envelope an `AiBrokerError` carries
+ * (`{ error: { code, message, status, details? } }` — every ai-error-*
+ * capture). Rides on {@link SerializedError} so the client mirror can mint
+ * the SAME `AIError('fetch-error', …)` the in-process plane would.
+ */
+export interface AiErrorEnvelopeWire {
+  error: {
+    code: number;
+    message: string;
+    status: string;
+    details?: Array<Record<string, unknown>>;
+  };
+}
+
 // ─── Write descriptors for batch + transaction ────────────────────────────
 
 export type WriteDescriptor =
@@ -464,6 +510,17 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'storage.getBytes'; path: string }
   | { t: 'op'; id: string; method: 'storage.deleteObject'; path: string }
+  // ── AI ops (surface: 'ai' — cdd-deltas #98.3, exactly like rtdb.*/auth.*).
+  // `request` is the plain Gemini-wire JSON the mirror already speaks (the
+  // broker's GenerateContentRequest / CountTokensRequest — no class instances,
+  // no codec round-trip). `model` is the model resource the mirror resolved
+  // (e.g. `models/gemini-flash-lite-latest`). `engine` is honored on the FIRST
+  // ai op only (broker creation — see AiEngineConfigWire). Replies:
+  //   ai.generateContent → the complete WireResponse envelope (plain JSON)
+  //   ai.countTokens     → the CountTokensResponse envelope (plain JSON)
+  // Streaming is a SUBSCRIPTION, not an op — see AiStreamSubMessage.
+  | { t: 'op'; id: string; method: 'ai.generateContent'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }
+  | { t: 'op'; id: string; method: 'ai.countTokens'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }
   // Staleness guard: report the worker's baked build version so the page can
   // warn when a still-running OLD worker serves code older than what's served.
   | { t: 'op'; id: string; method: 'getVersion' }
@@ -596,7 +653,40 @@ export interface RtdbValueSubMessage {
   issuer?: 'studio';
 }
 
-export type SubMessage = FirestoreSubMessage | AuthSubMessage | EventSubMessage | RtdbValueSubMessage;
+/**
+ * Stream a `generateContent` call as a SUBSCRIPTION (cdd-deltas #98.3:
+ * "chunks over the existing subscription/event mechanism"). Unlike the
+ * persistent listeners above, this sub is FINITE — it AUTO-UNSUBSCRIBES on a
+ * terminal `done` snap:
+ *
+ *   { t:'snap', subId, value: { chunk } }   — one per streamed WireChunk,
+ *                                             delivered in order
+ *   { t:'snap', subId, value: { done: true } } — terminal; the host has
+ *                                             already dropped the sub
+ *   { t:'snap', subId, value: { __error } }  — terminal failure (the shared
+ *                                             snap-error convention)
+ *
+ * A client MAY still send `unsub` (early consumer abandonment); the host
+ * treats an unknown subId as a no-op, so the done/unsub race is benign.
+ */
+export interface AiStreamSubMessage {
+  t: 'sub';
+  subId: string;
+  target: { service: 'ai'; op: 'streamGenerateContent' };
+  /** Model resource, as on the `ai.generateContent` op. */
+  model: string;
+  /** Plain Gemini-wire GenerateContentRequest JSON. */
+  request: Record<string, unknown>;
+  /** First-op engine config — see {@link AiEngineConfigWire}. */
+  engine?: AiEngineConfigWire;
+}
+
+export type SubMessage =
+  | FirestoreSubMessage
+  | AuthSubMessage
+  | EventSubMessage
+  | RtdbValueSubMessage
+  | AiStreamSubMessage;
 
 /** Type guard: is this an auth subscription (vs a Firestore / event one)? */
 export function isAuthSub(msg: SubMessage): msg is AuthSubMessage {
@@ -614,6 +704,16 @@ export function isRtdbSub(msg: SubMessage): msg is RtdbValueSubMessage {
     msg.target !== null &&
     'service' in msg.target &&
     msg.target.service === 'rtdb'
+  );
+}
+
+/** Type guard: is this an AI stream subscription (finite, auto-unsubs on done)? */
+export function isAiSub(msg: SubMessage): msg is AiStreamSubMessage {
+  return (
+    typeof msg.target === 'object' &&
+    msg.target !== null &&
+    'service' in msg.target &&
+    msg.target.service === 'ai'
   );
 }
 
@@ -821,6 +921,13 @@ export interface SerializedError {
   code: string;
   message: string;
   denialContext?: DenialContext;
+  /**
+   * The Gemini wire error envelope when the thrown value was an
+   * `AiBrokerError` (pyric/ai) — plain JSON end to end, so the client
+   * mirror can mint the SAME `AIError('fetch-error', …)` decoration the
+   * in-process plane applies. `code` is `ai/<STATUS>` in that case.
+   */
+  aiEnvelope?: AiErrorEnvelopeWire;
 }
 
 /**
@@ -838,6 +945,24 @@ export interface SerializedError {
  */
 export function serializeError(err: unknown): SerializedError {
   if (err !== null && typeof err === 'object') {
+    // AiBrokerError (pyric/ai): detected STRUCTURALLY (the class is not
+    // exported from `pyric/ai`'s public surface) by the wire envelope it
+    // carries. The envelope rides whole so the receiving mirror re-mints the
+    // exact SDK error; `code` is synthesized from the wire `status`.
+    const envelope = (err as { envelope?: AiErrorEnvelopeWire }).envelope;
+    if (
+      envelope !== null &&
+      typeof envelope === 'object' &&
+      typeof envelope.error?.code === 'number' &&
+      typeof envelope.error?.message === 'string' &&
+      typeof envelope.error?.status === 'string'
+    ) {
+      return {
+        code: `ai/${envelope.error.status}`,
+        message: envelope.error.message,
+        aiEnvelope: envelope,
+      };
+    }
     const e = err as { code?: unknown; message?: unknown; denialContext?: unknown };
     if (typeof e.code === 'string' && typeof e.message === 'string') {
       return e.denialContext !== null && typeof e.denialContext === 'object'
