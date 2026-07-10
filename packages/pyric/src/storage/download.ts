@@ -96,7 +96,7 @@ export async function deleteObject(
       path: ref.fullPath,
     },
     resource: resourceFromStored(existing),
-  }, target);
+  }, target, provenance);
   await service.backend.delete(ref.fullPath);
   try {
     emitSandboxEvent(
