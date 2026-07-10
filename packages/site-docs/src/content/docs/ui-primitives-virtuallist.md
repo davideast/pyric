@@ -2,7 +2,7 @@
 title: "<VirtualList>"
 group: "@pyric/ui"
 section: "Primitives"
-order: 194
+order: 162
 ---
 # `<VirtualList>`
 

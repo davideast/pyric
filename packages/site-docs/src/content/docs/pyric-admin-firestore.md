@@ -3,11 +3,11 @@ title: "pyric-admin"
 navLabel: "Overview"
 group: "pyric-admin / firestore"
 section: ""
-order: 167
+order: 141
 ---
 # `pyric-admin`
 
-Admin-SDK-shaped Firestore adapter for the Pyric sandbox. Mirrors `firebase-admin/firestore` (`db.collection(p).doc(p).get()`, `db.batch()`, `db.runTransaction()`) over `pyric/sandbox`'s in-process substrate. Streaming reads are covered too: a production-shaped `onSnapshot` ships as both a free function and a chainable `.onSnapshot(...)` method on refs and queries.
+Admin-SDK-shaped Firestore adapter for the Pyric sandbox. Mirrors `firebase-admin/firestore` — `db.collection(p).doc(p).get()`, `db.batch()`, `db.runTransaction()` — over `pyric/sandbox`'s in-process substrate. Streaming reads are covered too: a production-shaped `onSnapshot` ships as both a free function and a chainable `.onSnapshot(...)` method on refs and queries.
 
 Use this package when your production code uses `firebase-admin/firestore` (Node services, Cloud Functions). For the modular Web SDK shape, use [`pyric/firestore`](../pyric-admin-firestore/) instead.
 
@@ -42,10 +42,10 @@ Alongside the production-shaped surface, the `db` handle carries three sandbox-o
 
 ## Where to go next
 
-- Tutorials: guided lessons.
-- How-to guides: task-focused recipes.
-- Reference: exact signatures and types.
-- Explanation: why the API is shaped this way.
+- Tutorials — guided lessons.
+- How-to guides — task-focused recipes.
+- Reference — exact signatures and types.
+- Explanation — why the API is shaped this way.
 
 ## Position in the Pyric stack
 

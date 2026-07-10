@@ -2,7 +2,7 @@
 title: "<CollectionList>"
 group: "@pyric/ui"
 section: "Firestore"
-order: 195
+order: 163
 ---
 # `<CollectionList>`
 

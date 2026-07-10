@@ -2,7 +2,7 @@
 title: "<ConfirmDialog> + useConfirm"
 group: "@pyric/ui"
 section: "Primitives"
-order: 189
+order: 157
 ---
 # `<ConfirmDialog>` + `useConfirm`
 

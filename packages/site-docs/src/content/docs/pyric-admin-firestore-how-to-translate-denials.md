@@ -3,7 +3,7 @@ title: "How to translate denials with denialContext"
 navLabel: "Translate denials"
 group: "pyric-admin / firestore"
 section: "How-to"
-order: 171
+order: 145
 ---
 # How to translate denials with `denialContext`
 
@@ -30,7 +30,7 @@ try {
   }
 }
 ```
-`SandboxError` is re-exported from `pyric/sandbox`, so you can import it directly from `pyric-admin`. The `instanceof` check is what TypeScript narrows on: `e.code` is then typed.
+`SandboxError` is re-exported from `pyric/sandbox`, so you can import it directly from `pyric-admin`. The `instanceof` check is what TypeScript narrows on — `e.code` is then typed.
 
 ## What `denialContext` carries
 ```ts
@@ -85,13 +85,13 @@ function DenialBanner({ error }: { error: SandboxError }) {
   );
 }
 ```
-Real Firebase strips this context server-side for security. The sandbox can expose it because it's a development tool: every field is useful for debugging without leaking anything sensitive about the rules engine.
+Real Firebase strips this context server-side for security. The sandbox can expose it because it's a development tool — every field is useful for debugging without leaking anything sensitive about the rules engine.
 
 ## Cross-listener denials
 
 The same `denialContext` shape appears on `SnapshotErrorEvent` (the payload of `sandbox.onSnapshotError`). When a snapshot listener is silently terminated, the host-level callback receives the same fields plus a `target` discriminator (`{ kind: 'doc', path }` or `{ kind: 'query', collection }`).
 
-This means one denial-UI component can render denials from anywhere (try/catch sites, listener errors, host channels) without translating between shapes.
+This means one denial-UI component can render denials from anywhere — try/catch sites, listener errors, host channels — without translating between shapes.
 
 ## Where to look next
 

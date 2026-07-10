@@ -279,6 +279,9 @@ export function toMutation(event: SandboxEvent): Mutation | null {
   }
 
   if (event.kind === 'service_mutation') {
+    // AI broker ops (generate_content, count_tokens, …) don't mutate backend
+    // state — they're Traffic's domain, not the activity digest's.
+    if (event.service === 'ai') return null;
     const target =
       event.path ?? (event.service === 'auth' ? 'session' : '');
     return {
