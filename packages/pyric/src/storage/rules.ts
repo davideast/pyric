@@ -31,17 +31,28 @@
  *       binary: `&& || == != < > <= >= + - * /`
  *       parens
  *       user-defined function calls (`isOwner(uid)`)
+ *       `request.time` compared against the timestamp constructors
+ *         `timestamp.date(y, m, d)` (UTC midnight) and
+ *         `timestamp.value(epochMillis)`. The caller injects the time
+ *         (3rd arg to `evaluateStorageRules`), defaulting to now.
+ *       `string.matches(re)` — whole-string RE2-style regex match
+ *         (see `evalMatches` for the RE2-vs-JS divergence handling)
+ *       custom-metadata access in both dotted (`resource.metadata.owner`)
+ *         and bracket (`resource.metadata['owner']`) form — the metadata
+ *         map is a plain string→string object, so both resolve identically
+ *         and a missing key is `undefined` (falsy → deny).
  *   - `function name(params) { let …; return expr; }` declarations at
  *     service scope or inside a `match` block. Lexically scoped (visible
  *     within the declaring block and nested blocks; inner shadows
  *     outer), may call other functions, support `let` bindings, and are
  *     depth-capped. Any function-eval failure denies with a reason.
  *
- * Out of scope (mirrors the survey + plan): `request.time`,
- * `matches()`/regex, `customMetadata.<field>`
- * deep access (use bracket form against `resource.metadata` when
- * really needed). Hooks for adding more live at the obvious
- * extension seams in the parser + evaluator.
+ * Still out of scope (mirrors the survey + plan): cross-document lookups
+ * (`firestore.get`/`exists`) and `resource.timeCreated`/`updated`
+ * (the evaluator's resource model carries size/contentType/metadata only,
+ * not server timestamps — those fields read `undefined`). Unknown builtins
+ * deny with a reason rather than false-allow. Hooks for adding more live at
+ * the obvious extension seams in the parser + evaluator.
  */
 
 // ═══════════════════════════════════════════════════════════════
@@ -180,7 +191,12 @@ type Expr =
   | { kind: 'index'; target: Expr; index: Expr }
   | { kind: 'unary'; op: '!'; arg: Expr }
   | { kind: 'binary'; op: BinaryOp; left: Expr; right: Expr }
-  | { kind: 'call'; name: string; args: Expr[] };
+  | { kind: 'call'; name: string; args: Expr[] }
+  /** A method / namespace call: `<target>.<method>(args)`. Covers
+   *  `string.matches(re)` (target is any string expr) and the timestamp
+   *  namespace constructors `timestamp.date(y,m,d)` / `timestamp.value(ms)`
+   *  (target is the bare `timestamp` identifier). */
+  | { kind: 'methodcall'; target: Expr; method: string; args: Expr[] };
 
 // ═══════════════════════════════════════════════════════════════
 // Lexer
@@ -508,12 +524,11 @@ class Parser {
         this.expectPunct(']');
         target = { kind: 'index', target, index };
       } else if (this.atPunct('(')) {
-        // Call — user-defined functions are invoked by bare name.
-        if (target.kind !== 'ident') {
-          throw new SyntaxError(
-            `Call expression at offset ${this.peek().pos} must target a plain function name.`,
-          );
-        }
+        // Call. Two shapes are accepted:
+        //   - bare ident `f(...)`   → user-defined function call
+        //   - member `x.m(...)`     → method / namespace call
+        //     (`string.matches(re)`, `timestamp.date(...)`, …)
+        // Anything else (e.g. `x['k'](...)`) is not callable.
         this.expectPunct('(');
         const args: Expr[] = [];
         if (!this.atPunct(')')) {
@@ -524,7 +539,15 @@ class Parser {
           }
         }
         this.expectPunct(')');
-        target = { kind: 'call', name: target.name, args };
+        if (target.kind === 'ident') {
+          target = { kind: 'call', name: target.name, args };
+        } else if (target.kind === 'member') {
+          target = { kind: 'methodcall', target: target.target, method: target.name, args };
+        } else {
+          throw new SyntaxError(
+            `Call expression at offset ${this.peek().pos} must target a function name or a member.`,
+          );
+        }
       } else {
         return target;
       }
@@ -697,7 +720,13 @@ export function requestResourceFor(args: {
 export function evaluateStorageRules(
   rules: StorageRules,
   input: EvaluationInput,
+  now: Date = new Date(),
 ): EvaluationResult {
+  // `request.time` is the request's evaluation moment, modeled internally
+  // as epoch milliseconds so it compares numerically against the
+  // `timestamp.date(...)` / `timestamp.value(...)` constructors. The caller
+  // injects it (deterministic in tests); it defaults to now.
+  const nowMillis = now.getTime();
   const pathSegments = splitPath(input.request.path);
   const reasons: string[] = [];
 
@@ -738,6 +767,7 @@ export function evaluateStorageRules(
           result = rule.condition
             ? truthy(evalExpr(rule.condition, {
                 input,
+                now: nowMillis,
                 params: newParams,
                 locals: {},
                 funcs: block.visibleFuncs ?? new Map(),
@@ -852,6 +882,9 @@ const MAX_CALL_DEPTH = 20;
 /** Everything an expression needs to evaluate. */
 interface EvalCtx {
   input: EvaluationInput;
+  /** `request.time` as epoch milliseconds (injected by the caller,
+   *  defaulting to evaluation-time now). */
+  now: number;
   /** Path wildcards from the enclosing match. Empty inside a function
    *  body: caller wildcards do not leak in except via arguments. */
   params: Record<string, string | string[]>;
@@ -881,7 +914,7 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
     case 'ident': {
       // Local (param / let) bindings win over globals and path params.
       if (expr.name in ctx.locals) return ctx.locals[expr.name];
-      if (expr.name === 'request') return buildRequestObject(ctx.input);
+      if (expr.name === 'request') return buildRequestObject(ctx.input, ctx.now);
       if (expr.name === 'resource') return ctx.input.resource;
       if (expr.name in ctx.params) return ctx.params[expr.name];
       return undefined;
@@ -901,6 +934,8 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
     }
     case 'call':
       return evalCall(expr, ctx);
+    case 'methodcall':
+      return evalMethodCall(expr, ctx);
     case 'unary':
       return !truthy(evalExpr(expr.arg, ctx));
     case 'binary': {
@@ -968,6 +1003,7 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
   });
   const bodyCtx: EvalCtx = {
     input: ctx.input,
+    now: ctx.now,
     params: {}, // no dynamic-scope leakage of caller wildcards
     locals,
     funcs: fn.declScope ?? new Map(),
@@ -992,11 +1028,122 @@ function numOp(a: unknown, b: unknown, fn: (x: number, y: number) => number): un
   return fn(a, b);
 }
 
-function buildRequestObject(input: EvaluationInput): Record<string, unknown> {
+function buildRequestObject(input: EvaluationInput, now: number): Record<string, unknown> {
   return {
     auth: input.request.auth,
     resource: input.request.resource,
     method: input.request.method,
     path: input.request.path,
+    // `request.time` as epoch millis — see the timestamp constructors in
+    // `evalMethodCall`, which produce the same representation so comparisons
+    // like `request.time < timestamp.date(2030, 1, 1)` are plain numerics.
+    time: now,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Builtin method / namespace calls
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Evaluate a `<target>.<method>(args)` call. Two builtin families are
+ * supported; everything else denies (throws `RuleEvalError`), so unknown
+ * builtins — including deliberately-out-of-scope `firestore.get`/`exists` —
+ * deny with a reason rather than ever a false allow.
+ *
+ *   - `string.matches(re)` — RE2-style whole-string regex match.
+ *   - `timestamp.date(y, m, d)` / `timestamp.value(epochMillis)` —
+ *     timestamp constructors, returned as epoch millis to compare against
+ *     `request.time`.
+ */
+function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
+  // Timestamp namespace: `timestamp.date(...)` / `timestamp.value(...)`.
+  // Detected structurally on the bare `timestamp` identifier (not a bound
+  // local/param/global) so a user value named `timestamp` can't hijack it.
+  if (
+    expr.target.kind === 'ident' &&
+    expr.target.name === 'timestamp' &&
+    !(expr.target.name in ctx.locals) &&
+    !(expr.target.name in ctx.params)
+  ) {
+    return evalTimestampBuiltin(expr, ctx);
+  }
+
+  if (expr.method === 'matches') {
+    return evalMatches(expr, ctx);
+  }
+
+  throw new RuleEvalError(`unsupported method .${expr.method}()`);
+}
+
+/** `timestamp.date(year, month, day)` (UTC midnight) and
+ *  `timestamp.value(epochMillis)`, both returning epoch milliseconds. */
+function evalTimestampBuiltin(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): number {
+  const args = expr.args.map((a) => evalExpr(a, ctx));
+  if (expr.method === 'value') {
+    if (args.length !== 1 || typeof args[0] !== 'number') {
+      throw new RuleEvalError(`timestamp.value() expects (epochMillis: number)`);
+    }
+    return args[0];
+  }
+  if (expr.method === 'date') {
+    if (args.length !== 3 || !args.every((a) => typeof a === 'number')) {
+      throw new RuleEvalError(`timestamp.date() expects (year, month, day) numbers`);
+    }
+    const [y, m, d] = args as [number, number, number];
+    // Production `timestamp.date(y, m, d)` is UTC midnight; month is 1-based.
+    return Date.UTC(y, m - 1, d);
+  }
+  throw new RuleEvalError(`unsupported timestamp.${expr.method}()`);
+}
+
+/**
+ * `string.matches(re)` — regex match anchored to the WHOLE string, mirroring
+ * production Storage (which anchors implicitly, so `'abc'.matches('a')` is
+ * FALSE).
+ *
+ * RE2-vs-JS divergence (honest note): production runs RE2, we compile the
+ * pattern with JavaScript's `RegExp`. JS RegExp is a superset of RE2 —
+ * backreferences (`\1`) and lookaround (`(?=`, `(?!`, `(?<=`, `(?<!`) work in
+ * JS but are UNSUPPORTED in RE2 and would fail in production. To avoid ever
+ * false-allowing on a pattern production would reject, those constructs are
+ * detected up front and denied. Invalid patterns (that even JS won't compile)
+ * also deny. A non-string target (e.g. a missing metadata key → undefined)
+ * denies too — production would error, and an error denies.
+ */
+function evalMatches(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): boolean {
+  const subject = evalExpr(expr.target, ctx);
+  if (typeof subject !== 'string') {
+    throw new RuleEvalError(`matches() requires a string target, got ${describeType(subject)}`);
+  }
+  if (expr.args.length !== 1) {
+    throw new RuleEvalError(`matches() expects a single pattern argument`);
+  }
+  const pattern = evalExpr(expr.args[0], ctx);
+  if (typeof pattern !== 'string') {
+    throw new RuleEvalError(`matches() pattern must be a string`);
+  }
+  // Detect RE2-unsupported constructs JS would happily (mis)compile.
+  const backref = /\\[1-9]/.test(pattern);
+  const lookaround = /\(\?<?[=!]/.test(pattern);
+  if (backref || lookaround) {
+    throw new RuleEvalError(
+      `matches() pattern uses an RE2-unsupported construct (${backref ? 'backreference' : 'lookaround'}) that production would reject`,
+    );
+  }
+  let re: RegExp;
+  try {
+    // Anchor to the whole string. `(?:...)` keeps the caller's alternations
+    // from binding past the anchors.
+    re = new RegExp(`^(?:${pattern})$`);
+  } catch (err) {
+    throw new RuleEvalError(`matches() invalid regex pattern: ${(err as Error).message}`);
+  }
+  return re.test(subject);
+}
+
+function describeType(v: unknown): string {
+  if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
+  return typeof v;
 }

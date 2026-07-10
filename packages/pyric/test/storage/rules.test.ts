@@ -273,6 +273,145 @@ describe('evaluateStorageRules — metadata bindings (#764)', () => {
   });
 });
 
+// ─── Custom metadata: dotted AND bracket access ──────────────────
+//
+// Custom metadata is a flat string→string map. Both `resource.metadata.owner`
+// (dotted) and `resource.metadata['owner']` (bracket) must resolve to the
+// same value; a missing key resolves to undefined and denies (never a false
+// allow).
+
+describe('evaluateStorageRules — custom metadata access forms', () => {
+  const path = 'b/pyric-default/o/docs/d1.json';
+
+  function evalRead(cond: string, metadata: Record<string, string>, uid: string): boolean {
+    const rules = parseStorageRules(`service firebase.storage {
+      match /b/{bucket}/o {
+        match /docs/{docId} { allow read: if ${cond}; }
+      }
+    }`);
+    return evaluateStorageRules(rules, {
+      request: { auth: { uid }, method: 'read', path },
+      resource: { size: 3, metadata },
+    }).allowed;
+  }
+
+  it('resolves dotted metadata access', () => {
+    expect(evalRead("resource.metadata.owner == request.auth.uid", { owner: 'alice' }, 'alice')).toBe(true);
+  });
+
+  it('resolves bracket metadata access identically to dotted', () => {
+    expect(evalRead("resource.metadata['owner'] == request.auth.uid", { owner: 'alice' }, 'alice')).toBe(true);
+  });
+
+  it('denies when the metadata key is absent (undefined, never a false allow)', () => {
+    expect(evalRead("resource.metadata.owner == request.auth.uid", { other: 'alice' }, 'alice')).toBe(false);
+    expect(evalRead("resource.metadata['owner'] == request.auth.uid", { other: 'alice' }, 'alice')).toBe(false);
+  });
+});
+
+// ─── request.time + timestamp constructors ───────────────────────
+//
+// `request.time` is the request's evaluation moment. Rules compare it
+// against `timestamp.date(y,m,d)` (UTC midnight) and
+// `timestamp.value(epochMillis)`. The caller injects the time (3rd arg);
+// it defaults to now at evaluation.
+
+describe('evaluateStorageRules — request.time', () => {
+  const path = 'b/pyric-default/o/docs/d1.json';
+
+  function evalTime(cond: string, now: Date): boolean {
+    const rules = parseStorageRules(`service firebase.storage {
+      match /b/{bucket}/o {
+        match /docs/{docId} { allow read: if ${cond}; }
+      }
+    }`);
+    return evaluateStorageRules(
+      rules,
+      { request: { auth: { uid: 'alice' }, method: 'read', path }, resource: { size: 1 } },
+      now,
+    ).allowed;
+  }
+
+  it('allows when request.time is before timestamp.date deadline', () => {
+    expect(evalTime('request.time < timestamp.date(2030, 1, 1)', new Date('2026-07-10T00:00:00Z'))).toBe(true);
+  });
+
+  it('denies when request.time is after timestamp.date deadline', () => {
+    expect(evalTime('request.time < timestamp.date(2030, 1, 1)', new Date('2031-01-01T00:00:00Z'))).toBe(false);
+  });
+
+  it('compares request.time against timestamp.value(epochMillis)', () => {
+    const cutoff = Date.UTC(2028, 0, 1);
+    expect(evalTime(`request.time < timestamp.value(${cutoff})`, new Date(cutoff - 1000))).toBe(true);
+    expect(evalTime(`request.time < timestamp.value(${cutoff})`, new Date(cutoff + 1000))).toBe(false);
+  });
+
+  it('defaults request.time to now when the caller omits it', () => {
+    const rules = parseStorageRules(`service firebase.storage {
+      match /b/{bucket}/o {
+        match /docs/{docId} { allow read: if request.time < timestamp.date(2100, 1, 1); }
+      }
+    }`);
+    const r = evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: 'read', path },
+      resource: { size: 1 },
+    });
+    expect(r.allowed).toBe(true);
+  });
+});
+
+// ─── string.matches() regex ──────────────────────────────────────
+//
+// `string.matches(re)` — RE2-style pattern that must match the WHOLE
+// string (production anchors implicitly). Invalid patterns and known
+// RE2-unsupported constructs deny with a reason, never a false allow.
+
+describe('evaluateStorageRules — matches()', () => {
+  const path = 'b/pyric-default/o/docs/d1.json';
+
+  function evalMatch(cond: string, metadata: Record<string, string>): { allowed: boolean; reasons: string[] } {
+    const rules = parseStorageRules(`service firebase.storage {
+      match /b/{bucket}/o {
+        match /docs/{docId} { allow read: if ${cond}; }
+      }
+    }`);
+    return evaluateStorageRules(rules, {
+      request: { auth: { uid: 'alice' }, method: 'read', path },
+      resource: { size: 1, metadata },
+    });
+  }
+
+  it('matches a whole-string pattern', () => {
+    expect(evalMatch("resource.metadata.kind.matches('[a-z]+')", { kind: 'report' }).allowed).toBe(true);
+  });
+
+  it('is whole-string anchored: partial pattern does NOT match', () => {
+    // 'abc'.matches('a') is FALSE — production anchors implicitly.
+    expect(evalMatch("resource.metadata.kind.matches('a')", { kind: 'abc' }).allowed).toBe(false);
+  });
+
+  it('denies (with reason) on an invalid regex pattern', () => {
+    const r = evalMatch("resource.metadata.kind.matches('[')", { kind: 'abc' });
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('matches');
+  });
+
+  it('denies a backreference pattern (RE2-unsupported, would fail in production)', () => {
+    const r = evalMatch("resource.metadata.kind.matches('(a)\\\\1')", { kind: 'aa' });
+    expect(r.allowed).toBe(false);
+  });
+
+  it('denies a lookahead pattern (RE2-unsupported, would fail in production)', () => {
+    const r = evalMatch("resource.metadata.kind.matches('a(?=b)')", { kind: 'ab' });
+    expect(r.allowed).toBe(false);
+  });
+
+  it('denies matches() against a non-string target', () => {
+    const r = evalMatch("resource.metadata.missing.matches('.*')", { kind: 'abc' });
+    expect(r.allowed).toBe(false);
+  });
+});
+
 // ─── Granular verbs (get/list/create/update/delete) ──────────────
 //
 // Production Storage semantics:
