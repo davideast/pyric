@@ -89,6 +89,9 @@ export function reducer(
         errorCount: countErrors(state.initial),
       };
 
+    case 'replaceData':
+      return initState(action.data);
+
     case 'touch': {
       const node = state.tree.nodes[action.nodeId];
       if (!node || node.touched) return state; // no-op: already touched

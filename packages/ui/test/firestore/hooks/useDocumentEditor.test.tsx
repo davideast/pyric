@@ -40,6 +40,18 @@ describe('useDocumentEditor', () => {
     expect(result.current.toData()).toEqual({ name: 'Alice' });
   });
 
+  it('replaceData adopts a live snapshot as the new clean baseline', () => {
+    const { result } = renderHook(() =>
+      useDocumentEditor({ initial: { name: 'Alice' } }),
+    );
+    act(() => {
+      result.current.replaceData({ name: 'Bob', online: true });
+    });
+
+    expect(result.current.toData()).toEqual({ name: 'Bob', online: true });
+    expect(result.current.isDirty).toBe(false);
+  });
+
   it('isValid flips false when a duplicate key is set', () => {
     const { result } = renderHook(() =>
       useDocumentEditor({ initial: { a: 1, b: 2 } }),

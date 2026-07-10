@@ -88,6 +88,10 @@
   --diff-add-bg: #111d16;
   --diff-remove: #e2607a;
   --diff-remove-bg: #221318;
+  --update-added-bg: #19402b;
+  --update-modified-bg: #4a3512;
+  --update-added-ink: #57d685;
+  --update-modified-ink: #ffb300;
 }
 
 /* ── SYSTEM LIGHT: OS asks for light AND no explicit choice ─────────────── */
@@ -116,6 +120,10 @@
     --diff-add-bg: #eef8f1;
     --diff-remove: #c2374b;
     --diff-remove-bg: #fceef0;
+    --update-added-bg: #d9f4e3;
+    --update-modified-bg: #ffedb3;
+    --update-added-ink: #188038;
+    --update-modified-ink: #9a5b00;
   }
 }
 
@@ -144,6 +152,10 @@
   --diff-add-bg: #eef8f1;
   --diff-remove: #c2374b;
   --diff-remove-bg: #fceef0;
+  --update-added-bg: #d9f4e3;
+  --update-modified-bg: #ffedb3;
+  --update-added-ink: #188038;
+  --update-modified-ink: #9a5b00;
 }
 
 /* `[data-theme="dark"]` needs no block: `:root` already carries dark, and the

@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react';
-import {
-  onSnapshot,
-  type Query,
-  type QuerySnapshot,
-} from 'pyric/firestore';
+import type { Query, QuerySnapshot } from 'pyric/firestore';
 import { coerceError } from './coerceError.js';
 import type { SubscriptionState } from './useFirestoreDoc.js';
+import { useFirestoreApi } from '../firestoreApi.js';
 
 /**
  * Subscribe to a Firestore query (a `Query` from `pyric/firestore`'s
@@ -20,6 +17,7 @@ import type { SubscriptionState } from './useFirestoreDoc.js';
 export function useFirestoreCollection(
   query: Query | null | undefined,
 ): SubscriptionState<QuerySnapshot> {
+  const { onSnapshot } = useFirestoreApi();
   const [state, setState] = useState<SubscriptionState<QuerySnapshot>>(() => ({
     data: undefined,
     error: undefined,
@@ -47,7 +45,7 @@ export function useFirestoreCollection(
     );
 
     return unsubscribe;
-  }, [query]);
+  }, [onSnapshot, query]);
 
   return state;
 }

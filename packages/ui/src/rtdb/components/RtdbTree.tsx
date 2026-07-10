@@ -94,6 +94,7 @@ function Node({ tree, api, onNavigate, path, label, isViewRoot }: NodeProps) {
   const value = tree.valueAt(path);
   const isParent = hasRtdbChildren(value);
   const expanded = tree.isExpanded(path);
+  const update = tree.updateAt(path);
 
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -125,7 +126,11 @@ function Node({ tree, api, onNavigate, path, label, isViewRoot }: NodeProps) {
       data-rtdb-view-root={isViewRoot ? '' : undefined}
       data-rtdb-expanded={isParent && expanded ? '' : undefined}
     >
-      <div data-rtdb-row>
+      <div
+        data-rtdb-row
+        data-pyric-update={update?.kind}
+        data-pyric-update-cycle={update?.cycle}
+      >
         {isParent && !isViewRoot ? (
           <button
             type="button"

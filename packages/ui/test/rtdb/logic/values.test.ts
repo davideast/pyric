@@ -16,6 +16,7 @@ import {
   rtdbValueAt,
   rtdbValueKind,
 } from '../../../src/rtdb/index.js';
+import { rtdbUpdateEntries } from '../../../src/rtdb/values.js';
 
 describe('RTDB path helpers', () => {
   test('normalizes and joins RTDB paths', () => {
@@ -102,5 +103,17 @@ describe('RTDB value helpers', () => {
     expect(hasRtdbChildren({})).toBe(false);
     expect(hasRtdbChildren('scalar')).toBe(false);
     expect(hasRtdbChildren(null)).toBe(false);
+  });
+
+  test('update entries fingerprint leaves and direct parent shape', () => {
+    const entries = rtdbUpdateEntries(
+      { rooms: { alpha: { score: 1 } }, online: true },
+      '/',
+    );
+
+    expect(entries.get('/')).toEqual(['parent', ['online', 'rooms']]);
+    expect(entries.get('/rooms')).toEqual(['parent', ['alpha']]);
+    expect(entries.get('/rooms/alpha/score')).toEqual(['leaf', 1]);
+    expect(entries.get('/online')).toEqual(['leaf', true]);
   });
 });

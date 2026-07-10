@@ -129,6 +129,53 @@ export function rtdbValueKind(value: unknown): string {
   return typeof value;
 }
 
+/** Structural equality for JSON-shaped RTDB snapshots and row fingerprints. */
+export function rtdbValuesEqual(previous: unknown, next: unknown): boolean {
+  if (Object.is(previous, next)) return true;
+  if (Array.isArray(previous) || Array.isArray(next)) {
+    if (!Array.isArray(previous) || !Array.isArray(next)) return false;
+    if (previous.length !== next.length) return false;
+    return previous.every((value, index) => rtdbValuesEqual(value, next[index]));
+  }
+  if (
+    previous === null ||
+    next === null ||
+    typeof previous !== 'object' ||
+    typeof next !== 'object'
+  ) {
+    return false;
+  }
+  const previousRecord = previous as Record<string, unknown>;
+  const nextRecord = next as Record<string, unknown>;
+  const previousKeys = Object.keys(previousRecord);
+  const nextKeys = Object.keys(nextRecord);
+  if (previousKeys.length !== nextKeys.length) return false;
+  return previousKeys.every(
+    (key) => key in nextRecord && rtdbValuesEqual(previousRecord[key], nextRecord[key]),
+  );
+}
+
+/** One comparison fingerprint per RTDB row. Parent fingerprints contain only
+ * direct child keys, so leaf changes remain local while additions/removals
+ * also light the immediate parent. */
+export function rtdbUpdateEntries(
+  value: unknown,
+  rootPath: string,
+): ReadonlyMap<string, unknown> {
+  const entries = new Map<string, unknown>();
+  const visit = (current: unknown, path: string) => {
+    if (!hasRtdbChildren(current)) {
+      entries.set(path, ['leaf', current ?? null]);
+      return;
+    }
+    const children = rtdbChildEntries(current);
+    entries.set(path, ['parent', children.map(([key]) => key)]);
+    for (const [key, child] of children) visit(child, joinRtdbPath(path, key));
+  };
+  visit(value, normalizeRtdbPath(rootPath));
+  return entries;
+}
+
 export function previewRtdbValue(value: unknown): string {
   if (value === null || value === undefined) return 'null';
   if (Array.isArray(value)) return `${value.length} items`;

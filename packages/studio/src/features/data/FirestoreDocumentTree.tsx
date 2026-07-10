@@ -27,6 +27,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DocumentReference, DocumentSnapshot, Firestore } from 'pyric/firestore';
 import {
   FieldRenderer,
+  firestoreValuesEqual,
+  inferType,
   mergeFieldEditors,
   useDocumentEditor,
   validateLeaf,
@@ -40,11 +42,17 @@ import {
   useDocumentSubcollections,
   type ListSubcollections,
 } from '@pyric/ui/firestore/hooks';
-import { useConfirm } from '@pyric/ui/primitives';
+import {
+  useConfirm,
+  useUpdateHighlights,
+  type UpdateHighlight,
+} from '@pyric/ui/primitives';
 import type { CollectionReference } from 'pyric/firestore';
 import { OverflowMenu } from './OverflowMenu.js';
 import {
   containerPreview,
+  firestoreDataUpdateEntries,
+  firestoreRowIdentity,
   fieldPath,
   rowLabel,
   shouldSkipDeleteConfirm,
@@ -91,8 +99,12 @@ export function FirestoreDocumentTree({
   listSubcollections,
   onSubcollectionClick,
 }: FirestoreDocumentTreeProps) {
-  const initial = useMemo(
+  const snapshotData = useMemo(
     () => (snapshot?.data() as Record<string, unknown>) ?? {},
+    [snapshot],
+  );
+  const initial = useMemo(
+    () => snapshotData,
     // Deliberately keyed by the doc's identity, not `snapshot` — the
     // consumer remounts this component (`key={docPath}`) on doc change,
     // so `initial` only needs to be computed once per mount.
@@ -100,14 +112,26 @@ export function FirestoreDocumentTree({
     [],
   );
   const editor = useDocumentEditor({ initial });
+  const replaceEditorData = editor.replaceData;
   const registry = useMemo(() => mergeFieldEditors(fieldEditors), [fieldEditors]);
   const confirm = useConfirm();
 
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
+  const appliedSnapshotRef = useRef(snapshot);
   const newIdsRef = useRef<Set<string>>(new Set());
   const needsCommitRef = useRef(false);
   const [commitError, setCommitError] = useState<Error | null>(null);
+  const updateEntries = useMemo(
+    () => firestoreDataUpdateEntries(snapshotData, inferType),
+    [snapshotData],
+  );
+  const updates = useUpdateHighlights({
+    scope: documentRef.path,
+    entries: updateEntries,
+    equals: firestoreValuesEqual,
+    ready: editingId === null,
+  });
 
   // Commits fire from an effect (not inline in the handlers) so the
   // reducer's freshest tree is what gets serialized — dispatch is
@@ -122,11 +146,22 @@ export function FirestoreDocumentTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor.tree]);
 
-  const toggle = useCallback((id: string) => {
+  // Live snapshots replace the editor's clean baseline. While an inline editor
+  // is open, keep its draft stable and apply only the newest delivered snapshot
+  // after editing closes. Local writes still win because the component's
+  // existing commit path writes the full document.
+  useEffect(() => {
+    if (!snapshot || snapshot === appliedSnapshotRef.current || editingId !== null) return;
+    appliedSnapshotRef.current = snapshot;
+    newIdsRef.current.clear();
+    replaceEditorData((snapshot.data() as Record<string, unknown>) ?? {});
+  }, [editingId, replaceEditorData, snapshot]);
+
+  const toggle = useCallback((path: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
       return next;
     });
   }, []);
@@ -139,7 +174,10 @@ export function FirestoreDocumentTree({
       } else {
         editor.addArrayEntry(parentId, 'string');
       }
-      setExpanded((prev) => new Set(prev).add(parentId));
+      if (parentId !== editor.tree.rootId) {
+        const parentIdentity = firestoreRowIdentity(editor.tree, parentId);
+        setExpanded((prev) => new Set(prev).add(parentIdentity));
+      }
       // The new child always lands at the END of the parent's list —
       // the effect below grabs it once the dispatch's tree lands.
       setPendingAddParent(parentId);
@@ -256,6 +294,7 @@ export function FirestoreDocumentTree({
               needsCommitRef.current = true;
             }}
             onReferenceClick={onReferenceClick}
+            updates={updates}
           />
         ))}
       </ul>
@@ -286,6 +325,7 @@ interface RowProps {
   onDelete: (node: FieldNode, label: string, e: { shiftKey: boolean }) => void;
   onCommitNeeded: () => void;
   onReferenceClick?: (ref: DocumentReference) => void;
+  updates: ReadonlyMap<string, UpdateHighlight>;
 }
 
 function Row({
@@ -302,16 +342,19 @@ function Row({
   onDelete,
   onCommitNeeded,
   onReferenceClick,
+  updates,
 }: RowProps) {
   const { tree } = editor;
   const node = tree.nodes[nodeId];
   if (!node) return null;
   const { label, isArrayChild } = rowLabel(tree, nodeId);
   const isContainer = node.type === 'map' || node.type === 'array';
-  const isOpen = expanded.has(nodeId);
+  const path = fieldPath(tree, nodeId);
+  const rowIdentity = firestoreRowIdentity(tree, nodeId);
+  const update = updates.get(rowIdentity);
+  const isOpen = expanded.has(rowIdentity);
   const isEditing = editingId === nodeId;
   const isNew = newIdsRef.current.has(nodeId);
-  const path = fieldPath(tree, nodeId);
 
   if (isEditing) {
     return (
@@ -350,13 +393,17 @@ function Row({
       data-pyric-doctree-nested={isContainer ? '' : undefined}
       style={{ ['--fs-depth' as string]: depth }}
     >
-      <div className="fs-doctree__line">
+      <div
+        className="fs-doctree__line"
+        data-pyric-update={update?.kind}
+        data-pyric-update-cycle={update?.cycle}
+      >
         {isContainer ? (
           <button
             type="button"
             className="fs-doctree__caret"
             aria-expanded={isOpen}
-            onClick={() => onToggle(nodeId)}
+            onClick={() => onToggle(rowIdentity)}
           >
             <span aria-hidden="true">{isOpen ? '▼' : '▶'}</span>
           </button>
@@ -435,6 +482,7 @@ function Row({
               onDelete={onDelete}
               onCommitNeeded={onCommitNeeded}
               onReferenceClick={onReferenceClick}
+              updates={updates}
             />
           ))}
           <li className="fs-doctree__action-row fs-doctree__action-row--nested">

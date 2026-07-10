@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
-import {
-  onSnapshot,
-  type DocumentReference,
-  type DocumentSnapshot,
-} from 'pyric/firestore';
+import type { DocumentReference, DocumentSnapshot } from 'pyric/firestore';
 import { coerceError } from './coerceError.js';
+import { useFirestoreApi } from '../firestoreApi.js';
 
 export interface SubscriptionState<T> {
   data: T | undefined;
@@ -24,6 +21,7 @@ export interface SubscriptionState<T> {
 export function useFirestoreDoc(
   ref: DocumentReference | null | undefined,
 ): SubscriptionState<DocumentSnapshot> {
+  const { onSnapshot } = useFirestoreApi();
   const [state, setState] = useState<SubscriptionState<DocumentSnapshot>>(() => ({
     data: undefined,
     error: undefined,
@@ -51,7 +49,7 @@ export function useFirestoreDoc(
     );
 
     return unsubscribe;
-  }, [ref]);
+  }, [onSnapshot, ref]);
 
   return state;
 }

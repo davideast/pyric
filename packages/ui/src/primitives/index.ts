@@ -31,3 +31,9 @@ export {
   type ContainerSize,
   type UseContainerSizeOptions,
 } from './hooks/useContainerSize.js';
+export {
+  useUpdateHighlights,
+  type UpdateHighlight,
+  type UpdateHighlightKind,
+  type UseUpdateHighlightsOptions,
+} from './hooks/useUpdateHighlights.js';

@@ -26,7 +26,7 @@ import type {
   Firestore,
   QueryDocumentSnapshot,
 } from 'pyric/firestore';
-import { useDocumentList } from '@pyric/ui/firestore/hooks';
+import { useDocumentList, useFirestoreDoc } from '@pyric/ui/firestore/hooks';
 import { ConfirmProvider, useConfirm, useContainerSize } from '@pyric/ui/primitives';
 import { useDataNav, parseDocPath, type NavigationPathSegment } from './navigation.js';
 import { PANEL_BREAKPOINTS, panelWindow } from './panelLayout.js';
@@ -360,8 +360,16 @@ function DocumentColumn({
     () => collectionAtPath(api, firestore, collectionPath),
     [api, firestore, collectionPath],
   );
-  const { documents, isLoading, error, hasMore, loadMore, createDocument, deleteDocument } =
-    useDocumentList({ collection });
+  const {
+    documents,
+    isLoading,
+    error,
+    subscriptionGeneration,
+    hasMore,
+    loadMore,
+    createDocument,
+    deleteDocument,
+  } = useDocumentList({ collection, mode: 'live' });
   const collId = collectionPath.split('/').pop() ?? collectionPath;
   // Per-row delete: plain click arms an inline confirm; shift-click deletes
   // immediately (rapid bulk delete). Only one row arms at a time.
@@ -449,6 +457,7 @@ function DocumentColumn({
         documents={documents}
         isLoading={isLoading}
         error={error}
+        updateScope={`${collectionPath}:${subscriptionGeneration}`}
         hasMore={hasMore}
         onLoadMore={loadMore}
         onSelect={onSelect}
@@ -542,23 +551,7 @@ function DocumentDetailColumn({
   onDeleted: () => void;
 }) {
   const ref = useMemo(() => api.doc(firestore, docPath), [api, firestore, docPath]);
-  const [snapshot, setSnapshot] = useState<DocumentSnapshot | null>(null);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getDoc(ref)
-      .then((snap) => {
-        if (!cancelled) setSnapshot(snap);
-      })
-      .catch(() => {
-        if (!cancelled) setSnapshot(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [api, ref, tick]);
+  const { data: snapshot, error: snapshotError, isLoading } = useFirestoreDoc(ref);
 
   const listSubcollections = useCallback(
     async (_fs: Firestore, parent: DocumentReference) => {
@@ -585,7 +578,6 @@ function DocumentDetailColumn({
 
   const onDeleteDocumentFields = useCallback(async () => {
     await api.setDoc(ref, {});
-    setTick((n) => n + 1);
   }, [api, ref]);
 
   const exists = snapshot != null && snapshotExists(snapshot);
@@ -605,7 +597,7 @@ function DocumentDetailColumn({
 
       {snapshot && exists ? (
         <FirestoreDocumentTree
-          key={`${docPath}:${tick}`}
+          key={docPath}
           snapshot={snapshot}
           documentRef={ref}
           firestore={firestore}
@@ -617,9 +609,12 @@ function DocumentDetailColumn({
           onDeleteDocumentFields={onDeleteDocumentFields}
           onCommit={async (data) => {
             await api.setDoc(ref, data);
-            setTick((n) => n + 1);
           }}
         />
+      ) : snapshotError ? (
+        <p className="fs-empty fs-doc-del-err">{snapshotError.message}</p>
+      ) : isLoading ? (
+        <p className="fs-empty">Loading document…</p>
       ) : (
         <p className="fs-empty">Empty document.</p>
       )}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   CollectionReference,
   DocumentReference,
@@ -13,16 +13,26 @@ export interface UseDocumentListOptions {
   query?: Query;
   /** Page size for cursor-based pagination. Default 50. */
   pageSize?: number;
+  /**
+   * `paged` preserves the historical get-based cursor behavior. `live` keeps
+   * the currently requested window under an `onSnapshot` subscription and
+   * grows that window when `loadMore` is requested. Default `paged`.
+   */
+  mode?: 'paged' | 'live';
 }
 
 export interface UseDocumentListResult {
   documents: QueryDocumentSnapshot[];
   isLoading: boolean;
   error: Error | undefined;
+  /** Identifies the active live subscription. Consumers that diff result
+   * snapshots can include this in their scope so a re-subscription (including
+   * load-more) establishes a silent baseline instead of looking like writes. */
+  subscriptionGeneration: number;
   /** True if there might be another page. The hook tracks this via
    *  the last fetch's length === pageSize. */
   hasMore: boolean;
-  /** Fetch the next page and append. */
+  /** Fetch the next page; live mode grows and re-establishes its window. */
   loadMore: () => void;
   /** Create a document. If `id` is null, Firestore generates one
    *  via `addDoc`. With `onExisting: 'fail'` (CREATE semantics, the
@@ -37,32 +47,31 @@ export interface UseDocumentListResult {
     opts?: { onExisting?: 'overwrite' | 'fail' },
   ) => Promise<DocumentReference>;
   deleteDocument: (ref: DocumentReference) => Promise<void>;
-  /** Reset pagination and re-fetch from the first page. Useful after
-   *  the consumer mutates data outside this hook. */
+  /** Re-establish the active read/subscription. Useful after the consumer
+   *  mutates data outside this hook. */
   refresh: () => void;
 }
 
 /**
- * Cursor-based paginated document list. Uses `startAfter` against
- * the last fetched snapshot — the consumer never sees cursor
- * mechanics. `documents` accumulates across pages.
- *
- * Note: this is read-via-get, not realtime. The list updates on
- * `loadMore` / `createDocument` / `deleteDocument` / `refresh`.
- * Realtime subscriptions for a collection live in
- * `useFirestoreCollection`; combining the two (paginated + realtime)
- * is non-trivial and deferred — see design rationale section M6.
+ * Paginated document list with two acquisition strategies. The default
+ * `paged` mode uses `startAfter` and accumulates one-shot reads. `live` keeps
+ * the requested prefix under one `onSnapshot` listener; loading more grows
+ * that prefix and establishes a new subscription baseline.
  */
 export function useDocumentList({
   collection,
   query,
   pageSize = 50,
+  mode = 'paged',
 }: UseDocumentListOptions): UseDocumentListResult {
   const [documents, setDocuments] = useState<QueryDocumentSnapshot[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | undefined>(undefined);
   const [hasMore, setHasMore] = useState(false);
   const [tick, setTick] = useState(0);
+  const [requestedCount, setRequestedCount] = useState(pageSize);
+  const nextSubscriptionGeneration = useRef(0);
+  const [subscriptionGeneration, setSubscriptionGeneration] = useState(0);
 
   // The modular fns, injected: in-process `pyric/firestore` by default, or the
   // SharedWorker client bundle when a consumer (Pyric Studio served mode) wraps
@@ -74,38 +83,81 @@ export function useDocumentList({
     getDoc,
     getDocs,
     limit: limitFn,
+    onSnapshot,
     query: queryFn,
     setDoc,
     startAfter: startAfterFn,
   } = useFirestoreApi();
 
   useEffect(() => {
+    setRequestedCount(pageSize);
+  }, [collection, mode, pageSize, query]);
+
+  useEffect(() => {
     let cancelled = false;
-    setDocuments([]);
+    if (mode === 'paged') setDocuments([]);
     setHasMore(false);
     setIsLoading(true);
     setError(undefined);
     const baseQuery = query ?? collection;
-    const pagedQuery = queryFn(baseQuery, limitFn(pageSize));
+    const fetchCount = mode === 'live' ? requestedCount : pageSize;
+    const pagedQuery = queryFn(baseQuery, limitFn(fetchCount));
+    const accept = (snap: { readonly docs: readonly QueryDocumentSnapshot[] }) => {
+      if (cancelled) return;
+      setDocuments([...snap.docs]);
+      setHasMore(snap.docs.length === fetchCount);
+      setIsLoading(false);
+    };
+    const reject = (e: unknown) => {
+      if (cancelled) return;
+      setError(e instanceof Error ? e : new Error(String(e)));
+      setIsLoading(false);
+    };
+
+    if (mode === 'live') {
+      const generation = ++nextSubscriptionGeneration.current;
+      const unsubscribe = onSnapshot(
+        pagedQuery,
+        (snap: unknown) => {
+          setSubscriptionGeneration(generation);
+          accept(snap as { readonly docs: readonly QueryDocumentSnapshot[] });
+        },
+        reject,
+      );
+      return () => {
+        cancelled = true;
+        unsubscribe();
+      };
+    }
+
     getDocs(pagedQuery)
       .then((snap) => {
-        if (cancelled) return;
-        setDocuments([...snap.docs]);
-        setHasMore(snap.docs.length === pageSize);
-        setIsLoading(false);
+        accept(snap);
       })
-      .catch((e) => {
-        if (cancelled) return;
-        setError(e instanceof Error ? e : new Error(String(e)));
-        setIsLoading(false);
-      });
+      .catch(reject);
     return () => {
       cancelled = true;
     };
-  }, [collection, query, pageSize, tick]);
+  }, [
+    collection,
+    getDocs,
+    limitFn,
+    mode,
+    onSnapshot,
+    pageSize,
+    query,
+    queryFn,
+    requestedCount,
+    tick,
+  ]);
 
   const loadMore = useCallback(() => {
     if (!hasMore || isLoading) return;
+    if (mode === 'live') {
+      setIsLoading(true);
+      setRequestedCount((count) => count + pageSize);
+      return;
+    }
     const last = documents[documents.length - 1];
     if (!last) return;
     setIsLoading(true);
@@ -121,13 +173,25 @@ export function useDocumentList({
         setError(e instanceof Error ? e : new Error(String(e)));
         setIsLoading(false);
       });
-  }, [collection, query, pageSize, documents, hasMore, isLoading]);
+  }, [
+    collection,
+    documents,
+    getDocs,
+    hasMore,
+    isLoading,
+    limitFn,
+    mode,
+    pageSize,
+    query,
+    queryFn,
+    startAfterFn,
+  ]);
 
   const createDocument = useCallback<UseDocumentListResult['createDocument']>(
     async (id, data, opts) => {
       if (id == null) {
         const ref = await addDoc(collection, data);
-        setTick((n) => n + 1);
+        if (mode === 'paged') setTick((n) => n + 1);
         return ref;
       }
       const ref = docFn(collection, id);
@@ -148,18 +212,18 @@ export function useDocumentList({
         }
       }
       await setDoc(ref, data);
-      setTick((n) => n + 1);
+      if (mode === 'paged') setTick((n) => n + 1);
       return ref;
     },
-    [collection],
+    [addDoc, collection, docFn, getDoc, mode, setDoc],
   );
 
   const deleteDocument = useCallback<UseDocumentListResult['deleteDocument']>(
     async (ref) => {
       await deleteDoc(ref);
-      setTick((n) => n + 1);
+      if (mode === 'paged') setTick((n) => n + 1);
     },
-    [],
+    [deleteDoc, mode],
   );
 
   const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -168,6 +232,7 @@ export function useDocumentList({
     documents,
     isLoading,
     error,
+    subscriptionGeneration,
     hasMore,
     loadMore,
     createDocument,
