@@ -35,6 +35,7 @@ export const DEFAULT_PROD_POLICIES: ReadonlyMap<string, ConfirmPolicy> = new Map
   ['firestore_rules_stdlib_get', 'never'],
   ['rtdb_get', 'never'],
   ['rtdb_get_rules', 'never'],
+  ['rtdb_generate_rules', 'never'],
   ['rtdb_simulate_access', 'never'],
   ['rtdb_build_expression', 'never'],
   ['rtdb_crawl_structure', 'never'],

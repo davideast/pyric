@@ -17,6 +17,7 @@
  *   pyric database:rules:lint <path>
  *   pyric database:rules:validate <path>
  *   pyric database:rules:simulate [--stdin]
+ *   pyric database:rules:generate [--config <path>] [--out <path>]
  *   pyric auth:configure-provider <provider> <true|false>
  *   pyric auth:manage-domains <add|remove|list> [domain]
  *   pyric firestore:discover [collection]
@@ -53,6 +54,7 @@ import {
   runDatabaseRulesLint,
   runDatabaseRulesValidate,
   runDatabaseRulesSimulate,
+  runDatabaseRulesGenerate,
 } from './database-rules.js';
 import { runAuthConfigureProvider, runAuthManageDomains } from './auth.js';
 import { runFirestoreDiscover } from './discover.js';
@@ -87,6 +89,7 @@ USAGE
   pyric database:rules:lint <path>
   pyric database:rules:validate <path>
   pyric database:rules:simulate [--stdin]
+  pyric database:rules:generate [--config <path>] [--out <path>]
   pyric auth:configure-provider <anonymous|email|phone|google> <true|false>
   pyric auth:manage-domains <add|remove|list> [domain]
   pyric firestore:discover [collection]
@@ -159,6 +162,7 @@ COMMANDS
   database:rules:lint        Run Realtime Database rules JSON expression linter.
   database:rules:validate    Validate Realtime Database rules JSON expressions.
   database:rules:simulate    Local RTDB rules simulator (smoke-test or --stdin scripted).
+  database:rules:generate    Compile a constraints module to database.rules.json.
   auth:configure-provider    Identity Toolkit: enable/disable an auth provider.
   auth:manage-domains        Identity Toolkit: add/remove/list authorized domains.
   firestore:discover         Crawl a Firestore to infer schema.
@@ -488,6 +492,8 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       return await runDatabaseRulesValidate(parsed);
     case 'database:rules:simulate':
       return await runDatabaseRulesSimulate(parsed);
+    case 'database:rules:generate':
+      return await runDatabaseRulesGenerate(parsed);
     case 'auth:configure-provider':
       return await runAuthConfigureProvider(parsed);
     case 'auth:manage-domains':

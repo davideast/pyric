@@ -2,7 +2,7 @@
 title: "SandboxFirestore surface"
 group: "pyric-admin / firestore"
 section: "Reference"
-order: 176
+order: 177
 ---
 # `SandboxFirestore` surface
 

@@ -106,6 +106,51 @@ type RtdbRulesCheckResult = {
 
 Compile failures return an error finding with code `COMPILE_ERROR`.
 
+### Generating `database.rules.json`
+
+`toJSON()` (above) compiles a constraints document to the exact
+`{ rules: {...} }` shape Firebase expects in `database.rules.json`. Everything
+that writes the file — the CLI, the MCP tool, and this helper — calls
+`toJSON()` and never recompiles the rules a second time.
+
+For scripts running in Node, `pyric/rules/node` exports a helper that writes
+the file directly:
+
+```ts
+import { writeRtdbRulesFile } from 'pyric/rules/node';
+import { rules } from './database.rules.js';
+
+const path = await writeRtdbRulesFile(rules, 'database.rules.json');
+```
+
+#### `writeRtdbRulesFile(doc, path): Promise<string>`
+
+Writes `doc.toJSON()` as pretty-printed JSON to `path`, creating parent
+directories as needed, and returns the resolved absolute path written. It is
+Node-only (imports `node:fs`), so it lives on the `pyric/rules/node` entry
+point rather than the isomorphic `pyric/rules/rtdb` entry — importing
+`pyric/rules/rtdb` never pulls in Node builtins.
+
+#### CLI
+
+```sh
+pyric database:rules:generate [--config <path>] [--out <path>]
+```
+
+Loads a constraints module (default `database.rules.ts`, or the `--config`
+path), looks for a named `rules` export or a default export produced by
+`defineRtdbRules(...)`, compiles it via `toJSON()`, and writes it to `--out`
+(default: the `database.rules` path from `firebase.json`, or
+`database.rules.json`). Run this before `pyric deploy database` so the static
+file can be inspected, diffed, and committed ahead of a live deploy.
+
+#### MCP
+
+The `rtdb_generate_rules` tool takes the same `configPath` (and an optional
+`cwd`), loads the module the same way, and returns the compiled
+`{ rulesJson }` without deploying it — useful for an agent that wants to show
+a user the rules before calling `rtdb_deploy_rules`.
+
 ### Verifying captured sessions
 
 Constraints documents can be passed directly to `pyric-tools/verify` as

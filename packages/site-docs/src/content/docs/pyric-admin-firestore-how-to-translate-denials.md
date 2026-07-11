@@ -3,7 +3,7 @@ title: "How to translate denials with denialContext"
 navLabel: "Translate denials"
 group: "pyric-admin / firestore"
 section: "How-to"
-order: 170
+order: 171
 ---
 # How to translate denials with `denialContext`
 

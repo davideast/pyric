@@ -2,7 +2,7 @@
 title: "<Badge>"
 group: "@pyric/ui"
 section: "Primitives"
-order: 187
+order: 188
 ---
 # `<Badge>`
 

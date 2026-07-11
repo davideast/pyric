@@ -22,7 +22,8 @@
 import type { ToolHandler } from '@inbrowser/agent';
 import { firestore, hosting, functions, rtdb } from './namespaces.js';
 import type { ProjectScope } from './scope.js';
-import type { RtdbIR } from 'pyric/rules/rtdb';
+import type { RtdbIR, RtdbRulesJson } from 'pyric/rules/rtdb';
+import { loadRtdbRulesDocument } from '../rtdb/load-rules-document.js';
 import type {
   IndexesConfig,
   IndexesConfigEntry,
@@ -67,6 +68,7 @@ export interface DeployToolData {
   functions_deploy: DeployFunctionsResult;
   rtdb_get_rules: { ir: RtdbIR };
   rtdb_deploy_rules: undefined;
+  rtdb_generate_rules: { rulesJson: RtdbRulesJson };
 }
 
 export interface ProjectScopedDeps {
@@ -116,6 +118,34 @@ export function createRtdbDeployTools(deps: ProjectScopedDeps): ToolHandler[] {
         } catch (e) {
           return { ok: false, summary: e instanceof Error ? e.message : String(e) };
         }
+      },
+    },
+    {
+      name: 'rtdb_generate_rules',
+      description:
+        'Compile a local RTDB constraints module (a file calling defineRtdbRules(...) from pyric/rules/rtdb) into the static database.rules.json shape, without deploying it. Lets the caller inspect/diff/commit the rules before deploy.',
+      parameters: {
+        type: 'object',
+        properties: {
+          configPath: {
+            type: 'string',
+            description: "Path to the constraints module, relative to cwd. Defaults to 'database.rules.ts'.",
+          },
+          cwd: { type: 'string', description: 'Working directory to resolve configPath against. Defaults to process.cwd().' },
+        },
+      },
+      async execute(args) {
+        const { configPath, cwd } = args as { configPath?: string; cwd?: string };
+        const loaded = await loadRtdbRulesDocument(configPath ?? 'database.rules.ts', { cwd });
+        if (!loaded.ok) {
+          return { ok: false, summary: loaded.message };
+        }
+        const rulesJson = loaded.document.toJSON();
+        return {
+          ok: true,
+          summary: 'Compiled RTDB constraints to database.rules.json',
+          data: { rulesJson },
+        };
       },
     },
   ];
