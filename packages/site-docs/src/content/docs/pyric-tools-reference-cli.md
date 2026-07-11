@@ -2,7 +2,7 @@
 title: "pyric CLI reference"
 group: "pyric-tools"
 section: "Reference"
-order: 45
+order: 9011
 ---
 # `pyric` CLI reference
 

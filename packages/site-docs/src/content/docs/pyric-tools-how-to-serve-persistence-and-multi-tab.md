@@ -3,7 +3,7 @@ title: "Persistence and multi-tab with pyric dev"
 navLabel: "Persistence & multi-tab"
 group: "pyric-tools"
 section: "How-to"
-order: 42
+order: 9008
 ---
 # Persistence and multi-tab with `pyric dev`
 

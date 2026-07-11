@@ -3,7 +3,7 @@ title: "Rules you trust because they are tested"
 navLabel: "Write a rules test suite"
 group: "Secure & debug"
 section: ""
-order: 11
+order: 3003
 description: "A suite of allow/deny cases that runs in-process, gates CI, and can escalate to Google's own engine."
 ---
 

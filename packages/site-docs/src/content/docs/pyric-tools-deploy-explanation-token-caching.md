@@ -2,7 +2,7 @@
 title: "Token caching and memoizeTtl"
 group: "pyric-tools / deploy"
 section: "Explanation"
-order: 72
+order: 10025
 ---
 # Token caching and `memoizeTtl`
 

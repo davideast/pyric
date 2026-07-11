@@ -3,7 +3,7 @@ title: "How we know it matches Firebase"
 navLabel: "Conformance"
 group: "Trust"
 section: ""
-order: 28
+order: 7001
 description: "Understand the evidence behind \"it behaves like the real one,\" and what a divergence means when you hit one."
 ---
 

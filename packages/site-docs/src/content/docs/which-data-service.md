@@ -3,7 +3,7 @@ title: "Which data service should I use?"
 navLabel: "Which data service?"
 group: "Build"
 section: ""
-order: 8
+order: 2005
 description: "Pick between Firestore and Realtime Database in one short read."
 ---
 

@@ -2,7 +2,7 @@
 title: "Store files"
 group: "Build"
 section: ""
-order: 7
+order: 2004
 description: "Upload, list, download, and delete files locally, with storage rules enforced in-process."
 ---
 

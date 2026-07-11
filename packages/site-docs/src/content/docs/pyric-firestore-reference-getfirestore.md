@@ -2,7 +2,7 @@
 title: "getFirestore overloads"
 group: "pyric / firestore"
 section: "Reference"
-order: 86
+order: 12011
 ---
 # `getFirestore` overloads
 
