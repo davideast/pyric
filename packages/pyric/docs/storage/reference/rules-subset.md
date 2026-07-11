@@ -120,3 +120,6 @@ See [Implementation scope and deferred features](../explanation/implementation-s
 
 - For testing rule expressions independently, see [Test rule expressions independently](../how-to/test-rule-expressions.md).
 - For the engine's evaluation contract (`evaluateStorageRules`), see [Public API](./api.md#rules).
+- For the one known production-vs-evaluator divergence (a `resource == null`
+  create edge case) and the oracle-capture evidence behind this page's
+  claims, see [Storage rules evaluator conformance gaps](./conformance-gaps.md).

@@ -1,0 +1,17 @@
+{
+  "name": "rules-storage-firestore-lookup",
+  "matrixRow": "",
+  "rowIds": [
+    "storage#115"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus pack \"firestore-lookup\" (STORAGE-XSVC). firestore.get()/exists() cross-service lookups with $(expr) interpolation, qualified function-mock names, and bool exists() results.",
+  "observedAt": "2026-07-11T03:09:46.334Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "firestore.get(): profile uid matches caller \u2192 allow": "ALLOW",
+    "firestore.get(): profile uid mismatch \u2192 deny": "DENY",
+    "firestore.exists(): membership present \u2192 allow create": "ALLOW",
+    "firestore.exists(): membership absent \u2192 deny create": "DENY"
+  }
+}

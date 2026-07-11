@@ -1,0 +1,17 @@
+{
+  "name": "rules-storage-request-time-timestamp",
+  "matrixRow": "",
+  "rowIds": [
+    "storage#112"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus pack \"request-time-timestamp\" (STORAGE-TIME). request.time compared against timestamp.date(y,m,d) and timestamp.value(ms) \u2014 the time surface #96/#104 wrongly call unsupported.",
+  "observedAt": "2026-07-11T03:09:46.020Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "timestamp.date(): before deadline allowed": "ALLOW",
+    "timestamp.date(): after deadline denied": "DENY",
+    "timestamp.value(): after epoch bound allowed": "ALLOW",
+    "timestamp.value(): before epoch bound denied": "DENY"
+  }
+}
