@@ -18,6 +18,7 @@ The on-ramp: the CLI working reliably across platforms, the agent plugins, the V
 - npx cold-start diet (lazy-load the agent ML stack; ~924MB today) (#127)
 - Agent-first path (plugin → bridge) covered end to end (#128)
 - No-SharedWorker / older-Safari fallback and signpost (#129)
+- Unblock real Firestore apps under the worker: or()/and() + persistence family (#144)
 
 ## Simplification
 
