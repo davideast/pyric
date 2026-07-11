@@ -11,7 +11,7 @@ import type {
  * Development (map https://github.com/davideast/pyric/issues/92).
  *
  * Every row was born status 'unverified' and automation 'unverified'; the
- * red conformance suites under scripts/compat/conformance/ai named every
+ * red conformance suites under packages/pyric/test/ai named every
  * row id and failed by design until the mirror landed. The mirror is in
  * (commit e0cea50) and the climb lane passes 80 of 80 with no assertion
  * weakened, so every row is flipped: the automation field records the
@@ -39,7 +39,7 @@ interface AiRowDef {
   riskReasons?: string[];
 }
 
-const SUITE = 'scripts/compat/conformance/ai';
+const SUITE = 'packages/pyric/test/ai';
 
 function row(def: AiRowDef): CompatibilityRow {
   return {
@@ -183,7 +183,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent()',
     behavior: 'The response envelope top-level key set is exactly `candidates`, `modelVersion`, `responseId`, `usageMetadata`',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-envelope-keys`',
+    evidence: 'Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-envelope-keys`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['generate-content.test.ts'],
   }),
@@ -193,7 +193,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent()',
     behavior: 'The candidate key set is `content`, `finishReason`, `index`, and `index` is present on the wire (0 for the single candidate)',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-minimal-envelope (candidateHasIndexOnWire) replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-candidate-keys`',
+    evidence: 'Capture ai-generate-minimal-envelope (candidateHasIndexOnWire) replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-candidate-keys`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['generate-content.test.ts'],
   }),
@@ -203,7 +203,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent()',
     behavior: 'Candidate content carries role `model` and the content key set is `parts`, `role`',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-role-model`',
+    evidence: 'Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-role-model`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['generate-content.test.ts'],
   }),
@@ -213,7 +213,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent()',
     behavior: 'A normal completion finishes with `finishReason` `STOP`',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-finish-stop`',
+    evidence: 'Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-finish-stop`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['generate-content.test.ts'],
   }),
@@ -223,7 +223,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent()',
     behavior: 'The usageMetadata key set on a minimal text call is `candidatesTokenCount`, `promptTokenCount`, `promptTokensDetails`, `serviceTier`, `totalTokenCount`',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-usage-key-set`',
+    evidence: 'Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-usage-key-set`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['generate-content.test.ts'],
   }),
@@ -233,7 +233,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent()',
     behavior: '`usageMetadata.serviceTier` rides the wire even though the 2.12.0 SDK typings do not declare it',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-minimal-envelope (usageServiceTierPresent) replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-usage-service-tier`',
+    evidence: 'Capture ai-generate-minimal-envelope (usageServiceTierPresent) replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-usage-service-tier`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['generate-content.test.ts'],
   }),
@@ -243,7 +243,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent()',
     behavior: '`modelVersion` and `responseId` are present nonempty strings; the sandbox mints them deterministically',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-modelversion-responseid`',
+    evidence: 'Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-modelversion-responseid`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['generate-content.test.ts'],
     notes: 'Synthesized decoration (ruling 2 in docs/conformance/ai/cdd-deltas.md); the values are minted, only presence and determinism are claims.',
@@ -263,7 +263,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent(request)',
     behavior: 'A top-level `systemInstruction` is accepted and the response envelope shape is unaffected',
     automation: 'shape-backed',
-    evidence: 'Capture ai-system-instruction-accepted replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-system-instruction`',
+    evidence: 'Capture ai-system-instruction-accepted replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-system-instruction`',
     observations: ['ai-system-instruction-accepted'],
     tests: ['generate-content.test.ts'],
   }),
@@ -273,7 +273,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent(request)',
     behavior: '`responseMimeType` `application/json` plus a `responseSchema` yields a text part that parses as JSON with the schema key set',
     automation: 'shape-backed',
-    evidence: 'Capture ai-structured-output-shape replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-structured-output`',
+    evidence: 'Capture ai-structured-output-shape replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-structured-output`',
     observations: ['ai-structured-output-shape'],
     tests: ['generate-content.test.ts'],
     notes: 'The parsed key set is a shape fact; the JSON values are not claims.',
@@ -284,7 +284,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent(request)',
     behavior: 'With `thinkingConfig` on the probe model, text parts carry `thoughtSignature` and no part is flagged `thought: true`',
     automation: 'shape-backed',
-    evidence: 'Capture ai-thinking-thought-parts (partKeySets, anyThoughtPart false) replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-thinking-signature`',
+    evidence: 'Capture ai-thinking-thought-parts (partKeySets, anyThoughtPart false) replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-thinking-signature`',
     observations: ['ai-thinking-thought-parts'],
     tests: ['generate-content.test.ts'],
     notes: 'Lite models return signatures without thought parts; that is the captured fact.',
@@ -304,7 +304,7 @@ const generateRows: CompatibilityRow[] = [
     api: 'generateContent()',
     behavior: 'Token counts are minted without a tokenizer, and the minimal envelope omits `safetyRatings`, matching the captured candidate key set',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-decoration-synthesized`',
+    evidence: 'Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-decoration-synthesized`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['generate-content.test.ts'],
     notes: 'Ruling 2 in docs/conformance/ai/cdd-deltas.md: synthesized decoration is a standing by-design divergence class, documented per row and never hidden.',
@@ -321,7 +321,7 @@ const streamRows: CompatibilityRow[] = [
     api: 'generateContentStream()',
     behavior: '`result.stream` async-iterates response chunks via `for await`; each chunk is a complete GenerateContentResponse',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-stream-framing replayed by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-async-iterable`',
+    evidence: 'Capture ai-generate-stream-framing replayed by packages/pyric/test/ai/streaming.test.ts test `ai#stream-async-iterable`',
     observations: ['ai-generate-stream-framing'],
     tests: ['streaming.test.ts'],
   }),
@@ -331,7 +331,7 @@ const streamRows: CompatibilityRow[] = [
     api: 'generateContentStream() wire framing',
     behavior: 'Every SSE event is `data: ` prefixed and its payload parses as a complete JSON document',
     automation: 'oracle-backed',
-    evidence: 'Capture ai-generate-stream-framing (allEventsDataPrefixed) replayed byte-level by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-data-prefixed`',
+    evidence: 'Capture ai-generate-stream-framing (allEventsDataPrefixed) replayed byte-level by packages/pyric/test/ai/streaming.test.ts test `ai#stream-data-prefixed`',
     observations: ['ai-generate-stream-framing'],
     tests: ['streaming.test.ts'],
     notes: 'Byte-compared through the framing encoder the scripting module exports, since the SDK-level stream yields parsed objects.',
@@ -342,7 +342,7 @@ const streamRows: CompatibilityRow[] = [
     api: 'generateContentStream() wire framing',
     behavior: 'SSE events are separated by CRLF CRLF',
     automation: 'oracle-backed',
-    evidence: 'Capture ai-generate-stream-framing (separatorIsCrlfCrlf) replayed byte-level by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-separator-crlf`',
+    evidence: 'Capture ai-generate-stream-framing (separatorIsCrlfCrlf) replayed byte-level by packages/pyric/test/ai/streaming.test.ts test `ai#stream-separator-crlf`',
     observations: ['ai-generate-stream-framing'],
     tests: ['streaming.test.ts'],
     notes: 'Byte-compared through the framing encoder the scripting module exports.',
@@ -353,7 +353,7 @@ const streamRows: CompatibilityRow[] = [
     api: 'generateContentStream()',
     behavior: '`finishReason` appears only on the last chunk of a stream',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-stream-framing (finishReasonOnlyOnLastChunk) replayed by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-finish-last-chunk`',
+    evidence: 'Capture ai-generate-stream-framing (finishReasonOnlyOnLastChunk) replayed by packages/pyric/test/ai/streaming.test.ts test `ai#stream-finish-last-chunk`',
     observations: ['ai-generate-stream-framing'],
     tests: ['streaming.test.ts'],
   }),
@@ -363,7 +363,7 @@ const streamRows: CompatibilityRow[] = [
     api: 'generateContentStream()',
     behavior: '`usageMetadata` rides every chunk, not only the last one',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-stream-framing (usageMetadataChunkIndexes covers all chunks) replayed by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-usage-every-chunk`',
+    evidence: 'Capture ai-generate-stream-framing (usageMetadataChunkIndexes covers all chunks) replayed by packages/pyric/test/ai/streaming.test.ts test `ai#stream-usage-every-chunk`',
     observations: ['ai-generate-stream-framing'],
     tests: ['streaming.test.ts'],
   }),
@@ -373,7 +373,7 @@ const streamRows: CompatibilityRow[] = [
     api: 'generateContentStream()',
     behavior: 'Every chunk carries `candidates` or `usageMetadata`',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-stream-framing (everyEventHasCandidatesOrUsage) replayed by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-chunk-envelope`',
+    evidence: 'Capture ai-generate-stream-framing (everyEventHasCandidatesOrUsage) replayed by packages/pyric/test/ai/streaming.test.ts test `ai#stream-chunk-envelope`',
     observations: ['ai-generate-stream-framing'],
     tests: ['streaming.test.ts'],
   }),
@@ -444,7 +444,7 @@ const chatRows: CompatibilityRow[] = [
     api: 'ChatSession.sendMessage()',
     behavior: 'A `sendMessage` result carries the same envelope facts as `generateContent`: the four top-level keys and role `model`',
     automation: 'shape-backed',
-    evidence: 'Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/chat-session.test.ts test `ai#chat-sendmessage-envelope`',
+    evidence: 'Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/chat-session.test.ts test `ai#chat-sendmessage-envelope`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['chat-session.test.ts'],
   }),
@@ -490,7 +490,7 @@ const fncallRows: CompatibilityRow[] = [
     api: 'functionCall parts',
     behavior: 'A functionCall part carries the key set `args`, `id`, `name`, and `args` arrives as a parsed JSON object, not a string',
     automation: 'shape-backed',
-    evidence: 'Capture ai-function-call-shape (functionCallKeySet, argsIsObjectNotString) replayed by scripts/compat/conformance/ai/function-calling.test.ts test `ai#fncall-part-shape`',
+    evidence: 'Capture ai-function-call-shape (functionCallKeySet, argsIsObjectNotString) replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-part-shape`',
     observations: ['ai-function-call-shape'],
     tests: ['function-calling.test.ts'],
     notes: 'The parsed-object args shape is the load-bearing difference from OpenAI tool_calls.',
@@ -501,7 +501,7 @@ const fncallRows: CompatibilityRow[] = [
     api: 'toolConfig.functionCallingConfig',
     behavior: 'Mode `ANY` forces a functionCall part in the response and the candidate finishes `STOP`',
     automation: 'shape-backed',
-    evidence: 'Capture ai-function-call-shape (captured under mode ANY, finishReason STOP) replayed by scripts/compat/conformance/ai/function-calling.test.ts test `ai#fncall-mode-any`',
+    evidence: 'Capture ai-function-call-shape (captured under mode ANY, finishReason STOP) replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-mode-any`',
     observations: ['ai-function-call-shape'],
     tests: ['function-calling.test.ts'],
   }),
@@ -511,7 +511,7 @@ const fncallRows: CompatibilityRow[] = [
     api: 'functionCall parts',
     behavior: '`functionCall.id` is present on the GoogleAI wire; the mirror emits an id on synthesized calls',
     automation: 'shape-backed',
-    evidence: 'Capture ai-function-call-shape (id in functionCallKeySet) replayed by scripts/compat/conformance/ai/function-calling.test.ts test `ai#fncall-id-present`',
+    evidence: 'Capture ai-function-call-shape (id in functionCallKeySet) replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-id-present`',
     observations: ['ai-function-call-shape'],
     tests: ['function-calling.test.ts'],
     notes: 'The upstream JSDoc is self-contradictory about backend id support; the capture is the fact.',
@@ -522,7 +522,7 @@ const fncallRows: CompatibilityRow[] = [
     api: 'functionResponse round trip',
     behavior: 'A round trip that threads the model functionCall turn back verbatim, thoughtSignature preserved, is accepted: the answer has a text part and no further functionCall part',
     automation: 'shape-backed',
-    evidence: 'Capture ai-function-response-round replayed by scripts/compat/conformance/ai/function-calling.test.ts test `ai#fncall-round-trip`',
+    evidence: 'Capture ai-function-response-round replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-round-trip`',
     observations: ['ai-function-response-round'],
     tests: ['function-calling.test.ts'],
   }),
@@ -532,7 +532,7 @@ const fncallRows: CompatibilityRow[] = [
     api: 'functionResponse round trip',
     behavior: 'A replayed model functionCall turn lacking `thoughtSignature` is rejected 400 INVALID_ARGUMENT with the thought-signature message',
     automation: 'oracle-backed',
-    evidence: 'Capture ai-error-fncall-missing-thought-signature replayed by scripts/compat/conformance/ai/function-calling.test.ts test `ai#fncall-thought-signature-required`',
+    evidence: 'Capture ai-error-fncall-missing-thought-signature replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-thought-signature-required`',
     observations: ['ai-error-fncall-missing-thought-signature'],
     tests: ['function-calling.test.ts'],
     risk: ['error-code', 'specific-value'],
@@ -564,7 +564,7 @@ const countRows: CompatibilityRow[] = [
     api: 'countTokens()',
     behavior: 'The countTokens envelope key set is exactly `promptTokensDetails`, `totalTokens`',
     automation: 'oracle-backed',
-    evidence: 'Capture ai-counttokens-envelope replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#counttokens-envelope`',
+    evidence: 'Capture ai-counttokens-envelope replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#counttokens-envelope`',
     observations: ['ai-counttokens-envelope'],
     tests: ['errors-counttokens.test.ts'],
   }),
@@ -574,7 +574,7 @@ const countRows: CompatibilityRow[] = [
     api: 'countTokens()',
     behavior: 'An identical payload returns an identical `totalTokens` across calls',
     automation: 'oracle-backed',
-    evidence: 'Capture ai-counttokens-envelope (deterministicAcrossTwoCalls) replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#counttokens-deterministic`',
+    evidence: 'Capture ai-counttokens-envelope (deterministicAcrossTwoCalls) replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#counttokens-deterministic`',
     observations: ['ai-counttokens-envelope'],
     tests: ['errors-counttokens.test.ts'],
     notes: 'The sandbox count need not equal the production count; determinism is the claim.',
@@ -596,7 +596,7 @@ const errorRows: CompatibilityRow[] = [
     api: 'error envelope',
     behavior: 'A model name production has never served fails 404 NOT_FOUND with the error key set `code`, `message`, `status` and no details',
     automation: 'oracle-backed',
-    evidence: 'Capture ai-error-unknown-model replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#error-unknown-model`',
+    evidence: 'Capture ai-error-unknown-model replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-unknown-model`',
     observations: ['ai-error-unknown-model'],
     tests: ['errors-counttokens.test.ts'],
     ...ERROR_RISK,
@@ -607,7 +607,7 @@ const errorRows: CompatibilityRow[] = [
     api: 'error envelope',
     behavior: 'A retired model family (Gemini 1.5) fails 404 NOT_FOUND with an ErrorInfo detail and a retirement message distinct from unknown-model',
     automation: 'oracle-backed',
-    evidence: 'Capture ai-error-retired-model replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#error-retired-model`',
+    evidence: 'Capture ai-error-retired-model replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-retired-model`',
     observations: ['ai-error-retired-model'],
     tests: ['errors-counttokens.test.ts'],
     ...ERROR_RISK,
@@ -619,7 +619,7 @@ const errorRows: CompatibilityRow[] = [
     api: 'error envelope',
     behavior: 'An invalid API key fails 400 INVALID_ARGUMENT, not 401, with ErrorInfo plus LocalizedMessage details and the message `API key not valid. Please pass a valid API key.`',
     automation: 'oracle-backed',
-    evidence: 'Capture ai-error-bad-api-key replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#error-bad-api-key`',
+    evidence: 'Capture ai-error-bad-api-key replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-bad-api-key`',
     observations: ['ai-error-bad-api-key'],
     tests: ['errors-counttokens.test.ts'],
     ...ERROR_RISK,
@@ -631,7 +631,7 @@ const errorRows: CompatibilityRow[] = [
     api: 'error envelope',
     behavior: 'An empty `contents` array fails 400 INVALID_ARGUMENT with the message `contents is not specified`',
     automation: 'oracle-backed',
-    evidence: 'Capture ai-error-empty-contents replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#error-empty-contents`',
+    evidence: 'Capture ai-error-empty-contents replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-empty-contents`',
     observations: ['ai-error-empty-contents'],
     tests: ['errors-counttokens.test.ts'],
     ...ERROR_RISK,
@@ -642,7 +642,7 @@ const errorRows: CompatibilityRow[] = [
     api: 'error envelope',
     behavior: 'An invalid content role fails 400 INVALID_ARGUMENT and the message lists the production role vocabulary: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER',
     automation: 'oracle-backed',
-    evidence: 'Capture ai-error-bad-role replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#error-bad-role`',
+    evidence: 'Capture ai-error-bad-role replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-bad-role`',
     observations: ['ai-error-bad-role'],
     tests: ['errors-counttokens.test.ts'],
     ...ERROR_RISK,
@@ -698,7 +698,7 @@ const helperRows: CompatibilityRow[] = [
     api: 'response.functionCalls()',
     behavior: '`functionCalls()` returns the `FunctionCall` array from the functionCall parts, args as parsed objects',
     automation: 'shape-backed',
-    evidence: 'Capture ai-function-call-shape replayed by scripts/compat/conformance/ai/helpers-schema.test.ts test `ai#helper-functioncalls`',
+    evidence: 'Capture ai-function-call-shape replayed by packages/pyric/test/ai/helpers-schema.test.ts test `ai#helper-functioncalls`',
     observations: ['ai-function-call-shape'],
     tests: ['helpers-schema.test.ts'],
   }),
@@ -708,7 +708,7 @@ const helperRows: CompatibilityRow[] = [
     api: 'response.thoughtSummary()',
     behavior: '`thoughtSummary()` returns undefined when no part is flagged `thought: true`, the captured lite-model case',
     automation: 'shape-backed',
-    evidence: 'Capture ai-thinking-thought-parts (anyThoughtPart false) replayed by scripts/compat/conformance/ai/helpers-schema.test.ts test `ai#helper-thoughtsummary`',
+    evidence: 'Capture ai-thinking-thought-parts (anyThoughtPart false) replayed by packages/pyric/test/ai/helpers-schema.test.ts test `ai#helper-thoughtsummary`',
     observations: ['ai-thinking-thought-parts'],
     tests: ['helpers-schema.test.ts'],
   }),
@@ -781,7 +781,7 @@ const schemaRows: CompatibilityRow[] = [
     api: 'generationConfig.responseSchema',
     behavior: 'A built `Schema` serializes into `generationConfig.responseSchema` on the request and drives JSON output',
     automation: 'shape-backed',
-    evidence: 'Capture ai-structured-output-shape replayed by scripts/compat/conformance/ai/helpers-schema.test.ts test `ai#schema-rides-request`',
+    evidence: 'Capture ai-structured-output-shape replayed by packages/pyric/test/ai/helpers-schema.test.ts test `ai#schema-rides-request`',
     observations: ['ai-structured-output-shape'],
     tests: ['helpers-schema.test.ts'],
   }),
@@ -992,7 +992,7 @@ This surface climbed under Conformance Driven Development
 born \`unverified\` at admission: the row universe and the red conformance
 suites came first, the mirror implementation came after. All 80 rows are
 now flipped: the climb lane (\`bun run compat:climb-ai\`, the suites at
-\`scripts/compat/conformance/ai\`) passes 80 of 80 with no assertion
+\`packages/pyric/test/ai\`) passes 80 of 80 with no assertion
 weakened, and every row records the tier of evidence that vouches for it.
 
 Evidence tiers per \`docs/conformance/ai/cdd-deltas.md\`:
@@ -1027,7 +1027,7 @@ compare text when the scripted engine was explicitly scripted to return it
 | ? | **Unverified**: claim not yet locked by a passing probe |
 
 Probe references: \`unit:<file>\` means a passing Bun test in
-\`scripts/compat/conformance/ai/<file>\` (the climb lane). Captures live at
+\`packages/pyric/test/ai/<file>\` (the climb lane). Captures live at
 \`scripts/oracle/observations/ai-*.json\`; a row that cites one replays the
 capture's distilled facts in the named test.
 

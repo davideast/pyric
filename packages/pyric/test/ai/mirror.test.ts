@@ -3,8 +3,8 @@
  * the conformance rows (messaging precedent): instance identity, input
  * validation, history cloning, error translation, prod-target dispatch, and
  * the scripting subpath's authoring guards. The registry rows themselves are
- * pinned by scripts/compat/conformance/ai; nothing here weakens or repeats a
- * row assertion.
+ * pinned by the oracle conformance suites in this directory; nothing here
+ * weakens or repeats a row assertion.
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';

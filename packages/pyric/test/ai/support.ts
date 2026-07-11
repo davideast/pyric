@@ -1,19 +1,17 @@
 /**
- * Shared support for the ai red conformance suites (CDD admission at zero,
- * map https://github.com/davideast/pyric/issues/92).
+ * Shared support for the ai oracle conformance suites.
  *
- * The `pyric/ai` and `pyric/ai/scripting` entry points do not exist yet.
- * Every suite loads them lazily in beforeAll so the resolution failure IS
- * the red: the suites define the seam the mirror must satisfy, and they go
- * green on the PR that implements it. Assertions are real and derived from
- * the registry rows and the frozen ai-* observations; generated text values
- * are never asserted unless the scripted engine was explicitly scripted to
- * return them.
+ * Every suite loads the `pyric/ai` and `pyric/ai/scripting` entry points
+ * lazily so a missing entry point (a stale build) surfaces as one explained
+ * failure per row id rather than an unnamed hook failure. Assertions are real
+ * and derived from the registry rows and the frozen ai-* observations under
+ * scripts/oracle/observations; generated text values are never asserted unless
+ * the scripted engine was explicitly scripted to return them.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', 'oracle', 'observations');
+const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
 
 /** Load an observation's distilled `behavior` facts for replay assertions. */
 export function observedBehavior(name: string): Record<string, any> {
@@ -35,7 +33,7 @@ async function loadOrExplain(specifier: string): Promise<any> {
     return await import(specifier);
   } catch (cause) {
     throw new Error(
-      `RED BY DESIGN: '${specifier}' is not implemented yet. This file is part of the ai surface's red conformance suite (CDD map #92, admission at zero); it goes green on the PR that lands the mirror.`,
+      `'${specifier}' failed to resolve. The ai oracle conformance suite replays captures against the built pyric/ai mirror; rebuild the package (cd packages/pyric && bun run build) if this entry point is missing.`,
       { cause: cause as Error },
     );
   }
