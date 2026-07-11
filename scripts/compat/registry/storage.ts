@@ -1866,7 +1866,7 @@ export const storageRegistry = {
           "api": "Rules",
           "behavior": "`evaluateStorageRules` supports granular verbs (`get`/`list`/`create`/`update`/`delete`) alongside `read`/`write` umbrella expansion, comma-separated verb lists, and per-verb default-deny",
           "status": "conforms",
-          "evidence": "STALE ROW, corrected 2026-07-10: production capture proves the evaluator already supports the full six-verb grant surface (umbrella read→{get,list}, write→{create,update,delete}, single granular grants, comma-separated grants, per-verb deny-by-default), matching production verdict-for-verdict on 12 of the pack's 13 non-existence cases. `oracle:rules-storage-verbs-umbrella-granular` (all `read`/`write`/`get`/comma-verb cases). One related existence-semantics case in the same pack diverges — pinned separately as a KNOWN_DIVERGENCE (issue #134), not a granular-verb gap.",
+          "evidence": "STALE ROW, corrected 2026-07-10: production capture proves the evaluator already supports the full six-verb grant surface (umbrella read→{get,list}, write→{create,update,delete}, single granular grants, comma-separated grants, per-verb deny-by-default), matching production verdict-for-verdict on 12 of the pack's 13 non-existence cases. `oracle:rules-storage-verbs-umbrella-granular` (all `read`/`write`/`get`/comma-verb cases). One related existence-semantics case in the same pack diverges — pinned separately as a KNOWN_DIVERGENCE, not a granular-verb gap.",
           "risk": [],
           "riskScore": 0,
           "riskReasons": [],

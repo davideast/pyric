@@ -389,7 +389,7 @@ remains unchanged.
   oracle observations
   `rtdb-modular-runtransaction-{success,abort-undefined,current-value-arg,returns-committed-snapshot,options-applylocally,on-rules-denied-path}.json`.
   See M37 / M37a–M37h above for the full claim breakdown. The
-  retry-on-conflict path (#161) stays unmodeled — single-client
+  retry-on-conflict path (row #161) stays unmodeled — single-client
   harness, nothing to conflict with.
 - **Playground integration (`firebase/database` virtual-imports
   re-export).** Tier 5 — **shipped**. App code that imports
