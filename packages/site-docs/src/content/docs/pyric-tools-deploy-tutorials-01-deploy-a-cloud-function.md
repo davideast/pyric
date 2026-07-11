@@ -2,7 +2,7 @@
 title: "Deploy a Cloud Function"
 group: "pyric-tools / deploy"
 section: "Tutorials"
-order: 48
+order: 49
 ---
 # Deploy a Cloud Function
 

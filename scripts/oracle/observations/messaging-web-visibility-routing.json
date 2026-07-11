@@ -1,0 +1,24 @@
+{
+  "name": "messaging-web-visibility-routing",
+  "matrixRow": "messaging#4, messaging#14",
+  "rowIds": [
+    "messaging#4",
+    "messaging#14"
+  ],
+  "description": "FCM receive routing keys on page VISIBILITY, not focus: the firebase/messaging service worker decides foreground vs background solely by whether a window client reports visibilityState 'visible' (it never inspects focus). A page that is visibilityState 'visible' receives onMessage; a page with NO visible client (navigated away) routes to the service-worker onBackgroundMessage instead — both captured here. AUTOMATION LIMITATION (pinned, not forced): the visible-but-UNFOCUSED half could not be demonstrated — under Playwright/CDP-driven Chromium the page reports document.hasFocus()===true even after a real OS app-activation (osascript 'Finder' activate; app-control is itself gated by macOS Automation permissions). Because routing does not depend on focus, this does not weaken the contract, only the empirical focus=false sample. Cited by messaging#4, messaging#14 (surface climbing under CDD; cited, not yet replayed).",
+  "observedAt": "2026-07-09T05:16:38.754Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "routesOnVisibilityNotFocus": true,
+    "visibleClient": {
+      "deliveredTo": "onMessage",
+      "visibilityStateAtDelivery": "visible",
+      "pageHadFocusAtDelivery": true,
+      "unfocusedSampleForcedUnderAutomation": false
+    },
+    "noVisibleClient": {
+      "deliveredTo": "onBackgroundMessage"
+    }
+  }
+}

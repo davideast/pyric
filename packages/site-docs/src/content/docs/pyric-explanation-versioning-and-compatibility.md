@@ -2,7 +2,7 @@
 title: "The versioning and compatibility policy"
 group: "pyric"
 section: "Explanation"
-order: 74
+order: 75
 ---
 # The versioning and compatibility policy
 

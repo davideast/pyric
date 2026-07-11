@@ -5136,6 +5136,166 @@ const probes: Probe[] = [
     },
   },
   {
+    name: 'rtdb-modular-onchildmoved-previouschildname-sequencing',
+    matrixRow: 'rtdb-modular #137',
+    rowIds: ['rtdb-modular#137'],
+    description: 'onChildMoved previousChildName (2nd callback arg) sequencing under query(ref, orderByChild("priority")). Seeds k1/k2/k3 (priority 1/2/3, sorted k1,k2,k3), then reorders k1 to the END, then the MIDDLE, then the FRONT — capturing previousChildName for each move (end → follows k3; middle → follows k2; front → null). Lifts the held previousChildName unknown from docs/reviews/deep-divergence-review.md item 2. rowIds are [] pending the registry-admission ticket, which lands the rows.',
+    async observe() {
+      if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
+      await signInAnonymously(auth);
+      const path = `${RTDB_RUN_PATH('mod-onchildmoved-prevname')}/parent`;
+      let threw = false;
+      let code: string | null = null;
+      let message: string | null = null;
+      const moves: Array<{ key: string | null; previousChildName: string | null }> = [];
+      let firedOnInitial = 0;
+      let moveToEnd: { key: string | null; previousChildName: string | null } | null = null;
+      let moveToMiddle: { key: string | null; previousChildName: string | null } | null = null;
+      let moveToFront: { key: string | null; previousChildName: string | null } | null = null;
+      try {
+        await rtdbUpdate(rtdbRef(rtdb, path), {
+          k1: { priority: 1 },
+          k2: { priority: 2 },
+          k3: { priority: 3 },
+        });
+        const q = rtdbQuery(rtdbRef(rtdb, path), rtdbOrderByChild('priority'));
+        const unsub = rtdbOnChildMoved(q, (snap, previousChildName) => {
+          moves.push({ key: snap.key, previousChildName: previousChildName ?? null });
+        });
+        await new Promise((r) => setTimeout(r, 500));
+        firedOnInitial = moves.length;
+        // Pattern 1 — move k1 to the END (priority above k3). New order:
+        // k2, k3, k1 → k1 now follows k3, so previousChildName should be 'k3'.
+        await rtdbSet(rtdbRef(rtdb, `${path}/k1/priority`), 10);
+        await new Promise((r) => setTimeout(r, 600));
+        moveToEnd = moves[moves.length - 1] ?? null;
+        // Pattern 2 — move k1 to the MIDDLE (between k2 and k3). New order:
+        // k2, k1, k3 → k1 now follows k2, so previousChildName should be 'k2'.
+        await rtdbSet(rtdbRef(rtdb, `${path}/k1/priority`), 2.5);
+        await new Promise((r) => setTimeout(r, 600));
+        moveToMiddle = moves[moves.length - 1] ?? null;
+        // Pattern 3 — move k1 to the FRONT (priority below k2). New order:
+        // k1, k2, k3 → k1 is first, so previousChildName should be null.
+        await rtdbSet(rtdbRef(rtdb, `${path}/k1/priority`), 0);
+        await new Promise((r) => setTimeout(r, 600));
+        moveToFront = moves[moves.length - 1] ?? null;
+        unsub();
+      } catch (e) {
+        threw = true;
+        code = (e as { code?: string }).code ?? null;
+        message = e instanceof Error ? e.message : String(e);
+      }
+      try { await rtdbRemove(rtdbRef(rtdb, path)); } catch { /* best effort */ }
+      await dropCurrentUser();
+      return {
+        threw,
+        code,
+        message,
+        firedOnInitial,
+        noInitialReplay: firedOnInitial === 0,
+        moveToEnd,
+        moveToMiddle,
+        moveToFront,
+        totalMoves: moves.length - firedOnInitial,
+        // Environment-independent shape facts: the ordered sequence of
+        // previousChildName values and moved keys across the 3 reorders.
+        prevNameSequence: moves.slice(firedOnInitial).map((m) => m.previousChildName),
+        movedKeySequence: moves.slice(firedOnInitial).map((m) => m.key),
+        endMovePrevIsK3: moveToEnd?.previousChildName === 'k3',
+        middleMovePrevIsK2: moveToMiddle?.previousChildName === 'k2',
+        frontMovePrevIsNull: moveToFront != null && moveToFront.previousChildName === null,
+      };
+    },
+  },
+  {
+    name: 'rtdb-modular-childchanged-cofire-with-childmoved',
+    matrixRow: 'rtdb-modular #137',
+    rowIds: ['rtdb-modular#137'],
+    description: 'Whether onChildChanged co-fires with onChildMoved on a reorder. Under query(ref, orderByChild("score")) with children a/b/c (score 10/20/30), subscribe BOTH listeners and record which fire for three mutation kinds: (1) a change to the ordered field that moves sort position (value-change-that-reorders: b.score 20→40), (2) a change to a NON-ordered sibling field (pure value change, no reorder: a.label), (3) a change to the ordered field that does NOT change rank (value/priority change without a move: c.score 30→35). Answers co-fire and how a reordering value change differs from a priority-only / non-reordering change. See docs/reviews/deep-divergence-review.md item 2. rowIds are [] pending the registry-admission ticket, which lands the rows.',
+    async observe() {
+      if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
+      await signInAnonymously(auth);
+      const path = `${RTDB_RUN_PATH('mod-childchanged-cofire')}/parent`;
+      let threw = false;
+      let code: string | null = null;
+      let message: string | null = null;
+      const changed: Array<{ key: string | null; val: unknown }> = [];
+      const moved: Array<{ key: string | null; previousChildName: string | null }> = [];
+      let reorderChanged = 0;
+      let reorderMoved = 0;
+      let nonOrderChanged = 0;
+      let nonOrderMoved = 0;
+      let sameRankChanged = 0;
+      let sameRankMoved = 0;
+      try {
+        await rtdbUpdate(rtdbRef(rtdb, path), {
+          a: { score: 10, label: 'a0' },
+          b: { score: 20, label: 'b0' },
+          c: { score: 30, label: 'c0' },
+        });
+        const q = rtdbQuery(rtdbRef(rtdb, path), rtdbOrderByChild('score'));
+        const unsubChanged = rtdbOnChildChanged(q, (snap) => {
+          changed.push({ key: snap.key, val: snap.val() });
+        });
+        const unsubMoved = rtdbOnChildMoved(q, (snap, previousChildName) => {
+          moved.push({ key: snap.key, previousChildName: previousChildName ?? null });
+        });
+        await new Promise((r) => setTimeout(r, 500));
+        let c0 = changed.length;
+        let m0 = moved.length;
+        // (1) Reordering value change: b.score 20 → 40. Order a,b,c → a,c,b.
+        await rtdbSet(rtdbRef(rtdb, `${path}/b/score`), 40);
+        await new Promise((r) => setTimeout(r, 600));
+        reorderChanged = changed.length - c0;
+        reorderMoved = moved.length - m0;
+        c0 = changed.length;
+        m0 = moved.length;
+        // (2) Non-ordered field change: a.label → 'a1'. a.score stays 10
+        // (front), so no reorder — isolates whether child_changed alone fires.
+        await rtdbSet(rtdbRef(rtdb, `${path}/a/label`), 'a1');
+        await new Promise((r) => setTimeout(r, 600));
+        nonOrderChanged = changed.length - c0;
+        nonOrderMoved = moved.length - m0;
+        c0 = changed.length;
+        m0 = moved.length;
+        // (3) Ordered field change WITHOUT a rank change: c.score 30 → 35.
+        // Current order is a(10), c(30), b(40); c→35 keeps c in the middle.
+        await rtdbSet(rtdbRef(rtdb, `${path}/c/score`), 35);
+        await new Promise((r) => setTimeout(r, 600));
+        sameRankChanged = changed.length - c0;
+        sameRankMoved = moved.length - m0;
+        unsubChanged();
+        unsubMoved();
+      } catch (e) {
+        threw = true;
+        code = (e as { code?: string }).code ?? null;
+        message = e instanceof Error ? e.message : String(e);
+      }
+      try { await rtdbRemove(rtdbRef(rtdb, path)); } catch { /* best effort */ }
+      await dropCurrentUser();
+      return {
+        threw,
+        code,
+        message,
+        reorderChanged,
+        reorderMoved,
+        nonOrderChanged,
+        nonOrderMoved,
+        sameRankChanged,
+        sameRankMoved,
+        // Shape facts answering the review's two questions:
+        childChangedCoFiresWithChildMoved: reorderChanged >= 1 && reorderMoved >= 1,
+        reorderFiresChildMoved: reorderMoved >= 1,
+        nonOrderFieldFiresChildMovedZero: nonOrderMoved === 0,
+        nonOrderFieldFiresChildChanged: nonOrderChanged >= 1,
+        sameRankFiresChildMovedZero: sameRankMoved === 0,
+        sameRankFiresChildChanged: sameRankChanged >= 1,
+        lastChanged: changed[changed.length - 1] ?? null,
+        lastMoved: moved[moved.length - 1] ?? null,
+      };
+    },
+  },
+  {
     name: 'rtdb-modular-off-stops-child-fires',
     matrixRow: 'rtdb-modular #138/#139',
     rowIds: ['rtdb-modular#138', 'rtdb-modular#139', 'rtdb-modular#M47'],
@@ -5894,6 +6054,74 @@ const probes: Probe[] = [
         // First invocation on a seeded path: prod typically delivers
         // the existing value directly (no speculative null call first).
         seededFirstShape: seededArgs[0]?.type ?? null,
+      };
+    },
+  },
+  {
+    name: 'rtdb-modular-runtransaction-warm-client-speculation',
+    matrixRow: 'rtdb-modular #160',
+    rowIds: ['rtdb-modular#160', 'rtdb-modular#M37'],
+    description: 'Warm-client runTransaction speculation. Seeds a path, then WARMS the client cache — attaches an onValue listener and awaits its initial fire, plus a direct get() — BEFORE running runTransaction on that same warmed path. Captures every `current` arg (type + isNull + whether it carries the seeded keys) to answer whether a warmed client still speculatively invokes the update fn with `null` first (the cold-cache double-call) or invokes exactly once with the cached value. Directly probes the uncaptured warm-client case flagged in docs/reviews/deep-divergence-review.md item 4 (is the cold-cache double-invoke a stable contract or an artifact?). rowIds are [] pending the registry-admission ticket, which lands the rows.',
+    async observe() {
+      if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
+      await signInAnonymously(auth);
+      const path = `${RTDB_RUN_PATH('mod-tx-warm')}/v`;
+      let threw = false;
+      let code: string | null = null;
+      let message: string | null = null;
+      // Each `current` arg reduced to shape facts (never raw env values).
+      const warmArgs: Array<{ type: string; isNull: boolean; isUndefined: boolean; hasSeededKeys: boolean }> = [];
+      let initialFires = 0;
+      try {
+        await rtdbSet(rtdbRef(rtdb, path), { count: 7, name: 'alice' });
+        // Warm the client cache: subscribe and wait for the initial fire so
+        // the client holds the current value locally before the transaction.
+        const unsub = rtdbOnValue(rtdbRef(rtdb, path), () => {
+          initialFires++;
+        });
+        await new Promise((r) => setTimeout(r, 500));
+        // Force a direct read into the cache as well.
+        await rtdbGet(rtdbRef(rtdb, path));
+        await new Promise((r) => setTimeout(r, 200));
+        // Transact on the now-warmed path; record the shape of each invocation.
+        await rtdbRunTransaction(rtdbRef(rtdb, path), (current) => {
+          warmArgs.push({
+            type: typeof current,
+            isNull: current === null,
+            isUndefined: current === undefined,
+            hasSeededKeys:
+              !!current &&
+              typeof current === 'object' &&
+              !Array.isArray(current) &&
+              'count' in (current as Record<string, unknown>),
+          });
+          if (current && typeof current === 'object' && !Array.isArray(current)) {
+            const c = current as { name: string; count: number };
+            return { ...c, count: c.count + 1 };
+          }
+          return current;
+        });
+        unsub();
+      } catch (e) {
+        threw = true;
+        code = (e as { code?: string }).code ?? null;
+        message = e instanceof Error ? e.message : String(e);
+      }
+      try { await rtdbRemove(rtdbRef(rtdb, path)); } catch { /* best effort */ }
+      await dropCurrentUser();
+      return {
+        threw,
+        code,
+        message,
+        initialFires,
+        warmClientWasListening: initialFires >= 1,
+        invocationCount: warmArgs.length,
+        firstArgType: warmArgs[0]?.type ?? null,
+        firstArgWasNull: warmArgs[0]?.isNull ?? null,
+        // The two competing hypotheses from review item 4, as shape facts:
+        speculativeNullFirstEvenWhenWarm: warmArgs.length > 1 && warmArgs[0]?.isNull === true,
+        singleInvocationWithCachedValue: warmArgs.length === 1 && warmArgs[0]?.hasSeededKeys === true,
+        warmArgs,
       };
     },
   },

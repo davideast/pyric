@@ -160,6 +160,10 @@ interface InitPayload {
    *  `pyric verify` can replay the session without extra args. Default-on;
    *  suppressed by --no-capture. */
   capture?: boolean;
+  /** Messaging climb gate (PYRIC_CLIMB=1) — consumed by the WORKER's
+   *  serve-init, not this page runtime. Declared for lockstep with
+   *  `namespace.ts`. */
+  messaging?: boolean;
 }
 
 interface ServeDiagnostics {

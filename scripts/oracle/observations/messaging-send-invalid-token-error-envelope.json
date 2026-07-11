@@ -1,0 +1,36 @@
+{
+  "name": "messaging-send-invalid-token-error-envelope",
+  "matrixRow": "messaging-admin#4, messaging-admin#12, messaging-admin#39",
+  "rowIds": [
+    "messaging-admin#4",
+    "messaging-admin#12",
+    "messaging-admin#39"
+  ],
+  "description": "v1 messages:send with a syntactically invalid registration token: HTTP 400 INVALID_ARGUMENT; fieldViolations names message.token; FcmError errorCode INVALID_ARGUMENT. Note details array order differs from the no-target case. Cited by messaging-admin#4, messaging-admin#12, messaging-admin#39 (surface climbing under CDD; cited, not yet replayed).",
+  "observedAt": "2026-07-09T05:00:43.912Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "status": 400,
+    "error": {
+      "code": 400,
+      "message": "The registration token is not a valid FCM registration token",
+      "status": "INVALID_ARGUMENT",
+      "details": [
+        {
+          "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+          "errorCode": "INVALID_ARGUMENT"
+        },
+        {
+          "@type": "type.googleapis.com/google.rpc.BadRequest",
+          "fieldViolations": [
+            {
+              "field": "message.token",
+              "description": "The registration token is not a valid FCM registration token"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

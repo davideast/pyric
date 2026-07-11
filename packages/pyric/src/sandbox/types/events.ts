@@ -353,7 +353,7 @@ export interface ServiceMutationEvent {
    * redundantly here so a consumer matching purely on `kind` still gets the
    * discriminator without reaching into provenance.)
    */
-  service: 'auth' | 'storage' | 'rtdb';
+  service: 'auth' | 'storage' | 'rtdb' | 'messaging';
   /**
    * Service-scoped operation name. Stable, lowercase, snake/kebab-free:
    *   - auth:    `user_create` | `user_update` | `user_delete` |
@@ -521,7 +521,7 @@ export interface SandboxRuntimeErrorEvent {
  * omit `service`, read as `'firestore'`); Pyric Studio's keystone track makes
  * Auth/Storage/RTDB emit into this same stream. See the design rationale.
  */
-export type EventService = 'firestore' | 'auth' | 'storage' | 'rtdb';
+export type EventService = 'firestore' | 'auth' | 'storage' | 'rtdb' | 'messaging';
 
 /** Who initiated the operation behind an event (Studio attributes activity to
  *  the human, the app, or a specific agent). Absent ⇒ the served app. */

@@ -1,0 +1,34 @@
+{
+  "name": "messaging-web-onbackgroundmessage",
+  "matrixRow": "messaging#8, messaging#14",
+  "rowIds": [
+    "messaging#8",
+    "messaging#14"
+  ],
+  "description": "A notification+data message sent while the page has NO visible client is delivered to the service worker onBackgroundMessage handler instead of onMessage. Payload structural facts. Cited by messaging#8, messaging#14 (surface climbing under CDD; cited, not yet replayed).",
+  "observedAt": "2026-07-09T05:16:38.754Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "deliveredTo": "onBackgroundMessage",
+    "topLevelKeys": [
+      "data",
+      "from",
+      "messageId",
+      "notification"
+    ],
+    "notificationKeys": [
+      "body",
+      "title"
+    ],
+    "notificationTitleDelivered": true,
+    "dataKeys": [
+      "demo",
+      "source",
+      "tag"
+    ],
+    "dataEchoedExactly": true,
+    "fromEqualsSenderId": true,
+    "messageIdPresent": true
+  }
+}

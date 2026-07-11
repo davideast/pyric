@@ -1,0 +1,35 @@
+{
+  "name": "messaging-send-oversized-payload-error-envelope",
+  "matrixRow": "messaging-admin#4",
+  "rowIds": [
+    "messaging-admin#4"
+  ],
+  "description": "v1 messages:send with a data payload over the documented 4096-byte cap: the error envelope FCM returns, plus the bisected accept/reject boundary. behavior.documentedCapBytes is the published cap; largestAcceptedDataValueLen/smallestRejectedDataValueLen pin where a minimal single-field topic message actually flips (value length, not total bytes — total includes JSON framing). realSendEnvelopeIdentical records validate_only parity. Cited by messaging-admin#4 (surface climbing under CDD; cited, not yet replayed).",
+  "observedAt": "2026-07-09T05:00:46.120Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "documentedCapBytes": 4096,
+    "oversizedDataValueLen": 8192,
+    "status": 400,
+    "error": {
+      "code": 400,
+      "message": "Message is too large. The maximum is 4K (4096 bytes).",
+      "status": "INVALID_ARGUMENT",
+      "details": [
+        {
+          "@type": "type.googleapis.com/google.rpc.BadRequest"
+        },
+        {
+          "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+          "errorCode": "INVALID_ARGUMENT"
+        }
+      ]
+    },
+    "realStatus": 400,
+    "realSendEnvelopeIdentical": true,
+    "largestAcceptedDataValueLen": 4505,
+    "smallestRejectedDataValueLen": 4506,
+    "bisectRequests": 13
+  }
+}

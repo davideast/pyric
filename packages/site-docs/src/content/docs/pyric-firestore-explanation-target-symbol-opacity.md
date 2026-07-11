@@ -3,7 +3,7 @@ title: "The TARGET_SYMBOL opacity contract"
 navLabel: "TARGET_SYMBOL opacity"
 group: "pyric / firestore"
 section: "Explanation"
-order: 90
+order: 91
 ---
 # The `TARGET_SYMBOL` opacity contract
 

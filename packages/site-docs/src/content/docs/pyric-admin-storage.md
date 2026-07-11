@@ -3,7 +3,7 @@ title: "pyric-admin/storage"
 navLabel: "Overview"
 group: "pyric-admin / storage"
 section: ""
-order: 186
+order: 187
 ---
 # `pyric-admin/storage`
 

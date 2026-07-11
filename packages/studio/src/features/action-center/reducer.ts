@@ -70,7 +70,7 @@ export type DigestActor =
 export interface DigestItem {
   /** Stable grouping id: `service|bucket|verb|actor`. Good as a React key. */
   id: string;
-  service: 'firestore' | 'auth' | 'storage' | 'rtdb';
+  service: 'firestore' | 'auth' | 'storage' | 'rtdb' | 'messaging';
   verb: DigestVerb;
   /**
    * The human-facing target the activity touched: a Firestore collection

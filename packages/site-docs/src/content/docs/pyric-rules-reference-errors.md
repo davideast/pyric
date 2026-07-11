@@ -2,7 +2,7 @@
 title: "Errors"
 group: "pyric / rules"
 section: "Reference"
-order: 104
+order: 105
 ---
 # Errors
 

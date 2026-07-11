@@ -1,4 +1,11 @@
-export type Surface = 'auth' | 'firestore' | 'rtdb' | 'rtdb-modular' | 'storage';
+export type Surface =
+  | 'auth'
+  | 'firestore'
+  | 'rtdb'
+  | 'rtdb-modular'
+  | 'storage'
+  | 'messaging'
+  | 'messaging-admin';
 
 /**
  * Typed conformance status. Rendering (the ✓/⚠/✗/—/? glyphs in the
@@ -87,4 +94,12 @@ export interface SurfaceDescriptor {
   observationPrefix: string;
   /** Repo-relative conformance suite path (future wiring; unset today). */
   conformanceSuite?: string;
+  /**
+   * A surface climbing under Conformance Driven Development (CDD): its rows are
+   * authored born-`unverified` before implementation, and its generated doc
+   * publishes at zero with a climb header. The climb lane and `compat:report`
+   * select surfaces by this marker. Dropped at graduation. See
+   * `docs/conformance/cdd.md`.
+   */
+  climb?: boolean;
 }

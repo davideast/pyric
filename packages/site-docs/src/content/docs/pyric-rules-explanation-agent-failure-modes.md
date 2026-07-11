@@ -3,7 +3,7 @@ title: "Agent failure modes the linter catches"
 navLabel: "Agent failure modes"
 group: "pyric / rules"
 section: "Explanation"
-order: 111
+order: 112
 ---
 # Agent failure modes the linter catches
 

@@ -2,7 +2,7 @@
 title: "hosting namespace"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 66
+order: 67
 ---
 # `hosting` namespace
 

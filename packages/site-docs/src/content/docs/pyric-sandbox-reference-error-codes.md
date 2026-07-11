@@ -2,7 +2,7 @@
 title: "SandboxError codes"
 group: "pyric / sandbox"
 section: "Reference"
-order: 131
+order: 132
 ---
 # `SandboxError` codes
 

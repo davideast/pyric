@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { surfaceRegistries, type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from './registry/index.ts';
+import { surfaceDescriptors, surfaceRegistries, type CompatibilityRow, type CompatibilitySurfaceRegistry, type CompatStatus } from './registry/index.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..');
@@ -30,8 +30,35 @@ function renderRow(row: CompatibilityRow): string {
   return `| ${escapeCell(row.rowRef)} | ${escapeCell(row.behavior)} | ${escapeCell(renderStatus(row))} | ${escapeCell(row.evidence)} |`;
 }
 
+/** Non-conforming statuses, in the order the climb header lists them. */
+const CLIMB_STATUS_ORDER: CompatStatus[] = ['unverified', 'diverged-documented', 'bug', 'unsupported'];
+
+/**
+ * The climb header for a surface admitted under CDD (cdd.md Step 7): rendered
+ * above the status legend, derived from the registry's row statuses alone. A
+ * non-climbing surface returns no lines, so its doc is byte-for-byte unchanged.
+ * Kept identical between renderSurfaceMarkdown and generatedRowLineNumbers so
+ * row line numbers stay accurate.
+ */
+export function climbHeaderLines(surface: CompatibilitySurfaceRegistry): string[] {
+  const climbing = surfaceDescriptors.some((d) => d.registry === surface && d.climb === true);
+  if (!climbing) return [];
+  const rows = surface.blocks.flatMap((block) => (block.kind === 'table' ? block.rows : []));
+  const conforming = rows.filter((row) => row.status === 'conforms').length;
+  const breakdown = CLIMB_STATUS_ORDER.map((status) => ({ status, count: rows.filter((row) => row.status === status).length }))
+    .filter((entry) => entry.count > 0)
+    .map((entry) => `${entry.count} ${entry.status}`)
+    .join(', ');
+  return [
+    '> **Climb status: this surface is climbing under CDD.**',
+    `> ${conforming} of ${rows.length} rows conforming.${breakdown ? ` ${breakdown}.` : ''}`,
+    '> A `?` row below is a target with a derived failing test, not a guarantee.',
+    '',
+  ];
+}
+
 export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): string {
-  const parts: string[] = [GENERATED_HEADER, ''];
+  const parts: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface)];
   for (const [index, block] of surface.blocks.entries()) {
     if (block.kind === 'markdown') {
       parts.push(block.markdown);
@@ -48,7 +75,7 @@ export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): st
 }
 
 export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry): Map<string, number> {
-  const lines: string[] = [GENERATED_HEADER, ''];
+  const lines: string[] = [GENERATED_HEADER, '', ...climbHeaderLines(surface)];
   const out = new Map<string, number>();
   for (const [index, block] of surface.blocks.entries()) {
     if (block.kind === 'markdown') {

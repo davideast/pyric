@@ -2,7 +2,7 @@
 title: "Verify API"
 group: "pyric-tools"
 section: "Reference"
-order: 45
+order: 46
 ---
 # Verify API
 

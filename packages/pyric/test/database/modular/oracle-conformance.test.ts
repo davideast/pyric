@@ -29,9 +29,24 @@
  *   - rtdb-modular-onchildmoved-with-orderby: prod fired child_moved once
  *     under an ordered query; the sandbox's `onChildMoved` (plain-ref,
  *     no ordered-query overload) never fires on reorder.
+ *   - rtdb-modular-childchanged-cofire-with-childmoved: under an ordered
+ *     query prod co-fired child_changed AND child_moved on a reorder (and
+ *     on an ordered-field value change); the sandbox fires window-aware
+ *     child_changed (conforms) but ordered-query child_moved is
+ *     unimplemented, so it never fires child_moved on reorder.
+ *   - rtdb-modular-onchildmoved-previouschildname-sequencing: prod fired
+ *     child_moved three times with previousChildName [k3, k2, null] as a
+ *     child was moved end→middle→front; the sandbox never fires
+ *     ordered-query child_moved (0 moves).
  *   - rtdb-modular-runtransaction-current-value-arg: prod invoked the
  *     update fn twice (speculative null, then the real value); the
  *     sandbox invokes it exactly once with the actual current value.
+ *
+ * REPLAYS GREEN (conformance, not divergence):
+ *   - rtdb-modular-runtransaction-warm-client-speculation: even with a
+ *     WARMED client cache, prod invokes the update fn exactly once with
+ *     the cached value (no cold-cache speculative null-first); the sandbox
+ *     already does this, so the warm-client contract conforms.
  */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -440,6 +455,120 @@ describe('oracle conformance (rtdb-modular)', () => {
     unsub();
   });
 
+  it('rtdb-modular-childchanged-cofire-with-childmoved (KNOWN DIVERGENCE: no ordered-query child_moved on reorder)', async () => {
+    // Prod capture (row #137): under `query(ref, orderByChild('score'))`
+    // with a/b/c (scores 10/20/30), onChildChanged and onChildMoved
+    // co-fire across three mutation kinds:
+    //   1) value-change-that-reorders (b.score 20→40): child_changed AND
+    //      child_moved BOTH fire (reorderChanged 1, reorderMoved 1).
+    //   2) non-ordered sibling field (a.label): child_changed only —
+    //      child_moved does NOT fire (nonOrderChanged 1, nonOrderMoved 0).
+    //   3) ordered field, value change (c.score 30→35): child_changed AND
+    //      child_moved BOTH fire (sameRankChanged 1, sameRankMoved 1).
+    //
+    // The sandbox's onChild* accept a Query and fire window-aware
+    // child_changed, so child_changed CONFORMS on all three (and the last
+    // changed snapshot matches). But ordered-query child_moved is
+    // unimplemented — the sandbox NEVER fires child_moved on reorder. Pin
+    // BOTH sides: prod's co-fire target and the sandbox's no-fire behavior.
+    const obs = load('rtdb-modular-childchanged-cofire-with-childmoved.json');
+    // Prod target (the values we are climbing toward):
+    expect(obs.childChangedCoFiresWithChildMoved).toBe(true);
+    expect(obs.reorderChanged).toBe(1);
+    expect(obs.reorderMoved).toBe(1); // prod fires child_moved on the reorder
+    expect(obs.nonOrderChanged).toBe(1);
+    expect(obs.nonOrderMoved).toBe(0); // a non-ordered field never moves
+    expect(obs.sameRankChanged).toBe(1);
+    expect(obs.sameRankMoved).toBe(1); // prod fires child_moved on the ordered-field value change
+
+    const { db } = setup();
+    await update(ref(db, 'parent'), {
+      a: { label: 'a0', score: 10 },
+      b: { label: 'b0', score: 20 },
+      c: { label: 'c0', score: 30 },
+    });
+    const q = query(ref(db, 'parent'), orderByChild('score'));
+    let changed = 0;
+    let moved = 0;
+    const lastChanged: { key: string | null; val: unknown } = { key: null, val: null };
+    const u1 = onChildChanged(q, (snap) => {
+      changed++;
+      lastChanged.key = snap.key;
+      lastChanged.val = snap.val();
+    });
+    const u2 = onChildMoved(q, () => { moved++; });
+
+    let bc = changed;
+    let bm = moved;
+    await set(ref(db, 'parent/b/score'), 40); // reorders b to the end under the ordered query
+    const reorderChanged = changed - bc;
+    const reorderMoved = moved - bm;
+    bc = changed; bm = moved;
+    await set(ref(db, 'parent/a/label'), 'A!'); // non-ordered field — pure value change
+    const nonOrderChanged = changed - bc;
+    const nonOrderMoved = moved - bm;
+    bc = changed; bm = moved;
+    await set(ref(db, 'parent/c/score'), 35); // ordered field value change
+    const sameRankChanged = changed - bc;
+    const sameRankMoved = moved - bm;
+    u1(); u2();
+
+    // child_changed CONFORMS on all three (window-aware), matching prod.
+    expect(reorderChanged).toBe(obs.reorderChanged as number); // 1
+    expect(nonOrderChanged).toBe(obs.nonOrderChanged as number); // 1
+    expect(sameRankChanged).toBe(obs.sameRankChanged as number); // 1
+    expect(lastChanged.key).toBe((obs.lastChanged as { key: string }).key); // 'c'
+    expect(lastChanged.val).toEqual((obs.lastChanged as { val: unknown }).val); // {label:'c0',score:35}
+    // The non-ordered field never moves — conforms on BOTH sides.
+    expect(nonOrderMoved).toBe(obs.nonOrderMoved as number); // 0
+    // KNOWN DIVERGENCE: ordered-query child_moved is unimplemented — the sandbox
+    // fires 0 where prod fired 1, both on the reorder and the ordered-field change.
+    expect(reorderMoved).toBe(0); // prod (target): obs.reorderMoved === 1
+    expect(sameRankMoved).toBe(0); // prod (target): obs.sameRankMoved === 1
+  });
+
+  it('rtdb-modular-onchildmoved-previouschildname-sequencing (KNOWN DIVERGENCE: no ordered-query child_moved)', async () => {
+    // Prod capture (row #137): under `query(ref, orderByChild('priority'))`
+    // with k1/k2/k3 (priority 1/2/3), moving k1 to END → MIDDLE → FRONT
+    // fires child_moved three times, and its 2nd callback arg
+    // (previousChildName — the sibling the moved child now follows)
+    // sequences [k3, k2, null] (null = moved to the front). No initial
+    // replay (firedOnInitial 0).
+    //
+    // The sandbox's onChildMoved never fires on reorder under an ordered
+    // query (unimplemented). Pin BOTH sides: prod's previousChildName
+    // sequence target and the sandbox's current no-fire (0 moves).
+    const obs = load('rtdb-modular-onchildmoved-previouschildname-sequencing.json');
+    // Prod target:
+    expect(obs.firedOnInitial).toBe(0); // no initial replay — conforms in both
+    expect(obs.totalMoves).toBe(3);
+    expect(obs.prevNameSequence).toEqual(['k3', 'k2', null]);
+    expect(obs.movedKeySequence).toEqual(['k1', 'k1', 'k1']);
+
+    const { db } = setup();
+    await update(ref(db, 'parent'), {
+      k1: { priority: 1 },
+      k2: { priority: 2 },
+      k3: { priority: 3 },
+    });
+    const q = query(ref(db, 'parent'), orderByChild('priority'));
+    const moves: Array<{ key: string | null; prev: string | null }> = [];
+    const unsub = onChildMoved(q, (snap, previousChildName) =>
+      moves.push({ key: snap.key, prev: previousChildName }),
+    );
+    const firedOnInitial = moves.length;
+    await set(ref(db, 'parent/k1/priority'), 10); // → END (would follow k3)
+    await set(ref(db, 'parent/k1/priority'), 2.5); // → MIDDLE (would follow k2)
+    await set(ref(db, 'parent/k1/priority'), 0); // → FRONT (previousChildName would be null)
+    unsub();
+
+    // No initial replay — conforms on BOTH sides.
+    expect(firedOnInitial).toBe(obs.firedOnInitial as number); // 0
+    // KNOWN DIVERGENCE: ordered-query child_moved is unimplemented — the sandbox
+    // captures 0 moves where prod captured 3 (previousChildName [k3, k2, null]).
+    expect(moves.length).toBe(0); // prod (target): obs.totalMoves === 3
+  });
+
   it('rtdb-modular-off-stops-child-fires', async () => {
     const obs = load('rtdb-modular-off-stops-child-fires.json');
     const { db } = setup();
@@ -674,6 +803,72 @@ describe('oracle conformance (rtdb-modular)', () => {
     expect(seededArgs[0]).toEqual({ count: 7, name: 'alice' });
   });
 
+  it('rtdb-modular-runtransaction-warm-client-speculation', async () => {
+    // REPLAYS GREEN (rows #160 / M37): the sibling capture
+    // `rtdb-modular-runtransaction-current-value-arg` pinned the
+    // COLD-cache speculative double-invoke (null-first). This probe warms
+    // the client cache first — an onValue listener has fired its initial
+    // snapshot AND a direct get() has resolved — before running the
+    // transaction on that same path. Prod then invokes the update fn
+    // EXACTLY ONCE with the cached value (speculativeNullFirstEvenWhenWarm
+    // false, singleInvocationWithCachedValue true): the cold-cache
+    // double-call is an artifact, not the warm contract. The sandbox
+    // already does exactly one invocation with the real current value, so
+    // it CONFORMS to the warm-client contract — asserted here, not pinned
+    // as a divergence. (Resolves docs/reviews/deep-divergence-review.md
+    // item 4.)
+    const obs = load('rtdb-modular-runtransaction-warm-client-speculation.json');
+    // Prod's warm-client contract (what the sandbox must match):
+    expect(obs.speculativeNullFirstEvenWhenWarm).toBe(false);
+    expect(obs.singleInvocationWithCachedValue).toBe(true);
+    expect(obs.invocationCount).toBe(1);
+    expect(obs.firstArgWasNull).toBe(false);
+    expect(obs.warmClientWasListening).toBe(true);
+
+    const { db } = setup();
+    await set(ref(db, 'p'), { count: 7, name: 'alice' });
+    // WARM the client: attach a listener and consume its initial fire, plus a direct get().
+    let listenerFires = 0;
+    const unsub = onValue(ref(db, 'p'), () => { listenerFires++; });
+    const warmClientWasListening = listenerFires >= 1; // initial fire already delivered
+    await get(ref(db, 'p'));
+    // Run the transaction on the warmed path, capturing every `current` arg.
+    const warmArgs: Array<{
+      type: string;
+      isNull: boolean;
+      isUndefined: boolean;
+      hasSeededKeys: boolean;
+    }> = [];
+    await runTransaction<{ count: number; name: string }>(ref(db, 'p'), (current) => {
+      warmArgs.push({
+        type: typeof current,
+        isNull: current === null,
+        isUndefined: current === undefined,
+        hasSeededKeys:
+          !!current && typeof current === 'object' && 'count' in current && 'name' in current,
+      });
+      if (current && typeof current === 'object') return { ...current, count: current.count + 1 };
+      return current ?? undefined;
+    });
+    unsub();
+
+    // Sandbox CONFORMS to the warm-client contract: single invocation, cached (non-null) value.
+    expect(warmClientWasListening).toBe(obs.warmClientWasListening as boolean); // true
+    expect(warmArgs.length).toBe(obs.invocationCount as number); // 1
+    expect(warmArgs.length === 1).toBe(obs.singleInvocationWithCachedValue as boolean);
+    expect(warmArgs[0]!.isNull).toBe(obs.firstArgWasNull as boolean); // false
+    expect(warmArgs[0]!.type).toBe(obs.firstArgType as string); // 'object'
+    expect(warmArgs[0]!.isUndefined).toBe(
+      (obs.warmArgs as Array<{ isUndefined: boolean }>)[0]!.isUndefined, // false
+    );
+    expect(warmArgs[0]!.hasSeededKeys).toBe(
+      (obs.warmArgs as Array<{ hasSeededKeys: boolean }>)[0]!.hasSeededKeys, // true
+    );
+    // No cold-cache speculative null-first, exactly as the warm prod client.
+    const sandboxSpeculativeNullFirst = warmArgs.some((a) => a.isNull);
+    expect(sandboxSpeculativeNullFirst).toBe(obs.speculativeNullFirstEvenWhenWarm as boolean); // false
+  });
+
   it('rtdb-modular-runtransaction-returns-committed-snapshot', async () => {
     const obs = load('rtdb-modular-runtransaction-returns-committed-snapshot.json');
     const { db } = setup();
@@ -763,7 +958,7 @@ describe('oracle conformance (rtdb-modular)', () => {
     const all = readdirSync(OBS_DIR).filter(
       (f) => f.startsWith('rtdb-modular-') && f.endsWith('.json'),
     );
-    expect(all.length).toBe(36);
+    expect(all.length).toBe(39);
     const source = readFileSync(import.meta.path, 'utf8');
     const uncovered = all.filter(
       (f) => !source.includes(f.replace('.json', '')) && !(f in NOT_APPLICABLE),
