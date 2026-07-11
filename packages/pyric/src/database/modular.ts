@@ -1433,6 +1433,115 @@ export function connectDatabaseEmulator(
   fb.connectDatabaseEmulator(target.db, host, port, options);
 }
 
+// ─── Low-hanging-fruit exports (issue #149) ─────────────────────────
+//
+// Honest aliases / honest no-ops for `firebase/database` free functions
+// that a real app imports at module load. Same-shape across targets so
+// consumer code that wires them unconditionally compiles + runs against
+// both the sandbox and a prod handle.
+
+/**
+ * `goOffline(db)` — disconnect the client from the RTDB backend.
+ *
+ * No-op on sandbox handles: there is NO network connection in the local
+ * sandbox to toggle, so honest behavior is to accept the call and do
+ * nothing (we deliberately do NOT simulate a disconnect — pending
+ * writes, listeners, and `get()` all keep working exactly as before).
+ * Forwards to `firebase/database`'s `goOffline` on prod handles.
+ */
+export function goOffline(db: Database): void {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) return;
+  fb.goOffline(target.db);
+}
+
+/**
+ * `goOnline(db)` — reconnect the client to the RTDB backend.
+ *
+ * No-op on sandbox handles (there is no connection to reopen — see
+ * {@link goOffline}). Forwards to `firebase/database`'s `goOnline` on
+ * prod handles.
+ */
+export function goOnline(db: Database): void {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) return;
+  fb.goOnline(target.db);
+}
+
+/**
+ * `forceLongPolling()` — force the long-polling transport for all
+ * subsequent `getDatabase` connections.
+ *
+ * No-op: transport selection is meaningless to the in-process/worker
+ * sandbox, which never opens a real socket. Accepted so init code that
+ * calls it unconditionally compiles + runs. This is a process-global
+ * `firebase/database` setter (no `db` handle), so there is no prod
+ * handle to forward through from here.
+ */
+export function forceLongPolling(): void {
+  // Accepted no-op — see docstring.
+}
+
+/**
+ * `forceWebSockets()` — force the WebSocket transport for all
+ * subsequent `getDatabase` connections.
+ *
+ * No-op: transport selection is not applicable to the in-process/worker
+ * sandbox (see {@link forceLongPolling}).
+ */
+export function forceWebSockets(): void {
+  // Accepted no-op — see docstring.
+}
+
+/**
+ * `enableLogging(logger?, persistent?)` — toggle RTDB SDK logging.
+ *
+ * Accepted no-op: the sandbox has no modular-SDK-style logger to wire a
+ * level/sink into (it uses host-level `console` logging directly, gated
+ * by `pyric dev`'s own flags — matching `pyric/firestore`'s
+ * `setLogLevel`). Accepted so init code that calls it compiles + runs.
+ */
+export function enableLogging(
+  logger?: boolean | ((message: string) => void),
+  persistent?: boolean,
+): void {
+  void logger;
+  void persistent;
+}
+
+/**
+ * `refFromURL(db, url)` — build a {@link DatabaseReference} from an
+ * absolute database URL (`https://<namespace>.firebaseio.com/path`).
+ *
+ * Real alias with real behavior: parses the path out of the URL and
+ * delegates to {@link ref}, so the returned ref resolves + reads exactly
+ * like `ref(db, path)`. The sandbox is single-database and has no host /
+ * namespace, so the URL's HOST is not validated against the handle (the
+ * real SDK throws if the host doesn't match the db's namespace); only
+ * the path component is honored.
+ */
+export function refFromURL(db: Database, url: string): DatabaseReference {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) {
+    // Strip the scheme + host, keep the path. `new URL` handles the
+    // `https://<ns>.firebaseio.com/a/b` and `.firebasedatabase.app`
+    // hosts alike; the query string / hash (if any) is dropped —
+    // RTDB paths carry neither.
+    let path: string;
+    try {
+      path = new URL(url).pathname;
+    } catch {
+      throw new Error(
+        `@pyric/rtdb: refFromURL received a value that is not an absolute URL: ${url}`,
+      );
+    }
+    return ref(db, path);
+  }
+  const r = fb.refFromURL(target.db, url);
+  tag(r as unknown as object, target);
+  return r as unknown as DatabaseReference;
+}
+
 // ─── Sandbox-only ops ───────────────────────────────────────────────
 //
 // Mirrors `pyric/firestore`'s `sandbox` namespace — explicit

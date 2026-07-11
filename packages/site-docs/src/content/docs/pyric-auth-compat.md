@@ -461,6 +461,42 @@ means a Bun test in `packages/auth/test/<file>`.
 </details>
 </div>
 
+## Low-hanging-fruit exports (issue #149)
+
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">82</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Aliases <code>getAuth(app)</code> and returns the same stable <code>Auth</code> handle — an app that calls <code>initializeAuth</code> instead of <code>getAuth</code> gets an equivalent, working instance. The optional <code>Dependencies</code> arg (persistence / popupRedirectResolver) is accepted for signature parity but not applied (persistence is already a documented sandbox no-op). Repeated calls return the cached handle rather than throwing <code>auth/already-initialized</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — returns the same instance as <code>getAuth</code>, with a live <code>currentUser</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">83</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Deletes the account from the user store AND signs the user out if they are current (fires <code>onAuthStateChanged(null)</code>), matching prod where deleting the signed-in user clears <code>auth.currentUser</code>. Real behavior: a subsequent <code>signInWithEmailAndPassword</code> for that identity throws <code>auth/user-not-found</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — user removed from the store, sign-out fired, re-sign-in throws <code>auth/user-not-found</code></div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">84</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Changes the stored email (via the same path as <code>sandbox.updateUser</code>, rejecting <code>auth/email-already-in-use</code> / <code>auth/invalid-email</code>) and mutates the held <code>user</code> in place, so the next sign-in resolves against the new email. Leniency vs prod: the sandbox does NOT enforce <code>auth/requires-recent-login</code> and is not routed through <code>verifyBeforeUpdateEmail</code> (which the real SDK requires when email-enumeration protection is on)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — stored email changes; re-sign-in works with the new email, fails with the old</div>
+<div class="compat-note">email really changes; no requires-recent-login / verifyBeforeUpdateEmail enforcement</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">85</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Sets the stored password (validated for strength). The sandbox DOES store and verify passwords, so this is a real mutation: a subsequent <code>signInWithEmailAndPassword</code> with the new password succeeds and the old one throws <code>auth/wrong-password</code>. Leniency vs prod: no <code>auth/requires-recent-login</code> enforcement</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — new password signs in, old password throws <code>auth/wrong-password</code></div>
+<div class="compat-note">password really changes + is verified; no requires-recent-login enforcement</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">86</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Re-reads the stored record into the <code>user</code> object in place, so a change made out of band (e.g. <code>sandbox.updateUser</code>) is reflected on the held reference — matching prod's server refresh. Users not tracked in the DB (anonymous / popup) have nothing to refresh (safe no-op)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — an out-of-band <code>sandbox.updateUser</code> displayName change is visible on the held user after <code>reload</code></div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">87</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Sets the sandbox's current user (pass <code>null</code> to sign out), firing <code>onAuthStateChanged</code> — <code>auth.currentUser</code> reflects the passed user afterward. Real behavior. On prod targets, hands the underlying upstream user to <code>firebase/auth.updateCurrentUser</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — <code>auth.currentUser</code> becomes the passed user; <code>null</code> signs out</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">88</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Accepted no-op — the sandbox has no device locale to read, so there is no language to set; accepted so init code that calls it compiles + runs</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — resolves/returns without error</div>
+<div class="compat-note">no device locale in the sandbox</div></div>
+</details>
+</div>
+
 ## Deny-list (intentionally NOT shimmed)
 
 These exist in `firebase/auth` but the sandbox refuses to import/use
@@ -472,12 +508,11 @@ gate enforce the deny-list at build time.
 | `linkWithCredential` / `linkWithPopup` / `linkWithRedirect` | v0 scope — account linking is non-trivial state |
 | `unlink` | Same as above |
 | `reauthenticateWithCredential` / `reauthenticateWithPopup` / `reauthenticateWithRedirect` | v0 scope |
-| `updateEmail` / `updatePassword` | Mutates auth state in ways the sandbox doesn't model |
 | `verifyBeforeUpdateEmail` / `sendEmailVerification` / `applyActionCode` / `checkActionCode` / `confirmPasswordReset` / `sendPasswordResetEmail` / `verifyPasswordResetCode` | Email-link flows require an SMTP path; deliberately out of scope |
 | `multiFactor(user)` / MFA APIs | Not modeled |
-| `useDeviceLanguage` / `setLanguageCode` | i18n surface; not in v0 |
+| `setLanguageCode` (Auth method) | i18n surface; not in v0. (`useDeviceLanguage` is now mirrored as an accepted no-op — issue #149.) |
 | `beforeAuthStateChanged` | Blocking middleware; sandbox uses synchronous fan-out and has no equivalent yet |
-| `User.reload()` / `User.delete()` / `User.toJSON()` | Account-lifecycle / serialization the sandbox doesn't model — documented (not synthesized) per AUTH-GAP; the cheap profile fields (`photoURL`/`emailVerified`/`phoneNumber`/`providerData`/`providerId`) ARE present |
+| `User.toJSON()` | Serialization the sandbox doesn't model — documented per AUTH-GAP. (`User.reload()` / `User.delete()` are now mirrored via the top-level `reload(user)` / `deleteUser(user)` — issue #149.) |
 | `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox; documented per AUTH-GAP |
 | Positional listener `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Sandbox observers never error/complete (synchronous in-memory fan-out); pass the `{ next, error, complete }` observer object if you need those handlers. The prod backend forwards all three. |
 

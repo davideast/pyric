@@ -595,8 +595,8 @@ the oracle locks it.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 163 | `goOffline(db)` disconnects the client; subsequent writes queue locally and surface via `onValue` with `hasPendingWrites` (cached value) until `goOnline` flushes them | — | Phase 3 — needs the sandbox to model an offline state; in prod this is upstream contract |
-| 164 | `goOnline(db)` reconnects and flushes queued writes | — | Phase 3 |
+| 163 | `goOffline(db)` — accepted no-op on sandbox handles: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and `get()` keep working). Forwards to `firebase/database`'s `goOffline` on prod handles (issue #149) | ⚠ no network connection in the local sandbox to toggle | `unit:modular/fruit-aliases.test.ts` |
+| 164 | `goOnline(db)` — accepted no-op on sandbox handles: there is no connection to reopen (see `goOffline`). Forwards to `firebase/database`'s `goOnline` on prod handles (issue #149) | ⚠ no network connection in the local sandbox to toggle | `unit:modular/fruit-aliases.test.ts` |
 
 ### `connectDatabaseEmulator` — emulator hook
 
@@ -604,6 +604,15 @@ the oracle locks it.
 |---|---|---|---|
 | 165 | No-op on sandbox-target handles (the sandbox IS the local emulator) | — | Phase 3 |
 | 166 | Forwards to `firebase/database`'s `connectDatabaseEmulator` on prod-target handles | — | Phase 3 |
+
+### Low-hanging-fruit exports — transport / logging / URL refs (issue #149)
+
+| # | Behavior | Status | Probe |
+|---|---|---|---|
+| 171 | `forceLongPolling()` — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs. Process-global setter with no `db` handle, so there is no prod handle to forward through (issue #149) | ⚠ transport selection not applicable to the in-process/worker sandbox | `unit:modular/fruit-aliases.test.ts` |
+| 172 | `forceWebSockets()` — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (see `forceLongPolling`) (issue #149) | ⚠ transport selection not applicable to the in-process/worker sandbox | `unit:modular/fruit-aliases.test.ts` |
+| 173 | `enableLogging(logger?, persistent?)` — accepted no-op: the sandbox has no modular-SDK-style logger to wire a level/sink into (it uses host-level `console` logging directly, matching `pyric/firestore`'s `setLogLevel`). Accepted so init code that calls it compiles + runs (issue #149) | ⚠ accepted no-op; no sandbox logger to wire into | `unit:modular/fruit-aliases.test.ts` |
+| 174 | `refFromURL(db, url)` — real alias: parses the path out of the absolute database URL and delegates to `ref(db, path)`, so the returned ref resolves + reads exactly like `ref(db, path)`. Divergence: the sandbox is single-database with no host/namespace, so the URL's HOST is NOT validated against the handle (the real SDK throws if the host doesn't match the db's namespace); only the path is honored (issue #149) | ⚠ path resolves like `ref`; URL host/namespace not validated (single-database sandbox) | `unit:modular/fruit-aliases.test.ts` |
 
 ### `sandbox.*` — sandbox-only test driver
 
@@ -616,14 +625,14 @@ the oracle locks it.
 
 ### Modular SDK surface — deny-list (intentionally NOT shimmed)
 
+> `goOffline` / `goOnline` / `forceLongPolling` / `forceWebSockets` / `enableLogging` (honest no-ops) and `refFromURL` (a real alias to `ref`) were moved OUT of this deny-list and mirrored — see the tables above (issue #149).
+
 | Name | Reason |
 |---|---|
-| `enableLogging` | Logging is owned by the host harness, not the modular SDK shim. |
 | IndexedDB persistence APIs (the Web SDK's RTDB caches in-memory; there's no `enableIndexedDbPersistence` for RTDB, but if upstream adds one, we deny-list it for sandbox parity with firestore's persistence deny-list) | Persistence is owned by `pyric/sandbox`; the modular SDK's cache APIs would conflict. |
 | `.info/connected` reads (`onValue(ref(db, '.info/connected'), …)`) | The sandbox has no real connection state to model; firing `true` constantly or never would be a divergence either way. Phase 3 may model this as always-`true` on the sandbox-target. |
 | `onDisconnect(ref).set(...)` / `.update(...)` / `.remove(...)` / `.cancel()` | Disconnect handlers require a real network channel; the sandbox has no equivalent. Considered for Phase 3 with explicit divergence documentation. NOT exported (no build break — nothing in the shim references it). |
 | `orderByPriority()` / `setPriority(ref, p)` / `setWithPriority(ref, v, p)` and the whole `.priority` model (DB-B6, DB-GAP) | RTDB's priority model — a per-node `.priority` plus a `PriorityIndex` default ordering — is a cross-cutting data-model concern (every node carries an optional priority; the default child ordering is by priority, not key). Modeling it faithfully touches the tree, the snapshot surface, and every query path; it is not cheap and there is no agent/playground demand. Deny-listed with this note. **Divergence:** the sandbox's default child ordering is `orderByKey` (not priority); `setPriority`/`setWithPriority`/`orderByPriority` are not exported. Consumers needing priority use `firebase/database` directly. |
-| `refFromURL(db, url)` | Resolving an absolute `https://<db>.firebaseio.com/path` URL has no meaning against the in-memory sandbox (no host/namespace). Use `ref(db, path)`. |
 
 ---
 

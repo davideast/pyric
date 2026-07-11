@@ -275,6 +275,27 @@ export function getAuth(target: Sandbox | FirebaseApp | PyricApp): Auth {
 }
 
 /**
+ * `initializeAuth(app, deps?)` — mirror of `firebase/auth`'s explicit
+ * initializer. Aliases {@link getAuth}: returns the same stable `Auth`
+ * handle for the app, so an app that calls `initializeAuth` instead of
+ * `getAuth` gets an equivalent, working instance.
+ *
+ * The optional `Dependencies` argument (persistence / popupRedirectResolver)
+ * is accepted for signature parity but not applied — persistence is already
+ * a documented no-op in the sandbox model (`setPersistence`, the persistence
+ * markers), so there is nothing new to configure. Unlike prod, calling this
+ * twice for the same app does NOT throw `auth/already-initialized`; it
+ * returns the cached handle (same leniency as repeated `getAuth`).
+ */
+export function initializeAuth(
+  app: Sandbox | FirebaseApp | PyricApp,
+  deps?: unknown,
+): Auth {
+  void deps;
+  return getAuth(app as never);
+}
+
+/**
  * Brand-based test for the {@link PyricApp} overload. Reads the
  * `APP_TARGET` symbol that `pyric/app`'s `initializeApp` stamps on
  * every handle. Cheap + collision-free: a `Sandbox` / `FirebaseApp`
@@ -620,6 +641,101 @@ export async function updateProfile(
     );
   }
   return internal.updateProfile(profile);
+}
+
+/**
+ * Top-level mirror of `firebase/auth`'s `deleteUser(user)`. Deletes the
+ * account from the store and signs the user out if they are the current
+ * user (fires `onAuthStateChanged(null)`) — matching prod, where deleting
+ * the signed-in user clears `auth.currentUser`. Real behavior on the
+ * sandbox: a subsequent `signInWithEmailAndPassword` for that identity
+ * throws `auth/user-not-found`.
+ *
+ * Routes through the hidden {@link USER_INTERNAL} hook (user-only
+ * signature, no `auth` handle), so it works on sandbox + prod targets.
+ */
+export async function deleteUser(user: User): Promise<void> {
+  return userInternal(user, 'deleteUser').delete();
+}
+
+/**
+ * Top-level mirror of `firebase/auth`'s `updateEmail(user, newEmail)`.
+ * Changes the signed-in user's email in the store (rejecting
+ * `auth/email-already-in-use` / `auth/invalid-email`) and mutates the held
+ * `user` in place. Real behavior: the next sign-in resolves against the
+ * new email.
+ *
+ * Leniency vs prod: the sandbox does NOT enforce `auth/requires-recent-login`
+ * and does not route through `verifyBeforeUpdateEmail` — see the COMPAT row.
+ */
+export async function updateEmail(user: User, newEmail: string): Promise<void> {
+  return userInternal(user, 'updateEmail').updateEmail(newEmail);
+}
+
+/**
+ * Top-level mirror of `firebase/auth`'s `updatePassword(user, newPassword)`.
+ * Sets the stored password (validated for strength). Real behavior: the
+ * sandbox stores AND verifies passwords, so the next
+ * `signInWithEmailAndPassword` with the new password succeeds and the old
+ * one throws `auth/wrong-password`.
+ *
+ * Leniency vs prod: no `auth/requires-recent-login` enforcement — see the
+ * COMPAT row.
+ */
+export async function updatePassword(user: User, newPassword: string): Promise<void> {
+  return userInternal(user, 'updatePassword').updatePassword(newPassword);
+}
+
+/**
+ * Top-level mirror of `firebase/auth`'s `reload(user)`. Re-reads the stored
+ * record into the `user` object in place so out-of-band changes (e.g.
+ * `sandbox.updateUser`) are reflected — matching prod's server refresh.
+ */
+export async function reload(user: User): Promise<void> {
+  return userInternal(user, 'reload').reload();
+}
+
+/**
+ * Top-level mirror of `firebase/auth`'s `updateCurrentUser(auth, user)`.
+ * Sets the sandbox's current user (pass `null` to sign out), firing
+ * `onAuthStateChanged`. Real behavior — `auth.currentUser` reflects the
+ * passed user afterward.
+ */
+export async function updateCurrentUser(auth: Auth, user: User | null): Promise<void> {
+  const target = targetOf(auth);
+  if (target.kind === 'sandbox') {
+    target.backend.setCurrentUser(user);
+    return;
+  }
+  // Prod: hand the UNDERLYING upstream user to `firebase/auth`, recovered
+  // from the adapter's USER_INTERNAL hook.
+  const raw = user ? (userInternal(user, 'updateCurrentUser').raw as fb.User) : null;
+  return fb.updateCurrentUser(target.auth, raw);
+}
+
+/**
+ * `useDeviceLanguage(auth)` — accepted no-op. The sandbox has no device
+ * locale to read, so there is no language to set; the call is accepted so
+ * init code that calls it compiles + runs. `diverged-documented`.
+ */
+export function useDeviceLanguage(auth: Auth): void {
+  void auth;
+}
+
+/**
+ * Recover the backend-dispatch hook stamped on every `User`. Throws
+ * `auth/invalid-user-token` for a user not produced by a `pyric/auth`
+ * sign-in — same guard {@link updateProfile} uses.
+ */
+function userInternal(user: User, name: string): UserInternal {
+  const internal = (user as { [USER_INTERNAL]?: UserInternal })[USER_INTERNAL];
+  if (!internal) {
+    throw makeAuthError(
+      'auth/invalid-user-token',
+      `${name}: unrecognized user — was it produced by a pyric/auth sign-in?`,
+    );
+  }
+  return internal;
 }
 
 // ─── Sandbox-only test driver ─────────────────────────────────────────
