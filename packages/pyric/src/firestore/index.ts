@@ -769,6 +769,142 @@ export function connectFirestoreEmulator(
   fb.connectFirestoreEmulator(target.db, host, port, options);
 }
 
+// ─── Tier: offline / persistence / network family (issue #144) ────────
+//
+// HONEST-MIRROR NOTE — read this before touching any function below.
+//
+// `firebase/firestore`'s persistence and network toggles exist because
+// the real SDK juggles THREE tiers: an in-memory cache, an optional
+// IndexedDB cache, and a server. These functions negotiate which tiers
+// are active and whether the client is reachable.
+//
+// The sandbox has none of that structure. It IS the backend — writes
+// land directly in the sandbox's store, with no server round-trip to
+// wait on and no network link to drop. When the host (`pyric-tools
+// serve`, or a bare `initializeSandbox()` call with persistence
+// enabled) turns on IndexedDB persistence, EVERY sandbox write already
+// flushes to IndexedDB by default — an app never has to ask for it.
+//
+// So each function below does the one HONEST thing available in that
+// model: either resolve immediately because the thing it promises is
+// already true, or resolve as a documented no-op because there is
+// nothing local for it to mean. None of these SIMULATE a capability
+// the sandbox doesn't have (there is no fake "offline mode" here) —
+// they just stop a real app's init sequence from crashing on an
+// import that used to not exist.
+//
+// Prod targets are unaffected: every function below forwards to the
+// real `fb.*` implementation when `db` was built from a `FirebaseApp`.
+
+/**
+ * Sandbox: no-op success. The sandbox's default persistence (IndexedDB
+ * on the SharedWorker/serve path, or whatever backend `enablePersistence`
+ * was configured with) already caches every write — this call has
+ * nothing left to enable. Resolves immediately.
+ *
+ * Unlike the real SDK, this does NOT reject with `'failed-precondition'`
+ * when called after other Firestore ops have already run. The guard
+ * exists in the real SDK to protect an actual cache-initialization
+ * race; the sandbox has no such race (there's no cache to initialize),
+ * so enforcing the same restriction would only make app code that
+ * calls this defensively at startup fail for no local reason.
+ *
+ * Prod: forwards to `firebase/firestore`'s real implementation.
+ */
+export function enableIndexedDbPersistence(
+  db: Firestore,
+  persistenceSettings?: fb.PersistenceSettings,
+): Promise<void> {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) return Promise.resolve();
+  return fb.enableIndexedDbPersistence(target.db, persistenceSettings);
+}
+
+/**
+ * Sandbox: no-op success, same rationale as {@link enableIndexedDbPersistence}.
+ * Multi-tab coordination is meaningless here too: the sandbox's
+ * SharedWorker path already IS the single shared store every tab talks
+ * to, so there's no separate "multi-tab" mode to opt into.
+ *
+ * Prod: forwards to `firebase/firestore`.
+ */
+export function enableMultiTabIndexedDbPersistence(db: Firestore): Promise<void> {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) return Promise.resolve();
+  return fb.enableMultiTabIndexedDbPersistence(target.db);
+}
+
+/**
+ * Sandbox: actually clears the sandbox's persisted store via
+ * `Sandbox.clearPersistence()` — the honest mapping, not a no-op. This
+ * wipes the persisted blob (IndexedDB, or whatever backend
+ * `enablePersistence` was configured with) while leaving in-memory
+ * state untouched, matching `clearPersistence`'s own contract. It is
+ * ALREADY a no-op when persistence was never enabled, so callers that
+ * invoke this defensively at startup are safe either way.
+ *
+ * `getFirestore(ctx)` (frozen `SandboxContext`) targets don't carry a
+ * live `Sandbox` handle with a `clearPersistence` method reachable the
+ * same way as a `sandbox`/`sandbox-live` target's `.sandbox` field —
+ * both variants do, in fact, so this always has a sandbox to call into.
+ *
+ * Prod: forwards to `firebase/firestore`. Note the real SDK requires
+ * this to be called before Firestore starts; the sandbox's mapped
+ * `clearPersistence()` has no such restriction.
+ */
+export function clearIndexedDbPersistence(db: Firestore): Promise<void> {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) return target.sandbox.clearPersistence();
+  return fb.clearIndexedDbPersistence(target.db);
+}
+
+/**
+ * Sandbox: no-op success. There is no network in the sandbox — every
+ * op is a local call into the in-memory/IndexedDB-backed store — so
+ * there is nothing to disable. This deliberately does NOT simulate an
+ * offline mode: queued writes still commit immediately rather than
+ * queuing, because the sandbox cannot honestly deliver "queued until
+ * reconnected" when there is no connection to lose in the first place.
+ * App code that calls this to prep for flaky connectivity will not
+ * crash, but it also will not observe write-queuing behavior.
+ *
+ * Prod: forwards to `firebase/firestore`, which has a real network to
+ * disable.
+ */
+export function disableNetwork(db: Firestore): Promise<void> {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) return Promise.resolve();
+  return fb.disableNetwork(target.db);
+}
+
+/**
+ * Sandbox: no-op success, symmetric with {@link disableNetwork} — since
+ * network was never disabled locally, there is nothing to re-enable.
+ *
+ * Prod: forwards to `firebase/firestore`.
+ */
+export function enableNetwork(db: Firestore): Promise<void> {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) return Promise.resolve();
+  return fb.enableNetwork(target.db);
+}
+
+/**
+ * Sandbox: resolves immediately. The real SDK's version waits for
+ * queued writes to reach the server; the sandbox has no server to wait
+ * on — every write it accepts is already committed to the local store
+ * by the time the write's own promise resolves, so by the time this is
+ * called there are, honestly, never any writes still pending a round
+ * trip.
+ *
+ * Prod: forwards to `firebase/firestore`.
+ */
+export function waitForPendingWrites(db: Firestore): Promise<void> {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) return Promise.resolve();
+  return fb.waitForPendingWrites(target.db);
+}
+
 // Shorthand: cast helpers used inside route arms. The runtime objects
 // match these shapes precisely; the casts let the routing keep its
 // single-typed public surface.

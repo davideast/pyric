@@ -666,6 +666,61 @@ Targets:
 </details>
 </div>
 
+## Offline / persistence / network family (issue #144)
+
+`enableIndexedDbPersistence`, `enableMultiTabIndexedDbPersistence`,
+`clearIndexedDbPersistence`, `enableNetwork`, `disableNetwork`, and
+`waitForPendingWrites` are now exported from `pyric/firestore`. Before
+this, none of the six existed on the modular surface at all — an app
+that called any of them at init (a common pattern) crashed on a
+missing named export before it ever ran a read or write.
+
+**Honest-mirror rationale**: the sandbox IS the backend, running
+local-first with IndexedDB persistence on by default (the
+SharedWorker/`pyric dev` path calls `Sandbox.enablePersistence(...)`
+before any app code runs). There is no separate cache tier to opt
+into and no network to gate. Each function below does the one
+honest thing available in that model — resolve because the promised
+behavior is already true, or resolve as a documented no-op because
+there is nothing local for it to mean. None of them simulate a
+capability the sandbox doesn't have; in particular, `disableNetwork`
+does NOT queue writes for later replay — writes still commit
+immediately, because there's no real connection to lose.
+
+`terminate` remains out of scope for this pass (tracked separately —
+`Sandbox.dispose()` covers the host-level teardown case, but wiring
+it into the modular surface as a real `terminate(db)` export is
+backlog work per issue #144).
+
+## Offline / persistence / network family (continued)
+
+<div class="compat-list">
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">140</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves on sandbox targets — persistence is already the default; does not reject with <code>'failed-precondition'</code> when called after other ops (deliberately more lenient than the real SDK — no cache-init race to protect). Forwards to <code>fb.enableIndexedDbPersistence</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
+<div class="compat-note">no failed-precondition</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">141</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves on sandbox targets — the SharedWorker path already is the one shared store every tab talks to. Forwards to <code>fb.enableMultiTabIndexedDbPersistence</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
+<div class="compat-note">no failed-precondition</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">142</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Maps to <code>Sandbox.clearPersistence()</code> on sandbox targets — actually wipes the persisted blob (honest, not a no-op); already a no-op when persistence was never enabled. Forwards to <code>fb.clearIndexedDbPersistence</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">143</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolve on sandbox targets — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated). Forward to <code>fb.enableNetwork</code> / <code>fb.disableNetwork</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
+<div class="compat-note">no offline queue</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">144</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves immediately on sandbox targets — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip. Forwards to <code>fb.waitForPendingWrites</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
+<div class="compat-note">always resolves; prod can hang offline</div></div>
+</details>
+</div>
+
 ## `sandbox.*` — sandbox-only ops
 
 <div class="compat-list">
@@ -773,10 +828,8 @@ bundle's metafile gate enforce the deny-list at build time.
 
 | Name | Reason |
 |---|---|
-| `enableIndexedDbPersistence` / `enableMultiTabIndexedDbPersistence` / `persistentLocalCache` / `memoryLocalCache` | Persistence story is owned by `pyric/sandbox` (IndexedDB + memory backends); the modular SDK's cache APIs would conflict |
-| `clearIndexedDbPersistence` | Same as above |
-| `waitForPendingWrites` / `disableNetwork` / `enableNetwork` | No network in the sandbox; semantically vacuous |
-| `terminate` | Handled by `Sandbox.dispose()` at the host level |
+| `persistentLocalCache` / `memoryLocalCache` / `persistentSingleTabManager` / `persistentMultipleTabManager` | Client cache-config surface (index tuning, GC policy); no sandbox equivalent knob. Distinct from enable/clear-persistence and network toggles, which are now mirrored (see the offline/persistence/network section above, issue #144) |
+| `terminate` | Out of scope for issue #144 — `Sandbox.dispose()` covers teardown at the host level today |
 | `loadBundle` / `namedQuery` | Bundle-loading depends on server-side packaging not modeled in sandbox |
 | `getDocFromCache` / `getDocFromServer` / `getDocsFromCache` / `getDocsFromServer` | No cache/server split in sandbox |
 | `onSnapshotsInSync` | Cross-listener sync semantics not modeled |

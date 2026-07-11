@@ -100,17 +100,13 @@ const firestoreDenials: DenyEntry[] = [
     '_internalQueryToProtoQueryTarget', '_isBase64Available', '_logWarn',
     '_validateIsNotUsedTogether',
   ]),
-  ...deny('firestore', 'Persistence / cache story is owned by pyric/sandbox (IndexedDB + memory backends); the modular SDK cache + index-config APIs would conflict (firestore deny-list).', [
-    'enableIndexedDbPersistence', 'enableMultiTabIndexedDbPersistence', 'clearIndexedDbPersistence',
+  ...deny('firestore', 'Client cache-config surface (index tuning, GC policy) the sandbox has no equivalent knob for; distinct from enable/clear-persistence and network toggles, which are now mirrored as honest no-ops/forwards (see registry/firestore.ts, issue #144).', [
     'persistentLocalCache', 'persistentMultipleTabManager', 'persistentSingleTabManager',
     'memoryLocalCache', 'memoryEagerGarbageCollector', 'memoryLruGarbageCollector',
     'CACHE_SIZE_UNLIMITED',
     'PersistentCacheIndexManager', 'getPersistentCacheIndexManager',
     'deleteAllPersistentCacheIndexes', 'enablePersistentCacheIndexAutoCreation',
     'disablePersistentCacheIndexAutoCreation', 'setIndexConfiguration',
-  ]),
-  ...deny('firestore', 'No network in the sandbox; semantically vacuous (firestore deny-list: waitForPendingWrites / disableNetwork / enableNetwork).', [
-    'waitForPendingWrites', 'disableNetwork', 'enableNetwork',
   ]),
   ...deny('firestore', 'Handled by Sandbox.dispose() at the host level (firestore deny-list: terminate).', [
     'terminate',
