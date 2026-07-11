@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { IconKey, IconSettings, IconUser } from '../../shell/icons.js';
 import { PlaygroundModelControl } from './PlaygroundModelControl.js';
+import './playground.css';
 
 interface StudioSettingsMessage {
   type: 'pyric:studio:navigate-settings';

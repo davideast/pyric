@@ -6,6 +6,7 @@
  * metadata, and maintenance live in Settings.
  */
 
+import './shell/shell.css';
 import { useEffect, useState } from 'react';
 import { DevSeedProvider, useDevSeed } from './dev/DevSeedProvider.js';
 import { EnvironmentProvider } from './shell/environment.js';

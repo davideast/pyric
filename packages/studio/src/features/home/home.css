@@ -310,3 +310,24 @@ a.studio-home__tile:hover {
   border-radius: 6px;
   background: var(--elevated);
 }
+
+.studio-home__tile-top {
+  /* Title row as its own grid line (label | count pill). Baseline alignment
+     keeps the label's baseline identical across tiles WITH and WITHOUT a
+     pill: the pill's box is shorter than the label's line box, so it hangs
+     off the shared baseline instead of re-centering (and growing) the row. */
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+}
+.studio-home__tile-label {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+.studio-home__tile-desc {
+  color: var(--muted);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+}

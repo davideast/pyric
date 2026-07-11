@@ -1,0 +1,133 @@
+/**
+ * Prototype/playground surface styling: the model-select control embedded in
+ * the top bar (`.studio-playground-model`), the icon buttons in the
+ * playground's own control row, and the playground frame + breadcrumbs.
+ * Imported by the components that render these classes (`PlaygroundSurface`,
+ * `PlaygroundModelControl`).
+ *
+ * This file's own `@media (max-width: 760px)` block is last, so it overrides
+ * the desktop rules above it by source order (same specificity).
+ */
+.studio-icon-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.studio-icon-button:hover {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--elevated);
+}
+
+.studio-playground-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.studio-playground-model select {
+  height: 30px;
+  max-width: 180px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--elevated);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-caption);
+  padding: 0 7px;
+  outline: none;
+}
+.studio-playground-model select:focus {
+  border-color: var(--line-2);
+}
+
+.studio-playground {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+/* The Prototype surface's OWN control row (model/keys/settings/account) —
+   contextual controls live in the surface, never the bar (N2). */
+.studio-playground__controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--gutter);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+/* Breadcrumb on the left; the model + key/settings/account controls pushed to
+   the right (margin-left:auto works whether or not a breadcrumb is present). */
+.studio-playground__controls-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+.studio-playground__crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.studio-playground__crumb-root {
+  color: var(--text-2);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+.studio-playground__crumb-root:hover {
+  color: var(--text-1);
+}
+.studio-playground__crumb-sep {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.studio-playground__crumb-current {
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.studio-playground__frame {
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: var(--elevated);
+}
+
+@media (max-width: 760px) {
+  .studio-playground__controls {
+    gap: 4px;
+  }
+
+  .studio-playground-model select {
+    max-width: 112px;
+  }
+
+  .studio-playground-model select:nth-of-type(2) {
+    display: none;
+  }
+}

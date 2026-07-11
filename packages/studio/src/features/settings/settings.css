@@ -1,0 +1,229 @@
+/**
+ * Settings surface styling: the two-column settings grid, the sandbox card
+ * (live instance/inventory/persistence + branch actions), and the
+ * choice/panel/branch primitives the surface renders. Imported by
+ * `SettingsSurface.tsx`, the only consumer of these classes.
+ *
+ * This file's own `@media (max-width: 760px)` block is last, so it overrides
+ * the desktop rules above it by source order (same specificity).
+ */
+.studio-settings__grid > * {
+  min-width: 0;
+}
+
+.studio-settings__actions,
+.studio-settings__branch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.studio-settings__grid {
+  display: grid;
+  grid-template-columns: minmax(min(100%, 560px), 1.1fr) minmax(min(100%, 320px), 0.9fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+.studio-settings__ai {
+  max-width: none;
+  max-height: none;
+  box-shadow: none;
+}
+.studio-settings__panel {
+  display: grid;
+  gap: 12px;
+}
+.studio-settings__choice-group {
+  display: grid;
+  gap: 8px;
+}
+.studio-settings__choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  padding: 12px;
+  cursor: pointer;
+}
+.studio-settings__choice:has(input:checked) {
+  border-color: var(--accent);
+}
+.studio-settings__choice input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.studio-settings__choice span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.studio-settings__choice strong {
+  color: var(--ink);
+  font-size: var(--fs-body);
+}
+.studio-settings__choice small {
+  color: var(--muted);
+  font-size: var(--fs-label);
+  line-height: 1.45;
+}
+.studio-settings__row,
+.studio-settings__branch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.studio-settings__label {
+  color: var(--muted);
+}
+.studio-settings__muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+.studio-settings__file {
+  display: none;
+}
+.studio-settings__branches {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* ── Sandbox card: live substance + consequence-captioned actions ─────── */
+/* Row 1 — instance · inventory · persistence. The teaching line: the
+   sandbox IS this data; everything below operates on it. */
+.studio-sandbox__live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  padding: 10px 12px;
+}
+.studio-sandbox__instance {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--fs-body);
+}
+.studio-sandbox__inventory {
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+.studio-sandbox__persist {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+/* Action tiles: name row (glyph + label) stacked over the consequence
+   caption. The glyph is the direction: state→file, file→state, fork,
+   loop-back. */
+.studio-sandbox__actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 8px;
+}
+.studio-sandbox__action {
+  appearance: none;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  padding: 10px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+.studio-sandbox__action:hover {
+  border-color: var(--line-2);
+}
+.studio-sandbox__action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.studio-sandbox__action-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+}
+.studio-sandbox__action[data-danger='true'] .studio-sandbox__action-top {
+  color: var(--diff-remove);
+}
+.studio-sandbox__action-name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.studio-sandbox__action-caption {
+  color: var(--muted);
+  font-size: var(--fs-caption);
+  line-height: 1.45;
+}
+
+/* Transient rows: inline branch naming, inline reset confirm (no modals). */
+.studio-sandbox__name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.studio-sandbox__name-input {
+  flex: 1;
+  min-width: 140px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--elevated);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-body);
+  padding: 6px 10px;
+  outline: none;
+}
+.studio-sandbox__name-input:focus {
+  border-color: var(--line-2);
+}
+.studio-sandbox__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--diff-remove) 45%, var(--line));
+  border-radius: 8px;
+  background: var(--deny-tint);
+  padding: 10px 12px;
+}
+.studio-sandbox__confirm-copy {
+  color: var(--ink);
+  font-size: var(--fs-label);
+}
+.studio-sandbox__confirm-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+.studio-sandbox__branches-empty {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--fs-label);
+}
+
+@media (max-width: 760px) {
+  .studio-settings__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-settings__row,
+  .studio-settings__branch {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

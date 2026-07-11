@@ -1,0 +1,19 @@
+/**
+ * Data-feature wrapper layout: the `[data-pyric-ui='data-feature']` frame
+ * that DataFeature.tsx renders around whichever service pane (Firestore /
+ * Storage) is active, so the pane's own browser fills the remaining height.
+ * Imported by `DataFeature.tsx`, the only consumer of this contract.
+ */
+/* The data feature fills its frame; its browser (the last data child) grows so
+   the columns run full-height and their dividers span the whole browser. */
+[data-pyric-ui='data-feature'] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+[data-pyric-ui='data-feature'] > [data-pyric-ui='fs-browser'],
+[data-pyric-ui='data-feature'] > .storage {
+  flex: 1;
+  min-height: 0;
+}
