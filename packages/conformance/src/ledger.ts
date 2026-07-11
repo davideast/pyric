@@ -1,10 +1,13 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { allCompatibilityRows, observationExceptions, surfaceDescriptors, surfaceRegistries, type CompatibilityRow, type Surface } from '../registry/index.ts';
+import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow, type Surface } from '../registry/index.ts';
+import { surfaceDescriptors } from '../surfaces/load.ts';
+import { observationExceptions } from '../exceptions/load.ts';
 import { generatedRowLineNumbers } from './generate-docs.ts';
 
-export type { Automation, CompatibilityRow, CompatStatus, OracleConformanceCheck, Surface, SurfaceDescriptor } from '../registry/index.ts';
+export type { Automation, CompatibilityRow, CompatStatus, OracleConformanceCheck, Surface } from '../registry/index.ts';
+export type { SurfaceDescriptor } from '../surfaces/types.ts';
 
 export interface Observation {
   file: string;

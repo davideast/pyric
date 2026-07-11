@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { allCompatibilityRows, observationExceptions, surfaceDescriptors, surfaceRegistries, type CompatibilityRow } from '../registry/index.ts';
+import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow } from '../registry/index.ts';
+import { surfaceDescriptors } from '../surfaces/load.ts';
+import { observationExceptions } from '../exceptions/load.ts';
 import { renderAllCompatibilityMarkdown } from './generate-docs.ts';
 import { loadObservations, REPO_ROOT } from './ledger.ts';
 import { validateCompatibilityRegistry } from './validate-registry.ts';
@@ -203,7 +205,7 @@ describe('oracle rig manifests', () => {
     // this test to the "matches no observation file" check alone.
     const descriptorsWithSyntheticPrefix = [
       ...surfaceDescriptors,
-      { ...surfaceDescriptors[0]!, observationPrefix: 'this-prefix-matches-nothing-' },
+      { ...surfaceDescriptors[0]!, observationPrefixes: ['this-prefix-matches-nothing-'] },
     ];
     const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
@@ -224,7 +226,7 @@ describe('oracle rig manifests', () => {
     );
     const descriptorsWithSyntheticPrefix = [
       ...surfaceDescriptors,
-      { ...surfaceDescriptors[0]!, observationPrefix: 'admin-app-nonexistent-' },
+      { ...surfaceDescriptors[0]!, observationPrefixes: ['admin-app-nonexistent-'] },
     ];
     const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,

@@ -81,27 +81,7 @@ export interface CompatibilitySurfaceRegistry {
   blocks: CompatibilityDocBlock[];
 }
 
-/**
- * Everything a script needs to know about one compatibility surface.
- * Scripts iterate `surfaceDescriptors` (registry/index.ts) instead of
- * hardcoding surface lists; adding a surface is a data edit here plus a
- * registry file. Two descriptors may share one registry: `rtdb` and
- * `rtdb-modular` rows both live in the rtdb doc.
- */
-export interface SurfaceDescriptor {
-  surface: Surface;
-  /** The doc registry hosting this surface's rows (and its compatPath). */
-  registry: CompatibilitySurfaceRegistry;
-  /** Observation filename prefix, e.g. 'rtdb-modular-'. Longest prefix wins. */
-  observationPrefix: string;
-  /** Repo-relative conformance suite path (future wiring; unset today). */
-  conformanceSuite?: string;
-  /**
-   * A surface climbing under Conformance Driven Development (CDD): its rows are
-   * authored born-`unverified` before implementation, and its generated doc
-   * publishes at zero with a climb header. The climb lane and `compat:report`
-   * select surfaces by this marker. Dropped at graduation. See
-   * `docs/conformance/cdd.md`.
-   */
-  climb?: boolean;
-}
+// The surface descriptor (everything a script needs to know about one
+// compatibility surface) now lives per-file in `surfaces/` — see
+// `surfaces/types.ts` for the `SurfaceDescriptorRecord`/`SurfaceDescriptor`
+// shapes and `surfaces/load.ts` for the loader.

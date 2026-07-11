@@ -1,7 +1,10 @@
 #!/usr/bin/env bun
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { allCompatibilityRows, observationExceptions, surfaceDescriptors, type Automation, type CompatibilityRow, type CompatStatus, type SurfaceDescriptor } from '../registry/index.ts';
+import { allCompatibilityRows, type Automation, type CompatibilityRow, type CompatStatus } from '../registry/index.ts';
+import { surfaceDescriptors } from '../surfaces/load.ts';
+import { observationExceptions } from '../exceptions/load.ts';
+import type { SurfaceDescriptor } from '../surfaces/types.ts';
 import { buildCompatibilityLedger, loadObservations, REPO_ROOT, summarizeLedger, type Observation } from './ledger.ts';
 import { checkGeneratedMarkdown } from './generate-docs.ts';
 import { loadRigManifests } from '../rigs/load.ts';
@@ -122,6 +125,26 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     if (!input.rows.some((row) => row.surface === descriptor.surface)) problems.push(`${descriptor.surface}: surface has no rows`);
   }
 
+  // ── Surface descriptor integrity (surfaces/*.ts) ──────────────────────────
+  // Each observation filename prefix is owned by exactly one surface; a prefix
+  // claimed by two surfaces makes ownership (and the coverage/report split)
+  // ambiguous. `rtdb-` / `rtdb-modular-` are DIFFERENT prefixes owned by
+  // different surfaces — fine; the check is for the SAME prefix on two surfaces.
+  const prefixOwner = new Map<string, string>();
+  for (const descriptor of input.descriptors) {
+    for (const prefix of descriptor.observationPrefixes) {
+      const owner = prefixOwner.get(prefix);
+      if (owner && owner !== descriptor.surface) {
+        problems.push(`observation prefix '${prefix}' is claimed by both surface '${owner}' and surface '${descriptor.surface}'`);
+      }
+      prefixOwner.set(prefix, descriptor.surface);
+    }
+    // A descriptor's conformance suite, if declared, must exist on disk.
+    if (descriptor.conformanceSuite && !existsSync(join(REPO_ROOT, descriptor.conformanceSuite))) {
+      problems.push(`${descriptor.surface}: conformanceSuite '${descriptor.conformanceSuite}' is missing`);
+    }
+  }
+
   const referencedObservations = new Set<string>();
   for (const row of input.rows) {
     for (const observation of row.oracleObservations) referencedObservations.add(observation);
@@ -135,7 +158,7 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     for (const id of obs.rowIds) {
       if (!rowIds.has(id)) problems.push(`${obs.file}: rowIds entry '${id}' does not match a registry row`);
     }
-    const descriptor = input.descriptors.find((d) => d.observationPrefix && obs.file.startsWith(d.observationPrefix));
+    const descriptor = input.descriptors.find((d) => d.observationPrefixes.some((prefix) => obs.file.startsWith(prefix)));
     if (!descriptor) problems.push(`${obs.file}: filename does not start with a known surface observation prefix`);
     // The observation's own internal `name` field must equal its filename
     // minus `.json` — the filename IS the canonical identity (probes key off
@@ -157,19 +180,27 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
   // always passes it, so these checks are CI-enforced.
   if (input.rigManifests) {
     const manifests = input.rigManifests;
-    const descriptorPrefixes = new Set(input.descriptors.map((d) => d.observationPrefix));
+    const descriptorPrefixes = new Set(input.descriptors.flatMap((d) => d.observationPrefixes));
     const observationFiles = input.observations.map((obs) => obs.file);
+
+    // Every rig id a descriptor names in `captureRigs` must be a real rig.
+    const rigIds = new Set(manifests.map((m) => m.id));
+    for (const descriptor of input.descriptors) {
+      for (const rigId of descriptor.captureRigs) {
+        if (!rigIds.has(rigId)) problems.push(`${descriptor.surface}: captureRigs references unknown rig '${rigId}'`);
+      }
+    }
 
     for (const manifest of manifests) {
       if (!existsSync(join(REPO_ROOT, manifest.script))) {
         problems.push(`rig '${manifest.id}': script '${manifest.script}' is missing`);
       }
       for (const prefix of manifest.observationPrefixes) {
-        // The registry (scripts/compat/registry/index.ts) stays the
-        // authority on which prefixes are recognized surface observation
-        // prefixes; a rig manifest cannot invent one the registry doesn't know.
+        // The surface descriptors (surfaces/*.ts) stay the authority on which
+        // prefixes are recognized surface observation prefixes; a rig manifest
+        // cannot invent one no descriptor declares.
         if (!descriptorPrefixes.has(prefix)) {
-          problems.push(`rig '${manifest.id}': observation prefix '${prefix}' is not a recognized surface descriptor prefix (scripts/compat/registry/index.ts)`);
+          problems.push(`rig '${manifest.id}': observation prefix '${prefix}' is not a recognized surface descriptor prefix (surfaces/*.ts)`);
         }
         // Every declared prefix must actually produce something. No
         // pendingPrefixes escape hatch exists today because every current

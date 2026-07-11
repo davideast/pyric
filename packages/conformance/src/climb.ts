@@ -39,7 +39,8 @@ import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { surfaceDescriptors, allCompatibilityRows, type CompatStatus, type Surface } from '../registry/index.ts';
+import { allCompatibilityRows, type CompatStatus, type Surface } from '../registry/index.ts';
+import { surfaceDescriptors } from '../surfaces/load.ts';
 import { REPO_ROOT, repoRel } from './ledger.ts';
 
 /**

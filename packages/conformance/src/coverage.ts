@@ -45,7 +45,8 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { denyTierFor, type CensusSurface } from './surface-denylist.ts';
-import { surfaceDescriptors, type Surface } from '../registry/index.ts';
+import { type Surface } from '../registry/index.ts';
+import { surfaceDescriptors } from '../surfaces/load.ts';
 import { buildCompatibilityLedger, highRiskUnverifiedRows, type RegistryEntry } from './ledger.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -83,36 +84,24 @@ function runCensus(): CensusRow[] {
 }
 
 /**
- * The COMPAT services this coverage report tracks — no `app` (no COMPAT matrix,
- * would break behavior-axis parity). `messaging` (client + service-worker
- * receive planes) is tracked against the client export census. `messaging-admin`
- * (the admin send plane) is deliberately NOT tracked here: it mirrors
- * firebase-admin, which has no runtime export census in this report's scope, so
- * it has no surface-coverage axis to publish. Its rows are all born unverified,
- * so its behavior number would be ~0 regardless.
+ * The COMPAT services this coverage report tracks — every surface descriptor
+ * marked `coverage: true`, in descriptor order. That excludes `app` (no COMPAT
+ * matrix) and `messaging-admin` (the admin send plane mirrors firebase-admin,
+ * which has no runtime export census in this report's scope). See each surface
+ * descriptor's `scopeNote` for the per-surface rationale.
  */
-const SERVICES: Surface[] = ['ai', 'auth', 'firestore', 'rtdb', 'rtdb-modular', 'storage', 'messaging'];
+const SERVICES: Surface[] = surfaceDescriptors.filter((d) => d.coverage).map((d) => d.surface);
 
 /**
- * Each COMPAT service's underlying surface-census surface. `rtdb` and
- * `rtdb-modular` share the `database` census — surface-census.ts does not
+ * Each COMPAT surface's underlying surface-census surface, from the descriptors.
+ * `rtdb` and `rtdb-modular` both map to `database` — surface-census.ts does not
  * distinguish the classic vs modular database API at the export level, so both
- * report the same measurement (flagged below). `messaging` maps to the client
- * `messaging` census (the service-worker `messaging-sw` census is gate-tracked
- * by surface-census.ts but not folded into this headline). The `messaging-admin`
- * entry is inert — it is required only to satisfy the `Record<Surface, …>` type
- * and is never read, because `messaging-admin` is not in SERVICES above.
+ * report the same measurement. The `messaging-admin` entry is inert (it is not
+ * in SERVICES) and is present only to keep the map total over `Surface`.
  */
-const CENSUS_SURFACE_FOR: Record<Surface, CensusSurface> = {
-  ai: 'ai',
-  auth: 'auth',
-  firestore: 'firestore',
-  rtdb: 'database',
-  'rtdb-modular': 'database',
-  storage: 'storage',
-  messaging: 'messaging',
-  'messaging-admin': 'messaging',
-};
+const CENSUS_SURFACE_FOR: Record<Surface, CensusSurface> = Object.fromEntries(
+  surfaceDescriptors.map((d) => [d.surface, d.censusSurface]),
+) as Record<Surface, CensusSurface>;
 
 interface SurfaceCoverage {
   mapped: number;
@@ -251,21 +240,14 @@ function buildReport(): CoverageReport {
 // ── Human table ──────────────────────────────────────────────────────────
 
 /**
- * One-line scope statement per service — what's genuinely out of scope (the
- * sandbox cannot model it) vs. deferred (intended, not yet built, counted as
- * a gap against `intended`). Keep these honest and short; see
- * surface-denylist.ts for the full reasoning behind each entry.
+ * One-line scope statement per surface — what's genuinely out of scope (the
+ * sandbox cannot model it) vs. deferred (intended, not yet built, counted as a
+ * gap against `intended`). Authored per-surface as each descriptor's
+ * `scopeNote`; see surface-denylist.ts for the full reasoning behind each entry.
  */
-const SCOPE_NOTES: Record<Surface, string> = {
-  ai: 'V1 scope is the core REST plane (getAI/generateContent/streaming/chat/function-calling/countTokens); every in-scope export is mirrored. Out of scope: Imagen only (deprecated, June 2026 shutdown upstream), including its template-served models. Deferred: the Live API family, server-side templates, and hybrid/on-device inference — intended and buildable through existing sandbox seams, counted as coverage debt.',
-  auth: 'out of scope: none (internal plumbing only) — every remaining gap (linking, reauth, MFA/phone/reCAPTCHA, email-link) is deferred, buildable via the resolver/mock pattern already proven for OAuth sign-in.',
-  firestore: 'out of scope: internal plumbing only. Deferred: bundle-loading, cache index-tuning knobs.',
-  rtdb: 'out of scope: internal plumbing only. Deferred: onDisconnect (no live socket in an in-memory sandbox today), legacy priority ordering.',
-  'rtdb-modular': 'out of scope: same as rtdb — shares the `database` census measurement.',
-  storage: 'out of scope: internal plumbing only. Deferred: uploadBytesResumable, getStream, list, getDownloadURL.',
-  messaging: 'born unverified: every row is authored under Conformance Driven Development and starts unverified, so behavior conformance is ~0 by design — the receive-plane conformance suite is climb-gated (on-demand) and no row has been reviewed and flipped to conforms yet. Surface coverage reflects the client entry point (firebase/messaging); the service-worker entry (messaging-sw census) and admin send plane (messaging-admin registry) are tracked separately.',
-  'messaging-admin': 'not published here — the admin send plane mirrors firebase-admin, which has no runtime export census in this report; its rows are born unverified (behavior ~0). This entry is inert (messaging-admin is not in SERVICES).',
-};
+const SCOPE_NOTES: Record<Surface, string> = Object.fromEntries(
+  surfaceDescriptors.map((d) => [d.surface, d.scopeNote]),
+) as Record<Surface, string>;
 
 function printTable(report: CoverageReport): void {
   console.log('# Compatibility coverage\n');

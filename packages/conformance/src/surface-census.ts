@@ -32,32 +32,17 @@
  * no regex in the trust path — every classification is exact Set/Map lookup.
  */
 import { denylistFor, type CensusSurface } from './surface-denylist.ts';
+import { loadCensusPairs } from '../surfaces/load.ts';
+import type { CensusMirrorPair as MirrorPair } from '../surfaces/types.ts';
 
-interface MirrorPair {
-  surface: CensusSurface;
-  /** Upstream module specifier, e.g. 'firebase/auth'. */
-  upstream: string;
-  /**
-   * Mirror module specifier(s). A symbol counts as mapped if ANY mirror module
-   * exports it — database's modular surface plus the barrel are both consulted.
-   */
-  mirrors: string[];
-}
-
-/** The one list of tier-1 mirror pairs. Adding a surface is one entry here. */
-const mirrorPairs: MirrorPair[] = [
-  { surface: 'app', upstream: 'firebase/app', mirrors: ['pyric/app'] },
-  { surface: 'auth', upstream: 'firebase/auth', mirrors: ['pyric/auth'] },
-  { surface: 'ai', upstream: 'firebase/ai', mirrors: ['pyric/ai'] },
-  { surface: 'firestore', upstream: 'firebase/firestore', mirrors: ['pyric/firestore'] },
-  { surface: 'database', upstream: 'firebase/database', mirrors: ['pyric/database/modular', 'pyric/database'] },
-  { surface: 'storage', upstream: 'firebase/storage', mirrors: ['pyric/storage'] },
-  // Messaging is split by entry point: the client plane (`firebase/messaging`)
-  // and the service-worker plane (`firebase/messaging/sw`) export different
-  // symbol sets, so each is its own pair rather than one pair with two mirrors.
-  { surface: 'messaging', upstream: 'firebase/messaging', mirrors: ['pyric/messaging'] },
-  { surface: 'messaging-sw', upstream: 'firebase/messaging/sw', mirrors: ['pyric/messaging/sw'] },
-];
+/**
+ * The tier-1 mirror pairs. Derived from the surface descriptors (deduped by
+ * census surface — `rtdb` and `rtdb-modular` share the `database` census) merged
+ * with the census-only surfaces `app` and `messaging-sw` (no COMPAT matrix; see
+ * surfaces/census-only.ts). Adding a surface is a descriptor file, not an entry
+ * here.
+ */
+const mirrorPairs: MirrorPair[] = loadCensusPairs();
 
 interface DeniedSymbol {
   symbol: string;

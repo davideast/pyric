@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { surfaceDescriptors } from '../registry/index.ts';
+import { surfaceDescriptors } from '../surfaces/load.ts';
 import { buildCompatibilityLedger, highRiskUnverifiedRows, summarizeLedger } from './ledger.ts';
 
 const ledger = buildCompatibilityLedger();
