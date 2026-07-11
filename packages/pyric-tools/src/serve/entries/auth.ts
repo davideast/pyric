@@ -161,3 +161,41 @@ export const getRedirectResult = (
 export const signInWithCredential = (
   useWorker ? wc.signInWithCredential : ipAuth.signInWithCredential
 ) as typeof ipAuth.signInWithCredential;
+
+// ── Low-hanging-fruit exports (issue #149) ────────────────────────────────
+
+function unsupportedWorkerAuthApi(name: string): never {
+  throw new Error(
+    `firebase/auth ${name}() is not supported over the pyric SharedWorker yet. ` +
+      'Use the in-page fallback for this operation.',
+  );
+}
+
+/** `initializeAuth(app, deps?)` — aliases the picked `getAuth` (worker- or
+ *  in-page-backed). Path-independent: `deps` is accepted for parity, ignored. */
+export const initializeAuth = ((app?: unknown, _deps?: unknown) =>
+  getAuth(app as never)) as typeof ipAuth.initializeAuth;
+
+/** `useDeviceLanguage(auth)` — accepted no-op (no device locale in the served
+ *  sandbox). Path-independent. */
+export const useDeviceLanguage = ((_auth?: unknown) => {}) as typeof ipAuth.useDeviceLanguage;
+
+// User-mutation ops act on a `User` object. In-page they route through the
+// sandbox User's dispatch hook; over the SharedWorker the client has no
+// client-facing binding for them yet, so worker mode throws the standard
+// "use the in-page fallback" error (mirrors the RTDB entry's unsupported ops).
+export const deleteUser = (
+  useWorker ? (() => unsupportedWorkerAuthApi('deleteUser')) : ipAuth.deleteUser
+) as typeof ipAuth.deleteUser;
+export const updateEmail = (
+  useWorker ? (() => unsupportedWorkerAuthApi('updateEmail')) : ipAuth.updateEmail
+) as typeof ipAuth.updateEmail;
+export const updatePassword = (
+  useWorker ? (() => unsupportedWorkerAuthApi('updatePassword')) : ipAuth.updatePassword
+) as typeof ipAuth.updatePassword;
+export const reload = (
+  useWorker ? (() => unsupportedWorkerAuthApi('reload')) : ipAuth.reload
+) as typeof ipAuth.reload;
+export const updateCurrentUser = (
+  useWorker ? (() => unsupportedWorkerAuthApi('updateCurrentUser')) : ipAuth.updateCurrentUser
+) as typeof ipAuth.updateCurrentUser;

@@ -1340,13 +1340,15 @@ the oracle locks it.
 ### `goOnline` / `goOffline` — connection control
 
 <div class="compat-list">
-<details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">163</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>goOffline(db)</code> disconnects the client; subsequent writes queue locally and surface via <code>onValue</code> with <code>hasPendingWrites</code> (cached value) until <code>goOnline</code> flushes them</span></summary>
-<div class="compat-evidence"><div class="compat-probe">Phase 3 — needs the sandbox to model an offline state; in prod this is upstream contract</div></div>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">163</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOffline(db)</code> — accepted no-op on sandbox handles: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and <code>get()</code> keep working). Forwards to <code>firebase/database</code>'s <code>goOffline</code> on prod handles (issue #149)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
+<div class="compat-note">no network connection in the local sandbox to toggle</div></div>
 </details>
-<details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">164</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>goOnline(db)</code> reconnects and flushes queued writes</span></summary>
-<div class="compat-evidence"><div class="compat-probe">Phase 3</div></div>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">164</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOnline(db)</code> — accepted no-op on sandbox handles: there is no connection to reopen (see <code>goOffline</code>). Forwards to <code>firebase/database</code>'s <code>goOnline</code> on prod handles (issue #149)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
+<div class="compat-note">no network connection in the local sandbox to toggle</div></div>
 </details>
 </div>
 
@@ -1360,6 +1362,31 @@ the oracle locks it.
 <details class="compat-row" data-status="unsupported">
 <summary class="compat-line"><span class="compat-num">166</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Forwards to <code>firebase/database</code>'s <code>connectDatabaseEmulator</code> on prod-target handles</span></summary>
 <div class="compat-evidence"><div class="compat-probe">Phase 3</div></div>
+</details>
+</div>
+
+### Low-hanging-fruit exports — transport / logging / URL refs (issue #149)
+
+<div class="compat-list">
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">171</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>forceLongPolling()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs. Process-global setter with no <code>db</code> handle, so there is no prod handle to forward through (issue #149)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
+<div class="compat-note">transport selection not applicable to the in-process/worker sandbox</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">172</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>forceWebSockets()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (see <code>forceLongPolling</code>) (issue #149)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
+<div class="compat-note">transport selection not applicable to the in-process/worker sandbox</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">173</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>enableLogging(logger?, persistent?)</code> — accepted no-op: the sandbox has no modular-SDK-style logger to wire a level/sink into (it uses host-level <code>console</code> logging directly, matching <code>pyric/firestore</code>'s <code>setLogLevel</code>). Accepted so init code that calls it compiles + runs (issue #149)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
+<div class="compat-note">accepted no-op; no sandbox logger to wire into</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">174</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>refFromURL(db, url)</code> — real alias: parses the path out of the absolute database URL and delegates to <code>ref(db, path)</code>, so the returned ref resolves + reads exactly like <code>ref(db, path)</code>. Divergence: the sandbox is single-database with no host/namespace, so the URL's HOST is NOT validated against the handle (the real SDK throws if the host doesn't match the db's namespace); only the path is honored (issue #149)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
+<div class="compat-note">path resolves like <code>ref</code>; URL host/namespace not validated (single-database sandbox)</div></div>
 </details>
 </div>
 
@@ -1386,14 +1413,14 @@ the oracle locks it.
 
 ### Modular SDK surface — deny-list (intentionally NOT shimmed)
 
+> `goOffline` / `goOnline` / `forceLongPolling` / `forceWebSockets` / `enableLogging` (honest no-ops) and `refFromURL` (a real alias to `ref`) were moved OUT of this deny-list and mirrored — see the tables above (issue #149).
+
 | Name | Reason |
 |---|---|
-| `enableLogging` | Logging is owned by the host harness, not the modular SDK shim. |
 | IndexedDB persistence APIs (the Web SDK's RTDB caches in-memory; there's no `enableIndexedDbPersistence` for RTDB, but if upstream adds one, we deny-list it for sandbox parity with firestore's persistence deny-list) | Persistence is owned by `pyric/sandbox`; the modular SDK's cache APIs would conflict. |
 | `.info/connected` reads (`onValue(ref(db, '.info/connected'), …)`) | The sandbox has no real connection state to model; firing `true` constantly or never would be a divergence either way. Phase 3 may model this as always-`true` on the sandbox-target. |
 | `onDisconnect(ref).set(...)` / `.update(...)` / `.remove(...)` / `.cancel()` | Disconnect handlers require a real network channel; the sandbox has no equivalent. Considered for Phase 3 with explicit divergence documentation. NOT exported (no build break — nothing in the shim references it). |
 | `orderByPriority()` / `setPriority(ref, p)` / `setWithPriority(ref, v, p)` and the whole `.priority` model (DB-B6, DB-GAP) | RTDB's priority model — a per-node `.priority` plus a `PriorityIndex` default ordering — is a cross-cutting data-model concern (every node carries an optional priority; the default child ordering is by priority, not key). Modeling it faithfully touches the tree, the snapshot surface, and every query path; it is not cheap and there is no agent/playground demand. Deny-listed with this note. **Divergence:** the sandbox's default child ordering is `orderByKey` (not priority); `setPriority`/`setWithPriority`/`orderByPriority` are not exported. Consumers needing priority use `firebase/database` directly. |
-| `refFromURL(db, url)` | Resolving an absolute `https://<db>.firebaseio.com/path` URL has no meaning against the in-memory sandbox (no host/namespace). Use `ref(db, path)`. |
 
 ---
 

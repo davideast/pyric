@@ -62,8 +62,8 @@ const authDenials: DenyEntry[] = [
   ...deny('auth', 'Re-authentication is v0 scope (auth deny-list: reauthenticateWith*).', [
     'reauthenticateWithCredential', 'reauthenticateWithPopup', 'reauthenticateWithRedirect',
   ]),
-  ...deny('auth', 'Mutates auth state in ways the sandbox does not model (auth deny-list: updateEmail / updatePassword).', [
-    'updateEmail', 'updatePassword', 'updatePhoneNumber',
+  ...deny('auth', 'Phone-number auth state is not modeled by the sandbox (auth deny-list: updatePhoneNumber). NOTE: updateEmail / updatePassword are now mirrored — see registry/auth.ts, issue #149.', [
+    'updatePhoneNumber',
   ]),
   ...deny('auth', 'Email-link / action-code flows require an SMTP path; deliberately out of scope (auth deny-list).', [
     'verifyBeforeUpdateEmail', 'sendEmailVerification', 'applyActionCode', 'checkActionCode',
@@ -78,14 +78,11 @@ const authDenials: DenyEntry[] = [
     'signInWithPhoneNumber', 'linkWithPhoneNumber', 'reauthenticateWithPhoneNumber',
     'RecaptchaVerifier', 'initializeRecaptchaConfig',
   ]),
-  ...deny('auth', 'i18n surface; not in v0 (auth deny-list: useDeviceLanguage / setLanguageCode).', [
-    'useDeviceLanguage',
-  ]),
+  // NOTE: useDeviceLanguage is now mirrored as an accepted no-op — see
+  // registry/auth.ts, issue #149. (setLanguageCode is a method on Auth, not
+  // a free export, so it is not deny-listed here.)
   ...deny('auth', 'Blocking middleware; the sandbox uses synchronous fan-out and has no equivalent (auth deny-list: beforeAuthStateChanged).', [
     'beforeAuthStateChanged',
-  ]),
-  ...deny('auth', 'Account-lifecycle the sandbox does not model — documented per AUTH-GAP (auth deny-list: User.delete() / User.reload()).', [
-    'deleteUser', 'reload',
   ]),
 ];
 
@@ -124,9 +121,9 @@ const databaseDenials: DenyEntry[] = [
     '_TEST_ACCESS_hijackHash', '_initStandalone', '_repoManagerDatabaseFromApp',
     '_setSDKVersion', '_validatePathString', '_validateWritablePath',
   ]),
-  ...deny('database', 'Connection / transport / logging management has no meaning for the in-memory sandbox (no live socket).', [
-    'goOffline', 'goOnline', 'forceLongPolling', 'forceWebSockets', 'enableLogging',
-  ]),
+  // NOTE: goOffline / goOnline / forceLongPolling / forceWebSockets /
+  // enableLogging / refFromURL are now mirrored as honest no-ops / a real
+  // alias — see registry/rtdb.ts, issue #149.
   ...deny('database', 'onDisconnect requires a live connection lifecycle the in-memory sandbox has no equivalent for.', [
     'onDisconnect', 'OnDisconnect',
   ]),

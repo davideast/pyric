@@ -1696,6 +1696,23 @@ export class SandboxBackend {
           this.updateProfileFor(user, p);
           return Promise.resolve();
         },
+        delete: () => {
+          this.deleteFor(user);
+          return Promise.resolve();
+        },
+        updateEmail: (newEmail: string) => {
+          this.updateEmailFor(user, newEmail);
+          return Promise.resolve();
+        },
+        updatePassword: (newPassword: string) => {
+          this.updatePasswordFor(user, newPassword);
+          return Promise.resolve();
+        },
+        reload: () => {
+          this.reloadFor(user);
+          return Promise.resolve();
+        },
+        raw: user,
       },
       enumerable: false,
     });
@@ -1794,6 +1811,93 @@ export class SandboxBackend {
       detail: { displayName: profile.displayName, photoURL: profile.photoURL },
     });
     return after;
+  }
+
+  /**
+   * Backend for the top-level `deleteUser(user)` free function. Removes the
+   * account from the store (via the same path admin {@link deleteUser} uses)
+   * AND — unlike admin deletion — signs the user out if they are the current
+   * user, matching `firebase/auth`'s `user.delete()` / `deleteUser(user)`,
+   * which clears `auth.currentUser` and fans out `onAuthStateChanged(null)`.
+   */
+  deleteFor(user: User): void {
+    if (this.usersByUid.has(user.uid)) {
+      this.deleteUser(user.uid);
+    }
+    if (this.cachedUser && this.cachedUser.uid === user.uid) {
+      this.setCurrentUser(null);
+    }
+  }
+
+  /**
+   * Backend for the top-level `updateEmail(user, newEmail)`. Re-keys the
+   * stored record's email (via {@link updateUser}, which validates format +
+   * rejects `auth/email-already-in-use`) so a subsequent sign-in resolves
+   * against the NEW email, then mutates the passed `user` (and
+   * `this.cachedUser`) in place so held references reflect the change.
+   *
+   * Divergence: the sandbox applies the change directly. Real
+   * `firebase/auth.updateEmail` may require a recent login
+   * (`auth/requires-recent-login`) and, with email-enumeration protection
+   * on, is superseded by `verifyBeforeUpdateEmail`; the sandbox enforces
+   * neither.
+   */
+  updateEmailFor(user: User, newEmail: string): void {
+    this.updateUser(user.uid, { email: newEmail });
+    this.applyEmailToUser(user, newEmail);
+    if (this.cachedUser && this.cachedUser.uid === user.uid && this.cachedUser !== user) {
+      this.applyEmailToUser(this.cachedUser, newEmail);
+    }
+  }
+
+  /** Mutate a `User`'s `email` (and its first `providerData` entry) in
+   *  place — `readonly` at the type level, runtime-mutable. */
+  private applyEmailToUser(user: User, email: string): void {
+    (user as Mutable<User>).email = email;
+    const provider0 = user.providerData?.[0] as Mutable<UserInfo> | undefined;
+    if (provider0) provider0.email = email;
+  }
+
+  /**
+   * Backend for the top-level `updatePassword(user, newPassword)`. Sets the
+   * stored password (via {@link updateUser}, which validates strength and
+   * links the `password` provider). The sandbox DOES store + verify
+   * passwords, so a subsequent `signInWithEmailAndPassword` with the new
+   * password succeeds and the old one throws `auth/wrong-password`.
+   *
+   * Divergence: real `firebase/auth.updatePassword` may require a recent
+   * login (`auth/requires-recent-login`); the sandbox does not enforce it.
+   */
+  updatePasswordFor(user: User, newPassword: string): void {
+    this.updateUser(user.uid, { password: newPassword });
+  }
+
+  /**
+   * Backend for the top-level `reload(user)`. Re-reads the stored record
+   * into the passed `user` (and `this.cachedUser`) in place so a change
+   * made out of band (e.g. `sandbox.updateUser`) is reflected — matching
+   * `firebase/auth.reload`, which refreshes the user from the server.
+   * Users not tracked in the DB (anonymous / popup) have nothing to
+   * refresh; the call is a safe no-op for them.
+   */
+  reloadFor(user: User): void {
+    const stored = this.usersByUid.get(user.uid);
+    if (!stored) return;
+    this.applyStoredToUser(user, stored);
+    if (this.cachedUser && this.cachedUser.uid === user.uid && this.cachedUser !== user) {
+      this.applyStoredToUser(this.cachedUser, stored);
+    }
+  }
+
+  /** Copy a stored record's mutable profile fields onto a live `User`
+   *  object in place. */
+  private applyStoredToUser(user: User, stored: StoredUser): void {
+    const m = user as Mutable<User>;
+    m.email = stored.email;
+    m.displayName = stored.displayName;
+    m.photoURL = stored.photoUrl;
+    m.emailVerified = stored.emailVerified;
+    m.phoneNumber = stored.phoneNumber;
   }
 
   /** Live customClaims for a uid — the current value in the user DB,

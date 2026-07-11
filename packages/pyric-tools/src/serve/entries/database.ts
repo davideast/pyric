@@ -46,6 +46,35 @@ export const connectDatabaseEmulator = (
   useWorker ? rtdbConnectDatabaseEmulator : ip.connectDatabaseEmulator
 ) as typeof ip.connectDatabaseEmulator;
 
+// ── Low-hanging-fruit exports (issue #149) ────────────────────────────────
+// Served mode is always sandbox-backed (never a prod handle), and these are
+// honest no-ops in the sandbox model regardless of the worker/in-page split,
+// so they are unconditional no-ops here — no worker RPC needed. This also
+// gives served apps import-time parity for the `firebase/database` surface.
+export const goOffline = ((_db?: unknown) => {}) as typeof ip.goOffline;
+export const goOnline = ((_db?: unknown) => {}) as typeof ip.goOnline;
+export const forceLongPolling = (() => {}) as typeof ip.forceLongPolling;
+export const forceWebSockets = (() => {}) as typeof ip.forceWebSockets;
+export const enableLogging = ((_logger?: unknown, _persistent?: unknown) => {}) as typeof ip.enableLogging;
+
+/**
+ * `refFromURL(db, url)` — parse the path out of the URL and delegate to the
+ * picked `ref` (worker or in-page), so the resolved ref behaves exactly like
+ * `ref(db, path)`. The URL host/namespace is not honored (served sandbox is
+ * single-database) — matching the in-page `pyric/database` behavior.
+ */
+export const refFromURL = ((db: unknown, url: string) => {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    throw new Error(
+      `firebase/database refFromURL received a value that is not an absolute URL: ${url}`,
+    );
+  }
+  return (ref as (db: unknown, path?: string) => unknown)(db, path);
+}) as typeof ip.refFromURL;
+
 function unsupportedWorkerApi(name: string): never {
   throw new Error(
     `firebase/database ${name}() is not supported over the pyric SharedWorker yet. ` +

@@ -90,6 +90,11 @@ function adaptUser(u: fb.User): User {
     value: {
       updateProfile: (p: { displayName?: string | null; photoURL?: string | null }) =>
         fb.updateProfile(u, p),
+      delete: () => fb.deleteUser(u),
+      updateEmail: (newEmail: string) => fb.updateEmail(u, newEmail),
+      updatePassword: (newPassword: string) => fb.updatePassword(u, newPassword),
+      reload: () => fb.reload(u),
+      raw: u,
     },
     enumerable: false,
   });

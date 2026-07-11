@@ -241,6 +241,23 @@ export interface UserInternal {
     displayName?: string | null;
     photoURL?: string | null;
   }): Promise<void>;
+  /** Backend for the top-level `deleteUser(user)` — removes the account
+   *  from the store and signs the user out if they are current. */
+  delete(): Promise<void>;
+  /** Backend for the top-level `updateEmail(user, newEmail)` — mutates the
+   *  stored record's email (and this user in place). */
+  updateEmail(newEmail: string): Promise<void>;
+  /** Backend for the top-level `updatePassword(user, newPassword)` — sets
+   *  the stored password (verified on the next sign-in). */
+  updatePassword(newPassword: string): Promise<void>;
+  /** Backend for the top-level `reload(user)` — re-reads the stored record
+   *  into this user object in place. */
+  reload(): Promise<void>;
+  /** The underlying backend user object: the sandbox {@link User} itself,
+   *  or the upstream `firebase/auth` `User` in prod. Used by
+   *  `updateCurrentUser(auth, user)` to hand the correct object to the
+   *  right backend. */
+  raw: unknown;
 }
 
 /**
