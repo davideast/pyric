@@ -38,17 +38,21 @@ export const getBlob = (useWorker ? workerGetBlob : ip.getBlob) as typeof ip.get
 
 export const StorageError = ip.StorageError;
 
-function acceptedNoOp(name: string): void {
-  console.info(`[pyric dev] firebase/storage ${name}() is ignored; this page already uses the pyric sandbox.`);
-}
-
+// pyric replaces the Firebase emulator; connectStorageEmulator is a
+// no-op. Served apps are already talking to the pyric sandbox (or the
+// SharedWorker's shared store), which IS the local emulator — pointing
+// it at a `firebase-tools` emulator host would be a step backward, not
+// forward, so the call is logged and swallowed rather than forwarded.
 export function connectStorageEmulator(
-  _storage: unknown,
+  storage: unknown,
   _host: string,
   _port: number,
   _options?: unknown,
 ): void {
-  acceptedNoOp('connectStorageEmulator');
+  console.info(
+    '[pyric dev] pyric replaces the Firebase emulator; connectStorageEmulator is a no-op.',
+  );
+  if (!useWorker) ip.connectStorageEmulator(storage as FirebaseStorage, _host, _port, _options as never);
 }
 
 function unsupportedWorkerApi(name: string): never {

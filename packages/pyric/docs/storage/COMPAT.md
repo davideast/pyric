@@ -251,6 +251,7 @@ matrix has to cover:
 | 109 | `getStorageService(storage)` returns the backing `StorageService` for sandbox handles (sandbox-only escape hatch for tests) | ✓ | `unit:service.test.ts` |
 | 110 | `getStorageService` on a prod-target handle throws `Error: …sandbox-only` | ✓ | `unit:prod-target.test.ts` ("throws — service is sandbox-only") |
 | 111 | `targetOf(storage)` returns the discriminated `Target` (sandbox / prod) | ✓ | `unit:service.test.ts` |
+| 117 | `connectStorageEmulator(storage, host, port)` is a no-op on sandbox targets — pyric replaces the Firebase emulator, so the sandbox IS already the local emulator. Forwards to `firebase/storage`'s real `connectStorageEmulator` on prod targets | ⚠ pyric replaces the Firebase emulator; connectStorageEmulator is a no-op | `unit:connect-storage-emulator.test.ts` ("is a no-op on a sandbox handle — does not throw") |
 
 ## Visible gaps / open questions
 
@@ -261,9 +262,6 @@ matrix has to cover:
 - `uploadBytesResumable` (rows 47-50) — the entire upload-task + observer
   surface is unmodeled. The session-archive use case (the v1 driver)
   uses one-shot `uploadBytes`, so this stayed deferred.
-- `connectStorageEmulator` — the sandbox replaces the emulator's role
-  for local development, but a prod-target Storage handle in a Bun
-  test still can't be re-routed to the emulator without this hook.
 - `md5Hash` (row 91) — sandbox doesn't compute it. Oracle confirms
   prod always sets it. Worth a one-row alignment if real consumer
   code reads it.
@@ -336,7 +334,6 @@ a follow-up driver decision.
 | `uploadBytesResumable` + `UploadTask` (pause/resume/cancel, state_changed observer) | Out of scope — session-archive use case is one-shot upload-bytes only |
 | `getStream` | Node-stream variant not modeled in the browser-shaped v1 scope |
 | `list(ref, { maxResults, pageToken })` paginated form | Deferred — `listAll` covers the v1 scope scenarios; pagination needs a stable `pageToken` shape |
-| `connectStorageEmulator` | Sandbox replaces the emulator; emulator parity is out of scope |
 | Cloud Functions Storage triggers (`onFinalize`, `onArchive`, …) | Server-side surface — not the Web SDK |
 | Image transformation URLs (Firebase Image extension) | Extension surface, not core Storage |
 | `StorageObserver` advanced shapes (progress milestones, error subclasses) | Tied to `UploadTask`; out of scope until resumable ships |
