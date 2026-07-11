@@ -1,20 +1,20 @@
 # RTDB rules tooling
 
-The `pyric/rules/rtdb` subpath is the canonical Realtime Database rules tooling
-entrypoint.
+The RTDB constraints DSL (`defineRtdbRules` and the combinators) is public,
+re-exported directly from `pyric/rules`. The engine underneath it (the rule
+mapper, expression parser, validator, linter, simulation handler, write
+handler, and the rules-focused tool factory) is engine-internal, on the
+`pyric/rules/internal/rtdb` subpath. That subpath isn't covered by the
+public `pyric/rules` contract and may change without notice.
 
 ```ts
+import { defineRtdbRules } from 'pyric/rules';
 import {
-  defineRtdbRules,
   RtdbMapper,
   createRtdbRulesTools,
   SimulateHandler,
-} from 'pyric/rules/rtdb';
+} from 'pyric/rules/internal/rtdb';
 ```
-
-It re-exports the RTDB rule mapper, expression parser, validator, linter,
-simulation handler, write handler, rule constraints, and the rules-focused tool
-factory.
 
 ## Constraints authoring
 
@@ -23,7 +23,7 @@ factory.
 Create an in-memory RTDB rules document from path constraints.
 
 ```ts
-import { defineRtdbRules, deny, pathOwnerOnly } from 'pyric/rules/rtdb';
+import { defineRtdbRules, deny, pathOwnerOnly } from 'pyric/rules';
 
 const rules = defineRtdbRules({
   paths: {
@@ -113,11 +113,11 @@ Compile failures return an error finding with code `COMPILE_ERROR`.
 that writes the file — the CLI, the MCP tool, and this helper — calls
 `toJSON()` and never recompiles the rules a second time.
 
-For scripts running in Node, `pyric/rules/node` exports a helper that writes
-the file directly:
+For scripts running in Node, `pyric/rules/internal/node` exports a helper that
+writes the file directly:
 
 ```ts
-import { writeRtdbRulesFile } from 'pyric/rules/node';
+import { writeRtdbRulesFile } from 'pyric/rules/internal/node';
 import { rules } from './database.rules.js';
 
 const path = await writeRtdbRulesFile(rules, 'database.rules.json');
@@ -127,9 +127,9 @@ const path = await writeRtdbRulesFile(rules, 'database.rules.json');
 
 Writes `doc.toJSON()` as pretty-printed JSON to `path`, creating parent
 directories as needed, and returns the resolved absolute path written. It is
-Node-only (imports `node:fs`), so it lives on the `pyric/rules/node` entry
-point rather than the isomorphic `pyric/rules/rtdb` entry — importing
-`pyric/rules/rtdb` never pulls in Node builtins.
+Node-only (imports `node:fs`), so it lives on the internal `pyric/rules/internal/node`
+entry rather than alongside the compilation itself: `defineRtdbRules(...).toJSON()`,
+from the public `pyric/rules`, never pulls in Node builtins.
 
 #### CLI
 
@@ -333,9 +333,10 @@ user-mode data operations.
 
 ## Constraint helpers
 
-`pyric/rules/rtdb` also re-exports the RTDB rule constraint helpers. The
-canonical constraints-only package path is `pyric/rules/rtdb/constraints`.
-`pyric/rules/rtdb-constraints` remains available as a compatibility alias.
+The RTDB rule constraint helpers are re-exported directly from `pyric/rules`,
+the public front door. The previous dedicated subpaths (`pyric/rules/rtdb`,
+`pyric/rules/rtdb/constraints`, `pyric/rules/rtdb-constraints`) no longer
+exist; there is one place to import the DSL from now.
 
 The complete builder catalog, with the exact expression each helper
 produces, lives in [constraints.md](./constraints.md). At a glance the

@@ -11,6 +11,8 @@ Evaluate Firestore rules against Google's live Rules Test API. Use this when the
 
 The Rules Test API does not deploy the rules. It evaluates them against your test cases on Google's servers, in the same engine production uses, and returns pass/fail per case.
 
+`TestFirestoreRulesHandler` is an engine-internal network client, imported from `pyric/rules/internal`. There's no public-front-door equivalent yet: `firestoreRules(source).simulate(cases)` only ever runs the local simulator.
+
 ## You need a `ProjectScope`
 
 `TestFirestoreRulesHandler.execute` takes a `ProjectScope` from `pyric-tools/deploy`, a `{ projectId, resolveToken }` pair. Build it from a service-account file:
@@ -33,12 +35,12 @@ const scope: ProjectScope = {
 import {
   TestFirestoreRulesHandler,
   type TestCase,
-} from 'pyric/rules';
+} from 'pyric/rules/internal';
 
 const handler = new TestFirestoreRulesHandler();
 const result = await handler.execute(scope, source, testCases);
 ```
-The result shape is identical to `SimulateFirestoreRulesHandler.simulate`: the same `TestCase` and `TestResult` types, the same `{ passed, failed, results }`. The only difference is that `result.data.unsupported` is always `0` (the live API never abstains).
+The result shape is the same internal `TestCase` and `TestResult` types the simulator uses, in the same `{ passed, failed, results }` shape. The only difference is that `result.data.unsupported` is always `0` (the live API never abstains). `TestCase` here is the same shape as the public `FirestoreCase` re-export.
 
 ## Handle authentication failures
 
@@ -64,23 +66,20 @@ Two common patterns:
 
 **Local-first, escalate on `UNSUPPORTED`**: fast for the common case, accurate when needed.
 ```ts
-import {
-  SimulateFirestoreRulesHandler,
-  TestFirestoreRulesHandler,
-} from 'pyric/rules';
+import { firestoreRules } from 'pyric/rules';
+import { TestFirestoreRulesHandler } from 'pyric/rules/internal';
 
-const sim = new SimulateFirestoreRulesHandler();
-const local = sim.simulate(source, testCases);
+const local = firestoreRules(source).simulate(testCases);
 
-const needsEscalation = local.success
-  ? testCases.filter((_, i) => local.data.results[i].state === 'UNSUPPORTED')
-  : testCases;
+const needsEscalation = local.cases
+  .filter((c) => c.unsupported)
+  .map((c) => c.case);
 
 if (needsEscalation.length > 0) {
   const remote = await new TestFirestoreRulesHandler().execute(
     scope, source, needsEscalation,
   );
-  // merge `remote.data.results` back into `local.data.results` by index
+  // merge `remote.data.results` back into `local.cases` by matching case
 }
 ```
 **Test-only**: slower, but bit-for-bit production parity.

@@ -11,60 +11,61 @@ Lint a Firestore rules source, read the result, and gate a deploy on it. Everyth
 
 ## Lint a string
 ```ts
-import { lintFirestoreRules } from 'pyric/rules';
+import { lint } from 'pyric/rules';
 
-const result = lintFirestoreRules(source);
+const issues = lint(source);
 ```
-`result.warnings` is an array of `LintWarning`. `result.metrics` is the structural summary. If the source did not parse, `result.parseError` is set and budget checks were skipped.
+`issues` is a `RuleIssue[]`. Each issue carries `origin`: `'parse'` for a compile blocker, `'validate'` for a structural/security finding, `'lint'` for a budget/quality/hallucination warning. `lint` never throws, even on empty or unparseable source.
 
-## Branch on parse error first
+## Branch on parse errors first
 
-A parse error means "this isn't a ruleset yet", a different category from any lint warning. Check it before reading warnings:
+A parse error means "this isn't a ruleset yet", a different category from any lint or validation finding. Filter on `origin === 'parse'` before acting on the rest:
 ```ts
-const result = lintFirestoreRules(source);
-if (result.parseError) {
-  console.error(
-    `Parse error at line ${result.parseError.line}, col ${result.parseError.column}: `
-    + result.parseError.message,
-  );
+const issues = lint(source);
+const parseErrors = issues.filter((i) => i.origin === 'parse');
+if (parseErrors.length > 0) {
+  for (const e of parseErrors) {
+    console.error(`Line ${e.line ?? '?'}: ${e.message}`);
+  }
   process.exit(1);
 }
-// Safe to read result.warnings and result.metrics here.
+// Safe to treat the rest of `issues` as validate/lint findings.
 ```
-Pre-parse syntax hints (JS-isms like `===`, `?.`, `??`, backtick strings) fire even when the file doesn't parse, so `result.warnings` may already contain useful entries.
+Pre-parse syntax hints (JS-isms like `===`, `?.`, `??`, backtick strings) fire even when the file doesn't parse, so `issues` may already contain useful entries before the parse-error check.
 
 ## Block deploys on errors only
 
-`warnings` mixes severities. The deploy path in `pyric-tools/deploy` refuses to swap a ruleset when any warning has `severity: 'error'`. Mirror that behaviour:
+`issues` mixes severities. The deploy path in `pyric-tools/deploy` refuses to swap a ruleset when any issue has `severity: 'error'`. Mirror that behaviour:
 ```ts
-const errors = result.warnings.filter((w) => w.severity === 'error');
+const errors = issues.filter((i) => i.severity === 'error');
 if (errors.length > 0) {
-  for (const w of errors) console.error(`[${w.rule}] ${w.message}`);
+  for (const e of errors) console.error(`[${e.code}] ${e.message}`);
   process.exit(1);
 }
 ```
-## Catch silent rule weakening on update
+## Catch silent rule weakening on update, and pin `request.time`
 
-Pass the previously-deployed source as `options.previousSource`. The linter activates `RULES_WEAKENED` and emits one warning per security predicate that was removed:
+Two lint rules, `RULES_WEAKENED` and `REQUEST_TIME_NOT_PINNED`, need extra input beyond a bare source string: the previously-deployed source, and your test suite, respectively. Neither `lint(source)` nor `firestoreRules(source).lint()` takes options, so both checks are reached through the engine-internal `lintFirestoreRules(source, options)`, imported from `pyric/rules/internal`:
 ```ts
-const result = lintFirestoreRules(newSource, { previousSource: oldSource });
+import { lintFirestoreRules } from 'pyric/rules/internal';
+
+const result = lintFirestoreRules(newSource, {
+  previousSource: oldSource,
+  testCases,
+});
+
 const weakened = result.warnings.filter((w) => w.rule === 'RULES_WEAKENED');
-```
-`RULES_WEAKENED` is a `warning`, not an `error`. There are legitimate reasons to delete a predicate (refactor, dedupe). The signal is "review this", not "block the deploy".
-
-## Activate `REQUEST_TIME_NOT_PINNED`
-
-If your rules read `request.time`, the simulator's verdict depends on wallclock unless every test case pins `requestTime`. Pass your test suite to surface unpinned cases:
-```ts
-const result = lintFirestoreRules(source, { testCases });
 const unpinned = result.warnings.filter((w) => w.rule === 'REQUEST_TIME_NOT_PINNED');
 ```
-See [Pin `request.time` for deterministic tests](../pyric-rules-how-to-pin-request-time/) for the fix.
+`RULES_WEAKENED` is a `warning`, not an `error`. There are legitimate reasons to delete a predicate (refactor, dedupe). The signal is "review this", not "block the deploy". See [How to compare two rulesets for weakening](../pyric-rules-how-to-compare-rulesets-for-weakening/) and [Pin `request.time` for deterministic tests](../pyric-rules-how-to-pin-request-time/).
 
 ## Inspect structural metrics
 
-`result.metrics` gives you the at-a-glance shape of the ruleset:
+The internal `lintFirestoreRules` result also carries `metrics`, the structural summary. `lint(source)` has no equivalent on the public surface:
 ```ts
+import { lintFirestoreRules } from 'pyric/rules/internal';
+
+const result = lintFirestoreRules(source);
 const m = result.metrics;
 console.log(
   `${m.allowRuleCount} rules, ${m.functionCount} functions, `

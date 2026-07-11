@@ -4,7 +4,7 @@ The package offers four distinct ways to look at a rules source. Their names sug
 
 ## Lint: structural risks
 
-`lintFirestoreRules(source)` answers: *"will this ruleset compile? and if it does, will it survive at runtime?"*
+`lint(source)` (or `firestoreRules(source).lint()`), both public, answer: *"will this ruleset compile? and if it does, will it survive at runtime?"* Both are built on the engine-internal linter, `lintFirestoreRules` (`pyric/rules/internal`); the public functions fold its output into `RuleIssue`s with `origin: 'lint'`.
 
 The linter walks the AST counting things (chain depths, let bindings, function-call depths, `get()` counts, expression tree sizes) and compares those numbers to thresholds it learned from production. Some thresholds are exact: 256 KB source size, 98 chain depth, 11 lets per function. Others are bands derived from observing the runtime budget's behaviour in the flaky zone (40 / 60 / 100 nodes depending on call count).
 
@@ -14,7 +14,7 @@ What linting does **not** tell you: whether your rules behave the way you intend
 
 ## Validate: security and quality findings
 
-`validateFirestoreRules(ast)` answers: *"would a careful human reviewer flag anything here?"*
+The engine-internal `validateFirestoreRules(ast)` (`pyric/rules/internal`) answers: *"would a careful human reviewer flag anything here?"* On the public surface its findings arrive folded into the same `RuleIssue` list as the linter's, tagged `origin: 'validate'`. Both `lint(source)` and `firestoreRules(source).lint()` run the validator internally, so most callers never call it directly.
 
 The validator runs structural checks: public writes, unauthenticated writes, missing default-deny, write-without-data-validation, duplicate function names, overlapping match paths. Its findings carry a four-level severity (`critical` / `high` / `medium` / `low`) and a code (`SEC-1`, `SEM-2`, `QUA-3`, `STR-1`).
 
@@ -27,9 +27,9 @@ In practice, run both. Their findings union without redundancy in most cases.
 
 ## Simulate: does the rule decide correctly, locally?
 
-`SimulateFirestoreRulesHandler.simulate(source, testCases)` answers: *"given these requests, what does the rule decide?"*
+`firestoreRules(source).simulate(cases)` answers: *"given these requests, what does the rule decide?"*
 
-The simulator parses the rules, builds a `SimulationContext` from each `TestCase`, walks every expression with a hand-written evaluator, and produces an `ALLOW` / `DENY` decision (or `UNSUPPORTED` if it doesn't yet model some feature). You compare the decision to your expectation and learn whether your rule does the right thing for the inputs you care about.
+The simulator parses the rules, builds a `SimulationContext` from each case, walks every expression with a hand-written evaluator, and produces an `ALLOW` / `DENY` decision (or reports the case as unsupported if it doesn't yet model some feature). You compare the decision to your expectation and learn whether your rule does the right thing for the inputs you care about.
 
 The simulator is sub-millisecond per case once parsed. It is the right surface for:
 
@@ -39,12 +39,12 @@ The simulator is sub-millisecond per case once parsed. It is the right surface f
 
 It is **not** the right surface when:
 
-- The result is `UNSUPPORTED` and you need a verdict the simulator can't give you.
+- A case comes back unsupported and you need a verdict the simulator can't give you.
 - You're shipping rules that must behave exactly like production. The simulator is close to bit-for-bit parity, but not bit-for-bit.
 
 ## Test: does the live Firestore engine agree?
 
-`TestFirestoreRulesHandler.execute(scope, source, testCases)` answers: *"would production decide the same way?"*
+The engine-internal `TestFirestoreRulesHandler.execute(scope, source, testCases)` (`pyric/rules/internal`) answers: *"would production decide the same way?"* There's no public front-door equivalent yet.
 
 This calls Google's Firebase Rules Test API. The request goes to Google's servers, the rules are evaluated in the production engine, and you get pass/fail per case. The test API never deploys anything (it's a pure evaluation surface), but it costs HTTP latency and requires a service-account credential.
 

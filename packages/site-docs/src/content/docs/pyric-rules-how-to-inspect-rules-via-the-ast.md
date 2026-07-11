@@ -9,11 +9,13 @@ order: 93
 
 Parse rules into a typed AST and walk the tree for custom analysis: bespoke lint rules, generated documentation, or structural facts the built-in linter doesn't surface.
 
+The parser (`parseToAST`, `parseToASTOrError`, `parseFunctions`), the AST types, and `validateFirestoreRules` are engine-internal, imported from `pyric/rules/internal`. That surface isn't covered by the public `pyric/rules` contract and may change without notice. For the AST alone, `firestoreRules(source).toJSON()` on the public front door returns the same tree without touching the parser directly; reach for the internal imports below when you need to parse arbitrary fragments or run the validator standalone.
+
 ## Parse to AST
 
 `parseToASTOrError` returns either the AST or a structured failure. Use it when you want a diagnostic on parse failure:
 ```ts
-import { parseToASTOrError } from 'pyric/rules';
+import { parseToASTOrError } from 'pyric/rules/internal';
 
 const result = parseToASTOrError(source);
 if (!result.ok) {
@@ -24,7 +26,7 @@ const ast = result.ast;
 ```
 When `null` is sufficient signal:
 ```ts
-import { parseToAST } from 'pyric/rules';
+import { parseToAST } from 'pyric/rules/internal';
 
 const ast = parseToAST(source);
 if (!ast) throw new Error('parse failed');
@@ -33,7 +35,7 @@ if (!ast) throw new Error('parse failed');
 
 `FirestoreRules.service.match` is the root match (always `/databases/{db}/documents`). Walk its `children` recursively to enumerate every nested match block:
 ```ts
-import type { MatchBlock } from 'pyric/rules';
+import type { MatchBlock } from 'pyric/rules/internal';
 
 function walk(block: MatchBlock, parentPath = ''): void {
   const path = parentPath + block.path.raw;
@@ -65,7 +67,7 @@ for (const seg of block.path.segments) {
 
 `Expression` is a discriminated union. The discriminator is `type`:
 ```ts
-import type { Expression } from 'pyric/rules';
+import type { Expression } from 'pyric/rules/internal';
 
 function walkExpr(expr: Expression, visit: (e: Expression) => void): void {
   visit(expr);
@@ -91,7 +93,7 @@ See [AST reference](../pyric-rules-reference-ast/) for every node shape.
 
 If your custom checks overlap with security or quality concerns, run the bundled validator and union the findings into your output:
 ```ts
-import { validateFirestoreRules } from 'pyric/rules';
+import { validateFirestoreRules } from 'pyric/rules/internal';
 
 const findings = validateFirestoreRules(ast);
 for (const f of findings) {
@@ -104,7 +106,7 @@ The validator covers public-write detection, default-deny audit, duplicate funct
 
 Useful for editor pop-ups or function-level lint hooks:
 ```ts
-import { parseFunctions } from 'pyric/rules';
+import { parseFunctions } from 'pyric/rules/internal';
 
 const fns = parseFunctions(`
   function isAdmin() { return request.auth.token.role == 'admin'; }

@@ -115,7 +115,7 @@ import {
   defineRtdbRules,
   deny,
   pathOwnerOnly,
-} from 'pyric/rules/rtdb';
+} from 'pyric/rules';
 import { fromServiceAccount, rtdb } from 'pyric-tools/deploy';
 
 const scope = await fromServiceAccount('./service-account.json');

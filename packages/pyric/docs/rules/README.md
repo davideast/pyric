@@ -12,7 +12,7 @@ The surface is grouped around the things you can do with a rules source:
 - **Test** it against the live Firebase Rules Test API.
 - **Wrap** it in agent-tool factories for `@inbrowser/agent` registries.
 
-Parse, Lint, Validate, Simulate, and Test are on the browser-safe root entry. **Resolve** and **Wrap** are Node-only and live on the `pyric/rules/node` subpath: `resolveModules`, `createFirestoreRulesTools`, and `createFirestoreSimulatorTools` are not exported from the root.
+Parse, Lint, Validate, Simulate, and Test all sit behind the public front door: `firestoreRules`, `rtdbRules`, `lint`, `eachCase`, `assertCase`, and `explainCase`. The parser, linter, validator, simulator, modules resolver, and agent-tool factories are internal engine seams, exposed only under `pyric/rules/internal*` for callers that need them directly. They may change without notice.
 
 ## Install
 
@@ -25,10 +25,7 @@ npm install pyric
 ## A 30-second example
 
 ```ts
-import {
-  lintFirestoreRules,
-  SimulateFirestoreRulesHandler,
-} from 'pyric/rules';
+import { firestoreRules } from 'pyric/rules';
 
 const source = `rules_version = '2';
 service cloud.firestore {
@@ -40,12 +37,10 @@ service cloud.firestore {
   }
 }`;
 
-const lint = lintFirestoreRules(source);
-console.log(lint.warnings);          // []
-console.log(lint.metrics.allowRuleCount); // 2
+const ruleset = firestoreRules(source);
+console.log(ruleset.lint()); // []
 
-const sim = new SimulateFirestoreRulesHandler();
-const { data } = sim.simulate(source, [
+const { passed, failed } = ruleset.simulate([
   {
     description: 'authed read is allowed',
     expectation: 'ALLOW',
@@ -54,17 +49,21 @@ const { data } = sim.simulate(source, [
     auth: { uid: 'alice' },
   },
 ]);
-console.log(data.passed, data.failed); // 1 0
+console.log(passed, failed); // 1 0
 ```
 
-The `2+modules` resolver and the agent-tool factories come from the Node subpath:
+`firestoreRules(source)` throws `RulesCompileError` if the source doesn't parse. `simulate` never throws on rule outcomes; failures and unsupported cases come back in the result, not as exceptions.
+
+The RTDB constraints DSL (`defineRtdbRules`, `ruleset`, `schemaRules`, and the combinators) is public and lives on the same root entry:
 
 ```ts
-import {
-  resolveModules,
-  createFirestoreRulesTools,
-  createFirestoreSimulatorTools,
-} from 'pyric/rules/node';
+import { rtdbRules, defineRtdbRules, ruleset, allow } from 'pyric/rules';
+```
+
+The parser, validator, simulator internals, modules resolver, and agent-tool factories live on `pyric/rules/internal` and `pyric/rules/internal/node`. They're not part of the public contract:
+
+```ts
+import { resolveModules, createFirestoreRulesTools } from 'pyric/rules/internal/node';
 ```
 
 ## Where to go next

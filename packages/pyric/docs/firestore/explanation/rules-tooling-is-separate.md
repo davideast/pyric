@@ -15,11 +15,12 @@ By keeping rules tooling in `pyric/rules`, the swap-in surface stays bit-faithfu
 | `getDoc`, `setDoc`, `collection`, `query`, `onSnapshot`, ... | `pyric/firestore` |
 | `FieldValue`, `Timestamp`, sentinels | `pyric/firestore` (re-exported from `pyric-admin`) |
 | Sandbox-only ops (`sandbox.setRules`, `sandbox.seedDocuments`) | `pyric/firestore` (sandbox-only namespace) |
-| `parseToAST`, `lintFirestoreRules`, `validateFirestoreRules` | `pyric/rules` |
-| `SimulateFirestoreRulesHandler`, `TestFirestoreRulesHandler` | `pyric/rules` |
-| Stdlib (`auth`, `validation`, ... modules) | `pyric/rules` |
-| `Timestamp`, `Path`, `Bytes` (rules wrapper classes) | `pyric/rules` |
-| Tool factories for lint / simulate / test | `pyric/rules` |
+| `firestoreRules`, `lint`, `eachCase`, `assertCase`, `explainCase` | `pyric/rules` (public front door) |
+| `parseToAST`, `lintFirestoreRules`, `validateFirestoreRules` | `pyric/rules/internal` |
+| `SimulateFirestoreRulesHandler`, `TestFirestoreRulesHandler` | `pyric/rules/internal` |
+| Stdlib (`auth`, `validation`, ... modules) | resolved via `pyric/rules/internal/node` |
+| `Timestamp`, `Path`, `Bytes` (rules wrapper classes) | `pyric/rules/internal` |
+| Tool factories for lint / simulate / test | `pyric/rules/internal/node` |
 | `firestore.rules.deploy(scope, source)` | `pyric-tools/deploy` |
 
 There's some name overlap: `Timestamp` is both a sentinel value (data plane) and a wrapper class (rules engine). The two share a wire format but are distinct types. Each package exports its own; converters bridge them when needed.
@@ -28,9 +29,9 @@ There's some name overlap: `Timestamp` is both a sentinel value (data plane) and
 
 Three common cases:
 
-- **Linting before deploy.** `lintFirestoreRules(source)` returns warnings and metrics. The deploy path in `pyric-tools/deploy` runs this internally; consumers running their own deploy gate run it explicitly.
-- **Testing rules locally.** `SimulateFirestoreRulesHandler.simulate(source, testCases)` runs rules against synthetic requests without deploying or hitting the network. Useful for unit tests of complex rule logic.
-- **Inspecting rules programmatically.** `parseToAST(source)` returns a typed tree consumers can walk for custom analysis.
+- **Linting before deploy.** `lint(source)` (public) returns every issue as a `RuleIssue[]`. The deploy path in `pyric-tools/deploy` runs the engine-internal linter internally; consumers running their own deploy gate call the public `lint` explicitly.
+- **Testing rules locally.** `firestoreRules(source).simulate(cases)` (public) runs rules against synthetic requests without deploying or hitting the network. Useful for unit tests of complex rule logic.
+- **Inspecting rules programmatically.** `firestoreRules(source).toJSON()` (public) returns a typed tree consumers can walk for custom analysis; the internal `parseToAST(source)` (`pyric/rules/internal`) is available for callers that need the parser directly.
 
 These belong to a different audience than the data-plane consumers. A web app rarely touches them; a CI pipeline or an agent does.
 
@@ -41,14 +42,14 @@ These belong to a different audience than the data-plane consumers. A web app ra
 ```ts
 sandbox.setRules(db, source) → pyric-admin's handle.setRules(source)
                                → LocalEnvironment.deployRules(source)
-                               → lintFirestoreRules(source) (from pyric/rules)
+                               → lintFirestoreRules(source) (engine-internal, from pyric/rules/internal)
 ```
 
-The lint result returned to the consumer comes from `pyric/rules`. The data-plane package depends on the rules-tooling package transitively, but doesn't re-export it.
+The lint result returned to the consumer comes from the rules-tooling package's internal engine. The data-plane package depends on the rules-tooling package transitively, but doesn't re-export it.
 
 ## When the cycle matters
 
-`pyric/sandbox` imports the rules simulator from `pyric/rules` to evaluate rules against operations. `pyric/rules` imports `LocalEnvironment` (type-only) from `pyric/sandbox` for its tool-factory shape. A runtime cycle.
+`pyric/sandbox` imports the rules simulator from `pyric/rules/internal` to evaluate rules against operations. `pyric/rules` imports `LocalEnvironment` (type-only) from `pyric/sandbox` for its tool-factory shape. A runtime cycle.
 
 `pyric/firestore` sits on top of both. It depends on `pyric-admin` (which depends on `pyric/sandbox`) and indirectly on `pyric/rules` (through `pyric/sandbox`). It doesn't depend on `pyric/rules` directly. The sandbox-only namespace's lint output is whatever the underlying `LocalEnvironment.deployRules` returns.
 

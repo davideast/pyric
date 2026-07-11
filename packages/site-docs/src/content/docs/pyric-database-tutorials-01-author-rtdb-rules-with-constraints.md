@@ -33,7 +33,7 @@ import {
   immutable,
   newDataVal,
   rootExists,
-} from 'pyric/rules/rtdb';
+} from 'pyric/rules';
 
 const isRoomMember = rootExists(['members', { $: '$roomId' }, { $: 'auth.uid' }]);
 
@@ -116,7 +116,7 @@ different uid and run it again; the same rule document now denies the write.
 
 Write the compiled JSON with the Node helper:
 ```ts
-import { writeRtdbRulesFile } from 'pyric/rules/node';
+import { writeRtdbRulesFile } from 'pyric/rules/internal/node';
 import { rules } from './database.rules.js';
 
 await writeRtdbRulesFile(rules, 'database.rules.json');

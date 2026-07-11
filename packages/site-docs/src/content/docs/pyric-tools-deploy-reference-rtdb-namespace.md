@@ -98,9 +98,10 @@ interface RtdbFetchRulesInput {
 | `rtdb_get_rules` | `{ databaseUrl?: string }` | `{ ir: RtdbIR }` |
 | `rtdb_deploy_rules` | `{ rulesJson: object; databaseUrl?: string }` | `undefined` |
 
-The handler names match the host-backed RTDB rules tools from
-`pyric/rules/rtdb`. Do not register both factories in the same registry unless
-the registry supports explicit replacement.
+The handler names match the host-backed RTDB rules tools from the internal
+`pyric/rules/internal/rtdb` (`createRtdbRulesTools`). Do not register both
+factories in the same registry unless the registry supports explicit
+replacement.
 
 Tool calls remain JSON-only. Pass `rules.toJSON()` as `rulesJson` when deploying
 a generated rules document through an agent registry.

@@ -1,7 +1,7 @@
 # Why RTDB rules authoring and deploy are separate
 
-Pyric keeps Realtime Database rules authoring in `pyric/rules/rtdb` and project
-deployment in `pyric-tools/deploy`.
+Pyric keeps Realtime Database rules authoring in `pyric/rules` (the constraints
+DSL, public) and project deployment in `pyric-tools/deploy`.
 
 The authoring package is a pure rules surface. It can build a rules document,
 compile it to Firebase RTDB rules JSON, check parser and linter findings, and

@@ -6,177 +6,141 @@ order: 100
 ---
 # Public API
 
-This page describes every symbol re-exported from `pyric/rules`. Symbols are grouped by submodule and listed alphabetically within each group.
+This page describes every symbol exported from `pyric/rules`. The surface is small: two constructors, one tolerant lint function, three assertion adapters, a handful of value helpers, the RTDB constraints DSL, and the error/type vocabulary they share.
 
-## Parser and AST
+The parser, linter internals, validator, simulator handler, modules resolver, and RTDB engine are not exported from `pyric/rules`. They live on `pyric/rules/internal` and its subpaths, described at the bottom of this page.
 
-### `parseToAST(input: string): FirestoreRules | null`
+## Constructors
 
-Parse a rules source into an AST. Returns `null` on parse failure.
+### `firestoreRules(source: string): FirestoreRuleset`
 
-### `parseToASTOrError(input: string): { ok: true; ast: FirestoreRules } | { ok: false; error: ParseError }`
+Compiles Firestore rules source into a handle. Throws `RulesCompileError` (carrying `.issues: RuleIssue[]`) if the source doesn't parse. Past construction, the handle never throws on a rule outcome.
 
-Parse a rules source. Returns either the AST or a structured `ParseError` with `line`, `column`, `offset`, `expected`, `actual`, and `message`.
+`FirestoreRuleset`:
 
-### `parseFunctions(input: string): FunctionDef[] | null`
+- `lint(): RuleIssue[]`: structural, security, and budget findings on the compiled ruleset. No parse errors; the source already compiled.
+- `simulate(cases: FirestoreCase[]): SimulationSummary`: runs every case. A denied or abstained case is reported in the result, not thrown.
+- `explain(oneCase: FirestoreCase): Explanation`: the structured account of why one case resolved as it did.
+- `toJSON(): FirestoreRules`: the parsed ruleset as plain data (the AST).
 
-Parse a fragment containing function definitions. Wraps the input in a minimal `rules_version='2'` shell. Returns the parsed functions, or `null` on failure.
+### `rtdbRules(input: RtdbRulesDefinition | RtdbRulesDocument | RtdbRulesJson): RtdbRuleset`
 
-### `assembleRules(ast: FirestoreRules): string`
+Builds a handle on a Realtime Database ruleset. Accepts an `RtdbRulesDefinition` (the `{ paths }` object), the value `defineRtdbRules(...)` returns, or compiled `{ rules }` JSON.
 
-Serialise an AST back to a rules source string. Used internally by the modules resolver.
+The definition and document inputs support the full surface. A compiled `{ rules }` JSON input can only round-trip through `toJSON`: there is no IR left to lint or simulate against, so `lint()` returns `[]` and `simulate()` reports every case as unsupported.
 
-### `validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]`
+`RtdbRuleset`:
 
-Run the structural validator over a parsed AST. See [Validator findings](../pyric-rules-reference-validator-findings/) for every code.
+- `lint(): RuleIssue[]`: structural findings on the compiled ruleset.
+- `simulate(cases: RtdbCase[]): RtdbSimulationSummary`: runs every case. Never throws on a rule outcome.
+- `explain(oneCase: RtdbCase): RtdbExplanation`: the structured account of one case's outcome.
+- `toJSON(): RtdbRulesJson`: the compiled `rules.json`.
 
-### Types
+## Tolerant lint
 
-- `FirestoreRules`: root of the AST: `{ version, imports, service }`.
-- `MatchBlock`: `{ path, functions, allows, children }`.
-- `AllowRule`: `{ operations, condition }`.
-- `FunctionDef`: `{ name, parameters, exported, lets, body }`.
-- `Expression`: discriminated union of every expression node. See [AST reference](../pyric-rules-reference-ast/).
-- `PathSegment`: `{ type: 'literal' | 'wildcard' | 'recursive', ... }`.
-- `ParseError`: `{ line, column, offset, expected, actual, message }`.
-- `ParseResult`: `{ valid, errors, parseError? }`.
-- `ValidationFinding`: `{ code, severity, path, operation?, message }`.
+### `lint(source: string): RuleIssue[]`
 
-## Linter
+The AI-authoring front door. Accepts anything, including empty or unparseable source. Never throws. Returns every issue it can find, parse errors included, folded into one `RuleIssue[]` list.
 
-### `lintFirestoreRules(source: string, options?: LintOptions): LintResult`
+## Assertion adapters
 
-Run the linter. `LintResult` has `warnings`, `metrics`, and optional `parseError`. Callers must check `parseError` before reading warnings or metrics.
+The only throwing verbs beyond the constructors. They bridge the data-returning front door to a throwing test runner.
 
-`LintOptions`:
+### `eachCase(rulesetOrSource: string | FirestoreRuleset, cases: FirestoreCase[]): RunnerCase<FirestoreCase>[]`
+### `eachCase(ruleset: RtdbRuleset, cases: RtdbCase[]): RunnerCase<RtdbCase>[]`
 
-- `testCases?: TestCase[]`: activates `REQUEST_TIME_NOT_PINNED`.
-- `previousSource?: string`: activates `RULES_WEAKENED`.
+Returns one runnable per case, ready to wire into a test runner: `for (const c of eachCase(...)) test(c.name, c.run)`.
 
-See [Lint rules](../pyric-rules-reference-lint-rules/) for every rule code, threshold, and severity.
+`RunnerCase<C>`:
 
-### Types
+- `name: string`: the case description, or a path-derived fallback.
+- `case: C`: the originating case.
+- `run(): void`: simulates this one case and throws on failure or abstention.
 
-- `LintResult`: `{ warnings, metrics, parseError? }`.
-- `LintWarning`: `{ rule, severity, message, location?, fix? }`.
-- `LintOptions`: see above.
-- `RulesMetrics`: `{ sourceSize, functionCount, allowRuleCount, maxChainDepth, maxChainOp, maxLetBindings, maxLetBindingsFunction, maxCallDepth, maxEstimatedExpressions, getCallCount }`.
+`run()` throws `RulesAssertionError` on a failed case (decision didn't match expectation) and `RulesUnsupportedError` on a simulator abstention.
 
-## Modules resolver
+### `assertCase(result: CaseResult | RtdbCaseResult): void`
 
-### `resolveModules(source: string, options?: ResolveOptions): ResolveResult`
+Throws on a failed or abstained case result. `RulesUnsupportedError` for an abstention, `RulesAssertionError` for a genuine expectation mismatch. Returns `void` on a passing result.
 
-Resolve `rules_version = '2+modules'` imports. Returns the rewritten standard `'2'` source plus the list of modules used, or a coded error.
+### `explainCase(result: CaseResult | RtdbCaseResult): string`
 
-### `loadModule(moduleName: string, options?: ResolveOptions): { success: true; functions: FunctionDef[] } | { success: false; error }`
+The single sanctioned trace renderer. Used as the message of the errors `assertCase` throws, and available directly for logging a result without asserting.
 
-Load a single module's functions. Used internally by `resolveModules`; exposed for diagnostic tooling.
+## Errors
 
-### `sanitizeModuleName(name: string): string`
+The only three error classes the public surface throws.
 
-Convert a module name (possibly relative) into a safe identifier-prefix. Used to namespace private functions when inlining.
+- `RulesCompileError`: thrown by `firestoreRules(source)` / `rtdbRules(...)` when the source doesn't compile. Carries `.issues: RuleIssue[]`.
+- `RulesAssertionError`: thrown by `assertCase` / a runner case's `run()` when the decision didn't match the expectation. Message is the `explainCase` trace.
+- `RulesUnsupportedError`: thrown by `assertCase` / a runner case's `run()` when the simulator abstained.
 
-### Types
+See [Errors](../pyric-rules-reference-errors/) for the full picture, including the internal-engine error types these are built from.
 
-- `ResolveResult`: `{ success: true; data: { resolved, modules } } | { success: false; error }`.
-- `ResolveOptions`: `{ basePath?, modules? }`.
+## Unified issue type
 
-## Simulator
+### `RuleIssue`
+```ts
+interface RuleIssue {
+  code: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  path?: string;
+  line?: number;
+  fix?: string;
+  origin: 'parse' | 'validate' | 'lint';
+}
+```
+Replaces the old `LintWarning`, `ValidationFinding`, and `ParseError` shapes with one. `origin` records which stage produced the issue: `'parse'` for compile blockers, `'validate'` for structural/security findings, `'lint'` for budget/quality/hallucination warnings. Filtering on `origin === 'parse'` gets the compile blockers without needing three separate types.
 
-### `class SimulateFirestoreRulesHandler`
+## Case and result types
 
-In-process evaluator.
+Firestore and RTDB cases are kept distinct on purpose: the two rules languages take different request shapes, and unifying them would force every field to be optional. They share the assertion adapters and `RuleIssue`, nothing more.
 
-- `simulate(source: string, testCases: TestCase[]): TestFirestoreRulesResult`
+### Firestore
 
-### `evaluate(expression: Expression, ctx: SimulationContext): unknown`
+- `FirestoreCase`: `{ description, expectation: 'ALLOW' | 'DENY', method, path, auth?, resource?, data?, writeMode?, functionMocks?, query?, requestTime? }`.
+- `CaseResult`: `{ case, description, expectation, decision, passed, unsupported, trace, notes, pathResolution? }`.
+- `Explanation`: `{ decision, expectation, passed, unsupported, deciding?, trace, pathResolution?, notes }`.
+- `SimulationSummary`: `{ passed, failed, unsupported, cases: CaseResult[] }`.
+- `FirestoreMethod`, `RuleEvaluation`, `PathResolutionTrace`, `PathResolutionEntry`, `ExprTraceEntry`, `EvaluatedRuleInfo`: the structured trace vocabulary. Plain data, no behavior.
 
-Evaluate a single expression against a context. Used by the handler; exposed for callers that build their own evaluation loops.
+### RTDB
 
-### `projectAfterState(writeMode: WriteMode, existing: Record<string, unknown> | null, payload: Record<string, unknown>): Record<string, unknown> | null`
+- `RtdbCase`: `{ description?, expect: 'allow' | 'deny', operation: 'read' | 'write' | 'validate', path, auth?, data?, newData? }`.
+- `RtdbCaseResult`: `{ case, description?, expect, decision, passed, unsupported, matchedPath, matchedRule, reason }`.
+- `RtdbExplanation`: `{ decision, expect, passed, unsupported, matchedPath, matchedRule, reason }`.
+- `RtdbSimulationSummary`: `{ passed, failed, unsupported, cases: RtdbCaseResult[] }`.
 
-Compute the post-write document for a given write mode (`create`, `set` with merge, `update`, `delete`).
+## Value helpers
 
-### `const SERVER_TIMESTAMP`
+Small named constructors for the typed values a case's `data` / `resource` carries. Each wraps an engine value-wrapper class so callers don't need to know the class shape, only the value it represents.
 
-Sentinel value for `FieldValue.serverTimestamp()` in test data. The handler resolves all sentinels in the request payload to a single `Timestamp` instance before evaluation.
+- `serverTimestamp()`: the `FieldValue.serverTimestamp()` sentinel. The simulator resolves it to the request time.
+- `timestamp(msOrIsoOrObj: number | string | { seconds: number; nanos?: number })`: a Firestore `timestamp` value.
+- `bytes(strOrU8: string | Uint8Array)`: a `bytes` value.
+- `latlng(lat: number, lng: number)`: a `latlng` geographic point.
+- `duration(value: number, unit = 's')`: a `duration` value. `unit` is one of `'w' | 'd' | 'h' | 'm' | 's' | 'ms' | 'ns'`.
+- `reference(path: string)`: a `reference` to a document, by path.
+- `vector(numbers: readonly number[])`: a `vector` value.
 
-### `class UnsupportedError extends EvalError`
+See [Value wrappers](../pyric-rules-reference-value-wrappers/) for the underlying classes these helpers construct.
 
-Thrown by the evaluator when it hits a feature it doesn't yet implement. Caught by the handler and surfaced as `TestResult.state === 'UNSUPPORTED'`.
+## RTDB constraints DSL
 
-### Types
+Re-exported unchanged from `pyric/rules`: `defineRtdbRules`, `ruleset`, `schemaRules`, and the combinators `expr, all, any, not, deny, always, allow, authenticated, ownPath, ownField, isNew, hasChildren, hasChild, fieldIsString, fieldIsNumber, fieldIsBoolean, fieldEnum, immutable, immutableSelf, rootExists, rootEquals, pathOwnerOnly, fieldOwnerOnly, ownerOrNew, hasRole, isMember, required, transition, dataVal, newDataVal, dataExists, newDataExists, newDataIs, dataParentVal, newDataParentVal, newDataParentExists, eq, neq, gt, lte, AUTH_UID, turnGuard, flip, winCheckHelper`.
 
-- `SimulationContext`: `{ request, resource, mockDocuments, pathVariables, functions, database, afterStatePath, afterState, existsAfter }`. See [Simulator context](../pyric-rules-reference-simulator-context/).
+See [`pyric/database`'s constraints reference](../pyric-database-reference-constraints/) for the DSL itself.
 
-### `class MapDiff` and `class FirestoreSet`
+## Internal engine (`pyric/rules/internal*`)
 
-Helpers used by `request.resource.data.diff(resource.data)` and the `keys()` family. Exposed for callers that need to share the same semantics in custom analysis.
+The lower-level engine still exists, but only on internal seams. These are not part of the public contract and may change without notice:
 
-## Expression DSL primitives
+- `pyric/rules/internal`: parser (`parseToAST`), linter (`lintFirestoreRules`), validator (`validateFirestoreRules`), simulator (`SimulateFirestoreRulesHandler`), value-wrapper classes, browser resolver (`resolveModulesBrowser`), stdlib, trace/test types, network handlers (`TestFirestoreRulesHandler`, `WriteFirestoreRulesHandler`, `InspectFirestoreRulesHandler`), stdlib tools, inspect tools.
+- `pyric/rules/internal/node`: the Node fs module resolver (`resolveModules`, `loadModule`, ...) and agent-tool factories (`createFirestoreRulesTools`, `createFirestoreSimulatorTools`, `createFirestoreRulesStdlibTools`).
+- `pyric/rules/internal/rtdb`: the RTDB engine (`RtdbMapper`, `GenerateIRHandler`, `SimulateHandler`, `WriteRulesHandler`, `RtdbHost`, `RtdbIR`, `RtdbNode`, `getRtdbTools`, `createRtdbRulesTools`, and related types).
+- `pyric/rules/internal/extract`: the composite-index extractor (`extractIndexes`, `ExtractFirestoreIndexesHandler`, `createFirestoreExtractTool`).
 
-### `tokenize(input: string): Token[]`
-### `parse(tokens: Token[]): AstNode`
-### `resolveExpressionsInData(data, env): unknown`
-### `class ExpressionWalkError`
-### `class EvalError`
-### `class ExpressionLexError`
-### `class ExpressionParseError`
+The subpaths that used to hold these (`pyric/rules/node`, `pyric/rules/extract`, `pyric/rules/rtdb`, `pyric/rules/rtdb/constraints`, `pyric/rules/rtdb-constraints`) no longer exist.
 
-The sentinel expression engine, used by `pyric/sandbox` to resolve `{ $expr: '...' }` wrappers in declarative writes. See [The sentinel expression engine](../pyric-rules-explanation-sentinel-expression-engine/).
-
-## Value wrappers
-
-Re-exported classes for the runtime types Firestore rules expose. All extend `RulesValue`.
-
-- `class Timestamp`
-- `class Path`
-- `class Reference` and `referenceToResourceName(ref): string`
-- `class Vector`
-- `class Bytes`
-- `class Duration`
-- `class LatLng`
-- `class RulesValue` (base class) and `const NO_OP` (method-dispatch sentinel)
-
-See [Value wrappers](../pyric-rules-reference-value-wrappers/).
-
-## Rules Test API client
-
-### `class TestFirestoreRulesHandler`
-
-Calls Google's Firebase Rules Test API.
-
-- `execute(scope: ProjectScope, source: string, testCases: TestCase[]): Promise<TestFirestoreRulesResult>`
-
-`ProjectScope` comes from `pyric-tools/deploy`.
-
-### Types
-
-- `TestCase`: see [`TestCase` schema](../pyric-rules-reference-test-case-schema/).
-- `TestResult`: `{ description, expectation, state, debugMessages }`.
-- `TestFirestoreRulesResult`: `{ success: true; data: { passed, failed, unsupported, results } } | { success: false; error }`.
-- `FunctionMock`: `{ function: 'get' | 'exists', path, result }`.
-- `const TestCaseSchema`: the underlying Zod schema for `TestCase`.
-
-## Tool factories
-
-### `createFirestoreRulesTools(deps?: FirestoreRulesToolDeps): ToolHandler[]`
-
-Returns:
-
-- `firestore_lint_rules`
-- `firestore_resolve_modules`
-- `firestore_simulate_rules`
-- `firestore_test_rules` *(only when `deps.scope` is supplied)*
-
-`FirestoreRulesToolDeps`:
-
-- `scope?: ProjectScope`: credentials for the Rules Test API.
-
-### `createFirestoreSimulatorTools(deps: FirestoreSimulatorToolDeps): ToolHandler[]`
-
-Slice 8 scaffold. Returns an empty array today; the full seven-tool family lands as consumers register interest. The factory shape and `resolveSandbox` contract are stable.
-
-`FirestoreSimulatorToolDeps`:
-
-- `resolveSandbox: () => LocalEnvironment | Promise<LocalEnvironment>`: per-dispatch resolver returning the session-scoped sandbox environment.
+See [AST reference](../pyric-rules-reference-ast/), [Errors](../pyric-rules-reference-errors/), [Lint rules](../pyric-rules-reference-lint-rules/), [Validator findings](../pyric-rules-reference-validator-findings/), [Stdlib modules](../pyric-rules-reference-stdlib-modules/), and [Simulator context](../pyric-rules-reference-simulator-context/) for the engine detail behind these seams.
