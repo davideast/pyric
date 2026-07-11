@@ -22,7 +22,7 @@
     "build:ports": "tsc -p tsconfig.json",
     "dev": "vite",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit",
-    "test": "bun test src test"
+    "test": "bun test src/ test/"
   },
   "dependencies": {
     "pyric": "workspace:*",
