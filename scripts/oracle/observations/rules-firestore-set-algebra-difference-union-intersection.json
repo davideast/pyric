@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-set-algebra-difference-union-intersection",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#174",
+  "rowIds": [
+    "firestore#174"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"set-algebra-difference-union-intersection\" (Item 5.1). Sim must implement Set.difference/union/intersection; pre-fix all three threw UnsupportedError on FirestoreSet.",
   "observedAt": "2026-07-10T22:41:18.535Z",
   "fbSdkVersion": "12.13.0",

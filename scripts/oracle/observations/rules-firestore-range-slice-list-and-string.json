@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-range-slice-list-and-string",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#173",
+  "rowIds": [
+    "firestore#173"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"range-slice-list-and-string\" (Item 4). Sim must parse and evaluate range slice [i:j] for List and String; pre-fix grammar rejected the syntax outright.",
   "observedAt": "2026-07-10T22:41:18.430Z",
   "fbSdkVersion": "12.13.0",

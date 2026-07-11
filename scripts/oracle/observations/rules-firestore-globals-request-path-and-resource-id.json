@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-globals-request-path-and-resource-id",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#166",
+  "rowIds": [
+    "firestore#166"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"globals-request-path-and-resource-id\" (Item 6). Sim must populate request.path (Path), request.query (Map), resource.id (String), resource.__name__ (Path). Pre-fix: all undefined; rules using them silently denied.",
   "observedAt": "2026-07-10T22:41:18.980Z",
   "fbSdkVersion": "12.13.0",

@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-undefined-field-access",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#176",
+  "rowIds": [
+    "firestore#176"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"undefined-field-access\" (RULES-B2). Missing-field access is a runtime error in prod (deny), not null; `typo == null` must DENY and `!(key in map)` is the real absence check.",
   "observedAt": "2026-07-10T22:41:19.372Z",
   "fbSdkVersion": "12.13.0",
