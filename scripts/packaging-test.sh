@@ -488,12 +488,19 @@ service cloud.firestore {
 try {
   const { initializeSandbox } = await import('pyric/sandbox');
   const { getFirestore, sandbox: sandboxOps } = await import('pyric/firestore');
-  const { lintFirestoreRules } = await import('pyric/rules');
-  const lint = lintFirestoreRules(GOOD_RULES);
-  if (!lint?.metrics || lint.metrics.allowRuleCount < 1) throw new Error('lint did not parse the ruleset (grammar asset missing?)');
+  const { firestoreRules, lint } = await import('pyric/rules');
+  // firestoreRules() compiles the source — throws if the grammar asset is
+  // missing, so a successful construct proves the .ohm asset shipped.
+  const ruleset = firestoreRules(GOOD_RULES);
+  const issues = lint(GOOD_RULES);
+  if (!Array.isArray(issues)) throw new Error('tolerant lint did not return an issues array');
+  const sim = ruleset.simulate([
+    { description: 'owner reads own doc', expectation: 'ALLOW', method: 'get', path: 'users/alice', auth: { uid: 'alice' } },
+  ]);
+  if (sim.passed !== 1) throw new Error('simulate did not pass the owner case (grammar/simulator asset missing?)');
   const db = getFirestore(initializeSandbox());
   sandboxOps.setRules(db, GOOD_RULES);
-  ok(`pyric: rules grammar parsed + getFirestore(sandbox).setRules ran (allowRuleCount=${lint.metrics.allowRuleCount})`);
+  ok(`pyric: firestoreRules().simulate() passed + getFirestore(sandbox).setRules ran (issues=${issues.length})`);
 } catch (e) { bad('pyric runtime: ' + (e?.message ?? e)); }
 
 // pyric-admin — admin SDK ↔ pyric interop (resolves firebase-admin transitively).
