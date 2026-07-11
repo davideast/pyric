@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
-import type { Probe } from '../rigs/types.ts';
+import type { Probe } from '../../rigs/types.ts';
 
 export const probe: Probe = {
   description:

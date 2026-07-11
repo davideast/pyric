@@ -3,8 +3,8 @@ import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
-import { captureThrow } from './helpers.ts';
-import type { Probe } from '../rigs/types.ts';
+import { captureThrow } from '../../src/helpers.ts';
+import type { Probe } from '../../rigs/types.ts';
 
 /** Order matches the committed observation's `appliesTo` array. */
 const ACCESSORS: Array<[string, () => unknown]> = [

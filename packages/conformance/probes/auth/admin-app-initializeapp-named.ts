@@ -1,5 +1,5 @@
 import { getApp, getApps, initializeApp } from 'firebase-admin/app';
-import type { Probe } from '../rigs/types.ts';
+import type { Probe } from '../../rigs/types.ts';
 
 export const probe: Probe = {
   description:

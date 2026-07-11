@@ -12,6 +12,7 @@ import type { RigManifest } from '../rigs/types.ts';
 import { ALL_RULES_FIRESTORE_PACKS } from '../rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_PACKS } from '../rules-corpus/storage/index.ts';
 import { longestPrefixOwners, soleLongestPrefixOwner } from './observation-surface.ts';
+import { listProbeFiles, type ProbeFile } from '../probes/load.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -38,7 +39,7 @@ export interface ValidationInput {
   observations: Observation[];
   observationExceptions: Record<string, string>;
   checkMarkdown?: boolean;
-  /** Oracle rig manifests (scripts/oracle/rigs/*.ts, loaded via load.ts). Optional
+  /** Oracle rig manifests (rigs/*.ts, loaded via load.ts). Optional
    *  so existing tests that don't exercise rig-manifest wiring don't need to
    *  thread it through; the real compat:validate entry point always passes it. */
   rigManifests?: RigManifest[];
@@ -50,6 +51,11 @@ export interface ValidationInput {
   rulesFirestorePackIds?: string[];
   /** Storage rules corpus pack ids (rules-corpus/storage/*.ts). */
   rulesStoragePackIds?: string[];
+  /** Probe files (probes/<surface>/<name>.ts, loaded via probes/load.ts).
+   *  Optional for the same reason as `rigManifests`; the real compat:validate
+   *  entry point always passes it, so the twin-path check below (a probe's
+   *  surface directory must match its paired observation's) is CI-enforced. */
+  probeFiles?: ProbeFile[];
 }
 
 export function validateCompatibilityRegistry(input: ValidationInput): string[] {
@@ -262,6 +268,22 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     }
   }
 
+  // ── Probe <-> observation twin-path integrity ─────────────────────────────
+  // `probes/<surface>/<name>.ts` is the twin tree to `observations/<surface>/
+  // <name>.json`: where a probe exists, its surface subdirectory must match
+  // the directory of the observation it produces. A probe without a matching
+  // observation (not yet captured) is fine — only a DIRECTORY MISMATCH between
+  // the two trees is fatal here.
+  if (input.probeFiles) {
+    const observationDirByName = new Map(input.observations.map((obs) => [obs.name, obs.surfaceDir]));
+    for (const probe of input.probeFiles) {
+      const obsDir = observationDirByName.get(probe.name);
+      if (obsDir && obsDir !== probe.surfaceDir) {
+        problems.push(`probes/${probe.surfaceDir}/${probe.name}.ts: paired observation lives under observations/${obsDir}/, not observations/${probe.surfaceDir}/`);
+      }
+    }
+  }
+
   if (input.checkMarkdown) problems.push(...checkGeneratedMarkdown());
 
   return problems;
@@ -278,6 +300,7 @@ if (import.meta.main) {
     observationExceptions,
     checkMarkdown: true,
     rigManifests,
+    probeFiles: listProbeFiles(),
     rulesFirestorePackIds: ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id),
     rulesStoragePackIds: ALL_RULES_STORAGE_PACKS.map((pack) => pack.id),
   });

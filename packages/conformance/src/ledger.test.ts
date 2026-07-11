@@ -11,6 +11,7 @@ import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
 import { ALL_RULES_FIRESTORE_PACKS } from '../rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_PACKS } from '../rules-corpus/storage/index.ts';
+import { listProbeFiles } from '../probes/load.ts';
 
 describe('single-source compatibility registry', () => {
   test('contains explicit rows for all major surfaces', () => {
@@ -148,6 +149,52 @@ describe('single-source compatibility registry', () => {
       observationExceptions,
     });
     expect(problems.some((problem) => problem.includes("internal name 'auth-createUser-operationType-drifted' does not match filename"))).toBe(true);
+  });
+
+  test('surfaces an observation living under the wrong surface subdirectory', () => {
+    const observations = loadObservations().map((obs) =>
+      obs.name === 'auth-createUser-operationType' ? { ...obs, surfaceDir: 'firestore' } : obs,
+    );
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations,
+      observationExceptions,
+    });
+    expect(
+      problems.some((problem) =>
+        problem.includes("auth-createUser-operationType.json: lives under observations/firestore/ but its prefix maps to surface 'auth'"),
+      ),
+    ).toBe(true);
+  });
+
+  test('every checked-in probe pairs with its observation under the same surface directory', () => {
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      probeFiles: listProbeFiles(),
+    });
+    expect(problems).toEqual([]);
+  });
+
+  test('surfaces a probe whose surface directory does not match its paired observation', () => {
+    const probeFiles = listProbeFiles().map((p) =>
+      p.name === 'admin-app-deleteapp' ? { ...p, surfaceDir: 'firestore' } : p,
+    );
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      probeFiles,
+    });
+    expect(
+      problems.some((problem) =>
+        problem.includes('probes/firestore/admin-app-deleteapp.ts: paired observation lives under observations/auth/, not observations/firestore/'),
+      ),
+    ).toBe(true);
   });
 });
 
