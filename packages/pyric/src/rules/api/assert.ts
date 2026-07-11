@@ -46,15 +46,15 @@ function renderRuleEvaluation(entry: RuleEvaluation): string {
   const loc = entry.line !== undefined ? ` (line ${entry.line})` : '';
   const block = entry.matchPath ? ` [${entry.matchPath}]` : '';
   const cond = entry.conditionText ? `: ${entry.conditionText}` : '';
-  const msg = entry.message ? ` — ${entry.message}` : '';
-  return `    #${entry.ruleIndex} (${ops})${block}${loc} → ${entry.verdict}${cond}${msg}`;
+  const msg = entry.message ? ` (${entry.message})` : '';
+  return `    #${entry.ruleIndex} (${ops})${block}${loc} -> ${entry.verdict}${cond}${msg}`;
 }
 
 function renderFirestore(r: CaseResult): string {
   const status = r.unsupported ? 'UNSUPPORTED' : r.passed ? 'PASS' : 'FAIL';
   const lines: string[] = [
     `${status}: ${r.description}`,
-    `  ${r.case.method} ${r.case.path} — expected ${r.expectation}, got ${r.decision}`,
+    `  ${r.case.method} ${r.case.path} (expected ${r.expectation}, got ${r.decision})`,
   ];
   if (r.trace.length > 0) {
     lines.push('  rules evaluated:');
@@ -66,7 +66,7 @@ function renderFirestore(r: CaseResult): string {
       lines.push('  path near-misses:');
       for (const a of misses) {
         lines.push(
-          `    ${a.blockPath} — ${a.matchedSegments}/${a.totalSegments} segments${a.reason ? ` (${a.reason})` : ''}`,
+          `    ${a.blockPath} (${a.matchedSegments}/${a.totalSegments} segments${a.reason ? `, ${a.reason}` : ''})`,
         );
       }
     }
@@ -80,7 +80,7 @@ function renderRtdb(r: RtdbCaseResult): string {
   const name = r.description ?? `${r.case.operation} ${r.case.path}`;
   return [
     `${status}: ${name}`,
-    `  ${r.case.operation} ${r.case.path} — expected ${r.expect}, got ${r.decision}`,
+    `  ${r.case.operation} ${r.case.path} (expected ${r.expect}, got ${r.decision})`,
     `  matched ${r.matchedRule} @ ${r.matchedPath}`,
     `  reason: ${r.reason}`,
   ].join('\n');
