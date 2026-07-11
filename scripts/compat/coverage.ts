@@ -237,7 +237,7 @@ function buildReport(): CoverageReport {
  * surface-denylist.ts for the full reasoning behind each entry.
  */
 const SCOPE_NOTES: Record<Surface, string> = {
-  auth: 'out of scope: none (internal plumbing only) — every remaining gap (linking, reauth, MFA/phone/reCAPTCHA, email-link, beforeAuthStateChanged) is deferred, buildable via the resolver/mock pattern already proven for OAuth sign-in.',
+  auth: 'out of scope: none (internal plumbing only) — every remaining gap (linking, reauth, MFA/phone/reCAPTCHA, email-link) is deferred, buildable via the resolver/mock pattern already proven for OAuth sign-in.',
   firestore: 'out of scope: internal plumbing only. Deferred: bundle-loading, cache index-tuning knobs.',
   rtdb: 'out of scope: internal plumbing only. Deferred: onDisconnect (no live socket in an in-memory sandbox today), legacy priority ordering.',
   'rtdb-modular': 'out of scope: same as rtdb — shares the `database` census measurement.',

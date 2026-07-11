@@ -1,0 +1,78 @@
+{
+  "_comment": "Baseline of UNMAPPED upstream symbols tolerated by the CI gate (scripts/compat/census-gate.ts), keyed by census surface. The gate fails when a PR introduces a symbol NOT in this list for its surface. To pay down debt: mirror the symbol, or add a deny-list entry with a reason in scripts/compat/surface-denylist.ts, then remove it here. Regenerate with `bun run scripts/compat/census-gate.ts --update`.",
+  "generatedFrom": "bun run scripts/compat/surface-census.ts --json",
+  "surfaces": {
+    "app": [
+      "FirebaseError",
+      "SDK_VERSION",
+      "deleteApp",
+      "getApp",
+      "getApps",
+      "initializeServerApp",
+      "onLog",
+      "registerVersion",
+      "setLogLevel"
+    ],
+    "auth": [
+      "AuthCredential",
+      "AuthErrorCodes",
+      "EmailAuthCredential",
+      "OAuthCredential",
+      "OperationType",
+      "ProviderId",
+      "SAMLAuthProvider",
+      "SignInMethod",
+      "TwitterAuthProvider",
+      "browserCookiePersistence",
+      "browserPopupRedirectResolver",
+      "debugErrorMap",
+      "fetchSignInMethodsForEmail",
+      "getAdditionalUserInfo",
+      "indexedDBLocalPersistence",
+      "prodErrorMap",
+      "revokeAccessToken",
+      "signInWithCustomToken",
+      "validatePassword"
+    ],
+    "firestore": [
+      "AbstractUserDataWriter",
+      "AggregateField",
+      "AggregateQuerySnapshot",
+      "CollectionReference",
+      "DocumentReference",
+      "DocumentSnapshot",
+      "Firestore",
+      "FirestoreError",
+      "Query",
+      "QueryCompositeFilterConstraint",
+      "QueryConstraint",
+      "QueryDocumentSnapshot",
+      "QueryEndAtConstraint",
+      "QueryFieldFilterConstraint",
+      "QueryLimitConstraint",
+      "QueryOrderByConstraint",
+      "QuerySnapshot",
+      "QueryStartAtConstraint",
+      "SnapshotMetadata",
+      "Transaction",
+      "WriteBatch",
+      "aggregateFieldEqual",
+      "aggregateQuerySnapshotEqual",
+      "documentSnapshotFromJSON",
+      "ensureFirestoreConfigured",
+      "executeWrite",
+      "onSnapshotResume",
+      "querySnapshotFromJSON"
+    ],
+    "database": [
+      "DataSnapshot",
+      "Database",
+      "QueryConstraint",
+      "TransactionResult"
+    ],
+    "storage": [
+      "StorageErrorCode",
+      "StringFormat"
+    ]
+  }
+}
