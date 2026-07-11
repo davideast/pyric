@@ -2,7 +2,7 @@
 title: "Public API"
 group: "pyric / firestore"
 section: "Reference"
-order: 82
+order: 83
 ---
 # Public API
 

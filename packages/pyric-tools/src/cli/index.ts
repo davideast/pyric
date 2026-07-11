@@ -64,6 +64,8 @@ import { runSnapshot } from './snapshot.js';
 import { runVerify } from './verify.js';
 import { runMcpProxy } from './mcp-proxy.js';
 import { pyricVersion } from '../serve/standalone-assets.js';
+import { pyricToolsVersion } from '../pkg-version.js';
+import { FIREBASE_TESTED_AGAINST } from '../version/compat-target.js';
 
 // The standalone binary bakes the real `pyric` version onto the embedded-assets
 // global; the npm bin has no such global and falls back to '0.0.0'.
@@ -261,7 +263,10 @@ CREDENTIALS
 }
 
 function printVersion(): void {
-  process.stdout.write(`${VERSION}\n`);
+  process.stdout.write(
+    `pyric-tools ${pyricToolsVersion()}\n` +
+      `Firebase ${FIREBASE_TESTED_AGAINST} (conformance-tested against this release)\n`,
+  );
 }
 
 function splitCommaList(value: string | boolean | Array<string | boolean> | undefined): string[] {

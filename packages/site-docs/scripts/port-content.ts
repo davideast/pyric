@@ -101,6 +101,12 @@ const GROUPS: GroupSpec[] = [
     ],
   },
   { pkg: 'pyric-tools', label: 'pyric-tools / deploy', dir: 'deploy', sections: DIATAXIS },
+  {
+    pkg: 'pyric',
+    label: 'pyric',
+    dir: '.',
+    sections: [{ label: 'Explanation', path: 'explanation' }],
+  },
   { pkg: 'pyric', label: 'pyric / firestore', dir: 'firestore', sections: DIATAXIS },
   { pkg: 'pyric', label: 'pyric / rules', dir: 'rules', sections: DIATAXIS },
   { pkg: 'pyric', label: 'pyric / sandbox', dir: 'sandbox', sections: DIATAXIS },

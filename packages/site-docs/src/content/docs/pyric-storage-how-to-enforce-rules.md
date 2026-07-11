@@ -3,7 +3,7 @@ title: "How to enforce Storage rules"
 navLabel: "Enforce Storage rules"
 group: "pyric / storage"
 section: "How-to"
-order: 143
+order: 144
 ---
 # How to enforce Storage rules
 

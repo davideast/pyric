@@ -8,6 +8,8 @@
 
 <p align="center"><a href="https://pyric.dev">pyric.dev</a></p>
 
+<p align="center">Conformance-tested against Firebase 12.13.0 — see the <a href="https://pyric.dev/docs/pyric-explanation-versioning-and-compatibility/">versioning and compatibility policy</a> and the <a href="#what-matches-firebase-and-what-doesnt">published coverage</a>.</p>
+
 <br />
 
 Pyric is Firestore, Auth, Realtime Database, Storage, *Messaging soon*, and the Security Rules engine, implemented in TypeScript and running inside the application process. In the browser, that process is the page itself: the whole backend executes in the tab. In Node, it is the Node process, so tests and scripts get the same backend with no browser involved.
@@ -137,4 +139,4 @@ Examples: [examples/vite-sandbox-app](examples/vite-sandbox-app/), the shape `py
 
 ## Stability
 
-Alpha, `0.1.0-alpha.7`, published as an experimental product. The one stability goal is the Firebase mirror: code written against mirrored surfaces is intended to keep working, tracked in the compatibility matrices. Pyric-specific APIs (sandbox lifecycle, replay, serve and bridge internals) are public-alpha and may change between releases.
+Alpha, `0.1.0-alpha.8`, published as an experimental product. The one stability goal is the Firebase mirror: code written against mirrored surfaces is intended to keep working, tracked in the compatibility matrices. Pyric-specific APIs (sandbox lifecycle, replay, serve and bridge internals) are public-alpha and may change between releases.
