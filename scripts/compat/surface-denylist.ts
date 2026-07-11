@@ -10,12 +10,16 @@
  *
  * `OUT_OF_SCOPE` and `DEFERRED` are NOT interchangeable, and conflating them
  * is exactly the dishonesty this split exists to prevent. `OUT_OF_SCOPE`
- * holds ONLY the internal `_`-prefixed plumbing symbols firebase/* happens to
- * export — they are not part of the public modular surface pyric mirrors at
- * all, which is a genuine can't-apply reason. Every other denied symbol is
- * intended and buildable; it belongs in `DEFERRED`, which stays IN the
- * `intended` denominator in coverage.ts as an honest gap. Two reasons are
- * explicitly INVALID for treating something as out of scope:
+ * holds what the sandbox genuinely cannot model: the internal `_`-prefixed
+ * plumbing symbols firebase/* happens to export (not part of the public
+ * modular surface pyric mirrors at all), plus public exports whose behavior
+ * has no in-process REST-plane analogue to mirror — an upstream-deprecated API
+ * that is being retired, a separate bidirectional websocket protocol, server-
+ * hosted template state the sandbox runs no server for, a browser-only on-
+ * device inference API. Every other denied symbol is intended and buildable;
+ * it belongs in `DEFERRED`, which stays IN the `intended` denominator in
+ * coverage.ts as an honest gap. Two reasons are explicitly INVALID for
+ * treating something as out of scope:
  *
  *   - "needs external infrastructure" (SMTP / SMS / reCAPTCHA / an OAuth
  *     provider). Mocking external infrastructure is pyric's entire product —
@@ -50,8 +54,11 @@ export type CensusSurface = 'app' | 'auth' | 'ai' | 'firestore' | 'database' | '
 
 /**
  * `out-of-scope`  — genuinely cannot be modeled by the sandbox: internal
- *                    plumbing symbols not part of the public surface.
- *                    Subtracted from `intended`.
+ *                    plumbing symbols not part of the public surface, plus
+ *                    public exports with no in-process REST-plane analogue
+ *                    (deprecated/retiring APIs, websocket protocols, server-
+ *                    hosted state, browser-only APIs). Subtracted from
+ *                    `intended`.
  * `deferred`      — intended, buildable, just not built yet. Stays IN the
  *                    `intended` denominator as a gap.
  */
@@ -133,26 +140,26 @@ const authDenials: DenyEntry[] = [
 // denied runtime value exports of the installed @firebase/ai@2.12.0, in four
 // groups (Imagen, Live API, server-side templates, hybrid/on-device).
 const aiDenials: DenyEntry[] = [
-  ...deny('ai', 'Imagen is deprecated upstream; all Imagen models shut down as early as June 2026 (upstream 2.11.0 deprecation).', [
+  ...deny('ai', 'out-of-scope', 'Imagen is deprecated upstream; all Imagen models shut down as early as June 2026 (upstream 2.11.0 deprecation).', [
     'getImagenModel', 'ImagenModel', 'ImagenImageFormat', 'ImagenAspectRatio',
     'ImagenPersonFilterLevel', 'ImagenSafetyFilterLevel',
   ]),
-  ...deny('ai', 'Imagen (deprecated, June 2026 shutdown) plus server-side templates (public preview, server-stored templates the sandbox does not host).', [
+  ...deny('ai', 'out-of-scope', 'Imagen (deprecated, June 2026 shutdown) plus server-side templates (public preview, server-stored templates the sandbox does not host).', [
     'getTemplateImagenModel', 'TemplateImagenModel',
   ]),
-  ...deny('ai', 'Live API is a separate bidirectional websocket protocol in public preview; not part of the mirrored REST plane.', [
+  ...deny('ai', 'out-of-scope', 'Live API is a separate bidirectional websocket protocol in public preview; not part of the mirrored REST plane.', [
     'getLiveGenerativeModel', 'LiveGenerativeModel', 'LiveSession', 'LiveResponseType',
   ]),
-  ...deny('ai', 'Live API browser audio helper (microphone, autoplay policies); websocket protocol in public preview.', [
+  ...deny('ai', 'out-of-scope', 'Live API browser audio helper (microphone, autoplay policies); websocket protocol in public preview.', [
     'startAudioConversation',
   ]),
-  ...deny('ai', 'Server-side templates are public preview and depend on server-stored templates the sandbox does not host.', [
+  ...deny('ai', 'out-of-scope', 'Server-side templates are public preview and depend on server-stored templates the sandbox does not host.', [
     'getTemplateGenerativeModel', 'TemplateGenerativeModel',
   ]),
-  ...deny('ai', 'Hybrid/on-device inference depends on Chrome window.LanguageModel; browser-only, not mirrorable server-side.', [
+  ...deny('ai', 'out-of-scope', 'Hybrid/on-device inference depends on Chrome window.LanguageModel; browser-only, not mirrorable server-side.', [
     'InferenceMode',
   ]),
-  ...deny('ai', 'Hybrid/on-device inference marker; set client-side by the SDK, never on the wire (ticket #93); meaningless without the denied hybrid mode.', [
+  ...deny('ai', 'out-of-scope', 'Hybrid/on-device inference marker; set client-side by the SDK, never on the wire; meaningless without the denied hybrid mode.', [
     'InferenceSource',
   ]),
 ];
