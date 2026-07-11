@@ -344,6 +344,16 @@ class Parser {
   constructor(private readonly tokens: Token[]) {}
 
   parseService(): MatchBlock {
+    // Optional leading `rules_version = '<n>';`. Production REQUIRES it for
+    // v2 features (functions, `let`, `matches()`); a real storage.rules file
+    // that uses them declares it. Accept and ignore the declaration — the
+    // evaluator implements v2 semantics regardless of the stated version.
+    if (this.atIdent('rules_version')) {
+      this.pos++; // rules_version
+      this.expectPunct('=');
+      this.expect('string'); // the version literal, e.g. '2'
+      this.expectPunct(';');
+    }
     this.expectIdent('service');
     this.expectIdent('firebase');
     this.expectPunct('.');

@@ -42,7 +42,8 @@ const VERBS_PACK: StoragePack = {
   fm: 'STORAGE-VERBS',
   rationale:
     'Umbrella read/write expansion, granular verb grants, comma-separated verbs, per-verb default-deny, and create-vs-update on resource existence.',
-  rules: `service firebase.storage {
+  rules: `rules_version = '2';
+service firebase.storage {
   match /b/{bucket}/o {
     match /readonly/{fileId} {
       allow read: if true;
@@ -98,7 +99,8 @@ const FUNCTIONS_PACK: StoragePack = {
   fm: 'STORAGE-FUNC',
   rationale:
     'User-defined functions with let bindings, functions calling functions, and a match-block-scoped helper — the evaluator surface #96/#104 wrongly call unsupported.',
-  rules: `service firebase.storage {
+  rules: `rules_version = '2';
+service firebase.storage {
   match /b/{bucket}/o {
     function sizeUnder(limitMb) {
       let mb = 1024 * 1024;
@@ -139,7 +141,8 @@ const TIME_PACK: StoragePack = {
   fm: 'STORAGE-TIME',
   rationale:
     'request.time compared against timestamp.date(y,m,d) and timestamp.value(ms) — the time surface #96/#104 wrongly call unsupported.',
-  rules: `service firebase.storage {
+  rules: `rules_version = '2';
+service firebase.storage {
   match /b/{bucket}/o {
     match /deadline/{fileId} {
       allow create: if request.time < timestamp.date(2030, 1, 1);
@@ -164,14 +167,12 @@ const MATCHES_PACK: StoragePack = {
   id: 'matches-regex',
   fm: 'STORAGE-MATCHES',
   rationale:
-    'string.matches() whole-string anchoring (partial match denies) and RE2-inexpressible lookaround → deny.',
-  rules: `service firebase.storage {
+    'string.matches() whole-string anchoring: a partial match denies. (RE2-inexpressible patterns are rejected at ruleset compile time by production, so they are covered by evaluator unit tests, not oracle capture.)',
+  rules: `rules_version = '2';
+service firebase.storage {
   match /b/{bucket}/o {
     match /typed/{fileId} {
       allow create: if request.resource.contentType.matches('image/.*');
-    }
-    match /lookaround/{fileId} {
-      allow create: if request.resource.contentType.matches('image/(?=png).*');
     }
   }
 }`,
@@ -179,7 +180,6 @@ const MATCHES_PACK: StoragePack = {
     { description: 'matches whole string: image/png accepted', expectation: 'ALLOW', method: 'create', path: 'typed/a.png', resource: { size: 100, contentType: 'image/png' } },
     { description: 'matches whole string: text/plain rejected', expectation: 'DENY', method: 'create', path: 'typed/a.txt', resource: { size: 100, contentType: 'text/plain' } },
     { description: 'anchoring: leading-prefixed ximage/png rejected (not a partial match)', expectation: 'DENY', method: 'create', path: 'typed/a.png', resource: { size: 100, contentType: 'ximage/png' } },
-    { description: 'RE2-inexpressible lookahead pattern denies', expectation: 'DENY', method: 'create', path: 'lookaround/a.png', resource: { size: 100, contentType: 'image/png' } },
   ],
 };
 
@@ -192,7 +192,8 @@ const METADATA_PACK: StoragePack = {
   fm: 'STORAGE-META',
   rationale:
     'resource.metadata custom-metadata access in dotted and bracket form (identical resolution) and missing-key deny.',
-  rules: `service firebase.storage {
+  rules: `rules_version = '2';
+service firebase.storage {
   match /b/{bucket}/o {
     match /dotted/{fileId} {
       allow get: if resource.metadata.owner == request.auth.uid;
@@ -220,7 +221,8 @@ const FIRESTORE_LOOKUP_PACK: StoragePack = {
   fm: 'STORAGE-XSVC',
   rationale:
     'firestore.get()/exists() cross-service lookups with $(expr) interpolation, qualified function-mock names, and bool exists() results.',
-  rules: `service firebase.storage {
+  rules: `rules_version = '2';
+service firebase.storage {
   match /b/{bucket}/o {
     match /profiles/{userId}/{fileId} {
       allow get: if firestore.get(/databases/(default)/documents/users/$(userId)).data.uid == request.auth.uid;
@@ -267,7 +269,8 @@ const TIMESTAMP_WITNESS_PACK: StoragePack = {
   fm: 'STORAGE-RES-TS',
   rationale:
     'Witness: resource.timeCreated / resource.updated are production Storage fields the evaluator does not model (reads undefined → deny) — records the known gap.',
-  rules: `service firebase.storage {
+  rules: `rules_version = '2';
+service firebase.storage {
   match /b/{bucket}/o {
     match /created/{fileId} {
       allow get: if resource.timeCreated < request.time;

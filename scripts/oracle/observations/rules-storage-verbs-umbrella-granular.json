@@ -1,0 +1,27 @@
+{
+  "name": "rules-storage-verbs-umbrella-granular",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus pack \"verbs-umbrella-granular\" (STORAGE-VERBS). Umbrella read/write expansion, granular verb grants, comma-separated verbs, per-verb default-deny, and create-vs-update on resource existence.",
+  "observedAt": "2026-07-11T03:09:45.678Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "read grant covers get": "ALLOW",
+    "read grant covers list": "ALLOW",
+    "read grant denies create (no write grant)": "DENY",
+    "read grant denies delete": "DENY",
+    "write grant covers create": "ALLOW",
+    "write grant covers update": "ALLOW",
+    "write grant covers delete": "ALLOW",
+    "write grant denies get": "DENY",
+    "get grant covers get": "ALLOW",
+    "get grant denies list (get is not read)": "DENY",
+    "comma verbs grant get": "ALLOW",
+    "comma verbs grant delete": "ALLOW",
+    "comma verbs deny create (not listed)": "DENY",
+    "create allowed when object does not exist (resource == null)": "DENY",
+    "update allowed when object exists (resource != null)": "ALLOW",
+    "create denied when object already exists (create rule requires resource == null)": "DENY"
+  }
+}
