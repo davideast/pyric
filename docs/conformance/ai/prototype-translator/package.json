@@ -1,7 +1,0 @@
-{
-  "name": "translator-proto",
-  "private": true,
-  "dependencies": {
-    "firebase": "12.13.0"
-  }
-}

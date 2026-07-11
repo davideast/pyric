@@ -2,12 +2,11 @@
  * The OpenAI AnswerEngine: Gemini wire in, OpenAI-compatible upstream
  * (Ollama, llama.cpp, any /v1/chat/completions) out, Gemini wire back.
  *
- * The translation core is LIFTED from the proven prototype
- * (docs/conformance/ai/prototype-translator/translator.ts, wayfinder #96 —
- * ran the full matrix against the real firebase/ai 2.12.0 SDK). Pure
- * functions stay pure and unit-testable; only `OpenAiEngine` does I/O.
+ * The translation core was validated end-to-end against the real firebase/ai
+ * 2.12.0 SDK before landing here as pure, unit-testable functions; only
+ * `OpenAiEngine` does I/O.
  *
- * The five lossy edges the prototype pinned, all handled here:
+ * The five lossy edges that validation pinned, all handled here:
  *   1. Gemini functionResponse has no tool_call_id → synthesized FIFO id
  *      matching per function name ({@link geminiToOpenAIRequest}).
  *   2. OpenAI streams tool-call ARGUMENT FRAGMENTS; Gemini streams WHOLE
