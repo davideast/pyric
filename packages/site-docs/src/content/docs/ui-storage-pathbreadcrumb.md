@@ -2,7 +2,7 @@
 title: "<PathBreadcrumb>"
 group: "@pyric/ui"
 section: "Storage"
-order: 205
+order: 206
 ---
 # `<PathBreadcrumb>`
 
