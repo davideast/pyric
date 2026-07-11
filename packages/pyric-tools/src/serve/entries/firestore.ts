@@ -160,3 +160,43 @@ export async function disableNetwork(_db?: unknown): Promise<void> {
 export async function enableNetwork(_db?: unknown): Promise<void> {
   acceptedNoOp('enableNetwork');
 }
+
+// ── tier-1 cache-init + get-from-* + log-level + snapshot-sync (issue #144,
+//    tier-1 pass). Aliases and honest no-op config tokens — see
+//    `packages/pyric/src/firestore/index.ts`'s tier-1 section for the full
+//    rationale. `memoryEagerGarbageCollector`/`memoryLruGarbageCollector` and
+//    `setLogLevel` are path-independent (no data routing), so they delegate
+//    straight to `pyric/firestore`. `getDocFromServer`/`getDocFromCache` and
+//    their plural forms MUST route through `D` (the worker-vs-in-page pick)
+//    like `getDoc`/`getDocs` above, not straight to `ip`, so they read from
+//    whichever backend this page actually uses. ─────────────────────────────
+
+export const memoryEagerGarbageCollector = ip.memoryEagerGarbageCollector;
+export const memoryLruGarbageCollector = ip.memoryLruGarbageCollector;
+export const setLogLevel = ip.setLogLevel;
+
+export const getDocFromServer = D.getDoc;
+export const getDocsFromServer = D.getDocs;
+export const getDocFromCache = D.getDoc;
+export const getDocsFromCache = D.getDocs;
+
+/**
+ * Local no-op reimplementation rather than delegating to `ip.onSnapshotsInSync`:
+ * on the worker path `db` is a `ClientDb`, not a `pyric/firestore` `Firestore`
+ * handle, so it doesn't carry the `TARGET_SYMBOL` brand `ip.onSnapshotsInSync`
+ * dispatches on. Fires the callback once the current microtask queue settles —
+ * same honest approximation as the in-page implementation — on both paths.
+ */
+export function onSnapshotsInSync(
+  _db: unknown,
+  observerOrCallback: (() => void) | { next?: () => void },
+): () => void {
+  const cb = typeof observerOrCallback === 'function' ? observerOrCallback : observerOrCallback.next;
+  let cancelled = false;
+  queueMicrotask(() => {
+    if (!cancelled && cb) cb();
+  });
+  return () => {
+    cancelled = true;
+  };
+}
