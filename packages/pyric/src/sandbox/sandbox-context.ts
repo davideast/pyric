@@ -20,8 +20,10 @@
  * (and so `instanceof` routing works for cross-package refs).
  */
 
-import type { AuthState, Sandbox, SandboxContext } from './types.js';
-import { SandboxError } from './types.js';
+import type { AuthState } from './types/auth-state.js';
+import type { SandboxContext } from './types/context.js';
+import { SandboxError } from './types/errors.js';
+import type { Sandbox } from './types/service.js';
 
 export class SandboxContextImpl implements SandboxContext {
   constructor(

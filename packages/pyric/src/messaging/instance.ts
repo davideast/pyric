@@ -18,7 +18,7 @@
  */
 import { initializeApp, isSandboxApp, type PyricApp, type SandboxApp } from '../app/index.js';
 import { initializeSandbox } from '../sandbox/index.js';
-import type { Sandbox } from '../sandbox/types.js';
+import type { Sandbox } from '../sandbox/types/service.js';
 import { DEFAULT_CLIENT_ID, getMessagingBroker, MessagingBroker } from './broker/index.js';
 import type { DeliveredPayload, DeliveryResult } from './broker/index.js';
 

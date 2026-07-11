@@ -3,7 +3,7 @@ title: "The sentinel expression engine ($expr)"
 navLabel: "Sentinel expression engine"
 group: "pyric / rules"
 section: "Explanation"
-order: 114
+order: 115
 ---
 # The sentinel expression engine (`$expr`)
 

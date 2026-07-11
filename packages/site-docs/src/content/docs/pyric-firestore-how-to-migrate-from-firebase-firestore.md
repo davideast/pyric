@@ -3,7 +3,7 @@ title: "How to use pyric/firestore in existing code"
 navLabel: "Use in existing code"
 group: "pyric / firestore"
 section: "How-to"
-order: 78
+order: 79
 ---
 # How to use `pyric/firestore` in existing code
 

@@ -8,7 +8,7 @@
  * in-process (admin `send` on the same sandbox reaches client `onMessage` /
  * sw `onBackgroundMessage` handlers).
  */
-import type { Sandbox } from '../../sandbox/types.js';
+import type { Sandbox } from '../../sandbox/types/service.js';
 import { MessagingBroker } from './broker.js';
 import type { MessagingBrokerConfig } from './types.js';
 

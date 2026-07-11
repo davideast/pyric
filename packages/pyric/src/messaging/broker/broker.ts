@@ -33,7 +33,8 @@
  * wire as the `BrokerSendError.envelope` value (plain JSON, structured-
  * clone-safe). No `serve/worker` file is touched by this slice.
  */
-import type { Sandbox, AuthState } from '../../sandbox/types.js';
+import type { Sandbox } from '../../sandbox/types/service.js';
+import type { AuthState } from '../../sandbox/types/auth-state.js';
 import { emitSandboxEvent, makeServiceMutationEvent } from '../../sandbox/internal/sandbox-impl.js';
 import { BrokerSendError, unregisteredTokenEnvelope, invalidTopicNameEnvelope } from './envelopes.js';
 import { mintToken } from './tokens.js';
