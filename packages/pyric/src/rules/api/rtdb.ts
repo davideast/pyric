@@ -89,8 +89,8 @@ class DocumentRtdbRuleset implements RtdbRuleset {
       return {
         case: c,
         ...(c.description !== undefined ? { description: c.description } : {}),
-        expect: c.expect,
-        decision: 'unsupported',
+        expectation: c.expectation,
+        decision: 'UNSUPPORTED',
         passed: false,
         unsupported: true,
         matchedPath: c.path,
@@ -100,16 +100,16 @@ class DocumentRtdbRuleset implements RtdbRuleset {
     }
     const data = result.data;
     const unsupported = data.unsupported === true;
-    const decision: 'allow' | 'deny' | 'unsupported' = unsupported
-      ? 'unsupported'
+    const decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED' = unsupported
+      ? 'UNSUPPORTED'
       : data.allowed
-        ? 'allow'
-        : 'deny';
-    const passed = !unsupported && decision === c.expect;
+        ? 'ALLOW'
+        : 'DENY';
+    const passed = !unsupported && decision === c.expectation;
     return {
       case: c,
       ...(c.description !== undefined ? { description: c.description } : {}),
-      expect: c.expect,
+      expectation: c.expectation,
       decision,
       passed,
       unsupported,
@@ -136,7 +136,7 @@ class DocumentRtdbRuleset implements RtdbRuleset {
     const r = this.runOne(oneCase);
     return {
       decision: r.decision,
-      expect: r.expect,
+      expectation: r.expectation,
       passed: r.passed,
       unsupported: r.unsupported,
       matchedPath: r.matchedPath,
@@ -160,8 +160,8 @@ class CompiledRtdbRuleset implements RtdbRuleset {
     const caseResults: RtdbCaseResult[] = cases.map((c) => ({
       case: c,
       ...(c.description !== undefined ? { description: c.description } : {}),
-      expect: c.expect,
-      decision: 'unsupported' as const,
+      expectation: c.expectation,
+      decision: 'UNSUPPORTED' as const,
       passed: false,
       unsupported: true,
       matchedPath: c.path,
@@ -172,8 +172,8 @@ class CompiledRtdbRuleset implements RtdbRuleset {
   }
   explain(oneCase: RtdbCase): RtdbExplanation {
     return {
-      decision: 'unsupported',
-      expect: oneCase.expect,
+      decision: 'UNSUPPORTED',
+      expectation: oneCase.expectation,
       passed: false,
       unsupported: true,
       matchedPath: oneCase.path,

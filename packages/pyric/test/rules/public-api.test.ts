@@ -233,14 +233,14 @@ describe('rtdbRules constructor', () => {
     const cases: RtdbCase[] = [
       {
         description: 'anyone reads a note',
-        expect: 'allow',
+        expectation: 'ALLOW',
         operation: 'read',
         path: '/notes/n1',
         auth: { uid: 'alice' },
       },
       {
         description: 'nobody writes a note',
-        expect: 'deny',
+        expectation: 'DENY',
         operation: 'write',
         path: '/notes/n1',
         auth: { uid: 'alice' },

@@ -102,7 +102,7 @@ export interface SimulationSummary {
 // ─── RTDB ────────────────────────────────────────────────────────────
 
 /**
- * One Realtime Database rules case. `expect` is required so a `simulate`
+ * One Realtime Database rules case. `expectation` is required so a `simulate`
  * run can partition cases into passed/failed the same way Firestore does —
  * the RTDB simulator otherwise returns only a raw allow/deny with no notion
  * of an expectation.
@@ -111,7 +111,7 @@ export interface RtdbCase {
   /** Human-readable description of what this case verifies. */
   description?: string;
   /** Expected outcome. */
-  expect: 'allow' | 'deny';
+  expectation: 'ALLOW' | 'DENY';
   /** RTDB rule kind under test. */
   operation: 'read' | 'write' | 'validate';
   /** Absolute, root-relative tree path, e.g. `"/users/alice"`. */
@@ -128,8 +128,8 @@ export interface RtdbCase {
 export interface RtdbCaseResult {
   case: RtdbCase;
   description?: string;
-  expect: 'allow' | 'deny';
-  decision: 'allow' | 'deny' | 'unsupported';
+  expectation: 'ALLOW' | 'DENY';
+  decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED';
   passed: boolean;
   unsupported: boolean;
   /** The tree path whose rule decided the request. */
@@ -141,8 +141,8 @@ export interface RtdbCaseResult {
 }
 
 export interface RtdbExplanation {
-  decision: 'allow' | 'deny' | 'unsupported';
-  expect: 'allow' | 'deny';
+  decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED';
+  expectation: 'ALLOW' | 'DENY';
   passed: boolean;
   unsupported: boolean;
   matchedPath: string;

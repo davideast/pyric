@@ -80,7 +80,7 @@ function renderRtdb(r: RtdbCaseResult): string {
   const name = r.description ?? `${r.case.operation} ${r.case.path}`;
   return [
     `${status}: ${name}`,
-    `  ${r.case.operation} ${r.case.path} (expected ${r.expect}, got ${r.decision})`,
+    `  ${r.case.operation} ${r.case.path} (expected ${r.expectation}, got ${r.decision})`,
     `  matched ${r.matchedRule} @ ${r.matchedPath}`,
     `  reason: ${r.reason}`,
   ].join('\n');
