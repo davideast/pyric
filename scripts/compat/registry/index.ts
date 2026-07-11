@@ -1,6 +1,7 @@
 import { aiRegistry } from './ai.ts';
 import { authRegistry } from './auth.ts';
 import { firestoreRegistry } from './firestore.ts';
+import { messagingRegistry } from './messaging.ts';
 import { rtdbRegistry } from './rtdb.ts';
 import { storageRegistry } from './storage.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry, SurfaceDescriptor } from './types.ts';
@@ -18,6 +19,31 @@ export const surfaceDescriptors: SurfaceDescriptor[] = [
   { surface: 'rtdb', registry: rtdbRegistry, observationPrefix: 'rtdb-' },
   { surface: 'rtdb-modular', registry: rtdbRegistry, observationPrefix: 'rtdb-modular-' },
   { surface: 'storage', registry: storageRegistry, observationPrefix: 'storage-' },
+  // Messaging is the first surface admitted under Conformance Driven Development
+  // (docs/conformance/cdd.md). Two surfaces share ONE registry file and ONE
+  // COMPAT doc, on the rtdb / rtdb-modular precedent (resolved decision #4):
+  //   - `messaging`       — client + service-worker receive planes (pyric),
+  //     receive-plane captures under the `messaging-web-` filename prefix.
+  //   - `messaging-admin` — admin send plane (pyric-admin), send-plane captures
+  //     under the `messaging-send-` filename prefix.
+  // The prefixes partition the 17 committed observations exactly (7 web, 10
+  // send); longest-prefix wins over the retired `messaging-` catch-all. Both
+  // are `climb: true`, so the report's climb section and the doc's climb header
+  // pick them up automatically.
+  {
+    surface: 'messaging',
+    registry: messagingRegistry,
+    observationPrefix: 'messaging-web-',
+    conformanceSuite: 'packages/pyric/test/messaging/oracle-conformance.test.ts',
+    climb: true,
+  },
+  {
+    surface: 'messaging-admin',
+    registry: messagingRegistry,
+    observationPrefix: 'messaging-send-',
+    conformanceSuite: 'packages/pyric-admin/test/messaging/oracle-conformance.test.ts',
+    climb: true,
+  },
   // `admin-app-` observations are Phase-A bootstrap captures of firebase-admin's
   // in-process app registry (initializeApp / getApp / accessors). They have no
   // matrix rows yet (those land post-publish) and are individually listed in
@@ -56,6 +82,10 @@ export const surfaceDescriptors: SurfaceDescriptor[] = [
 export const surfaceRegistries: CompatibilitySurfaceRegistry[] = [...new Set(surfaceDescriptors.map((d) => d.registry))];
 
 export const observationExceptions: Record<string, string> = {
+  // The 17 `messaging-*` observations are no longer parked here: the messaging
+  // surface has been admitted under CDD and every capture is now cited by an
+  // authored (born-unverified) row in scripts/compat/registry/messaging.ts.
+  // compat:validate now enforces normal linkage on the `messaging-` prefix.
   "admin-app-initializeapp-noarg-default": "admin bootstrap capture; admin matrix rows land post-publish",
   "admin-app-initializeapp-named": "admin bootstrap capture; admin matrix rows land post-publish",
   "admin-app-initializeapp-reinit-idempotent": "admin bootstrap capture; admin matrix rows land post-publish",

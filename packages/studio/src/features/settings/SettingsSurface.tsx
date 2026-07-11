@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import './settings.css';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import { useServeInit } from '../../shell/serve-init.js';
 import {

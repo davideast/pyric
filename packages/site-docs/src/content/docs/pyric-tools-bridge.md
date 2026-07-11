@@ -2,7 +2,7 @@
 title: "pyric-tools/bridge"
 group: "pyric-tools"
 section: "Bridge"
-order: 47
+order: 48
 ---
 # `pyric-tools/bridge`
 

@@ -3,7 +3,7 @@ title: "pyric-tools/deploy"
 navLabel: "Overview"
 group: "pyric-tools / deploy"
 section: ""
-order: 48
+order: 49
 ---
 # `pyric-tools/deploy`
 

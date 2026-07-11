@@ -257,8 +257,8 @@ function parseMatchedRule(
   return last;
 }
 
-function buildRequestEvent(input: EmitRequestInput): import('../types.js').RequestEvent {
-  const out: import('../types.js').RequestEvent = {
+function buildRequestEvent(input: EmitRequestInput): import('../types/events.js').RequestEvent {
+  const out: import('../types/events.js').RequestEvent = {
     kind: 'request',
     id: nextRequestEventId(),
     at: input.at,
@@ -409,7 +409,7 @@ export class LocalEnvironment {
    *
    * Listener throws are swallowed (same rationale as `denialListeners`).
    */
-  private requestListeners: Set<(event: import('../types.js').RequestEvent) => void> = new Set();
+  private requestListeners: Set<(event: import('../types/events.js').RequestEvent) => void> = new Set();
 
   /**
    * Subscribers notified for every COMMITTED write (issue #307). Fires
@@ -418,7 +418,7 @@ export class LocalEnvironment {
    * RequestEvent instead). Bridged to `Sandbox.onEvent` consumers via
    * SandboxImpl's attachToEnv.
    */
-  private writeListeners: Set<(event: import('../types.js').WriteSandboxEvent) => void> = new Set();
+  private writeListeners: Set<(event: import('../types/events.js').WriteSandboxEvent) => void> = new Set();
 
   /**
    * Subscribers notified for every snapshot DELIVERED to a user
@@ -427,21 +427,21 @@ export class LocalEnvironment {
    * (in contrast to `requestListeners[origin='listener']`, which used
    * to over-count before the step-5 refactor).
    */
-  private deliveryListeners: Set<(event: import('../types.js').SnapshotDeliveryEvent) => void> = new Set();
+  private deliveryListeners: Set<(event: import('../types/events.js').SnapshotDeliveryEvent) => void> = new Set();
 
   /**
    * Subscribers notified for every listener re-eval that was suppressed
    * before reaching the user callback — Slice 3's no-op suppression
    * surfaces here. Useful for "why didn't my listener fire" debugging.
    */
-  private suppressedListeners: Set<(event: import('../types.js').SnapshotSuppressedEvent) => void> = new Set();
+  private suppressedListeners: Set<(event: import('../types/events.js').SnapshotSuppressedEvent) => void> = new Set();
 
   /**
    * Subscribers notified for listener attach / detach lifecycle. Errored
    * still routes through onSnapshotError (bridged to listener_errored
    * in SandboxImpl) so this channel only carries attach + detach.
    */
-  private lifecycleListeners: Set<(event: import('../types.js').ListenerLifecycleEvent) => void> = new Set();
+  private lifecycleListeners: Set<(event: import('../types/events.js').ListenerLifecycleEvent) => void> = new Set();
 
   /**
    * The user-origin op that's currently triggering a listener re-eval,
@@ -556,7 +556,7 @@ export class LocalEnvironment {
    * `silentReadCollection` build the public-shape event lazily — when
    * no subscribers are attached, eval doesn't pay the allocation cost.
    */
-  onRequest(cb: (event: import('../types.js').RequestEvent) => void): () => void {
+  onRequest(cb: (event: import('../types/events.js').RequestEvent) => void): () => void {
     this.requestListeners.add(cb);
     return () => { this.requestListeners.delete(cb); };
   }
@@ -567,35 +567,35 @@ export class LocalEnvironment {
    * keyspace applies the write; denied / rolled-back writes don't
    * emit here.
    */
-  onWrite(cb: (event: import('../types.js').WriteSandboxEvent) => void): () => void {
+  onWrite(cb: (event: import('../types/events.js').WriteSandboxEvent) => void): () => void {
     this.writeListeners.add(cb);
     return () => { this.writeListeners.delete(cb); };
   }
 
   /** Internal — bridge for sandbox-level `onEvent` to receive
    *  snapshot-delivery events. Fires after the user callback runs. */
-  onSnapshotDelivery(cb: (event: import('../types.js').SnapshotDeliveryEvent) => void): () => void {
+  onSnapshotDelivery(cb: (event: import('../types/events.js').SnapshotDeliveryEvent) => void): () => void {
     this.deliveryListeners.add(cb);
     return () => { this.deliveryListeners.delete(cb); };
   }
 
   /** Internal bridge for snapshot_suppressed events — re-evals that
    *  didn't deliver because diffing found no observable change. */
-  onSnapshotSuppressed(cb: (event: import('../types.js').SnapshotSuppressedEvent) => void): () => void {
+  onSnapshotSuppressed(cb: (event: import('../types/events.js').SnapshotSuppressedEvent) => void): () => void {
     this.suppressedListeners.add(cb);
     return () => { this.suppressedListeners.delete(cb); };
   }
 
   /** Internal bridge for listener attach/detach lifecycle. Errored
    *  routes through onSnapshotError separately. */
-  onListenerLifecycle(cb: (event: import('../types.js').ListenerLifecycleEvent) => void): () => void {
+  onListenerLifecycle(cb: (event: import('../types/events.js').ListenerLifecycleEvent) => void): () => void {
     this.lifecycleListeners.add(cb);
     return () => { this.lifecycleListeners.delete(cb); };
   }
 
   private emitSnapshotDelivery(input: {
     listenerId: string;
-    target: import('../types.js').SnapshotDeliveryEvent['target'];
+    target: import('../types/events.js').SnapshotDeliveryEvent['target'];
     auth: ListenerAuth;
     addedCount: number;
     modifiedCount: number;
@@ -605,7 +605,7 @@ export class LocalEnvironment {
     triggeredBy?: { method: string; path: string };
   }): void {
     if (this.deliveryListeners.size === 0) return;
-    const event: import('../types.js').SnapshotDeliveryEvent = {
+    const event: import('../types/events.js').SnapshotDeliveryEvent = {
       kind: 'snapshot_delivery',
       id: nextRequestEventId().replace(/^req-/, 'snd-'),
       at: Date.now(),
@@ -628,12 +628,12 @@ export class LocalEnvironment {
 
   private emitSnapshotSuppressed(input: {
     listenerId: string;
-    target: import('../types.js').SnapshotSuppressedEvent['target'];
+    target: import('../types/events.js').SnapshotSuppressedEvent['target'];
     auth: ListenerAuth;
     triggeredBy?: { method: string; path: string };
   }): void {
     if (this.suppressedListeners.size === 0) return;
-    const event: import('../types.js').SnapshotSuppressedEvent = {
+    const event: import('../types/events.js').SnapshotSuppressedEvent = {
       kind: 'snapshot_suppressed',
       id: nextRequestEventId().replace(/^req-/, 'sup-'),
       at: Date.now(),
@@ -653,11 +653,11 @@ export class LocalEnvironment {
   private emitLifecycle(input: {
     phase: 'listener_attach' | 'listener_detach';
     listenerId: string;
-    target: import('../types.js').ListenerLifecycleEvent['target'];
+    target: import('../types/events.js').ListenerLifecycleEvent['target'];
     auth: ListenerAuth;
   }): void {
     if (this.lifecycleListeners.size === 0) return;
-    const event: import('../types.js').ListenerLifecycleEvent = {
+    const event: import('../types/events.js').ListenerLifecycleEvent = {
       kind: input.phase,
       id: nextRequestEventId().replace(/^req-/, 'lc-'),
       at: Date.now(),
@@ -706,7 +706,7 @@ export class LocalEnvironment {
     detail?: { admin?: boolean } & Record<string, unknown>;
   }): void {
     if (this.writeListeners.size === 0) return;
-    const event: import('../types.js').WriteSandboxEvent = {
+    const event: import('../types/events.js').WriteSandboxEvent = {
       kind: 'write',
       id: nextRequestEventId().replace(/^req-/, 'wr-'),
       at: Date.now(),

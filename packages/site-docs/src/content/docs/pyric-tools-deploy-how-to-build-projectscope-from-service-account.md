@@ -3,7 +3,7 @@ title: "How to build a ProjectScope from a service account"
 navLabel: "Scope from service account"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 51
+order: 52
 ---
 # How to build a `ProjectScope` from a service account
 

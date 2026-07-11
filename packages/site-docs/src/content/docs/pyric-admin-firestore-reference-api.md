@@ -3,7 +3,7 @@ title: "API reference: pyric-admin/firestore"
 navLabel: "API reference"
 group: "pyric-admin / firestore"
 section: "Reference"
-order: 175
+order: 177
 ---
 # API reference: `pyric-admin/firestore`
 

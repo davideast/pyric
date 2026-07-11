@@ -2,7 +2,7 @@
 title: "Value wrappers"
 group: "pyric / rules"
 section: "Reference"
-order: 110
+order: 112
 ---
 # Value wrappers
 

@@ -1,0 +1,35 @@
+{
+  "name": "messaging-web-onmessage-foreground",
+  "matrixRow": "messaging#4, messaging#8, messaging#9",
+  "rowIds": [
+    "messaging#4",
+    "messaging#8",
+    "messaging#9"
+  ],
+  "description": "A notification+data message sent to a token while the page is FOCUSED is delivered to onMessage (not the SW). Payload structural facts; prod noise (ids, token) reduced to shape. Cited by messaging#4, messaging#8, messaging#9 (surface climbing under CDD; cited, not yet replayed).",
+  "observedAt": "2026-07-09T05:16:38.754Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "deliveredTo": "onMessage",
+    "topLevelKeys": [
+      "data",
+      "from",
+      "messageId",
+      "notification"
+    ],
+    "notificationKeys": [
+      "body",
+      "title"
+    ],
+    "notificationTitleDelivered": true,
+    "dataKeys": [
+      "demo",
+      "source",
+      "tag"
+    ],
+    "dataEchoedExactly": true,
+    "fromEqualsSenderId": true,
+    "messageIdPresent": true
+  }
+}

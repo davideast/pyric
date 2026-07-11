@@ -31,6 +31,7 @@
     "compat:coverage": "bun run scripts/compat/coverage.ts",
     "compat:census-gate": "bun run scripts/compat/census-gate.ts",
     "compat:check": "bun run compat:validate && bun run compat:census-gate && bun run scripts/compat/generate-docs.ts --check && bun run compat:coverage",
+    "compat:climb": "bun run scripts/compat/climb.ts",
     "compat:audit": "bun run scripts/oracle/audit.ts",
     "compat:oracle-versions": "bun run scripts/oracle/check-observation-versions.ts",
     "compat:oracle-check": "bun run scripts/oracle/check-observations.ts",

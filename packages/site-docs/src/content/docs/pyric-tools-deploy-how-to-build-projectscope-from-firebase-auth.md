@@ -3,7 +3,7 @@ title: "How to build a ProjectScope from Firebase Auth (browser)"
 navLabel: "Scope from Firebase Auth"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 50
+order: 51
 ---
 # How to build a `ProjectScope` from Firebase Auth (browser)
 

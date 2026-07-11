@@ -1,0 +1,37 @@
+{
+  "name": "messaging-send-webpush-invalid-ttl-error-envelope",
+  "matrixRow": "messaging-admin#4, messaging-admin#18",
+  "rowIds": [
+    "messaging-admin#4",
+    "messaging-admin#18"
+  ],
+  "description": "v1 messages:send with webpush.headers.TTL set to a non-numeric value (\"not-a-number\"): the error envelope FCM returns. realSendEnvelopeIdentical records validate_only=false parity. Cited by messaging-admin#4, messaging-admin#18 (surface climbing under CDD; cited, not yet replayed).",
+  "observedAt": "2026-07-09T05:00:46.630Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "status": 400,
+    "error": {
+      "code": 400,
+      "message": "TTL must be a non-negative integer.",
+      "status": "INVALID_ARGUMENT",
+      "details": [
+        {
+          "@type": "type.googleapis.com/google.rpc.BadRequest",
+          "fieldViolations": [
+            {
+              "field": "message.webpush.headers.TTL",
+              "description": "TTL must be a non-negative integer."
+            }
+          ]
+        },
+        {
+          "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+          "errorCode": "INVALID_ARGUMENT"
+        }
+      ]
+    },
+    "realStatus": 400,
+    "realSendEnvelopeIdentical": true
+  }
+}

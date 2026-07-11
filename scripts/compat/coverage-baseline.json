@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-11T20:45:44.491Z",
+  "generatedAt": "2026-07-11T21:54:48.099Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -36,12 +36,18 @@
         "total": 44.4,
         "intended": 66.7
       }
+    },
+    "messaging": {
+      "surfaceCoveragePct": {
+        "total": 100,
+        "intended": 100
+      }
     }
   },
   "overall": {
     "surfaceCoveragePct": {
-      "total": 53.8,
-      "intended": 63.3
+      "total": 54.5,
+      "intended": 63.9
     }
   },
   "rowStatuses": {
@@ -786,7 +792,63 @@
     "storage#109": "conforms",
     "storage#110": "conforms",
     "storage#111": "conforms",
-    "storage#117": "diverged-documented"
+    "storage#117": "diverged-documented",
+    "messaging#1": "conforms",
+    "messaging#2": "conforms",
+    "messaging#3": "conforms",
+    "messaging#4": "conforms",
+    "messaging#5": "conforms",
+    "messaging#6": "conforms",
+    "messaging#7": "conforms",
+    "messaging#8": "conforms",
+    "messaging#9": "conforms",
+    "messaging#10": "conforms",
+    "messaging#11": "conforms",
+    "messaging#12": "conforms",
+    "messaging#13": "conforms",
+    "messaging#14": "conforms",
+    "messaging#15": "conforms",
+    "messaging#16": "conforms",
+    "messaging#17": "conforms",
+    "messaging-admin#1": "conforms",
+    "messaging-admin#2": "conforms",
+    "messaging-admin#3": "conforms",
+    "messaging-admin#4": "conforms",
+    "messaging-admin#5": "conforms",
+    "messaging-admin#6": "conforms",
+    "messaging-admin#7": "conforms",
+    "messaging-admin#8": "conforms",
+    "messaging-admin#9": "conforms",
+    "messaging-admin#10": "conforms",
+    "messaging-admin#11": "conforms",
+    "messaging-admin#12": "conforms",
+    "messaging-admin#13": "conforms",
+    "messaging-admin#14": "conforms",
+    "messaging-admin#15": "conforms",
+    "messaging-admin#16": "conforms",
+    "messaging-admin#17": "conforms",
+    "messaging-admin#18": "conforms",
+    "messaging-admin#19": "conforms",
+    "messaging-admin#20": "conforms",
+    "messaging-admin#21": "conforms",
+    "messaging-admin#22": "conforms",
+    "messaging-admin#23": "conforms",
+    "messaging-admin#24": "conforms",
+    "messaging-admin#25": "conforms",
+    "messaging-admin#26": "conforms",
+    "messaging-admin#27": "conforms",
+    "messaging-admin#28": "conforms",
+    "messaging-admin#29": "conforms",
+    "messaging-admin#30": "conforms",
+    "messaging-admin#31": "conforms",
+    "messaging-admin#32": "conforms",
+    "messaging-admin#33": "conforms",
+    "messaging-admin#34": "conforms",
+    "messaging-admin#35": "conforms",
+    "messaging-admin#36": "conforms",
+    "messaging-admin#37": "conforms",
+    "messaging-admin#38": "conforms",
+    "messaging-admin#39": "conforms"
   },
   "highRiskUnverified": [
     "storage#67",

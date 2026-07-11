@@ -82,10 +82,27 @@ function runCensus(): CensusRow[] {
   return (JSON.parse(out) as { surfaces: CensusRow[] }).surfaces;
 }
 
-/** The COMPAT services this coverage report tracks — no `app` (no COMPAT matrix, would break behavior-axis parity). */
-const SERVICES: Surface[] = ['ai', 'auth', 'firestore', 'rtdb', 'rtdb-modular', 'storage'];
+/**
+ * The COMPAT services this coverage report tracks — no `app` (no COMPAT matrix,
+ * would break behavior-axis parity). `messaging` (client + service-worker
+ * receive planes) is tracked against the client export census. `messaging-admin`
+ * (the admin send plane) is deliberately NOT tracked here: it mirrors
+ * firebase-admin, which has no runtime export census in this report's scope, so
+ * it has no surface-coverage axis to publish. Its rows are all born unverified,
+ * so its behavior number would be ~0 regardless.
+ */
+const SERVICES: Surface[] = ['ai', 'auth', 'firestore', 'rtdb', 'rtdb-modular', 'storage', 'messaging'];
 
-/** Each COMPAT service's underlying surface-census surface. `rtdb` and `rtdb-modular` share the `database` census — surface-census.ts does not distinguish the classic vs modular database API at the export level, so both report the same measurement (flagged below). */
+/**
+ * Each COMPAT service's underlying surface-census surface. `rtdb` and
+ * `rtdb-modular` share the `database` census — surface-census.ts does not
+ * distinguish the classic vs modular database API at the export level, so both
+ * report the same measurement (flagged below). `messaging` maps to the client
+ * `messaging` census (the service-worker `messaging-sw` census is gate-tracked
+ * by surface-census.ts but not folded into this headline). The `messaging-admin`
+ * entry is inert — it is required only to satisfy the `Record<Surface, …>` type
+ * and is never read, because `messaging-admin` is not in SERVICES above.
+ */
 const CENSUS_SURFACE_FOR: Record<Surface, CensusSurface> = {
   ai: 'ai',
   auth: 'auth',
@@ -93,6 +110,8 @@ const CENSUS_SURFACE_FOR: Record<Surface, CensusSurface> = {
   rtdb: 'database',
   'rtdb-modular': 'database',
   storage: 'storage',
+  messaging: 'messaging',
+  'messaging-admin': 'messaging',
 };
 
 interface SurfaceCoverage {
@@ -244,6 +263,8 @@ const SCOPE_NOTES: Record<Surface, string> = {
   rtdb: 'out of scope: internal plumbing only. Deferred: onDisconnect (no live socket in an in-memory sandbox today), legacy priority ordering.',
   'rtdb-modular': 'out of scope: same as rtdb — shares the `database` census measurement.',
   storage: 'out of scope: internal plumbing only. Deferred: uploadBytesResumable, getStream, list, getDownloadURL.',
+  messaging: 'born unverified: every row is authored under Conformance Driven Development and starts unverified, so behavior conformance is ~0 by design — the receive-plane conformance suite is climb-gated (on-demand) and no row has been reviewed and flipped to conforms yet. Surface coverage reflects the client entry point (firebase/messaging); the service-worker entry (messaging-sw census) and admin send plane (messaging-admin registry) are tracked separately.',
+  'messaging-admin': 'not published here — the admin send plane mirrors firebase-admin, which has no runtime export census in this report; its rows are born unverified (behavior ~0). This entry is inert (messaging-admin is not in SERVICES).',
 };
 
 function printTable(report: CoverageReport): void {

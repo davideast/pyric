@@ -53,6 +53,13 @@ import { rehydrateDocValue } from 'pyric/firestore-values';
 // The auth-lens contract and the cross-service event envelope are shared with
 // the sandbox's event provenance — Studio's Action Center folds these verbatim.
 import type { AuthLens, SandboxEvent, DenialContext } from 'pyric/sandbox';
+// TYPE-ONLY (same rationale): the broker's own wire shapes for the
+// `messaging.*` ops — all plain JSON, structured-clone-safe by construction.
+import type {
+  BrokerMessage,
+  ClientVisibilityState,
+  FcmErrorEnvelope,
+} from 'pyric/messaging/internal';
 
 // ─── Ref descriptors (client-side, never cross the port directly) ──────────
 
@@ -547,6 +554,33 @@ export type OpMessage = (
   // on a throwaway branch (no live mutation). The reply is the serializable
   // `SandboxSnapshot` (the persistence format).
   | { t: 'op'; id: string; method: 'getSnapshot' }
+  // ── Messaging ops (surface: 'messaging' — CLIMB-GATED, see host-messaging.ts) ──
+  // The broker's documented worker-host seam (pyric/src/messaging/broker/
+  // broker.ts header): each public broker method is one op here. All payloads
+  // and replies are plain JSON. The surface is climbing under CDD, so the host
+  // answers `messaging/disabled` unless the ctx was built with
+  // `messagingEnabled: true` (pyric dev: init payload `messaging`, emitted
+  // only under PYRIC_CLIMB=1 — the messaging isolation flag). NEVER lensed:
+  // FCM has no rules identity; visibility (below) is the only routing input.
+  //
+  // `registrationId` names the page's service-worker registration (token
+  // stability is keyed per registration — the captured contract); absent ⇒
+  // the port-shared default registration.
+  | { t: 'op'; id: string; method: 'messaging.getToken'; registrationId?: string }
+  | { t: 'op'; id: string; method: 'messaging.deleteToken'; registrationId?: string }
+  // Send-plane intake (the admin mirror's `send` crossing the transport).
+  // Reply: the broker's `AcceptedSend` (name/messageId/target/validateOnly).
+  // Rejections carry the captured google.rpc envelope on `error.envelope`.
+  | { t: 'op'; id: string; method: 'messaging.send'; message: BrokerMessage; validateOnly?: boolean }
+  | { t: 'op'; id: string; method: 'messaging.subscribeToTopic'; tokens: string[]; topic: string }
+  | { t: 'op'; id: string; method: 'messaging.unsubscribeFromTopic'; tokens: string[]; topic: string }
+  // Test/Studio delivery driver — injects straight into the client plane.
+  | { t: 'op'; id: string; method: 'messaging.deliver'; spec: MessagingDeliverSpec }
+  // THE captured routing rule crossing the transport: each port that reports
+  // visibility is ONE window client in the broker (`setClientVisibility(portId,
+  // state)`); a hidden tab's port marks its client not-visible, and routing is
+  // foreground iff ANY visible client. Pages send this on `visibilitychange`.
+  | { t: 'op'; id: string; method: 'messaging.setVisibility'; state: ClientVisibilityState }
 ) & {
   /**
    * Per-op auth lens (Pyric Studio): `admin` bypasses rules, `{ as: uid }`
@@ -575,6 +609,18 @@ export type OpMessage = (
    */
   issuer?: 'studio';
 };
+
+/**
+ * Wire form of the broker's `deliver` spec (`messaging.deliver`) — the
+ * headless stand-in for "a push arrives". Mirrors
+ * `MessagingBroker.deliver`'s parameter exactly; plain JSON throughout.
+ */
+export interface MessagingDeliverSpec {
+  data?: Record<string, string>;
+  notification?: { title?: string; body?: string; image?: string };
+  from?: string;
+  messageId?: string;
+}
 
 // ─── Subscription messages (client → worker) ─────────────────────────────
 
@@ -681,12 +727,31 @@ export interface AiStreamSubMessage {
   engine?: AiEngineConfigWire;
 }
 
+/**
+ * Register a MESSAGING delivery listener (the receive plane crossing the
+ * transport — climb-gated like the `messaging.*` ops).
+ *
+ * `target: 'messaging.foreground'` mirrors the client mirror's `onMessage`;
+ * `target: 'messaging.background'` mirrors the sw mirror's
+ * `onBackgroundMessage`. The host registers ONE real broker handler per sub
+ * and forwards each `DeliveredPayload` (plain JSON — no codec needed) as a
+ * `{ t:'snap', subId, value }` to the subscribing port. Which of the two
+ * targets fires for a given delivery is the broker's captured visibility
+ * rule — see the `messaging.setVisibility` op.
+ */
+export interface MessagingSubMessage {
+  t: 'sub';
+  subId: string;
+  target: 'messaging.foreground' | 'messaging.background';
+}
+
 export type SubMessage =
   | FirestoreSubMessage
   | AuthSubMessage
   | EventSubMessage
   | RtdbValueSubMessage
-  | AiStreamSubMessage;
+  | AiStreamSubMessage
+  | MessagingSubMessage;
 
 /** Type guard: is this an auth subscription (vs a Firestore / event one)? */
 export function isAuthSub(msg: SubMessage): msg is AuthSubMessage {
@@ -696,6 +761,11 @@ export function isAuthSub(msg: SubMessage): msg is AuthSubMessage {
 /** Type guard: is this an event-stream subscription? */
 export function isEventSub(msg: SubMessage): msg is EventSubMessage {
   return msg.target === 'events';
+}
+
+/** Type guard: is this a messaging delivery subscription? */
+export function isMessagingSub(msg: SubMessage): msg is MessagingSubMessage {
+  return msg.target === 'messaging.foreground' || msg.target === 'messaging.background';
 }
 
 export function isRtdbSub(msg: SubMessage): msg is RtdbValueSubMessage {
@@ -928,6 +998,14 @@ export interface SerializedError {
    * in-process plane applies. `code` is `ai/<STATUS>` in that case.
    */
   aiEnvelope?: AiErrorEnvelopeWire;
+  /**
+   * Messaging send-plane rejection: the broker's captured google.rpc
+   * envelope, carried VERBATIM (the seam doc: rejections cross the wire as
+   * the `BrokerSendError.envelope` value — plain JSON, structured-clone-
+   * safe). Present only on `messaging.*` op failures whose cause is a
+   * `BrokerSendError`; a client mirror rebuilds the typed error from it.
+   */
+  envelope?: FcmErrorEnvelope;
 }
 
 /**

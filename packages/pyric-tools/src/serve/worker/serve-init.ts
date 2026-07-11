@@ -96,6 +96,9 @@ export interface ServeInitResult {
   seededDocs: number;
   seededUsers: number;
   captureEnabled: boolean;
+  /** The messaging climb gate as applied to the ctx (payload `messaging`,
+   *  emitted by the producers only under PYRIC_CLIMB=1). */
+  messagingEnabled: boolean;
   /** Parse error from a malformed ruleset (defensive — the server lints first);
    *  the sandbox keeps its default rules rather than bricking. */
   rulesParseError: string | null;
@@ -145,10 +148,20 @@ export function applyServeInit(
     seededDocs: 0,
     seededUsers: 0,
     captureEnabled: false,
+    messagingEnabled: false,
     rulesParseError: null,
     seedSkipped: null,
     dispose: () => {},
   };
+
+  // 0. Messaging climb gate (CDD isolation decision): the flag-gated
+  //    `messaging.*` ops exist on this host only when the serve producer
+  //    explicitly enabled them (PYRIC_CLIMB=1 → payload.messaging). A worker
+  //    outside `pyric dev` (no init payload) never reaches here — disabled.
+  if (payload.messaging === true) {
+    ctx.messagingEnabled = true;
+    result.messagingEnabled = true;
+  }
 
   // 1. Rules — deploy the project's ruleset, replacing the permissive starter
   //    `entry.ts` deployed at bootstrap. A parse error is defensive (the server

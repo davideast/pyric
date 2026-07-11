@@ -3,7 +3,7 @@ title: "Build a standalone pyric binary"
 navLabel: "Build a standalone binary"
 group: "pyric-tools"
 section: "How-to"
-order: 38
+order: 39
 ---
 # Build a standalone `pyric` binary
 

@@ -101,6 +101,12 @@ const GROUPS: GroupSpec[] = [
     ],
   },
   { pkg: 'pyric-tools', label: 'pyric-tools / deploy', dir: 'deploy', sections: DIATAXIS },
+  {
+    pkg: 'pyric',
+    label: 'pyric',
+    dir: '.',
+    sections: [{ label: 'Explanation', path: 'explanation' }],
+  },
   { pkg: 'pyric', label: 'pyric / firestore', dir: 'firestore', sections: DIATAXIS },
   { pkg: 'pyric', label: 'pyric / rules', dir: 'rules', sections: DIATAXIS },
   { pkg: 'pyric', label: 'pyric / sandbox', dir: 'sandbox', sections: DIATAXIS },
@@ -468,6 +474,7 @@ const COMPAT_PAGES: { file: string; label: string }[] = [
   { file: 'auth/COMPAT.md', label: 'Auth' },
   { file: 'database/COMPAT.md', label: 'Realtime Database' },
   { file: 'storage/COMPAT.md', label: 'Storage' },
+  { file: 'messaging/COMPAT.md', label: 'Messaging' },
   { file: 'ai/COMPAT.md', label: 'AI Logic' },
 ];
 for (const c of COMPAT_PAGES) {

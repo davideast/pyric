@@ -3,7 +3,7 @@ title: "How to resolve 2+modules imports"
 navLabel: "Resolve 2+modules imports"
 group: "pyric / rules"
 section: "How-to"
-order: 98
+order: 100
 ---
 # How to resolve `2+modules` imports
 

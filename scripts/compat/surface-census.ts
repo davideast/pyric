@@ -52,6 +52,11 @@ const mirrorPairs: MirrorPair[] = [
   { surface: 'firestore', upstream: 'firebase/firestore', mirrors: ['pyric/firestore'] },
   { surface: 'database', upstream: 'firebase/database', mirrors: ['pyric/database/modular', 'pyric/database'] },
   { surface: 'storage', upstream: 'firebase/storage', mirrors: ['pyric/storage'] },
+  // Messaging is split by entry point: the client plane (`firebase/messaging`)
+  // and the service-worker plane (`firebase/messaging/sw`) export different
+  // symbol sets, so each is its own pair rather than one pair with two mirrors.
+  { surface: 'messaging', upstream: 'firebase/messaging', mirrors: ['pyric/messaging'] },
+  { surface: 'messaging-sw', upstream: 'firebase/messaging/sw', mirrors: ['pyric/messaging/sw'] },
 ];
 
 interface DeniedSymbol {

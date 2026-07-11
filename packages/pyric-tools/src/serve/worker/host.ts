@@ -150,6 +150,7 @@ import {
   isEventSub,
   isRtdbSub,
   isAiSub,
+  isMessagingSub,
   bytesToBase64,
   base64ToBytes,
   storagePayloadTooLarge,
@@ -177,6 +178,12 @@ import {
   handleEventUnsub,
 } from './host-events.js';
 import { isAiOp, handleAiOp, handleAiSub } from './host-ai.js';
+import {
+  isMessagingOp,
+  handleMessagingOp,
+  handleMessagingSub,
+  cleanupPortMessaging,
+} from './host-messaging.js';
 
 // Re-export so host.ts's public surface is unchanged after the decomposition.
 export { ensureAuth, portSession } from './host-auth.js';
@@ -1757,6 +1764,8 @@ async function dispatchMessage(
       await handleAuthOp(ctx, port, msg);
     } else if (isAiOp(msg.method)) {
       await handleAiOp(ctx, port, msg);
+    } else if (isMessagingOp(msg.method)) {
+      await handleMessagingOp(ctx, port, msg);
     } else {
       await handleOp(ctx, port, msg);
     }
@@ -1771,6 +1780,8 @@ async function dispatchMessage(
       // AI streams are FINITE subs registered in ctx.subs (so `unsub` cancels
       // them); they auto-unsub on the terminal done/error snap. host-ai.ts.
       handleAiSub(ctx, port, msg);
+    } else if (isMessagingSub(msg)) {
+      handleMessagingSub(ctx, port, msg);
     } else {
       handleSub(ctx, port, msg);
     }
@@ -1808,6 +1819,11 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   // the single shared `sandbox.onEvent` subscription — nothing to unsubscribe,
   // just stop fanning out to a dead port).
   eventSubsFor(ctx).delete(port);
+
+  // Drop the port's messaging broker client so a closed tab's last-reported
+  // visibility stops feeding the routing rule. Its delivery-handler unsubs
+  // live in `ctx.subs` and are torn down with the loop below.
+  cleanupPortMessaging(ctx, port);
 
   const portSubs = ctx.subs.get(port);
   if (!portSubs) return;

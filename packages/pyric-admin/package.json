@@ -33,6 +33,10 @@
     "./storage": {
       "types": "./dist/storage/index.d.ts",
       "import": "./dist/storage/index.js"
+    },
+    "./messaging": {
+      "types": "./dist/messaging/index.d.ts",
+      "import": "./dist/messaging/index.js"
     }
   },
   "files": [
@@ -59,5 +63,8 @@
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "pyricUnreleasedExports": [
+    "./messaging"
+  ]
 }

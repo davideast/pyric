@@ -16,7 +16,7 @@
  */
 
 import { SandboxImpl } from './internal/sandbox-impl.js';
-import type { Sandbox, SandboxConfig } from './types.js';
+import type { Sandbox, SandboxConfig } from './types/service.js';
 
 export type {
   AuthLens,
@@ -45,8 +45,8 @@ export type {
   SnapshotErrorEvent,
   SnapshotSuppressedEvent,
   WriteSandboxEvent,
-} from './types.js';
-export { SandboxError } from './types.js';
+} from './types/index.js';
+export { SandboxError } from './types/index.js';
 export { SandboxContextImpl } from './sandbox-context.js';
 
 // Remote sandbox (slice 1) — the brand + minimal channel contract that

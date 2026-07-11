@@ -2,7 +2,7 @@
 title: "StorageOptions"
 group: "pyric / storage"
 section: "Reference"
-order: 152
+order: 154
 ---
 # `StorageOptions`
 

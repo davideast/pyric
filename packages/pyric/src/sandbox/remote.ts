@@ -26,7 +26,7 @@
  * export is the brand symbol and its guard.
  */
 
-import type { Sandbox } from './types.js';
+import type { Sandbox } from './types/service.js';
 
 /**
  * Brand stamped (value `true`) on every remote sandbox handle.

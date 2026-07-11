@@ -1,0 +1,44 @@
+{
+  "name": "rtdb-modular-onchildmoved-previouschildname-sequencing",
+  "matrixRow": "rtdb-modular #137",
+  "rowIds": [
+    "rtdb-modular#137"
+  ],
+  "description": "onChildMoved previousChildName (2nd callback arg) sequencing under query(ref, orderByChild(\"priority\")). Seeds k1/k2/k3 (priority 1/2/3, sorted k1,k2,k3), then reorders k1 to the END, then the MIDDLE, then the FRONT \u2014 capturing previousChildName for each move (end \u2192 follows k3; middle \u2192 follows k2; front \u2192 null). Lifts the held previousChildName unknown from docs/reviews/deep-divergence-review.md item 2. rowIds are [] pending the registry-admission ticket, which lands the rows.",
+  "observedAt": "2026-07-09T06:00:43.383Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "threw": false,
+    "code": null,
+    "message": null,
+    "firedOnInitial": 0,
+    "noInitialReplay": true,
+    "moveToEnd": {
+      "key": "k1",
+      "previousChildName": "k3"
+    },
+    "moveToMiddle": {
+      "key": "k1",
+      "previousChildName": "k2"
+    },
+    "moveToFront": {
+      "key": "k1",
+      "previousChildName": null
+    },
+    "totalMoves": 3,
+    "prevNameSequence": [
+      "k3",
+      "k2",
+      null
+    ],
+    "movedKeySequence": [
+      "k1",
+      "k1",
+      "k1"
+    ],
+    "endMovePrevIsK3": true,
+    "middleMovePrevIsK2": true,
+    "frontMovePrevIsNull": true
+  }
+}

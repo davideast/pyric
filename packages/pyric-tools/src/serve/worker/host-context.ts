@@ -190,6 +190,23 @@ export interface HostCtx {
     name: string,
     args: Record<string, unknown>,
   ) => Promise<{ ok: boolean; summary: string; data?: unknown }>;
+  /**
+   * THE messaging climb gate (CDD isolation decision): the flag-gated
+   * `messaging.*` ops and `messaging.*` subs exist on this host only when
+   * this is `true`. `pyric dev` sets it via the init payload's `messaging`
+   * field, which the serve producers emit only under `PYRIC_CLIMB=1` — the
+   * same flag that gates the in-process mirrors' default app. Absent/false
+   * ⇒ every messaging op answers `messaging/disabled` with remediation.
+   */
+  messagingEnabled?: boolean;
+  /**
+   * Per-port broker client ids (the worker-host seam's visibility mapping):
+   * a port that reports `messaging.setVisibility` becomes ONE window client
+   * in the broker, so the captured routing rule — foreground iff ANY visible
+   * client — spans tabs. `cleanupPort` removes the client so a closed tab
+   * stops counting as visible. Lazily populated by host-messaging.ts.
+   */
+  messagingClients?: Map<PortLike, string>;
 }
 
 export interface ActiveRulesState {
