@@ -3,7 +3,7 @@ title: "Feature matrix: pyric/auth coverage of firebase/auth"
 navLabel: "Feature matrix"
 group: "pyric / auth"
 section: "Reference"
-order: 156
+order: 157
 ---
 # Feature matrix: `pyric/auth` coverage of `firebase/auth`
 
@@ -60,7 +60,7 @@ The right column ("Use in agent-generated `appSource`?") is the deny-list / allo
 |---|---|---|---|
 | `onAuthStateChanged(auth, observer)` | ✅ | Function + observer-object forms; immediate fire on subscribe | Yes |
 | `onIdTokenChanged(auth, observer)` | ✅ | Sandbox: fires on identity change AND on `getIdToken(true)` forced refresh, matching prod (oracle `auth-onidtokenchanged-force-refresh.json`). Does not fire *spontaneously* (sandbox tokens don't expire). | Yes |
-| `beforeAuthStateChanged(auth, callback)` | ❌ | Blocking auth-state interceptor out of scope v0 | No |
+| `beforeAuthStateChanged(auth, callback, onAbort?)` | ✅ | Blocking gate: runs before a real sign-in/sign-out transition commits. A throwing callback aborts the transition (`auth/login-blocked`); `currentUser` unchanged, `onAuthStateChanged`/`onIdTokenChanged` don't fire. Covers every sign-in path `pyric/auth` has. Does NOT gate `sandbox.setUser` (test-only, no prod analog) — see COMPAT.md. | Yes |
 
 ## Providers
 

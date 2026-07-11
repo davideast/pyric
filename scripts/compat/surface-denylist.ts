@@ -81,9 +81,6 @@ const authDenials: DenyEntry[] = [
   ...deny('auth', 'i18n surface; not in v0 (auth deny-list: useDeviceLanguage / setLanguageCode).', [
     'useDeviceLanguage',
   ]),
-  ...deny('auth', 'Blocking middleware; the sandbox uses synchronous fan-out and has no equivalent (auth deny-list: beforeAuthStateChanged).', [
-    'beforeAuthStateChanged',
-  ]),
   ...deny('auth', 'Account-lifecycle the sandbox does not model — documented per AUTH-GAP (auth deny-list: User.delete() / User.reload()).', [
     'deleteUser', 'reload',
   ]),

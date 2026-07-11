@@ -193,6 +193,17 @@ export function prodOnIdTokenChanged(auth: fb.Auth, observer: AuthObserver): Uns
   });
 }
 
+export function prodBeforeAuthStateChanged(
+  auth: fb.Auth,
+  callback: (user: User | null) => void | Promise<void>,
+  onAbort?: () => void,
+): Unsubscribe {
+  // Upstream's callback also takes the adapted-shape user; re-wrap the
+  // same way `prodOnAuthStateChanged` does so the callback sees our
+  // subset `User`, not the raw `fb.User`.
+  return fb.beforeAuthStateChanged(auth, (u) => callback(u ? adaptUser(u) : null), onAbort);
+}
+
 export async function prodSetPersistence(auth: fb.Auth, persistence: { type: string }): Promise<void> {
   // Map our marker to the upstream singleton. Upstream's
   // `inMemoryPersistence` / `browserSessionPersistence` /

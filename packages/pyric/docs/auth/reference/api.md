@@ -159,6 +159,22 @@ Same shape as `onAuthStateChanged`.
 
 Sandbox fires on identity change and on `getIdToken(true)` forced refresh, matching prod (oracle `auth-onidtokenchanged-force-refresh.json`). It does not fire spontaneously, because sandbox tokens don't expire.
 
+### `beforeAuthStateChanged(auth, callback, onAbort?)`
+
+```ts
+function beforeAuthStateChanged(
+  auth: Auth,
+  callback: (user: User | null) => void | Promise<void>,
+  onAbort?: () => void,
+): Unsubscribe;
+```
+
+Registers a BLOCKING gate that runs before a real sign-in/sign-out transition commits — the pattern for gating sign-in with a client-side check (e.g. reject users who fail an allowlist). Callbacks run in registration order and may be async. If a callback throws (or its returned promise rejects), the transition is ABORTED: the pending `signInWith…` / `signOut` call rejects with `auth/login-blocked`, `currentUser` is left unchanged, and `onAuthStateChanged` / `onIdTokenChanged` do NOT fire. Every `onAbort` registered by a callback that already succeeded in the same pass runs, in reverse registration order, so side effects can be undone.
+
+Fires for both directions — a real sign-in (`nextUser` non-null) and a real sign-out (`nextUser === null`). Covers every sign-in path `pyric/auth` has: `signInAnonymously`, `signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `signInWithPopup`, `signInWithRedirect`, `signInWithCredential`, and `signOut`.
+
+Does NOT gate the `sandbox.setUser` test driver — that bypass has no prod analog (it already skips provider enforcement the same way). Over the served-worker path (`pyric-tools`'s SharedWorker-backed auth), registering throws immediately rather than silently accepting a callback that could never run — see COMPAT.md.
+
 ---
 
 ## Token accessors
@@ -342,7 +358,7 @@ Mirrors the Authentication → Sign-in method toggles. `password` and `anonymous
 - **Client-side profile mutation**: `updateEmail`, `updatePassword`, `verifyBeforeUpdateEmail`, `deleteUser(user)` (a client-side `User` cannot delete itself; the sandbox admin surface is `sandbox.deleteUser(auth, uid)`), `user.reload()`, `user.delete()`.
 - **Password reset & email verification**: `sendPasswordResetEmail`, `confirmPasswordReset`, `sendEmailVerification`, `applyActionCode`, `verifyPasswordResetCode`, `checkActionCode`, `revokeAccessToken`, `validatePassword(auth, password)`.
 - **Providers**: `TwitterAuthProvider` (use `new OAuthProvider('twitter.com')`), `SAMLAuthProvider`, `PhoneAuthProvider`, `RecaptchaVerifier`.
-- **Lifecycle / config**: `initializeAuth` (no custom dependency injection on the sandbox backend), `indexedDBLocalPersistence`, `useDeviceLanguage`, `auth.languageCode`, `auth.tenantId`, `beforeAuthStateChanged`.
+- **Lifecycle / config**: `initializeAuth` (no custom dependency injection on the sandbox backend), `indexedDBLocalPersistence`, `useDeviceLanguage`, `auth.languageCode`, `auth.tenantId`.
 - **User fields**: `user.metadata`, `user.refreshToken`, `user.tenantId`, `user.toJSON()`.
 - **Error constants**: the `AuthErrorCodes` module. Use the string literal (`'auth/user-not-found'`, etc.) directly.
 
