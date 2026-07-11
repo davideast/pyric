@@ -3,7 +3,7 @@ title: "API reference: pyric/auth"
 navLabel: "API reference"
 group: "pyric / auth"
 section: "Reference"
-order: 155
+order: 156
 ---
 # API reference: `pyric/auth`
 

@@ -24,6 +24,7 @@ import {
   runDatabaseRulesLint,
   runDatabaseRulesValidate,
   runDatabaseRulesSimulate,
+  runDatabaseRulesGenerate,
 } from './database-rules.js';
 import { runAuthConfigureProvider, runAuthManageDomains } from './auth.js';
 import { runFirestoreDiscover } from './discover.js';
@@ -891,6 +892,77 @@ describe('runDatabaseRulesSimulate', () => {
     const result = JSON.parse(io.getOut()) as { success: boolean; data: { allowed: boolean } };
     expect(result.success).toBe(true);
     expect(result.data.allowed).toBe(true);
+  });
+});
+
+describe('runDatabaseRulesGenerate', () => {
+  it('loads the constraints module, compiles via toJSON(), and writes the file', async () => {
+    const { defineRtdbRules, allow, deny } = await import('pyric/rules/rtdb');
+    const doc = defineRtdbRules({
+      paths: { '/': { read: allow(), write: deny() } },
+    });
+
+    const io = bufferIo();
+    const writes: Array<{ path: unknown; contents: unknown }> = [];
+    const code = await runDatabaseRulesGenerate(parseArgs(['database:rules:generate']), {
+      ...io,
+      cwd: '/project',
+      loadRulesDocument: (async () => ({ ok: true, document: doc })) as never,
+      readFirebaseJson: (async () => ({ database: { rules: 'database.rules.json' } })) as never,
+      mkdir: (async () => undefined) as never,
+      writeFile: (async (path: unknown, contents: unknown) => {
+        writes.push({ path, contents });
+      }) as never,
+    });
+
+    expect(code).toBe(0);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toBe('/project/database.rules.json');
+    expect(writes[0]?.contents).toBe(`${JSON.stringify(doc.toJSON(), null, 2)}\n`);
+    expect(io.getOut()).toContain('/project/database.rules.json');
+  });
+
+  it('reports a clear error when no constraints module is found', async () => {
+    const io = bufferIo();
+    const code = await runDatabaseRulesGenerate(parseArgs(['database:rules:generate']), {
+      ...io,
+      cwd: '/project',
+      loadRulesDocument: (async () => ({
+        ok: false,
+        message: 'no constraints module found',
+      })) as never,
+    });
+
+    expect(code).toBe(1);
+    expect(io.getErr()).toContain('no constraints module found');
+  });
+
+  it('honors --config and --out flags', async () => {
+    const { defineRtdbRules, allow, deny } = await import('pyric/rules/rtdb');
+    const doc = defineRtdbRules({ paths: { '/': { read: deny(), write: deny() } } });
+
+    const io = bufferIo();
+    let loadedPath: string | undefined;
+    const writes: Array<{ path: unknown }> = [];
+    const code = await runDatabaseRulesGenerate(
+      parseArgs(['database:rules:generate', '--config', 'rtdb.rules.ts', '--out', 'out/rules.json']),
+      {
+        ...io,
+        cwd: '/project',
+        loadRulesDocument: (async (configPath: string) => {
+          loadedPath = configPath;
+          return { ok: true, document: doc };
+        }) as never,
+        mkdir: (async () => undefined) as never,
+        writeFile: (async (path: unknown) => {
+          writes.push({ path });
+        }) as never,
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(loadedPath).toBe('rtdb.rules.ts');
+    expect(writes[0]?.path).toBe('/project/out/rules.json');
   });
 });
 

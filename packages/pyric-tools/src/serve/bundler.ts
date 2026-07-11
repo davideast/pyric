@@ -266,8 +266,8 @@ export const NODE_BUILTIN_RE = /^(node:)?(url|fs|path)$/;
 export const NODE_BUILTIN_SHIMS: Record<string, string> = {
   fs: `const no = () => { throw new Error('pyric dev: fs is not available in the browser'); };
 export const readFileSync = no; export const existsSync = () => false;
-export const readdirSync = no; export const writeFileSync = no;
-export default { readFileSync, existsSync, readdirSync, writeFileSync };`,
+export const readdirSync = no; export const writeFileSync = no; export const mkdirSync = no;
+export default { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync };`,
   url: `export const fileURLToPath = (u) => String(u).replace('file://', '');
 export const pathToFileURL = (p) => new URL('file://' + p);
 export default { fileURLToPath, pathToFileURL };`,

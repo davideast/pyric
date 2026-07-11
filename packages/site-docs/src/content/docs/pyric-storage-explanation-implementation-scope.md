@@ -3,7 +3,7 @@ title: "Implementation scope and deferred features"
 navLabel: "Implementation scope"
 group: "pyric / storage"
 section: "Explanation"
-order: 151
+order: 152
 ---
 # Implementation scope and deferred features
 

@@ -2,7 +2,7 @@
 title: "Storage rules subset"
 group: "pyric / storage"
 section: "Reference"
-order: 149
+order: 150
 ---
 # Storage rules subset
 
@@ -118,3 +118,6 @@ See [Implementation scope and deferred features](../pyric-storage-explanation-im
 
 - For testing rule expressions independently, see [Test rule expressions independently](../pyric-storage-how-to-test-rule-expressions/).
 - For the engine's evaluation contract (`evaluateStorageRules`), see [Public API](../pyric-storage-reference-api/#rules).
+- For the one known production-vs-evaluator divergence (a `resource == null`
+  create edge case) and the oracle-capture evidence behind this page's
+  claims, see [Storage rules evaluator conformance gaps](../pyric-storage-reference-conformance-gaps/).

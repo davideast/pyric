@@ -3,8 +3,8 @@
  * rules JSON.
  */
 
-import { readFile } from 'node:fs/promises';
-import { resolve as resolvePath } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, resolve as resolvePath } from 'node:path';
 import {
   RtdbMapper,
   SimulateHandler,
@@ -14,13 +14,20 @@ import {
 } from 'pyric/rules/rtdb';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
+import {
+  loadRtdbRulesDocument,
+  type LoadRtdbRulesDocumentResult,
+} from '../rtdb/load-rules-document.js';
 
 const LOCAL_DATABASE_URL = 'https://local-rtdb.firebaseio.com';
 
 export interface DatabaseRulesDeps {
   readFile?: typeof readFile;
+  writeFile?: typeof writeFile;
+  mkdir?: typeof mkdir;
   readFirebaseJson?: (cwd: string) => Promise<FirebaseJson>;
   simulate?: (ir: RtdbIR, input: SimulationInput) => ReturnType<SimulateHandler['execute']>;
+  loadRulesDocument?: typeof loadRtdbRulesDocument;
   cwd?: string;
   readStdin?: () => Promise<string>;
   stdout?: { write(s: string): void };
@@ -268,4 +275,61 @@ export async function runDatabaseRulesSimulate(
     err.write(`pyric database:rules:simulate: ${e instanceof Error ? e.message : String(e)}\n`);
     return 2;
   }
+}
+
+/**
+ * `pyric database:rules:generate [--config <path>] [--out <path>]`
+ *
+ * Loads a user's RTDB constraints module (a file that calls
+ * `defineRtdbRules(...)` from `pyric/rules/rtdb`), compiles it via
+ * `RtdbRulesDocument#toJSON()` — the same primitive RTDB deploy uses —
+ * and writes the static `database.rules.json` shape to disk so it can
+ * be inspected, diffed, and committed before deploying.
+ *
+ * `--config` defaults to `database.rules.ts`. `--out` defaults to
+ * `firebase.json`'s `database.rules` path, falling back to
+ * `database.rules.json` when firebase.json has no such entry.
+ */
+export async function runDatabaseRulesGenerate(
+  parsed: ParsedArgs,
+  deps: DatabaseRulesDeps = {},
+): Promise<number> {
+  const out = deps.stdout ?? process.stdout;
+  const err = deps.stderr ?? process.stderr;
+  const cwd = deps.cwd ?? process.cwd();
+  const writeFileFn = deps.writeFile ?? writeFile;
+  const mkdirFn = deps.mkdir ?? mkdir;
+  const loadRulesDocument = deps.loadRulesDocument ?? loadRtdbRulesDocument;
+
+  const configFlag = parsed.flags.get('config');
+  const configPath = typeof configFlag === 'string' ? configFlag : 'database.rules.ts';
+
+  const loaded: LoadRtdbRulesDocumentResult = await loadRulesDocument(configPath, { cwd });
+  if (!loaded.ok) {
+    err.write(`pyric database:rules:generate: ${loaded.message}\n`);
+    return 1;
+  }
+
+  const outFlag = parsed.flags.get('out');
+  let outPath: string;
+  if (typeof outFlag === 'string') {
+    outPath = outFlag;
+  } else {
+    const fjRead = deps.readFirebaseJson ?? readFirebaseJson;
+    let firebaseJson: FirebaseJson | null = null;
+    try {
+      firebaseJson = await fjRead(cwd);
+    } catch {
+      firebaseJson = null;
+    }
+    outPath = firebaseJson?.database?.rules ?? 'database.rules.json';
+  }
+
+  const resolvedOut = resolvePath(cwd, outPath);
+  const rulesJson = loaded.document.toJSON();
+  await mkdirFn(dirname(resolvedOut), { recursive: true });
+  await writeFileFn(resolvedOut, `${JSON.stringify(rulesJson, null, 2)}\n`, 'utf-8');
+
+  out.write(`pyric database:rules:generate: wrote ${resolvedOut}\n`);
+  return 0;
 }

@@ -3,7 +3,7 @@ title: "Author your first RTDB rules with constraints"
 navLabel: "Author RTDB rules"
 group: "pyric / database"
 section: "Tutorials"
-order: 159
+order: 160
 ---
 # Author your first RTDB rules with constraints
 
@@ -114,13 +114,21 @@ different uid and run it again; the same rule document now denies the write.
 
 ## Generate JSON for deployment
 
-Write the compiled JSON when you want to use the existing CLI flow:
+Write the compiled JSON with the Node helper:
 ```ts
-import { writeFile } from 'node:fs/promises';
+import { writeRtdbRulesFile } from 'pyric/rules/node';
 import { rules } from './database.rules.js';
 
-await writeFile('database.rules.json', JSON.stringify(rules.toJSON(), null, 2));
+await writeRtdbRulesFile(rules, 'database.rules.json');
 ```
+or from the CLI, without writing a script at all:
+```sh
+pyric database:rules:generate --config database.rules.ts --out database.rules.json
+```
+Both routes compile through the same `rules.toJSON()` call. See
+[RTDB rules tooling](../pyric-database-reference-rules-tooling/#generating-databaserulesjson)
+for the full reference, including the `rtdb_generate_rules` MCP tool.
+
 You have built an in-memory rules document, checked it, simulated it, and
 generated the JSON expected by Firebase Realtime Database.
 
