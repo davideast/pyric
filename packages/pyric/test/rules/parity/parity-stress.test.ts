@@ -9,7 +9,7 @@
  *
  * The pack corpus MOVED (conformance-chain consolidation, staging): the 12
  * pack literals now live in
- * `scripts/oracle/rules-corpus/firestore/stress-packs.ts` and are imported
+ * `packages/conformance/rules-corpus/firestore/stress-packs.ts` and are imported
  * here as `STRESS_PACKS`. This live-network parity suite is unchanged in
  * behavior — it just sources the migrated corpus instead of holding it inline.
  *
@@ -37,7 +37,7 @@ import {
   runPack,
   reportParity,
 } from './harness.js';
-import { STRESS_PACKS } from '../../../../../scripts/oracle/rules-corpus/firestore/index.ts';
+import { STRESS_PACKS } from '../../../../../packages/conformance/rules-corpus/firestore/index.ts';
 
 const PACKS: Pack[] = STRESS_PACKS;
 

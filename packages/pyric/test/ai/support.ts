@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
+const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
 
 /** Load an observation's distilled `behavior` facts for replay assertions. */
 export function observedBehavior(name: string): Record<string, any> {

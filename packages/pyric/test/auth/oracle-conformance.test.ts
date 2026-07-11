@@ -32,7 +32,7 @@ import {
   type User,
 } from '../../src/auth/index.js';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
 
 /** Observations that cannot be replayed against the sandbox, with the reason. */
 const NOT_APPLICABLE: Record<string, string> = {

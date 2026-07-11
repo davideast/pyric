@@ -35,7 +35,7 @@ import {
   RULES_STORAGE_OBSERVATION_PREFIX,
   storageObservationName,
   type StoragePack,
-} from '../../../../scripts/oracle/rules-corpus/storage/index.ts';
+} from '../../../../packages/conformance/rules-corpus/storage/index.ts';
 import {
   normalizeStoragePath,
   type StorageTestCase,
@@ -47,7 +47,7 @@ import {
   type FirestoreLookup,
 } from '../../src/storage/rules.ts';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
 
 /** name (no extension) → pack, for O(1) observation→pack resolution. */
 const PACK_BY_OBSERVATION = new Map<string, StoragePack>(

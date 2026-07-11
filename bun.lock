@@ -54,6 +54,21 @@
         "vite": "^6.0.0",
       },
     },
+    "packages/conformance": {
+      "name": "@pyric/conformance",
+      "version": "0.0.1",
+      "dependencies": {
+        "firebase": "^12.12.0",
+        "firebase-admin": "^13.0.0",
+        "pyric": "workspace:*",
+        "pyric-admin": "workspace:*",
+        "pyric-tools": "workspace:*",
+        "zod": "^3.23.0",
+      },
+      "devDependencies": {
+        "typescript": "^5.7.0",
+      },
+    },
     "packages/playground": {
       "name": "@pyric/playground",
       "version": "0.0.1",
@@ -858,6 +873,8 @@
     "@protobufjs/utf8": ["@protobufjs/utf8@1.1.1", "", {}, "sha512-oOAWABowe8EAbMyWKM0tYDKi8Yaox52D+HWZhAIJqQXbqe0xI/GV7FhLWqlEKreMkfDjshR5FKgi3mnle0h6Eg=="],
 
     "@publint/pack": ["@publint/pack@0.1.5", "", { "dependencies": { "tinyexec": "^1.2.4" } }, "sha512-edgyN2pP07uXiP4tJs0s8KVmU8M8i60YPbbI0/WDeok1mIJHRXz+CgD8I0nelwDkoCh3EWL/G5kGfbuHjsdbvw=="],
+
+    "@pyric/conformance": ["@pyric/conformance@workspace:packages/conformance"],
 
     "@pyric/playground": ["@pyric/playground@workspace:packages/playground"],
 

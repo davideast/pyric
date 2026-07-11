@@ -14,7 +14,7 @@
  *
  * The pack corpus MOVED (conformance-chain consolidation, staging): the 6
  * pack literals now live in
- * `scripts/oracle/rules-corpus/firestore/fix-class-packs.ts` and are imported
+ * `packages/conformance/rules-corpus/firestore/fix-class-packs.ts` and are imported
  * here as `FIX_CLASS_PACKS`. This live-network parity suite is unchanged in
  * behavior — it just sources the migrated corpus instead of holding it inline.
  *
@@ -36,7 +36,7 @@ import {
   runPack,
   reportParity,
 } from './harness.js';
-import { FIX_CLASS_PACKS } from '../../../../../scripts/oracle/rules-corpus/firestore/index.ts';
+import { FIX_CLASS_PACKS } from '../../../../../packages/conformance/rules-corpus/firestore/index.ts';
 
 const PACKS: Pack[] = FIX_CLASS_PACKS;
 

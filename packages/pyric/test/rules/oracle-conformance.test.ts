@@ -30,9 +30,9 @@ import {
   RULES_FIRESTORE_OBSERVATION_PREFIX,
   observationName,
   type Pack,
-} from '../../../../scripts/oracle/rules-corpus/firestore/index.ts';
+} from '../../../../packages/conformance/rules-corpus/firestore/index.ts';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
 
 /** name (no extension) → pack, for O(1) observation→pack resolution. */
 const PACK_BY_OBSERVATION = new Map<string, Pack>(

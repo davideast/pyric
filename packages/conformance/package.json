@@ -1,0 +1,21 @@
+{
+  "name": "@pyric/conformance",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Private conformance workspace: the compatibility registry, surface descriptors, the oracle capture rigs and their observations, and the gates/reports that turn them into the published compat coverage number. Not published to npm; consumed only by root package.json scripts and CI.",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "firebase": "^12.12.0",
+    "firebase-admin": "^13.0.0",
+    "pyric": "workspace:*",
+    "pyric-admin": "workspace:*",
+    "pyric-tools": "workspace:*",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
