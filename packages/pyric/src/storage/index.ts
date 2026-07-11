@@ -23,8 +23,9 @@
  * triggers.
  */
 
-import { getStorageSandbox, getStorageProd } from './service.js';
+import { getStorageSandbox, getStorageProd, targetOf } from './service.js';
 import type { FirebaseStorage } from './service.js';
+import * as fb from 'firebase/storage';
 
 // Phase 3 unified app handle. Adapter dispatch reads `APP_TARGET` and
 // routes to the existing direct-handle path (sandbox vs prod).
@@ -66,6 +67,25 @@ export type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js
 
 export { listAll } from './list.js';
 export type { ListResult } from './list.js';
+
+// ─── Emulator (no-op on sandbox) ──────────────────────────────────────
+//
+// `connectStorageEmulator` points a prod handle at a Firebase Storage
+// emulator. No-op on sandbox handles — the sandbox IS a local
+// emulator — so the call is accepted rather than crashing, matching
+// `connectDatabaseEmulator`'s treatment in `pyric/database`. The call
+// is still accepted (not just absent) so consumer code that does the
+// wiring unconditionally compiles and runs against both targets.
+export function connectStorageEmulator(
+  storage: FirebaseStorage,
+  host: string,
+  port: number,
+  options?: { mockUserToken?: string | fb.EmulatorMockTokenOptions },
+): void {
+  const target = targetOf(storage);
+  if (target.kind === 'sandbox') return;
+  fb.connectStorageEmulator(target.fbStorage, host, port, options);
+}
 
 export { parseStorageRules, evaluateStorageRules } from './rules.js';
 export type {

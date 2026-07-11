@@ -905,6 +905,31 @@ remains unchanged.
 <summary class="compat-line"><span class="compat-num">M76</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><strong>Divergence (DB-B9, honest doc):</strong> <code>.validate</code> rules are NOT enforced on modular sandbox writes (<code>set</code>/<code>update</code>/<code>runTransaction</code>). The modular write path routes through the same <code>RulesEvaluator</code> → <code>SimulateHandler</code> as the simulator, which short-circuits on the first ancestor <code>.write</code> that grants access without also requiring every ancestor <code>.validate</code> to pass (same divergence as row #71). A write the live RTDB rejects via a deeper <code>.validate</code> still succeeds in the sandbox.</span></summary>
 <div class="compat-evidence"><div class="compat-probe">divergence documented (shared root with row #71); fix path noted under "Simulator-vs-prod divergences".</div></div>
 </details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">M77</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOffline(db)</code> is an accepted no-op on sandbox targets: there is no network connection in the local sandbox to toggle — every op is already a direct, local call. Forwards to <code>firebase/database</code>'s real <code>goOffline</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/connection-noops.test.ts</code> ("goOffline(db) does not throw and is accepted on a sandbox handle")</div>
+<div class="compat-note">no network connection in the local sandbox to toggle</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">M78</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOnline(db)</code> is an accepted no-op on sandbox targets, symmetric with <code>goOffline</code> — since the sandbox was never taken offline, there is nothing to bring back online. Forwards to <code>firebase/database</code>'s real <code>goOnline</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/connection-noops.test.ts</code> ("goOnline(db) does not throw and is accepted on a sandbox handle")</div>
+<div class="compat-note">no network connection in the local sandbox to toggle</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">M79</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>forceLongPolling()</code> is an accepted no-op — transport selection (WebSocket vs long-polling) is not applicable to the in-process/worker sandbox, which never opens a wire transport of any kind</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/connection-noops.test.ts</code> ("forceLongPolling() is an accepted no-op")</div>
+<div class="compat-note">transport selection not applicable to the in-process/worker sandbox</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">M80</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>forceWebSockets()</code> is an accepted no-op, symmetric with <code>forceLongPolling</code> — transport selection not applicable to the in-process/worker sandbox</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/connection-noops.test.ts</code> ("forceWebSockets() is an accepted no-op")</div>
+<div class="compat-note">transport selection not applicable to the in-process/worker sandbox</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">M81</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>enableLogging(logger?, persistent?)</code> accepts the real SDK's signature and does nothing — the sandbox has no wire protocol running underneath it to log diagnostics for, so there is nothing to wire the logger into</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular/connection-noops.test.ts</code> ("enableLogging(logger, persistent) accepts a logger callback + persistent flag")</div>
+<div class="compat-note">no wire protocol in the sandbox to log diagnostics for</div></div>
+</details>
 </div>
 
 ### Deferred behaviors (Tier 3+ — out of scope for the current phase unless time permits)

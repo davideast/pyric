@@ -616,6 +616,11 @@ matrix has to cover:
 <summary class="compat-line"><span class="compat-num">111</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>targetOf(storage)</code> returns the discriminated <code>Target</code> (sandbox / prod)</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
 </details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">117</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>connectStorageEmulator(storage, host, port)</code> is a no-op on sandbox targets — pyric replaces the Firebase emulator, so the sandbox IS already the local emulator. Forwards to <code>firebase/storage</code>'s real <code>connectStorageEmulator</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:connect-storage-emulator.test.ts</code> ("is a no-op on a sandbox handle — does not throw")</div>
+<div class="compat-note">pyric replaces the Firebase emulator; connectStorageEmulator is a no-op</div></div>
+</details>
 </div>
 
 ## Visible gaps / open questions
@@ -627,9 +632,6 @@ matrix has to cover:
 - `uploadBytesResumable` (rows 47-50) — the entire upload-task + observer
   surface is unmodeled. The session-archive use case (the v1 driver)
   uses one-shot `uploadBytes`, so this stayed deferred.
-- `connectStorageEmulator` — the sandbox replaces the emulator's role
-  for local development, but a prod-target Storage handle in a Bun
-  test still can't be re-routed to the emulator without this hook.
 - `md5Hash` (row 91) — sandbox doesn't compute it. Oracle confirms
   prod always sets it. Worth a one-row alignment if real consumer
   code reads it.
@@ -702,7 +704,6 @@ a follow-up driver decision.
 | `uploadBytesResumable` + `UploadTask` (pause/resume/cancel, state_changed observer) | Out of scope — session-archive use case is one-shot upload-bytes only |
 | `getStream` | Node-stream variant not modeled in the browser-shaped v1 scope |
 | `list(ref, { maxResults, pageToken })` paginated form | Deferred — `listAll` covers the v1 scope scenarios; pagination needs a stable `pageToken` shape |
-| `connectStorageEmulator` | Sandbox replaces the emulator; emulator parity is out of scope |
 | Cloud Functions Storage triggers (`onFinalize`, `onArchive`, …) | Server-side surface — not the Web SDK |
 | Image transformation URLs (Firebase Image extension) | Extension surface, not core Storage |
 | `StorageObserver` advanced shapes (progress milestones, error subclasses) | Tied to `UploadTask`; out of scope until resumable ships |

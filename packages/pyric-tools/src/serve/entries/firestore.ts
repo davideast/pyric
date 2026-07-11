@@ -161,6 +161,28 @@ export async function enableNetwork(_db?: unknown): Promise<void> {
   acceptedNoOp('enableNetwork');
 }
 
+/**
+ * In-page fallback: forwards to `pyric/firestore`'s `terminate`, which
+ * genuinely tears the sandbox down via `Sandbox.dispose()`.
+ *
+ * Worker path: accepted no-op. The SharedWorker-hosted sandbox is
+ * shared across every tab on the page's origin — disposing it here
+ * would tear down listener registries out from under other open tabs,
+ * which the real `terminate()` contract (single-instance teardown)
+ * never implies. Documented divergence: over the worker, `terminate`
+ * settles without tearing anything down.
+ */
+export async function terminate(db?: unknown): Promise<void> {
+  if (useWorker) {
+    console.info(
+      '[pyric dev] terminate(): the SharedWorker-hosted sandbox is shared across every tab; ' +
+        'it is not torn down by a single tab calling terminate().',
+    );
+    return;
+  }
+  return ip.terminate(db as Parameters<typeof ip.terminate>[0]);
+}
+
 // ── tier-1 cache-init + get-from-* + log-level + snapshot-sync (issue #144,
 //    tier-1 pass). Aliases and honest no-op config tokens — see
 //    `packages/pyric/src/firestore/index.ts`'s tier-1 section for the full
