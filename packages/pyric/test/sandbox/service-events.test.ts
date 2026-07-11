@@ -9,7 +9,7 @@
  * right `service`, and that Firestore's own stream is untouched (no
  * `service_mutation` events, still its own `request`/`write` kinds).
  *
- * See the design rationale and `src/sandbox/types.ts` (ServiceMutationEvent).
+ * See the design rationale and `src/sandbox/types/events.ts` (ServiceMutationEvent).
  */
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
