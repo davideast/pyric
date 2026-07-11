@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-int-float-and-division",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#167",
+  "rowIds": [
+    "firestore#167"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"int-float-and-division\" (RULES-B5). int ÷ int truncates toward zero, float division stays float, div-by-zero errors (deny); `is int` / `is float` are distinct types.",
   "observedAt": "2026-07-10T22:41:19.454Z",
   "fbSdkVersion": "12.13.0",

@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-get-missing-doc",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#165",
+  "rowIds": [
+    "firestore#165"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"get-missing-doc\" (RULES-B8). get() of a missing doc must deny via error (null made `== null` probes ALLOW); get() resource must expose id/__name__.",
   "observedAt": "2026-07-10T22:41:19.779Z",
   "fbSdkVersion": "12.13.0",

@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-prototype-chain-keys",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#172",
+  "rowIds": [
+    "firestore#172"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"prototype-chain-keys\" (RULES-B7). `'toString' in map` must be false (own keys only) and `.constructor` access must error; JS prototype-chain leakage said true / returned Object.",
   "observedAt": "2026-07-10T22:41:19.624Z",
   "fbSdkVersion": "12.13.0",
