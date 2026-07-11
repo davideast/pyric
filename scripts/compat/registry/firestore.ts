@@ -2561,7 +2561,7 @@ export const firestoreRegistry = {
     },
     {
       kind: 'markdown',
-      markdown: "\n## Offline / persistence / network family (issue #144)\n\n`enableIndexedDbPersistence`, `enableMultiTabIndexedDbPersistence`,\n`clearIndexedDbPersistence`, `enableNetwork`, `disableNetwork`, and\n`waitForPendingWrites` are now exported from `pyric/firestore`. Before\nthis, none of the six existed on the modular surface at all — an app\nthat called any of them at init (a common pattern) crashed on a\nmissing named export before it ever ran a read or write.\n\n**Honest-mirror rationale**: the sandbox IS the backend, running\nlocal-first with IndexedDB persistence on by default (the\nSharedWorker/`pyric dev` path calls `Sandbox.enablePersistence(...)`\nbefore any app code runs). There is no separate cache tier to opt\ninto and no network to gate. Each function below does the one\nhonest thing available in that model — resolve because the promised\nbehavior is already true, or resolve as a documented no-op because\nthere is nothing local for it to mean. None of them simulate a\ncapability the sandbox doesn't have; in particular, `disableNetwork`\ndoes NOT queue writes for later replay — writes still commit\nimmediately, because there's no real connection to lose.\n\n`terminate` remains out of scope for this pass (tracked separately —\n`Sandbox.dispose()` covers the host-level teardown case, but wiring\nit into the modular surface as a real `terminate(db)` export is\nbacklog work per issue #144).\n",
+      markdown: "\n## Offline / persistence / network family (issue #144)\n\n`enableIndexedDbPersistence`, `enableMultiTabIndexedDbPersistence`,\n`clearIndexedDbPersistence`, `enableNetwork`, `disableNetwork`, and\n`waitForPendingWrites` are now exported from `pyric/firestore`. Before\nthis, none of the six existed on the modular surface at all — an app\nthat called any of them at init (a common pattern) crashed on a\nmissing named export before it ever ran a read or write.\n\n**Honest-mirror rationale**: the sandbox IS the backend, running\nlocal-first with IndexedDB persistence on by default (the\nSharedWorker/`pyric dev` path calls `Sandbox.enablePersistence(...)`\nbefore any app code runs). There is no separate cache tier to opt\ninto and no network to gate. Each function below does the one\nhonest thing available in that model — resolve because the promised\nbehavior is already true, or resolve as a documented no-op because\nthere is nothing local for it to mean. None of them simulate a\ncapability the sandbox doesn't have; in particular, `disableNetwork`\ndoes NOT queue writes for later replay — writes still commit\nimmediately, because there's no real connection to lose.\n\n`terminate` is also now exported from `pyric/firestore` — a genuine\nteardown-forward (not a pure no-op) to `Sandbox.dispose()` on sandbox\ntargets, and to `fb.terminate` on prod targets. See its own row below\nfor the scope caveat (it tears down the whole `Sandbox`, not a\nFirestore-only slice).\n",
     },
     {
       kind: 'table',
@@ -2660,6 +2660,25 @@ export const firestoreRegistry = {
           "automation": "unit-backed",
           "oracleObservations": [],
           "conformanceTests": ["packages/pyric/test/firestore/persistence-network.test.ts"]
+        },
+        {
+          "id": "firestore#152",
+          "surface": "firestore",
+          "aliases": [],
+          "rowRef": "152",
+          "rowNumber": 152,
+          "section": "Offline / persistence / network family (issue #144)",
+          "api": "terminate",
+          "behavior": "Genuinely tears the target down on sandbox targets — calls `Sandbox.dispose()`, which tears down listener registries on the sandbox's environment (idempotent, doesn't touch data). This differs from the real SDK in scope: `dispose()` operates on the whole `Sandbox`, not a Firestore-only slice, so if `pyric/database`/`pyric/storage` share the same `Sandbox` their listener registries are torn down too. Forwards to `fb.terminate` on prod targets, which only tears down the one Firestore instance",
+          "status": "diverged-documented",
+          "statusNote": "tears down the whole Sandbox, not a Firestore-only slice",
+          "evidence": "`unit:firestore/terminate.test.ts`",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": ["packages/pyric/test/firestore/terminate.test.ts"]
         },
       ],
     },

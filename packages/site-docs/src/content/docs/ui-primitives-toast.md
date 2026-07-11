@@ -2,7 +2,7 @@
 title: "<ToastProvider> + useToast"
 group: "@pyric/ui"
 section: "Primitives"
-order: 192
+order: 193
 ---
 # `<ToastProvider>` + `useToast`
 

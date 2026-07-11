@@ -1433,6 +1433,73 @@ export function connectDatabaseEmulator(
   fb.connectDatabaseEmulator(target.db, host, port, options);
 }
 
+// ─── Connection / transport / logging (honest no-ops) ────────────────
+//
+// `goOffline`/`goOnline`/`forceLongPolling`/`forceWebSockets`/
+// `enableLogging` all manage a real socket connection to the RTDB
+// backend — something the sandbox never opens (every op is a direct,
+// local call into the in-memory tree). None of these are simulated;
+// they either resolve/no-op honestly or forward to the real SDK on a
+// prod handle, matching the treatment given to `connectDatabaseEmulator`
+// above and to `pyric/firestore`'s persistence/network family.
+
+/**
+ * Sandbox: no-op. There is no network connection in the local sandbox
+ * to toggle — every read/write is already a direct, local call, so
+ * there is nothing to take offline.
+ *
+ * Prod: forwards to `firebase/database`'s real `goOffline`.
+ */
+export function goOffline(db: Database): void {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) return;
+  fb.goOffline(target.db);
+}
+
+/**
+ * Sandbox: no-op, symmetric with {@link goOffline} — since the sandbox
+ * was never taken offline, there is nothing to bring back online.
+ *
+ * Prod: forwards to `firebase/database`'s real `goOnline`.
+ */
+export function goOnline(db: Database): void {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) return;
+  fb.goOnline(target.db);
+}
+
+/**
+ * Accepted no-op. `firebase/database`'s `forceLongPolling` is a
+ * process-global transport preference for the WebSocket connection the
+ * real SDK opens to `*.firebaseio.com`. The sandbox never opens a
+ * transport of any kind (in-process/worker calls only), so transport
+ * selection has no local meaning. Accepted so app code that calls this
+ * during startup does not crash on an import that used to not exist.
+ */
+export function forceLongPolling(): void {}
+
+/**
+ * Accepted no-op, symmetric with {@link forceLongPolling} — transport
+ * selection is not applicable to the in-process/worker sandbox.
+ */
+export function forceWebSockets(): void {}
+
+/**
+ * Accepted no-op. `firebase/database`'s `enableLogging` wires internal
+ * SDK diagnostics (protocol frames, reconnect attempts) to a logger —
+ * none of which exist in the sandbox because there is no wire protocol
+ * running underneath it. Accepts the same `(logger?, persistent?)`
+ * signature and does nothing so consumer code compiles and runs
+ * unconditionally against both targets.
+ */
+export function enableLogging(
+  logger?: boolean | ((message: string) => void),
+  persistent?: boolean,
+): void {
+  void logger;
+  void persistent;
+}
+
 // ─── Sandbox-only ops ───────────────────────────────────────────────
 //
 // Mirrors `pyric/firestore`'s `sandbox` namespace — explicit

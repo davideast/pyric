@@ -2,7 +2,7 @@
 title: "<RuleHeatmap>"
 group: "@pyric/ui"
 section: "Traffic"
-order: 210
+order: 211
 ---
 # `<RuleHeatmap>`
 

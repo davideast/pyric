@@ -905,6 +905,34 @@ export function waitForPendingWrites(db: Firestore): Promise<void> {
   return fb.waitForPendingWrites(target.db);
 }
 
+/**
+ * Sandbox: genuinely tears the target down by calling
+ * `Sandbox.dispose()` — NOT a pure no-op like the rest of this family.
+ * `dispose()` tears down listener registries on the sandbox's
+ * environment without replacing it (idempotent, doesn't touch data).
+ * This is the honest mapping of "terminate this Firestore instance":
+ * a real app that calls `terminate(db)` expects listeners to stop and
+ * the instance to be unusable for further meaningful work, and
+ * `dispose()` delivers exactly that for the sandbox.
+ *
+ * Caveat: `dispose()` operates on the whole `Sandbox`, not a
+ * Firestore-only slice of it — if `pyric/database` or `pyric/storage`
+ * share the same `Sandbox`, their listener registries are torn down
+ * too. This differs from the real SDK, where `terminate()` only
+ * affects the one `Firestore` instance. Documented divergence.
+ *
+ * Prod: forwards to `firebase/firestore`'s real `terminate`, which
+ * only tears down the one Firestore instance.
+ */
+export function terminate(db: Firestore): Promise<void> {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) {
+    target.sandbox.dispose();
+    return Promise.resolve();
+  }
+  return fb.terminate(target.db);
+}
+
 // ─── Tier-1 cache-init + get-from-* + log-level + snapshot-sync ───────
 // (issue #144, tier-1 pass). These extend the honest-mirror rationale
 // above: a real app's explicit-init pattern —

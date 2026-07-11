@@ -74,6 +74,11 @@ export {
   serverTimestamp,
   increment,
   connectDatabaseEmulator,
+  goOffline,
+  goOnline,
+  forceLongPolling,
+  forceWebSockets,
+  enableLogging,
   sandbox,
   TARGET_SYMBOL,
   // Query builder + constraint factories (Tier 3)

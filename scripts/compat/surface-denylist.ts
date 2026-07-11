@@ -106,9 +106,6 @@ const firestoreDenials: DenyEntry[] = [
     'deleteAllPersistentCacheIndexes', 'enablePersistentCacheIndexAutoCreation',
     'disablePersistentCacheIndexAutoCreation', 'setIndexConfiguration',
   ]),
-  ...deny('firestore', 'Handled by Sandbox.dispose() at the host level (firestore deny-list: terminate).', [
-    'terminate',
-  ]),
   ...deny('firestore', 'Bundle-loading depends on server-side packaging not modeled in the sandbox (firestore deny-list: loadBundle / namedQuery).', [
     'loadBundle', 'namedQuery', 'LoadBundleTask',
   ]),
@@ -123,9 +120,6 @@ const databaseDenials: DenyEntry[] = [
     '_QueryImpl', '_QueryParams', '_ReferenceImpl', '_TEST_ACCESS_forceRestClient',
     '_TEST_ACCESS_hijackHash', '_initStandalone', '_repoManagerDatabaseFromApp',
     '_setSDKVersion', '_validatePathString', '_validateWritablePath',
-  ]),
-  ...deny('database', 'Connection / transport / logging management has no meaning for the in-memory sandbox (no live socket).', [
-    'goOffline', 'goOnline', 'forceLongPolling', 'forceWebSockets', 'enableLogging',
   ]),
   ...deny('database', 'onDisconnect requires a live connection lifecycle the in-memory sandbox has no equivalent for.', [
     'onDisconnect', 'OnDisconnect',
@@ -154,9 +148,6 @@ const storageDenials: DenyEntry[] = [
   ]),
   ...deny('storage', 'Paginated listing deferred — listAll covers the v1 scope; pagination needs a stable pageToken shape (storage deny-list: list).', [
     'list',
-  ]),
-  ...deny('storage', 'Sandbox replaces the emulator; emulator parity is out of scope (storage deny-list: connectStorageEmulator).', [
-    'connectStorageEmulator',
   ]),
 ];
 

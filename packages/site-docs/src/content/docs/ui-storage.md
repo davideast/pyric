@@ -2,7 +2,7 @@
 title: "@pyric/ui/storage"
 group: "@pyric/ui"
 section: "Storage"
-order: 205
+order: 206
 ---
 # `@pyric/ui/storage`
 

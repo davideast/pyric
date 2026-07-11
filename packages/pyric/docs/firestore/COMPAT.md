@@ -279,10 +279,11 @@ capability the sandbox doesn't have; in particular, `disableNetwork`
 does NOT queue writes for later replay — writes still commit
 immediately, because there's no real connection to lose.
 
-`terminate` remains out of scope for this pass (tracked separately —
-`Sandbox.dispose()` covers the host-level teardown case, but wiring
-it into the modular surface as a real `terminate(db)` export is
-backlog work per issue #144).
+`terminate` is also now exported from `pyric/firestore` — a genuine
+teardown-forward (not a pure no-op) to `Sandbox.dispose()` on sandbox
+targets, and to `fb.terminate` on prod targets. See its own row below
+for the scope caveat (it tears down the whole `Sandbox`, not a
+Firestore-only slice).
 
 ## Offline / persistence / network family (continued)
 
@@ -293,6 +294,7 @@ backlog work per issue #144).
 | 142 | Maps to `Sandbox.clearPersistence()` on sandbox targets — actually wipes the persisted blob (honest, not a no-op); already a no-op when persistence was never enabled. Forwards to `fb.clearIndexedDbPersistence` on prod targets | ✓ | `unit:firestore/persistence-network.test.ts` |
 | 143 | Resolve on sandbox targets — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated). Forward to `fb.enableNetwork` / `fb.disableNetwork` on prod targets | ⚠ no offline queue | `unit:firestore/persistence-network.test.ts` |
 | 144 | Resolves immediately on sandbox targets — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip. Forwards to `fb.waitForPendingWrites` on prod targets | ⚠ always resolves; prod can hang offline | `unit:firestore/persistence-network.test.ts` |
+| 152 | Genuinely tears the target down on sandbox targets — calls `Sandbox.dispose()`, which tears down listener registries on the sandbox's environment (idempotent, doesn't touch data). This differs from the real SDK in scope: `dispose()` operates on the whole `Sandbox`, not a Firestore-only slice, so if `pyric/database`/`pyric/storage` share the same `Sandbox` their listener registries are torn down too. Forwards to `fb.terminate` on prod targets, which only tears down the one Firestore instance | ⚠ tears down the whole Sandbox, not a Firestore-only slice | `unit:firestore/terminate.test.ts` |
 
 ## Tier-1 cache-init + get-from-* family (issue #144, tier-1 pass)
 

@@ -46,6 +46,15 @@ export const connectDatabaseEmulator = (
   useWorker ? rtdbConnectDatabaseEmulator : ip.connectDatabaseEmulator
 ) as typeof ip.connectDatabaseEmulator;
 
+// Connection / transport / logging management has no meaning for a
+// served app either way — there is no live socket in worker mode or
+// in-page mode. Unconditional no-ops, no worker RPC needed.
+export const goOffline = ((_db?: unknown) => {}) as typeof ip.goOffline;
+export const goOnline = ((_db?: unknown) => {}) as typeof ip.goOnline;
+export const forceLongPolling = (() => {}) as typeof ip.forceLongPolling;
+export const forceWebSockets = (() => {}) as typeof ip.forceWebSockets;
+export const enableLogging = ((_logger?: unknown, _persistent?: unknown) => {}) as typeof ip.enableLogging;
+
 function unsupportedWorkerApi(name: string): never {
   throw new Error(
     `firebase/database ${name}() is not supported over the pyric SharedWorker yet. ` +

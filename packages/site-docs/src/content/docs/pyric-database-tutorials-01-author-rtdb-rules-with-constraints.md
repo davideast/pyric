@@ -3,7 +3,7 @@ title: "Author your first RTDB rules with constraints"
 navLabel: "Author RTDB rules"
 group: "pyric / database"
 section: "Tutorials"
-order: 159
+order: 160
 ---
 # Author your first RTDB rules with constraints
 
