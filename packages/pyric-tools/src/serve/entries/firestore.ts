@@ -59,18 +59,19 @@ export const deleteField = D.deleteField;
 //    the shared codec) ──────────────────────────────────────────────────────
 export const Timestamp = ip.Timestamp;
 
-// ── Composite filters — in-page only. The worker query protocol has no
-//    or/and yet; export a clear-error stub so the page still IMPORTS but a use
-//    fails loudly (surface parity without silent wrong results). ─────────────
-function unsupportedComposite(name: string): never {
-  throw new Error(
-    `firestore ${name}() is not supported over the pyric SharedWorker yet — ` +
-      'compose separate where() constraints instead. (The in-page fallback path ' +
-      'supports it on browsers without SharedWorker.)',
-  );
-}
-export const or = (useWorker ? (() => unsupportedComposite('or')) : ip.or) as typeof ip.or;
-export const and = (useWorker ? (() => unsupportedComposite('and')) : ip.and) as typeof ip.and;
+// ── Composite filters — path-independent (issue #144). The worker query
+//    protocol carries the composite filter tree end-to-end: the client `or`/
+//    `and` factories emit nested `FilterConstraintDescriptor`s, `query()`
+//    embeds them in the query descriptor, and the host rebuilds them through
+//    the REAL `pyric/firestore` `and`/`or` factories (see
+//    `worker/host.ts` resolveConstraint + `worker/protocol.ts`
+//    FilterConstraintDescriptor). So on BOTH paths `or`/`and` come from the
+//    chosen data impl `D` — the worker client on the worker path, in-page
+//    otherwise. Nested `and`/`or`/`where` composites and composition with
+//    orderBy/limit all cross intact; malformed composites (empty / non-filter
+//    operand) still raise the same modular-SDK TypeError. ────────────────────
+export const or = D.or;
+export const and = D.and;
 
 // ── getFirestore — the canonical bare call returns the page's shared backend:
 //    the worker ClientDb on the worker path, the in-page sandbox otherwise. ──
