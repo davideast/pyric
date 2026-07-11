@@ -5,7 +5,7 @@ import {
   type RtdbHost,
   type RtdbIR,
   type RtdbRulesDocument,
-} from 'pyric/rules/rtdb';
+} from 'pyric/rules/internal/rtdb';
 import { AdminApiError, type ProjectScope } from '../scope.js';
 import { isRtdbRulesDocument } from '../../rtdb/rules-json.js';
 

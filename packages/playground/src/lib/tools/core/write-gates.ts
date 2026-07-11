@@ -35,7 +35,7 @@ import {
   SimulateFirestoreRulesHandler,
   type LintWarning,
   type TestCase,
-} from 'pyric/rules';
+} from 'pyric/rules/internal';
 import { replay, type SandboxEvent } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';

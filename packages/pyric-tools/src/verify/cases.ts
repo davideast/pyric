@@ -1,5 +1,5 @@
 import type { RequestEvent } from 'pyric/sandbox';
-import type { FirestoreMethod, FunctionMock, TestCase } from 'pyric/rules';
+import type { FirestoreMethod, FunctionMock, TestCase } from 'pyric/rules/internal';
 import {
   parseVerifyFixture,
   type PyricVerifyFixture,

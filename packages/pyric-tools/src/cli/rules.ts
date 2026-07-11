@@ -25,7 +25,7 @@ import {
   type LintResult,
   type ValidationFinding,
   type TestFirestoreRulesResult,
-} from 'pyric/rules';
+} from 'pyric/rules/internal';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 

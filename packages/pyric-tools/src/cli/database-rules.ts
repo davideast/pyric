@@ -11,7 +11,7 @@ import {
   type RtdbIR,
   type RtdbNode,
   type SimulationInput,
-} from 'pyric/rules/rtdb';
+} from 'pyric/rules/internal/rtdb';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import {
@@ -281,7 +281,7 @@ export async function runDatabaseRulesSimulate(
  * `pyric database:rules:generate [--config <path>] [--out <path>]`
  *
  * Loads a user's RTDB constraints module (a file that calls
- * `defineRtdbRules(...)` from `pyric/rules/rtdb`), compiles it via
+ * `defineRtdbRules(...)` from `pyric/rules`), compiles it via
  * `RtdbRulesDocument#toJSON()` — the same primitive RTDB deploy uses —
  * and writes the static `database.rules.json` shape to disk so it can
  * be inspected, diffed, and committed before deploying.

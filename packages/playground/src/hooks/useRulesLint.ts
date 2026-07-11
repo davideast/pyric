@@ -8,7 +8,7 @@
  * strip while debouncing.
  */
 import { useEffect, useState } from 'react';
-import { lintFirestoreRules, type LintResult } from 'pyric/rules';
+import { lintFirestoreRules, type LintResult } from 'pyric/rules/internal';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 
 const DEBOUNCE_MS = 250;

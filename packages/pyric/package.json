@@ -62,6 +62,10 @@
       "types": "./dist/rules/internal/extract.d.ts",
       "import": "./dist/rules/internal/extract.js"
     },
+    "./rules/internal/rtdb": {
+      "types": "./dist/rules/internal/rtdb.d.ts",
+      "import": "./dist/rules/internal/rtdb.js"
+    },
     "./sandbox": {
       "types": "./dist/sandbox/index.d.ts",
       "import": "./dist/sandbox/index.js"

@@ -21,7 +21,7 @@ import type {
   Divergence,
   AuthState,
 } from 'pyric/sandbox';
-import type { TestCase, TestResult } from 'pyric/rules';
+import type { TestCase, TestResult } from 'pyric/rules/internal';
 
 // ─── Public arg / result shapes ──────────────────────────────────────
 

@@ -15,7 +15,7 @@
  * else (e.g. a snippet it just generated but hasn't written yet).
  */
 import type { ToolHandler } from '@inbrowser/agent';
-import { createFirestoreExtractTool } from 'pyric/rules/extract';
+import { createFirestoreExtractTool } from 'pyric/rules/internal/extract';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 
 interface ExtractArgs {

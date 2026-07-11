@@ -4,7 +4,7 @@ import {
   type TestCase,
   type RuleEvaluation,
   type PathResolutionTrace,
-} from 'pyric/rules';
+} from 'pyric/rules/internal';
 import type { FirestoreMethod } from '../types.js';
 
 /**

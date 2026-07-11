@@ -5,7 +5,7 @@
  * call a tool. Pyric-specific: this is the playground's value-add on
  * top of the bare write/run loop.
  */
-import { lintFirestoreRules, type LintWarning } from 'pyric/rules';
+import { lintFirestoreRules, type LintWarning } from 'pyric/rules/internal';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 import type { PromptBlock } from './index';
 

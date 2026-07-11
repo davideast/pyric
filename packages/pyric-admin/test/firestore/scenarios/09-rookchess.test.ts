@@ -11,7 +11,7 @@
  * `getFirestore(sandbox)` instead of `LocalEnvironment.execute`.
  */
 import { describe, test, expect } from 'bun:test';
-import { resolveModules } from 'pyric/rules/node';
+import { resolveModules } from 'pyric/rules/internal/node';
 import { makeRoot, runOp } from './_helpers.js';
 
 // ═══ Build config data programmatically for 4x4 grid ═══

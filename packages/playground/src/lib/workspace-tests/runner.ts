@@ -48,7 +48,7 @@ import {
 } from 'pyric/firestore';
 import { getAuth, sandbox as authOps, type User } from 'pyric/auth';
 import { getInternalEnv } from 'pyric/sandbox/internal';
-import { FIRESTORE_METHODS, type FirestoreMethod, type TestIdentity } from 'pyric/rules';
+import { FIRESTORE_METHODS, type FirestoreMethod, type TestIdentity } from 'pyric/rules/internal';
 
 export type CaseExpect = 'ALLOW' | 'DENY';
 

@@ -17,7 +17,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 import {
   createFirestoreSimulatorTools,
   createFirestoreRulesTools,
-} from 'pyric/rules/node';
+} from 'pyric/rules/internal/node';
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
 
 export interface ToolMetadata {

@@ -13,8 +13,8 @@ import {
   type ExpressionReportLevel,
   type TestCase,
   type TestResult,
-} from 'pyric/rules';
-import type { RtdbRulesDocument } from 'pyric/rules/rtdb';
+} from 'pyric/rules/internal';
+import type { RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
 import type { ProjectScope } from '../deploy/index.js';
 import {
   isRtdbRulesDocument,

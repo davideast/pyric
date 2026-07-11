@@ -226,9 +226,11 @@ export {
 } from '../generators/grid.js';
 export * from '../generators/expressions.js';
 
-// ─── RTDB rules engine (browser-safe) ────────────────────────────────
+// ─── RTDB rules engine ───────────────────────────────────────────────
 // The Realtime Database rules machinery — mapper, IR, simulation, write
-// handlers, the constraints DSL, and their types. Formerly the
-// `pyric/rules/rtdb` subpath. The public front door re-exports the DSL
-// combinators; the handlers/mapper/IR stay engine-internal here.
-export * from './rtdb.js';
+// handlers, host — lives on the sibling `./rtdb` entry, NOT here: the
+// write/host chain statically pulls a Node HTTP client, which cannot ship
+// to the browser. This browser-safe seam therefore excludes it. The public
+// front door re-exports the (browser-safe) RTDB constraints DSL directly
+// from `../../database/constraints`; node consumers that need the engine
+// import from `pyric/rules/internal/rtdb`.

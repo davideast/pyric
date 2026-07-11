@@ -44,7 +44,7 @@ import {
   query,
   SandboxError,
 } from 'pyric/firestore';
-import { lintFirestoreRules, type LintWarning } from 'pyric/rules';
+import { lintFirestoreRules, type LintWarning } from 'pyric/rules/internal';
 import type { Denial } from './model.js';
 
 /** Outcome of a single re-run: did the rule allow it this time, or deny again? */

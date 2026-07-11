@@ -13,7 +13,7 @@ import type {
   PathResolutionEntry,
   RuleEvaluation,
   TestResult,
-} from 'pyric/rules';
+} from 'pyric/rules/internal';
 
 // ─── Public arg / result shapes ──────────────────────────────────────
 

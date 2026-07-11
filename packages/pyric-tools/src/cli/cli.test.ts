@@ -897,7 +897,7 @@ describe('runDatabaseRulesSimulate', () => {
 
 describe('runDatabaseRulesGenerate', () => {
   it('loads the constraints module, compiles via toJSON(), and writes the file', async () => {
-    const { defineRtdbRules, allow, deny } = await import('pyric/rules/rtdb');
+    const { defineRtdbRules, allow, deny } = await import('pyric/rules');
     const doc = defineRtdbRules({
       paths: { '/': { read: allow(), write: deny() } },
     });
@@ -938,7 +938,7 @@ describe('runDatabaseRulesGenerate', () => {
   });
 
   it('honors --config and --out flags', async () => {
-    const { defineRtdbRules, allow, deny } = await import('pyric/rules/rtdb');
+    const { defineRtdbRules, allow, deny } = await import('pyric/rules');
     const doc = defineRtdbRules({ paths: { '/': { read: deny(), write: deny() } } });
 
     const io = bufferIo();

@@ -22,7 +22,7 @@
 import type { ToolHandler } from '@inbrowser/agent';
 import { firestore, hosting, functions, rtdb } from './namespaces.js';
 import type { ProjectScope } from './scope.js';
-import type { RtdbIR, RtdbRulesJson } from 'pyric/rules/rtdb';
+import type { RtdbIR, RtdbRulesJson } from 'pyric/rules/internal/rtdb';
 import { loadRtdbRulesDocument } from '../rtdb/load-rules-document.js';
 import type {
   IndexesConfig,
@@ -123,7 +123,7 @@ export function createRtdbDeployTools(deps: ProjectScopedDeps): ToolHandler[] {
     {
       name: 'rtdb_generate_rules',
       description:
-        'Compile a local RTDB constraints module (a file calling defineRtdbRules(...) from pyric/rules/rtdb) into the static database.rules.json shape, without deploying it. Lets the caller inspect/diff/commit the rules before deploy.',
+        'Compile a local RTDB constraints module (a file calling defineRtdbRules(...) from pyric/rules) into the static database.rules.json shape, without deploying it. Lets the caller inspect/diff/commit the rules before deploy.',
       parameters: {
         type: 'object',
         properties: {
