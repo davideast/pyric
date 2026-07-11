@@ -112,10 +112,6 @@
     "README.md",
     "LICENSE"
   ],
-  "pyricUnreleasedExports": [
-    "./ai",
-    "./ai/scripting"
-  ],
   "scripts": {
     "inline-grammar": "bun run scripts/inline-grammar.ts",
     "inline-stdlib": "bun run scripts/inline-stdlib.ts",
@@ -145,8 +141,10 @@
     "access": "public"
   },
   "pyricUnreleasedExports": [
+    "./ai",
+    "./ai/scripting",
     "./messaging",
-    "./messaging/sw",
-    "./messaging/internal"
+    "./messaging/internal",
+    "./messaging/sw"
   ]
 }
