@@ -22,6 +22,15 @@ The fixed tagline that follows it (David's call, 2026-07-10):
 
 The pair divides the work cleanly: the identity line names the mechanism, the tagline names the payoff and the era. Note the README currently reads "Agentic coding without production consequences"; one wording should win everywhere.
 
+### Two jobs, two phrasings (decided 2026-07-11)
+
+The funnel headline and the concept-taxonomy root (#130) are deliberately different sentences for the same idea:
+
+- **Funnel surfaces (Home, README hero): browser leads.** "Firebase that runs in your browser." The paradox is the hook, and "browser" is the one word that keeps pyric out of the emulator drawer that a bare "local Firebase" would file it in.
+- **The taxonomy and docs (#130): local leads.** The root concept is "pyric is Firebase, local" with `npm i pyric` as its proof. "Runs in your browser tab, or in your Node process" is the first disclosure under it, not the root, because browser is mechanism detail and only half of where pyric runs.
+
+Same decision, applied to the mirror equation: above the fold the equation is **one row**, `pyric === firebase`. The admin and tools rows are answers to questions the user asks later ("does my server code work?", "what about the CLI?"). Both stay first-class in docs and content; neither is the story a stranger holds in their head.
+
 Support test for every other line on the page: does it resolve, prove, or open a door from this sentence? If not, cut.
 
 ## The beats, in order, with the copy
@@ -134,12 +143,12 @@ The headline was "Production is never in the loop" before the tagline existed; t
 > **You already wrote this code.**
 >
 > ```
-> npm i pyric       === npm i firebase
-> npm i pyric-admin === npm i firebase-admin
-> npm i pyric-tools === npm i firebase-tools
+> npm i pyric === npm i firebase
 > ```
 >
 > Same imports, same calls, same behavior, mirrored one to one. If you know `getDoc`, `onSnapshot`, and `signInWithEmailAndPassword`, you already know this library.
+
+One row, per the 2026-07-11 decision. The admin and tools rows moved below the fold: they appear where the reader's question calls for them ("your server code works too: `pyric-admin` mirrors `firebase-admin`"), not in the opening equation. The full triptych remains right for docs pages whose subject is the mirror itself.
 
 ### 4. Rules become provable
 
