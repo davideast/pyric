@@ -36,6 +36,13 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      - name: Compat terminology lint (registry prose + generated docs)
+        # Fails on colloquialisms, GitHub issue-number references, and
+        # coding-tool/assistant names in scripts/compat/registry/*.ts prose
+        # and the generated COMPAT.md docs. See scripts/compat/lint-terminology.ts
+        # for the exact rules. Cheap, deterministic, no build/install needed first.
+        run: bun run compat:lint-terms
+
       - name: Oracle audit gate (no NEW uncited ✓ COMPAT rows)
         # Runs scripts/oracle/audit.ts and ratchets its high-risk
         # unprobed-✓ worklist against scripts/oracle/audit-baseline.json.

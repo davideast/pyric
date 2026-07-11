@@ -26,6 +26,7 @@
     "compat:census": "bun run scripts/compat/surface-census.ts",
     "compat:generate": "bun run scripts/compat/generate-docs.ts --write",
     "compat:report": "bun run scripts/compat/report.ts",
+    "compat:lint-terms": "bun run scripts/compat/lint-terminology.ts",
     "compat:validate": "bun run scripts/compat/validate-registry.ts",
     "compat:audit": "bun run scripts/oracle/audit.ts",
     "compat:oracle-versions": "bun run scripts/oracle/check-observation-versions.ts",
