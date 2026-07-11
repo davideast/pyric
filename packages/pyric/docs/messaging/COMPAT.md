@@ -6,12 +6,12 @@
 
 # `pyric` messaging compatibility matrix
 
-> ⚠ **CLIMBING UNDER CDD — nothing is guaranteed yet.** This surface is being
-> built Conformance-Driven: the rows below were authored *before* any mirror
-> implementation and every one is born `?` (unverified). A row that cites an
-> `oracle:` observation states a fact production was **observed** to do — but
-> that fact has not yet been **replayed** offline against a sandbox, so the row
-> is not a conformance guarantee. See `docs/conformance/cdd.md`.
+> **Conformance-held; not yet in published packages.** Every row below is
+> replayed by conformance suites that run in blocking CI, so the statuses are
+> live guarantees against this repository. The messaging entry points are not
+> yet included in the published npm packages: the mirror is complete here, and
+> it ships in a release after graduation. Until then, installing `pyric` from
+> npm does not provide `pyric/messaging`.
 
 The single readable contract for "what `pyric` will guarantee vs the production
 Firebase Cloud Messaging surface" — the client (`firebase/messaging`) and
