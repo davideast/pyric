@@ -32,7 +32,8 @@ import {
   type Pack,
 } from '../../../../packages/conformance/rules-corpus/firestore/index.ts';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
+// rules-firestore-* observations live under the 'firestore' surface subdirectory.
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'firestore');
 
 /** name (no extension) → pack, for O(1) observation→pack resolution. */
 const PACK_BY_OBSERVATION = new Map<string, Pack>(

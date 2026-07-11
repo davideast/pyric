@@ -35,7 +35,8 @@ import { getAuth } from '../../src/auth/index.js';
 import { getStorage } from '../../src/storage/index.js';
 import { getFirestore } from '../../src/firestore/index.js';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
+// admin-app-* observations live under the 'auth' surface subdirectory.
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'auth');
 
 /** Observations that cannot be replayed against the pyric-admin sandbox, with
  *  the reason. */

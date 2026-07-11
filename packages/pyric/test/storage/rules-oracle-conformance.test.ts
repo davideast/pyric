@@ -47,7 +47,8 @@ import {
   type FirestoreLookup,
 } from '../../src/storage/rules.ts';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
+// rules-storage-* observations live under the 'storage' surface subdirectory.
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'storage');
 
 /** name (no extension) → pack, for O(1) observation→pack resolution. */
 const PACK_BY_OBSERVATION = new Map<string, StoragePack>(
