@@ -19,7 +19,7 @@ import {
   Timestamp as InternalTimestamp,
   Bytes as InternalBytes,
   LatLng as InternalLatLng,
-} from 'pyric/rules';
+} from '../../../rules/internal/index.js';
 import { Timestamp as CompatTimestamp, type DocumentData } from './types.js';
 
 function translateValue(value: unknown): unknown {

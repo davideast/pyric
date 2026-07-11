@@ -28,9 +28,9 @@
  *     If extended later, follow the discriminator forms in
  *     {@link ../discover/wire.ts} verbatim.
  */
-import { Timestamp } from 'pyric/rules';
-import { Reference, referenceToResourceName } from 'pyric/rules';
-import { Vector } from 'pyric/rules';
+import { Timestamp } from '../../rules/internal/index.js';
+import { Reference, referenceToResourceName } from '../../rules/internal/index.js';
+import { Vector } from '../../rules/internal/index.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type WireValue = Record<string, any>;

@@ -61,7 +61,7 @@ import {
   LatLng as RulesLatLng,
   Vector as RulesVector,
   lintFirestoreRules,
-} from 'pyric/rules';
+} from '../rules/internal/index.js';
 
 // `firebase/app` + `firebase/firestore` provide the prod backend.
 // Imported as a star so individual functions (`getFirestore`,

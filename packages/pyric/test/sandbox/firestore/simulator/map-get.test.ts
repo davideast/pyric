@@ -11,8 +11,8 @@
  * (gated on FIREBASE_SA_BASE64).
  */
 import { describe, test, expect } from 'bun:test';
-import { SimulateFirestoreRulesHandler } from 'pyric/rules';
-import type { TestCase } from 'pyric/rules';
+import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
+import type { TestCase } from 'pyric/rules/internal';
 
 const handler = new SimulateFirestoreRulesHandler();
 

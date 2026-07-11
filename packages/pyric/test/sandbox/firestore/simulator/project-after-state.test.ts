@@ -9,7 +9,7 @@
  * dot-paths for nested patches.
  */
 import { describe, test, expect } from 'bun:test';
-import { projectAfterState } from 'pyric/rules';
+import { projectAfterState } from 'pyric/rules/internal';
 
 describe('projectAfterState — create', () => {
   test('returns payload as-is', () => {

@@ -11,7 +11,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
-import { resolveModules } from 'pyric/rules/node';
+import { resolveModules } from 'pyric/rules/internal/node';
 
 const SOURCE = `import { isAuthenticated, isOwner } from 'auth';
 import { hasRequired, hasOnly } from 'validation';

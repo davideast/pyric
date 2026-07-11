@@ -30,8 +30,8 @@ import {
   LocalEnvironmentCrawlerAdapter,
   createFirestoreDiscoverTools,
 } from '../../../../pyric-tools/src/discover/index.js';
-import { parseToAST } from 'pyric/rules';
-import type { MatchBlock } from 'pyric/rules';
+import { parseToAST } from 'pyric/rules/internal';
+import type { MatchBlock } from 'pyric/rules/internal';
 
 // ─── Test corpus ──────────────────────────────────────────────────────────
 

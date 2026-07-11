@@ -30,7 +30,7 @@ import type {
   Transaction,
   WriteBatch,
 } from 'pyric/sandbox/admin-compat';
-import type { LintResult } from 'pyric/rules';
+import type { LintResult } from '../../rules/internal/index.js';
 
 import { isRemoteSandbox, SandboxError, type AuthLens, type AuthState, type Sandbox, type SandboxContext } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
@@ -81,7 +81,7 @@ export type {
   WhereFilterOp,
   WriteBatch,
 } from 'pyric/sandbox/admin-compat';
-export type { LintResult, LintWarning, RulesMetrics } from 'pyric/rules';
+export type { LintResult, LintWarning, RulesMetrics } from '../../rules/internal/index.js';
 export { FieldValue, Timestamp } from 'pyric/sandbox/admin-compat';
 
 // Web-SDK-shaped snapshot types — what `onSnapshot` callbacks receive.

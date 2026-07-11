@@ -19,10 +19,10 @@
  * (The erasable extractor TYPES stay re-exported from the root barrel too, since
  * type-only exports compile away and never reach a bundle.)
  */
-export { extractIndexes } from './indexes/extract/extractor.js';
-export { ExtractFirestoreIndexesHandler } from './indexes/extractHandler.js';
-export { createFirestoreExtractTool } from './indexes/extractTool.js';
-export type { ExtractIndexesOptions } from './indexes/extractHandler.js';
+export { extractIndexes } from '../indexes/extract/extractor.js';
+export { ExtractFirestoreIndexesHandler } from '../indexes/extractHandler.js';
+export { createFirestoreExtractTool } from '../indexes/extractTool.js';
+export type { ExtractIndexesOptions } from '../indexes/extractHandler.js';
 export type {
   ExtractResult,
   ExtractionWarning,
@@ -34,7 +34,7 @@ export type {
   Fragment as IndexFragment,
   QueryBaseDecl,
   AnnotationApplied,
-} from './indexes/extract/types.js';
+} from '../indexes/extract/types.js';
 export type {
   ApiScope,
   ArrayConfig,
@@ -48,4 +48,4 @@ export type {
   IndexesConfigEntry,
   QueryScope,
   VectorConfig,
-} from './indexes/types.js';
+} from '../indexes/types.js';

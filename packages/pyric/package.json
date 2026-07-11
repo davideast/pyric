@@ -50,25 +50,17 @@
       "types": "./dist/firestore-values/index.d.ts",
       "import": "./dist/firestore-values/index.js"
     },
-    "./rules/node": {
-      "types": "./dist/rules/node.d.ts",
-      "import": "./dist/rules/node.js"
+    "./rules/internal": {
+      "types": "./dist/rules/internal/index.d.ts",
+      "import": "./dist/rules/internal/index.js"
     },
-    "./rules/extract": {
-      "types": "./dist/rules/extract.d.ts",
-      "import": "./dist/rules/extract.js"
+    "./rules/internal/node": {
+      "types": "./dist/rules/internal/node.d.ts",
+      "import": "./dist/rules/internal/node.js"
     },
-    "./rules/rtdb": {
-      "types": "./dist/rules/rtdb.d.ts",
-      "import": "./dist/rules/rtdb.js"
-    },
-    "./rules/rtdb/constraints": {
-      "types": "./dist/database/constraints/index.d.ts",
-      "import": "./dist/database/constraints/index.js"
-    },
-    "./rules/rtdb-constraints": {
-      "types": "./dist/database/constraints/index.d.ts",
-      "import": "./dist/database/constraints/index.js"
+    "./rules/internal/extract": {
+      "types": "./dist/rules/internal/extract.d.ts",
+      "import": "./dist/rules/internal/extract.js"
     },
     "./sandbox": {
       "types": "./dist/sandbox/index.d.ts",

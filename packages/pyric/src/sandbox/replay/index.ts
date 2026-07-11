@@ -57,7 +57,7 @@ import {
   type WriteSandboxEvent,
 } from '../index.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
-import { Timestamp } from 'pyric/rules';
+import { Timestamp } from '../../rules/internal/index.js';
 
 type DocData = Record<string, unknown>;
 

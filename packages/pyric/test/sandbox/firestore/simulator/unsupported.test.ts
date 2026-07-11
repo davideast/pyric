@@ -10,7 +10,7 @@
  * evaluation AND no other rule allowed (OR semantics still gives ALLOW priority).
  */
 import { describe, test, expect } from 'bun:test';
-import { SimulateFirestoreRulesHandler } from 'pyric/rules';
+import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 
 const handler = new SimulateFirestoreRulesHandler();
 

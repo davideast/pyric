@@ -20,7 +20,7 @@ import { describe, test, expect } from 'bun:test';
 import { userTimestampConverter, KEEP } from 'pyric/sandbox/internal';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
 import { LocalState } from 'pyric/sandbox/internal';
-import { Timestamp as InternalTimestamp } from 'pyric/rules';
+import { Timestamp as InternalTimestamp } from 'pyric/rules/internal';
 import { Timestamp as CompatTimestamp } from '../../../src/sandbox/firestore/admin-compat/types.js';
 import { createCompatFirestore } from '../../../src/sandbox/firestore/admin-compat/index.js';
 

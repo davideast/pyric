@@ -8,8 +8,8 @@ import {
   defineRtdbRules,
   parseExpression,
   RtdbMapper,
-} from '../../src/rules/rtdb.js';
-import type { RtdbHost } from '../../src/rules/rtdb.js';
+} from '../../src/rules/internal/rtdb.js';
+import type { RtdbHost } from '../../src/rules/internal/rtdb.js';
 
 function host(): RtdbHost {
   return {
