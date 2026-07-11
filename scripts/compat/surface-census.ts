@@ -9,6 +9,17 @@
  *   2. DENIED   — listed in scripts/compat/surface-denylist.ts with a reason, or
  *   3. UNMAPPED — a genuine gap. Any UNMAPPED symbol fails the gate (exit 1).
  *
+ * The deny-list itself is also checked for two decay classes, both FATAL —
+ * an out-of-date deny-list is worse than no deny-list, since it hides real
+ * drift behind a stale reason:
+ *   - STALE     — the deny-listed symbol is no longer exported upstream at
+ *                 all (the entry denies nothing real anymore).
+ *   - REDUNDANT — the deny-listed symbol IS mirrored (the denial was never
+ *                 dropped after the gap was closed; see 'beforeAuthStateChanged'
+ *                 for the shape of this mistake).
+ * Any STALE or REDUNDANT entry fails the gate (exit 1) in both summary and
+ * --json modes, alongside (not instead of) the existing UNMAPPED failure.
+ *
  * Extra mirror-side exports (pyric-only APIs — sandbox helpers, admin tools,
  * rules schemas, …) are reported informationally and NEVER fail the run.
  *
@@ -150,7 +161,7 @@ function printSummary(censuses: SurfaceCensus[]): void {
 
   const staleOrRedundant = censuses.filter((c) => c.staleDenials.length > 0 || c.redundantDenials.length > 0);
   if (staleOrRedundant.length > 0) {
-    console.log('\n## Deny-list warnings (non-fatal)\n');
+    console.log('\n## Deny-list decay (FATAL)\n');
     for (const c of staleOrRedundant) {
       if (c.staleDenials.length > 0) console.log(`- ${c.surface}: stale (not upstream) — ${c.staleDenials.join(', ')}`);
       if (c.redundantDenials.length > 0) console.log(`- ${c.surface}: redundant (mirrored) — ${c.redundantDenials.join(', ')}`);
@@ -166,10 +177,11 @@ async function main(): Promise<void> {
   for (const pair of mirrorPairs) censuses.push(await censusForPair(pair));
 
   const totalUnmapped = censuses.reduce((n, c) => n + c.unmapped.length, 0);
+  const totalStaleOrRedundant = censuses.reduce((n, c) => n + c.staleDenials.length + c.redundantDenials.length, 0);
 
   if (wantJson) {
-    console.log(JSON.stringify({ surfaces: censuses, totalUnmapped }, null, 2));
-    process.exit(totalUnmapped > 0 ? 1 : 0);
+    console.log(JSON.stringify({ surfaces: censuses, totalUnmapped, totalStaleOrRedundant }, null, 2));
+    process.exit(totalUnmapped > 0 || totalStaleOrRedundant > 0 ? 1 : 0);
   }
 
   if (wantReport) {
@@ -178,11 +190,16 @@ async function main(): Promise<void> {
   }
   printSummary(censuses);
 
+  if (totalStaleOrRedundant > 0) {
+    console.log(`\n✗ ${totalStaleOrRedundant} stale or redundant deny-list entr${totalStaleOrRedundant === 1 ? 'y' : 'ies'}. A stale entry denies a symbol no longer exported upstream; a redundant entry denies a symbol that IS mirrored. Remove them from scripts/compat/surface-denylist.ts.`);
+  }
   if (totalUnmapped > 0) {
     console.log(`\n✗ ${totalUnmapped} unmapped upstream symbol(s). Mirror them, or add a deny-list entry with a reason in scripts/compat/surface-denylist.ts.`);
+  }
+  if (totalUnmapped > 0 || totalStaleOrRedundant > 0) {
     process.exit(1);
   }
-  console.log('\n✓ Every upstream export is mapped or deny-listed.');
+  console.log('\n✓ Every upstream export is mapped or deny-listed, and the deny-list is clean.');
   process.exit(0);
 }
 

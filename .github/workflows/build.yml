@@ -77,6 +77,15 @@ jobs:
         # (pyric/* → dist), so dist must exist first.
         run: bun run scripts/oracle/check-observations.ts
 
+      - name: Conformance graph integrity
+        # Validates the compat registry, ratchets surface-census.ts's UNMAPPED
+        # gaps against scripts/compat/census-baseline.json (failing on any NEW
+        # gap or any stale/redundant deny-list entry — see census-gate.ts),
+        # and checks the generated COMPAT.md docs haven't drifted from the
+        # registry source. Runs after the build: surface-census imports the
+        # built pyric/* packages, so dist must exist first.
+        run: bun run compat:validate && bun run compat:census-gate && bun run scripts/compat/generate-docs.ts --check
+
       - name: Compat coverage gate (surface + behavior %, regression-only)
         # Runs scripts/compat/coverage.ts, which combines surface-census.ts
         # (mirrored SDK exports / SDK exports) and the compat ledger

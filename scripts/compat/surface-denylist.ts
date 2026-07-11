@@ -94,13 +94,12 @@ const appDenials: DenyEntry[] = [
 // (intentionally NOT shimmed)").
 //
 // Policy: essentially ALL of auth's remaining gaps are intended and buildable
-// via the resolver/mock pattern already proven for OAuth sign-in, or (for
-// beforeAuthStateChanged) a sandbox sync-hook that is intended and planned.
-// The genuine OUT_OF_SCOPE set for auth is therefore EMPTY — every entry
-// below is DEFERRED. `updateEmail`, `updatePassword`, `updatePhoneNumber`
-// (partially — see note), `deleteUser`, `reload`, and `useDeviceLanguage`
-// were REMOVED from this file entirely: they are implemented, so they no
-// longer belong on a deny-list at all.
+// via the resolver/mock pattern already proven for OAuth sign-in. The genuine
+// OUT_OF_SCOPE set for auth is therefore EMPTY — every entry below is
+// DEFERRED. `updateEmail`, `updatePassword`, `updatePhoneNumber` (partially —
+// see note), `deleteUser`, `reload`, `useDeviceLanguage`, and
+// `beforeAuthStateChanged` were REMOVED from this file entirely: they are
+// implemented, so they no longer belong on a deny-list at all.
 const authDenials: DenyEntry[] = [
   ...deny('auth', 'deferred', 'Account linking is non-trivial auth state; deferred, not out of scope — buildable via the same resolver/mock pattern already used for OAuth sign-in (auth deny-list: linkWith* / unlink).', [
     'linkWithCredential', 'linkWithPopup', 'linkWithRedirect', 'unlink',
@@ -124,11 +123,8 @@ const authDenials: DenyEntry[] = [
     'signInWithPhoneNumber', 'linkWithPhoneNumber', 'reauthenticateWithPhoneNumber',
     'RecaptchaVerifier', 'initializeRecaptchaConfig',
   ]),
-  ...deny('auth', 'deferred', 'Blocking middleware — a sandbox sync-hook to support this is intended and planned; not out of scope (auth deny-list: beforeAuthStateChanged).', [
-    'beforeAuthStateChanged',
-  ]),
-  // useDeviceLanguage, deleteUser, and reload are now mirrored (see
-  // registry/auth.ts) and are intentionally NOT deny-listed.
+  // useDeviceLanguage, deleteUser, reload, and beforeAuthStateChanged are now
+  // mirrored (see registry/auth.ts) and are intentionally NOT deny-listed.
 ];
 
 // ── firebase/firestore → pyric/firestore ──────────────────────────────────

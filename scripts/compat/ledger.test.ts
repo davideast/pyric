@@ -5,6 +5,8 @@ import { allCompatibilityRows, observationExceptions, surfaceDescriptors, surfac
 import { renderAllCompatibilityMarkdown } from './generate-docs.ts';
 import { loadObservations, REPO_ROOT } from './ledger.ts';
 import { validateCompatibilityRegistry } from './validate-registry.ts';
+import { loadRigManifests } from '../oracle/rigs/load.ts';
+import type { RigManifest } from '../oracle/rigs/types.ts';
 
 describe('single-source compatibility registry', () => {
   test('contains explicit rows for all major surfaces', () => {
@@ -118,5 +120,138 @@ describe('single-source compatibility registry', () => {
     const docs = renderAllCompatibilityMarkdown();
     expect(docs.size).toBe(surfaceRegistries.length);
     expect(docs.get('packages/pyric/docs/auth/COMPAT.md')).toContain('Generated from scripts/compat/registry/*.ts');
+  });
+
+  test('every observation internal name matches its filename minus .json', () => {
+    const observations = loadObservations();
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations,
+      observationExceptions,
+    });
+    expect(problems.some((problem) => problem.includes('does not match filename'))).toBe(false);
+  });
+
+  test('surfaces an observation whose internal name has drifted from its filename', () => {
+    const observations = loadObservations().map((obs) =>
+      obs.name === 'auth-createUser-operationType' ? { ...obs, name: 'auth-createUser-operationType-drifted' } : obs,
+    );
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations,
+      observationExceptions,
+    });
+    expect(problems.some((problem) => problem.includes("internal name 'auth-createUser-operationType-drifted' does not match filename"))).toBe(true);
+  });
+});
+
+describe('oracle rig manifests', () => {
+  test('every checked-in rig manifest validates cleanly', async () => {
+    const rigManifests = await loadRigManifests();
+    expect(rigManifests.length).toBeGreaterThanOrEqual(4);
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      rigManifests,
+    });
+    expect(problems).toEqual([]);
+  });
+
+  test('surfaces a rig manifest whose script is missing', async () => {
+    const rigManifests = await loadRigManifests();
+    const broken: RigManifest[] = rigManifests.map((m) =>
+      m.id === 'admin-app' ? { ...m, script: 'scripts/oracle/does-not-exist.ts' } : m,
+    );
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      rigManifests: broken,
+    });
+    expect(problems.some((p) => p.includes("script 'scripts/oracle/does-not-exist.ts' is missing"))).toBe(true);
+  });
+
+  test('surfaces a rig manifest prefix the registry does not recognize', async () => {
+    const rigManifests = await loadRigManifests();
+    const broken: RigManifest[] = rigManifests.map((m) =>
+      m.id === 'admin-app' ? { ...m, observationPrefixes: [...m.observationPrefixes, 'not-a-real-prefix-'] } : m,
+    );
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      rigManifests: broken,
+    });
+    expect(problems.some((p) => p.includes("observation prefix 'not-a-real-prefix-' is not a recognized surface descriptor prefix"))).toBe(true);
+  });
+
+  test('surfaces a rig manifest prefix with zero matching observations', async () => {
+    const rigManifests = await loadRigManifests();
+    // 'storage-' is a real, registry-recognized prefix, but declaring it on the
+    // admin-app rig (which owns none of those files) proves the "prefix must
+    // match at least one observation" check without inventing a fake prefix.
+    const broken: RigManifest[] = rigManifests.map((m) =>
+      m.id === 'admin-app' ? { ...m, observationPrefixes: ['this-prefix-matches-nothing-'] } : m,
+    );
+    // Recognize the synthetic prefix at the descriptor level too, isolating
+    // this test to the "matches no observation file" check alone.
+    const descriptorsWithSyntheticPrefix = [
+      ...surfaceDescriptors,
+      { ...surfaceDescriptors[0]!, observationPrefix: 'this-prefix-matches-nothing-' },
+    ];
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: descriptorsWithSyntheticPrefix,
+      observations: loadObservations(),
+      observationExceptions,
+      rigManifests: broken,
+    });
+    expect(problems.some((p) => p.includes("observation prefix 'this-prefix-matches-nothing-' matches no observation file"))).toBe(true);
+  });
+
+  test('surfaces an observation file matching no rig manifest prefix', async () => {
+    const rigManifests = await loadRigManifests();
+    // Narrow admin-app's manifest to a prefix that matches none of the real
+    // admin-app-*.json files, so those files fall through with no owner.
+    const narrowed: RigManifest[] = rigManifests.map((m) =>
+      m.id === 'admin-app' ? { ...m, observationPrefixes: ['admin-app-nonexistent-'] } : m,
+    );
+    const descriptorsWithSyntheticPrefix = [
+      ...surfaceDescriptors,
+      { ...surfaceDescriptors[0]!, observationPrefix: 'admin-app-nonexistent-' },
+    ];
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: descriptorsWithSyntheticPrefix,
+      observations: loadObservations(),
+      observationExceptions,
+      rigManifests: narrowed,
+    });
+    expect(problems.some((p) => p.includes("admin-app-deleteapp.json: does not match any rig manifest's observation prefix"))).toBe(true);
+  });
+
+  test('surfaces an ambiguous longest-prefix match across two different rigs', async () => {
+    const rigManifests = await loadRigManifests();
+    // Fabricate a second rig manifest that also claims the 'admin-app-' prefix
+    // real admin-app-*.json files use — two DIFFERENT rigs owning the same
+    // prefix is exactly the ambiguity this check exists to catch.
+    const impostor: RigManifest = {
+      ...rigManifests.find((m) => m.id === 'admin-app')!,
+      id: 'admin-app-impostor',
+    };
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      rigManifests: [...rigManifests, impostor],
+    });
+    expect(problems.some((p) => p.includes('ambiguous longest-prefix match across rigs'))).toBe(true);
   });
 });
