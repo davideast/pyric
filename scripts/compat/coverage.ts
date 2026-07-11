@@ -257,7 +257,7 @@ function buildReport(): CoverageReport {
  * surface-denylist.ts for the full reasoning behind each entry.
  */
 const SCOPE_NOTES: Record<Surface, string> = {
-  ai: 'V1 scope is the core REST plane (getAI/generateContent/streaming/chat/function-calling/countTokens); every in-scope export is mirrored. Out of scope: Imagen (deprecated, retiring upstream), the Live API websocket protocol, server-hosted templates, and browser-only hybrid inference — none has an in-process REST-plane analogue. Deferred: none.',
+  ai: 'V1 scope is the core REST plane (getAI/generateContent/streaming/chat/function-calling/countTokens); every in-scope export is mirrored. Out of scope: Imagen only (deprecated, June 2026 shutdown upstream), including its template-served models. Deferred: the Live API family, server-side templates, and hybrid/on-device inference — intended and buildable through existing sandbox seams, counted as coverage debt.',
   auth: 'out of scope: none (internal plumbing only) — every remaining gap (linking, reauth, MFA/phone/reCAPTCHA, email-link) is deferred, buildable via the resolver/mock pattern already proven for OAuth sign-in.',
   firestore: 'out of scope: internal plumbing only. Deferred: bundle-loading, cache index-tuning knobs.',
   rtdb: 'out of scope: internal plumbing only. Deferred: onDisconnect (no live socket in an in-memory sandbox today), legacy priority ordering.',

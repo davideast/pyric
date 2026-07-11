@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-07-11T21:54:48.099Z",
+  "generatedAt": "2026-07-11T21:56:42.078Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
         "total": 69.1,
-        "intended": 100
+        "intended": 80.9
       }
     },
     "auth": {
@@ -47,7 +47,7 @@
   "overall": {
     "surfaceCoveragePct": {
       "total": 54.5,
-      "intended": 63.9
+      "intended": 62
     }
   },
   "rowStatuses": {
