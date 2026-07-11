@@ -18,6 +18,7 @@ To check the whole system is coherent:
 bun run compat:validate    # registry/observation linkage — must report 0 problems
 bun run compat:report      # coverage inventory (rows, statuses, evidence counts)
 bun run compat:audit       # high-risk conforming rows lacking evidence, vs the ratchet baseline
+bun run compat:coverage    # published surface + behavior coverage %, vs the regression baseline
 ```
 
 To check the generated docs match the registry:
@@ -138,6 +139,63 @@ file it as a registry gap. Extra Pyric-only exports are reported
 informationally and never fail. The census is not yet wired into CI — it
 still reports unmapped symbols from its first run.
 
+## Run the compatibility coverage report
+
+```sh
+bash scripts/build.sh      # coverage's surface census imports the built pyric/* packages
+bun run compat:coverage
+```
+
+This is Pyric's published compatibility number. It computes, per service
+(auth, firestore, rtdb, rtdb-modular, storage) and overall, two axes:
+
+- **Surface coverage** — mirrored SDK exports / SDK exports
+  (`scripts/compat/surface-census.ts`). This is the HEADLINE metric: "will my
+  app's calls exist against the mirror."
+- **Behavior conformance** — `conforms` registry rows / evaluated rows
+  (the ledger in `scripts/compat/ledger.ts`). This is the second line: "and
+  if they exist, do they behave like prod." `diverged-documented` and
+  `unverified` rows are reported separately and are never folded into
+  `conforms` — folding them in would inflate the number without changing
+  what is actually true.
+
+Each axis is reported on two scopes:
+
+- `total` — over every export / row, no exclusions.
+- `intended` — `total` minus what is *deliberately* out of scope: exports
+  listed in `scripts/compat/surface-denylist.ts` (surface axis), and rows
+  with `status: 'unsupported'` (behavior axis). `intended` is the honest
+  denominator for "of what pyric claims to support, how much works" — it
+  does not count things pyric never promised to mirror as failures.
+
+`bun run compat:coverage` also diffs the result against the committed
+`scripts/compat/coverage-baseline.json` and **fails only on regression**:
+
+- a row that was `conforms` flipping to `bug` / `diverged-documented` /
+  `unverified` / `unsupported` (or disappearing from the registry),
+- a service's or overall surface-coverage % dropping,
+- a NEW orphan observation appearing,
+- the high-risk-unverified count increasing.
+
+It never fails for being below an absolute percentage. A threshold gate
+invites relabeling rows `conforms` just to clear the bar — that is the exact
+dishonesty this system exists to prevent (see the `intended`-scope note
+above and `docs/conformance/`'s evidence-flows-in-only rule). The gate
+protects a number that was true from silently stopping being true; it does
+not police how high the number is.
+
+When a PR makes a legitimate, evidence-backed change to coverage (a new
+`diverged-documented` row from a real divergence, a newly-scoped-out export,
+a fixed row moving to `conforms`), update the baseline in the same PR:
+
+```sh
+bun run compat:coverage --update-baseline
+git add scripts/compat/coverage-baseline.json
+```
+
+CI runs `compat:coverage` after the build step, publishes the table to the
+job summary, and fails the `build-and-test` job on any regression above.
+
 ## Run the live rules parity packs
 
 Requires the `PARITY_SA_BASE64` secret (a service account holding only
@@ -165,6 +223,7 @@ bun run compat:generate && git diff --exit-code packages/pyric/docs
 bun run compat:oracle-versions
 bun run compat:oracle-check
 bun run compat:audit
+bun run compat:coverage
 bun run test:packaging
 bash scripts/install-matrix.sh npm && bash scripts/install-matrix.sh pnpm && bash scripts/install-matrix.sh bun
 ```
