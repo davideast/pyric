@@ -3,10 +3,10 @@
  * Admin app-registry oracle runner.
  *
  * Reconstructs the rig behind the 11 committed `admin-app-*` observations
- * (scripts/oracle/observations/admin-app-*.json), captured before this rig
+ * (observations/auth/admin-app-*.json), captured before this rig
  * existed by uncommitted code probing the installed `firebase-admin` package
  * in-process (see commit 9ff75e8's message). Each probe lives in its own file
- * in `scripts/oracle/probes/`, named EXACTLY like the observation it produces
+ * in `probes/auth/`, named EXACTLY like the observation it produces
  * minus the `.json` extension — the filename IS the probe's identity; there
  * is no separate `name` field on either side to drift out of sync.
  *
@@ -14,7 +14,7 @@
  * package's default-app registry: initializeApp variants, getApp/getApps/
  * deleteApp, no-arg accessor resolution (getAuth/getFirestore/getStorage/
  * getDatabase), and FirebaseAppError shapes. No credentials, no project, no
- * network — see `scripts/oracle/rigs/admin-app.ts` for the rig manifest.
+ * network — see `../rigs/admin-app.ts` for the rig manifest.
  *
  * Two modes:
  *   verify (default) — runs every probe in memory, deep-compares its result
@@ -28,8 +28,8 @@
  *     fabricates: `behavior` is exactly what `observe()` returned.
  *
  * Usage:
- *   bun run scripts/oracle/admin-app-probes.ts            # verify
- *   bun run scripts/oracle/admin-app-probes.ts --write     # recapture
+ *   bun run packages/conformance/src/admin-app-probes.ts            # verify
+ *   bun run packages/conformance/src/admin-app-probes.ts --write     # recapture
  */
 import { deleteApp, getApps } from 'firebase-admin/app';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -38,8 +38,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PROBES_DIR = join(HERE, '..', 'probes');
-const OBS_DIR = join(HERE, '..', 'observations');
+// admin-app-* observations and probes both live under the 'auth' surface
+// subdirectory (admin-app- is one of auth's two observation prefixes).
+const PROBES_DIR = join(HERE, '..', 'probes', 'auth');
+const OBS_DIR = join(HERE, '..', 'observations', 'auth');
 const PREFIX = 'admin-app-';
 
 interface LoadedProbe {
@@ -58,7 +60,7 @@ async function loadProbes(): Promise<LoadedProbe[]> {
     const id = file.slice(0, -'.ts'.length);
     const mod = (await import(pathToFileURL(join(PROBES_DIR, file)).href)) as { probe?: Probe };
     if (!mod.probe || typeof mod.probe.observe !== 'function') {
-      throw new Error(`scripts/oracle/probes/${file}: does not export a 'probe' record with an observe() method`);
+      throw new Error(`probes/auth/${file}: does not export a 'probe' record with an observe() method`);
     }
     loaded.push({ id, probe: mod.probe });
   }

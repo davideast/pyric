@@ -38,7 +38,7 @@
  *   bun run scripts/oracle/messaging-web/e2e-sandbox.ts
  *   PYRIC_MSG_E2E_HEADED=1 bun run scripts/oracle/messaging-web/e2e-sandbox.ts
  * Serve-only (a human and their own browser, no automation):
- *   PYRIC_MSG_E2E_SERVE_ONLY=1 bun run scripts/oracle/messaging-web/e2e-sandbox.ts
+ *   PYRIC_MSG_E2E_SERVE_ONLY=1 bun run packages/conformance/src/rigs/messaging-web/e2e-sandbox.ts
  */
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -47,10 +47,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // The REAL pyric dev worker bundle path (imported from pyric-tools SOURCE so
 // the freshly-edited worker host — messaging ops included — is what bundles).
-import { bundleWorker } from '../../../packages/pyric-tools/src/serve/bundler.ts';
+import { bundleWorker } from '../../../../../packages/pyric-tools/src/serve/bundler.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO = join(HERE, '..', '..', '..');
+const REPO = join(HERE, '..', '..', '..', '..', '..');
 const PORT = 4875;
 const DECOY_PORT = 4876;
 const ORIGIN = `http://localhost:${PORT}`;

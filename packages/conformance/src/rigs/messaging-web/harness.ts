@@ -65,7 +65,7 @@
  *   PYRIC_MESSAGING_SA_BASE64        send-capable service account
  *
  * Run (headed browser will open; re-execs under caffeinate automatically):
- *   bun run scripts/oracle/messaging-web/harness.ts
+ *   bun run packages/conformance/src/rigs/messaging-web/harness.ts
  */
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -77,7 +77,7 @@ import type { ServiceAccount } from 'firebase-admin/app';
 import { pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO = join(HERE, '..', '..', '..');
+const REPO = join(HERE, '..', '..', '..', '..', '..');
 
 // ─── caffeinate: wrap EVERY run so the machine cannot sleep mid-capture ───
 // Real push delivery depends on an uninterrupted GCM channel; a display or
@@ -111,7 +111,8 @@ async function loadChromium() {
 }
 const SERVE_ONLY = !!process.env.PYRIC_MSG_SERVE_ONLY;
 const chromium = SERVE_ONLY ? (null as never) : await loadChromium();
-const OBS_DIR = join(HERE, '..', 'observations');
+// messaging-web-* observations belong to the 'messaging' surface.
+const OBS_DIR = join(HERE, '..', '..', '..', 'observations', 'messaging');
 const PORT = 4873;
 const ORIGIN = `http://localhost:${PORT}`;
 
