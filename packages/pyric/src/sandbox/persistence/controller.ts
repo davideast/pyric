@@ -9,7 +9,9 @@
  * every side effect and leaves the sandbox unchanged.
  */
 
-import type { PersistableService, Sandbox, SandboxEvent } from '../types.js';
+import type { SandboxEvent } from '../types/events.js';
+import type { PersistableService } from '../types/persistence.js';
+import type { Sandbox } from '../types/service.js';
 import { SandboxImpl } from '../internal/sandbox-impl.js';
 import { createIndexedDBBackend, createMemoryBackend } from './backends.js';
 import {

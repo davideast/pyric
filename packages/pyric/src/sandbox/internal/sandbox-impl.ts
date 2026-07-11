@@ -19,24 +19,22 @@
  */
 
 import { LocalEnvironment } from '../firestore/local-environment.js';
+import type { AuthState } from '../types/auth-state.js';
+import type { SandboxContext } from '../types/context.js';
+import { SandboxError } from '../types/errors.js';
 import type {
-  AuthState,
   EventProvenance,
   ListenerLifecycleEvent,
-  PersistableService,
-  Sandbox,
-  SandboxAdmin,
-  SandboxContext,
   SandboxCommitEvent,
   SandboxEvent,
   SandboxListenerEvent,
   SandboxOperationEvent,
   SandboxRuntimeErrorEvent,
-  SandboxSnapshot,
   ServiceMutationEvent,
   SessionBoundaryEvent,
-} from '../types.js';
-import { SandboxError } from '../types.js';
+} from '../types/events.js';
+import type { PersistableService, SandboxSnapshot } from '../types/persistence.js';
+import type { Sandbox, SandboxAdmin } from '../types/service.js';
 import { SandboxContextImpl, validateAuthState } from '../sandbox-context.js';
 import {
   attachPersistence,

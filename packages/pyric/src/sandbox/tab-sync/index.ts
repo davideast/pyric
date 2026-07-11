@@ -54,7 +54,9 @@
  * has its own in-process environment analogous to LocalEnvironment.
  */
 
-import type { Sandbox, SandboxSnapshot, WriteSandboxEvent } from '../types.js';
+import type { WriteSandboxEvent } from '../types/events.js';
+import type { SandboxSnapshot } from '../types/persistence.js';
+import type { Sandbox } from '../types/service.js';
 
 // ─── Public types ─────────────────────────────────────────────────────────
 
