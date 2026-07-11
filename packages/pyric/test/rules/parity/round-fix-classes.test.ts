@@ -13,9 +13,10 @@
  *   - RULES-B8  get() of a missing doc errors; get() resource has id/__name__
  *
  * The pack corpus MOVED (conformance-chain consolidation, staging): the 6
- * pack literals now live in
- * `packages/conformance/rules-corpus/firestore/fix-class-packs.ts` and are imported
- * here as `FIX_CLASS_PACKS`. This live-network parity suite is unchanged in
+ * packs now live as one authored record per file under
+ * `packages/conformance/rules-corpus/firestore/` (each pack's `group` field
+ * is `'fix-class'`) and are imported here as `FIX_CLASS_PACKS`, computed by
+ * the corpus loader. This live-network parity suite is unchanged in
  * behavior — it just sources the migrated corpus instead of holding it inline.
  *
  * Per case the assertion is simulator verdict == live Rules-Test-API

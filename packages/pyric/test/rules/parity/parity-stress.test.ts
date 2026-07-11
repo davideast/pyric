@@ -8,10 +8,11 @@
  * `parityScope()` (firebase-admin cert credential from PARITY_SA_BASE64).
  *
  * The pack corpus MOVED (conformance-chain consolidation, staging): the 12
- * pack literals now live in
- * `packages/conformance/rules-corpus/firestore/stress-packs.ts` and are imported
- * here as `STRESS_PACKS`. This live-network parity suite is unchanged in
- * behavior — it just sources the migrated corpus instead of holding it inline.
+ * packs now live as one authored record per file under
+ * `packages/conformance/rules-corpus/firestore/` (each pack's `group` field
+ * is `'stress'`) and are imported here as `STRESS_PACKS`, computed by the
+ * corpus loader. This live-network parity suite is unchanged in behavior —
+ * it just sources the migrated corpus instead of holding it inline.
  *
  * Production is the source of truth. For each case we report:
  *   - OK         : sim agrees with prod and prod matches expected
