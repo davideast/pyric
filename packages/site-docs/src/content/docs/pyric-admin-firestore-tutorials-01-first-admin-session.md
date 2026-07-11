@@ -3,7 +3,7 @@ title: "Your first admin-shaped Firestore session"
 navLabel: "First admin session"
 group: "pyric-admin / firestore"
 section: "Tutorials"
-order: 170
+order: 19002
 ---
 # Your first admin-shaped Firestore session
 

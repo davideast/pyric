@@ -2,7 +2,7 @@
 title: "TestCase schema"
 group: "pyric / rules"
 section: "Reference"
-order: 109
+order: 13017
 ---
 # `TestCase` schema
 

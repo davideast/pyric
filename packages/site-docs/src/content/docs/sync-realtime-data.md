@@ -2,7 +2,7 @@
 title: "Sync realtime data"
 group: "Build"
 section: ""
-order: 6
+order: 2003
 description: "Store and watch a Realtime Database tree locally, model it around your reads, and guard writes with schema and rules checks."
 ---
 

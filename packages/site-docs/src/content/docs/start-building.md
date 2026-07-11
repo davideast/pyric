@@ -3,7 +3,7 @@ title: "Your backend in one command"
 navLabel: "Quickstart"
 group: "Get started"
 section: ""
-order: 2
+order: 1001
 description: "Run a working Firebase backend locally, in a new app or the one you already have."
 ---
 

@@ -3,7 +3,7 @@ title: "Hand your agent the whole backend"
 navLabel: "What your agent can do"
 group: "Work with an agent"
 section: ""
-order: 25
+order: 6002
 description: "Every backend capability, callable as a tool: inspect, query, simulate, shape, ship, verify."
 ---
 

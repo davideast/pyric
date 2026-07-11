@@ -3,7 +3,7 @@ title: "Catch the error before Firebase's opaque 400"
 navLabel: "Simulate and lint before you deploy"
 group: "Secure & debug"
 section: ""
-order: 10
+order: 3002
 description: "Get a rules verdict and a lint report locally, before production answers with an unexplained 400 or 403."
 ---
 

@@ -3,7 +3,7 @@ title: "Prove a user can touch only their own data"
 navLabel: "Security Rules"
 group: "Secure & debug"
 section: ""
-order: 9
+order: 3001
 description: "Write a rule, simulate a request against it, read the verdict, and deploy knowing what it allows."
 ---
 

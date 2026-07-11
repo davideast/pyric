@@ -2,7 +2,7 @@
 title: "How the swap works"
 group: "Get started"
 section: ""
-order: 3
+order: 1002
 description: "Understand how your firebase imports reached a local backend, and why production is untouched."
 ---
 

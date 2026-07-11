@@ -3,7 +3,7 @@ title: "Sign users in and manage them"
 navLabel: "Sign in and manage users"
 group: "Build"
 section: ""
-order: 4
+order: 2001
 description: "Run real auth flows against a local user database, seed test users with claims, and design an identity model your rules can trust."
 ---
 

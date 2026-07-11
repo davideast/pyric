@@ -3,7 +3,7 @@ title: "Write Realtime Database rules in TypeScript"
 navLabel: "RTDB rules in TypeScript"
 group: "Secure & debug"
 section: ""
-order: 15
+order: 3007
 description: "Compose RTDB rules from typed constraints, prove them in-process, and deploy the compiled JSON."
 ---
 

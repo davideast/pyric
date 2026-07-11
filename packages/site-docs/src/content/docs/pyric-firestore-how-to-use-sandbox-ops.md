@@ -3,7 +3,7 @@ title: "How to use sandbox-only operations"
 navLabel: "Use sandbox-only ops"
 group: "pyric / firestore"
 section: "How-to"
-order: 83
+order: 12008
 ---
 # How to use sandbox-only operations
 

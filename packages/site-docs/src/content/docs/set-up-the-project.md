@@ -3,7 +3,7 @@ title: "Stand up the real Firebase project without leaving the terminal"
 navLabel: "Set up the project"
 group: "Ship & test"
 section: ""
-order: 22
+order: 5002
 description: "Enable providers, authorize domains, and provision databases, Storage, and hosting sites from the CLI or a script."
 ---
 

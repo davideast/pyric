@@ -3,7 +3,7 @@ title: "Build your rules from tested parts"
 navLabel: "The rules standard library"
 group: "Secure & debug"
 section: ""
-order: 13
+order: 3005
 description: "Compose security rules from tested modules, with an import system that compiles away before Firebase ever sees it."
 ---
 

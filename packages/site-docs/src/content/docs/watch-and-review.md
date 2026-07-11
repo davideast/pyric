@@ -3,7 +3,7 @@ title: "Watch the agent work, then check it"
 navLabel: "Review agent activity"
 group: "Work with an agent"
 section: ""
-order: 27
+order: 6004
 description: "See every operation your agent performs, live, with the verdict that decided it."
 ---
 

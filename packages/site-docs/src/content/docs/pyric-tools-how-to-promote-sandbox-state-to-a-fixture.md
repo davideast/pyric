@@ -3,7 +3,7 @@ title: "How to promote sandbox state to a committable fixture"
 navLabel: "Promote sandbox state"
 group: "pyric-tools"
 section: "How-to"
-order: 41
+order: 9007
 ---
 # How to promote sandbox state to a committable fixture
 

@@ -3,7 +3,7 @@ title: "Never debug a bare permission-denied again"
 navLabel: "Read a denial and understand it"
 group: "Secure & debug"
 section: ""
-order: 12
+order: 3004
 description: "See which rule denied an operation, on what path, with what data, the moment it happens."
 ---
 

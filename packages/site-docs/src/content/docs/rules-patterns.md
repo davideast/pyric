@@ -3,7 +3,7 @@ title: "The techniques hard rules are built from"
 navLabel: "Rules patterns"
 group: "Secure & debug"
 section: ""
-order: 14
+order: 3006
 description: "Learn the five moves that turn \"rules can't do that\" into a ruleset that deploys."
 ---
 

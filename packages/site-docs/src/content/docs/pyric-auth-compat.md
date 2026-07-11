@@ -3,7 +3,7 @@ title: "pyric/auth compatibility matrix"
 navLabel: "Auth"
 group: "Compatibility"
 section: ""
-order: 31
+order: 8002
 ---
 <!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

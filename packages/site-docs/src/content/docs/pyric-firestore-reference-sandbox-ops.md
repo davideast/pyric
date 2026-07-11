@@ -2,7 +2,7 @@
 title: "Sandbox-only operations"
 group: "pyric / firestore"
 section: "Reference"
-order: 88
+order: 12013
 ---
 # Sandbox-only operations
 
