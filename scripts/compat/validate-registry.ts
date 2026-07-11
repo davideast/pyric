@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { allCompatibilityRows, observationExceptions, surfaceDescriptors, type Automation, type CompatibilityRow, type CompatStatus, type SurfaceDescriptor } from './registry/index.ts';
 import { buildCompatibilityLedger, loadObservations, REPO_ROOT, summarizeLedger, type Observation } from './ledger.ts';
 import { checkGeneratedMarkdown } from './generate-docs.ts';
+import { loadRigManifests } from '../oracle/rigs/load.ts';
+import type { RigManifest } from '../oracle/rigs/types.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -29,6 +31,32 @@ export interface ValidationInput {
   observations: Observation[];
   observationExceptions: Record<string, string>;
   checkMarkdown?: boolean;
+  /** Oracle rig manifests (scripts/oracle/rigs/*.ts, loaded via load.ts). Optional
+   *  so existing tests that don't exercise rig-manifest wiring don't need to
+   *  thread it through; the real compat:validate entry point always passes it. */
+  rigManifests?: RigManifest[];
+}
+
+/** All (manifest, prefix) pairs whose prefix is a longest match for `filename`
+ *  among every manifest's observationPrefixes. Longest-prefix match decides
+ *  ownership (e.g. 'rtdb-modular-foo.json' matches both 'rtdb-' and
+ *  'rtdb-modular-'; the longer one wins). More than one manifest id in the
+ *  result means the match is ambiguous. */
+function longestPrefixOwners(filename: string, manifests: RigManifest[]): { manifestId: string; prefix: string }[] {
+  let maxLen = -1;
+  let matches: { manifestId: string; prefix: string }[] = [];
+  for (const manifest of manifests) {
+    for (const prefix of manifest.observationPrefixes) {
+      if (!filename.startsWith(prefix)) continue;
+      if (prefix.length > maxLen) {
+        maxLen = prefix.length;
+        matches = [{ manifestId: manifest.id, prefix }];
+      } else if (prefix.length === maxLen) {
+        matches.push({ manifestId: manifest.id, prefix });
+      }
+    }
+  }
+  return matches;
 }
 
 export function validateCompatibilityRegistry(input: ValidationInput): string[] {
@@ -108,6 +136,11 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     }
     const descriptor = input.descriptors.find((d) => d.observationPrefix && obs.file.startsWith(d.observationPrefix));
     if (!descriptor) problems.push(`${obs.file}: filename does not start with a known surface observation prefix`);
+    // The observation's own internal `name` field must equal its filename
+    // minus `.json` — the filename IS the canonical identity (probes key off
+    // it too), so a drifted `name` field would silently desync the two.
+    const expectedName = obs.file.replace(/\.json$/, '');
+    if (obs.name !== expectedName) problems.push(`${obs.file}: internal name '${obs.name}' does not match filename ('${expectedName}')`);
     if (input.observationExceptions[obs.name]) continue;
     if (!referencedObservations.has(obs.name)) problems.push(`${obs.file}: observation is not referenced by a registry row`);
     if (obs.rowIds.length === 0) problems.push(`${obs.file}: observation has no rowIds`);
@@ -115,6 +148,49 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
 
   for (const exception of Object.keys(input.observationExceptions)) {
     if (!observationNames.has(exception)) problems.push(`observation exception '${exception}' does not match an observation file`);
+  }
+
+  // ── Oracle rig manifests (scripts/oracle/rigs/*.ts) ───────────────────────
+  // Optional input so tests that don't exercise rig-manifest wiring don't
+  // need to thread it through; the real compat:validate entry point below
+  // always passes it, so these checks are CI-enforced.
+  if (input.rigManifests) {
+    const manifests = input.rigManifests;
+    const descriptorPrefixes = new Set(input.descriptors.map((d) => d.observationPrefix));
+    const observationFiles = input.observations.map((obs) => obs.file);
+
+    for (const manifest of manifests) {
+      if (!existsSync(join(REPO_ROOT, manifest.script))) {
+        problems.push(`rig '${manifest.id}': script '${manifest.script}' is missing`);
+      }
+      for (const prefix of manifest.observationPrefixes) {
+        // The registry (scripts/compat/registry/index.ts) stays the
+        // authority on which prefixes are recognized surface observation
+        // prefixes; a rig manifest cannot invent one the registry doesn't know.
+        if (!descriptorPrefixes.has(prefix)) {
+          problems.push(`rig '${manifest.id}': observation prefix '${prefix}' is not a recognized surface descriptor prefix (scripts/compat/registry/index.ts)`);
+        }
+        // Every declared prefix must actually produce something. No
+        // pendingPrefixes escape hatch exists today because every current
+        // prefix already has at least one observation — prefer failing over
+        // adding one preemptively.
+        if (!observationFiles.some((file) => file.startsWith(prefix))) {
+          problems.push(`rig '${manifest.id}': observation prefix '${prefix}' matches no observation file`);
+        }
+      }
+    }
+
+    for (const obs of input.observations) {
+      const owners = longestPrefixOwners(obs.file, manifests);
+      if (owners.length === 0) {
+        problems.push(`${obs.file}: does not match any rig manifest's observation prefix`);
+        continue;
+      }
+      const distinctManifests = new Set(owners.map((o) => o.manifestId));
+      if (distinctManifests.size > 1) {
+        problems.push(`${obs.file}: ambiguous longest-prefix match across rigs (${[...distinctManifests].join(', ')})`);
+      }
+    }
   }
 
   if (input.checkMarkdown) problems.push(...checkGeneratedMarkdown());
@@ -125,12 +201,14 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
 if (import.meta.main) {
   const ledger = buildCompatibilityLedger();
   const summary = summarizeLedger(ledger);
+  const rigManifests = await loadRigManifests();
   const problems = validateCompatibilityRegistry({
     rows: allCompatibilityRows,
     descriptors: surfaceDescriptors,
     observations: loadObservations(),
     observationExceptions,
     checkMarkdown: true,
+    rigManifests,
   });
 
   const wantJson = process.argv.includes('--json');
