@@ -158,9 +158,12 @@ tabs frees the browser's per-origin connection pool.
 **Sign-in.** Email/password, anonymous, and provider popup/redirect
 (`signInWithPopup`/`signInWithRedirect`) all work over the worker: the picker
 runs in the page and the identity is handed to the worker, and the session is
-shared across tabs. `signInWithCredential` and `or()`/`and()` composite queries
-aren't supported over the worker yet (they raise a clear error); both work on
-the in-page fallback.
+shared across tabs. `or()`/`and()` composite queries work over the worker too:
+the composite filter tree (including nested `and`/`or`/`where` and composition
+with `orderBy`/`limit`) crosses the worker protocol and evaluates against the
+one shared sandbox, matching the in-page result. `signInWithCredential` isn't
+supported over the worker yet (it raises a clear error); it works on the
+in-page fallback.
 
 ## The flags this guide uses
 
