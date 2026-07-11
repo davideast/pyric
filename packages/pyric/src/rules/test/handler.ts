@@ -4,11 +4,13 @@ import type {
   ExpressionReportLevel,
   RulesTestApiResultDetails,
   RulesTestIssue,
+  StorageApiTestCase,
+  StorageTestCase,
   TestCase,
   TestFirestoreRulesResult,
   TestResult,
 } from './spec.js';
-import { buildApiTestCase } from './spec.js';
+import { buildApiTestCase, buildStorageApiTestCase } from './spec.js';
 
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 
@@ -139,6 +141,113 @@ export class TestFirestoreRulesHandler {
           passed,
           failed,
           unsupported,
+          results,
+          ...(data.issues ? { issues: data.issues } : {}),
+        },
+      };
+    } catch (e) {
+      return {
+        success: false,
+        error: { code: 'FETCH_FAILED', message: e instanceof Error ? e.message : String(e), recoverable: false },
+      };
+    }
+  }
+}
+
+/**
+ * Firebase Rules Test API client for `service firebase.storage` rulesets.
+ *
+ * A near-mirror of {@link TestFirestoreRulesHandler}: it POSTs to the SAME
+ * `projects.test` endpoint (live-confirmed to accept Storage rulesets), but
+ * uses {@link buildStorageApiTestCase} for the wire shape and a `storage.rules`
+ * source filename. The result envelope is identical, so the oracle capture
+ * runner and any caller can treat Firestore and Storage rule tests uniformly.
+ */
+export class TestStorageRulesHandler {
+  async execute(
+    scope: ProjectScope,
+    source: string,
+    testCases: StorageTestCase[],
+  ): Promise<TestFirestoreRulesResult> {
+    try {
+      const token = await scope.resolveToken();
+
+      const apiTestCases: StorageApiTestCase[] = testCases.map(buildStorageApiTestCase);
+
+      const res = await fetch(`${RULES_API}/projects/${scope.projectId}:test`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          source: { files: [{ name: 'storage.rules', content: source }] },
+          testSuite: { testCases: apiTestCases },
+        }),
+      });
+
+      if (res.status === 403) {
+        return {
+          success: false,
+          error: { code: 'PERMISSION_DENIED', message: 'Service account lacks permission to test Storage rules', recoverable: false },
+        };
+      }
+
+      if (res.status === 400) {
+        const body = await res.text().catch(() => '');
+        return {
+          success: false,
+          error: { code: 'INVALID_REQUEST', message: `Invalid request: ${body}`, recoverable: true },
+        };
+      }
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return {
+          success: false,
+          error: { code: 'FETCH_FAILED', message: `Rules test failed: ${res.status} ${body}`, recoverable: false },
+        };
+      }
+
+      const data = await res.json() as {
+        issues?: RulesTestIssue[];
+        testResults?: ApiTestResult[];
+      };
+
+      if (data.issues && data.issues.length > 0 && (!data.testResults || data.testResults.length === 0)) {
+        const messages = data.issues.map(i => i.description).join('; ');
+        return {
+          success: false,
+          error: { code: 'RULES_ERROR', message: messages, recoverable: true },
+        };
+      }
+
+      const testResults = data.testResults ?? [];
+      const results: TestResult[] = testCases.map((tc, i) => {
+        const apiResult = testResults[i];
+        const state: 'PASSED' | 'FAILED' = apiResult?.state === 'SUCCESS' ? 'PASSED' : 'FAILED';
+        const decision: 'ALLOW' | 'DENY' = state === 'PASSED' ? tc.expectation : oppositeOf(tc.expectation);
+        const details = apiDetails(apiResult);
+        return {
+          description: tc.description,
+          expectation: tc.expectation,
+          state,
+          decision,
+          trace: [],
+          notes: apiResult?.debugMessages ?? [],
+          ...(details ? { api: details } : {}),
+        };
+      });
+
+      const passed = results.filter(r => r.state === 'PASSED').length;
+      const failed = results.filter(r => r.state === 'FAILED').length;
+
+      return {
+        success: true,
+        data: {
+          passed,
+          failed,
+          unsupported: 0,
           results,
           ...(data.issues ? { issues: data.issues } : {}),
         },

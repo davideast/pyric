@@ -455,6 +455,178 @@ export function buildApiTestCase(tc: TestCase, opts: BuildApiTestCaseOptions = {
   return result;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Storage rules test surface
+// ═══════════════════════════════════════════════════════════════
+//
+// Storage rules ride the SAME `projects.test` endpoint as Firestore
+// (live-confirmed against firebaserules.googleapis.com/v1/projects/<p>:test),
+// but the request shape is Storage-shaped, not Firestore-shaped:
+//   - the ruleset header is `service firebase.storage`
+//   - the path is a resource name `/b/{bucket}/o/{object}` (NOT the
+//     `/databases/(default)/documents/...` Firestore prefix)
+//   - `method` is a short verb (get/list/create/update/delete)
+//   - `resource` carries `size`/`contentType`/`metadata` directly, with no
+//     `.data` wrapper (production tolerates `size` as a string too)
+//   - cross-service function mocks use the QUALIFIED names `firestore.get` /
+//     `firestore.exists` (Firestore-internal mocks use the bare `get`/`exists`);
+//     and — same fix as `buildFunctionMock` — an `exists()` mock must send a
+//     bool `{ value: true/false }`, never a map, or the API rejects it and the
+//     mock silently resolves to DENY.
+//
+// These builders live BESIDE the Firestore ones and share nothing mutable with
+// them, so adding the Storage surface can't regress Firestore.
+
+/** The rules methods a Storage test case may exercise — short verbs only.
+ *  The coarse umbrellas (`read`/`write`) are a GRANT-side vocabulary; a
+ *  request is always one precise granular verb. */
+export const STORAGE_TEST_METHODS = ['get', 'list', 'create', 'update', 'delete'] as const;
+export type StorageTestMethod = (typeof STORAGE_TEST_METHODS)[number];
+
+/** Default bucket used when a case omits one. The bucket name is opaque to
+ *  the rules engine (matched by the `{bucket}` path param), so any stable
+ *  value works; keep it constant so observation paths are reproducible. */
+export const DEFAULT_STORAGE_BUCKET = 'demo-pyric.appspot.com';
+
+/** `request.resource.*` / `resource.*` binding shape the Storage rules
+ *  language sees: object size, content type, and custom metadata. */
+export interface StorageResourceShape {
+  size?: number;
+  contentType?: string;
+  metadata?: Record<string, string>;
+}
+
+export const StorageFunctionMockSchema = z.object({
+  function: z.enum(['get', 'exists']).describe('Cross-service Firestore function to mock'),
+  path: z.string().describe('Firestore document path in collection/doc form, e.g. "users/alice"'),
+  result: z.union([z.record(z.unknown()), z.boolean()]).describe('Document fields for get, boolean for exists'),
+});
+export type StorageFunctionMock = z.infer<typeof StorageFunctionMockSchema>;
+
+/**
+ * A single Storage rules conformance case. Mirrors the Firestore {@link TestCase}
+ * but with the Storage request shape. `path` is the OBJECT path within the
+ * bucket (e.g. `"images/alice.png"`); `normalizeStoragePath` lifts it to the
+ * `/b/{bucket}/o/{object}` resource name that BOTH the production API and the
+ * in-process evaluator match against.
+ */
+export interface StorageTestCase {
+  description: string;
+  expectation: 'ALLOW' | 'DENY';
+  method: StorageTestMethod;
+  /** Object path within the bucket, e.g. `"images/alice.png"`. */
+  path: string;
+  /** Bucket name; defaults to {@link DEFAULT_STORAGE_BUCKET}. */
+  bucket?: string;
+  /** Auth context; `null`/omitted for anonymous. */
+  auth?: TestIdentity | null;
+  /** `request.resource` — the about-to-write object (writes only). */
+  resource?: StorageResourceShape;
+  /** `resource` — the existing object. `null`/omitted means no object yet
+   *  (the create case), which the evaluator reads as `resource == null`. */
+  existingResource?: StorageResourceShape | null;
+  /** Override for `request.time` (ISO-8601). Set whenever the rule reads
+   *  `request.time`, so date-gated cases are deterministic. */
+  requestTime?: string;
+  /** Cross-service `firestore.get()/exists()` mocks. */
+  functionMocks?: StorageFunctionMock[];
+  /**
+   * Marks a case whose in-process EVALUATOR verdict is KNOWN to diverge from
+   * production because the evaluator does not implement the feature the rule
+   * uses (e.g. `resource.timeCreated`). The capture still records production's
+   * real verdict; the replay suite records but does NOT assert these, exactly
+   * as the Firestore replay skips its simulator's `UNSUPPORTED` abstentions.
+   * The string is the reason, for the record.
+   */
+  knownGap?: string;
+}
+
+export interface StorageApiFunctionMock {
+  /** QUALIFIED cross-service name: `firestore.get` / `firestore.exists`. */
+  function: string;
+  args: Array<{ exactValue: string }>;
+  result: { value: { data: Record<string, unknown> } } | { value: boolean } | undefined;
+}
+
+export interface StorageApiTestCase {
+  expectation: 'ALLOW' | 'DENY';
+  request: {
+    auth: { uid: string; token: Record<string, unknown> } | undefined;
+    method: string;
+    path: string;
+    /** ISO-8601 — forwarded from `StorageTestCase.requestTime`. */
+    time?: string;
+    /** `request.resource` for writes. */
+    resource?: StorageResourceShape;
+  };
+  /** Existing-object `resource`. */
+  resource?: StorageResourceShape;
+  functionMocks?: StorageApiFunctionMock[];
+}
+
+/**
+ * Lift an object path to the Storage resource-name form the rules engine and
+ * the evaluator both match against: `/b/{bucket}/o/{object}`. A path that is
+ * already absolute has its leading slash stripped before the object segment so
+ * `"images/x"` and `"/images/x"` normalize identically.
+ */
+export function normalizeStoragePath(objectPath: string, bucket: string = DEFAULT_STORAGE_BUCKET): string {
+  const clean = objectPath.startsWith('/') ? objectPath.slice(1) : objectPath;
+  return `/b/${bucket}/o/${clean}`;
+}
+
+/** Convert a {@link StorageTestCase} into the production Rules Test API wire
+ *  shape. Symmetric with {@link buildApiTestCase} for Firestore. */
+export function buildStorageApiTestCase(tc: StorageTestCase): StorageApiTestCase {
+  const request: StorageApiTestCase['request'] = {
+    auth: tc.auth === null || tc.auth === undefined
+      ? undefined
+      : { uid: tc.auth.uid, token: tc.auth.token ?? {} },
+    // Short verb — same class of bug as Firestore's request.method: sending
+    // anything but get/list/create/update/delete makes the engine map the
+    // request to no allow rule, silently denying every ALLOW case.
+    method: tc.method,
+    path: normalizeStoragePath(tc.path, tc.bucket),
+  };
+  if (tc.resource) request.resource = tc.resource;
+  if (tc.requestTime) request.time = tc.requestTime;
+
+  const result: StorageApiTestCase = { expectation: tc.expectation, request };
+  if (tc.existingResource) result.resource = tc.existingResource;
+  if (tc.functionMocks && tc.functionMocks.length > 0) {
+    result.functionMocks = tc.functionMocks.map(buildStorageFunctionMock);
+  }
+  return result;
+}
+
+/**
+ * Build a cross-service Firestore function mock for a Storage ruleset. Unlike
+ * the Firestore-internal {@link buildFunctionMock} (bare `get`/`exists`), a
+ * Storage rule reaching into Firestore names the function with its service
+ * QUALIFIER — `firestore.get` / `firestore.exists` — live-confirmed against the
+ * production endpoint. The `exists()` result is a bool `{ value }`, never the
+ * `{ value: { data } }` map shape (the same fix `buildFunctionMock` carries):
+ * a map there is rejected with a bool/map type error and silently denies.
+ */
+export function buildStorageFunctionMock(mock: StorageFunctionMock): StorageApiFunctionMock {
+  const fnName = mock.function === 'get' ? 'firestore.get' : 'firestore.exists';
+  // The rule's path literal resolves to the full Firestore resource name
+  // (/databases/(default)/documents/<doc>); the mock's exactValue must match
+  // it. `normalizeDocPath` produces exactly that from the collection/doc form.
+  const normalizedPath = normalizeDocPath(mock.path);
+  const result: StorageApiFunctionMock = {
+    function: fnName,
+    args: [{ exactValue: normalizedPath }],
+    result: undefined,
+  };
+  if (mock.function === 'get') {
+    result.result = { value: { data: mock.result as Record<string, unknown> } };
+  } else {
+    result.result = { value: mock.result === true };
+  }
+  return result;
+}
+
 export function buildFunctionMock(mock: FunctionMock): ApiFunctionMock {
   // Function name must be the short verb ('get' | 'exists') — the same class
   // of bug as request.method. The Rules Test API rejects 'firestore.get' /
