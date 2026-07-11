@@ -28,6 +28,7 @@
     "compat:report": "bun run scripts/compat/report.ts",
     "compat:lint-terms": "bun run scripts/compat/lint-terminology.ts",
     "compat:validate": "bun run scripts/compat/validate-registry.ts",
+    "compat:coverage": "bun run scripts/compat/coverage.ts",
     "compat:audit": "bun run scripts/oracle/audit.ts",
     "compat:oracle-versions": "bun run scripts/oracle/check-observation-versions.ts",
     "compat:oracle-check": "bun run scripts/oracle/check-observations.ts",

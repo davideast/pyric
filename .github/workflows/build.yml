@@ -77,6 +77,20 @@ jobs:
         # (pyric/* → dist), so dist must exist first.
         run: bun run scripts/oracle/check-observations.ts
 
+      - name: Compat coverage gate (surface + behavior %, regression-only)
+        # Runs scripts/compat/coverage.ts, which combines surface-census.ts
+        # (mirrored SDK exports / SDK exports) and the compat ledger
+        # (`conforms` rows / evaluated rows) per service and overall, then
+        # diffs the result against the committed coverage-baseline.json.
+        # Fails ONLY on regression (a conforms row demoted, a coverage %
+        # dropping, a new orphan observation, more high-risk-unverified rows)
+        # — never on an absolute percentage, which would invite relabeling
+        # rows `conforms` just to clear a bar. Publishes the table to the job
+        # summary so every PR shows the number.
+        # Runs after the build: surface-census imports the built pyric/*
+        # packages, so dist must exist first.
+        run: set -o pipefail; bun run compat:coverage | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Run tests
         # `npm run test` cycles through pyric, pyric-admin, pyric-tools,
         # and @pyric/ui.

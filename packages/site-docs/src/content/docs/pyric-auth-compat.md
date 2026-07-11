@@ -242,7 +242,7 @@ means a Bun test in `packages/auth/test/<file>`.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">39</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires on token refresh (<code>getIdToken(true)</code>)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-token-refresh.test.ts</code> — was ⚠ (documented divergence); aligned to prod in commit on branch <code>claude/close-auth-token-refresh</code> — sandbox now mints a fresh token on forceRefresh and fires <code>onIdTokenChanged</code> (NOT <code>onAuthStateChanged</code>, since identity is unchanged). Oracle: <code>scripts/oracle/observations/auth-onidtokenchanged-force-refresh.json</code> defines the target shape (<code>refreshFiredListener: true</code> against blockingfun; subscribe → null fire → <code>signInAnonymously</code> → +1 → <code>getIdToken(true)</code> → +1 for a total of 3 fires).</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-token-refresh.test.ts</code> — was ⚠ (documented divergence); aligned to prod in commit — sandbox now mints a fresh token on forceRefresh and fires <code>onIdTokenChanged</code> (NOT <code>onAuthStateChanged</code>, since identity is unchanged). Oracle: <code>scripts/oracle/observations/auth-onidtokenchanged-force-refresh.json</code> defines the target shape (<code>refreshFiredListener: true</code> against blockingfun; subscribe → null fire → <code>signInAnonymously</code> → +1 → <code>getIdToken(true)</code> → +1 for a total of 3 fires).</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">40</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Initial-fire semantics match <code>onAuthStateChanged</code></span></summary>
@@ -372,7 +372,7 @@ means a Bun test in `packages/auth/test/<file>`.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">55</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>user.getIdToken(true)</code> (forceRefresh) returns a NEW token; subsequent <code>getIdToken(false)</code> returns the cached new token</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-token-refresh.test.ts</code> — was ⚠ (documented divergence); aligned to prod in commit on branch <code>claude/close-auth-token-refresh</code> — sandbox now mints a fresh token on forceRefresh and fires <code>onIdTokenChanged</code>. Oracle: <code>scripts/oracle/observations/auth-getidtoken-force-refresh.json</code> defines the target shape (<code>forceRefreshReturnedDifferentString: true</code>, <code>token1EqualsToken2: true</code> against blockingfun — the refreshed token is cached, so a subsequent non-forced read returns it, not yet another fresh one). Sandbox tokens stay <code>sandbox-id-token-&lt;uid&gt;-&lt;hash&gt;</code> strings; prod's are real JWTs.</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-token-refresh.test.ts</code> — was ⚠ (documented divergence); aligned to prod in commit — sandbox now mints a fresh token on forceRefresh and fires <code>onIdTokenChanged</code>. Oracle: <code>scripts/oracle/observations/auth-getidtoken-force-refresh.json</code> defines the target shape (<code>forceRefreshReturnedDifferentString: true</code>, <code>token1EqualsToken2: true</code> against blockingfun — the refreshed token is cached, so a subsequent non-forced read returns it, not yet another fresh one). Sandbox tokens stay <code>sandbox-id-token-&lt;uid&gt;-&lt;hash&gt;</code> strings; prod's are real JWTs.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">56</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>user.getIdTokenResult()</code> returns claims</span></summary>
@@ -581,9 +581,9 @@ Rows **locked by the empirical oracle harness** (committed observations under `s
 - #35 `onAuthStateChanged` throwing-observer isolation — oracle confirmed a throwing observer does not block subsequent observers; sandbox matches.
 - #37 `onAuthStateChanged` same-user no-double-fire — oracle confirmed calling `signInAnonymously` twice in a row returns the same uid and the second call does NOT produce a fresh listener fire; sandbox matches.
 - #38 `onIdTokenChanged` user-change fires — oracle confirmed every signIn/signOut transition produces exactly one fire; sandbox matches.
-- #39 `onIdTokenChanged` on forced refresh — oracle confirmed prod fires the listener after `getIdToken(true)`; sandbox matches (divergence closed on branch `claude/close-auth-token-refresh`).
+- #39 `onIdTokenChanged` on forced refresh — oracle confirmed prod fires the listener after `getIdToken(true)`; sandbox matches (divergence closed).
 - #40 `onIdTokenChanged` initial-fire parity with `onAuthStateChanged` — oracle confirmed both listeners share the microtask-deferred initial-fire timing; sandbox matches.
-- #55 `getIdToken(forceRefresh)` — oracle confirmed prod returns a different token string after a forced refresh and a subsequent non-forced read returns the cached new token; sandbox matches (divergence closed on branch `claude/close-auth-token-refresh`).
+- #55 `getIdToken(forceRefresh)` — oracle confirmed prod returns a different token string after a forced refresh and a subsequent non-forced read returns the cached new token; sandbox matches (divergence closed).
 
 Rows currently marked **—** that we might want to fill (rough priority):
 
