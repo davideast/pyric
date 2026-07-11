@@ -1341,12 +1341,12 @@ the oracle locks it.
 
 <div class="compat-list">
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">163</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOffline(db)</code> — accepted no-op on sandbox handles: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and <code>get()</code> keep working). Forwards to <code>firebase/database</code>'s <code>goOffline</code> on prod handles (issue #149)</span></summary>
+<summary class="compat-line"><span class="compat-num">163</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOffline(db)</code> — accepted no-op on sandbox handles: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and <code>get()</code> keep working). Forwards to <code>firebase/database</code>'s <code>goOffline</code> on prod handles</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
 <div class="compat-note">no network connection in the local sandbox to toggle</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">164</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOnline(db)</code> — accepted no-op on sandbox handles: there is no connection to reopen (see <code>goOffline</code>). Forwards to <code>firebase/database</code>'s <code>goOnline</code> on prod handles (issue #149)</span></summary>
+<summary class="compat-line"><span class="compat-num">164</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOnline(db)</code> — accepted no-op on sandbox handles: there is no connection to reopen (see <code>goOffline</code>). Forwards to <code>firebase/database</code>'s <code>goOnline</code> on prod handles</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
 <div class="compat-note">no network connection in the local sandbox to toggle</div></div>
 </details>
@@ -1365,26 +1365,26 @@ the oracle locks it.
 </details>
 </div>
 
-### Low-hanging-fruit exports — transport / logging / URL refs (issue #149)
+### Transport, logging, and URL-reference exports
 
 <div class="compat-list">
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">171</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>forceLongPolling()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs. Process-global setter with no <code>db</code> handle, so there is no prod handle to forward through (issue #149)</span></summary>
+<summary class="compat-line"><span class="compat-num">171</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>forceLongPolling()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs. Process-global setter with no <code>db</code> handle, so there is no prod handle to forward through</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
 <div class="compat-note">transport selection not applicable to the in-process/worker sandbox</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">172</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>forceWebSockets()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (see <code>forceLongPolling</code>) (issue #149)</span></summary>
+<summary class="compat-line"><span class="compat-num">172</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>forceWebSockets()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (see <code>forceLongPolling</code>)</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
 <div class="compat-note">transport selection not applicable to the in-process/worker sandbox</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">173</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>enableLogging(logger?, persistent?)</code> — accepted no-op: the sandbox has no modular-SDK-style logger to wire a level/sink into (it uses host-level <code>console</code> logging directly, matching <code>pyric/firestore</code>'s <code>setLogLevel</code>). Accepted so init code that calls it compiles + runs (issue #149)</span></summary>
+<summary class="compat-line"><span class="compat-num">173</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>enableLogging(logger?, persistent?)</code> — accepted no-op: the sandbox has no modular-SDK-style logger to wire a level/sink into (it uses host-level <code>console</code> logging directly, matching <code>pyric/firestore</code>'s <code>setLogLevel</code>). Accepted so init code that calls it compiles + runs</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
 <div class="compat-note">accepted no-op; no sandbox logger to wire into</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">174</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>refFromURL(db, url)</code> — real alias: parses the path out of the absolute database URL and delegates to <code>ref(db, path)</code>, so the returned ref resolves + reads exactly like <code>ref(db, path)</code>. Divergence: the sandbox is single-database with no host/namespace, so the URL's HOST is NOT validated against the handle (the real SDK throws if the host doesn't match the db's namespace); only the path is honored (issue #149)</span></summary>
+<summary class="compat-line"><span class="compat-num">174</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>refFromURL(db, url)</code> — real alias: parses the path out of the absolute database URL and delegates to <code>ref(db, path)</code>, so the returned ref resolves + reads exactly like <code>ref(db, path)</code>. Divergence: the sandbox is single-database with no host/namespace, so the URL's HOST is NOT validated against the handle (the real SDK throws if the host doesn't match the db's namespace); only the path is honored</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
 <div class="compat-note">path resolves like <code>ref</code>; URL host/namespace not validated (single-database sandbox)</div></div>
 </details>
@@ -1413,7 +1413,7 @@ the oracle locks it.
 
 ### Modular SDK surface — deny-list (intentionally NOT shimmed)
 
-> `goOffline` / `goOnline` / `forceLongPolling` / `forceWebSockets` / `enableLogging` (honest no-ops) and `refFromURL` (a real alias to `ref`) were moved OUT of this deny-list and mirrored — see the tables above (issue #149).
+> `goOffline` / `goOnline` / `forceLongPolling` / `forceWebSockets` / `enableLogging` (honest no-ops) and `refFromURL` (a real alias to `ref`) were moved OUT of this deny-list and mirrored — see the tables above.
 
 | Name | Reason |
 |---|---|

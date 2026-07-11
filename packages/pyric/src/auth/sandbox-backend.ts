@@ -110,6 +110,19 @@ interface Registration {
   lastValue: User | null;
 }
 
+/**
+ * A single `beforeAuthStateChanged` registration. `active: false` marks
+ * an unregistered slot — swapped to a no-op in place (see
+ * {@link SandboxBackend.beforeStateSubs}) rather than spliced, so an
+ * unsubscribe from inside a running middleware pass doesn't shift the
+ * indices the pass is still iterating.
+ */
+interface BeforeStateReg {
+  callback: (user: User | null) => void | Promise<void>;
+  onAbort?: () => void;
+  active: boolean;
+}
+
 /** One linked provider on a stored user. Emulator-shaped (the
  *  Identity Toolkit `providerUserInfo` array) — an array rather than
  *  a single string so account linking can extend it later. */
@@ -246,6 +259,14 @@ export class SandboxBackend {
   /** `subscribeUsers` subscribers — coarse "user DB changed"
    *  callbacks; listeners re-list via `listUsers`. */
   private readonly userDbSubs = new Set<() => void>();
+
+  /** `beforeAuthStateChanged` registrations, in registration order.
+   *  Mirrors upstream's `AuthMiddlewareQueue` (`auth_impl.ts`): an
+   *  array (NOT a Set) so duplicate callback fns register
+   *  independently, and unregistering swaps the slot for a no-op
+   *  instead of splicing — splicing would shift later indices and
+   *  disturb an in-flight `runBeforeStateChange` iteration. */
+  private readonly beforeStateSubs: BeforeStateReg[] = [];
   /** Monotonic uid counter for `createUser` calls without a uid. */
   private nextAdminUserId = 1;
 
@@ -904,6 +925,112 @@ export class SandboxBackend {
     // identity is whoever is currently signed in (usually null/anonymous).
     this.emitAuthEvent('user_create', { path: uid, after: this.toRecord(record) });
     return record;
+  }
+
+  // ─── beforeAuthStateChanged (blocking gate) ─────────────────────────
+
+  /**
+   * Register a `beforeAuthStateChanged` callback. Mirrors upstream's
+   * `AuthMiddlewareQueue.pushCallback` (`auth_impl.ts`): callbacks run
+   * in registration order, before any REAL sign-in/sign-out transition
+   * commits — see {@link runBeforeStateChange}. Unregistering swaps the
+   * slot to inactive rather than removing it, so later indices stay
+   * stable if unsubscribe happens from inside a running pass.
+   */
+  beforeAuthStateChanged(
+    callback: (user: User | null) => void | Promise<void>,
+    onAbort?: () => void,
+  ): Unsubscribe {
+    const reg: BeforeStateReg = { callback, onAbort, active: true };
+    this.beforeStateSubs.push(reg);
+    return () => {
+      reg.active = false;
+    };
+  }
+
+  /**
+   * Run every registered `beforeAuthStateChanged` callback, in
+   * registration order, BEFORE a real identity transition commits.
+   * Mirrors upstream `AuthMiddlewareQueue.runMiddleware`
+   * (`auth_impl.ts`):
+   *   - skip entirely if `nextUser` is reference-identical to the
+   *     current cached user (no-op transition);
+   *   - `await` each active callback in order;
+   *   - on success, push its `onAbort` (if any) onto a rollback stack;
+   *   - if any callback throws/rejects, run the ENTIRE rollback stack
+   *     in REVERSE registration order (swallowing each `onAbort`'s own
+   *     errors), then throw `auth/login-blocked` wrapping the original
+   *     message. The caller (a `signInWith…` / `signOut` call site)
+   *     must NOT commit the transition when this rejects — the
+   *     sandbox's `currentUser` / listeners are left untouched.
+   *
+   * Fires for BOTH directions: `nextUser` non-null (sign-in) and
+   * `nextUser === null` (sign-out) — matches prod, where the same
+   * queue gates `_updateCurrentUser` and `signOut`.
+   */
+  async runBeforeStateChange(nextUser: User | null): Promise<void> {
+    if (nextUser === this.cachedUser) return;
+    const onAbortStack: Array<() => void> = [];
+    try {
+      for (const reg of this.beforeStateSubs) {
+        if (!reg.active) continue;
+        await reg.callback(nextUser);
+        if (reg.onAbort) onAbortStack.push(reg.onAbort);
+      }
+    } catch (e) {
+      onAbortStack.reverse();
+      for (const onAbort of onAbortStack) {
+        try {
+          onAbort();
+        } catch {
+          // Swallow — matches upstream, which ignores onAbort errors so
+          // one bad rollback doesn't mask the original block reason.
+        }
+      }
+      const originalMessage = e instanceof Error ? e.message : String(e);
+      throw makeAuthError('auth/login-blocked', originalMessage);
+    }
+  }
+
+  /**
+   * The gated entry point for REAL sign-in / sign-out transitions —
+   * runs {@link runBeforeStateChange} first, and only calls
+   * {@link setCurrentUser} (committing the transition + firing
+   * `onAuthStateChanged` / `onIdTokenChanged`) if every before-callback
+   * allows it. If a before-callback throws, this rejects and
+   * `setCurrentUser` is never called — the sign-in call site's promise
+   * rejects, `currentUser` is unchanged, and no listener fires.
+   *
+   * NOT used by the `sandbox.setUser` test driver — that bypass has no
+   * prod analog (documented on {@link setCurrentUser}) and stays a raw,
+   * ungated identity force, same as before this hook existed.
+   *
+   * FAST PATH (deliberate, documented divergence): when NO
+   * `beforeAuthStateChanged` callback is registered, this commits
+   * `setCurrentUser` SYNCHRONOUSLY — before returning the resolved
+   * promise — rather than unconditionally going through an async
+   * `await`. Every JS `await` (even of an already-resolved value)
+   * defers to a microtask; unconditionally awaiting here would push the
+   * commit at least one microtask later for every sign-in, even ones
+   * nobody gates, and would break the existing sandbox-only
+   * same-tick-dedup guarantee `onAuthStateChanged` callers rely on
+   * (COMPAT row 31: subscribe(); signInAnonymously(); with no
+   * await-gap between them must not double-fire). Once a caller
+   * registers a `beforeAuthStateChanged` callback, the transition
+   * genuinely becomes async (an unavoidable consequence of "blocking,
+   * awaitable middleware"), matching prod's own async gate — this
+   * method is NOT declared `async` for that reason; it returns a
+   * pre-resolved promise on the fast path instead of ever suspending.
+   */
+  transitionCurrentUser(user: User | null, signInProvider?: string | null): Promise<void> {
+    const hasActiveGate = this.beforeStateSubs.some((reg) => reg.active);
+    if (!hasActiveGate || user === this.cachedUser) {
+      this.setCurrentUser(user, signInProvider);
+      return Promise.resolve();
+    }
+    return this.runBeforeStateChange(user).then(() => {
+      this.setCurrentUser(user, signInProvider);
+    });
   }
 
   // ─── Identity mutation ──────────────────────────────────────────────

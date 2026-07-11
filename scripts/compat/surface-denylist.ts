@@ -78,12 +78,8 @@ const authDenials: DenyEntry[] = [
     'signInWithPhoneNumber', 'linkWithPhoneNumber', 'reauthenticateWithPhoneNumber',
     'RecaptchaVerifier', 'initializeRecaptchaConfig',
   ]),
-  // NOTE: useDeviceLanguage is now mirrored as an accepted no-op — see
-  // registry/auth.ts, issue #149. (setLanguageCode is a method on Auth, not
-  // a free export, so it is not deny-listed here.)
-  ...deny('auth', 'Blocking middleware; the sandbox uses synchronous fan-out and has no equivalent (auth deny-list: beforeAuthStateChanged).', [
-    'beforeAuthStateChanged',
-  ]),
+  // beforeAuthStateChanged, useDeviceLanguage, deleteUser, and reload are now
+  // mirrored (see registry/auth.ts) and are intentionally NOT deny-listed.
 ];
 
 // ── firebase/firestore → pyric/firestore ──────────────────────────────────

@@ -2088,6 +2088,21 @@ export function signInWithCredential(): Promise<never> {
   return Promise.reject(makeUnsupported('signInWithCredential'));
 }
 
+/**
+ * `beforeAuthStateChanged` gates a LOCAL identity transition — the
+ * worker owns the shared user pool + fires the real transition on its
+ * own side of the port, so a page-local gate registered here would
+ * either never run (silently useless) or run too late to actually
+ * block anything. Rather than accept a callback that quietly does
+ * nothing, fail loudly at registration time — same defensive pattern
+ * as {@link signInWithCredential}. Follow-up: thread registration
+ * through the worker RPC protocol so the gate can run host-side before
+ * the worker commits a transition.
+ */
+export function beforeAuthStateChanged(): never {
+  throw makeUnsupported('beforeAuthStateChanged');
+}
+
 function makeUnsupported(api: string): Error & { code: string } {
   const err = new Error(
     `${api} is not supported over the SharedWorker yet (provider flows need ` +
