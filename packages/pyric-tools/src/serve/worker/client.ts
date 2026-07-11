@@ -77,7 +77,6 @@ import type {
   WriteDescriptor,
   TxnReadEntry,
   InboundMessage,
-  OutboundMessage,
   SerializedDocData,
   SerializedUser,
   SerializedUserCredential,
@@ -87,8 +86,6 @@ import type {
 } from './protocol.js';
 import type { PolicyRequest } from './protocol.js';
 import {
-  deserializeDocData,
-  isSentinelMarker,
   bytesToBase64,
   base64ToBytes,
   storagePayloadTooLarge,
@@ -98,288 +95,71 @@ import {
 // the port-level ids this module re-mints). Erased at build; `bridge/
 // protocol.ts` itself has no runtime imports, so no engine code is pulled in.
 import type { WorkerOpPayload, WorkerSubPayload } from '../../bridge/protocol.js';
-// TYPE-ONLY — the auth-lens contract + the cross-service event envelope, shared
-// with the worker host + the sandbox's event provenance. Erased at build, so the
-// leaf client bundle stays engine-free.
-import type { AuthLens, SandboxEvent, SandboxSnapshot } from 'pyric/sandbox';
+// TYPE-ONLY (erased at build, so the leaf client stays engine-free): the cross-
+// service event envelope + sandbox snapshot shape for the Pyric Studio streams.
+import type { SandboxEvent, SandboxSnapshot } from 'pyric/sandbox';
 // TYPE-ONLY (erased at build, so the leaf client stays engine-free): the admin
 // user-DB record + request shapes for the Pyric Studio data-browse auth ops.
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
 // TYPE-ONLY: the object metadata shape for the Pyric Studio storage inspector.
 import type { FullMetadata } from 'pyric/storage';
 
-// ─── Rehydration (class instance restoration) ─────────────────────────────
+// ─── Shared client core (hoisted infrastructure) ──────────────────────────
+// The transport singleton, handle types, and snapshot machinery now live in
+// sibling modules under `client/`. They are imported here for the API-family
+// functions below and re-exported so this module's public surface is unchanged.
+import {
+  nextId,
+  nextSubId,
+  _snapSubs,
+  _eventSubs,
+  wirePort,
+  _defaultLens,
+  stampIssuer,
+  rawRpc,
+  rpc,
+  dataRpc,
+} from './client/core.js';
+import { lastSegment } from './client/handles.js';
+import type {
+  ClientDb,
+  ClientRtdb,
+  RtdbRefHandle,
+  RtdbDataSnapshot,
+  DocRefHandle,
+  CollRefHandle,
+  QueryHandle,
+  Unsubscribe,
+} from './client/handles.js';
+import {
+  makeDocSnapshot,
+  makeQuerySnapshot,
+} from './client/snapshots.js';
+import type {
+  RawDocResult,
+  RawQueryResult,
+  ClientDocSnapshot,
+  ClientQuerySnapshot,
+} from './client/snapshots.js';
 
-/**
- * Deserialize doc data from wire form to real class instances.
- *
- * `deserializeDocData` (protocol.ts) now calls `rehydrateDocValue` from
- * pyric/sandbox, which reconstructs REAL Timestamp, Bytes, and LatLng
- * instances — not plain-object look-alikes. This means:
- *   - `snap.data().createdAt` is a real `Timestamp` with `.seconds`/`.nanos`
- *   - `snap.data().blob` is a real `Bytes` with `.data` (Uint8Array)
- *   - `snap.data().where` is a real `LatLng` with `.lat`/`.lng`
- * Consumer code that uses `instanceof` checks or method calls will work
- * correctly after deserialization.
- */
-function rehydrateDocData(serialized: SerializedDocData): Record<string, unknown> {
-  return deserializeDocData(serialized) as Record<string, unknown>;
-}
-
-// ─── Handle types ──────────────────────────────────────────────────────────
-
-/** Opaque client-side Firestore handle. Holds the MessagePort to the worker. */
-export interface ClientDb {
-  readonly __kind: 'client-db';
-  readonly port: MessagePort;
-}
-
-export interface ClientRtdb {
-  readonly __kind: 'client-rtdb';
-  readonly port: MessagePort;
-}
-
-export interface RtdbRefHandle {
-  readonly __kind: 'rtdb-ref';
-  readonly port: MessagePort;
-  readonly path: string;
-  readonly key: string | null;
-  readonly parent: RtdbRefHandle | null;
-  readonly root: RtdbRefHandle;
-  toString(): string;
-}
-
-export interface RtdbDataSnapshot {
-  readonly key: string | null;
-  readonly size: number;
-  exists(): boolean;
-  val(): unknown;
-  child(path: string): RtdbDataSnapshot;
-  hasChild(path: string): boolean;
-  hasChildren(): boolean;
-  exportVal(): unknown;
-  toJSON(): unknown;
-  forEach(cb: (child: RtdbDataSnapshot) => boolean | void): boolean;
-  readonly ref: RtdbRefHandle;
-}
-
-/** Client-side document reference — carries a DocRef descriptor + port. */
-export interface DocRefHandle {
-  readonly __kind: 'doc-ref';
-  readonly descriptor: DocRef;
-  readonly port: MessagePort;
-  readonly id: string;
-  readonly path: string;
-}
-
-/** Client-side collection reference. */
-export interface CollRefHandle {
-  readonly __kind: 'coll-ref';
-  readonly descriptor: CollRef;
-  readonly port: MessagePort;
-  readonly id: string;
-  readonly path: string;
-}
-
-/** Client-side query. */
-export interface QueryHandle {
-  readonly __kind: 'query';
-  readonly descriptor: QueryDescriptor;
-  readonly port: MessagePort;
-}
-
-/** Union of all client handles. */
-export type AnyHandle = ClientDb | DocRefHandle | CollRefHandle | QueryHandle;
-
-function lastSegment(path: string): string {
-  return path.split('/').at(-1) ?? path;
-}
-
-// ─── Port + correlation machinery ─────────────────────────────────────────
-
-let _opCounter = 0;
-let _subCounter = 0;
-
-function nextId(): string { return `op-${++_opCounter}`; }
-function nextSubId(): string { return `sub-${++_subCounter}`; }
-
-/**
- * Pending RPC resolvers. Keyed by correlation id.
- * Resolves with the `value` field on success; rejects with a typed error
- * on failure.
- */
-const _pending = new Map<string, {
-  resolve: (v: unknown) => void;
-  reject: (e: Error & { code: string }) => void;
-}>();
-
-/**
- * Active snapshot subscribers. Keyed by subId.
- * `next` is the user-supplied callback; `error` is the optional error handler.
- */
-const _snapSubs = new Map<string, {
-  next: (snap: unknown) => void;
-  error?: (err: unknown) => void;
-}>();
-
-/**
- * Active event-stream subscribers (Pyric Studio keystone). Keyed by subId.
- * `next` receives each delivered BATCH of `SandboxEvent`s — the first batch is
- * the initial `history()` snapshot, subsequent batches are single live events.
- */
-const _eventSubs = new Map<string, (events: readonly SandboxEvent[]) => void>();
-
-/** Wire up the port's onmessage handler (idempotent per-port). */
-function wirePort(port: MessagePort): void {
-  port.onmessage = (ev: MessageEvent<OutboundMessage>) => {
-    const msg = ev.data;
-    if (msg.t === 'res') {
-      const pending = _pending.get(msg.id);
-      if (!pending) return;
-      _pending.delete(msg.id);
-      if (msg.ok) {
-        pending.resolve(msg.value);
-      } else {
-        const err = new Error(msg.error.message) as Error & {
-          code: string;
-          denialContext?: unknown;
-        };
-        err.code = msg.error.code;
-        // Structured denial context (spike gap 6): re-attach so consumers —
-        // and the bridge relay, which re-serializes thrown errors — see the
-        // same shape a local SandboxError carries.
-        if (msg.error.denialContext !== undefined) {
-          err.denialContext = msg.error.denialContext;
-        }
-        pending.reject(err);
-      }
-    } else if (msg.t === 'snap') {
-      const sub = _snapSubs.get(msg.subId);
-      if (!sub) return;
-      // Auth snaps carry `SerializedUser | null` — a null value is a valid
-      // "signed out" payload, not an error, so guard the __error sniff.
-      const value = (msg.value ?? {}) as Record<string, unknown>;
-      if (value.__error) {
-        const errPayload = value.__error as { code: string; message: string; denialContext?: unknown };
-        const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown };
-        err.code = errPayload.code;
-        if (errPayload.denialContext !== undefined) err.denialContext = errPayload.denialContext;
-        // Surface an unobserved listener error instead of swallowing it — the
-        // worker-path twin of the in-page default (a denied listener after a
-        // rules change / sign-out must not fail silently on the page console).
-        if (sub.error) sub.error(err);
-        else console.error('pyric/firestore: Uncaught Error in snapshot listener:', err);
-        return;
-      }
-      sub.next(msg.value);
-    } else if (msg.t === 'event') {
-      // Event-stream batch (Pyric Studio keystone). Plain JSON SandboxEvents —
-      // no rehydration. Deliver the whole batch to the registered subscriber.
-      const cb = _eventSubs.get(msg.subId);
-      if (cb) cb(msg.events);
-    }
-  };
-}
-
-// ─── Auth lens (Pyric Studio) ──────────────────────────────────────────────
-//
-// The default per-op auth lens carried on every FIRESTORE DATA op this client
-// sends. The host resolves a data handle from it (`lensDb` in host.ts):
-//   - `{ mode: 'app-session' }` (the default): the served app's own session.
-//   - `{ mode: 'as', uid }`: impersonate — rules evaluate as that user.
-//   - `{ mode: 'admin' }`: admin lens (rule bypass; see host.ts gap note).
-//
-// Studio sets this so its data grids / rules-debug "re-run as user" views run
-// under the chosen identity without threading `actAs` through every call. AUTH
-// ops (`auth.*`) and `getVersion` are NEVER lensed — they operate the worker's
-// session, not data — so the lens is stamped only on the data-op path.
-
-/** Module-level default lens. `undefined` ⇒ the worker treats the op as the
- *  app's session (the additive default — existing senders omit `actAs`). */
-let _defaultLens: AuthLens | undefined;
-
-/**
- * Set the default auth lens applied to subsequent Firestore DATA ops from this
- * client (Pyric Studio). Pass `{ mode: 'as', uid }` to read/write AS a user
- * (rules apply), `{ mode: 'admin' }` for the admin lens, or
- * `{ mode: 'app-session' }` / `undefined` to revert to the app's own session.
- *
- * The lens is process-wide for this client module (one served page = one
- * worker port), mirroring how Studio drives a single active identity at a time.
- * Auth ops are unaffected — they always operate the real session.
- */
-export function setLens(lens: AuthLens | undefined): void {
-  _defaultLens = lens && lens.mode === 'app-session' ? undefined : lens;
-}
-
-/** The active default lens (read-only view), for Studio UI to reflect state. */
-export function getLens(): AuthLens | undefined {
-  return _defaultLens;
-}
-
-/**
- * Module-level op-source declaration (Pyric Studio traffic attribution).
- * When set, every op/sub message THIS CLIENT MODULE CONSTRUCTS is stamped
- * `source: 'studio'` on the wire; the host maps that onto the unified
- * event stream's `actor` field so Traffic can filter Studio's own
- * viewer/editor ops out of the app's stream.
- *
- * Studio's live plane sets this once at connect (`connectWorkerLive`);
- * the served APP page never calls it (its module instance stays
- * untagged), and RELAYED frames bypass stamping entirely — the bridge
- * relay ({@link relayWorkerOp} / {@link relayWorkerSub}) forwards remote
- * frames verbatim through {@link rawRpc} / a direct postMessage, so a
- * user's own admin-SDK traffic through the remote bridge is never
- * mislabeled as Studio's even though it rides the same port.
- */
-let _opIssuer: 'studio' | undefined;
-
-/** Declare who issues the ops this client module constructs. See {@link _opIssuer}. */
-export function setOpIssuer(source: 'studio' | undefined): void {
-  _opIssuer = source;
-}
-
-/** Stamp the declared op source onto a client-constructed message. Ops and
- *  subscriptions only — control frames (`tool`, `unsub`) never carry it
- *  (agent tool-calls dispatched through this port must not inherit
- *  Studio's source; their inner ops are attributed by the host). */
-function stampIssuer<T extends { t?: string }>(msg: T): T {
-  return _opIssuer && (msg.t === 'op' || msg.t === 'sub')
-    ? { ...msg, issuer: _opIssuer }
-    : msg;
-}
-
-/**
- * Send an already-final message and return a promise for its result — no
- * stamping. The RELAY path ({@link relayWorkerOp}) sends through this so
- * remote frames pass verbatim.
- */
-function rawRpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
-  return new Promise<unknown>((resolve, reject) => {
-    const opMsg = msg as { id: string };
-    _pending.set(opMsg.id, { resolve, reject: reject as (e: Error & { code: string }) => void });
-    port.postMessage(msg);
-  });
-}
-
-/** Send a CLIENT-CONSTRUCTED message: stamps the declared op source, then sends. */
-function rpc(port: MessagePort, msg: InboundMessage): Promise<unknown> {
-  return rawRpc(port, stampIssuer(msg));
-}
-
-/**
- * Like {@link rpc} but stamps the active default auth lens onto the op message
- * (Pyric Studio). Used by data-service ops so a `setLens(...)` choice
- * carries per op without every call site threading `actAs`. Auth ops + version
- * use the bare {@link rpc} so they never carry a lens.
- *
- * `actAs` is only attached when a lens is active — when none is set the wire
- * message is byte-identical to before, preserving the additive contract.
- */
-function dataRpc(port: MessagePort, msg: InboundMessage & { t: 'op' }): Promise<unknown> {
-  const withLens = _defaultLens ? { ...msg, actAs: _defaultLens } : msg;
-  return rpc(port, withLens);
-}
+// Re-export the shared public surface (types + lens/issuer controls) so
+// `serve/worker/client` continues to export every symbol it did before.
+export { setLens, getLens, setOpIssuer } from './client/core.js';
+export type {
+  ClientDb,
+  ClientRtdb,
+  RtdbRefHandle,
+  RtdbDataSnapshot,
+  DocRefHandle,
+  CollRefHandle,
+  QueryHandle,
+  AnyHandle,
+  Unsubscribe,
+} from './client/handles.js';
+export type {
+  ClientDocSnapshot,
+  ClientQuerySnapshot,
+} from './client/snapshots.js';
 
 // ─── Public API ────────────────────────────────────────────────────────────
 
@@ -757,61 +537,6 @@ export function deleteField(): SentinelMarker {
   return { __sentinel: 'deleteField' };
 }
 
-// ─── Snapshot deserialization helpers ────────────────────────────────────
-
-interface RawDocResult {
-  id: string;
-  path?: string;
-  exists: boolean;
-  data?: SerializedDocData;
-}
-
-function makeDocSnapshot(raw: RawDocResult): ClientDocSnapshot {
-  const data = raw.exists && raw.data ? rehydrateDocData(raw.data) : undefined;
-  const path = raw.path ?? raw.id;
-  return {
-    id: raw.id,
-    path,
-    // The modular SDK contract (and `@pyric/ui`'s grids) read `snap.ref.path`
-    // off query docs; mirror it so the worker snapshot is a drop-in. A
-    // lightweight ref (id + path) is all consumers read; a full handle is
-    // rebuilt from the path when an op is needed.
-    ref: { id: raw.id, path },
-    exists: () => raw.exists,
-    data: () => data,
-  };
-}
-
-interface RawQueryResult {
-  docs: RawDocResult[];
-}
-
-function makeQuerySnapshot(raw: RawQueryResult): ClientQuerySnapshot {
-  const docs = raw.docs.map(makeDocSnapshot);
-  return {
-    size: docs.length,
-    empty: docs.length === 0,
-    docs,
-  };
-}
-
-// ─── Client snapshot types ────────────────────────────────────────────────
-
-export interface ClientDocSnapshot {
-  readonly id: string;
-  readonly path: string;
-  /** Lightweight document ref (id + path), mirroring the modular SDK's
-   *  `snap.ref` that `@pyric/ui` reads off query docs. */
-  readonly ref: { readonly id: string; readonly path: string };
-  exists(): boolean;
-  data(): Record<string, unknown> | undefined;
-}
-
-export interface ClientQuerySnapshot {
-  readonly size: number;
-  readonly empty: boolean;
-  readonly docs: ClientDocSnapshot[];
-}
 
 // ─── Execution functions (RPC) ────────────────────────────────────────────
 
@@ -977,8 +702,6 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
 }
 
 // ─── onSnapshot ──────────────────────────────────────────────────────────
-
-export type Unsubscribe = () => void;
 
 /**
  * Subscribe to a document or query. Mirrors `pyric/firestore`'s `onSnapshot`.
