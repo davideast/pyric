@@ -3,7 +3,7 @@ title: "Case studies in pure security rules"
 navLabel: "Case studies"
 group: "Secure & debug"
 section: ""
-order: 18
+order: 3010
 description: "See working, deployed rulesets that enforce chess, checkers, connect four, and US tax math, built from the patterns this wing teaches."
 ---
 

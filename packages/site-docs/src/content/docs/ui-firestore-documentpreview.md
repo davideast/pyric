@@ -2,7 +2,7 @@
 title: "<DocumentPreview>"
 group: "@pyric/ui"
 section: "Firestore"
-order: 202
+order: 24013
 ---
 # `<DocumentPreview>`
 

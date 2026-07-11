@@ -2,7 +2,7 @@
 title: "Public API"
 group: "pyric / storage"
 section: "Reference"
-order: 150
+order: 15006
 ---
 # Public API
 

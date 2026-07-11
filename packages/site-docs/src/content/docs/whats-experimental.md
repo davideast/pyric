@@ -2,7 +2,7 @@
 title: "What's experimental"
 group: "Trust"
 section: ""
-order: 29
+order: 7002
 description: "Know exactly which parts of Pyric are v1 and which are still earning it."
 ---
 

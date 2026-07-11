@@ -11,8 +11,9 @@
  *
  * For each markdown file this writes src/content/docs/<slug>.md:
  * generated front matter (title from the doc's h1, nav group = package /
- * subtree, section = the tree's existing subdir, global order) plus the
- * source body VERBATIM except intra-doc links:
+ * subtree, section = the tree's existing subdir, an order scoped to the
+ * doc's nav group — see GROUP_ORDER below) plus the source body VERBATIM
+ * except intra-doc links:
  *
  *   - a relative link that resolves to another ported file is rewritten
  *     to `../<slug>/` — directory-relative to the rendered HTML page,
@@ -410,7 +411,38 @@ function mdFilesIn(dir: string): string[] {
 const pages: Page[] = [];
 const bySrc = new Map<string, Page>();
 const bySlug = new Map<string, Page>();
-let order = 1;
+
+/**
+ * Order is scoped per nav group instead of one counter across the whole
+ * tree: each group gets a rank (its index among GROUP_ORDER, spaced by
+ * 1000 — comfortably above the largest group's page count) and each
+ * page an offset from 1 within its group, assigned in the same
+ * traversal order the old global counter used. `order = groupRank +
+ * offset`. Adding a doc then renumbers at most the trailing pages of
+ * its own group; adding a group renumbers nothing before it. GROUP_ORDER
+ * must list every group label the port ever assigns (GUIDE_GROUPS, the
+ * synthetic 'Compatibility' group, then GROUPS) in the exact order the
+ * nav renders them — that order is what the rendered sidebar sequence
+ * depends on, not the numeric order values.
+ */
+const GROUP_ORDER: string[] = [
+  ...GUIDE_GROUPS.map((g) => g.label),
+  'Compatibility',
+  ...GROUPS.map((g) => g.label),
+];
+const GROUP_RANK_SPACING = 1000;
+const groupRank = new Map(GROUP_ORDER.map((label, i) => [label, i * GROUP_RANK_SPACING]));
+const groupPosition = new Map<string, number>();
+function nextOrder(group: string): number {
+  const rank = groupRank.get(group);
+  if (rank === undefined) throw new Error(`group not in GROUP_ORDER: ${group}`);
+  const position = (groupPosition.get(group) ?? 0) + 1;
+  groupPosition.set(group, position);
+  if (position >= GROUP_RANK_SPACING) {
+    throw new Error(`group exceeds GROUP_RANK_SPACING (${GROUP_RANK_SPACING}): ${group}`);
+  }
+  return rank + position;
+}
 
 function addPage(src: string, group: GroupSpec, section: string) {
   if (supersededByAbs.has(src)) return; // replaced by a guide page
@@ -423,7 +455,7 @@ function addPage(src: string, group: GroupSpec, section: string) {
     slug,
     group: group.label,
     section,
-    order: order++,
+    order: nextOrder(group.label),
     title: section === '' ? shortTitle(title) : title,
     navLabel: section === '' ? 'Overview' : navLabelFor(slug, title),
   };
@@ -444,7 +476,7 @@ function addGuidePage(src: string, groupLabel: string) {
     slug,
     group: groupLabel,
     section: '',
-    order: order++,
+    order: nextOrder(groupLabel),
     title: fm.title ?? titleOf(src),
     navLabel: fm.navLabel,
     description: fm.outcome,
@@ -488,7 +520,7 @@ for (const c of COMPAT_PAGES) {
     slug,
     group: 'Compatibility',
     section: '',
-    order: order++,
+    order: nextOrder('Compatibility'),
     title: titleOf(src),
     navLabel: c.label,
   };

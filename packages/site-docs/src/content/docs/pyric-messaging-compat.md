@@ -3,7 +3,7 @@ title: "pyric messaging compatibility matrix"
 navLabel: "Messaging"
 group: "Compatibility"
 section: ""
-order: 34
+order: 8005
 ---
 <!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

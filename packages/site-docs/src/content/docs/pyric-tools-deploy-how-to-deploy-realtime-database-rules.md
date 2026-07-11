@@ -3,7 +3,7 @@ title: "How to deploy Realtime Database rules"
 navLabel: "Deploy RTDB rules"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 57
+order: 10009
 ---
 # How to deploy Realtime Database rules
 

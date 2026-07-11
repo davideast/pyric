@@ -2,7 +2,7 @@
 title: "Store and query data"
 group: "Build"
 section: ""
-order: 5
+order: 2002
 description: "Read, write, query, and stream Firestore documents locally, and derive the composite indexes your queries need from your source."
 ---
 

@@ -3,7 +3,7 @@ title: "How to simulate rules locally"
 navLabel: "Simulate rules locally"
 group: "pyric / rules"
 section: "How-to"
-order: 101
+order: 13008
 ---
 # How to simulate rules locally
 

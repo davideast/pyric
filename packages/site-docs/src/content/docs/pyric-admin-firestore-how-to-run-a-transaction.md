@@ -3,7 +3,7 @@ title: "How to run a transaction"
 navLabel: "Run a transaction"
 group: "pyric-admin / firestore"
 section: "How-to"
-order: 172
+order: 20003
 ---
 # How to run a transaction
 
