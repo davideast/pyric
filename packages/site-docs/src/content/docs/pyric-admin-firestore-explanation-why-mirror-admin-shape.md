@@ -3,7 +3,7 @@ title: "Why mirror the admin SDK shape"
 navLabel: "Why mirror the admin SDK"
 group: "pyric-admin / firestore"
 section: "Explanation"
-order: 154
+order: 181
 ---
 # Why mirror the admin SDK shape
 
@@ -40,7 +40,7 @@ That's the shape we picked. Anything beyond the `db =` line is the same code in 
 
 ## What we considered
 
-### A simpler API just for tests
+### A simpler API for tests only
 
 We could have designed a small, opinionated test-only API:
 ```ts
@@ -60,7 +60,7 @@ Another option: ship raw types and let consumers wire up a translation layer the
 
 We could have made `firebase-admin/firestore` a peer dep and provided a connector. We didn't because:
 
-- `firebase-admin` is a Node-only package — would forbid browser use.
+- `firebase-admin` is a Node-only package, which would forbid browser use.
 - The dep graph is heavy. Pulling in 50+ MB of `firebase-admin` for a test runner is unwelcome.
 - The compat impl in `pyric/sandbox/admin-firestore` is browser-safe. Reusing
   it gives us the same surface without pulling `firebase-admin` into sandbox
@@ -70,9 +70,9 @@ We could have made `firebase-admin/firestore` a peer dep and provided a connecto
 
 Three sandbox-only methods on the handle:
 
-- `setRules(rules)` — replace the active ruleset.
-- `seed({ documents })` — replace stored documents.
-- `snapshot()` — read all stored documents.
+- `setRules(rules)`: replace the active ruleset.
+- `seed({ documents })`: replace stored documents.
+- `snapshot()`: read all stored documents.
 
 These have no production analog. We picked sandbox-flavoured verbs (`setRules`, `seed`, `snapshot`) so a reader can't confuse them with deployment operations. `db.deploy(...)` would have been the most natural-feeling name for `setRules`, but it would also have invited "did this hit production?" panic.
 

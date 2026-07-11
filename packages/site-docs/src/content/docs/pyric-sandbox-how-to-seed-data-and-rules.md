@@ -3,7 +3,7 @@ title: "How to seed initial data and rules"
 navLabel: "Seed data and rules"
 group: "pyric / sandbox"
 section: "How-to"
-order: 125
+order: 126
 ---
 # How to seed initial data and rules
 

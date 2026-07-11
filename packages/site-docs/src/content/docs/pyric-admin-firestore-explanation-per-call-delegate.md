@@ -3,7 +3,7 @@ title: "Per-call delegate construction"
 navLabel: "Per-call delegate"
 group: "pyric-admin / firestore"
 section: "Explanation"
-order: 153
+order: 180
 ---
 # Per-call delegate construction
 
@@ -43,7 +43,7 @@ function buildFirestoreHandle(ctx: SandboxContext): SandboxFirestore {
 ```
 This is faster (one allocation instead of many) and broken in one specific case: `sandbox.reset()`.
 
-`Sandbox.reset()` swaps the underlying `LocalEnvironment` for a fresh one. Existing `SandboxContext`s continue to work — their next operation resolves through `getEnv()` and finds the new environment. But a cached delegate would still be bound to the *old* environment. Operations through the cached delegate would land in a discarded environment that nobody else can see.
+`Sandbox.reset()` swaps the underlying `LocalEnvironment` for a fresh one. Existing `SandboxContext`s continue to work. Their next operation resolves through `getEnv()` and finds the new environment. But a cached delegate would still be bound to the *old* environment. Operations through the cached delegate would land in a discarded environment that nobody else can see.
 
 Per-call construction reads `getInternalEnv(ctx.sandbox)` on every operation, so it always sees the current environment. `reset()` propagates for free.
 
@@ -72,11 +72,11 @@ beforeEach(() => {
   notesRef = adminDb.collection('notes');  // refresh
 });
 ```
-The README and the `getFirestore` JSDoc both call this out — refs are bound to whichever environment was live when they were obtained.
+The README and the `getFirestore` JSDoc both call this out: refs are bound to whichever environment was live when they were obtained.
 
 ## Why this isn't a leak
 
-A naive reader might worry: "If every method constructs a delegate, are old delegates leaking?" No. Delegates are throwaway — they're constructed, used once, and become eligible for garbage collection. No long-lived references, no module-level state.
+A naive reader might worry: "If every method constructs a delegate, are old delegates leaking?" No. Delegates are throwaway: they're constructed, used once, and become eligible for garbage collection. No long-lived references, no module-level state.
 
 The only thing that lives across operations is the `SandboxFirestore` handle itself, which is cached per-context in a `WeakMap`. When the context is garbage-collected, the handle goes with it.
 
@@ -84,7 +84,7 @@ The only thing that lives across operations is the `SandboxFirestore` handle its
 ```ts
 const handleCache = new WeakMap<SandboxContext, SandboxFirestore>();
 ```
-This is at the handle level, not the delegate level. The handle is cheap to keep — it's a small object with method references — and idempotency means `getFirestore(ctx)` returns the same object every time. Cached results from the first call (like the error-translation wrapping) don't get re-applied.
+This is at the handle level, not the delegate level. The handle is cheap to keep (it's a small object with method references), and idempotency means `getFirestore(ctx)` returns the same object every time. Cached results from the first call (like the error-translation wrapping) don't get re-applied.
 
 The cache is a `WeakMap`, so a context that goes out of scope drops its handle automatically. No manual cleanup needed.
 

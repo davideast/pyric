@@ -3,7 +3,7 @@ title: "pyric deploy agent I/O: --schema and --json"
 navLabel: "pyric deploy agent I/O"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 61
+order: 62
 ---
 # `pyric deploy` agent I/O: `--schema` and `--json`
 

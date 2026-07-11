@@ -468,6 +468,7 @@ const COMPAT_PAGES: { file: string; label: string }[] = [
   { file: 'auth/COMPAT.md', label: 'Auth' },
   { file: 'database/COMPAT.md', label: 'Realtime Database' },
   { file: 'storage/COMPAT.md', label: 'Storage' },
+  { file: 'ai/COMPAT.md', label: 'AI Logic' },
 ];
 for (const c of COMPAT_PAGES) {
   const src = join(docsRoot('pyric'), c.file);

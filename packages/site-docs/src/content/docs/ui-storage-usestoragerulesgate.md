@@ -2,7 +2,7 @@
 title: "useStorageRulesGate"
 group: "@pyric/ui"
 section: "Storage"
-order: 177
+order: 210
 ---
 # `useStorageRulesGate`
 

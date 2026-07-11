@@ -3,7 +3,7 @@ title: "How to write a batch"
 navLabel: "Write a batch"
 group: "pyric-admin / firestore"
 section: "How-to"
-order: 147
+order: 174
 ---
 # How to write a batch
 
@@ -17,14 +17,14 @@ batch.set(db.doc('notes/n2'), { ownerId: 'alice', title: 'second' });
 batch.update(db.doc('users/alice'), { noteCount: FieldValue.increment(2) });
 await batch.commit();
 ```
-All three operations either succeed together or fail together. If the rule denies any one of them, the whole batch is rejected — no partial writes.
+All three operations either succeed together or fail together. If the rule denies any one of them, the whole batch is rejected: no partial writes.
 
 ## What batches can do
 
-- `batch.set(ref, data)` — create or replace.
-- `batch.set(ref, data, { merge: true })` — recursive merge.
-- `batch.update(ref, partial)` — patch top-level fields; dot-paths supported for nested map updates.
-- `batch.delete(ref)` — delete the document.
+- `batch.set(ref, data)`: create or replace.
+- `batch.set(ref, data, { merge: true })`: recursive merge.
+- `batch.update(ref, partial)`: patch top-level fields; dot-paths supported for nested map updates.
+- `batch.delete(ref)`: delete the document.
 
 You cannot read inside a batch. Reads need a transaction.
 
@@ -62,7 +62,7 @@ await batch.commit();
 
 ## Order matters within the batch
 
-The batch applies its operations in the order they were added. Two operations on the same document inside one batch end up with the second one's effect — the first is overwritten before the batch commits. This matches production behaviour.
+The batch applies its operations in the order they were added. Two operations on the same document inside one batch end up with the second one's effect: the first is overwritten before the batch commits. This matches production behaviour.
 
 ## What happens after `commit`
 
