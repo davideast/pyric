@@ -905,6 +905,236 @@ export function waitForPendingWrites(db: Firestore): Promise<void> {
   return fb.waitForPendingWrites(target.db);
 }
 
+// ─── Tier-1 cache-init + get-from-* + log-level + snapshot-sync ───────
+// (issue #144, tier-1 pass). These extend the honest-mirror rationale
+// above: a real app's explicit-init pattern —
+//
+//   initializeFirestore(app, {
+//     localCache: persistentLocalCache(persistentMultipleTabManager()),
+//   })
+//
+// — crashed at IMPORT (a missing named export) before this pass, before
+// the app ever ran a read or write. `initializeFirestore` and the six
+// cache-factory tokens below are aliases and honest no-op config
+// tokens, not new feature work: the sandbox is local-first with
+// persistence on by default, so there is no separate cache tier to
+// configure into existence. `getDocFromServer`/`getDocFromCache` and
+// their plural forms delegate to the same read path as `getDoc`/
+// `getDocs` on sandbox targets (the sandbox store IS the authoritative,
+// always-fresh source — there's no cache/server split to honor);
+// on prod targets they forward to the real split. `setLogLevel` and
+// `onSnapshotsInSync` round out the surface a real app's init sequence
+// commonly touches alongside the persistence family.
+
+/** Hidden brand on {@link LocalCache} tokens returned by
+ *  {@link persistentLocalCache} / {@link memoryLocalCache}. Never
+ *  inspected by consumer code — `initializeFirestore` accepts the
+ *  token but the cache/network settings it carries are no-ops. */
+const LOCAL_CACHE_SYMBOL: unique symbol = Symbol('pyric/firestore/localCache');
+/** Hidden brand on tab-manager tokens returned by
+ *  {@link persistentSingleTabManager} / {@link persistentMultipleTabManager}. */
+const TAB_MANAGER_SYMBOL: unique symbol = Symbol('pyric/firestore/tabManager');
+/** Hidden brand on garbage-collector tokens returned by
+ *  {@link memoryEagerGarbageCollector} / {@link memoryLruGarbageCollector}. */
+const GC_SYMBOL: unique symbol = Symbol('pyric/firestore/gc');
+
+/** Opaque tab-manager config token. Inert — persistence is always on,
+ *  and the SharedWorker/`pyric dev` path already is the one shared
+ *  store every tab talks to, so there is no separate multi-tab mode
+ *  to opt into. Carries the requested kind only for debugging. */
+export interface PersistentTabManager {
+  readonly [TAB_MANAGER_SYMBOL]: 'single' | 'multiple';
+}
+
+/** Opaque garbage-collector config token. Inert for the same reason —
+ *  there is no memory cache tier with GC pressure to tune. */
+export interface MemoryGarbageCollector {
+  readonly [GC_SYMBOL]: 'eager' | 'lru';
+}
+
+/** Opaque local-cache config token accepted by {@link initializeFirestore}'s
+ *  `settings.localCache`. Inert — see the tier-1 section rationale above. */
+export interface LocalCache {
+  readonly [LOCAL_CACHE_SYMBOL]: 'persistent' | 'memory';
+  readonly tabManager?: PersistentTabManager;
+  readonly garbageCollector?: MemoryGarbageCollector;
+}
+
+/**
+ * Inert config token. Real Firebase uses this to select an on-disk,
+ * persistent IndexedDB cache tier; the sandbox has no separate cache
+ * tier — persistence is already the default — so this just returns a
+ * tagged token `initializeFirestore` can accept without crashing.
+ */
+export function persistentLocalCache(settings?: {
+  tabManager?: PersistentTabManager;
+  cacheSizeBytes?: number;
+}): LocalCache {
+  return { [LOCAL_CACHE_SYMBOL]: 'persistent', tabManager: settings?.tabManager };
+}
+
+/** Inert config token — the memory-cache counterpart of {@link persistentLocalCache}. */
+export function memoryLocalCache(settings?: {
+  garbageCollector?: MemoryGarbageCollector;
+}): LocalCache {
+  return { [LOCAL_CACHE_SYMBOL]: 'memory', garbageCollector: settings?.garbageCollector };
+}
+
+/** Inert config token accepted by {@link persistentLocalCache}'s `tabManager`. */
+export function persistentSingleTabManager(
+  _settings?: { forceOwnership?: boolean },
+): PersistentTabManager {
+  return { [TAB_MANAGER_SYMBOL]: 'single' };
+}
+
+/** Inert config token accepted by {@link persistentLocalCache}'s `tabManager`. */
+export function persistentMultipleTabManager(): PersistentTabManager {
+  return { [TAB_MANAGER_SYMBOL]: 'multiple' };
+}
+
+/** Inert config token accepted by {@link memoryLocalCache}'s `garbageCollector`. */
+export function memoryEagerGarbageCollector(): MemoryGarbageCollector {
+  return { [GC_SYMBOL]: 'eager' };
+}
+
+/** Inert config token accepted by {@link memoryLocalCache}'s `garbageCollector`. */
+export function memoryLruGarbageCollector(
+  _settings?: { cacheSizeBytes?: number },
+): MemoryGarbageCollector {
+  return { [GC_SYMBOL]: 'lru' };
+}
+
+/** Client-cache/network settings `initializeFirestore` accepts but no-ops
+ *  on sandbox targets — see the tier-1 section rationale above. */
+export interface FirestoreSettings {
+  localCache?: LocalCache;
+  cacheSizeBytes?: number;
+  ignoreUndefinedProperties?: boolean;
+  experimentalForceLongPolling?: boolean;
+  experimentalAutoDetectLongPolling?: boolean;
+  host?: string;
+  ssl?: boolean;
+}
+
+/**
+ * Delegates to {@link getFirestore} and returns the same handle. Accepts
+ * the `settings` argument (so the explicit-init pattern app code commonly
+ * writes — `initializeFirestore(app, { localCache: persistentLocalCache(...) } )`
+ * — no longer crashes at import) but no-ops the cache/network settings:
+ * persistence is already the sandbox default, so there is nothing left to
+ * configure into existence.
+ *
+ * Prod: settings ARE meaningful to `firebase/firestore`, but this helper
+ * still only forwards to `getFirestore(app)` — a real cache/network
+ * settings pass-through for the prod path is out of scope for this tier-1
+ * pass (tracked separately).
+ */
+export function initializeFirestore(
+  app: FirebaseApp | PyricApp,
+  _settings?: FirestoreSettings,
+  _databaseId?: string,
+): Firestore {
+  return getFirestore(app as FirebaseApp);
+}
+
+/**
+ * Sandbox: delegates to {@link getDoc}. The sandbox store IS the
+ * authoritative, always-fresh source — there is no separate server
+ * round-trip to force, so "from server" and the default read are the
+ * same honest thing.
+ *
+ * Prod: forwards to `firebase/firestore`'s real `getDocFromServer`,
+ * which does force a server round-trip.
+ */
+export function getDocFromServer<T = DocumentData>(
+  ref: DocumentReference<T>,
+): Promise<DocumentSnapshot<T>> {
+  const target = targetOf(ref);
+  if (isSandboxKind(target)) return getDoc(ref);
+  return fb.getDocFromServer(asFbDoc(ref)) as unknown as Promise<DocumentSnapshot<T>>;
+}
+
+/** Query-plural form of {@link getDocFromServer}. */
+export function getDocsFromServer<T = DocumentData>(
+  query: Query<T>,
+): Promise<QuerySnapshot<T>> {
+  const target = targetOf(query);
+  if (isSandboxKind(target)) return getDocs(query);
+  return fb.getDocsFromServer(asFbQuery(query)) as unknown as Promise<QuerySnapshot<T>>;
+}
+
+/**
+ * Sandbox: delegates to {@link getDoc}. Real Firebase THROWS
+ * `'unavailable'` here on a cache miss (nothing local matches the
+ * ref); pyric never misses — the local store always has whatever is
+ * there — so this never throws for that reason. Documented divergence,
+ * not a claim of parity.
+ *
+ * Prod: forwards to `firebase/firestore`'s real `getDocFromCache`,
+ * which DOES throw `'unavailable'` on a genuine cache miss.
+ */
+export function getDocFromCache<T = DocumentData>(
+  ref: DocumentReference<T>,
+): Promise<DocumentSnapshot<T>> {
+  const target = targetOf(ref);
+  if (isSandboxKind(target)) return getDoc(ref);
+  return fb.getDocFromCache(asFbDoc(ref)) as unknown as Promise<DocumentSnapshot<T>>;
+}
+
+/** Query-plural form of {@link getDocFromCache} — same cache-miss divergence. */
+export function getDocsFromCache<T = DocumentData>(
+  query: Query<T>,
+): Promise<QuerySnapshot<T>> {
+  const target = targetOf(query);
+  if (isSandboxKind(target)) return getDocs(query);
+  return fb.getDocsFromCache(asFbQuery(query)) as unknown as Promise<QuerySnapshot<T>>;
+}
+
+/** Mirrors `firebase/firestore`'s `LogLevel` union. */
+export type LogLevel = fb.LogLevel;
+
+/**
+ * Accepted no-op: the sandbox has no modular-SDK-style logger to wire
+ * a level into (it uses host-level `console` logging directly, gated
+ * by `pyric dev`'s own flags, not this call). Exists purely so app
+ * code that calls this defensively at startup doesn't crash on a
+ * missing export.
+ */
+export function setLogLevel(logLevel: LogLevel): void {
+  void logLevel;
+}
+
+/**
+ * Sandbox: fires the callback once the current snapshot-delivery
+ * microtask queue settles — the closest honest approximation of "every
+ * active listener has delivered its latest state" available without a
+ * true cross-listener sync signal (the sandbox doesn't track one).
+ * This is NOT the real SDK's guarantee (which is scoped to actual
+ * server round-trips); it is scoped to local delivery only.
+ *
+ * Prod: forwards to `firebase/firestore`'s real `onSnapshotsInSync`.
+ */
+export function onSnapshotsInSync(
+  db: Firestore,
+  observerOrCallback: (() => void) | { next?: () => void; complete?: () => void; error?: (error: unknown) => void },
+): Unsubscribe {
+  const target = targetOf(db);
+  if (isSandboxKind(target)) {
+    const cb = typeof observerOrCallback === 'function' ? observerOrCallback : observerOrCallback.next;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled && cb) cb();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }
+  return fb.onSnapshotsInSync(
+    target.db,
+    observerOrCallback as unknown as Parameters<typeof fb.onSnapshotsInSync>[1],
+  );
+}
+
 // Shorthand: cast helpers used inside route arms. The runtime objects
 // match these shapes precisely; the casts let the routing keep its
 // single-typed public surface.

@@ -100,9 +100,7 @@ const firestoreDenials: DenyEntry[] = [
     '_internalQueryToProtoQueryTarget', '_isBase64Available', '_logWarn',
     '_validateIsNotUsedTogether',
   ]),
-  ...deny('firestore', 'Client cache-config surface (index tuning, GC policy) the sandbox has no equivalent knob for; distinct from enable/clear-persistence and network toggles, which are now mirrored as honest no-ops/forwards (see registry/firestore.ts, issue #144).', [
-    'persistentLocalCache', 'persistentMultipleTabManager', 'persistentSingleTabManager',
-    'memoryLocalCache', 'memoryEagerGarbageCollector', 'memoryLruGarbageCollector',
+  ...deny('firestore', 'Index-tuning / GC-policy admin surface the sandbox has no equivalent knob for; distinct from the tier-1 cache-factory tokens (persistentLocalCache/memoryLocalCache/tab-managers/GC-collectors), which are now mirrored as honest inert tokens (see registry/firestore.ts, issue #144 tier-1 pass).', [
     'CACHE_SIZE_UNLIMITED',
     'PersistentCacheIndexManager', 'getPersistentCacheIndexManager',
     'deleteAllPersistentCacheIndexes', 'enablePersistentCacheIndexAutoCreation',
@@ -113,15 +111,6 @@ const firestoreDenials: DenyEntry[] = [
   ]),
   ...deny('firestore', 'Bundle-loading depends on server-side packaging not modeled in the sandbox (firestore deny-list: loadBundle / namedQuery).', [
     'loadBundle', 'namedQuery', 'LoadBundleTask',
-  ]),
-  ...deny('firestore', 'No cache/server split in the sandbox (firestore deny-list: getDoc*FromCache / getDoc*FromServer).', [
-    'getDocFromCache', 'getDocFromServer', 'getDocsFromCache', 'getDocsFromServer',
-  ]),
-  ...deny('firestore', 'Cross-listener sync semantics not modeled (firestore deny-list: onSnapshotsInSync).', [
-    'onSnapshotsInSync',
-  ]),
-  ...deny('firestore', 'Sandbox uses host-level logging, not the modular SDK logger (firestore deny-list: setLogLevel).', [
-    'setLogLevel',
   ]),
 ];
 

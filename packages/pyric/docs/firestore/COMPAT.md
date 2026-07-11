@@ -294,6 +294,56 @@ backlog work per issue #144).
 | 143 | Resolve on sandbox targets — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated). Forward to `fb.enableNetwork` / `fb.disableNetwork` on prod targets | ⚠ no offline queue | `unit:firestore/persistence-network.test.ts` |
 | 144 | Resolves immediately on sandbox targets — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip. Forwards to `fb.waitForPendingWrites` on prod targets | ⚠ always resolves; prod can hang offline | `unit:firestore/persistence-network.test.ts` |
 
+## Tier-1 cache-init + get-from-* family (issue #144, tier-1 pass)
+
+`initializeFirestore`, the six cache-factory tokens
+(`persistentLocalCache`, `memoryLocalCache`, `persistentSingleTabManager`,
+`persistentMultipleTabManager`, `memoryEagerGarbageCollector`,
+`memoryLruGarbageCollector`), `getDocFromServer` / `getDocsFromServer`,
+`getDocFromCache` / `getDocsFromCache`, `setLogLevel`, and
+`onSnapshotsInSync` are now exported from `pyric/firestore`. Before
+this, none of these existed on the modular surface — an app using the
+common explicit-init pattern
+
+```ts
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache(persistentMultipleTabManager()),
+});
+```
+
+crashed at IMPORT (a missing named export) before it ever ran a read
+or write.
+
+**Honest-mirror rationale**: these are aliases and honest no-op
+config tokens, not new feature work. `initializeFirestore` delegates
+to `getFirestore` and returns the same handle; it accepts the
+`settings` argument but no-ops the cache/network settings, because
+persistence is already the sandbox default — there is no separate
+cache tier to configure into existence. The six cache-factory tokens
+return small tagged objects so identity/usage doesn't crash; they are
+inert for the same reason. `getDocFromServer` / `getDocFromCache` and
+their plural forms delegate to the same read path as `getDoc` /
+`getDocs` on sandbox targets — the sandbox store IS the authoritative,
+always-fresh source, so there is no cache/server split to honor; on
+prod targets they forward to the real split, preserving prod's real
+cache-miss-throws behavior. `setLogLevel` is an accepted no-op — the
+sandbox has no modular-SDK-style logger to wire a level into.
+`onSnapshotsInSync` fires its callback once the current
+snapshot-delivery microtask queue settles, the closest honest
+approximation of "every listener delivered" available without a true
+cross-listener sync signal.
+
+## Tier-1 cache-init + get-from-* family (continued)
+
+| # | Behavior | Status | Probe |
+|---|---|---|---|
+| 145 | Delegates to `getFirestore(app)` and returns the same handle. Accepts the `settings` argument (so the explicit-init pattern doesn't crash at import) but no-ops the cache/network settings — persistence is always on. Prod path forwards only to `getFirestore(app)`; a real settings pass-through for prod is out of scope for this tier-1 pass | ⚠ settings accepted but cache/network settings are no-ops | `unit:firestore/tier1-cache-init-align.test.ts` |
+| 146 | Config token accepted, inert — each returns a small tagged object so identity/usage doesn't crash. Persistence is the sandbox default; there is no cache tier left to configure | ⚠ inert config tokens; no cache tier to configure | `unit:firestore/tier1-cache-init-align.test.ts` |
+| 147 | Delegates to `getDoc` / `getDocs` on sandbox targets — the sandbox store IS the authoritative source, so there is no separate server round-trip to force and no observable divergence from the default read. Forwards to `fb.getDocFromServer` / `fb.getDocsFromServer` on prod targets | ✓ | `unit:firestore/tier1-cache-init-align.test.ts` |
+| 148 | Delegates to `getDoc` / `getDocs` on sandbox targets. Real Firebase THROWS `'unavailable'` here on a genuine cache miss; pyric never misses — the local store always has the answer (or a non-existent snapshot) — so it never throws for that reason. Forwards to `fb.getDocFromCache` / `fb.getDocsFromCache` on prod targets, which DO throw on a real cache miss | ⚠ never throws unavailable; sandbox has no cache miss | `unit:firestore/tier1-cache-init-align.test.ts` |
+| 149 | Accepted no-op — the sandbox has no modular-SDK-style logger to wire a level into; it uses host-level `console` logging directly, gated by `pyric dev`'s own flags, not this call | ⚠ accepted no-op; no sandbox logger wired | `unit:firestore/tier1-cache-init-align.test.ts` |
+| 150 | Fires the callback once the current snapshot-delivery microtask queue settles — the closest honest approximation of "every active listener has delivered its latest state" available without a true cross-listener sync signal. Not scoped to real server round-trips like the real SDK's guarantee; scoped to local delivery only. Forwards to `fb.onSnapshotsInSync` on prod targets | ⚠ approximated from local snapshot-delivery settle, not a true global in-sync signal | `unit:firestore/tier1-cache-init-align.test.ts` |
+
 ## `sandbox.*` — sandbox-only ops
 
 | # | Behavior | Status | Probe |
@@ -338,12 +388,9 @@ bundle's metafile gate enforce the deny-list at build time.
 
 | Name | Reason |
 |---|---|
-| `persistentLocalCache` / `memoryLocalCache` / `persistentSingleTabManager` / `persistentMultipleTabManager` | Client cache-config surface (index tuning, GC policy); no sandbox equivalent knob. Distinct from enable/clear-persistence and network toggles, which are now mirrored (see the offline/persistence/network section above, issue #144) |
+| `CACHE_SIZE_UNLIMITED` / `PersistentCacheIndexManager` / `getPersistentCacheIndexManager` / `deleteAllPersistentCacheIndexes` / `enablePersistentCacheIndexAutoCreation` / `disablePersistentCacheIndexAutoCreation` / `setIndexConfiguration` | Index-tuning / GC-policy admin surface; no sandbox equivalent knob. Distinct from the tier-1 cache-factory tokens (`persistentLocalCache` / `memoryLocalCache` / tab-managers / GC-collectors) and `getDoc*FromCache` / `getDoc*FromServer` / `setLogLevel` / `onSnapshotsInSync`, which are now mirrored (see the tier-1 cache-init + get-from-* section above, issue #144 tier-1 pass) |
 | `terminate` | Out of scope for issue #144 — `Sandbox.dispose()` covers teardown at the host level today |
 | `loadBundle` / `namedQuery` | Bundle-loading depends on server-side packaging not modeled in sandbox |
-| `getDocFromCache` / `getDocFromServer` / `getDocsFromCache` / `getDocsFromServer` | No cache/server split in sandbox |
-| `onSnapshotsInSync` | Cross-listener sync semantics not modeled |
-| `setLogLevel` | Sandbox uses host-level logging, not the modular SDK's logger |
 
 ---
 
