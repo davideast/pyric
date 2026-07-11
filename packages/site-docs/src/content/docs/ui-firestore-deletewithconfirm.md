@@ -2,7 +2,7 @@
 title: "<DeleteWithConfirm>"
 group: "@pyric/ui"
 section: "Firestore"
-order: 194
+order: 195
 ---
 # `<DeleteWithConfirm>`
 

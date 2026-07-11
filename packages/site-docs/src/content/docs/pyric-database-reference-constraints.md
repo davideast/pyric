@@ -3,7 +3,7 @@ title: "API reference: RTDB rules constraints"
 navLabel: "API reference"
 group: "pyric / database"
 section: "Reference"
-order: 160
+order: 161
 ---
 # API reference: RTDB rules constraints
 
