@@ -461,7 +461,32 @@ means a Bun test in `packages/auth/test/<file>`.
 </details>
 </div>
 
-## Low-hanging-fruit exports (issue #149)
+## `beforeAuthStateChanged(auth, callback, onAbort?)`
+
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">76</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Registers a BLOCKING gate that runs before a real sign-in/sign-out transition commits. Callbacks run in registration order; a callback that throws (or returns a rejected promise) aborts the transition entirely: the pending <code>signInWith…</code>/<code>signOut</code> call rejects with <code>auth/login-blocked</code>, <code>currentUser</code> is unchanged, and <code>onAuthStateChanged</code>/<code>onIdTokenChanged</code> do NOT fire. Covers every sign-in path that exists in <code>pyric/auth</code>: <code>signInAnonymously</code>, <code>signInWithEmailAndPassword</code>, <code>createUserWithEmailAndPassword</code>, <code>signInWithPopup</code>, <code>signInWithRedirect</code>, <code>signInWithCredential</code>, and <code>signOut</code> (pyric has no <code>signInWithCustomToken</code> yet). Modeled after the real <code>@firebase/auth</code> <code>AuthMiddlewareQueue.runMiddleware</code> (<code>auth_impl.ts</code>), read directly from the installed SDK source, not just its <code>.d.ts</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-before-auth-state-changed.test.ts</code> — implementation cross-checked against <code>@firebase/auth</code>'s <code>AuthMiddlewareQueue</code> source (registration-order queue, per-callback try/await, <code>auth/login-blocked</code> wrap). No live-oracle capture (no observable client-visible signal to probe beyond the documented+sourced contract already read).</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">76a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>onAbort</code> semantics: when a callback throws, every <code>onAbort</code> registered by a callback that ALREADY SUCCEEDED in the same pass runs, in REVERSE registration order — matches upstream's rollback-stack (<code>runMiddleware</code>'s <code>onAbortStack</code>). An <code>onAbort</code> that itself throws is swallowed so it can't mask the original block reason or skip the remaining rollbacks.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-before-auth-state-changed.test.ts</code> ("onAbort runs (in reverse order)…", "a callback whose own onAbort throws…")</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">76b</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Fires on BOTH directions: a real sign-in (<code>nextUser</code> non-null) and a real sign-out (<code>nextUser === null</code>) — a throwing callback blocks <code>signOut</code> too, leaving the previous user signed in. Matches upstream, where the same middleware queue gates <code>_updateCurrentUser</code> and <code>signOut</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-before-auth-state-changed.test.ts</code> ("fires on sign-out too…")</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">76c</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>sandbox.setUser</code> (the sandbox-only test driver) BYPASSES the gate entirely — it is a raw identity force with no prod analog (same bypass it already has for provider enforcement / <code>signInProvider</code> tracking), so no registered <code>beforeAuthStateChanged</code> callback runs and none can block it.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-before-auth-state-changed.test.ts</code> ("sandbox.setUser test driver bypasses the gate")</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">76d</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Served-worker path (SharedWorker-backed auth, <code>pyric-tools</code>'s <code>serve/entries/auth.ts</code>): the worker owns the shared user pool and commits transitions on its own side of the port, so a page-local <code>beforeAuthStateChanged</code> registration can't actually gate a worker-driven sign-in. Rather than silently accept a callback that would never run, registering THROWS immediately (<code>auth/operation-not-supported-in-this-environment</code>) — same defensive pattern as <code>signInWithCredential</code> over the worker.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>packages/pyric-tools/src/serve/worker/client.ts</code> (<code>beforeAuthStateChanged</code> throws <code>makeUnsupported</code>)</div></div>
+</details>
+</div>
+
+## User-management and session exports
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
@@ -510,9 +535,8 @@ gate enforce the deny-list at build time.
 | `reauthenticateWithCredential` / `reauthenticateWithPopup` / `reauthenticateWithRedirect` | v0 scope |
 | `verifyBeforeUpdateEmail` / `sendEmailVerification` / `applyActionCode` / `checkActionCode` / `confirmPasswordReset` / `sendPasswordResetEmail` / `verifyPasswordResetCode` | Email-link flows require an SMTP path; deliberately out of scope |
 | `multiFactor(user)` / MFA APIs | Not modeled |
-| `setLanguageCode` (Auth method) | i18n surface; not in v0. (`useDeviceLanguage` is now mirrored as an accepted no-op — issue #149.) |
-| `beforeAuthStateChanged` | Blocking middleware; sandbox uses synchronous fan-out and has no equivalent yet |
-| `User.toJSON()` | Serialization the sandbox doesn't model — documented per AUTH-GAP. (`User.reload()` / `User.delete()` are now mirrored via the top-level `reload(user)` / `deleteUser(user)` — issue #149.) |
+| `setLanguageCode` (Auth method) | i18n surface; not in v0. (`useDeviceLanguage` is now mirrored as an accepted no-op.) |
+| `User.toJSON()` | Serialization the sandbox doesn't model — documented per AUTH-GAP. (`User.reload()` / `User.delete()` are now mirrored via the top-level `reload(user)` / `deleteUser(user)`.) |
 | `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox; documented per AUTH-GAP |
 | Positional listener `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Sandbox observers never error/complete (synchronous in-memory fan-out); pass the `{ next, error, complete }` observer object if you need those handlers. The prod backend forwards all three. |
 

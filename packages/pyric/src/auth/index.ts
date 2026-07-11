@@ -68,6 +68,7 @@ import {
   type AuthCredential,
 } from './types.js';
 import {
+  prodBeforeAuthStateChanged,
   prodCreateUserWithEmailAndPassword,
   prodCurrentUser,
   prodGetRedirectResult,
@@ -394,7 +395,7 @@ export async function signInAnonymously(auth: Auth): Promise<UserCredential> {
     return { user: existing, providerId: null, operationType: 'signIn' };
   }
   const user = target.backend.mintAnonymousUser();
-  target.backend.setCurrentUser(user, 'anonymous');
+  await target.backend.transitionCurrentUser(user, 'anonymous');
   return { user, providerId: null, operationType: 'signIn' };
 }
 
@@ -418,7 +419,7 @@ export async function signInWithEmailAndPassword(
   // `core/user/user_credential_impl.ts:84-96`). Oracle:
   // scripts/oracle/observations/auth-createUser-operationType.json pins
   // providerId: null against prod (AUTH-B2).
-  target.backend.setCurrentUser(user, 'password');
+  await target.backend.transitionCurrentUser(user, 'password');
   return { user, providerId: null, operationType: 'signIn' };
 }
 
@@ -437,14 +438,14 @@ export async function createUserWithEmailAndPassword(
   // providerId: null — same rationale as signInWithEmailAndPassword above
   // (the exact field the oracle capture contradicted; audit H6 / AUTH-B2);
   // 'password' still recorded on the identity for provider tracking.
-  target.backend.setCurrentUser(user, 'password');
+  await target.backend.transitionCurrentUser(user, 'password');
   return { user, providerId: null, operationType: 'signIn' };
 }
 
 export async function signOut(auth: Auth): Promise<void> {
   const target = targetOf(auth);
   if (target.kind === 'prod') return prodSignOut(target.auth);
-  target.backend.setCurrentUser(null);
+  await target.backend.transitionCurrentUser(null);
 }
 
 export async function setPersistence(auth: Auth, persistence: Persistence): Promise<void> {
@@ -518,7 +519,7 @@ export async function signInWithPopup(
   const providerId = cred.providerId ?? provider.providerId;
   target.backend.assertSignInAllowed(cred.user.uid);
   target.backend.recordProviderSignIn(cred.user, providerId);
-  target.backend.setCurrentUser(cred.user, providerId);
+  await target.backend.transitionCurrentUser(cred.user, providerId);
   return cred;
 }
 
@@ -539,9 +540,13 @@ export async function signInWithRedirect(
   const cred = await resolveFlow(target.backend, provider, 'signIn', resolver, 'redirect');
   const providerId = cred.providerId ?? provider.providerId;
   target.backend.assertSignInAllowed(cred.user.uid);
-  target.backend.setRedirectResult(cred);
   target.backend.recordProviderSignIn(cred.user, providerId);
-  target.backend.setCurrentUser(cred.user, providerId);
+  // Gate BEFORE stashing the redirect result — a blocked transition
+  // means the identity never became the signed-in user, so
+  // `getRedirectResult` shouldn't hand it back either (matches
+  // upstream's `_overrideRedirectResult` swap to a rejection on block).
+  await target.backend.transitionCurrentUser(cred.user, providerId);
+  target.backend.setRedirectResult(cred);
 }
 
 export async function getRedirectResult(
@@ -573,7 +578,7 @@ export async function signInWithCredential(
   const credProviderId = mock.providerId ?? providerId;
   target.backend.assertSignInAllowed(mock.user.uid);
   target.backend.recordProviderSignIn(mock.user, credProviderId);
-  target.backend.setCurrentUser(mock.user, credProviderId);
+  await target.backend.transitionCurrentUser(mock.user, credProviderId);
   return mock;
 }
 
@@ -592,6 +597,37 @@ export function onIdTokenChanged(auth: Auth, observer: AuthObserver): Unsubscrib
   // `getIdToken(true)` forced refreshes — matches prod.
   // Oracle: scripts/oracle/observations/auth-onidtokenchanged-force-refresh.json.
   return target.backend.subscribe('id-token', observer);
+}
+
+/**
+ * Top-level mirror of `firebase/auth`'s `beforeAuthStateChanged(auth,
+ * callback, onAbort?)` — a BLOCKING gate that runs before a real
+ * sign-in/sign-out transition commits. Registered callbacks run in
+ * registration order; if one throws (or its returned promise rejects),
+ * the transition is aborted: the pending `signInWith…` / `signOut`
+ * call rejects with `auth/login-blocked`, `currentUser` is left
+ * unchanged, and `onAuthStateChanged` / `onIdTokenChanged` do NOT fire.
+ * Every `onAbort` registered by a callback that already ran
+ * successfully in this pass is invoked (in reverse registration order)
+ * so side effects can be undone.
+ *
+ * Fires for both directions — a real sign-in (`nextUser` non-null) and
+ * a real sign-out (`nextUser === null`). Does NOT fire for
+ * `sandbox.setUser` — that test driver bypasses the gate the same way
+ * it bypasses provider enforcement (no prod analog; see its doc
+ * comment under {@link sandbox}).
+ *
+ * Sandbox target only runs one queue per `Auth` handle — mirrors
+ * upstream, where the queue lives on the `AuthImpl` instance.
+ */
+export function beforeAuthStateChanged(
+  auth: Auth,
+  callback: (user: User | null) => void | Promise<void>,
+  onAbort?: () => void,
+): Unsubscribe {
+  const target = targetOf(auth);
+  if (target.kind === 'prod') return prodBeforeAuthStateChanged(target.auth, callback, onAbort);
+  return target.backend.beforeAuthStateChanged(callback, onAbort);
 }
 
 // ─── Token accessors ──────────────────────────────────────────────────
