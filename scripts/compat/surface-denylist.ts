@@ -46,7 +46,7 @@
  * rather than matched by a `startsWith` rule, so the trust path stays a lookup.
  */
 
-export type CensusSurface = 'app' | 'auth' | 'firestore' | 'database' | 'storage';
+export type CensusSurface = 'app' | 'auth' | 'firestore' | 'database' | 'storage' | 'messaging' | 'messaging-sw';
 
 /**
  * `out-of-scope`  — genuinely cannot be modeled by the sandbox: internal
