@@ -130,6 +130,14 @@ export async function enableIndexedDbPersistence(_db?: unknown): Promise<void> {
   acceptedNoOp('enableIndexedDbPersistence');
 }
 
+/** No-op success, same rationale as `enableIndexedDbPersistence` — the
+ *  SharedWorker path already IS the one store every tab reads/writes, so
+ *  there's no separate multi-tab mode to opt into over the worker; the
+ *  in-page fallback has no multi-tab story to begin with. */
+export async function enableMultiTabIndexedDbPersistence(_db?: unknown): Promise<void> {
+  acceptedNoOp('enableMultiTabIndexedDbPersistence');
+}
+
 export async function clearIndexedDbPersistence(_db?: unknown): Promise<void> {
   acceptedNoOp('clearIndexedDbPersistence');
 }
@@ -137,3 +145,17 @@ export async function clearIndexedDbPersistence(_db?: unknown): Promise<void> {
 /** Resolves immediately — sandbox writes apply synchronously in-page; over the
  *  worker the RPC ack already settled (judgment zone 4, recorded). */
 export async function waitForPendingWrites(_db?: unknown): Promise<void> {}
+
+// ── network toggles — no-op (accepted, unused). No network exists in the
+//    sandbox (in-page OR worker): every op is a local call, never a request
+//    that could be offline. Writes issued after `disableNetwork()` still
+//    commit immediately — no offline queue is simulated, because the sandbox
+//    cannot honestly deliver "queued until reconnected" with no connection to
+//    lose in the first place. ───────────────────────────────────────────────
+export async function disableNetwork(_db?: unknown): Promise<void> {
+  acceptedNoOp('disableNetwork');
+}
+
+export async function enableNetwork(_db?: unknown): Promise<void> {
+  acceptedNoOp('enableNetwork');
+}
