@@ -7,7 +7,7 @@ This surface climbed under Conformance Driven Development
 born `unverified` at admission: the row universe and the red conformance
 suites came first, the mirror implementation came after. All 80 rows are
 now flipped: the climb lane (`bun run compat:climb-ai`, the suites at
-`scripts/compat/conformance/ai`) passes 80 of 80 with no assertion
+`packages/pyric/test/ai`) passes 80 of 80 with no assertion
 weakened, and every row records the tier of evidence that vouches for it.
 
 Evidence tiers per `docs/conformance/ai/cdd-deltas.md`:
@@ -42,7 +42,7 @@ compare text when the scripted engine was explicitly scripted to return it
 | ? | **Unverified**: claim not yet locked by a passing probe |
 
 Probe references: `unit:<file>` means a passing Bun test in
-`scripts/compat/conformance/ai/<file>` (the climb lane). Captures live at
+`packages/pyric/test/ai/<file>` (the climb lane). Captures live at
 `scripts/oracle/observations/ai-*.json`; a row that cites one replays the
 capture's distilled facts in the named test.
 
@@ -67,30 +67,30 @@ capture's distilled facts in the named test.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| generate-envelope-keys | The response envelope top-level key set is exactly `candidates`, `modelVersion`, `responseId`, `usageMetadata` | ✓ | Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-envelope-keys` |
-| generate-candidate-keys | The candidate key set is `content`, `finishReason`, `index`, and `index` is present on the wire (0 for the single candidate) | ✓ | Capture ai-generate-minimal-envelope (candidateHasIndexOnWire) replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-candidate-keys` |
-| generate-role-model | Candidate content carries role `model` and the content key set is `parts`, `role` | ✓ | Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-role-model` |
-| generate-finish-stop | A normal completion finishes with `finishReason` `STOP` | ✓ | Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-finish-stop` |
-| generate-usage-key-set | The usageMetadata key set on a minimal text call is `candidatesTokenCount`, `promptTokenCount`, `promptTokensDetails`, `serviceTier`, `totalTokenCount` | ✓ | Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-usage-key-set` |
-| generate-usage-service-tier | `usageMetadata.serviceTier` rides the wire even though the 2.12.0 SDK typings do not declare it | ✓ | Capture ai-generate-minimal-envelope (usageServiceTierPresent) replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-usage-service-tier` |
-| generate-modelversion-responseid | `modelVersion` and `responseId` are present nonempty strings; the sandbox mints them deterministically | ✓ | Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-modelversion-responseid` |
+| generate-envelope-keys | The response envelope top-level key set is exactly `candidates`, `modelVersion`, `responseId`, `usageMetadata` | ✓ | Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-envelope-keys` |
+| generate-candidate-keys | The candidate key set is `content`, `finishReason`, `index`, and `index` is present on the wire (0 for the single candidate) | ✓ | Capture ai-generate-minimal-envelope (candidateHasIndexOnWire) replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-candidate-keys` |
+| generate-role-model | Candidate content carries role `model` and the content key set is `parts`, `role` | ✓ | Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-role-model` |
+| generate-finish-stop | A normal completion finishes with `finishReason` `STOP` | ✓ | Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-finish-stop` |
+| generate-usage-key-set | The usageMetadata key set on a minimal text call is `candidatesTokenCount`, `promptTokenCount`, `promptTokensDetails`, `serviceTier`, `totalTokenCount` | ✓ | Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-usage-key-set` |
+| generate-usage-service-tier | `usageMetadata.serviceTier` rides the wire even though the 2.12.0 SDK typings do not declare it | ✓ | Capture ai-generate-minimal-envelope (usageServiceTierPresent) replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-usage-service-tier` |
+| generate-modelversion-responseid | `modelVersion` and `responseId` are present nonempty strings; the sandbox mints them deterministically | ✓ | Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-modelversion-responseid` |
 | generate-string-request | A plain string request is wrapped as a single user turn before it reaches the engine | ✓ | `unit:generate-content.test.ts` test `ai#generate-string-request` (no capture; upstream request formatting claim) |
-| generate-system-instruction | A top-level `systemInstruction` is accepted and the response envelope shape is unaffected | ✓ | Capture ai-system-instruction-accepted replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-system-instruction` |
-| generate-structured-output | `responseMimeType` `application/json` plus a `responseSchema` yields a text part that parses as JSON with the schema key set | ✓ | Capture ai-structured-output-shape replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-structured-output` |
-| generate-thinking-signature | With `thinkingConfig` on the probe model, text parts carry `thoughtSignature` and no part is flagged `thought: true` | ✓ | Capture ai-thinking-thought-parts (partKeySets, anyThoughtPart false) replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-thinking-signature` |
+| generate-system-instruction | A top-level `systemInstruction` is accepted and the response envelope shape is unaffected | ✓ | Capture ai-system-instruction-accepted replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-system-instruction` |
+| generate-structured-output | `responseMimeType` `application/json` plus a `responseSchema` yields a text part that parses as JSON with the schema key set | ✓ | Capture ai-structured-output-shape replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-structured-output` |
+| generate-thinking-signature | With `thinkingConfig` on the probe model, text parts carry `thoughtSignature` and no part is flagged `thought: true` | ✓ | Capture ai-thinking-thought-parts (partKeySets, anyThoughtPart false) replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-thinking-signature` |
 | generate-abort-signal | A pre-aborted `SingleRequestOptions.signal` rejects the call | ✓ | `unit:generate-content.test.ts` test `ai#generate-abort-signal` (no capture; upstream SingleRequestOptions contract) |
-| generate-decoration-synthesized | Token counts are minted without a tokenizer, and the minimal envelope omits `safetyRatings`, matching the captured candidate key set | ✓ | Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/generate-content.test.ts test `ai#generate-decoration-synthesized` |
+| generate-decoration-synthesized | Token counts are minted without a tokenizer, and the minimal envelope omits `safetyRatings`, matching the captured candidate key set | ✓ | Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-decoration-synthesized` |
 
 ## `generateContentStream` framing and aggregation
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| stream-async-iterable | `result.stream` async-iterates response chunks via `for await`; each chunk is a complete GenerateContentResponse | ✓ | Capture ai-generate-stream-framing replayed by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-async-iterable` |
-| stream-data-prefixed | Every SSE event is `data: ` prefixed and its payload parses as a complete JSON document | ✓ | Capture ai-generate-stream-framing (allEventsDataPrefixed) replayed byte-level by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-data-prefixed` |
-| stream-separator-crlf | SSE events are separated by CRLF CRLF | ✓ | Capture ai-generate-stream-framing (separatorIsCrlfCrlf) replayed byte-level by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-separator-crlf` |
-| stream-finish-last-chunk | `finishReason` appears only on the last chunk of a stream | ✓ | Capture ai-generate-stream-framing (finishReasonOnlyOnLastChunk) replayed by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-finish-last-chunk` |
-| stream-usage-every-chunk | `usageMetadata` rides every chunk, not only the last one | ✓ | Capture ai-generate-stream-framing (usageMetadataChunkIndexes covers all chunks) replayed by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-usage-every-chunk` |
-| stream-chunk-envelope | Every chunk carries `candidates` or `usageMetadata` | ✓ | Capture ai-generate-stream-framing (everyEventHasCandidatesOrUsage) replayed by scripts/compat/conformance/ai/streaming.test.ts test `ai#stream-chunk-envelope` |
+| stream-async-iterable | `result.stream` async-iterates response chunks via `for await`; each chunk is a complete GenerateContentResponse | ✓ | Capture ai-generate-stream-framing replayed by packages/pyric/test/ai/streaming.test.ts test `ai#stream-async-iterable` |
+| stream-data-prefixed | Every SSE event is `data: ` prefixed and its payload parses as a complete JSON document | ✓ | Capture ai-generate-stream-framing (allEventsDataPrefixed) replayed byte-level by packages/pyric/test/ai/streaming.test.ts test `ai#stream-data-prefixed` |
+| stream-separator-crlf | SSE events are separated by CRLF CRLF | ✓ | Capture ai-generate-stream-framing (separatorIsCrlfCrlf) replayed byte-level by packages/pyric/test/ai/streaming.test.ts test `ai#stream-separator-crlf` |
+| stream-finish-last-chunk | `finishReason` appears only on the last chunk of a stream | ✓ | Capture ai-generate-stream-framing (finishReasonOnlyOnLastChunk) replayed by packages/pyric/test/ai/streaming.test.ts test `ai#stream-finish-last-chunk` |
+| stream-usage-every-chunk | `usageMetadata` rides every chunk, not only the last one | ✓ | Capture ai-generate-stream-framing (usageMetadataChunkIndexes covers all chunks) replayed by packages/pyric/test/ai/streaming.test.ts test `ai#stream-usage-every-chunk` |
+| stream-chunk-envelope | Every chunk carries `candidates` or `usageMetadata` | ✓ | Capture ai-generate-stream-framing (everyEventHasCandidatesOrUsage) replayed by packages/pyric/test/ai/streaming.test.ts test `ai#stream-chunk-envelope` |
 | stream-response-aggregate | `result.response` resolves to an aggregated response whose text is the concatenation of the streamed text parts | ✓ | `unit:streaming.test.ts` test `ai#stream-response-aggregate` (aggregation semantics; text values come from an explicit script) |
 | stream-aggregate-final-meta | The aggregated response carries the final chunk `finishReason` and `usageMetadata` | ⚠ metadata carry | `unit:streaming.test.ts` test `ai#stream-aggregate-final-meta` (aggregation semantics derived from the framing capture) |
 
@@ -101,7 +101,7 @@ capture's distilled facts in the named test.
 | chat-startchat | `startChat` returns a `ChatSession` seeded with `StartChatParams.history` | ✓ | `unit:chat-session.test.ts` test `ai#chat-startchat` (no capture; structural claim) |
 | chat-history-threads | `sendMessage` appends the user turn and the model turn; `getHistory()` returns the ordered `Content[]` with alternating roles | ⚠ clone | `unit:chat-session.test.ts` test `ai#chat-history-threads` (no capture; history threading claim) |
 | chat-history-excludes-blocked | Blocked prompts and blocked candidates are excluded from `getHistory()` | ⚠ blocked history | `unit:chat-session.test.ts` test `ai#chat-history-excludes-blocked` (upstream JSDoc contract; exercised with a scripted blocked envelope) |
-| chat-sendmessage-envelope | A `sendMessage` result carries the same envelope facts as `generateContent`: the four top-level keys and role `model` | ✓ | Capture ai-generate-minimal-envelope replayed by scripts/compat/conformance/ai/chat-session.test.ts test `ai#chat-sendmessage-envelope` |
+| chat-sendmessage-envelope | A `sendMessage` result carries the same envelope facts as `generateContent`: the four top-level keys and role `model` | ✓ | Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/chat-session.test.ts test `ai#chat-sendmessage-envelope` |
 | chat-sendmessagestream | `sendMessageStream` returns a stream plus a response promise; history updates after aggregation completes | ✓ | `unit:chat-session.test.ts` test `ai#chat-sendmessagestream` (no capture; streaming turn claim) |
 | chat-stream-single-user-turn | Exactly one user turn is recorded per `sendMessageStream` call; the mirror implements the 2.13.0 fixed semantics, not the installed 2.12.0 duplicate-user-turn bug | ⚠ 2.13.0 semantics | `unit:chat-session.test.ts` test `ai#chat-stream-single-user-turn` (no capture; divergence pinned by ruling, see notes) |
 | chat-role-vocabulary | `POSSIBLE_ROLES` is exactly `["user", "model", "function", "system"]` | ✓ | `unit:chat-session.test.ts` test `ai#chat-role-vocabulary` (upstream constant; distinct from the production wire role vocabulary in ai-error-bad-role) |
@@ -110,29 +110,29 @@ capture's distilled facts in the named test.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| fncall-part-shape | A functionCall part carries the key set `args`, `id`, `name`, and `args` arrives as a parsed JSON object, not a string | ✓ | Capture ai-function-call-shape (functionCallKeySet, argsIsObjectNotString) replayed by scripts/compat/conformance/ai/function-calling.test.ts test `ai#fncall-part-shape` |
-| fncall-mode-any | Mode `ANY` forces a functionCall part in the response and the candidate finishes `STOP` | ✓ | Capture ai-function-call-shape (captured under mode ANY, finishReason STOP) replayed by scripts/compat/conformance/ai/function-calling.test.ts test `ai#fncall-mode-any` |
-| fncall-id-present | `functionCall.id` is present on the GoogleAI wire; the mirror emits an id on synthesized calls | ✓ | Capture ai-function-call-shape (id in functionCallKeySet) replayed by scripts/compat/conformance/ai/function-calling.test.ts test `ai#fncall-id-present` |
-| fncall-round-trip | A round trip that threads the model functionCall turn back verbatim, thoughtSignature preserved, is accepted: the answer has a text part and no further functionCall part | ✓ | Capture ai-function-response-round replayed by scripts/compat/conformance/ai/function-calling.test.ts test `ai#fncall-round-trip` |
-| fncall-thought-signature-required | A replayed model functionCall turn lacking `thoughtSignature` is rejected 400 INVALID_ARGUMENT with the thought-signature message | ✓ | Capture ai-error-fncall-missing-thought-signature replayed by scripts/compat/conformance/ai/function-calling.test.ts test `ai#fncall-thought-signature-required` |
+| fncall-part-shape | A functionCall part carries the key set `args`, `id`, `name`, and `args` arrives as a parsed JSON object, not a string | ✓ | Capture ai-function-call-shape (functionCallKeySet, argsIsObjectNotString) replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-part-shape` |
+| fncall-mode-any | Mode `ANY` forces a functionCall part in the response and the candidate finishes `STOP` | ✓ | Capture ai-function-call-shape (captured under mode ANY, finishReason STOP) replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-mode-any` |
+| fncall-id-present | `functionCall.id` is present on the GoogleAI wire; the mirror emits an id on synthesized calls | ✓ | Capture ai-function-call-shape (id in functionCallKeySet) replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-id-present` |
+| fncall-round-trip | A round trip that threads the model functionCall turn back verbatim, thoughtSignature preserved, is accepted: the answer has a text part and no further functionCall part | ✓ | Capture ai-function-response-round replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-round-trip` |
+| fncall-thought-signature-required | A replayed model functionCall turn lacking `thoughtSignature` is rejected 400 INVALID_ARGUMENT with the thought-signature message | ✓ | Capture ai-error-fncall-missing-thought-signature replayed by packages/pyric/test/ai/function-calling.test.ts test `ai#fncall-thought-signature-required` |
 | fncall-signature-minted | The engine mints a `thoughtSignature` on every functionCall part it synthesizes, so scripted tool round trips replay cleanly | ✓ | `unit:function-calling.test.ts` test `ai#fncall-signature-minted` (capture ai-error-fncall-missing-thought-signature cited as the motivating rejection) |
 
 ## `countTokens`
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| counttokens-envelope | The countTokens envelope key set is exactly `promptTokensDetails`, `totalTokens` | ✓ | Capture ai-counttokens-envelope replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#counttokens-envelope` |
-| counttokens-deterministic | An identical payload returns an identical `totalTokens` across calls | ✓ | Capture ai-counttokens-envelope (deterministicAcrossTwoCalls) replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#counttokens-deterministic` |
+| counttokens-envelope | The countTokens envelope key set is exactly `promptTokensDetails`, `totalTokens` | ✓ | Capture ai-counttokens-envelope replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#counttokens-envelope` |
+| counttokens-deterministic | An identical payload returns an identical `totalTokens` across calls | ✓ | Capture ai-counttokens-envelope (deterministicAcrossTwoCalls) replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#counttokens-deterministic` |
 
 ## Error envelopes
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| error-unknown-model | A model name production has never served fails 404 NOT_FOUND with the error key set `code`, `message`, `status` and no details | ✓ | Capture ai-error-unknown-model replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#error-unknown-model` |
-| error-retired-model | A retired model family (Gemini 1.5) fails 404 NOT_FOUND with an ErrorInfo detail and a retirement message distinct from unknown-model | ✓ | Capture ai-error-retired-model replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#error-retired-model` |
-| error-bad-api-key | An invalid API key fails 400 INVALID_ARGUMENT, not 401, with ErrorInfo plus LocalizedMessage details and the message `API key not valid. Please pass a valid API key.` | ✓ | Capture ai-error-bad-api-key replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#error-bad-api-key` |
-| error-empty-contents | An empty `contents` array fails 400 INVALID_ARGUMENT with the message `contents is not specified` | ✓ | Capture ai-error-empty-contents replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#error-empty-contents` |
-| error-bad-role | An invalid content role fails 400 INVALID_ARGUMENT and the message lists the production role vocabulary: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER | ✓ | Capture ai-error-bad-role replayed by scripts/compat/conformance/ai/errors-counttokens.test.ts test `ai#error-bad-role` |
+| error-unknown-model | A model name production has never served fails 404 NOT_FOUND with the error key set `code`, `message`, `status` and no details | ✓ | Capture ai-error-unknown-model replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-unknown-model` |
+| error-retired-model | A retired model family (Gemini 1.5) fails 404 NOT_FOUND with an ErrorInfo detail and a retirement message distinct from unknown-model | ✓ | Capture ai-error-retired-model replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-retired-model` |
+| error-bad-api-key | An invalid API key fails 400 INVALID_ARGUMENT, not 401, with ErrorInfo plus LocalizedMessage details and the message `API key not valid. Please pass a valid API key.` | ✓ | Capture ai-error-bad-api-key replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-bad-api-key` |
+| error-empty-contents | An empty `contents` array fails 400 INVALID_ARGUMENT with the message `contents is not specified` | ✓ | Capture ai-error-empty-contents replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-empty-contents` |
+| error-bad-role | An invalid content role fails 400 INVALID_ARGUMENT and the message lists the production role vocabulary: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER | ✓ | Capture ai-error-bad-role replayed by packages/pyric/test/ai/errors-counttokens.test.ts test `ai#error-bad-role` |
 | error-aierror-shape | HTTP failures surface as `AIError` with an `AIErrorCode` code and `customErrorData` carrying `status`, `statusText`, and `errorDetails` | ✓ | `unit:errors-counttokens.test.ts` test `ai#error-aierror-shape` (capture ai-error-bad-api-key cited as the sample envelope) |
 | error-code-vocabulary | `AIErrorCode` exposes the 14 documented codes, from `error` through `unsupported` | ✓ | `unit:errors-counttokens.test.ts` test `ai#error-code-vocabulary` (upstream constant vocabulary) |
 
@@ -142,8 +142,8 @@ capture's distilled facts in the named test.
 |---|---|---|---|
 | helper-text | `text()` concatenates the text parts of the first candidate | ✓ | `unit:helpers-schema.test.ts` test `ai#helper-text` (text value asserted only because the scripted engine was scripted to return it) |
 | helper-text-throws | `text()` throws on bad finish reasons such as `SAFETY` and on a blocked prompt | ✓ | `unit:helpers-schema.test.ts` test `ai#helper-text-throws` (exercised with a scripted SAFETY envelope) |
-| helper-functioncalls | `functionCalls()` returns the `FunctionCall` array from the functionCall parts, args as parsed objects | ✓ | Capture ai-function-call-shape replayed by scripts/compat/conformance/ai/helpers-schema.test.ts test `ai#helper-functioncalls` |
-| helper-thoughtsummary | `thoughtSummary()` returns undefined when no part is flagged `thought: true`, the captured lite-model case | ✓ | Capture ai-thinking-thought-parts (anyThoughtPart false) replayed by scripts/compat/conformance/ai/helpers-schema.test.ts test `ai#helper-thoughtsummary` |
+| helper-functioncalls | `functionCalls()` returns the `FunctionCall` array from the functionCall parts, args as parsed objects | ✓ | Capture ai-function-call-shape replayed by packages/pyric/test/ai/helpers-schema.test.ts test `ai#helper-functioncalls` |
+| helper-thoughtsummary | `thoughtSummary()` returns undefined when no part is flagged `thought: true`, the captured lite-model case | ✓ | Capture ai-thinking-thought-parts (anyThoughtPart false) replayed by packages/pyric/test/ai/helpers-schema.test.ts test `ai#helper-thoughtsummary` |
 | helper-inlinedataparts | `inlineDataParts()` returns the `InlineDataPart` array when inlineData parts exist and undefined when none do | ✓ | `unit:helpers-schema.test.ts` test `ai#helper-inlinedataparts` (exercised with a scripted raw envelope) |
 | helper-tolerates-missing-decor | Helpers tolerate omitted decoration: an envelope without `usageMetadata`, `finishReason`, or `safetyRatings` still serves `text()` without throwing | ✓ | `unit:helpers-schema.test.ts` test `ai#helper-tolerates-missing-decor` (exercised with a scripted bare envelope) |
 
@@ -155,7 +155,7 @@ capture's distilled facts in the named test.
 | schema-string-enum | `Schema.enumString` serializes the enum values with type `string` and format `enum` | ⚠ format | `unit:helpers-schema.test.ts` test `ai#schema-string-enum` (upstream toJSON request shape; GoogleAI accepts only enum and date-time formats) |
 | schema-primitives | Each primitive builder serializes its `SchemaType`, and `array` carries `items` | ✓ | `unit:helpers-schema.test.ts` test `ai#schema-primitives` (upstream toJSON request shape) |
 | schema-anyof | `Schema.anyOf` returns an `AnyOfSchema` whose JSON carries an `anyOf` array of sub-schemas and no top-level type | ✓ | `unit:helpers-schema.test.ts` test `ai#schema-anyof` (upstream toJSON request shape) |
-| schema-rides-request | A built `Schema` serializes into `generationConfig.responseSchema` on the request and drives JSON output | ✓ | Capture ai-structured-output-shape replayed by scripts/compat/conformance/ai/helpers-schema.test.ts test `ai#schema-rides-request` |
+| schema-rides-request | A built `Schema` serializes into `generationConfig.responseSchema` on the request and drives JSON output | ✓ | Capture ai-structured-output-shape replayed by packages/pyric/test/ai/helpers-schema.test.ts test `ai#schema-rides-request` |
 
 ## Sandbox answer engine: scripted
 

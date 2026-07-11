@@ -82,11 +82,12 @@ function runCensus(): CensusRow[] {
   return (JSON.parse(out) as { surfaces: CensusRow[] }).surfaces;
 }
 
-/** The five COMPAT services this coverage report tracks — no `app` (no COMPAT matrix, would break behavior-axis parity). */
-const SERVICES: Surface[] = ['auth', 'firestore', 'rtdb', 'rtdb-modular', 'storage'];
+/** The COMPAT services this coverage report tracks — no `app` (no COMPAT matrix, would break behavior-axis parity). */
+const SERVICES: Surface[] = ['ai', 'auth', 'firestore', 'rtdb', 'rtdb-modular', 'storage'];
 
 /** Each COMPAT service's underlying surface-census surface. `rtdb` and `rtdb-modular` share the `database` census — surface-census.ts does not distinguish the classic vs modular database API at the export level, so both report the same measurement (flagged below). */
 const CENSUS_SURFACE_FOR: Record<Surface, CensusSurface> = {
+  ai: 'ai',
   auth: 'auth',
   firestore: 'firestore',
   rtdb: 'database',
@@ -237,6 +238,7 @@ function buildReport(): CoverageReport {
  * surface-denylist.ts for the full reasoning behind each entry.
  */
 const SCOPE_NOTES: Record<Surface, string> = {
+  ai: 'V1 scope is the core REST plane (getAI/generateContent/streaming/chat/function-calling/countTokens); every in-scope export is mirrored. Out of scope: Imagen (deprecated, retiring upstream), the Live API websocket protocol, server-hosted templates, and browser-only hybrid inference — none has an in-process REST-plane analogue. Deferred: none.',
   auth: 'out of scope: none (internal plumbing only) — every remaining gap (linking, reauth, MFA/phone/reCAPTCHA, email-link) is deferred, buildable via the resolver/mock pattern already proven for OAuth sign-in.',
   firestore: 'out of scope: internal plumbing only. Deferred: bundle-loading, cache index-tuning knobs.',
   rtdb: 'out of scope: internal plumbing only. Deferred: onDisconnect (no live socket in an in-memory sandbox today), legacy priority ordering.',
