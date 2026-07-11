@@ -237,11 +237,11 @@ function buildReport(): CoverageReport {
  * surface-denylist.ts for the full reasoning behind each entry.
  */
 const SCOPE_NOTES: Record<Surface, string> = {
-  auth: 'out of scope: none — every remaining gap (linking, reauth, MFA/phone/reCAPTCHA, email-link, beforeAuthStateChanged) is deferred, buildable via the resolver/mock pattern already proven for OAuth sign-in.',
-  firestore: 'out of scope: terminate (Sandbox.dispose() substitutes), internal plumbing. Deferred: bundle-loading, cache index-tuning knobs (both flagged ambiguous for owner review).',
-  rtdb: 'out of scope: connection/transport management and onDisconnect (no live socket in an in-memory sandbox), legacy priority ordering (flagged ambiguous), internal plumbing.',
+  auth: 'out of scope: none (internal plumbing only) — every remaining gap (linking, reauth, MFA/phone/reCAPTCHA, email-link, beforeAuthStateChanged) is deferred, buildable via the resolver/mock pattern already proven for OAuth sign-in.',
+  firestore: 'out of scope: internal plumbing only. Deferred: bundle-loading, cache index-tuning knobs.',
+  rtdb: 'out of scope: internal plumbing only. Deferred: onDisconnect (no live socket in an in-memory sandbox today), legacy priority ordering.',
   'rtdb-modular': 'out of scope: same as rtdb — shares the `database` census measurement.',
-  storage: 'out of scope: connectStorageEmulator (sandbox intentionally replaces the emulator), internal plumbing. Deferred: uploadBytesResumable, getStream, list, getDownloadURL (flagged ambiguous).',
+  storage: 'out of scope: internal plumbing only. Deferred: uploadBytesResumable, getStream, list, getDownloadURL.',
 };
 
 function printTable(report: CoverageReport): void {

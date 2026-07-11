@@ -1,41 +1,41 @@
 {
-  "generatedAt": "2026-07-11T11:10:44.225Z",
+  "generatedAt": "2026-07-11T16:24:33.660Z",
   "services": {
     "auth": {
       "surfaceCoveragePct": {
-        "total": 28.2,
-        "intended": 28.2
+        "total": 37.6,
+        "intended": 37.6
       }
     },
     "firestore": {
       "surfaceCoveragePct": {
-        "total": 54.6,
-        "intended": 65
+        "total": 55.5,
+        "intended": 63.5
       }
     },
     "rtdb": {
       "surfaceCoveragePct": {
-        "total": 53.7,
-        "intended": 85.3
+        "total": 64.8,
+        "intended": 79.5
       }
     },
     "rtdb-modular": {
       "surfaceCoveragePct": {
-        "total": 53.7,
-        "intended": 85.3
+        "total": 64.8,
+        "intended": 79.5
       }
     },
     "storage": {
       "surfaceCoveragePct": {
-        "total": 40.7,
-        "intended": 64.7
+        "total": 44.4,
+        "intended": 66.7
       }
     }
   },
   "overall": {
     "surfaceCoveragePct": {
-      "total": 45.3,
-      "intended": 54.7
+      "total": 50.9,
+      "intended": 57.8
     }
   },
   "rowStatuses": {
@@ -128,6 +128,18 @@
     "auth#72": "conforms",
     "auth#73": "conforms",
     "auth#74": "conforms",
+    "auth#76": "conforms",
+    "auth#76a": "conforms",
+    "auth#76b": "conforms",
+    "auth#76c": "diverged-documented",
+    "auth#76d": "diverged-documented",
+    "auth#82": "conforms",
+    "auth#83": "conforms",
+    "auth#84": "diverged-documented",
+    "auth#85": "diverged-documented",
+    "auth#86": "conforms",
+    "auth#87": "conforms",
+    "auth#88": "diverged-documented",
     "firestore#1": "conforms",
     "firestore#2": "conforms",
     "firestore#3": "conforms",
@@ -266,6 +278,7 @@
     "firestore#142": "conforms",
     "firestore#143": "diverged-documented",
     "firestore#144": "diverged-documented",
+    "firestore#152": "diverged-documented",
     "firestore#145": "diverged-documented",
     "firestore#146": "diverged-documented",
     "firestore#147": "conforms",
@@ -293,6 +306,24 @@
     "firestore#138a": "diverged-documented",
     "firestore#139": "conforms",
     "firestore#139a": "conforms",
+    "firestore#160": "conforms",
+    "firestore#161": "diverged-documented",
+    "firestore#162": "conforms",
+    "firestore#163": "conforms",
+    "firestore#164": "diverged-documented",
+    "firestore#165": "diverged-documented",
+    "firestore#166": "diverged-documented",
+    "firestore#167": "diverged-documented",
+    "firestore#168": "conforms",
+    "firestore#169": "conforms",
+    "firestore#170": "conforms",
+    "firestore#171": "diverged-documented",
+    "firestore#172": "conforms",
+    "firestore#173": "diverged-documented",
+    "firestore#174": "conforms",
+    "firestore#175": "conforms",
+    "firestore#176": "conforms",
+    "firestore#177": "conforms",
     "rtdb#1": "conforms",
     "rtdb#2": "conforms",
     "rtdb#3": "conforms",
@@ -539,10 +570,14 @@
     "rtdb-modular#160": "conforms",
     "rtdb-modular#161": "unverified",
     "rtdb-modular#162": "conforms",
-    "rtdb-modular#163": "unsupported",
-    "rtdb-modular#164": "unsupported",
+    "rtdb-modular#163": "diverged-documented",
+    "rtdb-modular#164": "diverged-documented",
     "rtdb-modular#165": "unsupported",
     "rtdb-modular#166": "unsupported",
+    "rtdb-modular#171": "diverged-documented",
+    "rtdb-modular#172": "diverged-documented",
+    "rtdb-modular#173": "diverged-documented",
+    "rtdb-modular#174": "diverged-documented",
     "rtdb-modular#167": "unsupported",
     "rtdb-modular#168": "unsupported",
     "rtdb-modular#169": "unsupported",
@@ -664,7 +699,8 @@
     "storage#108": "conforms",
     "storage#109": "conforms",
     "storage#110": "conforms",
-    "storage#111": "conforms"
+    "storage#111": "conforms",
+    "storage#117": "diverged-documented"
   },
   "highRiskUnverified": [
     "storage#67",
@@ -673,24 +709,5 @@
     "firestore#97",
     "firestore#98"
   ],
-  "orphanObservations": [
-    "rules-firestore-builtins-time-and-math",
-    "rules-firestore-bytes-toutf8-and-hashing",
-    "rules-firestore-cross-type-operator-overloads",
-    "rules-firestore-error-absorption-and-or",
-    "rules-firestore-get-after-and-exists-after",
-    "rules-firestore-get-missing-doc",
-    "rules-firestore-globals-request-path-and-resource-id",
-    "rules-firestore-int-float-and-division",
-    "rules-firestore-list-methods-concat-removeall-toset",
-    "rules-firestore-map-get-string-and-list-form",
-    "rules-firestore-matches-full-string-regex",
-    "rules-firestore-path-constructor-and-bind",
-    "rules-firestore-prototype-chain-keys",
-    "rules-firestore-range-slice-list-and-string",
-    "rules-firestore-set-algebra-difference-union-intersection",
-    "rules-firestore-string-literals-and-regex",
-    "rules-firestore-undefined-field-access",
-    "rules-firestore-unsupported-feature-witness"
-  ]
+  "orphanObservations": []
 }
