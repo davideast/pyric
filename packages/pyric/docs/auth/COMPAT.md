@@ -184,7 +184,7 @@ means a Bun test in `packages/auth/test/<file>`.
 | 73 | User-admin CRUD: `sandbox.listUsers` / `createUser` (no sign-in; `auth/uid-already-exists`, `auth/email-already-in-use`, `auth/invalid-email`, `auth/weak-password`) / `updateUser` (displayName incl. null-clear, email re-key, password + provider link, customClaims wholesale replace, disabled, emailVerified) / `deleteUser` / `clearUsers`. Deletion/clear/disable do NOT terminate active sessions (prod parity). Record shape: `{uid, email, displayName, phoneNumber, photoUrl, customClaims, providerUserInfo, isAnonymous, disabled, emailVerified, createdAt, lastLoginAt}` with ISO timestamps | ✓ | `unit:sandbox-user-admin.test.ts` (CRUD describes) |
 | 74 | `sandbox.subscribeUsers(auth, cb)` fires a coarse no-payload callback on every user-DB mutation (seed/create/update/delete/clear, provider links, lastLoginAt bumps); no initial fire; throwing listeners isolated; unsubscribe stops fires | ✓ | `unit:sandbox-user-admin.test.ts` ("sandbox.subscribeUsers") |
 
-## Low-hanging-fruit exports (issue #149)
+## User-management and session exports
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
@@ -209,9 +209,9 @@ gate enforce the deny-list at build time.
 | `reauthenticateWithCredential` / `reauthenticateWithPopup` / `reauthenticateWithRedirect` | v0 scope |
 | `verifyBeforeUpdateEmail` / `sendEmailVerification` / `applyActionCode` / `checkActionCode` / `confirmPasswordReset` / `sendPasswordResetEmail` / `verifyPasswordResetCode` | Email-link flows require an SMTP path; deliberately out of scope |
 | `multiFactor(user)` / MFA APIs | Not modeled |
-| `setLanguageCode` (Auth method) | i18n surface; not in v0. (`useDeviceLanguage` is now mirrored as an accepted no-op — issue #149.) |
+| `setLanguageCode` (Auth method) | i18n surface; not in v0. (`useDeviceLanguage` is now mirrored as an accepted no-op.) |
 | `beforeAuthStateChanged` | Blocking middleware; sandbox uses synchronous fan-out and has no equivalent yet |
-| `User.toJSON()` | Serialization the sandbox doesn't model — documented per AUTH-GAP. (`User.reload()` / `User.delete()` are now mirrored via the top-level `reload(user)` / `deleteUser(user)` — issue #149.) |
+| `User.toJSON()` | Serialization the sandbox doesn't model — documented per AUTH-GAP. (`User.reload()` / `User.delete()` are now mirrored via the top-level `reload(user)` / `deleteUser(user)`.) |
 | `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox; documented per AUTH-GAP |
 | Positional listener `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Sandbox observers never error/complete (synchronous in-memory fan-out); pass the `{ next, error, complete }` observer object if you need those handlers. The prod backend forwards all three. |
 

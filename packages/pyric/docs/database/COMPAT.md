@@ -595,8 +595,8 @@ the oracle locks it.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 163 | `goOffline(db)` — accepted no-op on sandbox handles: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and `get()` keep working). Forwards to `firebase/database`'s `goOffline` on prod handles (issue #149) | ⚠ no network connection in the local sandbox to toggle | `unit:modular/fruit-aliases.test.ts` |
-| 164 | `goOnline(db)` — accepted no-op on sandbox handles: there is no connection to reopen (see `goOffline`). Forwards to `firebase/database`'s `goOnline` on prod handles (issue #149) | ⚠ no network connection in the local sandbox to toggle | `unit:modular/fruit-aliases.test.ts` |
+| 163 | `goOffline(db)` — accepted no-op on sandbox handles: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and `get()` keep working). Forwards to `firebase/database`'s `goOffline` on prod handles | ⚠ no network connection in the local sandbox to toggle | `unit:modular/fruit-aliases.test.ts` |
+| 164 | `goOnline(db)` — accepted no-op on sandbox handles: there is no connection to reopen (see `goOffline`). Forwards to `firebase/database`'s `goOnline` on prod handles | ⚠ no network connection in the local sandbox to toggle | `unit:modular/fruit-aliases.test.ts` |
 
 ### `connectDatabaseEmulator` — emulator hook
 
@@ -605,14 +605,14 @@ the oracle locks it.
 | 165 | No-op on sandbox-target handles (the sandbox IS the local emulator) | — | Phase 3 |
 | 166 | Forwards to `firebase/database`'s `connectDatabaseEmulator` on prod-target handles | — | Phase 3 |
 
-### Low-hanging-fruit exports — transport / logging / URL refs (issue #149)
+### Transport, logging, and URL-reference exports
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 171 | `forceLongPolling()` — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs. Process-global setter with no `db` handle, so there is no prod handle to forward through (issue #149) | ⚠ transport selection not applicable to the in-process/worker sandbox | `unit:modular/fruit-aliases.test.ts` |
-| 172 | `forceWebSockets()` — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (see `forceLongPolling`) (issue #149) | ⚠ transport selection not applicable to the in-process/worker sandbox | `unit:modular/fruit-aliases.test.ts` |
-| 173 | `enableLogging(logger?, persistent?)` — accepted no-op: the sandbox has no modular-SDK-style logger to wire a level/sink into (it uses host-level `console` logging directly, matching `pyric/firestore`'s `setLogLevel`). Accepted so init code that calls it compiles + runs (issue #149) | ⚠ accepted no-op; no sandbox logger to wire into | `unit:modular/fruit-aliases.test.ts` |
-| 174 | `refFromURL(db, url)` — real alias: parses the path out of the absolute database URL and delegates to `ref(db, path)`, so the returned ref resolves + reads exactly like `ref(db, path)`. Divergence: the sandbox is single-database with no host/namespace, so the URL's HOST is NOT validated against the handle (the real SDK throws if the host doesn't match the db's namespace); only the path is honored (issue #149) | ⚠ path resolves like `ref`; URL host/namespace not validated (single-database sandbox) | `unit:modular/fruit-aliases.test.ts` |
+| 171 | `forceLongPolling()` — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs. Process-global setter with no `db` handle, so there is no prod handle to forward through | ⚠ transport selection not applicable to the in-process/worker sandbox | `unit:modular/fruit-aliases.test.ts` |
+| 172 | `forceWebSockets()` — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (see `forceLongPolling`) | ⚠ transport selection not applicable to the in-process/worker sandbox | `unit:modular/fruit-aliases.test.ts` |
+| 173 | `enableLogging(logger?, persistent?)` — accepted no-op: the sandbox has no modular-SDK-style logger to wire a level/sink into (it uses host-level `console` logging directly, matching `pyric/firestore`'s `setLogLevel`). Accepted so init code that calls it compiles + runs | ⚠ accepted no-op; no sandbox logger to wire into | `unit:modular/fruit-aliases.test.ts` |
+| 174 | `refFromURL(db, url)` — real alias: parses the path out of the absolute database URL and delegates to `ref(db, path)`, so the returned ref resolves + reads exactly like `ref(db, path)`. Divergence: the sandbox is single-database with no host/namespace, so the URL's HOST is NOT validated against the handle (the real SDK throws if the host doesn't match the db's namespace); only the path is honored | ⚠ path resolves like `ref`; URL host/namespace not validated (single-database sandbox) | `unit:modular/fruit-aliases.test.ts` |
 
 ### `sandbox.*` — sandbox-only test driver
 
@@ -625,7 +625,7 @@ the oracle locks it.
 
 ### Modular SDK surface — deny-list (intentionally NOT shimmed)
 
-> `goOffline` / `goOnline` / `forceLongPolling` / `forceWebSockets` / `enableLogging` (honest no-ops) and `refFromURL` (a real alias to `ref`) were moved OUT of this deny-list and mirrored — see the tables above (issue #149).
+> `goOffline` / `goOnline` / `forceLongPolling` / `forceWebSockets` / `enableLogging` (honest no-ops) and `refFromURL` (a real alias to `ref`) were moved OUT of this deny-list and mirrored — see the tables above.
 
 | Name | Reason |
 |---|---|
