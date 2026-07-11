@@ -666,7 +666,7 @@ Targets:
 </details>
 </div>
 
-## Offline / persistence / network family (issue #144)
+## Offline / persistence / network family
 
 `enableIndexedDbPersistence`, `enableMultiTabIndexedDbPersistence`,
 `clearIndexedDbPersistence`, `enableNetwork`, `disableNetwork`, and
@@ -727,76 +727,7 @@ Firestore-only slice).
 </details>
 </div>
 
-## Tier-1 cache-init + get-from-* family (issue #144, tier-1 pass)
-
-`initializeFirestore`, the six cache-factory tokens
-(`persistentLocalCache`, `memoryLocalCache`, `persistentSingleTabManager`,
-`persistentMultipleTabManager`, `memoryEagerGarbageCollector`,
-`memoryLruGarbageCollector`), `getDocFromServer` / `getDocsFromServer`,
-`getDocFromCache` / `getDocsFromCache`, `setLogLevel`, and
-`onSnapshotsInSync` are now exported from `pyric/firestore`. Before
-this, none of these existed on the modular surface — an app using the
-common explicit-init pattern```ts
-const db = initializeFirestore(app, {
-  localCache: persistentLocalCache(persistentMultipleTabManager()),
-});
-```crashed at IMPORT (a missing named export) before it ever ran a read
-or write.
-
-**Honest-mirror rationale**: these are aliases and honest no-op
-config tokens, not new feature work. `initializeFirestore` delegates
-to `getFirestore` and returns the same handle; it accepts the
-`settings` argument but no-ops the cache/network settings, because
-persistence is already the sandbox default — there is no separate
-cache tier to configure into existence. The six cache-factory tokens
-return small tagged objects so identity/usage doesn't crash; they are
-inert for the same reason. `getDocFromServer` / `getDocFromCache` and
-their plural forms delegate to the same read path as `getDoc` /
-`getDocs` on sandbox targets — the sandbox store IS the authoritative,
-always-fresh source, so there is no cache/server split to honor; on
-prod targets they forward to the real split, preserving prod's real
-cache-miss-throws behavior. `setLogLevel` is an accepted no-op — the
-sandbox has no modular-SDK-style logger to wire a level into.
-`onSnapshotsInSync` fires its callback once the current
-snapshot-delivery microtask queue settles, the closest honest
-approximation of "every listener delivered" available without a true
-cross-listener sync signal.
-
-## Tier-1 cache-init + get-from-* family (continued)
-
-<div class="compat-list">
-<details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">145</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Delegates to <code>getFirestore(app)</code> and returns the same handle. Accepts the <code>settings</code> argument (so the explicit-init pattern doesn't crash at import) but no-ops the cache/network settings — persistence is always on. Prod path forwards only to <code>getFirestore(app)</code>; a real settings pass-through for prod is out of scope for this tier-1 pass</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div>
-<div class="compat-note">settings accepted but cache/network settings are no-ops</div></div>
-</details>
-<details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">146</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Config token accepted, inert — each returns a small tagged object so identity/usage doesn't crash. Persistence is the sandbox default; there is no cache tier left to configure</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div>
-<div class="compat-note">inert config tokens; no cache tier to configure</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">147</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Delegates to <code>getDoc</code> / <code>getDocs</code> on sandbox targets — the sandbox store IS the authoritative source, so there is no separate server round-trip to force and no observable divergence from the default read. Forwards to <code>fb.getDocFromServer</code> / <code>fb.getDocsFromServer</code> on prod targets</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">148</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Delegates to <code>getDoc</code> / <code>getDocs</code> on sandbox targets. Real Firebase THROWS <code>'unavailable'</code> here on a genuine cache miss; pyric never misses — the local store always has the answer (or a non-existent snapshot) — so it never throws for that reason. Forwards to <code>fb.getDocFromCache</code> / <code>fb.getDocsFromCache</code> on prod targets, which DO throw on a real cache miss</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div>
-<div class="compat-note">never throws unavailable; sandbox has no cache miss</div></div>
-</details>
-<details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">149</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Accepted no-op — the sandbox has no modular-SDK-style logger to wire a level into; it uses host-level <code>console</code> logging directly, gated by <code>pyric dev</code>'s own flags, not this call</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div>
-<div class="compat-note">accepted no-op; no sandbox logger wired</div></div>
-</details>
-<details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">150</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Fires the callback once the current snapshot-delivery microtask queue settles — the closest honest approximation of "every active listener has delivered its latest state" available without a true cross-listener sync signal. Not scoped to real server round-trips like the real SDK's guarantee; scoped to local delivery only. Forwards to <code>fb.onSnapshotsInSync</code> on prod targets</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div>
-<div class="compat-note">approximated from local snapshot-delivery settle, not a true global in-sync signal</div></div>
-</details>
-</div>
-
-## Tier-1 cache-init + get-from-* family (issue #144, tier-1 pass)
+## Tier-1 cache-init + get-from-* family
 
 `initializeFirestore`, the six cache-factory tokens
 (`persistentLocalCache`, `memoryLocalCache`, `persistentSingleTabManager`,
@@ -973,7 +904,7 @@ shape consumer code depends on.
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">161</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>Bytes</code>, <code>String.toUtf8()</code>, and <code>hashing.{md5,sha256,crc32,crc32c}()</code> (Item 5.3) in rules</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-bytes-toutf8-and-hashing</code> — production Firestore Rules Test API verdicts for corpus pack "bytes-toutf8-and-hashing", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator's toUtf8/md5/sha256/crc32/crc32c byte-encoding and reference-hash implementations diverge from production on all 5 pack cases, so a rule that should DENY on hash mismatch ALLOWs locally — pinned KNOWN_DIVERGENCE, issue #135</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-bytes-toutf8-and-hashing</code> — production Firestore Rules Test API verdicts for corpus pack "bytes-toutf8-and-hashing", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator's toUtf8/md5/sha256/crc32/crc32c byte-encoding and reference-hash implementations diverge from production on all 5 pack cases, so a rule that should DENY on hash mismatch ALLOWs locally — pinned KNOWN_DIVERGENCE</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">162</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Typed cross-type operator overloads for <code>Timestamp</code>/<code>Duration</code> (Item 2) in rules — no silent numeric coercion / type-identity loss</span></summary>
@@ -985,19 +916,19 @@ shape consumer code depends on.
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">164</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>getAfter()</code>/<code>existsAfter()</code> (Item 7) in rules — post-write document identity and existence semantics</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-get-after-and-exists-after</code> — production Firestore Rules Test API verdicts for corpus pack "get-after-and-exists-after", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator does not model the post-write document identity/existence production compares against on 4 pack cases (getAfter target identity, existsAfter on create/delete, existsAfter over an unrelated mocked path) — pinned KNOWN_DIVERGENCE, issue #135</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-get-after-and-exists-after</code> — production Firestore Rules Test API verdicts for corpus pack "get-after-and-exists-after", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator does not model the post-write document identity/existence production compares against on 4 pack cases (getAfter target identity, existsAfter on create/delete, existsAfter over an unrelated mocked path) — pinned KNOWN_DIVERGENCE</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">165</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>get()</code> of a missing document (RULES-B8) in rules — resource identity (<code>id</code>/<code>__name__</code>) exposure on a mocked/missing get() result</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-get-missing-doc</code> — production Firestore Rules Test API verdicts for corpus pack "get-missing-doc", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator synthesizes a resource identity (<code>id</code>, <code>__name__</code>) for mocked get() results that production leaves absent, on 2 pack cases — pinned KNOWN_DIVERGENCE, issue #135</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-get-missing-doc</code> — production Firestore Rules Test API verdicts for corpus pack "get-missing-doc", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator synthesizes a resource identity (<code>id</code>, <code>__name__</code>) for mocked get() results that production leaves absent, on 2 pack cases — pinned KNOWN_DIVERGENCE</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">166</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>request.path</code>/<code>request.query</code>/<code>resource.id</code>/<code>resource.__name__</code> globals (Item 6) in rules</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-globals-request-path-and-resource-id</code> — production Firestore Rules Test API verdicts for corpus pack "globals-request-path-and-resource-id", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator models <code>request.query</code> as an empty map on the empty-query case where production denies the equivalent comparison — pinned KNOWN_DIVERGENCE, issue #135</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-globals-request-path-and-resource-id</code> — production Firestore Rules Test API verdicts for corpus pack "globals-request-path-and-resource-id", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator models <code>request.query</code> as an empty map on the empty-query case where production denies the equivalent comparison — pinned KNOWN_DIVERGENCE</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">167</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>int</code>/<code>float</code> division and type distinction (RULES-B5) in rules — truncating int÷int, float division stays float, div-by-zero denies, <code>is int</code>/<code>is float</code> distinct</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-int-float-and-division</code> — production Firestore Rules Test API verdicts for corpus pack "int-float-and-division", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator narrows a float-valued payload field toward int on the float-payload case, unlike production which preserves the float type — pinned KNOWN_DIVERGENCE, issue #135</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-int-float-and-division</code> — production Firestore Rules Test API verdicts for corpus pack "int-float-and-division", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator narrows a float-valued payload field toward int on the float-payload case, unlike production which preserves the float type — pinned KNOWN_DIVERGENCE</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">168</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>List.concat()</code>/<code>removeAll()</code>/<code>toSet()</code> (Item 5.2) in rules</span></summary>
@@ -1013,7 +944,7 @@ shape consumer code depends on.
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">171</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>Path</code> wrapper, <code>path()</code> constructor, and <code>Path.bind()</code> (Item 5.4) in rules</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-path-constructor-and-bind</code> — production Firestore Rules Test API verdicts for corpus pack "path-constructor-and-bind", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator treats <code>path()</code> as idempotent on an already-Path argument where production denies — pinned KNOWN_DIVERGENCE, issue #135</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-path-constructor-and-bind</code> — production Firestore Rules Test API verdicts for corpus pack "path-constructor-and-bind", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator treats <code>path()</code> as idempotent on an already-Path argument where production denies — pinned KNOWN_DIVERGENCE</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">172</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Own-keys-only map membership and constructor-access denial (RULES-B7) in rules — <code>'toString' in map</code> is <code>false</code>, <code>.constructor</code> access errors (no JS prototype-chain leakage)</span></summary>
@@ -1021,7 +952,7 @@ shape consumer code depends on.
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">173</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Range-slice <code>[i:j]</code> syntax for <code>List</code> and <code>String</code> (Item 4) in rules</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-range-slice-list-and-string</code> — production Firestore Rules Test API verdicts for corpus pack "range-slice-list-and-string", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator clamps an out-of-bounds slice end to the collection length on both the list and string OOB-slice cases; production denies — pinned KNOWN_DIVERGENCE, issue #135</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-range-slice-list-and-string</code> — production Firestore Rules Test API verdicts for corpus pack "range-slice-list-and-string", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>. simulator clamps an out-of-bounds slice end to the collection length on both the list and string OOB-slice cases; production denies — pinned KNOWN_DIVERGENCE</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">174</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>Set.difference()</code>/<code>union()</code>/<code>intersection()</code> (Item 5.1) in rules</span></summary>
@@ -1049,8 +980,8 @@ bundle's metafile gate enforce the deny-list at build time.
 
 | Name | Reason |
 |---|---|
-| `CACHE_SIZE_UNLIMITED` / `PersistentCacheIndexManager` / `getPersistentCacheIndexManager` / `deleteAllPersistentCacheIndexes` / `enablePersistentCacheIndexAutoCreation` / `disablePersistentCacheIndexAutoCreation` / `setIndexConfiguration` | Index-tuning / GC-policy admin surface; no sandbox equivalent knob. Distinct from the tier-1 cache-factory tokens (`persistentLocalCache` / `memoryLocalCache` / tab-managers / GC-collectors) and `getDoc*FromCache` / `getDoc*FromServer` / `setLogLevel` / `onSnapshotsInSync`, which are now mirrored (see the tier-1 cache-init + get-from-* section above, issue #144 tier-1 pass) |
-| `terminate` | Out of scope for issue #144 — `Sandbox.dispose()` covers teardown at the host level today |
+| `CACHE_SIZE_UNLIMITED` / `PersistentCacheIndexManager` / `getPersistentCacheIndexManager` / `deleteAllPersistentCacheIndexes` / `enablePersistentCacheIndexAutoCreation` / `disablePersistentCacheIndexAutoCreation` / `setIndexConfiguration` | Index-tuning / GC-policy admin surface; no sandbox equivalent knob. Distinct from the tier-1 cache-factory tokens (`persistentLocalCache` / `memoryLocalCache` / tab-managers / GC-collectors) and `getDoc*FromCache` / `getDoc*FromServer` / `setLogLevel` / `onSnapshotsInSync`, which are now mirrored (see the tier-1 cache-init + get-from-* section above tier-1 pass) |
+| `terminate` | Out of scope — `Sandbox.dispose()` covers teardown at the host level today |
 | `loadBundle` / `namedQuery` | Bundle-loading depends on server-side packaging not modeled in sandbox |
 
 ---
@@ -1090,7 +1021,7 @@ Rows currently marked **—** that we might want to fill (rough priority):
 
 1. Admin/server vector surface: `FieldValue.vector()` write + `findNearest`
    search live on `firebase-admin` / `pyric-admin`, NOT this client matrix (the
-   web client SDK has neither). The client value type (#111) now conforms; the
+   web client SDK has neither). The client value type (row #111) now conforms; the
    admin surface has no COMPAT matrix yet, and vector search is staged for Phase
    5b. See the design rationale.
 

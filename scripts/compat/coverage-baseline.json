@@ -1,16 +1,16 @@
 {
-  "generatedAt": "2026-07-11T04:23:05.429Z",
+  "generatedAt": "2026-07-11T11:10:44.225Z",
   "services": {
     "auth": {
       "surfaceCoveragePct": {
         "total": 28.2,
-        "intended": 53.3
+        "intended": 28.2
       }
     },
     "firestore": {
       "surfaceCoveragePct": {
         "total": 54.6,
-        "intended": 69.9
+        "intended": 65
       }
     },
     "rtdb": {
@@ -28,14 +28,14 @@
     "storage": {
       "surfaceCoveragePct": {
         "total": 40.7,
-        "intended": 84.6
+        "intended": 64.7
       }
     }
   },
   "overall": {
     "surfaceCoveragePct": {
       "total": 45.3,
-      "intended": 69.7
+      "intended": 54.7
     }
   },
   "rowStatuses": {

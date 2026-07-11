@@ -150,23 +150,35 @@ This is Pyric's published compatibility number. It computes, per service
 (auth, firestore, rtdb, rtdb-modular, storage) and overall, two axes:
 
 - **Surface coverage** — mirrored SDK exports / SDK exports
-  (`scripts/compat/surface-census.ts`). This is the HEADLINE metric: "will my
-  app's calls exist against the mirror."
+  (`scripts/compat/surface-census.ts`). This is the headline TRUST number —
+  breadth: "will my app's calls exist against the mirror."
 - **Behavior conformance** — `conforms` registry rows / evaluated rows
-  (the ledger in `scripts/compat/ledger.ts`). This is the second line: "and
-  if they exist, do they behave like prod." `diverged-documented` and
-  `unverified` rows are reported separately and are never folded into
-  `conforms` — folding them in would inflate the number without changing
-  what is actually true.
+  (the ledger in `scripts/compat/ledger.ts`). This is the FIDELITY of the
+  already-implemented slice — "of the calls that exist, do they behave like
+  prod." It is never a standalone completeness grade: a service can post
+  high behavior conformance while most of its surface hasn't been built yet,
+  because this axis only evaluates rows that exist in the registry.
+  `diverged-documented` and `unverified` rows are reported separately and are
+  never folded into `conforms` — folding them in would inflate the number
+  without changing what is actually true.
 
 Each axis is reported on two scopes:
 
 - `total` — over every export / row, no exclusions.
-- `intended` — `total` minus what is *deliberately* out of scope: exports
-  listed in `scripts/compat/surface-denylist.ts` (surface axis), and rows
-  with `status: 'unsupported'` (behavior axis). `intended` is the honest
-  denominator for "of what pyric claims to support, how much works" — it
-  does not count things pyric never promised to mirror as failures.
+- `intended` — `total` minus what is *genuinely out of scope*: exports in
+  `scripts/compat/surface-denylist.ts` tagged `out-of-scope` (surface axis),
+  and rows with `status: 'unsupported'` (behavior axis). `intended` is the
+  honest denominator for "of what pyric claims to support, how much works."
+  Critically, `intended` does NOT subtract `deferred` deny-list entries —
+  things pyric fully intends to build but hasn't yet (account linking,
+  reauthentication, MFA/phone/reCAPTCHA, email-link flows, and most of the
+  rest of auth's remaining gaps all fall here, buildable via the
+  resolver/mock pattern already proven for OAuth sign-in). Excluding deferred
+  work from `intended` would inflate the number by treating a to-do item as a
+  decision never to build it — see the policy header in
+  `scripts/compat/surface-denylist.ts` for the full reasoning and the invalid
+  reasons for `out-of-scope` ("needs external infrastructure" and "v0 scope"
+  do not qualify).
 
 `bun run compat:coverage` also diffs the result against the committed
 `scripts/compat/coverage-baseline.json` and **fails only on regression**:

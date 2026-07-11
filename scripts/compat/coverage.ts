@@ -10,14 +10,22 @@
  *
  * Each axis is reported on two scopes:
  *   total    — over every export / row, no exclusions.
- *   intended — total minus what is DELIBERATELY out of scope (surface
- *              deny-list entries for surface coverage; `status: 'unsupported'`
- *              rows for behavior conformance). This is the honest "does the
- *              thing pyric claims to support actually work" denominator.
+ *   intended — total minus what is GENUINELY OUT OF SCOPE (surface
+ *              deny-list entries tagged `out-of-scope` — the sandbox truly
+ *              cannot model them — for surface coverage; `status:
+ *              'unsupported'` rows for behavior conformance). Deny-list
+ *              entries tagged `deferred` (intended, not yet built) are NOT
+ *              subtracted — they stay in `intended` as coverage debt. See
+ *              surface-denylist.ts for the two-tier policy this encodes; the
+ *              previous version of this script subtracted both tiers, which
+ *              inflated the published number by counting planned work as if
+ *              it had been scoped out.
  *
  * The HEADLINE metric is total-INTENDED SURFACE coverage per service — "will
- * my app's calls exist against the mirror." Behavior conformance is the
- * second line: "and if they exist, do they behave like prod."
+ * my app's calls exist against the mirror" (breadth). Behavior conformance is
+ * the FIDELITY of the already-implemented slice — "of the calls that exist,
+ * do they behave like prod" — and is never a standalone completeness grade;
+ * it says nothing about the calls that don't exist yet.
  *
  * `diverged-documented` and `unverified` rows are broken out separately and
  * are NEVER folded into `conforms` — doing so would be exactly the kind of
@@ -36,7 +44,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CensusSurface } from './surface-denylist.ts';
+import { denyTierFor, type CensusSurface } from './surface-denylist.ts';
 import { surfaceDescriptors, type Surface } from './registry/index.ts';
 import { buildCompatibilityLedger, highRiskUnverifiedRows, type RegistryEntry } from './ledger.ts';
 
@@ -95,7 +103,12 @@ interface SurfaceCoverage {
 function surfaceCoverageFor(census: CensusRow): SurfaceCoverage {
   const mapped = census.mapped.length;
   const totalDenominator = census.upstreamCount;
-  const intendedDenominator = census.upstreamCount - census.denied.length;
+  // `intended` subtracts ONLY genuinely out-of-scope symbols — deferred
+  // (intended-but-unbuilt) symbols stay in the denominator as coverage debt.
+  // See surface-denylist.ts's header for the policy this encodes.
+  const tiers = denyTierFor(census.surface);
+  const outOfScopeCount = census.denied.filter((d) => tiers.get(d.symbol) === 'out-of-scope').length;
+  const intendedDenominator = census.upstreamCount - outOfScopeCount;
   return {
     mapped,
     total: { denominator: totalDenominator, pct: pct(mapped, totalDenominator) },
@@ -217,10 +230,29 @@ function buildReport(): CoverageReport {
 
 // ── Human table ──────────────────────────────────────────────────────────
 
+/**
+ * One-line scope statement per service — what's genuinely out of scope (the
+ * sandbox cannot model it) vs. deferred (intended, not yet built, counted as
+ * a gap against `intended`). Keep these honest and short; see
+ * surface-denylist.ts for the full reasoning behind each entry.
+ */
+const SCOPE_NOTES: Record<Surface, string> = {
+  auth: 'out of scope: none — every remaining gap (linking, reauth, MFA/phone/reCAPTCHA, email-link, beforeAuthStateChanged) is deferred, buildable via the resolver/mock pattern already proven for OAuth sign-in.',
+  firestore: 'out of scope: terminate (Sandbox.dispose() substitutes), internal plumbing. Deferred: bundle-loading, cache index-tuning knobs (both flagged ambiguous for owner review).',
+  rtdb: 'out of scope: connection/transport management and onDisconnect (no live socket in an in-memory sandbox), legacy priority ordering (flagged ambiguous), internal plumbing.',
+  'rtdb-modular': 'out of scope: same as rtdb — shares the `database` census measurement.',
+  storage: 'out of scope: connectStorageEmulator (sandbox intentionally replaces the emulator), internal plumbing. Deferred: uploadBytesResumable, getStream, list, getDownloadURL (flagged ambiguous).',
+};
+
 function printTable(report: CoverageReport): void {
   console.log('# Compatibility coverage\n');
-  console.log('Surface coverage = mirrored SDK exports / SDK exports. Behavior conformance = `conforms` rows / evaluated rows.');
-  console.log('`intended` excludes what is deliberately out of scope (deny-listed exports; `unsupported` rows). HEADLINE = total-intended surface coverage.\n');
+  console.log('SURFACE coverage (mirrored SDK exports / SDK exports) is the headline TRUST number — breadth: "will my call exist against the mirror."');
+  console.log('BEHAVIOR conformance (`conforms` rows / evaluated rows) is the FIDELITY of the already-implemented slice — "of the calls that exist, do they behave like prod." It is never a standalone completeness grade.');
+  console.log('`intended` excludes ONLY what is genuinely out of scope (the sandbox cannot model it). Deferred (intended, not yet built) stays IN `intended` as a gap.\n');
+  for (const s of report.services) {
+    console.log(`  ${s.surface}: ${SCOPE_NOTES[s.surface]}`);
+  }
+  console.log('');
 
   const header = 'service        surface(total)  surface(intended)  behavior(total)  behavior(intended)  diverged  unverified';
   console.log(header);
