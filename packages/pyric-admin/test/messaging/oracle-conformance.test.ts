@@ -1,23 +1,20 @@
 /**
  * Oracle conformance — messaging ADMIN send plane (surface `messaging-admin`,
- * the `pyric-admin` package). This is the RED conformance suite derived under
- * Conformance Driven Development (CDD; see `docs/conformance/cdd.md`, Step 3),
- * authored BEFORE any mirror implementation exists.
+ * the `pyric-admin` package). This suite was authored RED under Conformance
+ * Driven Development (CDD; see `docs/conformance/cdd.md`, Step 3), BEFORE any
+ * mirror implementation existed.
  *
- * ─── FLAG GATE ────────────────────────────────────────────────────────────────
- * The whole suite body is skipped unless `PYRIC_CLIMB=1` is set. This keeps the
- * BLOCKING test run green:
+ * ─── BLOCKING ─────────────────────────────────────────────────────────────────
+ * The suite runs un-gated in this package's normal test path:
  *
- *     bun test --cwd packages/pyric-admin          # green — placeholder only
- *     PYRIC_CLIMB=1 bun test --cwd packages/pyric-admin \
- *       test/messaging/oracle-conformance.test.ts   # RED (by design)
+ *     bun test --cwd packages/pyric-admin
  *
- * Why RED is correct: the surface has no mirror yet, so the assertion sets below
- * import `pyric-admin/messaging` — a subpath that DOES NOT EXIST — and every one
- * fails at the import. Red at birth via import failure is the point (CDD Step 3:
- * "The suite is the surface's definition of done, written before the work.").
- * When PYRIC_CLIMB is unset, the else branch below is never registered, so no
- * unresolved import is ever attempted and the file is green.
+ * Every messaging-admin row's `conforms` status is backed by this suite
+ * passing in blocking CI. The mirror itself still gates its implicit
+ * conformance-climb app behind `PYRIC_CLIMB` (WIP isolation; see
+ * src/messaging/index.ts) — this file enables that flag for its own lifetime
+ * because the assertion sets were authored against the bare-call path, and
+ * restores it afterward.
  *
  * ─── HOW EACH ASSERTION SET IS SHAPED ─────────────────────────────────────────
  * Rows are read DIRECTLY from `scripts/compat/registry/messaging.ts`
@@ -26,7 +23,7 @@
  * observations, the observation JSON is loaded and its recorded values (the
  * exact google.rpc error envelopes, the resource-name shapes, the documented
  * 4096-byte cap) are the EXPECTED side, never re-derived by hand (CDD Step 3),
- * driven against the (future) mirror's `send`. Rows with no observation are
+ * driven against the mirror's `send`. Rows with no observation are
  * shape/export witnesses at documentation strength; deep type conformance is
  * closed by the tier-2 assignability census (CDD resolved decision #5).
  *
@@ -35,12 +32,20 @@
  * `packages/pyric` owns the rest, the two are disjoint, and together they cover
  * every row in the registry file.
  */
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { messagingRows } from '../../../../scripts/compat/registry/messaging.ts';
 
-const CLIMB = process.env.PYRIC_CLIMB === '1';
+// Enable the mirror's climb-only implicit-app path for this file's lifetime,
+// then restore, so sibling files' flag-off contract tests (e.g. dispatch's
+// app/no-app assertion) stay honest.
+const PREV_CLIMB = process.env.PYRIC_CLIMB;
+process.env.PYRIC_CLIMB = '1';
+afterAll(() => {
+  if (PREV_CLIMB === undefined) delete process.env.PYRIC_CLIMB;
+  else process.env.PYRIC_CLIMB = PREV_CLIMB;
+});
 
 /** Repo-root observations directory (four levels up from this test file). */
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
@@ -70,8 +75,10 @@ function fieldViolationFields(envelope: Record<string, any>): string[] {
 }
 
 /**
- * The not-yet-existent admin mirror. Importing it REJECTS today; that rejection
- * is the suite's red. Typed `any` because the surface has no types yet.
+ * The admin mirror entry point, memoized so the module is imported once per
+ * run. Typed `any` on purpose: the suite drives the runtime surface the rows
+ * describe rather than the mirror's own type declarations, so a type-level
+ * regression cannot silently satisfy a runtime assertion.
  */
 let adminMirror: Promise<any> | null = null;
 const loadAdmin = (): Promise<any> => (adminMirror ??= import('pyric-admin/messaging'));
@@ -314,43 +321,32 @@ const assertions: Record<string, () => Promise<void> | void> = {
   },
 };
 
-if (!CLIMB) {
-  // Flag off: register a single passing placeholder so the blocking run
-  // (`bun test --cwd packages/pyric-admin`) stays green and never touches the
-  // not-yet-existent mirror. See the FLAG GATE note at the top of this file.
-  describe('oracle conformance (messaging-admin send plane) — climb-gated', () => {
-    it('skipped unless PYRIC_CLIMB=1 (blocking run stays green)', () => {
-      expect(CLIMB).toBe(false);
+describe('oracle conformance (messaging-admin send plane)', () => {
+  const covered: string[] = [];
+  for (const rowMeta of adminRows) {
+    const handler = assertions[rowMeta.id];
+    covered.push(rowMeta.id);
+    it(`${rowMeta.id} — ${rowMeta.api}`, async () => {
+      if (!handler) throw new Error(`no assertion set authored for row ${rowMeta.id}`);
+      await handler();
     });
-  });
-} else {
-  describe('oracle conformance (messaging-admin send plane)', () => {
-    const covered: string[] = [];
-    for (const rowMeta of adminRows) {
-      const handler = assertions[rowMeta.id];
-      covered.push(rowMeta.id);
-      it(`${rowMeta.id} — ${rowMeta.api}`, async () => {
-        if (!handler) throw new Error(`no assertion set authored for row ${rowMeta.id}`);
-        await handler();
-      });
-    }
+  }
 
-    // ── completeness: this suite owns EXACTLY the messaging-admin partition ──
-    it('completeness: covers exactly the messaging-admin rows (partition gate)', () => {
-      const allIds = messagingRows.map((r) => r.id).sort();
-      const clientIds = messagingRows.filter((r) => r.surface === 'messaging').map((r) => r.id).sort();
-      const adminIds = messagingRows.filter((r) => r.surface === 'messaging-admin').map((r) => r.id).sort();
+  // ── completeness: this suite owns EXACTLY the messaging-admin partition ──
+  it('completeness: covers exactly the messaging-admin rows (partition gate)', () => {
+    const allIds = messagingRows.map((r) => r.id).sort();
+    const clientIds = messagingRows.filter((r) => r.surface === 'messaging').map((r) => r.id).sort();
+    const adminIds = messagingRows.filter((r) => r.surface === 'messaging-admin').map((r) => r.id).sort();
 
-      // Every admin row got exactly one assertion set here.
-      expect([...covered].sort()).toEqual(adminIds);
-      // Every admin row has an authored handler.
-      expect(adminIds.filter((id) => !(id in assertions))).toEqual([]);
-      // Partition: admin and client surfaces are disjoint and exhaustive.
-      expect(adminIds.filter((id) => clientIds.includes(id))).toEqual([]);
-      expect([...clientIds, ...adminIds].sort()).toEqual(allIds);
-      // No stray surface leaked into the registry file.
-      const surfaces = new Set(messagingRows.map((r) => r.surface));
-      expect([...surfaces].sort()).toEqual(['messaging', 'messaging-admin']);
-    });
+    // Every admin row got exactly one assertion set here.
+    expect([...covered].sort()).toEqual(adminIds);
+    // Every admin row has an authored handler.
+    expect(adminIds.filter((id) => !(id in assertions))).toEqual([]);
+    // Partition: admin and client surfaces are disjoint and exhaustive.
+    expect(adminIds.filter((id) => clientIds.includes(id))).toEqual([]);
+    expect([...clientIds, ...adminIds].sort()).toEqual(allIds);
+    // No stray surface leaked into the registry file.
+    const surfaces = new Set(messagingRows.map((r) => r.surface));
+    expect([...surfaces].sort()).toEqual(['messaging', 'messaging-admin']);
   });
-}
+});

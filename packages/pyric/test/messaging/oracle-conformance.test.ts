@@ -1,23 +1,19 @@
 /**
  * Oracle conformance — messaging CLIENT + SERVICE-WORKER receive planes
- * (surface `messaging`, the `pyric` package). This is the RED conformance suite
- * derived under Conformance Driven Development (CDD; see `docs/conformance/cdd.md`,
- * Step 3). It is authored BEFORE any mirror implementation exists.
+ * (surface `messaging`, the `pyric` package). This suite was authored RED under
+ * Conformance Driven Development (CDD; see `docs/conformance/cdd.md`, Step 3),
+ * BEFORE any mirror implementation existed.
  *
- * ─── FLAG GATE ────────────────────────────────────────────────────────────────
- * The whole suite body is skipped unless `PYRIC_CLIMB=1` is set in the
- * environment. This keeps the BLOCKING test run green:
+ * ─── BLOCKING ─────────────────────────────────────────────────────────────────
+ * The suite runs un-gated in this package's normal test path:
  *
- *     bun test --cwd packages/pyric          # green — placeholder only
- *     PYRIC_CLIMB=1 bun test --cwd packages/pyric \
- *       test/messaging/oracle-conformance.test.ts   # RED (by design)
+ *     bun test --cwd packages/pyric
  *
- * Why RED is correct: the surface has no mirror yet, so the assertion sets below
- * import `pyric/messaging` / `pyric/messaging/sw` — subpaths that DO NOT EXIST —
- * and every one fails at the import. Red at birth via import failure is the
- * point (CDD Step 3: "The suite is the surface's definition of done, written
- * before the work."). When PYRIC_CLIMB is unset, the else branch below is never
- * registered, so no unresolved import is ever attempted and the file is green.
+ * Every messaging row's `conforms` status is backed by this suite passing in
+ * blocking CI. The mirror itself still gates its implicit default-sandbox app
+ * behind `PYRIC_CLIMB` (WIP isolation; see src/messaging/instance.ts) — this
+ * file enables that flag for its own lifetime because the assertion sets were
+ * authored against the bare-call path, and restores it afterward.
  *
  * ─── HOW EACH ASSERTION SET IS SHAPED ─────────────────────────────────────────
  * Rows are read DIRECTLY from `scripts/compat/registry/messaging.ts`
@@ -25,7 +21,7 @@
  * owns. There is exactly one `it(row.id …)` per row (CDD Step 3: "one assertion
  * set per row"). Where a row cites committed `messaging-web-*` observations, the
  * observation JSON is loaded and its recorded values are the EXPECTED side —
- * never re-derived by hand (CDD Step 3) — driven against the (future) mirror.
+ * never re-derived by hand (CDD Step 3) — driven against the mirror.
  * Rows with no observation are shape/export witnesses at documentation strength;
  * deep type conformance is closed by the tier-2 assignability census (CDD
  * resolved decision #5), not by a runtime replay.
@@ -35,12 +31,20 @@
  * `messaging-admin` suite owns the rest, the two are disjoint, and together they
  * cover every row in the registry file.
  */
-import { describe, expect, it } from 'bun:test';
+import { afterAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { messagingRows } from '../../../../scripts/compat/registry/messaging.ts';
 
-const CLIMB = process.env.PYRIC_CLIMB === '1';
+// Enable the mirror's climb-only default-sandbox path for this file's
+// lifetime, then restore, so sibling files' flag-off contract tests (e.g.
+// sandbox-instance-identity's bare-call refusal) stay honest.
+const PREV_CLIMB = process.env.PYRIC_CLIMB;
+process.env.PYRIC_CLIMB = '1';
+afterAll(() => {
+  if (PREV_CLIMB === undefined) delete process.env.PYRIC_CLIMB;
+  else process.env.PYRIC_CLIMB = PREV_CLIMB;
+});
 
 /** Repo-root observations directory (four levels up from this test file). */
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
@@ -54,9 +58,10 @@ function obs(name: string): Record<string, any> {
 }
 
 /**
- * The not-yet-existent mirror entry points. Importing them REJECTS today; that
- * rejection is the suite's red. Memoized so one failure is reported per module,
- * not per test-file re-import. Typed `any` because the surface has no types yet.
+ * The mirror entry points, memoized so each module is imported once per run.
+ * Typed `any` on purpose: the suite drives the runtime surface the rows
+ * describe rather than the mirror's own type declarations, so a type-level
+ * regression cannot silently satisfy a runtime assertion.
  */
 let clientMirror: Promise<any> | null = null;
 let swMirror: Promise<any> | null = null;
@@ -286,43 +291,32 @@ const assertions: Record<string, () => Promise<void> | void> = {
   },
 };
 
-if (!CLIMB) {
-  // Flag off: register a single passing placeholder so the blocking run
-  // (`bun test --cwd packages/pyric`) stays green and never touches the
-  // not-yet-existent mirror. See the FLAG GATE note at the top of this file.
-  describe('oracle conformance (messaging client + sw) — climb-gated', () => {
-    it('skipped unless PYRIC_CLIMB=1 (blocking run stays green)', () => {
-      expect(CLIMB).toBe(false);
+describe('oracle conformance (messaging client + sw)', () => {
+  const covered: string[] = [];
+  for (const rowMeta of clientRows) {
+    const handler = assertions[rowMeta.id];
+    covered.push(rowMeta.id);
+    it(`${rowMeta.id} — ${rowMeta.api}`, async () => {
+      if (!handler) throw new Error(`no assertion set authored for row ${rowMeta.id}`);
+      await handler();
     });
-  });
-} else {
-  describe('oracle conformance (messaging client + sw)', () => {
-    const covered: string[] = [];
-    for (const rowMeta of clientRows) {
-      const handler = assertions[rowMeta.id];
-      covered.push(rowMeta.id);
-      it(`${rowMeta.id} — ${rowMeta.api}`, async () => {
-        if (!handler) throw new Error(`no assertion set authored for row ${rowMeta.id}`);
-        await handler();
-      });
-    }
+  }
 
-    // ── completeness: this suite owns EXACTLY the client + sw row partition ──
-    it('completeness: covers exactly the messaging client + sw rows (partition gate)', () => {
-      const allIds = messagingRows.map((r) => r.id).sort();
-      const clientIds = messagingRows.filter((r) => r.surface === 'messaging').map((r) => r.id).sort();
-      const adminIds = messagingRows.filter((r) => r.surface === 'messaging-admin').map((r) => r.id).sort();
+  // ── completeness: this suite owns EXACTLY the client + sw row partition ──
+  it('completeness: covers exactly the messaging client + sw rows (partition gate)', () => {
+    const allIds = messagingRows.map((r) => r.id).sort();
+    const clientIds = messagingRows.filter((r) => r.surface === 'messaging').map((r) => r.id).sort();
+    const adminIds = messagingRows.filter((r) => r.surface === 'messaging-admin').map((r) => r.id).sort();
 
-      // Every client/sw row got exactly one assertion set here.
-      expect([...covered].sort()).toEqual(clientIds);
-      // Every client/sw row has an authored handler.
-      expect(clientIds.filter((id) => !(id in assertions))).toEqual([]);
-      // Partition: client and admin surfaces are disjoint and exhaustive.
-      expect(clientIds.filter((id) => adminIds.includes(id))).toEqual([]);
-      expect([...clientIds, ...adminIds].sort()).toEqual(allIds);
-      // No stray surface leaked into the registry file.
-      const surfaces = new Set(messagingRows.map((r) => r.surface));
-      expect([...surfaces].sort()).toEqual(['messaging', 'messaging-admin']);
-    });
+    // Every client/sw row got exactly one assertion set here.
+    expect([...covered].sort()).toEqual(clientIds);
+    // Every client/sw row has an authored handler.
+    expect(clientIds.filter((id) => !(id in assertions))).toEqual([]);
+    // Partition: client and admin surfaces are disjoint and exhaustive.
+    expect(clientIds.filter((id) => adminIds.includes(id))).toEqual([]);
+    expect([...clientIds, ...adminIds].sort()).toEqual(allIds);
+    // No stray surface leaked into the registry file.
+    const surfaces = new Set(messagingRows.map((r) => r.surface));
+    expect([...surfaces].sort()).toEqual(['messaging', 'messaging-admin']);
   });
-}
+});
