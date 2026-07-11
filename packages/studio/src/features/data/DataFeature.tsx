@@ -23,6 +23,7 @@ import { LiveAuthPane } from './AuthPane.js';
 import { LiveStoragePane } from './StoragePane.js';
 import { useDataNav, type DataView } from './navigation.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
+import './data-feature.css';
 
 /** Backend-aware empty state shared by all three sub-views when not live. */
 function PendingState({ view }: { view: DataView }) {

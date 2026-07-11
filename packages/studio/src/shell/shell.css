@@ -1,0 +1,482 @@
+/**
+ * Pyric Studio shell chrome: the top bar (identity | nav | status), the
+ * content-region frame that hosts every surface, the mobile nav/menu
+ * scaffolding, the governance-mode toggle, the theme switch, the surface
+ * placeholder, and the two overlay mounts (⌘K command palette, settings
+ * modal chrome). Owned by `shell/` (App.tsx composes these pieces); imported
+ * once, from App.tsx, the shell's root component.
+ *
+ * Order within this file matters the same way it mattered in the old
+ * monolithic `index.css`: base (desktop) rules for a selector are declared
+ * first, and this file's own `@media (max-width: 760px)` block comes last,
+ * so the narrow-screen override wins on source order for equal specificity.
+ */
+/* ════════════════════════════════════════════════════════════════════════
+ * C-PARTI SHELL: ported from `plans/pyric-studio/mocks/c-result.html`.
+ * Every raw value from the mock is replaced by a role token. The structure
+ * (prompt spine → frame bar → scroll region, centred column) is preserved.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+.studio {
+  --maxw: 820px;
+  --wide: 1440px;
+  --gutter: clamp(16px, 3vw, 32px);
+  height: 100vh;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 54px 1fr;
+  overflow-x: hidden;
+}
+
+.studio__col {
+  width: 100%;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+/* ── One bar: identity | nav | status (specs/shell.md) ───────────────── */
+/* The bar spans full width (the hairline runs edge to edge) but its CONTENT is
+   centered to the same wide column EVERY surface uses, so the brand + status
+   line up with the content's left/right edges and never shift when switching
+   tabs. The inner row is the spec's grid: identity | nav | status. */
+.studio__bar {
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  min-width: 0;
+}
+.studio__bar-inner {
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  height: 54px;
+  display: grid;
+  grid-template-columns: auto 1fr auto; /* identity | nav | status */
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--gutter);
+  min-width: 0;
+}
+.studio__brand {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Project + governance mode: the only session context the bar carries. */
+.studio__ctx {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.studio__ctx-project {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.studio__ctx-mode {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+/* Inline nav tabs: flex + gap, horizontal overflow scrolls — the bar never
+   grows a second row (N1). */
+.studio__nav {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-1);
+  height: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.studio__nav::-webkit-scrollbar {
+  display: none;
+}
+.studio__nav-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 0 12px;
+  height: 100%;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s, border-color 0.12s;
+}
+/* The Docs tab is an <a> (a full-page link to the composed /docs pages),
+   not a routed <button>; align the anchor box with the button tabs. */
+a.studio__nav-tab {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.studio__nav-tab:hover {
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
+}
+.studio__nav-tab[aria-current="page"] {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+/* Narrow screens: the tab row scrolls. Make that legible instead of a
+   hard clip: snap points per tab, and an edge fade standing in for the
+   hidden scrollbar. The nav's own end padding sits under the fade at
+   full scroll, so no tab text ever fades. */
+@media (max-width: 760px) {
+  .studio__nav {
+    scroll-snap-type: x proximity;
+    padding-right: 28px;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+
+  .studio__nav-tab {
+    scroll-snap-align: start;
+  }
+}
+
+/* Status cluster: a flex row of chips, gap-spaced; each chip is
+   container-agnostic (L4). Health renders by exception only. */
+.studio__status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* Right cluster: command · settings · theme. */
+.studio__bar-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.studio__cmd {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 9px;
+  color: var(--faint);
+  font: inherit;
+  background: var(--elevated);
+  cursor: text;
+}
+.studio__cmd:hover {
+  border-color: var(--line-2);
+}
+.studio__cmd-ico {
+  font-size: 13px;
+  line-height: 1;
+}
+.studio__kbd {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.studio-theme-toggle {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.studio-theme-toggle:hover {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+
+/* The hamburger + the nav drawer backdrop are mobile-only (shown in the media
+   query below); on desktop the nav is inline and these are hidden. */
+.studio__menu {
+  display: none;
+}
+.studio__nav-backdrop {
+  display: none;
+}
+
+/* Governance mode: a compact segmented toggle (Review / Direct). */
+.studio__mode {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px;
+  background: var(--elevated);
+}
+.studio__mode-opt {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--faint);
+  padding: 4px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.studio__mode-opt:hover {
+  color: var(--ink);
+}
+.studio__mode-opt[aria-pressed='true'] {
+  color: var(--ink);
+  background: var(--panel);
+  font-weight: 500;
+}
+
+/* ── Content region: one surface, framed per route ───────────────────── */
+.studio__content {
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Scroll surfaces (session · rules · traffic): one centered wide column, the
+   SAME width as the data browsers, so the page width (and the top bar aligned
+   to it) never changes when switching tabs. */
+.studio__content[data-surface='home'] > *,
+.studio__content[data-surface='rtdb'] > *,
+.studio__content[data-surface='traffic'] > *,
+.studio__content[data-surface='settings'] > * {
+  display: block;
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: clamp(22px, 4vw, 40px) var(--gutter) 72px;
+}
+
+/* Full-height data browsers (firestore · auth · storage): fill the viewport so
+   the browser's own panes scroll internally instead of the whole page. */
+.studio__content[data-surface='firestore'],
+.studio__content[data-surface='auth'],
+.studio__content[data-surface='storage'],
+.studio__content[data-surface='prototype'] {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.studio__surface-slot {
+  min-width: 0;
+}
+.studio__surface-slot--playground {
+  min-height: 0;
+}
+.studio__content[data-surface='prototype'] > .studio__surface-slot--playground {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.studio__surface-slot--playground[data-active='false'] {
+  position: absolute;
+  inset: 0;
+  display: flex !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: 0;
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  overflow: hidden;
+}
+.studio__surface-slot--playground > .studio-playground {
+  flex: 1;
+}
+
+.studio__content[data-surface='firestore'] > *,
+.studio__content[data-surface='auth'] > *,
+.studio__content[data-surface='storage'] > * {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 18px var(--gutter);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Labelled empty placeholder per route (Wave 2 fills these). */
+.studio__placeholder {
+  border: 1px dashed var(--line-2);
+  border-radius: 10px;
+  padding: 32px 28px;
+  background: var(--panel);
+}
+.studio__placeholder-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.studio__placeholder-title {
+  font-size: 16px;
+  color: var(--ink);
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.studio__placeholder-blurb {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+  max-width: 560px;
+  line-height: 1.55;
+}
+.studio__placeholder-meta {
+  margin-top: 18px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--faint);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+/* ── Theme switch (segmented, mechanical) ────────────────────────────── */
+.studio__theme {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 2px;
+  background: var(--elevated);
+}
+.studio__theme button {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--muted);
+  padding: 3px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.studio__theme button:hover {
+  color: var(--ink);
+}
+.studio__theme button[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--panel);
+  font-weight: 500;
+}
+
+/* ── Global ⌘K overlay: the command typeahead's second mount ──────────
+   Positioned BELOW the 54px bar — the bar stays visible and uncovered;
+   only the content region dims. The panel reuses the Home typeahead's own
+   classes (`.studio-home__command*`), so the two mounts share one look. */
+.studio__cmdk-backdrop {
+  position: fixed;
+  top: 54px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: clamp(24px, 8vh, 72px) var(--gutter, 16px) 0;
+  z-index: 40;
+}
+.studio__cmdk {
+  width: 100%;
+  max-width: 560px;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px -12px rgba(0, 0, 0, 0.35);
+}
+/* The results listbox is part of the same floating panel — same elevated
+   register as the input row (inline mode uses the flatter --panel). */
+.studio__cmdk .studio-home__command-results {
+  background: var(--elevated);
+}
+
+@media (max-width: 760px) {
+  .studio {
+    --gutter: 16px;
+    height: 100dvh;
+    grid-template-rows: 54px 1fr;
+  }
+
+  .studio__bar {
+    position: relative;
+    z-index: 10;
+  }
+  .studio__bar-inner {
+    max-width: none;
+    height: 54px;
+    padding-inline: 10px;
+    gap: 8px;
+  }
+  .studio__menu {
+    display: none;
+  }
+  .studio__bar-tools {
+    display: none;
+  }
+
+  /* Narrow: the status cluster keeps at most one chip's width; nav scrolls. */
+  .studio__status {
+    gap: 4px;
+  }
+
+  .studio__nav {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-inline: 2px;
+  }
+  .studio__nav-tab {
+    flex: 0 0 auto;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+  .studio__nav-backdrop {
+    display: none;
+  }
+
+  /* ── Surface working areas: full width, tighter gutter ── */
+  .studio__content[data-surface='home'] > *,
+  .studio__content[data-surface='rtdb'] > *,
+  .studio__content[data-surface='traffic'] > *,
+  .studio__content[data-surface='settings'] > *,
+  .studio__content[data-surface='storage'] > *,
+  .studio__content[data-surface='firestore'] > *,
+  .studio__content[data-surface='auth'] > * {
+    max-width: none;
+    padding: 18px 16px 56px;
+  }
+}
