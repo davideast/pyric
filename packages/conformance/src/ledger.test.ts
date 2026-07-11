@@ -9,6 +9,8 @@ import { loadObservations, REPO_ROOT } from './ledger.ts';
 import { validateCompatibilityRegistry } from './validate-registry.ts';
 import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
+import { ALL_RULES_FIRESTORE_PACKS } from '../rules-corpus/firestore/index.ts';
+import { ALL_RULES_STORAGE_PACKS } from '../rules-corpus/storage/index.ts';
 
 describe('single-source compatibility registry', () => {
   test('contains explicit rows for all major surfaces', () => {
@@ -255,5 +257,83 @@ describe('oracle rig manifests', () => {
       rigManifests: [...rigManifests, impostor],
     });
     expect(problems.some((p) => p.includes('ambiguous longest-prefix match across rigs'))).toBe(true);
+  });
+});
+
+describe('rules corpus filename-twin integrity', () => {
+  test('every checked-in rules-firestore/rules-storage observation has a matching corpus pack', () => {
+    const rulesFirestorePackIds = ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id);
+    const rulesStoragePackIds = ALL_RULES_STORAGE_PACKS.map((pack) => pack.id);
+    expect(rulesFirestorePackIds.length).toBeGreaterThan(0);
+    expect(rulesStoragePackIds.length).toBeGreaterThan(0);
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      rulesFirestorePackIds,
+      rulesStoragePackIds,
+    });
+    expect(problems).toEqual([]);
+  });
+
+  test('surfaces an orphan rules-firestore observation with no corpus pack twin', () => {
+    const rulesFirestorePackIds = ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id).filter(
+      (id) => id !== 'builtins-time-and-math',
+    );
+    const rulesStoragePackIds = ALL_RULES_STORAGE_PACKS.map((pack) => pack.id);
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      rulesFirestorePackIds,
+      rulesStoragePackIds,
+    });
+    expect(problems.some((p) => p.includes('rules-firestore-builtins-time-and-math.json: no matching rules-corpus/firestore/builtins-time-and-math.ts pack — orphan observation'))).toBe(true);
+  });
+
+  test('surfaces an orphan rules-storage observation with no corpus pack twin', () => {
+    const rulesFirestorePackIds = ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id);
+    const rulesStoragePackIds = ALL_RULES_STORAGE_PACKS.map((pack) => pack.id).filter(
+      (id) => id !== 'verbs-umbrella-granular',
+    );
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      rulesFirestorePackIds,
+      rulesStoragePackIds,
+    });
+    expect(problems.some((p) => p.includes('rules-storage-verbs-umbrella-granular.json: no matching rules-corpus/storage/verbs-umbrella-granular.ts pack — orphan observation'))).toBe(true);
+  });
+
+  test('surfaces a pack id colliding across the firestore and storage corpora', () => {
+    const rulesFirestorePackIds = ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id);
+    const rulesStoragePackIds = [...ALL_RULES_STORAGE_PACKS.map((pack) => pack.id), 'builtins-time-and-math'];
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      rulesFirestorePackIds,
+      rulesStoragePackIds,
+    });
+    expect(problems.some((p) => p.includes("pack id 'builtins-time-and-math' exists in BOTH rules-corpus/firestore/ and rules-corpus/storage/"))).toBe(true);
+  });
+
+  test('a pack without a captured observation is not itself a problem', () => {
+    const rulesFirestorePackIds = [...ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id), 'not-yet-captured-pack'];
+    const rulesStoragePackIds = ALL_RULES_STORAGE_PACKS.map((pack) => pack.id);
+    const problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      rulesFirestorePackIds,
+      rulesStoragePackIds,
+    });
+    expect(problems).toEqual([]);
   });
 });

@@ -9,6 +9,8 @@ import { buildCompatibilityLedger, loadObservations, REPO_ROOT, summarizeLedger,
 import { checkGeneratedMarkdown } from './generate-docs.ts';
 import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
+import { ALL_RULES_FIRESTORE_PACKS } from '../rules-corpus/firestore/index.ts';
+import { ALL_RULES_STORAGE_PACKS } from '../rules-corpus/storage/index.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -39,6 +41,14 @@ export interface ValidationInput {
    *  so existing tests that don't exercise rig-manifest wiring don't need to
    *  thread it through; the real compat:validate entry point always passes it. */
   rigManifests?: RigManifest[];
+  /** Firestore rules corpus pack ids (rules-corpus/firestore/*.ts, loaded via
+   *  load.ts). Optional for the same reason as `rigManifests`; the real
+   *  compat:validate entry point always passes it, alongside
+   *  `rulesStoragePackIds`, so the rules-corpus filename-twin check below is
+   *  CI-enforced. */
+  rulesFirestorePackIds?: string[];
+  /** Storage rules corpus pack ids (rules-corpus/storage/*.ts). */
+  rulesStoragePackIds?: string[];
 }
 
 /** All (manifest, prefix) pairs whose prefix is a longest match for `filename`
@@ -225,6 +235,43 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     }
   }
 
+  // ── Rules corpus <-> observation filename-twin integrity ─────────────────
+  // Every captured `rules-firestore-<x>.json` / `rules-storage-<x>.json`
+  // observation must have a corpus pack file `<x>.ts` in the matching
+  // rules-corpus directory — an orphan observation (a capture whose pack was
+  // removed or renamed) is a silent-gap failure, fatal here. A pack WITHOUT
+  // an observation is fine (not yet captured); it still shows up in its
+  // capture runner's inert plan as capturable, since the runner iterates the
+  // same loaded corpus this check does. Pack ids must also be unique ACROSS
+  // both corpora, not just within each: observation names derive from them,
+  // so a collision would make ownership ambiguous.
+  if (input.rulesFirestorePackIds && input.rulesStoragePackIds) {
+    const RULES_FIRESTORE_PREFIX = 'rules-firestore-';
+    const RULES_STORAGE_PREFIX = 'rules-storage-';
+    const firestoreIds = new Set(input.rulesFirestorePackIds);
+    const storageIds = new Set(input.rulesStoragePackIds);
+
+    for (const id of firestoreIds) {
+      if (storageIds.has(id)) {
+        problems.push(`rules corpus: pack id '${id}' exists in BOTH rules-corpus/firestore/ and rules-corpus/storage/ — pack ids must be unique across both corpora`);
+      }
+    }
+
+    for (const obs of input.observations) {
+      if (obs.file.startsWith(RULES_FIRESTORE_PREFIX)) {
+        const packId = obs.file.slice(RULES_FIRESTORE_PREFIX.length).replace(/\.json$/, '');
+        if (!firestoreIds.has(packId)) {
+          problems.push(`${obs.file}: no matching rules-corpus/firestore/${packId}.ts pack — orphan observation`);
+        }
+      } else if (obs.file.startsWith(RULES_STORAGE_PREFIX)) {
+        const packId = obs.file.slice(RULES_STORAGE_PREFIX.length).replace(/\.json$/, '');
+        if (!storageIds.has(packId)) {
+          problems.push(`${obs.file}: no matching rules-corpus/storage/${packId}.ts pack — orphan observation`);
+        }
+      }
+    }
+  }
+
   if (input.checkMarkdown) problems.push(...checkGeneratedMarkdown());
 
   return problems;
@@ -241,6 +288,8 @@ if (import.meta.main) {
     observationExceptions,
     checkMarkdown: true,
     rigManifests,
+    rulesFirestorePackIds: ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id),
+    rulesStoragePackIds: ALL_RULES_STORAGE_PACKS.map((pack) => pack.id),
   });
 
   const wantJson = process.argv.includes('--json');
