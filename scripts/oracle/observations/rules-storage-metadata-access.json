@@ -1,16 +1,18 @@
 {
   "name": "rules-storage-metadata-access",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "storage#114"
+  ],
   "description": "Storage Rules Test API verdicts for corpus pack \"metadata-access\" (STORAGE-META). resource.metadata custom-metadata access in dotted and bracket form (identical resolution) and missing-key deny.",
   "observedAt": "2026-07-11T03:09:46.238Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
   "behavior": {
-    "dotted metadata: owner matches → allow": "ALLOW",
-    "dotted metadata: owner mismatch → deny": "DENY",
-    "dotted metadata: missing owner key → deny": "DENY",
-    "bracket metadata: owner matches → allow": "ALLOW",
-    "bracket metadata: owner mismatch → deny": "DENY"
+    "dotted metadata: owner matches \u2192 allow": "ALLOW",
+    "dotted metadata: owner mismatch \u2192 deny": "DENY",
+    "dotted metadata: missing owner key \u2192 deny": "DENY",
+    "bracket metadata: owner matches \u2192 allow": "ALLOW",
+    "bracket metadata: owner mismatch \u2192 deny": "DENY"
   }
 }

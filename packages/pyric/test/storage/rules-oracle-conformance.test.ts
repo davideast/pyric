@@ -59,6 +59,44 @@ interface RulesObservation {
   behavior: Record<string, unknown>;
 }
 
+/**
+ * Known evaluator/production divergences, pinned per the Firestore exemplar's
+ * KNOWN DIVERGENCE convention (test/rules/oracle-conformance.test.ts
+ * KNOWN_DIVERGENCES): genuine, tracked gaps — not silently skipped cases.
+ * Each entry pins BOTH sides so the suite stays green today but fails loudly
+ * the moment either side's actual behavior changes, forcing a revisit.
+ *
+ * `rules-storage-verbs-umbrella-granular :: create allowed when object does
+ * not exist (resource == null)`: live-probed against the production Rules
+ * Test API with BOTH an omitted `resource` field and an explicit
+ * `resource: null` for a create where the object does not yet exist — both
+ * shapes are the harness's correct wire encoding of "no existing object"
+ * (`buildStorageApiTestCase` only sets the envelope `resource` when
+ * `existingResource` is truthy, so `null`/omitted already send no `resource`
+ * key). Production responds to BOTH shapes identically: a "Null value error"
+ * at the `resource == null` comparison, and denies — i.e. referencing
+ * `resource` when no object exists throws in production's engine rather than
+ * evaluating the documented `resource == null` idiom. This rules out a
+ * capture-harness bug: the wire shape sent was already correct. The pyric
+ * evaluator instead models `resource` as an actual `null` value on create, so
+ * `resource == null` evaluates true and allows — the documented, intuitive
+ * semantics, but not what production does today.
+ *
+ * Keyed by `${observationName} :: ${caseKey}`.
+ */
+const KNOWN_DIVERGENCES: Record<
+  string,
+  { prodVerdict: 'ALLOW' | 'DENY'; evalVerdict: 'ALLOW' | 'DENY'; reason: string; issue: string }
+> = {
+  'rules-storage-verbs-umbrella-granular :: create allowed when object does not exist (resource == null)': {
+    prodVerdict: 'DENY',
+    evalVerdict: 'ALLOW',
+    reason:
+      'production throws a "Null value error" referencing `resource` on a create where no object exists yet (live-probed with both an omitted resource field and an explicit null — both denied identically), instead of evaluating `resource == null` as documented; the evaluator models resource as null on create and allows, per the documented semantics',
+    issue: '#134',
+  },
+};
+
 function loadObservation(file: string): RulesObservation {
   const raw = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as {
     name?: string;
@@ -181,7 +219,16 @@ describe('oracle conformance (rules-storage)', () => {
       const evalTable = evaluatorVerdicts(pack);
       for (const [caseKey, prodVerdict] of Object.entries(obs.behavior)) {
         if (knownGap.has(caseKey)) continue;
-        expect(evalTable[caseKey], `${obs.name} :: ${caseKey}`).toBe(prodVerdict);
+        const divergenceKey = `${obs.name} :: ${caseKey}`;
+        const known = KNOWN_DIVERGENCES[divergenceKey];
+        if (known) {
+          // Pinned, tracked gap: assert BOTH sides so the entry fails loudly
+          // the moment production or the evaluator's actual behavior moves.
+          expect(prodVerdict, `${divergenceKey} (captured production verdict)`).toBe(known.prodVerdict);
+          expect(evalTable[caseKey], `${divergenceKey} (evaluator verdict)`).toBe(known.evalVerdict);
+          continue;
+        }
+        expect(evalTable[caseKey], divergenceKey).toBe(prodVerdict);
       }
     });
   }

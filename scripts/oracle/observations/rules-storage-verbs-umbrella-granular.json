@@ -1,7 +1,9 @@
 {
   "name": "rules-storage-verbs-umbrella-granular",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "storage#96"
+  ],
   "description": "Storage Rules Test API verdicts for corpus pack \"verbs-umbrella-granular\" (STORAGE-VERBS). Umbrella read/write expansion, granular verb grants, comma-separated verbs, per-verb default-deny, and create-vs-update on resource existence.",
   "observedAt": "2026-07-11T03:09:45.678Z",
   "fbSdkVersion": "12.13.0",

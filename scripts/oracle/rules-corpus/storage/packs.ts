@@ -82,6 +82,17 @@ service firebase.storage {
     { description: 'comma verbs grant delete', expectation: 'ALLOW', method: 'delete', path: 'pair/d.txt', existingResource: { size: 5 } },
     { description: 'comma verbs deny create (not listed)', expectation: 'DENY', method: 'create', path: 'pair/d.txt', resource: { size: 5, contentType: 'text/plain' } },
     // create-vs-update keyed on existence
+    // KNOWN DIVERGENCE (pinned in test/storage/rules-oracle-conformance.test.ts
+    // KNOWN_DIVERGENCES, issue #134): the capture disagrees with this
+    // `expectation`. Production throws a "Null value error" referencing
+    // `resource` on a create where no object exists yet (live-probed with
+    // both an omitted resource field and an explicit null — identical
+    // result), and denies, instead of evaluating `resource == null` as
+    // documented. The evaluator models resource as null on create and
+    // allows, matching the documented semantics. Left as `expectation:
+    // 'ALLOW'` — the pre-capture belief this pack was written from — per the
+    // Firestore stress-pack convention of not rewriting expectations after
+    // a divergence is captured and pinned.
     { description: 'create allowed when object does not exist (resource == null)', expectation: 'ALLOW', method: 'create', path: 'existence/e.txt', resource: { size: 10, contentType: 'text/plain' }, existingResource: null },
     { description: 'update allowed when object exists (resource != null)', expectation: 'ALLOW', method: 'update', path: 'existence/e.txt', resource: { size: 20, contentType: 'text/plain' }, existingResource: { size: 10 } },
     { description: 'create denied when object already exists (create rule requires resource == null)', expectation: 'DENY', method: 'create', path: 'existence/e.txt', resource: { size: 20, contentType: 'text/plain' }, existingResource: { size: 10 } },
