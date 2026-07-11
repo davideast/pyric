@@ -37,4 +37,11 @@ export interface StoragePack extends Omit<Pack, 'cases'> {
   cases: StorageTestCase[];
 }
 
+/**
+ * The authored shape for one file in rules-corpus/storage/. The filename IS
+ * the pack id, so the record carries no `id` field — the loader (./load.ts)
+ * injects it from the filename.
+ */
+export type StoragePackRecord = Omit<StoragePack, 'id'>;
+
 export type { StorageTestCase };
