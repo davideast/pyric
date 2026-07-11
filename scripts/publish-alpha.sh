@@ -46,7 +46,7 @@ done
 echo ""
 echo "━━━ compat:check (gates the fb dist-tag) ━━━"
 if bun run compat:check; then
-  FB_TAG="$(bun run scripts/compat/print-fb-tag.ts)"
+  FB_TAG="$(bun run packages/conformance/src/print-fb-tag.ts)"
   echo "compat:check green — moving ${FB_TAG} -> ${V}"
   for p in pyric pyric-admin pyric-tools @pyric/ui; do
     npm dist-tag add "${p}@${V}" "${FB_TAG}"

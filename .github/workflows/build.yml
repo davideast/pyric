@@ -50,14 +50,14 @@ jobs:
         # observation citing it.
         # Existing debt is tolerated via the baseline; pay it down by adding
         # an oracle citation (or downgrading the row) and dropping the id.
-        run: bun run scripts/oracle/audit-gate.ts
+        run: bun run packages/conformance/src/audit-gate.ts
 
       - name: Oracle observation version guard
         # Fails if any scripts/oracle/observations/*.json was captured against
         # a firebase version other than the one bun.lock currently resolves —
         # i.e. a `firebase` bump without re-capturing the prod-behavior record
         # the COMPAT matrices cite (INF-3/INF-4). Cheap, deterministic.
-        run: bun run scripts/oracle/check-observation-versions.ts
+        run: bun run packages/conformance/src/check-observation-versions.ts
 
       - name: Build all packages (scripts/build.sh — two-pass stubs then strict)
         # scripts/build.sh handles the cycle-tolerant bootstrap pass
@@ -75,7 +75,7 @@ jobs:
         # never a hand-maintained field — see the script header (INF-3).
         # Runs AFTER the build: the probes import the built packages
         # (pyric/* → dist), so dist must exist first.
-        run: bun run scripts/oracle/check-observations.ts
+        run: bun run packages/conformance/src/check-observations.ts
 
       - name: Conformance graph integrity
         # Validates the compat registry, ratchets surface-census.ts's UNMAPPED
@@ -84,7 +84,7 @@ jobs:
         # and checks the generated COMPAT.md docs haven't drifted from the
         # registry source. Runs after the build: surface-census imports the
         # built pyric/* packages, so dist must exist first.
-        run: bun run compat:validate && bun run compat:census-gate && bun run scripts/compat/generate-docs.ts --check
+        run: bun run compat:validate && bun run compat:census-gate && bun run packages/conformance/src/generate-docs.ts --check
 
       - name: Compat coverage gate (surface + behavior %, regression-only)
         # Runs scripts/compat/coverage.ts, which combines surface-census.ts

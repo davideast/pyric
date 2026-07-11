@@ -18,7 +18,7 @@ import { getMessagingBroker } from './index.js';
 import { BrokerSendError } from './envelopes.js';
 import { EMPIRICAL_DATA_CAP_BYTES, parseCondition } from './validate.js';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 'conformance', 'observations');
 
 function obs(name: string): Record<string, any> {
   return JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')).behavior;

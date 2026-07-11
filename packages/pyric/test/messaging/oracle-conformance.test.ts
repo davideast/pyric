@@ -16,7 +16,7 @@
  * authored against the bare-call path, and restores it afterward.
  *
  * ─── HOW EACH ASSERTION SET IS SHAPED ─────────────────────────────────────────
- * Rows are read DIRECTLY from `scripts/compat/registry/messaging.ts`
+ * Rows are read DIRECTLY from `packages/conformance/registry/messaging.ts`
  * (`messagingRows`), filtered to the two receive-plane surfaces this package
  * owns. There is exactly one `it(row.id …)` per row (CDD Step 3: "one assertion
  * set per row"). Where a row cites committed `messaging-web-*` observations, the
@@ -34,7 +34,7 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { messagingRows } from '../../../../scripts/compat/registry/messaging.ts';
+import { messagingRows } from '../../../../packages/conformance/registry/messaging.ts';
 
 // Enable the mirror's climb-only default-sandbox path for this file's
 // lifetime, then restore, so sibling files' flag-off contract tests (e.g.
@@ -47,7 +47,7 @@ afterAll(() => {
 });
 
 /** Repo-root observations directory (four levels up from this test file). */
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
 
 /** Load the frozen `behavior` block of a committed observation by name. */
 function obs(name: string): Record<string, any> {

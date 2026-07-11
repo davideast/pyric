@@ -36,7 +36,7 @@ import {
   type WireResponse,
 } from '../../src/ai/broker/index.js';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
 
 function loadObs(name: string): Record<string, any> {
   return JSON.parse(readFileSync(join(OBS_DIR, name), 'utf8'));

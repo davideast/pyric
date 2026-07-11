@@ -17,7 +17,7 @@
  * restores it afterward.
  *
  * ─── HOW EACH ASSERTION SET IS SHAPED ─────────────────────────────────────────
- * Rows are read DIRECTLY from `scripts/compat/registry/messaging.ts`
+ * Rows are read DIRECTLY from `packages/conformance/registry/messaging.ts`
  * (`messagingRows`), filtered to `messaging-admin`. There is exactly one
  * `it(row.id …)` per row. Where a row cites committed `messaging-send-*`
  * observations, the observation JSON is loaded and its recorded values (the
@@ -35,7 +35,7 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { messagingRows } from '../../../../scripts/compat/registry/messaging.ts';
+import { messagingRows } from '../../../../packages/conformance/registry/messaging.ts';
 
 // Enable the mirror's climb-only implicit-app path for this file's lifetime,
 // then restore, so sibling files' flag-off contract tests (e.g. dispatch's
@@ -48,7 +48,7 @@ afterAll(() => {
 });
 
 /** Repo-root observations directory (four levels up from this test file). */
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'scripts', 'oracle', 'observations');
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
 
 /** Load the frozen `behavior` block of a committed observation by name. */
 function obs(name: string): Record<string, any> {

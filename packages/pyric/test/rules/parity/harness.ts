@@ -30,11 +30,11 @@ import type { TestCase, TestFirestoreRulesResult } from '../../../src/rules/test
 // ─── Pack types ────────────────────────────────────────────────────────────
 //
 // The `Pack` shape now lives in the conformance corpus
-// (scripts/oracle/rules-corpus/firestore/types.ts). Re-exported here so the
+// (packages/conformance/rules-corpus/firestore/types.ts). Re-exported here so the
 // existing parity importers keep resolving `Pack` from the harness while the
 // definition has a single home shared with the capture runner and replay suite.
 
-export type { Pack } from '../../../../../scripts/oracle/rules-corpus/firestore/index.ts';
+export type { Pack } from '../../../../../packages/conformance/rules-corpus/firestore/index.ts';
 
 export type Decision = 'ALLOW' | 'DENY';
 /**
