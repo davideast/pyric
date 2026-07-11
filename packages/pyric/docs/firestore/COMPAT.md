@@ -288,11 +288,11 @@ backlog work per issue #144).
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 140 | Resolves on sandbox targets — persistence is already the default; does not reject with `'failed-precondition'` when called after other ops (deliberately more lenient than the real SDK — no cache-init race to protect). Forwards to `fb.enableIndexedDbPersistence` on prod targets | ✓ | `unit:firestore/persistence-network.test.ts` |
-| 141 | Resolves on sandbox targets — the SharedWorker path already is the one shared store every tab talks to. Forwards to `fb.enableMultiTabIndexedDbPersistence` on prod targets | ✓ | `unit:firestore/persistence-network.test.ts` |
+| 140 | Resolves on sandbox targets — persistence is already the default; does not reject with `'failed-precondition'` when called after other ops (deliberately more lenient than the real SDK — no cache-init race to protect). Forwards to `fb.enableIndexedDbPersistence` on prod targets | ⚠ no failed-precondition | `unit:firestore/persistence-network.test.ts` |
+| 141 | Resolves on sandbox targets — the SharedWorker path already is the one shared store every tab talks to. Forwards to `fb.enableMultiTabIndexedDbPersistence` on prod targets | ⚠ no failed-precondition | `unit:firestore/persistence-network.test.ts` |
 | 142 | Maps to `Sandbox.clearPersistence()` on sandbox targets — actually wipes the persisted blob (honest, not a no-op); already a no-op when persistence was never enabled. Forwards to `fb.clearIndexedDbPersistence` on prod targets | ✓ | `unit:firestore/persistence-network.test.ts` |
-| 143 | Resolve on sandbox targets — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated). Forward to `fb.enableNetwork` / `fb.disableNetwork` on prod targets | ✓ | `unit:firestore/persistence-network.test.ts` |
-| 144 | Resolves immediately on sandbox targets — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip. Forwards to `fb.waitForPendingWrites` on prod targets | ✓ | `unit:firestore/persistence-network.test.ts` |
+| 143 | Resolve on sandbox targets — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated). Forward to `fb.enableNetwork` / `fb.disableNetwork` on prod targets | ⚠ no offline queue | `unit:firestore/persistence-network.test.ts` |
+| 144 | Resolves immediately on sandbox targets — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip. Forwards to `fb.waitForPendingWrites` on prod targets | ⚠ always resolves; prod can hang offline | `unit:firestore/persistence-network.test.ts` |
 
 ## `sandbox.*` — sandbox-only ops
 

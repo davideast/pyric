@@ -695,25 +695,29 @@ backlog work per issue #144).
 ## Offline / persistence / network family (continued)
 
 <div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">140</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Resolves on sandbox targets — persistence is already the default; does not reject with <code>'failed-precondition'</code> when called after other ops (deliberately more lenient than the real SDK — no cache-init race to protect). Forwards to <code>fb.enableIndexedDbPersistence</code> on prod targets</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div></div>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">140</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves on sandbox targets — persistence is already the default; does not reject with <code>'failed-precondition'</code> when called after other ops (deliberately more lenient than the real SDK — no cache-init race to protect). Forwards to <code>fb.enableIndexedDbPersistence</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
+<div class="compat-note">no failed-precondition</div></div>
 </details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">141</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Resolves on sandbox targets — the SharedWorker path already is the one shared store every tab talks to. Forwards to <code>fb.enableMultiTabIndexedDbPersistence</code> on prod targets</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div></div>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">141</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves on sandbox targets — the SharedWorker path already is the one shared store every tab talks to. Forwards to <code>fb.enableMultiTabIndexedDbPersistence</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
+<div class="compat-note">no failed-precondition</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">142</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Maps to <code>Sandbox.clearPersistence()</code> on sandbox targets — actually wipes the persisted blob (honest, not a no-op); already a no-op when persistence was never enabled. Forwards to <code>fb.clearIndexedDbPersistence</code> on prod targets</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div></div>
 </details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">143</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Resolve on sandbox targets — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated). Forward to <code>fb.enableNetwork</code> / <code>fb.disableNetwork</code> on prod targets</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div></div>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">143</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolve on sandbox targets — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated). Forward to <code>fb.enableNetwork</code> / <code>fb.disableNetwork</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
+<div class="compat-note">no offline queue</div></div>
 </details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">144</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Resolves immediately on sandbox targets — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip. Forwards to <code>fb.waitForPendingWrites</code> on prod targets</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div></div>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">144</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves immediately on sandbox targets — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip. Forwards to <code>fb.waitForPendingWrites</code> on prod targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
+<div class="compat-note">always resolves; prod can hang offline</div></div>
 </details>
 </div>
 
