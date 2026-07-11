@@ -16,6 +16,12 @@ If they remember one sentence:
 
 This is the identity line and it is already earned (the README, the Studio hero). It names a mechanism, not an audience. It is a paradox that demands resolution, which buys the second sentence.
 
+The fixed tagline that follows it (David's call, 2026-07-10):
+
+> Agent development without production consequences.
+
+The pair divides the work cleanly: the identity line names the mechanism, the tagline names the payoff and the era. Note the README currently reads "Agentic coding without production consequences"; one wording should win everywhere.
+
 Support test for every other line on the page: does it resolve, prove, or open a door from this sentence? If not, cut.
 
 ## The beats, in order, with the copy
@@ -100,6 +106,77 @@ Two doors, named by outcome, not by document type:
 - **Set up your agent**
 
 And one quiet third for the reader who wants prose: "Prefer the five-minute read?" pointing at the Overview. Never more than these three. A door per audience: human building, human delegating, human reading.
+
+## The copy, ranked by importance
+
+Written after the importance ranking (identity, safety, feasibility, rules, observe/hand-over, conformance, setup). Where this differs from the beat copy above, this is the newer draft.
+
+### 1. Identity
+
+> **Firebase that runs in your browser.**
+>
+> Agent development without production consequences.
+>
+> Your `firebase/*` code, unchanged, against a backend that lives in the tab. In production it talks to real Firebase.
+
+The tagline is fixed. The third line stays because the tagline promises and the line explains; cut it only if the pairing needs to stand alone.
+
+### 2. Nothing can touch production
+
+> **Every write lands in the tab.**
+>
+> Every delete, every rules change, every experiment that goes sideways stays on your machine. Your agent can work all night. Production sleeps through it.
+
+The headline was "Production is never in the loop" before the tagline existed; the tagline now makes that claim at the top, so this section leads with the mechanism that proves it instead of repeating it. "Production sleeps through it" is the riskiest line here; fallback close: "Production never hears about it."
+
+### 3. Your code, unchanged
+
+> **You already wrote this code.**
+>
+> ```
+> npm i pyric       === npm i firebase
+> npm i pyric-admin === npm i firebase-admin
+> npm i pyric-tools === npm i firebase-tools
+> ```
+>
+> Same imports, same calls, same behavior, mirrored one to one. If you know `getDoc`, `onSnapshot`, and `signInWithEmailAndPassword`, you already know this library.
+
+### 4. Rules become provable
+
+> **Every operation returns a verdict.**
+>
+> Write a rule, make a request, get an answer. A denial names the rule that said no.
+>
+> `deny notes/n1 · Rule #1 (write)`
+>
+> You stop deploying rules to find out what they mean.
+
+### 5. Watch it, then hand it over
+
+> **Watch it work. Then hand it over.**
+>
+> Every read, write, and auth event streams live in Studio while your app runs. When it's the agent's turn, one flag exposes the same backend over MCP: real queries, real rules, real verdicts.
+>
+> `npx pyric dev --bridge`
+>
+> Nothing it does leaves your machine.
+
+### 6. Tested, not asserted
+
+> **"Behaves like Firebase" is a test result.**
+>
+> Probes run against production Firebase and record what it actually does. Those recordings replay in CI on every change, so drift fails the build before it reaches you. Firestore, Auth, and Rules hold that bar today. Realtime Database and Storage don't yet, and the docs say so.
+
+### 7. The cost of entry
+
+> **Two commands. No account.**
+>
+> ```
+> npm i -g pyric-tools
+> npx pyric dev
+> ```
+>
+> No project to create. No console to visit. No emulator to configure. A working backend in the first minute of a project.
 
 ## What we refuse to say
 
