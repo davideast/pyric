@@ -1,0 +1,54 @@
+{
+  "name": "ai-system-instruction-accepted",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#generate-system-instruction"
+  ],
+  "description": "A top-level systemInstruction rides the request unchanged and the response envelope shape is unaffected. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
+  "observedAt": "2026-07-10T01:47:18.661Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "httpStatus": 200,
+    "finishReason": "STOP",
+    "topLevelKeySet": [
+      "candidates",
+      "modelVersion",
+      "responseId",
+      "usageMetadata"
+    ],
+    "raw": {
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "pyric",
+                "thoughtSignature": "EjQKMgERTTIPhCx6LFZmQFaSwDKUbnofUbSyr+rq80Kx1Rk3pUn+PgiYPfNtxVIMAcVXfcbm"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }
+      ],
+      "usageMetadata": {
+        "promptTokenCount": 15,
+        "candidatesTokenCount": 2,
+        "totalTokenCount": 17,
+        "promptTokensDetails": [
+          {
+            "modality": "TEXT",
+            "tokenCount": 15
+          }
+        ],
+        "serviceTier": "standard"
+      },
+      "modelVersion": "gemini-3.1-flash-lite",
+      "responseId": "Jk9QatjXEYKZ_uMP-sfkgQQ"
+    }
+  }
+}

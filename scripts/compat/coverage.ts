@@ -91,7 +91,7 @@ function runCensus(): CensusRow[] {
  * it has no surface-coverage axis to publish. Its rows are all born unverified,
  * so its behavior number would be ~0 regardless.
  */
-const SERVICES: Surface[] = ['auth', 'firestore', 'rtdb', 'rtdb-modular', 'storage', 'messaging'];
+const SERVICES: Surface[] = ['ai', 'auth', 'firestore', 'rtdb', 'rtdb-modular', 'storage', 'messaging'];
 
 /**
  * Each COMPAT service's underlying surface-census surface. `rtdb` and
@@ -104,6 +104,7 @@ const SERVICES: Surface[] = ['auth', 'firestore', 'rtdb', 'rtdb-modular', 'stora
  * and is never read, because `messaging-admin` is not in SERVICES above.
  */
 const CENSUS_SURFACE_FOR: Record<Surface, CensusSurface> = {
+  ai: 'ai',
   auth: 'auth',
   firestore: 'firestore',
   rtdb: 'database',
@@ -256,6 +257,7 @@ function buildReport(): CoverageReport {
  * surface-denylist.ts for the full reasoning behind each entry.
  */
 const SCOPE_NOTES: Record<Surface, string> = {
+  ai: 'V1 scope is the core REST plane (getAI/generateContent/streaming/chat/function-calling/countTokens); every in-scope export is mirrored. Out of scope: Imagen only (deprecated, June 2026 shutdown upstream), including its template-served models. Deferred: the Live API family, server-side templates, and hybrid/on-device inference — intended and buildable through existing sandbox seams, counted as coverage debt.',
   auth: 'out of scope: none (internal plumbing only) — every remaining gap (linking, reauth, MFA/phone/reCAPTCHA, email-link) is deferred, buildable via the resolver/mock pattern already proven for OAuth sign-in.',
   firestore: 'out of scope: internal plumbing only. Deferred: bundle-loading, cache index-tuning knobs.',
   rtdb: 'out of scope: internal plumbing only. Deferred: onDisconnect (no live socket in an in-memory sandbox today), legacy priority ordering.',

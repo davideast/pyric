@@ -14,6 +14,10 @@ The CI guard for the fix is the unit test `test/serve/worker/random-uuid.test.ts
 ## Layout
 - `fixture/` — a minimal firebase/* app (`signInWithPopup` + `onAuthStateChanged`).
 - `auth-popup.pw.ts` — the test.
+- `ai-demo.pw.ts` — the AI graduation demo smoke test. Self-booting: spawns its
+  own `pyric dev` on `examples/ai-chat` and drives both answer engines
+  (scripted with a zero-Google-requests assertion; local model through
+  `/__pyric/ai-proxy`, skipped when Ollama isn't reachable on localhost:11434).
 - `playwright.config.ts` — `testMatch: **/*.pw.ts`; auto-starts `pyric dev` for localhost.
 - `soak/` — the bridge lifecycle soak suite (its own config; files are
   `*.soak.ts`, so neither `bun test` nor this config picks them up). Each
@@ -31,8 +35,13 @@ The CI guard for the fix is the unit test `test/serve/worker/random-uuid.test.ts
 ```sh
 bun run build:pyric-tools          # the webServer runs the built CLI
 bunx playwright install chromium   # once
-bunx playwright test --config packages/pyric-tools/test/e2e/playwright.config.ts
+cd packages/pyric-tools
+bunx playwright test --config test/e2e/playwright.config.ts
 ```
+
+Run from `packages/pyric-tools` (like `test:soak`): from the repo root the
+runner and the test files resolve two different `@playwright/test` instances
+and collection fails with "did not expect test() to be called here".
 
 ## Run (Tailscale repro — fails on a build without the fix)
 Start a serve reachable on your tailnet, then point the test at it:

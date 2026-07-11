@@ -3,7 +3,7 @@ title: "Per-call delegate construction"
 navLabel: "Per-call delegate"
 group: "pyric-admin / firestore"
 section: "Explanation"
-order: 19013
+order: 20013
 ---
 # Per-call delegate construction
 

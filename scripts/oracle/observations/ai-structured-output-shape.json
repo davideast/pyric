@@ -1,0 +1,53 @@
+{
+  "name": "ai-structured-output-shape",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#generate-structured-output",
+    "ai#schema-rides-request"
+  ],
+  "description": "responseMimeType application/json plus responseSchema yields a text part that parses as JSON conforming to the schema key set. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
+  "observedAt": "2026-07-10T01:47:17.553Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "httpStatus": 200,
+    "textParsesAsJson": true,
+    "parsedKeySet": [
+      "word"
+    ],
+    "finishReason": "STOP",
+    "raw": {
+      "candidates": [
+        {
+          "content": {
+            "parts": [
+              {
+                "text": "{\"word\": \"flame\"}",
+                "thoughtSignature": "EjQKMgERTTIPka0gEt01ok3jOZp6eYhxuSMot45vtbBD8irFP+6Fv3tMWbN2lUiDUQidpf1S"
+              }
+            ],
+            "role": "model"
+          },
+          "finishReason": "STOP",
+          "index": 0
+        }
+      ],
+      "usageMetadata": {
+        "promptTokenCount": 9,
+        "candidatesTokenCount": 7,
+        "totalTokenCount": 16,
+        "promptTokensDetails": [
+          {
+            "modality": "TEXT",
+            "tokenCount": 9
+          }
+        ],
+        "serviceTier": "standard"
+      },
+      "modelVersion": "gemini-3.1-flash-lite",
+      "responseId": "JU9QaoO7BrrL_uMPqt7CgAs"
+    }
+  }
+}

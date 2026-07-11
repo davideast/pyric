@@ -1,0 +1,33 @@
+{
+  "name": "ai-error-bad-role",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#error-bad-role"
+  ],
+  "description": "Error envelope for an invalid content role. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
+  "observedAt": "2026-07-10T01:47:04.875Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "httpStatus": 400,
+    "isJson": true,
+    "errorKeySet": [
+      "code",
+      "message",
+      "status"
+    ],
+    "errorCode": 400,
+    "errorStatus": "INVALID_ARGUMENT",
+    "detailTypes": [],
+    "messageText": "Role 'banana' is not supported. Please use a valid role: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER.",
+    "raw": {
+      "error": {
+        "code": 400,
+        "message": "Role 'banana' is not supported. Please use a valid role: SYSTEM, SYSTEM_1, USER, ASSISTANT, DEVELOPER, CONTEXT, USER_CONTEXT, MODEL, USER.",
+        "status": "INVALID_ARGUMENT"
+      }
+    }
+  }
+}

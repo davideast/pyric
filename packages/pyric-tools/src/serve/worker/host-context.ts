@@ -18,7 +18,25 @@ import {
   type OutboundMessage,
   type AuthPersistenceMode,
   type PolicyRequest,
+  type AiEngineConfigWire,
 } from './protocol.js';
+
+// ─── AI broker (structural view) ──────────────────────────────────────────
+
+/**
+ * The worker host's view of `pyric/ai`'s `AiBroker` — the in-process
+ * Gemini-wire answer seam (cdd-deltas #98.1: the broker lives with the
+ * sandbox, i.e. HERE in the serve worker host). Structural because the
+ * `AiBroker` class is not exported from `pyric/ai`'s public surface; the
+ * host recovers the instance from a `getAI(sandbox)` handle via
+ * `TARGET_SYMBOL` (see host-ai.ts). Requests/responses are the plain
+ * Gemini-wire JSON the protocol's ai ops carry.
+ */
+export interface AiBrokerLike {
+  generateContent(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>>;
+  streamGenerateContent(req: Record<string, unknown>, model: string): AsyncIterable<Record<string, unknown>>;
+  countTokens(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>>;
+}
 
 // ─── Port interface ───────────────────────────────────────────────────────
 
@@ -148,6 +166,20 @@ export interface HostCtx {
    * See `PolicyRequest` in protocol.ts for the full rationale.
    */
   policy?: PolicyRequest;
+  /**
+   * The sandbox's AiBroker (pyric/ai), lazily created on the first ai op /
+   * ai stream sub via `getAI(ctx.sandbox, …)` — so the worker's broker IS the
+   * mirror's per-sandbox broker (one instance, events land on the shared
+   * sandbox's unified stream). See `ensureAiBroker` in host-ai.ts.
+   */
+  aiBroker?: AiBrokerLike;
+  /**
+   * Host-construction engine config for the AI broker (cdd-deltas #98.4).
+   * When set (embedding/test hosts, or serve wiring), it WINS over any
+   * op-carried `engine` field; absent, the first ai op's `engine` field is
+   * honored; both absent ⇒ the zero-config scripted default.
+   */
+  aiEngine?: AiEngineConfigWire;
   /**
    * Lazily-built agent tool dispatcher (the canonical sandbox tool set) bound to
    * THIS worker's sandbox. The bridge peer forwards `tool` messages here so the

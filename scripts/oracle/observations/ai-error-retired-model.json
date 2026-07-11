@@ -1,0 +1,43 @@
+{
+  "name": "ai-error-retired-model",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#error-retired-model"
+  ],
+  "description": "Error envelope for a retired model family (Gemini 1.5, retired 2025-09-24 per the message text). Distinct from unknown-model: production distinguishes never-existed from retired. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
+  "observedAt": "2026-07-10T01:47:04.515Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "httpStatus": 404,
+    "isJson": true,
+    "errorKeySet": [
+      "code",
+      "details",
+      "message",
+      "status"
+    ],
+    "errorCode": 404,
+    "errorStatus": "NOT_FOUND",
+    "detailTypes": [
+      "type.googleapis.com/google.rpc.ErrorInfo"
+    ],
+    "messageText": "Gemini 1.5 models are retired as of September 24, 2025. Update to a newer model version. [Learn more.](https://firebase.google.com/docs/ai-logic/faq-and-troubleshooting#discontinued-models)",
+    "raw": {
+      "error": {
+        "code": 404,
+        "message": "Gemini 1.5 models are retired as of September 24, 2025. Update to a newer model version. [Learn more.](https://firebase.google.com/docs/ai-logic/faq-and-troubleshooting#discontinued-models)",
+        "status": "NOT_FOUND",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            "reason": "RETIRED_MODEL",
+            "domain": "firebasevertexai.googleapis.com"
+          }
+        ]
+      }
+    }
+  }
+}

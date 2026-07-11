@@ -13,12 +13,15 @@
 import { describe, expect, test } from 'bun:test';
 import * as client from '../../../src/serve/worker/client.js';
 
-/** The 116 value (runtime) exports of the worker client, sorted. Frozen. */
+/** The 119 value (runtime) exports of the worker client, sorted. Frozen. */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'acceptProviderCredential', 'addDoc', 'adminClearUsers', 'adminCreateUser',
   'adminDeleteDocument', 'adminDeleteRtdbValue', 'adminDeleteUser', 'adminGetDocument',
   'adminListDocuments', 'adminReadRtdbState', 'adminReadState', 'adminSetDocument',
   'adminSetRtdbValue', 'adminSubscribeRtdbValue', 'adminUpdateRtdbValue', 'adminUpdateUser',
+  'aiCountTokens',
+  'aiGenerateContent',
+  'aiStreamGenerateContent',
   'and', 'arrayRemove', 'arrayUnion', 'average', 'beforeAuthStateChanged',
   'browserLocalPersistence', 'browserSessionPersistence', 'callTool', 'collection',
   'collectionGroup', 'connectAuthEmulator', 'count', 'createUserWithEmailAndPassword',

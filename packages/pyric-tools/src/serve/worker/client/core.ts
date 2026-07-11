@@ -63,6 +63,7 @@ export function wirePort(port: MessagePort): void {
         const err = new Error(msg.error.message) as Error & {
           code: string;
           denialContext?: unknown;
+          aiEnvelope?: unknown;
         };
         err.code = msg.error.code;
         // Structured denial context (spike gap 6): re-attach so consumers —
@@ -70,6 +71,12 @@ export function wirePort(port: MessagePort): void {
         // same shape a local SandboxError carries.
         if (msg.error.denialContext !== undefined) {
           err.denialContext = msg.error.denialContext;
+        }
+        // AI wire error envelope (pyric/ai): re-attach so the served
+        // `firebase/ai` entry can mint the exact SDK AIError decoration the
+        // in-process plane applies (see entries/ai.ts).
+        if (msg.error.aiEnvelope !== undefined) {
+          err.aiEnvelope = msg.error.aiEnvelope;
         }
         pending.reject(err);
       }
@@ -80,10 +87,11 @@ export function wirePort(port: MessagePort): void {
       // "signed out" payload, not an error, so guard the __error sniff.
       const value = (msg.value ?? {}) as Record<string, unknown>;
       if (value.__error) {
-        const errPayload = value.__error as { code: string; message: string; denialContext?: unknown };
-        const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown };
+        const errPayload = value.__error as { code: string; message: string; denialContext?: unknown; aiEnvelope?: unknown };
+        const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown; aiEnvelope?: unknown };
         err.code = errPayload.code;
         if (errPayload.denialContext !== undefined) err.denialContext = errPayload.denialContext;
+        if (errPayload.aiEnvelope !== undefined) err.aiEnvelope = errPayload.aiEnvelope;
         // Surface an unobserved listener error instead of swallowing it — the
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).

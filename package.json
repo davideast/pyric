@@ -36,6 +36,7 @@
     "compat:oracle-versions": "bun run scripts/oracle/check-observation-versions.ts",
     "compat:oracle-check": "bun run scripts/oracle/check-observations.ts",
     "oracle:plan": "bun run scripts/oracle/plan.ts",
+    "compat:climb-ai": "bun test packages/pyric/test/ai",
     "pack": "bash scripts/pack-packages.sh",
     "pack:skip-build": "bash scripts/pack-packages.sh --skip-build",
     "compile:standalone": "bun run build && bun packages/pyric-tools/scripts/compile.ts",

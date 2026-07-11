@@ -1,0 +1,37 @@
+{
+  "name": "ai-generate-stream-framing",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#stream-async-iterable",
+    "ai#stream-data-prefixed",
+    "ai#stream-separator-crlf",
+    "ai#stream-finish-last-chunk",
+    "ai#stream-usage-every-chunk",
+    "ai#stream-chunk-envelope",
+    "ai#scripted-stream-chunks"
+  ],
+  "description": "Raw SSE framing of streamGenerateContent?alt=sse. Every event is `data: <complete GenerateContentResponse JSON>`; separator and which chunks carry finishReason/usageMetadata are the framing contract a mirror must reproduce. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
+  "observedAt": "2026-07-10T01:47:04.018Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "httpStatus": 200,
+    "eventCount": 3,
+    "allEventsDataPrefixed": true,
+    "separatorIsCrlfCrlf": true,
+    "everyEventParsesAsJson": true,
+    "everyEventHasCandidatesOrUsage": true,
+    "finishReasonChunkIndexes": [
+      2
+    ],
+    "finishReasonOnlyOnLastChunk": true,
+    "usageMetadataChunkIndexes": [
+      0,
+      1,
+      2
+    ],
+    "rawFrames": "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"1 2 3 4 5 6 7 8\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 15,\"totalTokenCount\": 30,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.1-flash-lite\",\"responseId\": \"F09Qasm4Jeiu_PUP85rr6Qg\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 9 10\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 20,\"totalTokenCount\": 35,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.1-flash-lite\",\"responseId\": \"F09Qasm4Jeiu_PUP85rr6Qg\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EjQKMgERTTIPuMvqbn223NOm7Eqs4Ya8PQOv0IGezVPX76tEiZ1uN27zJoiUQ0VG1q9abYy2\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 20,\"totalTokenCount\": 35,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.1-flash-lite\",\"responseId\": \"F09Qasm4Jeiu_PUP85rr6Qg\"}\r\n\r\n"
+  }
+}

@@ -2,7 +2,7 @@
 title: "<CopyButton>"
 group: "@pyric/ui"
 section: "Primitives"
-order: 23004
+order: 24004
 ---
 # `<CopyButton>`
 

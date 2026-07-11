@@ -2,7 +2,7 @@
 title: "onSnapshot overloads"
 group: "pyric-admin / firestore"
 section: "Reference"
-order: 19009
+order: 20009
 ---
 # `onSnapshot` overloads
 

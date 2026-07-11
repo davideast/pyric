@@ -3,7 +3,7 @@ title: "pyric-admin/app"
 navLabel: "Overview"
 group: "pyric-admin / app"
 section: ""
-order: 18001
+order: 19001
 ---
 # `pyric-admin/app`
 

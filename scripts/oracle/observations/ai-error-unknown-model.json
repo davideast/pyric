@@ -1,0 +1,33 @@
+{
+  "name": "ai-error-unknown-model",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#error-unknown-model"
+  ],
+  "description": "Error envelope for a model name production has never served. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
+  "observedAt": "2026-07-10T01:47:04.446Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "httpStatus": 404,
+    "isJson": true,
+    "errorKeySet": [
+      "code",
+      "message",
+      "status"
+    ],
+    "errorCode": 404,
+    "errorStatus": "NOT_FOUND",
+    "detailTypes": [],
+    "messageText": "models/not-a-real-model is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
+    "raw": {
+      "error": {
+        "code": 404,
+        "message": "models/not-a-real-model is not found for API version v1main, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.",
+        "status": "NOT_FOUND"
+      }
+    }
+  }
+}

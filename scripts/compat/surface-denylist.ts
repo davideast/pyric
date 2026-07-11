@@ -10,12 +10,14 @@
  *
  * `OUT_OF_SCOPE` and `DEFERRED` are NOT interchangeable, and conflating them
  * is exactly the dishonesty this split exists to prevent. `OUT_OF_SCOPE`
- * holds ONLY the internal `_`-prefixed plumbing symbols firebase/* happens to
- * export — they are not part of the public modular surface pyric mirrors at
- * all, which is a genuine can't-apply reason. Every other denied symbol is
- * intended and buildable; it belongs in `DEFERRED`, which stays IN the
- * `intended` denominator in coverage.ts as an honest gap. Two reasons are
- * explicitly INVALID for treating something as out of scope:
+ * holds what the sandbox genuinely cannot or should not model: the internal
+ * `_`-prefixed plumbing symbols firebase/* happens to export (not part of the
+ * public modular surface pyric mirrors at all), plus a public API that is
+ * deprecated and being retired upstream (mirroring an API whose production
+ * counterpart is shutting down would freeze dead behavior). Every other
+ * denied symbol is intended and buildable; it belongs in `DEFERRED`, which
+ * stays IN the `intended` denominator in coverage.ts as an honest gap. Two
+ * reasons are explicitly INVALID for treating something as out of scope:
  *
  *   - "needs external infrastructure" (SMTP / SMS / reCAPTCHA / an OAuth
  *     provider). Mocking external infrastructure is pyric's entire product —
@@ -46,12 +48,13 @@
  * rather than matched by a `startsWith` rule, so the trust path stays a lookup.
  */
 
-export type CensusSurface = 'app' | 'auth' | 'firestore' | 'database' | 'storage' | 'messaging' | 'messaging-sw';
+export type CensusSurface = 'app' | 'auth' | 'ai' | 'firestore' | 'database' | 'storage' | 'messaging' | 'messaging-sw';
 
 /**
- * `out-of-scope`  — genuinely cannot be modeled by the sandbox: internal
- *                    plumbing symbols not part of the public surface.
- *                    Subtracted from `intended`.
+ * `out-of-scope`  — genuinely cannot or should not be modeled: internal
+ *                    plumbing symbols not part of the public surface, plus
+ *                    APIs deprecated and retiring upstream. Subtracted from
+ *                    `intended`.
  * `deferred`      — intended, buildable, just not built yet. Stays IN the
  *                    `intended` denominator as a gap.
  */
@@ -127,6 +130,43 @@ const authDenials: DenyEntry[] = [
   // mirrored (see registry/auth.ts) and are intentionally NOT deny-listed.
 ];
 
+// ── firebase/ai → pyric/ai ────────────────────────────────────────────────
+// Grounded in the surface inventory's draft denylist table
+// (docs/conformance/ai/surface-inventory.md, "## Draft denylist"): the 17
+// denied runtime value exports of the installed @firebase/ai@2.12.0, in four
+// groups (Imagen, Live API, server-side templates, hybrid/on-device).
+//
+// Tiers: only Imagen (including its template-served models) is out of scope —
+// it is deprecated and retiring upstream. The Live API, server-side
+// templates, and hybrid/on-device families are deferred: each is intended and
+// buildable through existing sandbox seams, and public-preview status or
+// server-hosted state is not a valid out-of-scope reason under the two-tier
+// policy above.
+const aiDenials: DenyEntry[] = [
+  ...deny('ai', 'out-of-scope', 'Imagen is deprecated upstream; all Imagen models shut down as early as June 2026 (upstream 2.11.0 deprecation). Mirroring an API whose production counterpart is retiring would freeze dead behavior.', [
+    'getImagenModel', 'ImagenModel', 'ImagenImageFormat', 'ImagenAspectRatio',
+    'ImagenPersonFilterLevel', 'ImagenSafetyFilterLevel',
+  ]),
+  ...deny('ai', 'out-of-scope', 'Template-served Imagen models retire with the rest of Imagen (deprecated upstream, June 2026 shutdown); the template transport does not outlive the model family it serves.', [
+    'getTemplateImagenModel', 'TemplateImagenModel',
+  ]),
+  ...deny('ai', 'deferred', 'Live API is deferred, not out of scope — it is a bidirectional websocket protocol the sandbox can model with a scripted session engine, the same seam pattern the REST plane already uses; the work has not happened yet.', [
+    'getLiveGenerativeModel', 'LiveGenerativeModel', 'LiveSession', 'LiveResponseType',
+  ]),
+  ...deny('ai', 'deferred', 'Deferred with the rest of the Live API family — the browser audio helper rides the Live session seam once that lands.', [
+    'startAudioConversation',
+  ]),
+  ...deny('ai', 'deferred', 'Server-side templates are deferred, not out of scope — hosting template state is exactly the kind of server infrastructure the sandbox exists to model; the template store has not been built yet.', [
+    'getTemplateGenerativeModel', 'TemplateGenerativeModel',
+  ]),
+  ...deny('ai', 'deferred', 'Hybrid/on-device inference is deferred, not out of scope — the sandbox runs in the browser and can model the on-device path through the answer-engine seam; the mode has not been wired yet.', [
+    'InferenceMode',
+  ]),
+  ...deny('ai', 'deferred', 'Deferred with hybrid/on-device inference — the source marker is meaningful once the hybrid mode lands.', [
+    'InferenceSource',
+  ]),
+];
+
 // ── firebase/firestore → pyric/firestore ──────────────────────────────────
 // Grounded in the firestore registry deny-list table (registry/firestore.ts,
 // "## Deny-list (intentionally NOT shimmed)").
@@ -198,6 +238,7 @@ const storageDenials: DenyEntry[] = [
 export const surfaceDenylist: DenyEntry[] = [
   ...appDenials,
   ...authDenials,
+  ...aiDenials,
   ...firestoreDenials,
   ...databaseDenials,
   ...storageDenials,

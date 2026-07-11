@@ -1,0 +1,35 @@
+{
+  "name": "ai-error-fncall-missing-thought-signature",
+  "matrixRow": "",
+  "rowIds": [
+    "ai#fncall-thought-signature-required",
+    "ai#fncall-signature-minted",
+    "ai#scripted-shorthand-functioncall"
+  ],
+  "description": "A function-calling round trip whose model functionCall turn lacks thoughtSignature is REJECTED 400 INVALID_ARGUMENT. No SDK typing or reference doc states this; the error message cites ai.google.dev/gemini-api/docs/thought-signatures and names the call as `default_api:get_weather`. A mirror and any translation engine must mint and thread thought signatures through tool round trips. rowIds empty: ai surface is pre-admission (CDD map #92); rows land at admission and cite this capture.",
+  "observedAt": "2026-07-10T01:47:15.909Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "apiVersion": "v1beta",
+  "model": "gemini-flash-lite-latest",
+  "behavior": {
+    "httpStatus": 400,
+    "isJson": true,
+    "errorKeySet": [
+      "code",
+      "message",
+      "status"
+    ],
+    "errorCode": 400,
+    "errorStatus": "INVALID_ARGUMENT",
+    "detailTypes": [],
+    "messageText": "Function call is missing a thought_signature in functionCall parts. This is required for tools to work correctly, and missing thought_signature may lead to degraded model performance. Additional data, function call `default_api:get_weather` , position 2. Please refer to https://ai.google.dev/gemini-api/docs/thought-signatures for more details.",
+    "raw": {
+      "error": {
+        "code": 400,
+        "message": "Function call is missing a thought_signature in functionCall parts. This is required for tools to work correctly, and missing thought_signature may lead to degraded model performance. Additional data, function call `default_api:get_weather` , position 2. Please refer to https://ai.google.dev/gemini-api/docs/thought-signatures for more details.",
+        "status": "INVALID_ARGUMENT"
+      }
+    }
+  }
+}
