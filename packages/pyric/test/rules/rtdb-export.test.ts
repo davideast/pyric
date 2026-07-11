@@ -49,18 +49,21 @@ describe('pyric/rules/rtdb facade', () => {
     expect(rules.toJSON()).toEqual({ rules: { '.read': true } });
   });
 
-  test('declares canonical and compatibility constraints package paths', () => {
+  test('exposes the RTDB engine on the internal node seam, not a public subpath', () => {
     const pkg = JSON.parse(
       readFileSync(resolve(import.meta.dir, '../../package.json'), 'utf-8'),
     ) as { exports: Record<string, unknown> };
 
-    expect(pkg.exports['./rules/rtdb/constraints']).toEqual({
-      types: './dist/database/constraints/index.d.ts',
-      import: './dist/database/constraints/index.js',
-    });
-    expect(pkg.exports['./rules/rtdb-constraints']).toEqual({
-      types: './dist/database/constraints/index.d.ts',
-      import: './dist/database/constraints/index.js',
+    // The clean break removed the ./rules/rtdb, ./rules/rtdb/constraints, and
+    // ./rules/rtdb-constraints public subpaths. The engine now lives on the
+    // internal seam; the constraints DSL is re-exported from the public
+    // ./rules front door.
+    expect(pkg.exports['./rules/rtdb']).toBeUndefined();
+    expect(pkg.exports['./rules/rtdb/constraints']).toBeUndefined();
+    expect(pkg.exports['./rules/rtdb-constraints']).toBeUndefined();
+    expect(pkg.exports['./rules/internal/rtdb']).toEqual({
+      types: './dist/rules/internal/rtdb.d.ts',
+      import: './dist/rules/internal/rtdb.js',
     });
   });
 });

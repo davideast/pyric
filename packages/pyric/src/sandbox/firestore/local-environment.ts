@@ -15,15 +15,15 @@ import {
 } from './local-state.js';
 import { OverlayBacking } from './overlay-backing.js';
 import { EventLog, type AgentEvent } from './event-log.js';
-import { SimulateFirestoreRulesHandler, renderLegacyDebugMessages, projectEvaluatedRule, type EvaluatedRuleInfo } from '../../rules/internal/index.js';
-import { lintFirestoreRules, parseToAST, type LintResult } from '../../rules/internal/index.js';
+import { SimulateFirestoreRulesHandler, renderLegacyDebugMessages, projectEvaluatedRule, type EvaluatedRuleInfo } from 'pyric/rules/internal';
+import { lintFirestoreRules, parseToAST, type LintResult } from 'pyric/rules/internal';
 import type {
   TestCase,
   FirestoreRules,
   ListQuery,
   TestResult,
   TestFirestoreRulesResult,
-} from '../../rules/internal/index.js';
+} from 'pyric/rules/internal';
 // RULES-B11 — query-proof gate for list reads ("rules are not filters").
 import { proveListQuery, type QueryConstraints } from './list-query-proof.js';
 import {
@@ -33,7 +33,7 @@ import {
   type ResolveMethod,
 } from './value-resolver.js';
 import { assertNoNestedDeleteField } from './field-merge.js';
-import { Timestamp } from '../../rules/internal/index.js';
+import { Timestamp } from 'pyric/rules/internal';
 import { makeError, type FirestoreSimError } from './errors.js';
 import { generateAutoId } from './auto-id.js';
 import { walkForSentinels, type SentinelHit } from './sentinel-capture.js';

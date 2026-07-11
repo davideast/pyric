@@ -43,7 +43,7 @@
  * resolver pass is a no-op.
  */
 import { KEEP, type ValueConverter } from '../value-resolver.js';
-import { Bytes as RulesBytes, LatLng } from '../../../rules/internal/index.js';
+import { Bytes as RulesBytes, LatLng } from 'pyric/rules/internal';
 
 /** Minimal duck-type for `firebase/firestore` `Bytes`. */
 interface FbBytesLike {

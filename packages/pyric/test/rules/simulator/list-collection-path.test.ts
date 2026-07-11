@@ -10,7 +10,7 @@
  * `list menuItems` against `match /menuItems/{id} { allow list: if true }`.
  */
 import { describe, expect, test } from 'bun:test';
-import { SimulateFirestoreRulesHandler, type TestCase } from '../../../src/rules';
+import { SimulateFirestoreRulesHandler, type TestCase } from 'pyric/rules/internal';
 
 const RULES = `rules_version = '2';
 service cloud.firestore {

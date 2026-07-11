@@ -36,7 +36,7 @@ import type {
   FirestoreRules,
   FunctionDef,
   MatchBlock,
-} from '../../rules/internal/index.js';
+} from 'pyric/rules/internal';
 import {
   evaluateQueryProof,
   referencesResourceData,
