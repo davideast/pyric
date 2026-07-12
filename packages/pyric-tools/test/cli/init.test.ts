@@ -1,10 +1,18 @@
 /** `pyric init` v2 — agent-first scaffold engine (pyric-init plan 1.1–1.4).
  *  Real temp dirs; the engine is filesystem-in/filesystem-out, test it as
  *  one. The served-app behavior is the browser gate (step 1.5). */
-import { describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { afterEach, describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInit, type InitResult } from '../../src/cli/init.js';
 import type { ParsedArgs } from '../../src/cli/parse-args.js';
@@ -264,5 +272,94 @@ describe('pyric init v2 — CLI surface', () => {
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
     expect(pkg.dependencies.pyric).toBe('*');
     expect(pkg.scripts.start).toBe('bun src/app.ts');
+  });
+});
+type Template = 'web' | 'node' | 'static';
+
+const contractRoots: string[] = [];
+
+afterEach(() => {
+  for (const root of contractRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+function generatedFiles(root: string): string[] {
+  const files: string[] = [];
+  const visit = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else files.push(relative(root, path));
+    }
+  };
+  visit(root);
+  return files.sort();
+}
+
+function outputManifest(root: string): Record<string, string> {
+  const manifest: Record<string, string> = {};
+  for (const path of generatedFiles(root)) {
+    manifest[path] = createHash('sha256')
+      .update(readFileSync(join(root, path), 'utf8'))
+      .digest('hex');
+  }
+  return manifest;
+}
+
+async function scaffoldContract(template: Template): Promise<Record<string, string>> {
+  const root = mkdtempSync(join(tmpdir(), `pyric-init-${template}-`));
+  contractRoots.push(root);
+  const code = await runInit(
+    args([], { template, name: 'fixture-app', json: true }),
+    capture().deps(root),
+  );
+  expect(code).toBe(0);
+  return outputManifest(root);
+}
+
+describe('pyric init output contract', () => {
+  it('keeps every generated file stable across internal template moves', async () => {
+    expect({
+      web: await scaffoldContract('web'),
+      node: await scaffoldContract('node'),
+      static: await scaffoldContract('static'),
+    }).toEqual({
+      web: {
+        '.env.example': '28dfe95f880d2ef18c36d150760286eee88c09054cb5341466f3b22c0f5ff297',
+        '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
+        'README.md': '3e2a46853813c10c2d6e9c221761d3ddc9da6892a8934decaf33fccff8245459',
+        'firebase.json': '06ed33d14b46379011c4a805299016f8c03adf5f47994624fde82b794f09ec2b',
+        'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
+        'firestore.rules': '5251fb08767a1a8ae2242eb6784cd96838311499bd888fe5a975f65d3a0247ac',
+        'index.html': '12f621f10493b0556d5f38acc3a0625c97646e32bd2bca740098ec5715f50aad',
+        'package.json': 'd806151138164386a2bc559983da5a7ca95d564291ee78d0563dd401f7dc8a97',
+        'src/main.ts': 'db0eeeddf207bf2fe88ce32b9b2014ace6481ef8ac06bb66ae6f763fc66789b5',
+        'src/vite-env.d.ts': '65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5',
+        'tsconfig.json': '5bb892360953642d2644a442a81abbad91e62be2f7fcb646505cc7f33a6bcc08',
+        'vite.config.ts': '5d30839f5dc77f0101e806bff0658bf6efc98b6ee59e63a9122aade2b7540755',
+      },
+      node: {
+        '.env.example': 'e60553a1045edd51d9df5f4057e9f920fa21fcf0742e0df945628f6958e67ddf',
+        '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
+        'README.md': '540111de9092df7c858a65f1dca76803e469dc4c9c43cd2d8ab58926d3419d8f',
+        'firebase.json': 'e817f89d2f9776ba460ec062be7d40f827b8f910d740cff2522b72232f1cdf5a',
+        'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
+        'firestore.rules': 'fb36f8e6d6e6f5fd7365316fc929a1ad3f99eeff8d624cf6bada39c619501b47',
+        'package.json': 'ad4653edc8d99217ac04d26e59f4ff6992d3e6894a094bb051f325cd25e9413b',
+        'src/app.ts': '46e94dd60c6ab8ca32a3df234737780643a8826f352c448af311de190aaa3008',
+        'src/seed.ts': 'cf9a890fcc9e1f4a836bf5c150573978a0af454763077fcf4aaed5199d04ded8',
+      },
+      static: {
+        '.env.example': '18c3e06dc3745d958ab69b314618808d7b0d0f31fad4db05552bf5c9c6613c92',
+        '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
+        'README.md': 'a7535b643e8b21d4c862352f91e50f70aeb8f61f28b1fa632f7b0f995f12700b',
+        'firebase.json': 'da40b786caed050b30a5bb108c6e369376477e89a8e08e09c105445ef01bd0fd',
+        'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
+        'firestore.rules': '75a93ddd7994180a083b2f3337538eb0bcff8fa775c2edd72a13bce051dbc9f3',
+        'package.json': 'ed25a12b612cabbb7d03a1af4399f1550f1f2109e29f1952c29981b16cb3b74a',
+        'public/app.js': '6e6b85c76d17e3f5d637afd8162233822b21c311a6f7d33ae02996d5565a3ed7',
+        'public/index.html': 'a878cd6b5508217014e966a8f18ffb8be7789118602acc1c8108df244d2bef4e',
+        'seed.json': 'd7d4bed7b5b88e4c30720647f630a83769edbb7eb379e5bcec05403e15148935',
+      },
+    });
   });
 });
