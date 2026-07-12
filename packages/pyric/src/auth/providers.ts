@@ -15,14 +15,14 @@
  * result (see `sandbox.mockSignInResult`).
  */
 
-import type { AuthCredential, UserCredential } from './types.js';
+import { makeAuthError } from './auth-errors.js';
+import { AuthCredential, EmailAuthCredential, OAuthCredential } from './credentials.js';
+import { SignInMethod } from './enums.js';
+import type { UserCredential } from './types.js';
 
 function synthesizeCredential(providerId: string, result: UserCredential | null): AuthCredential | null {
   if (!result) return null;
-  return {
-    providerId,
-    signInMethod: providerId,
-  };
+  return new OAuthCredential(providerId, providerId);
 }
 
 /** Google OAuth provider. Sandbox marker; no real OAuth flow runs. */
@@ -42,8 +42,11 @@ export class GoogleAuthProvider {
   }
   /** Construct a credential directly from an OAuth id_token /
    *  access_token. Sandbox accepts any string; opaque marker only. */
-  static credential(_idToken: string | null, _accessToken?: string | null): AuthCredential {
-    return { providerId: GoogleAuthProvider.PROVIDER_ID, signInMethod: GoogleAuthProvider.PROVIDER_ID };
+  static credential(idToken?: string | null, accessToken?: string | null): AuthCredential {
+    return new OAuthCredential(GoogleAuthProvider.PROVIDER_ID, GoogleAuthProvider.GOOGLE_SIGN_IN_METHOD, {
+      idToken: idToken ?? undefined,
+      accessToken: accessToken ?? undefined,
+    });
   }
 }
 
@@ -55,11 +58,20 @@ export class EmailAuthProvider {
   static readonly EMAIL_LINK_SIGN_IN_METHOD = 'emailLink';
   readonly providerId = EmailAuthProvider.PROVIDER_ID;
 
-  static credential(_email: string, _password: string): AuthCredential {
-    return { providerId: EmailAuthProvider.PROVIDER_ID, signInMethod: EmailAuthProvider.EMAIL_PASSWORD_SIGN_IN_METHOD };
+  /**
+   * Build an email/password credential. The credential CARRIES THE
+   * PASSWORD — which is what lets `linkWithCredential` and
+   * `reauthenticateWithCredential` actually verify it against the sandbox
+   * user DB, with no resolver and no mock. See `credentials.ts`.
+   */
+  static credential(email: string, password: string): EmailAuthCredential {
+    return new EmailAuthCredential(email, password, SignInMethod.EMAIL_PASSWORD);
   }
-  static credentialWithLink(_email: string, _emailLink: string): AuthCredential {
-    return { providerId: EmailAuthProvider.PROVIDER_ID, signInMethod: EmailAuthProvider.EMAIL_LINK_SIGN_IN_METHOD };
+
+  /** Build an email-LINK credential from a link the user received. Its
+   *  secret is the link itself. */
+  static credentialWithLink(email: string, emailLink: string): EmailAuthCredential {
+    return new EmailAuthCredential(email, emailLink, SignInMethod.EMAIL_LINK);
   }
 }
 
@@ -78,8 +90,8 @@ export class FacebookAuthProvider {
   static credentialFromError(_err: unknown): AuthCredential | null {
     return null;
   }
-  static credential(_accessToken: string): AuthCredential {
-    return { providerId: FacebookAuthProvider.PROVIDER_ID, signInMethod: FacebookAuthProvider.FACEBOOK_SIGN_IN_METHOD };
+  static credential(accessToken: string): AuthCredential {
+    return new OAuthCredential(FacebookAuthProvider.PROVIDER_ID, FacebookAuthProvider.FACEBOOK_SIGN_IN_METHOD, { accessToken });
   }
 }
 
@@ -98,8 +110,8 @@ export class GithubAuthProvider {
   static credentialFromError(_err: unknown): AuthCredential | null {
     return null;
   }
-  static credential(_accessToken: string): AuthCredential {
-    return { providerId: GithubAuthProvider.PROVIDER_ID, signInMethod: GithubAuthProvider.GITHUB_SIGN_IN_METHOD };
+  static credential(accessToken: string): AuthCredential {
+    return new OAuthCredential(GithubAuthProvider.PROVIDER_ID, GithubAuthProvider.GITHUB_SIGN_IN_METHOD, { accessToken });
   }
 }
 
@@ -118,12 +130,79 @@ export class OAuthProvider {
   addScope(_scope: string): OAuthProvider { return this; }
   setCustomParameters(_params: Record<string, unknown>): OAuthProvider { return this; }
 
-  credential(_args: { idToken?: string; accessToken?: string; rawNonce?: string }): AuthCredential {
-    return { providerId: this.providerId, signInMethod: this.providerId };
+  credential(args: { idToken?: string; accessToken?: string; rawNonce?: string }): AuthCredential {
+    return new OAuthCredential(this.providerId, this.providerId, {
+      idToken: args.idToken,
+      accessToken: args.accessToken,
+    });
   }
 
   static credentialFromResult(result: UserCredential): AuthCredential | null {
     return synthesizeCredential(result.providerId ?? 'unknown', result);
+  }
+  static credentialFromError(_err: unknown): AuthCredential | null {
+    return null;
+  }
+}
+
+/**
+ * Twitter (X) OAuth provider. A dedicated class rather than a generic
+ * `OAuthProvider('twitter.com')` because upstream ships one and consumer
+ * code imports it by name.
+ *
+ * Twitter is the one OAuth 1.0a provider in the set, which is why its
+ * `credential()` takes a token AND a secret where the OAuth 2.0 providers
+ * take a single access token.
+ */
+export class TwitterAuthProvider {
+  static readonly PROVIDER_ID = 'twitter.com';
+  static readonly TWITTER_SIGN_IN_METHOD = 'twitter.com';
+  readonly providerId = TwitterAuthProvider.PROVIDER_ID;
+
+  addScope(_scope: string): TwitterAuthProvider { return this; }
+  setCustomParameters(_params: Record<string, unknown>): TwitterAuthProvider { return this; }
+
+  static credentialFromResult(result: UserCredential): AuthCredential | null {
+    return synthesizeCredential(TwitterAuthProvider.PROVIDER_ID, result);
+  }
+  static credentialFromError(_err: unknown): AuthCredential | null {
+    return null;
+  }
+  static credential(token: string, secret: string): AuthCredential {
+    return new OAuthCredential(TwitterAuthProvider.PROVIDER_ID, TwitterAuthProvider.TWITTER_SIGN_IN_METHOD, {
+      accessToken: token,
+      secret,
+    });
+  }
+}
+
+/**
+ * SAML provider. Constructed with a provider id that MUST start with
+ * `saml.` — upstream enforces that prefix because the id is what routes an
+ * assertion to the right configured SAML IdP, and a typo there would
+ * silently target nothing.
+ *
+ * A SAML sign-in has no client-constructible credential (the assertion
+ * comes from the IdP), which is why this class has no `credential()`
+ * factory — only the popup/redirect flows produce one, and in the sandbox
+ * those resolve through the `AuthFlowResolver` seam like every other
+ * federated provider.
+ */
+export class SAMLAuthProvider {
+  readonly providerId: string;
+
+  constructor(providerId: string) {
+    if (!providerId.startsWith('saml.')) {
+      throw makeAuthError(
+        'auth/argument-error',
+        `SAMLAuthProvider: providerId must start with "saml." (got "${providerId}").`,
+      );
+    }
+    this.providerId = providerId;
+  }
+
+  static credentialFromResult(result: UserCredential): AuthCredential | null {
+    return synthesizeCredential(result?.providerId ?? 'unknown', result);
   }
   static credentialFromError(_err: unknown): AuthCredential | null {
     return null;

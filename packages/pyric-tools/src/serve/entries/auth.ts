@@ -21,6 +21,7 @@ import { getAuth as pyricGetAuth, setPersistence as pyricSetPersistence } from '
 import * as wcRaw from '../worker/client.js';
 import { acceptProviderCredential } from '../worker/client.js';
 import { sandbox, workerDb, useWorker, sessionStore } from './runtime.js';
+import type { SessionMode } from './session-store.js';
 
 // PROVIDER ENFORCEMENT SEAM: in worker mode the page-local sandbox is only
 // the UI vehicle for popup/redirect resolution — the WORKER's provider config
@@ -83,6 +84,21 @@ export const getAuth = (
     : (target?: Parameters<typeof pyricGetAuth>[0]) => pyricGetAuth((target ?? sandbox) as never)
 ) as typeof pyricGetAuth;
 
+/**
+ * Narrow a `Persistence.type` to the three web-storage slots the session store
+ * actually has.
+ *
+ * `'COOKIE'` (upstream's `browserCookiePersistence`, for SSR) is the fourth
+ * member of the union and has no slot of its own here. It maps to `'LOCAL'`:
+ * both are long-lived session storage, and the distinction is invisible to
+ * consumer code once the session is restored either way. The alternative —
+ * widening SessionMode — would add a storage backend the serve layer does not
+ * have.
+ */
+function toSessionMode(type: 'LOCAL' | 'SESSION' | 'NONE' | 'COOKIE'): SessionMode {
+  return type === 'COOKIE' ? 'LOCAL' : type;
+}
+
 /** `setPersistence`: selects which web storage holds THIS TAB's session (and
  *  migrates the current one). On the worker path the record is still client-
  *  side (#754 — per-port sessions restore via `auth.restorePortSession`); the
@@ -93,14 +109,14 @@ export const setPersistence = (
         auth: Parameters<typeof pyricSetPersistence>[0],
         persistence: Parameters<typeof pyricSetPersistence>[1],
       ) => {
-        sessionStore.setMode(persistence.type);
+        sessionStore.setMode(toSessionMode(persistence.type));
         return (wc.setPersistence as typeof pyricSetPersistence)(auth, persistence);
       })
     : async (
         auth: Parameters<typeof pyricSetPersistence>[0],
         persistence: Parameters<typeof pyricSetPersistence>[1],
       ) => {
-        sessionStore.setMode(persistence.type);
+        sessionStore.setMode(toSessionMode(persistence.type));
         return pyricSetPersistence(auth, persistence);
       }
 ) as typeof pyricSetPersistence;

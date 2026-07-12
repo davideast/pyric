@@ -1,0 +1,24 @@
+{
+  "name": "auth-additional-user-info-shape",
+  "matrixRow": "auth #171",
+  "rowIds": [
+    "auth#171"
+  ],
+  "description": "getAdditionalUserInfo across the three credential-producing flows — anonymous sign-in, a fresh createUserWithEmailAndPassword, and a returning signInWithEmailAndPassword. Locks isNewUser + providerId + profile per flow.",
+  "observedAt": "2026-07-12T03:53:18.235Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "anonCode": null,
+    "flowCode": "auth/operation-not-allowed",
+    "anonymous": {
+      "isNewUser": true,
+      "providerId": null,
+      "profile": {},
+      "username": null
+    },
+    "createUser": null,
+    "signInExisting": null,
+    "cleanupLeaked": true
+  }
+}

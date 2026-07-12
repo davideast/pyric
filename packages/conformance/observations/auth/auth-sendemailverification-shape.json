@@ -1,0 +1,21 @@
+{
+  "name": "auth-sendemailverification-shape",
+  "matrixRow": "auth #156",
+  "rowIds": [
+    "auth#156"
+  ],
+  "description": "sendEmailVerification — the accept/reject shape. An ANONYMOUS user has no email to verify. A real email/password user IS a valid target. NOTE: the oracle project gates outbound-email operations at the project level, so `projectBlocksOutboundEmail` records whether what we observed is the API contract or this project's configuration answering first. Either way, the fact the flow turns on — that SENDING does not verify; only clicking the mailed link does — is not probeable from a client at all.",
+  "observedAt": "2026-07-12T03:53:11.413Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "anonymousUserCode": "auth/missing-email",
+    "createUserCode": "auth/operation-not-allowed",
+    "sendCode": "null is not an object (evaluating 'user.getIdToken')",
+    "sendResolved": false,
+    "projectBlocksOutboundEmail": false,
+    "verifiedBefore": null,
+    "verifiedAfterSend": null,
+    "cleanupLeaked": true
+  }
+}

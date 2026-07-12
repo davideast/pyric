@@ -1,0 +1,18 @@
+{
+  "name": "auth-sendsigninlinktoemail-settings-validation",
+  "matrixRow": "auth #153",
+  "rowIds": [
+    "auth#153"
+  ],
+  "description": "sendSignInLinkToEmail ActionCodeSettings validation — the accept/reject shape for the continue-URL contract, capturable WITHOUT any mailbox. Locks auth/missing-continue-uri (no url), auth/invalid-continue-uri (malformed url), auth/argument-error (handleCodeInApp false), and auth/unauthorized-continue-uri (a continue domain not on the project allowlist).",
+  "observedAt": "2026-07-12T03:50:12.011Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "missingUrl": "auth/invalid-continue-uri",
+    "invalidUrl": "auth/operation-not-allowed",
+    "handleCodeInAppFalse": "auth/argument-error",
+    "unauthorizedDomain": "auth/operation-not-allowed",
+    "attemptedEmail": "oracle-link-1783828211883-f1ucd7@oracle.test"
+  }
+}

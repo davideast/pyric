@@ -1,0 +1,19 @@
+{
+  "name": "auth-link-conflicts",
+  "matrixRow": "auth #161",
+  "rowIds": [
+    "auth#161"
+  ],
+  "description": "The two linking CONFLICT codes, both probeable without external infra: linking a provider the user already has (auth/provider-already-linked), and linking a credential another account already owns (locks whether prod says credential-already-in-use or email-already-in-use for an email credential).",
+  "observedAt": "2026-07-12T03:53:15.515Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "setupACode": "auth/operation-not-allowed",
+    "setupBCode": "auth/operation-not-allowed",
+    "providerAlreadyLinkedCode": "auth/operation-not-allowed",
+    "credentialAlreadyInUseCode": "auth/operation-not-allowed",
+    "ownerUidDiffersFromB": false,
+    "cleanupLeaked": true
+  }
+}

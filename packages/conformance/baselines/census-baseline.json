@@ -4,27 +4,7 @@
   "surfaces": {
     "ai": [],
     "app": [],
-    "auth": [
-      "AuthCredential",
-      "AuthErrorCodes",
-      "EmailAuthCredential",
-      "OAuthCredential",
-      "OperationType",
-      "ProviderId",
-      "SAMLAuthProvider",
-      "SignInMethod",
-      "TwitterAuthProvider",
-      "browserCookiePersistence",
-      "browserPopupRedirectResolver",
-      "debugErrorMap",
-      "fetchSignInMethodsForEmail",
-      "getAdditionalUserInfo",
-      "indexedDBLocalPersistence",
-      "prodErrorMap",
-      "revokeAccessToken",
-      "signInWithCustomToken",
-      "validatePassword"
-    ],
+    "auth": [],
     "firestore": [
       "AbstractUserDataWriter",
       "AggregateField",

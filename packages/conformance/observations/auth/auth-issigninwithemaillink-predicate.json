@@ -1,0 +1,18 @@
+{
+  "name": "auth-issigninwithemaillink-predicate",
+  "matrixRow": "auth #151",
+  "rowIds": [
+    "auth#151"
+  ],
+  "description": "isSignInWithEmailLink — pure client-side predicate over a link. Locks exactly which links prod accepts as an email-link sign-in link (mode=signIn + oobCode) and which it rejects.",
+  "observedAt": "2026-07-12T03:50:11.185Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "signInLink": true,
+    "resetPasswordLink": false,
+    "signInModeNoOobCode": false,
+    "garbage": false,
+    "empty": false
+  }
+}

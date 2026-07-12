@@ -522,80 +522,192 @@ means a Bun test in `packages/auth/test/<file>`.
 </details>
 </div>
 
+## `ActionCodeURL` / email-link / action-code — the out-of-band family
+
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">150</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Parses an out-of-band action link. The <code>mode</code> query param maps to a NORMALIZED operation (<code>mode=resetPassword</code> -&gt; <code>PASSWORD_RESET</code>, <code>mode=signIn</code> -&gt; <code>EMAIL_SIGNIN</code>), <code>oobCode</code> surfaces as <code>code</code>, <code>lang</code> as <code>languageCode</code>, and <code>continueUrl</code> comes out URL-DECODED. A link missing <code>mode</code>, missing <code>oobCode</code>, carrying an unknown mode, or that is not a URL at all parses to <code>null</code> — the parse NEVER throws. <code>parseActionCodeURL</code> and <code>ActionCodeURL.parseLink</code> agree.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED and project-independent: this is a PURE client-side parse (no network, no project, no mailbox), so the sandbox owes prod an exact match and there is no room for a divergence. Oracle: <code>auth-actioncodeurl-parse</code> against firebase-js-sdk 12.13.0. Replayed in <code>unit:oracle-conformance.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">151</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Pure predicate over the link string — no network. <code>true</code> only for a link whose mode is <code>signIn</code> AND which carries an <code>oobCode</code>; <code>false</code> for a password-reset link, for <code>mode=signIn</code> with no code, for garbage, and for the empty string. Never throws.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED, project-independent (no server involved): <code>auth-issigninwithemaillink-predicate</code> captured all five cases against prod. Replayed in <code>unit:oracle-conformance.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">152</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Redeems an out-of-band code and performs its state change (<code>VERIFY_EMAIL</code> sets <code>emailVerified</code>, <code>VERIFY_AND_CHANGE_EMAIL</code> moves the account to the new address). Throws <code>auth/invalid-action-code</code> for a code the project never issued, for the empty string, and for a code already redeemed (single-use). A <code>PASSWORD_RESET</code> code is refused — <code>confirmPasswordReset</code> owns that one.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED on the reject path: <code>auth-action-code-invalid</code> confirmed prod emits <code>auth/invalid-action-code</code> for both a bogus code and the empty string (this endpoint is NOT gated on the password provider, so it answered honestly). The APPLY path (a real code, redeemed) cannot be probed from a client — it needs a code from a real inbox — and is unit-backed end to end against the sandbox outbox in <code>unit:sandbox-email-link.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">153</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">ActionCodeSettings validation, enforced CLIENT-side before any request leaves the process: a missing or unparseable <code>url</code> throws <code>auth/invalid-continue-uri</code> (NOT <code>auth/missing-continue-uri</code>, despite the constant's name), and <code>handleCodeInApp</code> other than <code>true</code> throws <code>auth/argument-error</code>. On success the sandbox mints a single-use code and posts the message to the outbox.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED on both client-side arms (project-independent — prod threw before any network call): <code>auth-sendsigninlinktoemail-settings-validation</code> captured <code>missingUrl: auth/invalid-continue-uri</code> and <code>handleCodeInAppFalse: auth/argument-error</code>. Replayed in <code>unit:oracle-conformance.test.ts</code>; the send path is unit-backed in <code>unit:sandbox-email-link.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">154</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Redeems the code in a sign-in link. A link carrying no <code>oobCode</code> throws <code>auth/argument-error</code> CLIENT-side (the SDK never reaches the server to ask about a code it cannot find in the link). A first-time sign-in for an address CREATES the account, <code>getAdditionalUserInfo(cred).isNewUser</code> is <code>true</code>, and the account arrives <code>emailVerified: true</code> — redeeming a code mailed to that address is proof of control. The code is single-use.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED on the client-side reject (<code>auth-signinwithemaillink-invalid-link</code>: <code>noOobCode: auth/argument-error</code>). The REDEMPTION path could not be probed: the oracle project has email-link sign-in disabled, so the server arm answered <code>auth/operation-not-allowed</code>. That half is unit-backed end to end against the sandbox outbox (<code>unit:sandbox-email-link.test.ts</code> drives send -&gt; read the outbox -&gt; sign in).</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">155</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">For an address NO account owns, prod RESOLVES silently — it does not throw <code>auth/user-not-found</code>. Email Enumeration Protection is on by default and refusing to leak account existence is the point. The sandbox matches: it resolves and mails nothing. A malformed address still throws <code>auth/invalid-email</code>. For a real account, the sandbox mails a reset code; <code>confirmPasswordReset</code> redeems it and the new password signs in while the old one throws <code>auth/wrong-password</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED on the enumeration-protection behavior — the fact most likely to be got wrong: <code>auth-sendpasswordresetemail-unknown-user</code> captured <code>resolvedForUnknownUser: true</code>, <code>unknownUserCode: null</code>, <code>malformedEmailCode: auth/invalid-email</code>. A shim that threw <code>auth/user-not-found</code> here would hand agent code an account oracle production deliberately removed. Reset round trip unit-backed in <code>unit:sandbox-email-link.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">156</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>auth/missing-email</code> for a user with no email on the account (an anonymous user). For a real account the mail goes out and NOTHING ELSE HAPPENS: <code>user.emailVerified</code> stays <code>false</code>. Verification happens when the code in the message is redeemed (<code>applyActionCode</code>), not when it is sent.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED on the anonymous reject: <code>auth-sendemailverification-shape</code> captured <code>anonymousUserCode: auth/missing-email</code> against prod. The send-does-not-verify property is the one the whole flow turns on and is unit-backed (<code>unit:sandbox-email-link.test.ts</code> asserts <code>emailVerified</code> is still false after the send and true only after the code is applied) — it cannot be oracle-confirmed end to end because confirming it would require reading a real inbox.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">157</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Mails a code to the NEW address and returns. The account's email does NOT change until that code is redeemed — the single guarantee separating this API from a bare <code>updateEmail</code>: the user must prove control of the new address before it becomes theirs. On redemption the account moves and the new address arrives <code>emailVerified: true</code>. <code>checkActionCode</code> on the code reports <code>data.email</code> = the new address and <code>data.previousEmail</code> = the old one.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">UNIT-BACKED, not oracle-backed, and the reason is recorded rather than hidden: the probe (<code>auth-verifybeforeupdateemail-shape</code>) ran against the real project and came back <code>auth/operation-not-allowed</code> on every arm, because the oracle project has the Email/Password provider DISABLED and the probe could not even create the user whose email it would change. The capture is committed showing exactly that. Behavior is proven end to end against the sandbox in <code>unit:sandbox-email-link.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">158</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The sandbox IS the mail server. Every send posts a real message (operation, recipient, single-use code, and the full action link) to an outbox; <code>sandbox.takeAuthMail</code> reads it — the program's substitute for a human opening an inbox. The mailed link round-trips through the public <code>isSignInWithEmailLink</code> / <code>parseActionCodeURL</code> unchanged, and its code is the code the redeemer accepts, so the round trip production cannot complete without a human closes in-process. An installed <code>AuthMailResolver</code> is additionally notified per message; a resolver that THROWS does not fail the send that produced it.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-email-link.test.ts</code> — sandbox-only driver (no <code>firebase/auth</code> counterpart; this is the seam that makes the family testable at all).</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">159</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>checkActionCode</code> and <code>verifyPasswordResetCode</code> INSPECT a code without burning it — a check must not destroy the code the subsequent apply needs. <code>confirmPasswordReset</code> redeems it and sets the password, running the same strength check <code>createUserWithEmailAndPassword</code> runs; a weak new password throws <code>auth/weak-password</code> and does NOT burn the code (a typo must not destroy the user's one reset link). A code staged as expired throws <code>auth/expired-action-code</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">UNIT-BACKED, stated honestly: these three endpoints answered <code>auth/operation-not-allowed</code> in the oracle run (<code>auth-action-code-invalid</code>) because the oracle project's disabled password provider replies before the invalid-code contract can. That is a fact about the project's configuration, not about the API, so it is NOT asserted as evidence. The error codes used here are matched to the oracle-CAPTURED <code>AuthErrorCodes</code> map (<code>INVALID_OOB_CODE = auth/invalid-action-code</code>, <code>EXPIRED_OOB_CODE = auth/expired-action-code</code> — see auth#172). Behavior proven in <code>unit:sandbox-email-link.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">163</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Prod rejects a continue URL whose domain is not on the project's authorized-domains list. The sandbox has NO domain allowlist and does not invent one: it accepts any parseable continue URL. A continue URL that would be rejected in production is accepted here.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">The sandbox has no project config to hold an authorized-domains list, so there is nothing to check against; inventing an allowlist would mean inventing a policy the user never set. The probe attempted the server arm (<code>auth-sendsigninlinktoemail-settings-validation</code>, <code>unauthorizedDomain</code>) but the oracle project has email-link sign-in disabled, so it answered <code>auth/operation-not-allowed</code> rather than <code>auth/unauthorized-continue-uri</code> — the divergence is declared from the documented contract, not from a capture we do not have.</div></div>
+</details>
+</div>
+
+## `linkWithCredential` / `linkWithPopup` / `linkWithRedirect` / `unlink` — account linking
+
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">160</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The ANONYMOUS UPGRADE. Linking an email credential onto an anonymous account upgrades it IN PLACE: the uid is PRESERVED, <code>isAnonymous</code> flips to <code>false</code>, the email is set, and <code>providerData</code> gains the provider. Preserving the uid is what keeps the data the user created while anonymous theirs. Returns a <code>UserCredential</code> with <code>operationType: 'link'</code> and <code>getAdditionalUserInfo().isNewUser === false</code> (a link never creates an identity). The linked credential then works as a first-class <code>signInWithEmailAndPassword</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">UNIT-BACKED, not oracle-backed — stated plainly. The probe (<code>auth-link-email-credential-to-anonymous</code>) ran against the real project and returned <code>linkCode: auth/operation-not-allowed</code>: the oracle project has the Email/Password provider DISABLED, so no email credential can be minted there and the flow cannot be reached. The capture is committed showing exactly that rather than being dropped. Behavior proven in <code>unit:sandbox-linking-reauth.test.ts</code>, including the uid-preservation invariant.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">161</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>auth/provider-already-linked</code> when the account already carries the provider (one identity per provider). <code>auth/email-already-in-use</code> when the email credential belongs to a DIFFERENT account — an address can back only one identity, so the link cannot be granted without stealing it.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">UNIT-BACKED. The probe (<code>auth-link-conflicts</code>) ran and every arm returned <code>auth/operation-not-allowed</code> (same disabled Email/Password provider on the oracle project), so the conflict codes could not be observed against prod. They are matched instead to the oracle-CAPTURED <code>AuthErrorCodes</code> map (<code>PROVIDER_ALREADY_LINKED = auth/provider-already-linked</code>, <code>CREDENTIAL_ALREADY_IN_USE = auth/credential-already-in-use</code> — auth#172) and proven in <code>unit:sandbox-linking-reauth.test.ts</code>. NOTE: for an EMAIL credential the sandbox emits <code>auth/email-already-in-use</code>, the code prod uses for an address collision; <code>credential-already-in-use</code> remains the OAuth-credential case.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">162</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Detaches a provider and returns the updated user with a SHRUNKEN <code>providerData</code>. Unlinking a provider that was never linked throws <code>auth/no-such-provider</code>. Unlinking <code>'password'</code> takes the password with it, so <code>signInWithEmailAndPassword</code> for that account stops working. Unlinking the LAST provider does NOT re-anonymize the account — <code>isAnonymous</code> describes how an identity was born, not what it currently carries.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED on the reject path — the ONE linking fact the oracle could reach, because it needs no email credential: <code>auth-unlink-provider</code> captured <code>noSuchProviderCode: auth/no-such-provider</code> against prod on an anonymous user. Replayed in <code>unit:oracle-conformance.test.ts</code>. The detach path is unit-backed (<code>unit:sandbox-linking-reauth.test.ts</code>).</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">164</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Route through the SAME <code>AuthFlowResolver</code> seam as <code>signInWithPopup</code>, with <code>authType: 'link'</code> on the request so a host UI can present 'link your Google account' rather than 'sign in'. The resolved credential names the provider to attach; the sandbox performs the attach and the uid is preserved. A disabled provider throws <code>auth/operation-not-allowed</code> AHEAD of the resolver check — a code deliberately distinct from <code>auth/argument-error</code>, which keeps meaning 'enabled, but no resolver/mock wired'.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-linking-reauth.test.ts</code> — asserts the resolver sees <code>authType: 'link'</code>, the uid is preserved, and the two error codes stay distinct. The OAuth arm cannot be oracle-probed at all (it needs a real IdP popup and a human), which is precisely why it goes through the resolver seam.</div></div>
+</details>
+</div>
+
+## `reauthenticateWithCredential` / `reauthenticateWithPopup` / `reauthenticateWithRedirect` — re-authentication
+
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">170</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Really re-verifies: an email credential is checked against the stored password exactly as <code>signInWithEmailAndPassword</code> checks it. A wrong password throws <code>auth/wrong-password</code>. A credential belonging to a DIFFERENT account throws <code>auth/user-mismatch</code> — checked BEFORE the password compare, so it cannot leak whether the other account's password was right. On success a fresh ID token is minted (a new <code>authTime</code>), and the returned <code>UserCredential</code> carries <code>operationType: 'reauthenticate'</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">UNIT-BACKED, and the reason it is not oracle-backed is recorded rather than glossed: the probe (<code>auth-reauthenticate-with-credential</code>) ran against the real project and could not even create the two accounts it needs — <code>setupCode: auth/operation-not-allowed</code>, because the oracle project has the Email/Password provider DISABLED. The capture is committed showing that. <code>auth/user-mismatch</code> is matched to the oracle-captured <code>AuthErrorCodes</code> map (auth#172). Behavior proven in <code>unit:sandbox-linking-reauth.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">176</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">In production the POINT of re-authentication is the <code>auth/requires-recent-login</code> gate: <code>updateEmail</code> / <code>updatePassword</code> / <code>deleteUser</code> refuse to run on a session whose sign-in is older than a few minutes, and re-auth is how you clear it. The sandbox does NOT enforce that gate — those three mutations already run on a session of any age (a pre-existing documented divergence), so there is no gate here for re-auth to clear. What re-auth DOES do here is real but narrower: it genuinely re-verifies the credential, mints a fresh token, and returns <code>operationType: 'reauthenticate'</code>. Code that calls it runs unchanged against prod, where it also clears the gate.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Declared divergence, not a bug: inventing a recent-login gate would break every existing sandbox flow (which never re-authenticates) while proving nothing. <code>unit:sandbox-linking-reauth.test.ts</code> pins the behavior that IS provided (real credential re-verification + a fresh token).</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">177</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Route through the shared resolver seam with <code>authType: 'reauth'</code>. The identity the resolver produces MUST be the user being re-authenticated — a resolver that hands back a different uid throws <code>auth/user-mismatch</code>. That check is the entire security content of the flow; without it 're-authentication' would accept anyone.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-linking-reauth.test.ts</code> — asserts the resolver sees <code>authType: 'reauth'</code> and that an impostor identity is rejected with <code>auth/user-mismatch</code>.</div></div>
+</details>
+</div>
+
+## Constants, credentials, and inert config tokens
+
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">171</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>{ isNewUser, profile, providerId }</code>. For a fresh anonymous sign-in prod reports <code>{ isNewUser: true, providerId: null, profile: {} }</code> — <code>providerId</code> is NULL, not <code>'anonymous'</code>, because anonymous is not a federated provider. <code>isNewUser</code> is <code>true</code> for <code>createUserWithEmailAndPassword</code>, a first-time email-link sign-in, and a custom-token sign-in that minted the account; <code>false</code> for a returning <code>signInWithEmailAndPassword</code> and for every <code>link</code> / <code>reauthenticate</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED on the anonymous shape: <code>auth-additional-user-info-shape</code> captured <code>{isNewUser: true, providerId: null, profile: {}}</code> against prod. Replayed in <code>unit:oracle-conformance.test.ts</code>. The email/password arms of the probe were blocked by the oracle project's disabled password provider and are unit-backed instead.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">172</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The constant maps, value for value. <code>OperationType.SIGN_IN === 'signIn'</code>, <code>SignInMethod.EMAIL_LINK === 'emailLink'</code>, <code>ProviderId.GOOGLE === 'google.com'</code>, <code>ActionCodeOperation.PASSWORD_RESET === 'PASSWORD_RESET'</code>, and the 106-entry <code>AuthErrorCodes</code> map (<code>INVALID_OOB_CODE === 'auth/invalid-action-code'</code>, <code>PROVIDER_ALREADY_LINKED === 'auth/provider-already-linked'</code>, <code>NO_SUCH_PROVIDER === 'auth/no-such-provider'</code>, <code>USER_MISMATCH === 'auth/user-mismatch'</code>, …).</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED, snapshotted straight from the shipped SDK: <code>auth-mechanical-surface-constants</code> against firebase-js-sdk 12.13.0, replayed value-for-value in <code>unit:oracle-conformance.test.ts</code>. This matters more than it looks: consumer code COMPARES against these constants, so a mirror that got a string wrong would turn every such comparison into a silent <code>false</code> — a worse failure than the export simply being absent, because it typechecks and runs. NOTE: the capture's <code>persistenceTypes</code> block is deliberately NOT asserted — the harness runs under Node, where firebase/auth stubs the browser-only persistence tokens to <code>type: 'NONE'</code> (it reports 'NONE' even for <code>browserLocalPersistence</code>, which is unambiguously 'LOCAL'); asserting it would be asserting a harness artifact. See auth#178.</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">173</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Throws <code>auth/invalid-custom-token</code> for a malformed token and for the empty string. The sandbox accepts a token in the two shapes it can honestly read: a JSON (optionally base64url) <code>{uid, claims}</code> payload — exactly what <code>admin.auth().createCustomToken</code> signs, so the pyric-admin mint and this redeem compose — or a real three-part JWT whose payload segment carries <code>uid</code>/<code>sub</code>. The SIGNATURE IS NOT VERIFIED: the sandbox has no service-account key. The identity is created if it does not exist, and the credential carries <code>providerId: null</code> (custom-token sign-in is not a federated provider).</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED on the reject path: <code>auth-signinwithcustomtoken-invalid</code> captured <code>auth/invalid-custom-token</code> for both a malformed token and the empty string, replayed in <code>unit:oracle-conformance.test.ts</code>. Diverged on the ACCEPT path, declared rather than hidden: prod verifies an RS256 signature against the project's service-account key and the sandbox has no key, so it reads the token's claims WITHOUT verifying them. A forged token that prod would reject is accepted here. The happy path cannot be oracle-probed from a Web SDK client at all (it needs an Admin-SDK-signed JWT).</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">174</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns a <code>PasswordValidationStatus</code> against the project's password policy, WITHOUT attempting a sign-up (so a UI can show live strength feedback). The sandbox's policy is <code>minPasswordLength: 6</code>, <code>maxPasswordLength: 4096</code>, <code>enforcementState: 'ENFORCE'</code>, with every character-class requirement UNSET — so a password this function calls valid is exactly one <code>createUserWithEmailAndPassword</code> will accept. The character-class fields are <code>undefined</code>, not <code>false</code>: upstream distinguishes 'not required' from 'required and unmet', and reporting <code>false</code> would claim the password failed a rule the project never had.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">ORACLE-BACKED: <code>auth-validatepassword-status-shape</code> captured prod's live policy (minPasswordLength 6, maxPasswordLength 4096, ENFORCE, character classes unset) and the status shape for a weak and a strong password. Replayed in <code>unit:oracle-conformance.test.ts</code>. The 6-char minimum agrees with the separately oracle-pinned <code>auth/weak-password</code> threshold on the create path, so the two surfaces draw the same line here exactly as they do in prod.</div></div>
+</details>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">175</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">NOT MIRRORED — the one genuinely out-of-scope symbol in the auth surface. Deprecated upstream as a SECURITY RETRACTION: the shipped <code>@firebase/auth</code> declaration states the API 'returns an empty list when Email Enumeration Protection is enabled, irrespective of the number of authentication methods available for the given email', and that 'migrating off of this method is recommended as a security best-practice'. Enumeration protection is on by default, so against a modern project the production function always returns <code>[]</code>.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">DISPOSITION, with the reasoning recorded: mirroring it would mean either reproducing a function that always returns nothing (a no-op that misleads whoever calls it) or implementing the pre-deprecation behavior the sandbox COULD provide — which would be strictly worse, because agent code would work against the mirror and then silently get <code>[]</code> in prod and take the wrong branch. A mirror that is MORE capable than production here is a trap, not a feature. Same criterion the two-tier policy already applies to Imagen in <code>firebase/ai</code>. The disposition rests on the SDK's own type declaration (a primary source), NOT on the oracle probe: <code>auth-fetchsigninmethodsforemail-deprecated</code> came back <code>auth/operation-not-allowed</code> because the oracle project has the Email/Password provider disabled, and that capture proves nothing either way. Deny-list entry (tier <code>out-of-scope</code>) in <code>packages/conformance/src/surface-denylist.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">178</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Inert configuration tokens, accepted so the idiomatic <code>initializeAuth(app, { persistence: indexedDBLocalPersistence })</code> and <code>setPersistence(auth, browserCookiePersistence)</code> compile, run, and behave identically. The <code>.type</code> discriminant matches upstream exactly (<code>NONE</code> / <code>SESSION</code> / <code>LOCAL</code> / <code>LOCAL</code> / <code>COOKIE</code>) because consumer code branches on it. <code>browserPopupRedirectResolver</code> is accepted and ignored — the sandbox has its own first-class pluggable equivalent (<code>sandbox.setAuthFlowResolver</code>). <code>prodErrorMap</code> is accepted and DELIBERATELY not honored: installing it upstream strips error messages, and doing that in a sandbox whose purpose is to tell a developer what went wrong would be actively hostile.</span></summary>
+<div class="compat-evidence"><div class="compat-probe">In an in-memory sandbox the persistence CHOICE has no observable consequence, so accepting the token and recording the mode is the honest behavior — the same inert-token pattern <code>pyric/firestore</code> uses for its cache-factory tokens. <code>unit:types.test.ts</code> + <code>unit:sandbox-email-link.test.ts</code> cover the exports. Oracle caveat recorded on auth#172: the <code>persistenceTypes</code> block of <code>auth-mechanical-surface-constants</code> reports <code>NONE</code> for every token including <code>browserLocalPersistence</code> — a Node-build stub artifact, not the browser contract, so the <code>.type</code> values here follow the documented <code>Persistence.type</code> union instead.</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">179</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Accepted no-op. In production this reaches OUTSIDE Firebase entirely — it tells the identity provider (in practice Apple) to revoke an OAuth access token, which is a call landing on Apple's servers. There is no external IdP behind a sandbox sign-in, so there is no token out there to revoke and nothing this call could truthfully do. It resolves (so the account-deletion flow Apple requires an app to ship runs end to end against the sandbox) and changes no sandbox state (because claiming otherwise would be a lie).</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:types.test.ts</code> — the export resolves. Deliberately not oracle-probed: a successful probe would revoke a real token at a real IdP, which is a side effect on someone else's system that a conformance run has no business causing.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">180</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Real classes, not markers. <code>EmailAuthProvider.credential(email, password)</code> returns an <code>EmailAuthCredential</code> that CARRIES THE SECRET — which is what makes <code>linkWithCredential</code>, <code>reauthenticateWithCredential</code>, and <code>signInWithCredential</code> decidable in the sandbox with no resolver and no mock (the backend already stores and verifies passwords). <code>credentialWithLink</code> carries the link instead, and <code>signInMethod</code> discriminates (<code>'password'</code> vs <code>'emailLink'</code>). The backing secret is non-enumerable, so a spread or <code>Object.keys</code> walk does not pick it up; <code>toJSON()</code> DOES carry it, matching upstream (whose <code>fromJSON</code> needs it to round-trip). <code>OAuthCredential</code> carries the IdP tokens, which the sandbox cannot verify — those flows keep going through the resolver seam.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-linking-reauth.test.ts</code> — pins the secret-carrying behavior, the enumerable/toJSON split (so nobody 'hardens' it into a divergence later), and that a real email credential now signs in via <code>signInWithCredential</code> instead of throwing the sandbox-only <code>auth/no-mock-configured</code> it used to.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">181</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Provider marker classes. <code>TwitterAuthProvider.credential(token, secret)</code> takes a token AND a secret — Twitter is the one OAuth 1.0a provider in the set, where the OAuth 2.0 providers take a single access token. <code>SAMLAuthProvider</code>'s constructor ENFORCES the <code>saml.</code> providerId prefix (throwing <code>auth/argument-error</code> otherwise), because that id is what routes an assertion to the right configured IdP and a typo there would silently target nothing. SAML has no client-constructible credential, so the class has no <code>credential()</code> factory.</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:types.test.ts</code> — construction, PROVIDER_ID values, and the SAML prefix guard.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">182</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">One entry PER LINKED PROVIDER, read from the identity's stored record. Previously the sandbox synthesized a single <code>{providerId: 'password'}</code> entry for EVERY non-anonymous user, so a Google popup sign-in reported its provider as <code>'password'</code> and a linked account could never show more than one. Consumer code branches on this array (that is what it is for — 'is this account linked to Google?'), so the synthesized version was actively misleading. Empty for anonymous users; after <code>unlink</code> of the last provider it is genuinely empty (it does not resurrect the removed provider).</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Was a BUG until this climb, and worth naming as one: the array was fabricated, not read. Now fixed and locked. <code>unit:sandbox-linking-reauth.test.ts</code> now pins that a Google link surfaces <code>google.com</code> in <code>providerData</code>, that <code>unlink</code> shrinks it, and that unlinking the last provider leaves it empty rather than falling back to a synthesized <code>'password'</code> entry.</div></div>
+</details>
+</div>
+
 ## Deny-list (intentionally NOT shimmed)
 
-These exist in `firebase/auth` but the sandbox refuses to import/use
-them. The agent's writeApp prompt and the deploy bundle's metafile
-gate enforce the deny-list at build time.
+These exist in `firebase/auth` but the sandbox does not mirror them.
+
+The list is much shorter than it was. The auth resolver climb removed three whole
+families from it — account linking (`linkWith*` / `unlink`), re-authentication
+(`reauthenticateWith*`), and the email-link / action-code family
+(`sendSignInLinkToEmail`, `signInWithEmailLink`, `applyActionCode`, `ActionCodeURL`, …) —
+by building them, not by re-arguing them. Their old reasons ("v0 scope", "email-link
+flows require an SMTP path") were never good ones: mocking external infrastructure is
+the product, and needing an inbox is not the same as being unmodelable.
 
 | Name | Reason |
 |---|---|
-| `linkWithCredential` / `linkWithPopup` / `linkWithRedirect` | v0 scope — account linking is non-trivial state |
-| `unlink` | Same as above |
-| `reauthenticateWithCredential` / `reauthenticateWithPopup` / `reauthenticateWithRedirect` | v0 scope |
-| `verifyBeforeUpdateEmail` / `sendEmailVerification` / `applyActionCode` / `checkActionCode` / `confirmPasswordReset` / `sendPasswordResetEmail` / `verifyPasswordResetCode` | Email-link flows require an SMTP path; deliberately out of scope |
-| `multiFactor(user)` / MFA APIs | Not modeled |
-| `setLanguageCode` (Auth method) | i18n surface; not in v0. (`useDeviceLanguage` is now mirrored as an accepted no-op.) |
-| `User.toJSON()` | Serialization the sandbox doesn't model — documented per AUTH-GAP. (`User.reload()` / `User.delete()` are now mirrored via the top-level `reload(user)` / `deleteUser(user)`.) |
-| `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox; documented per AUTH-GAP |
+| `fetchSignInMethodsForEmail` | **Out of scope, not deferred.** Deprecated upstream as a security retraction: the shipped `@firebase/auth` declaration says it "returns an empty list when Email Enumeration Protection is enabled, irrespective of the number of authentication methods available", and that "migrating off of this method is recommended as a security best-practice". Enumeration protection is on by default, so in a modern project the production function always returns `[]`. Mirroring the pre-deprecation behavior would make the sandbox MORE capable than prod — agent code would work here and then silently take the wrong branch in production. See row #175. |
+| `multiFactor(user)` / MFA / phone / reCAPTCHA APIs | Deferred, not out of scope — reCAPTCHA and SMS are external infrastructure pyric can mock through the same resolver seam the OAuth and email families now use, and TOTP is pure algorithm work. |
+| `updatePhoneNumber` | Deferred with the rest of the phone family. |
+| `setLanguageCode` (Auth method) | i18n surface. (`useDeviceLanguage` is mirrored as an accepted no-op.) |
+| `User.toJSON()` | Serialization the sandbox doesn't model (AUTH-GAP). (`User.reload()` / `User.delete()` are mirrored via the top-level `reload(user)` / `deleteUser(user)`.) |
+| `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox; documented per AUTH-GAP. |
 | Positional listener `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Sandbox observers never error/complete (synchronous in-memory fan-out); pass the `{ next, error, complete }` observer object if you need those handlers. The prod backend forwards all three. |
 
 ---
 
-## Visible gaps to address next
+## What the oracle could not reach, and why
 
-Rows currently marked **?** (need explicit probes):
+Recorded here because a coverage number that hides its own blind spots is worth less
+than a smaller one that names them.
 
-- #3 `getAuth(app)` prod-backend dispatch — landing once the
-  empirical oracle harness (`packages/conformance/src/run.ts`) captures the
-  observation against a real Firebase project. Harness is in
-  place; needs the `PYRIC_ORACLE_FIREBASE_CONFIG` env var pointed
-  at a dedicated oracle project before observations can be
-  committed. See `packages/conformance/docs/oracle-project-setup.md` for project setup.
-- #69 (ordering only) — disabled-vs-wrong-password precedence on
-  `signInWithEmailAndPassword`. Sandbox checks disabled BEFORE the
-  password compare (anti-probing best-known semantics); needs an
-  oracle capture against a disabled prod account to lock the order.
-- #68 (prod side) — `IdTokenResult.signInProvider` values per flow are
-  documented SDK behavior but not yet oracle-captured.
+**The oracle project currently has the Email/Password sign-in provider DISABLED.**
+Anonymous sign-in works; every email/password path returns `auth/operation-not-allowed`.
+That blocked oracle-backing for the linking and reauthentication families outright (an
+email credential cannot be minted there at all) and for the server-side half of the
+email-link family. Those probes were still written, still run, and their captures are
+still committed — showing `auth/operation-not-allowed` — rather than being quietly
+dropped. The rows they would have backed are born `unit-backed` and say so in their
+evidence column. See the `NOT_APPLICABLE` block in
+`packages/pyric/test/auth/oracle-conformance.test.ts`.
 
-Rows **locked by the empirical oracle harness** (committed observations under `packages/conformance/observations/auth/`, captured against the `blockingfun` project):
+This also means the EXISTING email/password observations in this surface
+(`auth-row-18-invalid-email`, `auth-row-19-weak-password`, `auth-email-already-in-use`,
+`auth-user-not-found`, `auth-wrong-password`, …) can no longer be RE-captured against
+this project. They were captured when the provider was on; re-running the rig today
+would fail them. That is pre-existing infrastructure decay, surfaced here, not caused
+by this climb.
 
-- #10 `onAuthStateChanged` exactly-one-per-transition — oracle confirmed signIn → signOut → signIn each produced exactly 1 fire (in addition to the initial null fire on subscribe); sandbox matches.
-- #14 `signInWithEmailAndPassword` user-not-found — oracle confirmed prod still emits `auth/user-not-found` (not the newer `auth/invalid-credential`); sandbox matches.
-- #17 `signInWithEmailAndPassword` fires once with the new user — oracle confirmed `firesForSignIn: 1` with the signed-in uid against prod; sandbox matches.
-- #18 `auth/invalid-email` format-validation — oracle confirmed `createUserWithEmailAndPassword(auth, 'not-an-email', …)` throws `auth/invalid-email` against prod; sandbox now matches (validation lives in `sandbox-backend.ts` and runs before user-DB lookup on both `signIn` and `createUser` paths).
-- #19 `auth/weak-password` strength-validation — oracle confirmed prod rejects 3-char passwords with `auth/weak-password` and message `Password should be at least 6 characters`; sandbox now matches the same 6-char threshold (validated on `createUser` only — `signIn` lets in previously-seeded weak passwords, mirroring prod).
-- #24 `createUserWithEmailAndPassword` fires once with the new user — oracle confirmed `firesForCreate: 1` with the newly-created uid against prod; sandbox matches.
-- #26 `signOut` fires null exactly once — oracle confirmed the signOut transition produced exactly 1 fire with `uid === null`; sandbox matches.
-- #30 `onAuthStateChanged` on every subsequent identity change — oracle confirmed signIn → signOut → signIn → signOut all 4 fired exactly once; sandbox matches.
-- #32 `Unsubscribe` removes the observer — oracle confirmed post-unsubscribe signOut+signIn+signOut produced zero further fires; sandbox matches.
-- #33 multiple subscribers all fire — oracle confirmed two listeners registered back-to-back both fire on each transition; sandbox matches.
-- #36 observer object form (`{next, error, complete}`) — oracle confirmed prod accepts both forms; both fire on every transition; sandbox matches.
-- #21 `createUserWithEmailAndPassword` `operationType` — oracle confirmed prod returns `'signIn'` (NOT `'register'`); sandbox matches.
-- #22 `createUserWithEmailAndPassword` duplicate email — oracle confirmed prod emits `auth/email-already-in-use`; sandbox matches.
-- #25 `signOut` synchronous-null — oracle confirmed prod sets `auth.currentUser` to `null` in the synchronous continuation immediately after `await signOut(auth)` resolves; sandbox matches.
-- #27 `signOut` idempotent — oracle confirmed prod is a no-op, no listener fire on the redundant call.
-- #29 `onAuthStateChanged` initial-fire timing — oracle confirmed prod fires the initial value on the microtask after subscribe, not synchronously; sandbox matches.
-- #31 `onAuthStateChanged` no-dup on sync transition — oracle baseline: prod has no synchronous state-change API, so the dedup case is sandbox-only. Async subscribe + signIn produces two natural fires (initial null, then user).
-- #35 `onAuthStateChanged` throwing-observer isolation — oracle confirmed a throwing observer does not block subsequent observers; sandbox matches.
-- #37 `onAuthStateChanged` same-user no-double-fire — oracle confirmed calling `signInAnonymously` twice in a row returns the same uid and the second call does NOT produce a fresh listener fire; sandbox matches.
-- #38 `onIdTokenChanged` user-change fires — oracle confirmed every signIn/signOut transition produces exactly one fire; sandbox matches.
-- #39 `onIdTokenChanged` on forced refresh — oracle confirmed prod fires the listener after `getIdToken(true)`; sandbox matches (divergence closed).
-- #40 `onIdTokenChanged` initial-fire parity with `onAuthStateChanged` — oracle confirmed both listeners share the microtask-deferred initial-fire timing; sandbox matches.
-- #55 `getIdToken(forceRefresh)` — oracle confirmed prod returns a different token string after a forced refresh and a subsequent non-forced read returns the cached new token; sandbox matches (divergence closed).
+To lift the whole set to oracle-backed: enable Email/Password sign-in on the oracle
+project (Authentication -> Sign-in method) and re-run the probes, which are already
+written and committed.
 
-Rows currently marked **—** that we might want to fill (rough priority):
-
-1. #20-23 `updateProfile` — common app pattern, agent code often calls it
-2. #57 `user.emailVerified` — used by gating logic in real apps
-3. #58-61 `user.metadata` / `reload` / `delete` — full User shape parity
-
-Rows currently marked **⚠** that we might want to upgrade to **✓**
-(by aligning the sandbox to prod or by formally documenting the
-divergence in `feature-matrix.md`):
-
-- #7 anonymous uid format
-- #12, #28 persistence story
-- #43 setPersistence respect
-- #48 popup window
+**Genuinely unobservable, for anyone.** No probe and no test can read a human's inbox.
+The email round trip is therefore closed in the sandbox by the mail outbox
+(`sandbox.takeAuthMail`), which hands the program the same real, single-use code a
+human would have clicked — the analog of `mockSignInResult` for the email family. What
+IS fully observable, and is oracle-pinned exactly, is the pure client-side half:
+the `ActionCodeURL` parse contract, the `isSignInWithEmailLink` predicate, and the
+`ActionCodeSettings` validation — none of which touch a network at all.

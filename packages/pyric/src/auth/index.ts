@@ -65,8 +65,10 @@ import {
   type UserCredential,
   type UserInfo,
   type UserInternal,
-  type AuthCredential,
 } from './types.js';
+import { AuthCredential, EmailAuthCredential } from './credentials.js';
+import { signInWithEmailLink } from './email-link.js';
+import type { AuthMailResolver, AuthActionCode, OutboundAuthMail } from './sandbox-auth-flow.js';
 import {
   prodBeforeAuthStateChanged,
   prodCreateUserWithEmailAndPassword,
@@ -88,7 +90,6 @@ import type { AuthProvider } from './providers.js';
 
 export type {
   Auth,
-  AuthCredential,
   AuthFlowRequest,
   AuthFlowResolver,
   AuthObserver,
@@ -120,19 +121,83 @@ export {
   GithubAuthProvider,
   GoogleAuthProvider,
   OAuthProvider,
+  SAMLAuthProvider,
+  TwitterAuthProvider,
   FEDERATED_PROVIDER_IDS,
   type FederatedProviderId,
 } from './providers.js';
 
-// ─── Persistence markers ──────────────────────────────────────────────
-//
-// Opaque markers — sandbox treats them as no-ops, prod backend maps
-// them to upstream's `inMemoryPersistence` / `browserSessionPersistence`
-// / `browserLocalPersistence` singletons via `setPersistence`.
+// ─── Re-exports: credentials, constants, inert config tokens ──────────
 
-export const inMemoryPersistence: Persistence = { type: 'NONE' };
-export const browserSessionPersistence: Persistence = { type: 'SESSION' };
-export const browserLocalPersistence: Persistence = { type: 'LOCAL' };
+export {
+  AuthCredential,
+  EmailAuthCredential,
+  OAuthCredential,
+  getAdditionalUserInfo,
+  type AdditionalUserInfo,
+} from './credentials.js';
+export {
+  ActionCodeOperation,
+  AuthErrorCodes,
+  OperationType,
+  ProviderId,
+  SignInMethod,
+} from './enums.js';
+export {
+  browserCookiePersistence,
+  browserLocalPersistence,
+  browserPopupRedirectResolver,
+  browserSessionPersistence,
+  debugErrorMap,
+  indexedDBLocalPersistence,
+  inMemoryPersistence,
+  prodErrorMap,
+  type AuthErrorMap,
+} from './config-tokens.js';
+
+// ─── Re-exports: the email-link / action-code family ──────────────────
+
+export { ActionCodeURL, parseActionCodeURL } from './action-code-url.js';
+export {
+  applyActionCode,
+  checkActionCode,
+  confirmPasswordReset,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  verifyBeforeUpdateEmail,
+  verifyPasswordResetCode,
+  type ActionCodeInfo,
+  type ActionCodeSettings,
+} from './action-codes.js';
+export {
+  isSignInWithEmailLink,
+  sendSignInLinkToEmail,
+  signInWithEmailLink,
+} from './email-link.js';
+
+// ─── Re-exports: account linking + reauthentication ───────────────────
+
+export {
+  linkWithCredential,
+  linkWithPopup,
+  linkWithRedirect,
+  unlink,
+} from './linking.js';
+export {
+  reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  reauthenticateWithRedirect,
+} from './reauth.js';
+
+// ─── Re-exports: token ops + password policy ──────────────────────────
+
+export { revokeAccessToken, signInWithCustomToken } from './tokens.js';
+export {
+  validatePassword,
+  type PasswordPolicy,
+  type PasswordValidationStatus,
+} from './password-policy.js';
+export type { AuthMailResolver, OutboundAuthMail } from './sandbox-auth-flow.js';
 
 // ─── Memoization: one backend per sandbox ─────────────────────────────
 //
@@ -392,11 +457,28 @@ export async function signInAnonymously(auth: Auth): Promise<UserCredential> {
   // each with their own owner-only profile docs nobody can clean up.
   const existing = target.backend.getCurrentUser();
   if (existing && existing.isAnonymous) {
-    return { user: existing, providerId: null, operationType: 'signIn' };
+    // Reusing the already-signed-in anonymous identity — no account was
+    // created, so `isNewUser` is false. Oracle:
+    // `auth-additional-user-info-shape` pins isNewUser TRUE for a fresh
+    // anonymous sign-in; this branch is the one that did not mint.
+    return {
+      user: existing,
+      providerId: null,
+      operationType: 'signIn',
+      _additionalUserInfo: { isNewUser: false, profile: {}, providerId: null },
+    };
   }
   const user = target.backend.mintAnonymousUser();
   await target.backend.transitionCurrentUser(user, 'anonymous');
-  return { user, providerId: null, operationType: 'signIn' };
+  return {
+    user,
+    providerId: null,
+    operationType: 'signIn',
+    // Oracle: prod reports `{ isNewUser: true, providerId: null, profile: {} }`
+    // for a fresh anonymous sign-in — providerId NULL, not 'anonymous',
+    // because anonymous is not a federated provider.
+    _additionalUserInfo: { isNewUser: true, profile: {}, providerId: null },
+  };
 }
 
 export async function signInWithEmailAndPassword(
@@ -420,7 +502,13 @@ export async function signInWithEmailAndPassword(
   // packages/conformance/observations/auth/auth-createUser-operationType.json pins
   // providerId: null against prod (AUTH-B2).
   await target.backend.transitionCurrentUser(user, 'password');
-  return { user, providerId: null, operationType: 'signIn' };
+  return {
+    user,
+    providerId: null,
+    operationType: 'signIn',
+    // A sign-IN against an existing account never created it.
+    _additionalUserInfo: { isNewUser: false, profile: {}, providerId: null },
+  };
 }
 
 export async function createUserWithEmailAndPassword(
@@ -439,7 +527,16 @@ export async function createUserWithEmailAndPassword(
   // (the exact field the oracle capture contradicted; audit H6 / AUTH-B2);
   // 'password' still recorded on the identity for provider tracking.
   await target.backend.transitionCurrentUser(user, 'password');
-  return { user, providerId: null, operationType: 'signIn' };
+  return {
+    user,
+    providerId: null,
+    // operationType stays 'signIn', NOT 'register' — oracle-pinned
+    // (auth-createUser-operationType). `isNewUser` is what distinguishes a
+    // sign-UP from a sign-in, and it is the whole reason
+    // getAdditionalUserInfo exists.
+    operationType: 'signIn',
+    _additionalUserInfo: { isNewUser: true, profile: {}, providerId: null },
+  };
 }
 
 export async function signOut(auth: Auth): Promise<void> {
@@ -467,6 +564,10 @@ export async function setPersistence(auth: Auth, persistence: Persistence): Prom
     LOCAL: 'LOCAL',
     SESSION: 'SESSION',
     NONE: 'NONE',
+    // Cookie persistence is long-lived, same observable class as LOCAL —
+    // the sandbox has no cookie jar, and the distinction is invisible to
+    // consumer code once the session is restored either way.
+    COOKIE: 'LOCAL',
   };
   const mode = modeMap[persistence.type] ?? 'LOCAL';
   target.backend.setPersistenceMode(mode);
@@ -568,6 +669,34 @@ export async function signInWithCredential(
   // Gate BEFORE consuming the mock — see the `resolveFlow` gating note above
   // for why `operation-not-allowed` must fire ahead of the mock-registry check.
   target.backend.assertProviderEnabled(providerId);
+
+  // An EMAIL credential carries its own secret, so the sandbox can just
+  // CHECK it — no mock, no resolver, no pre-staging. This is the same
+  // capability that makes linking and reauth real (see `credentials.ts`),
+  // applied to the sign-in path: `signInWithCredential(auth,
+  // EmailAuthProvider.credential(email, password))` now signs in exactly
+  // like `signInWithEmailAndPassword`, which is what it does in prod.
+  // Previously it threw `auth/no-mock-configured` — a sandbox-only error
+  // for a call production handles fine.
+  if (credential instanceof EmailAuthCredential) {
+    const password = credential.password;
+    if (password !== null) {
+      const stored = target.backend.validatePassword(credential.email, password);
+      const user = target.backend.buildUserFromStored(stored);
+      await target.backend.transitionCurrentUser(user, 'password');
+      return {
+        user,
+        providerId: null,
+        operationType: 'signIn',
+        _additionalUserInfo: { isNewUser: false, profile: {}, providerId: null },
+      };
+    }
+    const link = credential.emailLink;
+    if (link !== null) {
+      return signInWithEmailLink(auth, credential.email, link);
+    }
+  }
+
   const mock = target.backend.consumeMockResult(providerId);
   if (!mock) {
     throw makeAuthError(
@@ -815,6 +944,63 @@ export const sandbox = {
    */
   setAuthFlowResolver(auth: Auth, resolver: AuthFlowResolver | null): void {
     requireSandbox(auth, 'sandbox.setAuthFlowResolver').backend.setResolver(resolver);
+  },
+
+  /**
+   * Install the auth MAIL resolver — the email family's analog of
+   * {@link sandbox.setAuthFlowResolver}. Notified for every message the
+   * sandbox's mail server emits (a sign-in link, a password reset, a
+   * verification link). A host (the playground) installs one to surface
+   * the link in its UI. Pass `null` to clear.
+   *
+   * Advisory, not a gate: the message lands in the outbox whether or not
+   * a resolver is installed, and a throwing resolver does not fail the
+   * `sendPasswordResetEmail` that produced it. Read the outbox with
+   * {@link sandbox.takeAuthMail}.
+   */
+  setAuthMailResolver(auth: Auth, resolver: AuthMailResolver | null): void {
+    requireSandbox(auth, 'sandbox.setAuthMailResolver').backend.setMailResolver(resolver);
+  },
+
+  /**
+   * Read and remove the oldest message from the sandbox's mail outbox,
+   * optionally for one recipient. THE PROGRAM'S SUBSTITUTE FOR A HUMAN
+   * OPENING THEIR INBOX — and the reason the email-link flow can be
+   * driven end to end here when it cannot be in production:
+   *
+   * ```ts
+   * await sendSignInLinkToEmail(auth, 'ada@example.com', settings);
+   * const mail = authSandbox.takeAuthMail(auth);  // the "inbox"
+   * await signInWithEmailLink(auth, 'ada@example.com', mail!.link);
+   * ```
+   *
+   * The code in that message is the REAL code the redemption consumes —
+   * nothing here is faked except the human. Returns `null` when the
+   * outbox is empty.
+   */
+  takeAuthMail(auth: Auth, email?: string): OutboundAuthMail | null {
+    return requireSandbox(auth, 'sandbox.takeAuthMail').backend.takeMail(email);
+  },
+
+  /** Every message currently in the outbox, oldest first.
+   *  Non-destructive — unlike {@link sandbox.takeAuthMail}. */
+  listAuthMail(auth: Auth): OutboundAuthMail[] {
+    return requireSandbox(auth, 'sandbox.listAuthMail').backend.listMail();
+  },
+
+  /**
+   * Pre-stage an out-of-band action code with a KNOWN value — the
+   * action-code tier of the same "stage a result" pattern
+   * {@link sandbox.mockSignInResult} uses for OAuth.
+   *
+   * Two things this buys that the mail outbox cannot:
+   *   - a code whose string the test chose, so an assertion can name it;
+   *   - `expired: true`, which makes the `auth/expired-action-code` branch
+   *     reachable without waiting out a real TTL. That branch is otherwise
+   *     untestable, in the sandbox AND in production.
+   */
+  mockActionCode(auth: Auth, code: string, spec: AuthActionCode): void {
+    requireSandbox(auth, 'sandbox.mockActionCode').backend.stageActionCode(code, spec);
   },
 
   /**

@@ -13,6 +13,6 @@ export const surface: SurfaceDescriptorRecord = {
   observationPrefixes: ['auth-', 'admin-app-'],
   coverage: true,
   scopeNote:
-    'out of scope: none (internal plumbing only) — every remaining gap (linking, reauth, MFA/phone/reCAPTCHA, email-link) is deferred, buildable via the resolver/mock pattern already proven for OAuth sign-in.',
+    'out of scope: fetchSignInMethodsForEmail only — deprecated upstream as a security retraction (it returns an empty list wherever Email Enumeration Protection is on, which is the default), so mirroring it would make the sandbox more capable than production and silently mislead code that branches on the result. Account linking, re-authentication, and the email-link / action-code family were DEFERRED and are now BUILT, through the same resolver/mock seam OAuth sign-in uses; the sandbox is the mail server, and sandbox.takeAuthMail hands the program the real out-of-band code a human would have clicked. Remaining deferred: MFA / phone / reCAPTCHA, buildable via the same seam.',
   captureRigs: ['oracle-run', 'admin-app'],
 };

@@ -1,0 +1,56 @@
+{
+  "name": "auth-mechanical-surface-constants",
+  "matrixRow": "auth #172",
+  "rowIds": [
+    "auth#172"
+  ],
+  "description": "The constant maps and inert tokens of the mechanical family, snapshotted straight from the shipped SDK: ProviderId / SignInMethod / OperationType, the `type` discriminant of every persistence token, and a sample of AuthErrorCodes. Pure static values — the mirror must reproduce them exactly or consumer code comparing against them silently mismatches.",
+  "observedAt": "2026-07-12T03:54:42.198Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "ProviderId": {
+      "FACEBOOK": "facebook.com",
+      "GITHUB": "github.com",
+      "GOOGLE": "google.com",
+      "PASSWORD": "password",
+      "PHONE": "phone",
+      "TWITTER": "twitter.com"
+    },
+    "SignInMethod": {
+      "EMAIL_LINK": "emailLink",
+      "EMAIL_PASSWORD": "password",
+      "FACEBOOK": "facebook.com",
+      "GITHUB": "github.com",
+      "GOOGLE": "google.com",
+      "PHONE": "phone",
+      "TWITTER": "twitter.com"
+    },
+    "OperationType": {
+      "LINK": "link",
+      "REAUTHENTICATE": "reauthenticate",
+      "SIGN_IN": "signIn"
+    },
+    "persistenceTypes": {
+      "indexedDBLocalPersistence": "NONE",
+      "browserCookiePersistence": "NONE",
+      "browserLocalPersistence": "NONE",
+      "browserSessionPersistence": "NONE",
+      "inMemoryPersistence": "NONE"
+    },
+    "authErrorCodesSample": {
+      "ARGUMENT_ERROR": "auth/argument-error",
+      "INVALID_OOB_CODE": "auth/invalid-action-code",
+      "EXPIRED_OOB_CODE": "auth/expired-action-code",
+      "PROVIDER_ALREADY_LINKED": "auth/provider-already-linked",
+      "NO_SUCH_PROVIDER": "auth/no-such-provider",
+      "CREDENTIAL_ALREADY_IN_USE": "auth/credential-already-in-use",
+      "USER_MISMATCH": "auth/user-mismatch",
+      "INVALID_CUSTOM_TOKEN": "auth/invalid-custom-token",
+      "UNAUTHORIZED_DOMAIN": "auth/unauthorized-continue-uri",
+      "INVALID_CONTINUE_URI": "auth/invalid-continue-uri",
+      "MISSING_CONTINUE_URI": "auth/missing-continue-uri"
+    },
+    "authErrorCodesCount": 106
+  }
+}
