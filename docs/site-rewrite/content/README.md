@@ -36,7 +36,7 @@ Every page of the new docs, written to WRITING-BRIEF.md against HIERARCHY.md v3.
 | Test in Node | `ship/test-in-node.md` | new over reused harness tutorial |
 | **WORK WITH AN AGENT** | | |
 | Set up an agent | `agent/set-up-an-agent.md` | new (per-client recipes) |
-| What an agent can do | `agent/what-an-agent-can-do.md` | new (capability-taught) |
+| Agent MCP tools | `agent/agent-mcp-tools.md` | new (capability-taught) |
 | Skills | `agent/skills.md` | new (catalog) |
 | **TRUST** | | |
 | How we know it matches Firebase | `trust/how-we-know-it-matches-firebase.md` | new over conformance docs |

@@ -77,4 +77,4 @@ The skill collects rules with `firestore_get_rules` and `rtdb_get_rules`, maps r
 
 ## Where to go next
 
-A skill is only as good as the tools it drives, so read [what an agent can do](../what-an-agent-can-do/) if you have not.
+A skill is only as good as the tools it drives, so read [the agent tool reference](../agent-mcp-tools/) if you have not.

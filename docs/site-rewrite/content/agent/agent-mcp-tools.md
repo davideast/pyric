@@ -1,11 +1,11 @@
 ---
-title: The sandbox tools an agent can call
-navLabel: What an agent can do
+title: The MCP tools Pyric exposes to a coding agent
+navLabel: Agent MCP tools
 outcome: The 23 tools a connected agent gets in sandbox mode, grouped by what they prove, each with a call and its result.
 status: draft
 ---
 
-# The sandbox tools an agent can call
+# The MCP tools Pyric exposes to a coding agent
 
 Connect an agent (see [set up an agent](./set-up-an-agent.md)) and it gets the same sandbox you do: read and write data as any identity, ask whether a rule allows a request before writing it, run a stateful session with undo, lint and compose rules from the standard library, and inspect what just happened. Twenty-three tools, identical whether the agent reaches them through `pyric dev --bridge`, `pyric bridge`, `pyric mcp` over stdio, or the Vite plugin's `pyricSandbox({ bridge: true })`.
 

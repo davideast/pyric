@@ -212,7 +212,7 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
   {
     label: 'Work with an agent',
     dir: 'agent',
-    files: ['set-up-an-agent.md', 'what-an-agent-can-do.md', 'skills.md'],
+    files: ['set-up-an-agent.md', 'agent-mcp-tools.md', 'skills.md'],
   },
   {
     label: 'Trust',

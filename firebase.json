@@ -20,7 +20,12 @@
       },
       {
         "source": "/docs/what-your-agent-can-do{,/**}",
-        "destination": "/docs/what-an-agent-can-do/",
+        "destination": "/docs/agent-mcp-tools/",
+        "type": 301
+      },
+      {
+        "source": "/docs/what-an-agent-can-do{,/**}",
+        "destination": "/docs/agent-mcp-tools/",
         "type": 301
       }
     ],
