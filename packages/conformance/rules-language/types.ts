@@ -109,17 +109,77 @@ export interface LanguageConstruct {
    *  acceptance probe (issue #185 step 5) observed. A construct can carry
    *  both. */
   probeNote?: string;
-  /** Present when this construct can never be credited by the static AST
-   *  analyzer (rules-language-analyzer.ts, issue #185 step 2): it is a
-   *  genuine language semantic with no expression-level AST representation
-   *  to walk — ambient engine behavior (or a runtime/scenario-outcome fact),
-   *  not something a ruleset's source text "contains" at some walkable node.
-   *  Distinct from `note` (a doc-vs-parser divergence) and `probeNote` (a
-   *  live production acceptance-probe finding): this documents why the
-   *  analyzer's coverage report will show this construct with a permanently
-   *  empty `exercisedBy`/`verifiedBy` — a documented limit of the analysis
-   *  method, not an unaddressed gap. */
-  unattributable?: string;
+  /** Present when this construct is EXCLUDED from the coverage denominator.
+   *  See {@link ConstructExclusion}: an exclusion names a reason CLASS with a
+   *  predicate the loader enforces, never free prose. Distinct from `note` (a
+   *  doc-vs-parser divergence) and `probeNote` (a live production
+   *  acceptance-probe finding). */
+  excluded?: ConstructExclusion;
+}
+
+/**
+ * The reason classes a construct may be excluded from the coverage denominator.
+ *
+ * An exclusion REMOVES a construct from the denominator of the published
+ * verified-coverage ratio, so every exclusion raises the number without anything
+ * getting better. That makes the exclusion field the softest place in the trust
+ * chain: while it took free prose, "this one is hard to attribute" and "this one
+ * is not a coverage gap" were the same keystroke, and the only thing standing
+ * between an inconvenient construct and a 100% ratio was the author's honesty.
+ *
+ * A reason class is not prose. Each one carries a PREDICATE the loader checks
+ * against the construct's own snapshot record (see load.ts), and an exclusion
+ * whose predicate does not hold is a hard validation failure — the construct
+ * stays in the denominator as the gap it is.
+ *
+ *   `no-ast-node`        the construct is a language SEMANTIC with no
+ *                        expression-level token: ambient engine behavior, not
+ *                        something a ruleset's source text contains at a
+ *                        walkable node, so the static analyzer has nothing to
+ *                        credit it from. Predicate: `kind` must be `semantic`.
+ *                        An operator, binding, method or function IS a token —
+ *                        it can always be found in an AST, so it can never take
+ *                        this class.
+ *
+ *   `not-authorization`  the construct yields no ALLOW/DENY verdict — it is a
+ *                        declaration-level DIRECTIVE the engine reads for some
+ *                        other purpose (RTDB's `.indexOn` tells the database how
+ *                        to index; it never participates in an authorization
+ *                        decision). Predicate: `kind` must be `rule-kind`, and
+ *                        the reason must state why the construct cannot appear
+ *                        in an authorization decision. Anything that can appear
+ *                        INSIDE a rule expression (operator, binding, method,
+ *                        function) feeds the value that IS the verdict, and a
+ *                        `semantic` is engine behavior in the verdict path;
+ *                        neither can claim this class.
+ *
+ *   `production-rejects` production refuses to compile the construct: the
+ *                        snapshot enumerated it as language surface and the
+ *                        production Rules Test API disagreed, so no ruleset that
+ *                        uses it can ever be deployed and no scenario can ever
+ *                        exercise it. Predicate: `status` must be `rejected` AND
+ *                        the construct must carry a `probeNote` with
+ *                        production's verbatim rejection message. A construct
+ *                        production ACCEPTS is an ordinary, closeable coverage
+ *                        gap and cannot take this class.
+ */
+export type ExclusionClass = 'no-ast-node' | 'not-authorization' | 'production-rejects';
+
+export const EXCLUSION_CLASSES: readonly ExclusionClass[] = [
+  'no-ast-node',
+  'not-authorization',
+  'production-rejects',
+] as const;
+
+/** One construct's exclusion from the coverage denominator. */
+export interface ConstructExclusion {
+  /** The reason class. The loader enforces this class's predicate against the
+   *  construct's own record; an exclusion that fails its predicate is fatal. */
+  class: ExclusionClass;
+  /** Why this construct satisfies the class predicate. Prose for the reader —
+   *  it explains the exclusion, it does not authorize it; the class does that,
+   *  and only if its predicate holds. */
+  reason: string;
 }
 
 /** A whole-engine snapshot: the file shape of `<engine>.json`. */

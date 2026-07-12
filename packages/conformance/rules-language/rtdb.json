@@ -411,7 +411,10 @@
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/core-syntax",
       "status": "unprobed",
-      "unattributable": "Pure meta-semantic, identical reasoning to storage.semantic.deny-by-default: the engine denies any request no .read/.write/.validate rule allows. It is not written anywhere in a rules tree — there is no key, expression, or declaration form that turns it on, so the AST/JSON-tree walker (rules-language-analyzer.ts) has no node to credit it from. Observing it requires evaluating a scenario's cases against the rules tree (a path with no matching rule, expecting DENY), a runtime/behavioral check this source-only analyzer does not perform. Left out of exercisedBy/verifiedBy rather than credited unconditionally to every scenario, which would be a hollow credit with no distinguishing AST evidence."
+      "excluded": {
+        "class": "no-ast-node",
+        "reason": "Pure meta-semantic, identical reasoning to storage.semantic.deny-by-default: the engine denies any request no .read/.write/.validate rule allows. It is not written anywhere in a rules tree — there is no key, expression, or declaration form that turns it on, so the AST/JSON-tree walker (rules-language-analyzer.ts) has no node to credit it from. Observing it requires evaluating a scenario's cases against the rules tree (a path with no matching rule, expecting DENY), a runtime/behavioral check this source-only analyzer does not perform. Left out of exercisedBy/verifiedBy rather than credited unconditionally to every scenario, which would be a hollow credit with no distinguishing AST evidence."
+      }
     },
     {
       "id": "rtdb.semantic.regex-literal",

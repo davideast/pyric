@@ -24,16 +24,33 @@
  * semantics (credited only from a genuine AST signature: a risky operand
  * FIRST, paired with the absorbing boolean literal SECOND — see `fsIsRisky`).
  *
- * Some snapshot constructs are not merely hard to attribute today but
- * PERMANENTLY unattributable by this method: a pure meta-semantic with no
- * expression-level AST representation (e.g. `storage.semantic.deny-by-default`,
- * `rtdb.semantic.deny-by-default` — ambient engine behavior, not something a
- * ruleset's source text contains). Those constructs carry `unattributable` in
- * their snapshot entry and are excluded from the coverage denominator rather
- * than left looking like an ordinary, someday-closeable gap.
+ * Some snapshot constructs are not merely hard to attribute today but can never
+ * be credited by this method: a pure meta-semantic with no expression-level AST
+ * representation (e.g. `storage.semantic.deny-by-default` — ambient engine
+ * behavior, not something a ruleset's source text contains). Those constructs
+ * carry an `excluded` record in their snapshot entry, under a reason CLASS whose
+ * predicate the snapshot loader enforces (rules-language/types.ts), and are left
+ * out of the coverage denominator rather than looking like an ordinary,
+ * someday-closeable gap. An exclusion raises the published ratio by shrinking its
+ * denominator, so the class — not prose — is what authorizes it.
+ *
+ * WHAT THE ANALYZER MAY NOT DECIDE ALONE
+ *
+ * Exercising a construct is a fact about the SOURCE, and this file establishes
+ * it. Being production-VERIFIED is a fact about the EVIDENCE, and this file does
+ * not decide it: the shared predicate in src/rules-engine-rows.ts does, for both
+ * this coverage report and the assurance generator. It withholds credit from any
+ * construct a `diverged-documented`/`bug` rules-engine row scopes — the engine is
+ * known wrong about it, and a scenario that happens to exercise it does not make
+ * it verified. Negative evidence dominates positive evidence.
  *
  * Also exposes the computed coverage-report writer (run as a script) that walks
  * every corpus scenario and emits rules-language/coverage-report.json.
+ *
+ * USAGE
+ *
+ *   bun run compat:rules-coverage           regenerate coverage-report.json
+ *   bun run compat:rules-coverage --check   fail on drift (wired into compat:check)
  */
 import * as ohm from 'ohm-js';
 import {
@@ -46,7 +63,9 @@ import type {
 } from '../../../packages/pyric/src/rules/grammar/FirestoreAST.ts';
 import { parseStorageRules } from '../../../packages/pyric/src/storage/rules.ts';
 import { grammar as rtdbGrammar } from '../../../packages/pyric/src/database/grammar/RtdbExprParser.ts';
-import { loadSnapshot, type RulesEngine } from '../rules-language/load.ts';
+import { loadSnapshot, type ConstructExclusion, type RulesEngine } from '../rules-language/load.ts';
+import { surfaceRegistries } from '../registry/index.ts';
+import { indexConstructScopes, isProductionVerified } from './rules-engine-rows.ts';
 
 // ── Result shape ──────────────────────────────────────────────────────
 
@@ -790,24 +809,45 @@ export interface ConstructCoverage {
   kind: string;
   /** All scenario ids that exercise the construct. */
   exercisedBy: string[];
-  /** The subset whose observation twin exists (production-verified). */
+  /** The subset whose observation twin exists: production's verdicts on a
+   *  ruleset containing this construct were captured and replayed. POSITIVE
+   *  evidence — necessary for credit, not sufficient (see `contaminatedBy`). */
   verifiedBy: string[];
-  /** Mirrors the snapshot's `unattributable` (see rules-language/types.ts):
-   *  present iff this construct can never be credited by static AST
-   *  analysis. Such constructs are carried in `constructs` for the full
-   *  audit trail but EXCLUDED from `totalConstructs` and the two coverage
-   *  ratios below — counting a permanently-uncreditable construct in the
-   *  denominator would put a ceiling on the trust number for a reason
-   *  unrelated to real coverage gaps. An empty `exercisedBy`/`verifiedBy`
-   *  here is expected forever, not a pending gap. */
-  unattributable?: string;
+  /** Conforming, oracle-backed rules-engine rows whose `constructs` scope lists
+   *  it — the BEHAVIORAL positive path (src/rules-engine-rows.ts). */
+  provenBy: string[];
+  /** `diverged-documented` / `bug` rules-engine rows whose `constructs` scope
+   *  lists it: the simulator is KNOWN WRONG about this construct. NEGATIVE
+   *  evidence, and it dominates — a construct listed here is not counted in
+   *  `verifiedConstructs` no matter how many scenarios exercise it. */
+  contaminatedBy: string[];
+  /** The verdict of the one shared predicate (src/rules-engine-rows.ts): the
+   *  construct has positive production evidence AND no divergence covers it.
+   *  This, not `verifiedBy.length > 0`, is what `verifiedConstructs` counts. */
+  productionVerified: boolean;
+  /** Mirrors the snapshot's `excluded` (see rules-language/types.ts): present
+   *  iff this construct is EXCLUDED from the coverage denominator under one of
+   *  the three reason classes, each with a predicate the snapshot loader
+   *  enforces. Such constructs are carried in `constructs` for the audit trail
+   *  but left out of `totalConstructs` and both ratios. An exclusion raises the
+   *  published ratio by shrinking its denominator, which is why the class — not
+   *  the prose — is what authorizes it. */
+  excluded?: ConstructExclusion;
 }
 
 export interface EngineCoverage {
   engine: RulesEngine;
+  /** Constructs in the denominator: every snapshot construct with no `excluded`. */
   totalConstructs: number;
   exercisedConstructs: number;
+  /** Constructs the shared predicate calls production-verified: positive
+   *  evidence AND no divergence covering them. */
   verifiedConstructs: number;
+  /** Counted constructs a `diverged-documented`/`bug` rules-engine row scopes.
+   *  These are the constructs the engine is KNOWN WRONG about; they can never be
+   *  in `verifiedConstructs`. Published so the gap between exercised and verified
+   *  is attributable to a named row rather than looking like missing capture. */
+  contaminatedConstructs: number;
   /** exercised / total, 0..1 (analyzer-measured breadth over the corpus). */
   exercisedCoverage: number;
   /** verified / total, 0..1 — the trust number (production-confirmed). */
@@ -827,6 +867,10 @@ const RULES_ENGINES: readonly RulesEngine[] = ['firestore', 'storage', 'rtdb'] a
 
 export async function computeCoverageReport(): Promise<CoverageReport> {
   const engines: EngineCoverage[] = [];
+  // What the rules-engine registry rows say about each construct: which rows
+  // PROVE one against production, and which rows declare the simulator known
+  // wrong about one. Both feed the single production-verification predicate.
+  const scopes = indexConstructScopes(surfaceRegistries);
   for (const engine of RULES_ENGINES) {
     const snapshot = loadSnapshot(engine);
     const { scenarios, twinIds } = await loadScenarios(engine);
@@ -837,7 +881,10 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
         kind: c.kind,
         exercisedBy: [],
         verifiedBy: [],
-        ...(c.unattributable ? { unattributable: c.unattributable } : {}),
+        provenBy: scopes.provingRows.get(c.id) ?? [],
+        contaminatedBy: scopes.divergingRows.get(c.id) ?? [],
+        productionVerified: false,
+        ...(c.excluded ? { excluded: c.excluded } : {}),
       });
     }
     const unresolved: EngineCoverage['unresolved'] = [];
@@ -859,20 +906,34 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
       for (const u of result.unresolved) unresolved.push({ scenario: scenario.id, ...u });
     }
     const constructs = [...cov.values()];
-    // Permanently-unattributable constructs (see ConstructCoverage.unattributable)
-    // are carried in `constructs` for the audit trail but excluded from the
-    // denominator: they can never be credited by static AST analysis, so
-    // counting them against the total would put an un-earnable ceiling on the
-    // coverage ratios for a reason unrelated to real gaps.
-    const attributable = constructs.filter((c) => !c.unattributable);
-    const exercisedConstructs = attributable.filter((c) => c.exercisedBy.length > 0).length;
-    const verifiedConstructs = attributable.filter((c) => c.verifiedBy.length > 0).length;
-    const total = attributable.length;
+    // The single production-verification predicate (src/rules-engine-rows.ts),
+    // shared with the assurance generator so the two can never disagree about
+    // whether a construct is verified. Positive evidence (a captured scenario's
+    // AST, or a conforming oracle-backed row's scope) EARNS credit; a
+    // `diverged-documented`/`bug` rules-engine row scoping the construct VETOES
+    // it. A construct the engine is known wrong about is never counted verified,
+    // however many scenarios happen to exercise it.
+    for (const c of constructs) {
+      c.productionVerified = isProductionVerified({
+        scenarios: c.verifiedBy,
+        provingRows: c.provenBy,
+        divergingRows: c.contaminatedBy,
+      });
+    }
+    // Excluded constructs (see ConstructCoverage.excluded) are carried in
+    // `constructs` for the audit trail but left out of the denominator, under a
+    // reason class whose predicate the snapshot loader enforces.
+    const counted = constructs.filter((c) => !c.excluded);
+    const exercisedConstructs = counted.filter((c) => c.exercisedBy.length > 0).length;
+    const verifiedConstructs = counted.filter((c) => c.productionVerified).length;
+    const contaminatedConstructs = counted.filter((c) => c.contaminatedBy.length > 0).length;
+    const total = counted.length;
     engines.push({
       engine,
       totalConstructs: total,
       exercisedConstructs,
       verifiedConstructs,
+      contaminatedConstructs,
       exercisedCoverage: total ? exercisedConstructs / total : 0,
       verifiedCoverage: total ? verifiedConstructs / total : 0,
       constructs,
@@ -882,33 +943,77 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
     });
   }
   return {
-    generatedNote:
-      'DRAFT (issue #185 step 2). Verified coverage = snapshot constructs exercised by >=1 corpus scenario that has an observation twin / total ATTRIBUTABLE snapshot constructs. A construct carrying `unattributable` (a pure meta-semantic with no AST representation, e.g. storage/rtdb deny-by-default) is listed under its engine\'s `constructs` for the audit trail but excluded from totalConstructs/exercisedConstructs/verifiedConstructs and both ratios — it can never be credited by static AST analysis, so counting it against the total would put an un-earnable ceiling on the number for a reason unrelated to real coverage gaps. Regenerated by rules-language-analyzer.ts. Not yet wired into the ratchet (step 4).',
+    generatedNote: GENERATED_NOTE,
     engines,
   };
 }
 
-export async function writeCoverageReport(): Promise<string> {
-  const { writeFileSync } = await import('node:fs');
+const GENERATED_NOTE = [
+  'GENERATED by packages/conformance/src/rules-language-analyzer.ts. Do not edit by hand; run bun run compat:rules-coverage. compat:check fails on drift between this file and a fresh recomputation.',
+  'verifiedCoverage = production-verified constructs / counted constructs, per engine.',
+  'A construct is PRODUCTION-VERIFIED when positive evidence backs it AND no rules-engine divergence covers it (the one predicate in src/rules-engine-rows.ts, shared with the assurance generator). Positive evidence is a production-captured corpus scenario whose ruleset AST contains the construct (`verifiedBy`), or a conforming oracle-backed rules-engine row whose `constructs` scope lists it (`provenBy`). A `diverged-documented`/`bug` rules-engine row scoping the construct (`contaminatedBy`) withholds credit outright: the simulator is known wrong about it, and no quantity of positive evidence overrides a documented counterexample.',
+  'COUNTED constructs are those with no `excluded` record. An exclusion removes a construct from the denominator under one of three reason classes, each with a predicate the snapshot loader enforces (see rules-language/types.ts).',
+].join(' ');
+
+async function coverageReportPath(): Promise<string> {
   const { join, dirname } = await import('node:path');
   const { fileURLToPath } = await import('node:url');
-  const here = dirname(fileURLToPath(import.meta.url));
-  const outPath = join(here, '..', 'rules-language', 'coverage-report.json');
-  const report = await computeCoverageReport();
-  writeFileSync(outPath, JSON.stringify(report, null, 2) + '\n', 'utf8');
+  return join(dirname(fileURLToPath(import.meta.url)), '..', 'rules-language', 'coverage-report.json');
+}
+
+/** The file's exact on-disk form, so `--check` compares like for like. */
+function renderCoverageReport(report: CoverageReport): string {
+  return JSON.stringify(report, null, 2) + '\n';
+}
+
+export async function writeCoverageReport(): Promise<string> {
+  const { writeFileSync } = await import('node:fs');
+  const outPath = await coverageReportPath();
+  writeFileSync(outPath, renderCoverageReport(await computeCoverageReport()), 'utf8');
   return outPath;
 }
 
-if (import.meta.main) {
-  const outPath = await writeCoverageReport();
-  const report = await computeCoverageReport();
+function summarize(report: CoverageReport): void {
   for (const e of report.engines) {
     console.log(
       `${e.engine}: exercised ${e.exercisedConstructs}/${e.totalConstructs} ` +
         `(${(e.exercisedCoverage * 100).toFixed(1)}%), verified ${e.verifiedConstructs}/${e.totalConstructs} ` +
         `(${(e.verifiedCoverage * 100).toFixed(1)}%) over ${e.scenarioCount} scenarios ` +
-        `(${e.verifiedScenarioCount} with twins); ${e.unresolved.length} unresolved refs`,
+        `(${e.verifiedScenarioCount} with twins); ${e.contaminatedConstructs} contaminated by a rules-engine divergence; ` +
+        `${e.unresolved.length} unresolved refs`,
     );
   }
+}
+
+if (import.meta.main) {
+  const report = await computeCoverageReport();
+
+  // Drift check. coverage-report.json is a COMMITTED artifact that the assurance
+  // generator reads and the coverage gate ratchets, so a hand-edit of the file
+  // moves published numbers with no change to any evidence behind them. Recompute
+  // and compare: the file must be what the analyzer says, not what someone typed.
+  if (process.argv.includes('--check')) {
+    const { readFileSync } = await import('node:fs');
+    const path = await coverageReportPath();
+    let actual = '';
+    try {
+      actual = readFileSync(path, 'utf8');
+    } catch {
+      console.error(`rules-language coverage report missing: ${path}`);
+      console.error('Run: bun run compat:rules-coverage');
+      process.exit(1);
+    }
+    if (actual !== renderCoverageReport(report)) {
+      console.error('rules-language coverage report drift: coverage-report.json is not what the analyzer computes.');
+      console.error('Run: bun run compat:rules-coverage');
+      process.exit(1);
+    }
+    summarize(report);
+    console.log('rules-language coverage report up to date');
+    process.exit(0);
+  }
+
+  const outPath = await writeCoverageReport();
+  summarize(report);
   console.log(`Wrote ${outPath}`);
 }

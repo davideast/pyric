@@ -362,34 +362,166 @@ service cloud.firestore {
   });
 });
 
-describe('rules-language: unattributable meta-semantics are excluded from the coverage denominator', () => {
-  it('storage.semantic.deny-by-default and rtdb.semantic.deny-by-default carry a non-empty unattributable note', () => {
-    const storageEntry = loadSnapshot('storage').constructs.find((c) => c.id === 'storage.semantic.deny-by-default');
-    const rtdbEntry = loadSnapshot('rtdb').constructs.find((c) => c.id === 'rtdb.semantic.deny-by-default');
-    expect(typeof storageEntry?.unattributable).toBe('string');
-    expect((storageEntry?.unattributable ?? '').length).toBeGreaterThan(0);
-    expect(typeof rtdbEntry?.unattributable).toBe('string');
-    expect((rtdbEntry?.unattributable ?? '').length).toBeGreaterThan(0);
+describe('rules-language: denominator exclusions are reason CLASSES with enforced predicates', () => {
+  /** A snapshot carrying exactly one construct, for driving the loader's predicates. */
+  const snapshotWith = (construct: Record<string, unknown>) => ({
+    engine: 'firestore' as const,
+    version: 'v',
+    sources: ['s'],
+    constructs: [construct],
   });
 
-  it('rejects an empty-string unattributable note', () => {
-    const snap = {
-      engine: 'firestore' as const,
-      version: 'v',
-      sources: ['s'],
-      constructs: [
-        {
-          id: 'firestore.operator.eq',
-          kind: 'operator',
-          engine: 'firestore',
-          reference: 'r',
-          status: 'unprobed',
-          unattributable: '',
-        },
-      ],
-    };
+  it('the two shipped exclusions are `no-ast-node`, and both are kind `semantic`', () => {
+    for (const [engine, id] of [
+      ['storage', 'storage.semantic.deny-by-default'],
+      ['rtdb', 'rtdb.semantic.deny-by-default'],
+    ] as const) {
+      const entry = loadSnapshot(engine).constructs.find((c) => c.id === id);
+      expect(entry?.excluded?.class).toBe('no-ast-node');
+      expect((entry?.excluded?.reason ?? '').length).toBeGreaterThan(0);
+      expect(entry?.kind).toBe('semantic');
+    }
+  });
+
+  it('NEGATIVE — free-text exclusion (the old shape) is rejected outright', () => {
+    // The fake this prevents: an inconvenient construct is written out of the
+    // denominator with a sentence. Prose cannot be checked, so it authorized
+    // itself; a class carries a predicate the loader tests against the record.
+    const snap = snapshotWith({
+      id: 'firestore.operator.eq',
+      kind: 'operator',
+      engine: 'firestore',
+      reference: 'r',
+      status: 'unprobed',
+      excluded: 'this one is hard to attribute, so it does not count against us',
+    });
     expect(
-      validateSnapshotValue('firestore', snap).some((p) => p.includes('unattributable present but empty')),
+      validateSnapshotValue('firestore', snap).some((p) => p.includes('excluded must be an object')),
     ).toBe(true);
+  });
+
+  it('NEGATIVE — an unknown reason class is rejected', () => {
+    const snap = snapshotWith({
+      id: 'firestore.operator.eq',
+      kind: 'operator',
+      engine: 'firestore',
+      reference: 'r',
+      status: 'unprobed',
+      excluded: { class: 'too-hard', reason: 'the analyzer cannot see it' },
+    });
+    expect(
+      validateSnapshotValue('firestore', snap).some((p) => p.includes('illegal exclusion class')),
+    ).toBe(true);
+  });
+
+  it('NEGATIVE — `no-ast-node` on a construct that IS an AST node (an operator) is rejected', () => {
+    // The fake: `firestore.operator.slice` is inconvenient (a divergence covers
+    // it), so it is declared to have "no AST node" and leaves the denominator.
+    // It is an operator: it is a token, and the analyzer finds it.
+    const snap = snapshotWith({
+      id: 'firestore.operator.slice',
+      kind: 'operator',
+      engine: 'firestore',
+      reference: 'r',
+      status: 'accepted',
+      excluded: { class: 'no-ast-node', reason: 'the analyzer has no node to credit it from' },
+    });
+    expect(
+      validateSnapshotValue('firestore', snap).some((p) =>
+        p.includes('exclusion class "no-ast-node" is valid only for kind "semantic"'),
+      ),
+    ).toBe(true);
+  });
+
+  it('POSITIVE — `no-ast-node` on a semantic is accepted', () => {
+    const snap = snapshotWith({
+      id: 'firestore.semantic.error-absorption-and',
+      kind: 'semantic',
+      engine: 'firestore',
+      reference: 'r',
+      status: 'unprobed',
+      excluded: { class: 'no-ast-node', reason: 'ambient engine behavior with no expression-level form' },
+    });
+    expect(validateSnapshotValue('firestore', snap).filter((p) => p.includes('exclusion'))).toEqual([]);
+  });
+
+  it('NEGATIVE — `not-authorization` on a construct that appears inside a rule expression is rejected', () => {
+    // The fake: a method the simulator gets wrong is declared "not an
+    // authorization construct". A method's value feeds the expression that IS
+    // the ALLOW/DENY verdict; only a declaration-level directive can escape.
+    const snap = snapshotWith({
+      id: 'firestore.method.string.matches',
+      kind: 'method',
+      receiverType: 'string',
+      engine: 'firestore',
+      reference: 'r',
+      status: 'accepted',
+      excluded: { class: 'not-authorization', reason: 'it yields no ALLOW/DENY verdict' },
+    });
+    expect(
+      validateSnapshotValue('firestore', snap).some((p) =>
+        p.includes('exclusion class "not-authorization" is valid only for kind "rule-kind"'),
+      ),
+    ).toBe(true);
+  });
+
+  it('NEGATIVE — `not-authorization` with no stated reason is rejected', () => {
+    const snap = snapshotWith({
+      id: 'firestore.rule-kind.rules_version',
+      kind: 'rule-kind',
+      engine: 'firestore',
+      reference: 'r',
+      status: 'accepted',
+      excluded: { class: 'not-authorization', reason: '   ' },
+    });
+    expect(
+      validateSnapshotValue('firestore', snap).some((p) => p.includes('requires a non-empty reason')),
+    ).toBe(true);
+  });
+
+  it('NEGATIVE — `production-rejects` on a construct production ACCEPTS is rejected', () => {
+    // The fake: an unimplemented construct is written out of the denominator by
+    // claiming production refuses to compile it. Production's own snapshot
+    // status says otherwise.
+    const snap = snapshotWith({
+      id: 'firestore.function.cast.path',
+      kind: 'function',
+      engine: 'firestore',
+      reference: 'r',
+      status: 'accepted',
+      excluded: { class: 'production-rejects', reason: 'production refuses to compile it' },
+    });
+    expect(
+      validateSnapshotValue('firestore', snap).some((p) =>
+        p.includes('exclusion class "production-rejects" requires snapshot status "rejected"'),
+      ),
+    ).toBe(true);
+  });
+
+  it('NEGATIVE — `production-rejects` without production\'s verbatim message is rejected', () => {
+    const snap = snapshotWith({
+      id: 'firestore.function.cast.path',
+      kind: 'function',
+      engine: 'firestore',
+      reference: 'r',
+      status: 'rejected',
+      excluded: { class: 'production-rejects', reason: 'production refuses to compile it' },
+    });
+    expect(
+      validateSnapshotValue('firestore', snap).some((p) => p.includes('requires a probeNote')),
+    ).toBe(true);
+  });
+
+  it('POSITIVE — `production-rejects` with status `rejected` and a probeNote is accepted', () => {
+    const snap = snapshotWith({
+      id: 'firestore.function.cast.path',
+      kind: 'function',
+      engine: 'firestore',
+      reference: 'r',
+      status: 'rejected',
+      probeNote: 'Property path is undefined on object.',
+      excluded: { class: 'production-rejects', reason: 'production refuses to compile a ruleset using it' },
+    });
+    expect(validateSnapshotValue('firestore', snap).filter((p) => p.includes('exclusion'))).toEqual([]);
   });
 });

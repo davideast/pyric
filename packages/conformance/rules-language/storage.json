@@ -406,7 +406,10 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
       "status": "accepted",
-      "unattributable": "Pure meta-semantic: the engine denies any request no `allow` matches. It is not written anywhere in a ruleset's source — there is no expression, operator, or declaration form that turns it on, so the AST walker (rules-language-analyzer.ts) has no node to credit it from. It could only be observed by evaluating a scenario's cases against the ruleset (a request whose path/verb no allow rule covers, expecting DENY) — a runtime/behavioral check, not a static-source fact, and this analyzer deliberately only walks parsed rules source, never evaluates. Crediting it to every ruleset unconditionally (since the fallback is unconditional) would be a hollow credit with no distinguishing AST evidence behind it, so it is intentionally left out of exercisedBy/verifiedBy rather than papered over as attributed."
+      "excluded": {
+        "class": "no-ast-node",
+        "reason": "Pure meta-semantic: the engine denies any request no `allow` matches. It is not written anywhere in a ruleset's source — there is no expression, operator, or declaration form that turns it on, so the AST walker (rules-language-analyzer.ts) has no node to credit it from. It could only be observed by evaluating a scenario's cases against the ruleset (a request whose path/verb no allow rule covers, expecting DENY) — a runtime/behavioral check, not a static-source fact, and this analyzer deliberately only walks parsed rules source, never evaluates. Crediting it to every ruleset unconditionally (since the fallback is unconditional) would be a hollow credit with no distinguishing AST evidence behind it, so it is intentionally left out of exercisedBy/verifiedBy rather than papered over as attributed."
+      }
     }
   ]
 }

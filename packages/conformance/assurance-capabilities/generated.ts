@@ -43,8 +43,8 @@ export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapabilit
     status: "unsupported",
     description: "Cross-write getAfter visibility in batches and transactions.",
     reasons: [
-      "firestore.function.getAfter: snapshot status \"rejected\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s); covered by rules-engine divergence firestore-rules#164",
-      "firestore.function.existsAfter: snapshot status \"rejected\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s); covered by rules-engine divergence firestore-rules#164",
+      "firestore.function.getAfter: snapshot status \"rejected\"; capability probe \"implemented\"; 1 captured scenario(s) exercise it; NOT production-verified: rules-engine divergence firestore-rules#164 covers this construct — the simulator is known wrong about it, and no quantity of positive evidence outvotes a documented counterexample",
+      "firestore.function.existsAfter: snapshot status \"rejected\"; capability probe \"implemented\"; 1 captured scenario(s) exercise it; NOT production-verified: rules-engine divergence firestore-rules#164 covers this construct — the simulator is known wrong about it, and no quantity of positive evidence outvotes a documented counterexample",
       "firestore-rules#164: registry row firestore-rules#164 (firestore-rules) status \"diverged-documented\"; divergence is in the rules engine itself: the verdict machinery is known wrong here",
     ],
   },
@@ -117,7 +117,7 @@ export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapabilit
     status: "unsupported",
     description: "Collection queries whose rules proof uses the supported equality subset.",
     reasons: [
-      "firestore.binding.request.query: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s); covered by rules-engine divergence firestore-rules#166",
+      "firestore.binding.request.query: snapshot status \"accepted\"; capability probe \"implemented\"; 1 captured scenario(s) exercise it; NOT production-verified: rules-engine divergence firestore-rules#166 covers this construct — the simulator is known wrong about it, and no quantity of positive evidence outvotes a documented counterexample",
       "firestore-rules#166: registry row firestore-rules#166 (firestore-rules) status \"diverged-documented\"; divergence is in the rules engine itself: the verdict machinery is known wrong here",
     ],
   },
