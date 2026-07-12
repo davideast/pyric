@@ -20,9 +20,9 @@ import {
   analyzeRtdb,
   analyzeStorage,
 } from './rules-language-analyzer.ts';
-import { ALL_RULES_FIRESTORE_PACKS } from '../rules-corpus/firestore/index.ts';
-import { ALL_RULES_STORAGE_PACKS } from '../rules-corpus/storage/index.ts';
-import { ALL_RULES_RTDB_PACKS } from '../rules-corpus/rtdb/index.ts';
+import { ALL_RULES_FIRESTORE_SCENARIOS } from '../rules-corpus/firestore/index.ts';
+import { ALL_RULES_STORAGE_SCENARIOS } from '../rules-corpus/storage/index.ts';
+import { ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
 
 describe('rules-language snapshots + loader', () => {
   it('loads and validates all three shipped snapshots', () => {
@@ -174,7 +174,7 @@ service firebase.storage {
 
   it('analyzes every firestore corpus scenario without error', () => {
     const known = new Set(loadSnapshot('firestore').constructs.map((c) => c.id));
-    for (const pack of ALL_RULES_FIRESTORE_PACKS) {
+    for (const pack of ALL_RULES_FIRESTORE_SCENARIOS) {
       const res = analyze('firestore', pack.rules);
       for (const id of res.ids) expect(known.has(id)).toBe(true);
     }
@@ -182,7 +182,7 @@ service firebase.storage {
 
   it('analyzes every storage corpus scenario without error', () => {
     const known = new Set(loadSnapshot('storage').constructs.map((c) => c.id));
-    for (const pack of ALL_RULES_STORAGE_PACKS) {
+    for (const pack of ALL_RULES_STORAGE_SCENARIOS) {
       const res = analyze('storage', pack.rules);
       for (const id of res.ids) expect(known.has(id)).toBe(true);
     }
@@ -190,7 +190,7 @@ service firebase.storage {
 
   it('analyzes every rtdb corpus scenario without error', () => {
     const known = new Set(loadSnapshot('rtdb').constructs.map((c) => c.id));
-    for (const pack of ALL_RULES_RTDB_PACKS) {
+    for (const pack of ALL_RULES_RTDB_SCENARIOS) {
       const res = analyze('rtdb', pack.rules);
       for (const id of res.ids) expect(known.has(id)).toBe(true);
     }

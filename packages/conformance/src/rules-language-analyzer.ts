@@ -603,14 +603,14 @@ async function loadScenarios(
 
   let scenarios: Scenario[];
   if (engine === 'firestore') {
-    const { ALL_RULES_FIRESTORE_PACKS } = await import('../rules-corpus/firestore/index.ts');
-    scenarios = ALL_RULES_FIRESTORE_PACKS.map((p) => ({ id: p.id, rules: p.rules }));
+    const { ALL_RULES_FIRESTORE_SCENARIOS } = await import('../rules-corpus/firestore/index.ts');
+    scenarios = ALL_RULES_FIRESTORE_SCENARIOS.map((p) => ({ id: p.id, rules: p.rules }));
   } else if (engine === 'storage') {
-    const { ALL_RULES_STORAGE_PACKS } = await import('../rules-corpus/storage/index.ts');
-    scenarios = ALL_RULES_STORAGE_PACKS.map((p) => ({ id: p.id, rules: p.rules }));
+    const { ALL_RULES_STORAGE_SCENARIOS } = await import('../rules-corpus/storage/index.ts');
+    scenarios = ALL_RULES_STORAGE_SCENARIOS.map((p) => ({ id: p.id, rules: p.rules }));
   } else {
-    const { ALL_RULES_RTDB_PACKS } = await import('../rules-corpus/rtdb/index.ts');
-    scenarios = ALL_RULES_RTDB_PACKS.map((p) => ({ id: p.id, rules: p.rules }));
+    const { ALL_RULES_RTDB_SCENARIOS } = await import('../rules-corpus/rtdb/index.ts');
+    scenarios = ALL_RULES_RTDB_SCENARIOS.map((p) => ({ id: p.id, rules: p.rules }));
   }
   return { scenarios, twinIds };
 }
