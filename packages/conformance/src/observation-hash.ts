@@ -48,10 +48,8 @@
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 
-/** The envelope field the hash lives in. */
-export const BEHAVIOR_HASH_FIELD = 'behaviorHash';
-
-/** The algorithm prefix carried in the field, so the format can be migrated. */
+/** The algorithm prefix carried in the `behaviorHash` field, so the format can
+ *  be migrated without ambiguity about what an existing hash was computed with. */
 const ALGORITHM = 'sha256';
 
 /**

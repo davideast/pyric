@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T02:13:27.728Z",
+  "generatedAt": "2026-07-12T04:19:12.516Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -50,6 +50,9 @@
       "native": true
     },
     "storage-rules": {
+      "native": true
+    },
+    "rtdb-rules": {
       "native": true
     }
   },
@@ -857,6 +860,11 @@
     "firestore-rules#175": "conforms",
     "firestore-rules#176": "conforms",
     "firestore-rules#177": "conforms",
+    "firestore-rules#178": "conforms",
+    "firestore-rules#179": "conforms",
+    "firestore-rules#180": "conforms",
+    "firestore-rules#181": "conforms",
+    "firestore-rules#182": "conforms",
     "storage-rules#94": "conforms",
     "storage-rules#95": "conforms",
     "storage-rules#96": "conforms",
@@ -872,7 +880,22 @@
     "storage-rules#113": "conforms",
     "storage-rules#114": "conforms",
     "storage-rules#115": "conforms",
-    "storage-rules#116": "conforms"
+    "storage-rules#116": "conforms",
+    "storage-rules#117": "conforms",
+    "rtdb-rules#1": "conforms",
+    "rtdb-rules#2": "conforms",
+    "rtdb-rules#3": "conforms",
+    "rtdb-rules#4": "conforms",
+    "rtdb-rules#5": "conforms",
+    "rtdb-rules#6": "conforms",
+    "rtdb-rules#7": "conforms",
+    "rtdb-rules#8": "conforms",
+    "rtdb-rules#9": "conforms",
+    "rtdb-rules#10": "conforms",
+    "rtdb-rules#11": "conforms",
+    "rtdb-rules#12": "conforms",
+    "rtdb-rules#13": "conforms",
+    "rtdb-rules#14": "conforms"
   },
   "highRiskUnverified": [
     "storage#67",
@@ -884,8 +907,199 @@
   "orphanObservations": [],
   "entryPathVerdicts": {
     "auth": "green",
-    "database": "red",
-    "firestore": "red",
-    "storage": "red"
+    "database": "green",
+    "firestore": "green",
+    "storage": "green"
+  },
+  "metrics": {
+    "surface:ai:total": {
+      "numerator": 38,
+      "denominator": 55
+    },
+    "surface:ai:intended": {
+      "numerator": 38,
+      "denominator": 47
+    },
+    "behavior:ai:total": {
+      "numerator": 74,
+      "denominator": 80
+    },
+    "behavior:ai:intended": {
+      "numerator": 74,
+      "denominator": 80
+    },
+    "surface:app:total": {
+      "numerator": 9,
+      "denominator": 23
+    },
+    "surface:app:intended": {
+      "numerator": 9,
+      "denominator": 10
+    },
+    "behavior:app:total": {
+      "numerator": 14,
+      "denominator": 15
+    },
+    "behavior:app:intended": {
+      "numerator": 14,
+      "denominator": 14
+    },
+    "surface:auth:total": {
+      "numerator": 32,
+      "denominator": 85
+    },
+    "surface:auth:intended": {
+      "numerator": 32,
+      "denominator": 85
+    },
+    "behavior:auth:total": {
+      "numerator": 84,
+      "denominator": 101
+    },
+    "behavior:auth:intended": {
+      "numerator": 84,
+      "denominator": 96
+    },
+    "surface:firestore:total": {
+      "numerator": 66,
+      "denominator": 119
+    },
+    "surface:firestore:intended": {
+      "numerator": 66,
+      "denominator": 104
+    },
+    "behavior:firestore:total": {
+      "numerator": 146,
+      "denominator": 166
+    },
+    "behavior:firestore:intended": {
+      "numerator": 146,
+      "denominator": 166
+    },
+    "behavior:rtdb:total": {
+      "numerator": 92,
+      "denominator": 93
+    },
+    "behavior:rtdb:intended": {
+      "numerator": 92,
+      "denominator": 93
+    },
+    "surface:rtdb-modular:total": {
+      "numerator": 35,
+      "denominator": 54
+    },
+    "surface:rtdb-modular:intended": {
+      "numerator": 35,
+      "denominator": 44
+    },
+    "behavior:rtdb-modular:total": {
+      "numerator": 132,
+      "denominator": 165
+    },
+    "behavior:rtdb-modular:intended": {
+      "numerator": 132,
+      "denominator": 152
+    },
+    "surface:storage:total": {
+      "numerator": 12,
+      "denominator": 27
+    },
+    "surface:storage:intended": {
+      "numerator": 12,
+      "denominator": 18
+    },
+    "behavior:storage:total": {
+      "numerator": 85,
+      "denominator": 103
+    },
+    "behavior:storage:intended": {
+      "numerator": 85,
+      "denominator": 92
+    },
+    "surface:messaging:total": {
+      "numerator": 5,
+      "denominator": 5
+    },
+    "surface:messaging:intended": {
+      "numerator": 5,
+      "denominator": 5
+    },
+    "behavior:messaging:total": {
+      "numerator": 17,
+      "denominator": 17
+    },
+    "behavior:messaging:intended": {
+      "numerator": 17,
+      "denominator": 17
+    },
+    "behavior:firestore-rules:total": {
+      "numerator": 16,
+      "denominator": 23
+    },
+    "behavior:firestore-rules:intended": {
+      "numerator": 16,
+      "denominator": 23
+    },
+    "behavior:storage-rules:total": {
+      "numerator": 17,
+      "denominator": 17
+    },
+    "behavior:storage-rules:intended": {
+      "numerator": 17,
+      "denominator": 17
+    },
+    "behavior:rtdb-rules:total": {
+      "numerator": 14,
+      "denominator": 14
+    },
+    "behavior:rtdb-rules:intended": {
+      "numerator": 14,
+      "denominator": 14
+    },
+    "surface:overall:total": {
+      "numerator": 197,
+      "denominator": 368
+    },
+    "surface:overall:intended": {
+      "numerator": 197,
+      "denominator": 313
+    },
+    "behavior:overall:total": {
+      "numerator": 691,
+      "denominator": 794
+    },
+    "behavior:overall:intended": {
+      "numerator": 691,
+      "denominator": 764
+    },
+    "rules-language:firestore:verified": {
+      "numerator": 105,
+      "denominator": 140
+    },
+    "rules-language:storage:verified": {
+      "numerator": 55,
+      "denominator": 55
+    },
+    "rules-language:rtdb:verified": {
+      "numerator": 52,
+      "denominator": 55
+    }
+  },
+  "evidence": {
+    "observations": 231,
+    "observationDigest": "sha256:a6204e9879d3b870aec8823256bdc912577054c26164dd5f1562b0bb6c92c47e",
+    "verifiedScenarios": 45,
+    "conformanceChecks": 5,
+    "conformanceTests": 711,
+    "mappedExports": 197
+  },
+  "rulesLanguageExclusions": {
+    "firestore": [],
+    "storage": [
+      "storage.semantic.deny-by-default"
+    ],
+    "rtdb": [
+      "rtdb.semantic.deny-by-default"
+    ]
   }
 }

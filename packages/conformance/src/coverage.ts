@@ -31,6 +31,29 @@
  * are NEVER folded into `conforms` — doing so would be exactly the kind of
  * relabeling-to-game-the-number this script exists to prevent.
  *
+ * A third axis is published alongside them:
+ *
+ *   RULES-LANGUAGE verified coverage = production-verified constructs /
+ *              counted constructs, per engine. A construct is production-verified
+ *              only when positive evidence backs it AND no `diverged-documented`/
+ *              `bug` rules-engine row scopes it (src/rules-engine-rows.ts, the one
+ *              predicate the assurance generator shares). It is recomputed here
+ *              rather than read from the committed report, so the gate ratchets
+ *              what today's evidence says.
+ *
+ * NUMBER-MOVEMENT ACCOUNTING
+ *
+ * Every ratio above is tracked as a NUMERATOR and a DENOMINATOR, not as a
+ * percentage, and the gate reasons about which half moved. A number that rose
+ * because a scenario was captured or an export was mirrored is work. A number
+ * that rose because its denominator shrank — a symbol deny-listed, a construct
+ * excluded, a row reclassified out of the evaluated set — is not, and once the
+ * two are divided into a percentage they are indistinguishable. See
+ * classifyMovements(): a ratio that improved on a shrinking denominator, or a
+ * numerator that rose while the EVIDENCE census stood still, FAILS this gate. The
+ * accept mechanism is `--update-baseline`, committed in the PR, which prints
+ * exactly what it is accepting before it writes.
+ *
  * Usage:
  *   bun run compat:coverage                    # human table + regression check (CI)
  *   bun run compat:coverage --json              # machine JSON only, no regression check
@@ -48,6 +71,8 @@ import { denyTierFor, type CensusSurface } from './surface-denylist.ts';
 import { type Surface } from '../registry/index.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { buildCompatibilityLedger, highRiskUnverifiedRows, type RegistryEntry } from './ledger.ts';
+import { computeCoverageReport as computeRulesLanguageCoverage } from './rules-language-analyzer.ts';
+import { behaviorHash } from './observation-hash.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..');
@@ -204,6 +229,64 @@ interface ServiceCoverage {
   behavior: BehaviorConformance;
 }
 
+/** One rules engine's language coverage, from the rules-language analyzer. */
+interface RulesLanguageCoverage {
+  engine: string;
+  /** Production-verified constructs (positive evidence, no divergence covering
+   *  them — src/rules-engine-rows.ts). */
+  verified: number;
+  /** Constructs some corpus scenario's AST contains. */
+  exercised: number;
+  /** The denominator: snapshot constructs minus the excluded ones. */
+  total: number;
+  /** Counted constructs a `diverged-documented`/`bug` rules-engine row scopes.
+   *  These can never be verified: the gap between exercised and verified is
+   *  attributable to a named row, not to missing capture. */
+  contaminated: number;
+  pct: number;
+  /** The construct ids taken OUT of the denominator, so the gate can see an
+   *  exclusion appear (a denominator shrink is a reclassification, not work). */
+  excluded: string[];
+  /** Corpus scenarios with an observation twin — the evidence behind `verified`. */
+  scenariosWithTwins: number;
+}
+
+/**
+ * One tracked ratio, as a FRACTION rather than a percentage. The gate reasons
+ * about a number's movement by reasoning about its parts: a percentage that rose
+ * says nothing about why, and "why" is the whole question — a numerator that rose
+ * on new evidence and a denominator that shrank on a reclassification look
+ * identical once they are divided.
+ */
+export interface Metric {
+  numerator: number;
+  denominator: number;
+}
+
+/**
+ * The EVIDENCE census: the quantities that can only grow by doing real work —
+ * capturing production, writing a probe, mirroring an export. A coverage
+ * improvement has to be explainable by one of these having moved. Nothing here
+ * can be raised by editing a label.
+ */
+export interface EvidenceCensus {
+  /** Committed observation files: production captured. */
+  observations: number;
+  /** A digest over every observation's name and behaviorHash. Changes when a
+   *  capture is added, removed, or RE-captured (its recorded verdicts changed).
+   *  The behavior hashes are validated content hashes (src/observation-hash.ts),
+   *  so this tracks the evidence itself, not a claim about it. */
+  observationDigest: string;
+  /** Corpus scenarios that have an observation twin, summed over the engines. */
+  verifiedScenarios: number;
+  /** Structured row->observation checks: replayed findings. */
+  conformanceChecks: number;
+  /** Conformance test files cited by rows. */
+  conformanceTests: number;
+  /** Upstream SDK exports the mirror actually maps: implementation. */
+  mappedExports: number;
+}
+
 export interface CoverageReport {
   generatedAt: string;
   services: ServiceCoverage[];
@@ -211,6 +294,13 @@ export interface CoverageReport {
     surfaceCoverage: SurfaceCoverage;
     behavior: BehaviorConformance;
   };
+  /** The third published axis: rules-language verified coverage per engine. */
+  rulesLanguage: RulesLanguageCoverage[];
+  /** Every published ratio, as numerator/denominator, keyed by a stable id. The
+   *  number-movement gate reads these; the percentages above are for humans. */
+  metrics: Record<string, Metric>;
+  /** What real work exists behind the numbers (see EvidenceCensus). */
+  evidence: EvidenceCensus;
   orphanObservations: string[];
   highRiskUnverified: string[];
   /** rowId -> status, for the per-row regression check (a row flipping OFF conforms). */
@@ -224,7 +314,7 @@ export interface CoverageReport {
   entryPath: EntryPathProgramSummary[];
 }
 
-function buildReport(): CoverageReport {
+async function buildReport(): Promise<CoverageReport> {
   const censuses = runCensus();
   const censusBySurface = new Map(censuses.map((c) => [c.surface, c]));
   const ledger = buildCompatibilityLedger();
@@ -273,10 +363,59 @@ function buildReport(): CoverageReport {
 
   const entryPath = runEntryPathGate();
 
+  // The rules-language axis: verified constructs / counted constructs, per
+  // engine. Recomputed here from the analyzer (not read from the committed
+  // report) so the gate ratchets what the evidence says today.
+  const languageReport = await computeRulesLanguageCoverage();
+  const rulesLanguage: RulesLanguageCoverage[] = languageReport.engines.map((e) => ({
+    engine: e.engine,
+    verified: e.verifiedConstructs,
+    exercised: e.exercisedConstructs,
+    total: e.totalConstructs,
+    contaminated: e.contaminatedConstructs,
+    pct: pct(e.verifiedConstructs, e.totalConstructs),
+    excluded: e.constructs.filter((c) => c.excluded).map((c) => c.id).sort(),
+    scenariosWithTwins: e.verifiedScenarioCount,
+  }));
+
+  // Every published ratio as numerator/denominator, so the movement gate can ask
+  // WHICH half moved.
+  const metrics: Record<string, Metric> = {};
+  for (const s of services) {
+    if (s.surfaceCoverage) {
+      metrics[`surface:${s.surface}:total`] = { numerator: s.surfaceCoverage.mapped, denominator: s.surfaceCoverage.total.denominator };
+      metrics[`surface:${s.surface}:intended`] = { numerator: s.surfaceCoverage.mapped, denominator: s.surfaceCoverage.intended.denominator };
+    }
+    metrics[`behavior:${s.surface}:total`] = { numerator: s.behavior.conforms, denominator: s.behavior.total.denominator };
+    metrics[`behavior:${s.surface}:intended`] = { numerator: s.behavior.conforms, denominator: s.behavior.intended.denominator };
+  }
+  metrics['surface:overall:total'] = { numerator: overallSurface.mapped, denominator: overallSurface.total.denominator };
+  metrics['surface:overall:intended'] = { numerator: overallSurface.mapped, denominator: overallSurface.intended.denominator };
+  metrics['behavior:overall:total'] = { numerator: overallBehavior.conforms, denominator: overallBehavior.total.denominator };
+  metrics['behavior:overall:intended'] = { numerator: overallBehavior.conforms, denominator: overallBehavior.intended.denominator };
+  for (const e of rulesLanguage) {
+    metrics[`rules-language:${e.engine}:verified`] = { numerator: e.verified, denominator: e.total };
+  }
+
+  const observationSeals = Object.fromEntries(
+    [...ledger.observations].sort((a, b) => a.name.localeCompare(b.name)).map((o) => [o.name, o.behaviorHash ?? '']),
+  );
+  const evidence: EvidenceCensus = {
+    observations: ledger.observations.length,
+    observationDigest: behaviorHash(observationSeals),
+    verifiedScenarios: rulesLanguage.reduce((sum, e) => sum + e.scenariosWithTwins, 0),
+    conformanceChecks: ledger.entries.reduce((sum, r) => sum + (r.conformanceChecks?.length ?? 0), 0),
+    conformanceTests: ledger.entries.reduce((sum, r) => sum + r.conformanceTests.length, 0),
+    mappedExports: overallSurface.mapped,
+  };
+
   return {
     generatedAt: new Date().toISOString(),
     services,
     overall: { surfaceCoverage: overallSurface, behavior: overallBehavior },
+    rulesLanguage,
+    metrics,
+    evidence,
     orphanObservations: ledger.orphanObservations.map((o) => o.name),
     highRiskUnverified: highRisk,
     rowStatuses,
@@ -340,6 +479,28 @@ function printTable(report: CoverageReport): void {
     ].join('  '),
   );
   console.log('\nSURFACE reads `native` for a surface with no upstream module (its completeness is measured against its own public API, not against Firebase); OVERALL surface coverage sums the mirror surfaces only.');
+
+  console.log('\nRULES-LANGUAGE verified coverage (production-verified constructs / counted constructs, per engine).');
+  console.log('A construct is production-verified when positive evidence backs it AND no `diverged-documented`/`bug` rules-engine row scopes it: an engine KNOWN WRONG about a construct never counts it verified, however many scenarios exercise it (src/rules-engine-rows.ts).');
+  console.log('engine       verified   exercised  contaminated  excluded  scenarios(twins)');
+  console.log('-'.repeat(72));
+  for (const e of report.rulesLanguage) {
+    console.log(
+      [
+        e.engine.padEnd(12),
+        `${e.verified}/${e.total} (${e.pct}%)`.padEnd(18),
+        String(e.exercised).padStart(4),
+        String(e.contaminated).padStart(13),
+        String(e.excluded.length).padStart(10),
+        String(e.scenariosWithTwins).padStart(12),
+      ].join('  '),
+    );
+  }
+  console.log('`contaminated` constructs are the ones a named rules-engine divergence covers: the distance between exercised and verified is a documented divergence, not missing capture.');
+
+  console.log('\nEVIDENCE behind the numbers (the quantities no relabel can raise):');
+  console.log(`  observations ${report.evidence.observations}, captured scenario twins ${report.evidence.verifiedScenarios}, conformance checks ${report.evidence.conformanceChecks}, conformance tests ${report.evidence.conformanceTests}, mirrored exports ${report.evidence.mappedExports}`);
+
   console.log(`\nHigh-risk unverified conforms rows: ${report.highRiskUnverified.length}`);
   console.log(`Orphan observations: ${report.orphanObservations.length}`);
 
@@ -358,7 +519,7 @@ interface BaselineService {
   native?: boolean;
 }
 
-interface Baseline {
+export interface Baseline {
   generatedAt: string;
   services: Record<string, BaselineService>;
   overall: { surfaceCoveragePct: { total: number; intended: number } };
@@ -369,6 +530,14 @@ interface Baseline {
    *  rule: this is the ONE cliff exception to the ratchet — a program that
    *  was 'green' and is no longer is a FAILURE, full stop, never tolerated. */
   entryPathVerdicts: Record<string, string>;
+  /** Every published ratio as numerator/denominator (see Metric), so the
+   *  number-movement gate can attribute a change to the half that moved. */
+  metrics: Record<string, Metric>;
+  /** The evidence behind the numbers at baseline time (see EvidenceCensus). */
+  evidence: EvidenceCensus;
+  /** Construct ids taken out of a rules-language denominator, per engine. A new
+   *  entry here is a denominator shrink: a reclassification, not work. */
+  rulesLanguageExclusions: Record<string, string[]>;
 }
 
 function toBaseline(report: CoverageReport): Baseline {
@@ -387,7 +556,140 @@ function toBaseline(report: CoverageReport): Baseline {
     highRiskUnverified: report.highRiskUnverified,
     orphanObservations: report.orphanObservations,
     entryPathVerdicts: Object.fromEntries(report.entryPath.map((p) => [p.program, p.verdict])),
+    metrics: report.metrics,
+    evidence: report.evidence,
+    rulesLanguageExclusions: Object.fromEntries(report.rulesLanguage.map((e) => [e.engine, e.excluded])),
   };
+}
+
+// ── Number-movement accounting ──────────────────────────────────────────────
+
+/**
+ * WHY A NUMBER MOVED, and whether that movement is allowed to stand.
+ *
+ * A published ratio can rise two ways, and they are not the same thing:
+ *
+ *   the NUMERATOR rose — something got better. An export got mirrored, a
+ *   scenario got captured, a construct's evidence landed. Real work; the number
+ *   should rise, and the ratchet should hold it there.
+ *
+ *   the DENOMINATOR shrank — nothing got better. A symbol was declared out of
+ *   scope, a construct was excluded, a row was reclassified out of the evaluated
+ *   set. The number rises because the question got easier.
+ *
+ * Divided into a percentage, those two are indistinguishable. That is the fake
+ * this accounting exists to prevent: a coverage number that goes up on a PR that
+ * captured nothing, mirrored nothing, and fixed nothing.
+ *
+ * The rules the gate enforces:
+ *
+ *   1. A ratio that IMPROVED while its denominator SHRANK is reclassification-
+ *      driven. It fails, unless the PR deliberately accepts a new baseline.
+ *   2. A ratio whose NUMERATOR ROSE while the EVIDENCE CENSUS did not move at
+ *      all is a relabel — a row flipped to `conforms`, a construct credited —
+ *      with nothing behind it. It fails on the same terms.
+ *
+ * The accept mechanism is `--update-baseline`, committed in the PR. It does not
+ * suppress the accounting; it records the new numbers, and the diff shows what
+ * was accepted. Defense #1's contamination rule, which lowers a published number
+ * with no new evidence, is accepted exactly this way — deliberately, in a commit,
+ * not silently.
+ */
+export interface Movement {
+  metric: string;
+  before: Metric;
+  after: Metric;
+  beforePct: number;
+  afterPct: number;
+  /** Why it moved. `reclassification` and `unbacked-credit` are the failures. */
+  attribution: 'unchanged' | 'new-evidence' | 'regression' | 'reclassification' | 'unbacked-credit' | 'new-metric';
+  detail: string;
+}
+
+/** What in the evidence census grew. Empty means: this PR added no new evidence. */
+function evidenceGrowth(before: EvidenceCensus, after: EvidenceCensus): string[] {
+  const grown: string[] = [];
+  if (after.observations > before.observations) grown.push(`+${after.observations - before.observations} observation(s)`);
+  if (after.verifiedScenarios > before.verifiedScenarios) grown.push(`+${after.verifiedScenarios - before.verifiedScenarios} captured scenario twin(s)`);
+  if (after.conformanceChecks > before.conformanceChecks) grown.push(`+${after.conformanceChecks - before.conformanceChecks} conformance check(s)`);
+  if (after.conformanceTests > before.conformanceTests) grown.push(`+${after.conformanceTests - before.conformanceTests} conformance test(s)`);
+  if (after.mappedExports > before.mappedExports) grown.push(`+${after.mappedExports - before.mappedExports} mirrored export(s)`);
+  // Same observation count, different seals: an observation was RE-captured (its
+  // recorded production verdicts changed). That is new evidence about production,
+  // and — because the seals are content hashes the validator enforces — a change
+  // here is a visible change to a capture, never an invisible one.
+  if (after.observations === before.observations && after.observationDigest !== before.observationDigest) {
+    grown.push('re-captured observation(s) (behavior seals changed)');
+  }
+  return grown;
+}
+
+/** Attribute every metric's movement between the baseline and this run. */
+export function classifyMovements(baseline: Baseline, report: CoverageReport): Movement[] {
+  const growth = evidenceGrowth(baseline.evidence, report.evidence);
+  const movements: Movement[] = [];
+
+  for (const [metric, after] of Object.entries(report.metrics)) {
+    const before = baseline.metrics[metric];
+    if (!before) {
+      movements.push({
+        metric, before: { numerator: 0, denominator: 0 }, after,
+        beforePct: 0, afterPct: pct(after.numerator, after.denominator),
+        attribution: 'new-metric',
+        detail: 'not tracked at baseline — nothing to compare against',
+      });
+      continue;
+    }
+    const beforePct = pct(before.numerator, before.denominator);
+    const afterPct = pct(after.numerator, after.denominator);
+    const numeratorDelta = after.numerator - before.numerator;
+    const denominatorDelta = after.denominator - before.denominator;
+
+    if (afterPct < beforePct) {
+      movements.push({
+        metric, before, after, beforePct, afterPct,
+        attribution: 'regression',
+        detail: `numerator ${numeratorDelta >= 0 ? '+' : ''}${numeratorDelta}, denominator ${denominatorDelta >= 0 ? '+' : ''}${denominatorDelta}`,
+      });
+      continue;
+    }
+    if (afterPct === beforePct && numeratorDelta === 0 && denominatorDelta === 0) {
+      movements.push({ metric, before, after, beforePct, afterPct, attribution: 'unchanged', detail: '' });
+      continue;
+    }
+
+    // The ratio IMPROVED (or held while its parts moved). Attribute it.
+    if (denominatorDelta < 0 && afterPct > beforePct) {
+      movements.push({
+        metric, before, after, beforePct, afterPct,
+        attribution: 'reclassification',
+        detail: `denominator SHRANK by ${-denominatorDelta} (${before.denominator} -> ${after.denominator}) — the number rose because the question got smaller, not because anything got better`,
+      });
+      continue;
+    }
+    if (numeratorDelta > 0 && growth.length === 0) {
+      movements.push({
+        metric, before, after, beforePct, afterPct,
+        attribution: 'unbacked-credit',
+        detail: `numerator ROSE by ${numeratorDelta} while the evidence census did not move: no new observation, no new captured scenario, no new conformance check or test, no newly mirrored export. Credit with nothing behind it`,
+      });
+      continue;
+    }
+    movements.push({
+      metric, before, after, beforePct, afterPct,
+      attribution: numeratorDelta > 0 ? 'new-evidence' : 'unchanged',
+      detail: numeratorDelta > 0 ? `numerator +${numeratorDelta}, backed by: ${growth.join(', ')}` : '',
+    });
+  }
+
+  return movements;
+}
+
+/** The movements the gate refuses to let stand without a deliberate baseline. */
+export function movementProblems(movements: Movement[]): string[] {
+  return movements
+    .filter((m) => m.attribution === 'reclassification' || m.attribution === 'unbacked-credit')
+    .map((m) => `${m.metric}: ${m.beforePct}% -> ${m.afterPct}% [${m.attribution}] ${m.detail}`);
 }
 
 /**
@@ -441,6 +743,19 @@ function findRegressions(baseline: Baseline, report: CoverageReport): string[] {
     problems.push(`high-risk unverified rows increased: ${baseline.highRiskUnverified.length} -> ${report.highRiskUnverified.length}`);
   }
 
+  // Rules-language verified coverage: a construct that WAS production-verified
+  // and no longer is (a divergence found and scoped to it, a capture removed) is
+  // a regression on the same terms as a `conforms` row flipping off.
+  for (const engine of report.rulesLanguage) {
+    const base = baseline.metrics?.[`rules-language:${engine.engine}:verified`];
+    if (!base) continue;
+    if (engine.verified < base.numerator) {
+      problems.push(
+        `rules-language ${engine.engine}: production-verified constructs dropped ${base.numerator} -> ${engine.verified} (of ${engine.total})`,
+      );
+    }
+  }
+
   // Entry-path: the one CLIFF exception to this whole function's ratchet
   // framing (see entry-path-gate.ts's header). A program that was GREEN and
   // is no longer is a FAILURE here regardless of WHY (red, red-known, or a
@@ -462,17 +777,51 @@ function findRegressions(baseline: Baseline, report: CoverageReport): string[] {
 
 // ── main ─────────────────────────────────────────────────────────────────
 
+/** Print WHY every number that moved, moved. */
+function printMovements(movements: Movement[]): void {
+  const moved = movements.filter((m) => m.attribution !== 'unchanged');
+  console.log('\nNUMBER MOVEMENT vs. coverage-baseline.json — a percentage that rose says nothing about why it rose:');
+  if (moved.length === 0) {
+    console.log('  (no tracked ratio moved)');
+    return;
+  }
+  for (const m of moved) {
+    console.log(
+      `  ${m.metric}: ${m.before.numerator}/${m.before.denominator} (${m.beforePct}%) -> ${m.after.numerator}/${m.after.denominator} (${m.afterPct}%) [${m.attribution}]`,
+    );
+    if (m.detail) console.log(`      ${m.detail}`);
+  }
+}
+
 async function main(): Promise<void> {
   const wantJson = process.argv.includes('--json');
   const updateBaseline = process.argv.includes('--update-baseline');
 
-  const report = buildReport();
+  const report = await buildReport();
 
   if (updateBaseline) {
+    // The accept mechanism. It prints the accounting BEFORE overwriting, so a
+    // baseline is never accepted without the reason for every movement being
+    // stated — including a movement the gate would otherwise have refused.
+    if (existsSync(BASELINE_PATH)) {
+      const previous = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as Baseline;
+      if (previous.metrics) {
+        const movements = classifyMovements(previous, report);
+        printMovements(movements);
+        const refused = movementProblems(movements);
+        if (refused.length > 0) {
+          console.log('\nACCEPTING the following movements, which the gate would otherwise REFUSE:');
+          for (const r of refused) console.log(`  - ${r}`);
+        }
+      }
+    }
     writeFileSync(BASELINE_PATH, JSON.stringify(toBaseline(report), null, 2) + '\n');
-    console.log(`Baseline updated: ${BASELINE_PATH.replace(REPO_ROOT + '/', '')}`);
+    console.log(`\nBaseline updated: ${BASELINE_PATH.replace(REPO_ROOT + '/', '')}`);
     console.log(`  overall surface coverage: total ${report.overall.surfaceCoverage.total.pct}%, intended ${report.overall.surfaceCoverage.intended.pct}%`);
     console.log(`  overall behavior conformance: total ${report.overall.behavior.total.pct}%, intended ${report.overall.behavior.intended.pct}%`);
+    for (const e of report.rulesLanguage) {
+      console.log(`  rules-language ${e.engine}: verified ${e.verified}/${e.total} (${e.pct}%)`);
+    }
     process.exit(0);
   }
 
@@ -491,15 +840,37 @@ async function main(): Promise<void> {
   const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as Baseline;
   const regressions = findRegressions(baseline, report);
 
-  if (regressions.length > 0) {
-    console.log(`\n✗ ${regressions.length} regression(s) vs. coverage-baseline.json:`);
-    for (const r of regressions) console.log(`  - ${r}`);
-    console.log('\nIf this is an intentional change (a legit new diverged/unsupported row, a scoped-down surface), run `bun run compat:coverage --update-baseline` in this PR to accept the new baseline.');
+  // A baseline written before the accounting existed carries no `metrics`; it
+  // cannot be reasoned about, and pretending otherwise would silently pass every
+  // reclassification. Fail loudly and cheaply: regenerate it.
+  if (!baseline.metrics || !baseline.evidence) {
+    console.log('\n✗ coverage-baseline.json predates number-movement accounting (no `metrics`/`evidence`).');
+    console.log('  Run `bun run compat:coverage --update-baseline` to record the current numbers AND the evidence behind them.');
     process.exit(1);
   }
 
-  console.log('\n✓ No regressions vs. coverage-baseline.json.');
+  const movements = classifyMovements(baseline, report);
+  printMovements(movements);
+  const unearned = movementProblems(movements);
+
+  const problems = [...regressions, ...unearned.map((u) => `UNEARNED MOVEMENT — ${u}`)];
+  if (problems.length > 0) {
+    console.log(`\n✗ ${problems.length} problem(s) vs. coverage-baseline.json:`);
+    for (const p of problems) console.log(`  - ${p}`);
+    if (unearned.length > 0) {
+      console.log('\nA number rose with nothing behind it: either its denominator shrank (something was excluded, deny-listed, or reclassified out of the evaluated set), or its numerator rose while the evidence census did not move at all. Neither is an improvement.');
+      console.log('Fix it by producing the evidence — capture the scenario, mirror the export, fix the engine. If the reclassification is genuinely correct, run `bun run compat:coverage --update-baseline` in this PR: that records the new numbers deliberately, in a diff a reviewer sees.');
+    }
+    if (regressions.length > 0) {
+      console.log('\nIf a regression is an intentional change (a legit new diverged/unsupported row, a scoped-down surface, a divergence newly scoped to a construct), run `bun run compat:coverage --update-baseline` in this PR to accept the new baseline.');
+    }
+    process.exit(1);
+  }
+
+  console.log('\n✓ No regressions and no unearned movement vs. coverage-baseline.json.');
   process.exit(0);
 }
 
-await main();
+// Guarded: the gate's classifier is imported by its test suite, and an
+// unguarded main() would run the whole census on import.
+if (import.meta.main) await main();
