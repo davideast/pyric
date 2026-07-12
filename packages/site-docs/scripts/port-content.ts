@@ -503,6 +503,7 @@ for (const group of GUIDE_GROUPS) {
 // to agents especially, so they stay itemized in the nav rather than
 // folding into the Reference shelf. Slugs are unchanged (slugFor).
 const COMPAT_PAGES: { file: string; label: string }[] = [
+  { file: 'app/COMPAT.md', label: 'App' },
   { file: 'firestore/COMPAT.md', label: 'Firestore' },
   { file: 'auth/COMPAT.md', label: 'Auth' },
   { file: 'database/COMPAT.md', label: 'Realtime Database' },

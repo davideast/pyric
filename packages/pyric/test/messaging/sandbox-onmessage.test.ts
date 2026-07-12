@@ -24,7 +24,11 @@ import {
 
 /** A fresh sandbox-backed app — isolates each case's broker + instance state. */
 function sandboxApp() {
-  return initializeApp({ sandbox: initializeSandbox() });
+  // Distinct independent apps need distinct names — a default-name reuse
+  // would collide (app/duplicate-app), exactly as firebase/app does. The
+  // random suffix stays unique across the messaging test files (one process,
+  // one shared app registry).
+  return initializeApp({ sandbox: initializeSandbox() }, `msg-${Math.random().toString(36).slice(2)}`);
 }
 
 describe('onMessage (sandbox)', () => {

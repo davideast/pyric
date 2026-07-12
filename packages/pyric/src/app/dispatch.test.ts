@@ -18,9 +18,9 @@
  * a storage-focused integration test.
  */
 
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 
-import { initializeApp } from './index.js';
+import { initializeApp, getApps, deleteApp } from './index.js';
 import { initializeSandbox } from 'pyric/sandbox';
 // Use relative imports to the adapter sources so the test exercises
 // the in-tree dispatch added in this PR rather than whatever's sitting
@@ -33,6 +33,14 @@ import { getAuth } from '../auth/index.js';
 import { getDatabase } from '../database/index.js';
 
 describe('pyric/app — getXxx(PyricApp) dispatch (sandbox branch)', () => {
+  // The app registry is a process-global singleton (mirroring firebase/app's
+  // store), so clear it before each case: every test below initializes the
+  // default '[DEFAULT]' app and would otherwise collide with the previous one
+  // (app/duplicate-app), exactly as firebase would.
+  beforeEach(async () => {
+    await Promise.all(getApps().map((app) => deleteApp(app)));
+  });
+
   it('getFirestore(app) returns a Firestore handle for a sandbox app', () => {
     const app = initializeApp({ sandbox: initializeSandbox() });
     const db = getFirestore(app);

@@ -79,16 +79,21 @@ function deny(surface: CensusSurface, tier: DenyTier, reason: string, symbols: s
 const INTERNAL = 'Firebase-internal symbol (leading underscore); firebase/* exports it as plumbing, it is not part of the public modular surface pyric mirrors.';
 
 // ── firebase/app → pyric/app ──────────────────────────────────────────────
-// No registry doc backs app (it has no COMPAT matrix). Only the internal
-// plumbing is denied here; the public app-management surface pyric does not yet
-// mirror (getApp/getApps/deleteApp/registerVersion/…) is left UNMAPPED so the
-// gate keeps flagging it.
+// The public app-management surface (initializeApp/getApp/getApps/deleteApp,
+// FirebaseError/SDK_VERSION, onLog/setLogLevel/registerVersion) is MIRRORED and
+// tracked in registry/app.ts. Only the internal underscore plumbing is
+// out-of-scope; `initializeServerApp` is DEFERRED (kept as coverage debt, not
+// scoped out) because its SSR server-app semantics have no decided sandbox
+// mirror pattern yet.
 const appDenials: DenyEntry[] = [
   ...deny('app', 'out-of-scope', INTERNAL, [
     '_DEFAULT_ENTRY_NAME', '_addComponent', '_addOrOverwriteComponent', '_apps',
     '_clearComponents', '_components', '_getProvider', '_isFirebaseApp',
     '_isFirebaseServerApp', '_isFirebaseServerAppSettings', '_registerComponent',
     '_removeServiceInstance', '_serverApps',
+  ]),
+  ...deny('app', 'deferred', 'Server-app (SSR) initialization: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet. Deferred, not out of scope — tracked as an unsupported registry row (registry/app.ts app#15).', [
+    'initializeServerApp',
   ]),
 ];
 

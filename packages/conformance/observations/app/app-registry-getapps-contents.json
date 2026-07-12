@@ -1,0 +1,16 @@
+{
+  "name": "app-registry-getapps-contents",
+  "matrixRow": "app #8",
+  "rowIds": [
+    "app#8"
+  ],
+  "description": "firebase/app getApps() returns an array of every registered app by identity — it contains the exact default and named instances returned by initializeApp (not copies).",
+  "observedAt": "2026-07-12T01:20:59.103Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "isArray": true,
+    "length": 2,
+    "includesDefault": true,
+    "includesNamed": true
+  }
+}

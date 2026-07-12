@@ -15,7 +15,11 @@ import { getMessaging, onMessage, sandbox as messagingSandbox } from '../../src/
 import { getMessaging as getMessagingInSw, onBackgroundMessage } from '../../src/messaging/sw.js';
 
 function sandboxApp() {
-  return initializeApp({ sandbox: initializeSandbox() });
+  // Distinct independent apps need distinct names — a default-name reuse
+  // would collide (app/duplicate-app), exactly as firebase/app does. The
+  // random suffix stays unique across the messaging test files (one process,
+  // one shared app registry).
+  return initializeApp({ sandbox: initializeSandbox() }, `msg-${Math.random().toString(36).slice(2)}`);
 }
 
 describe('Messaging instance identity (sandbox)', () => {

@@ -122,9 +122,14 @@ export async function collectAllDocPaths(
   return { docPaths, errors };
 }
 
+/** Monotonic app-name source: pyric/app mirrors firebase's registry, so each
+ *  freshly-created sandbox needs a distinct app name (a default-name re-init
+ *  would throw app/duplicate-app). */
+let studioAppSeq = 0;
+
 /** Build the handle bundle for a freshly-created sandbox. */
 function makeHandles(sandbox: Sandbox): StudioDataHandles {
-  const app = initializeApp({ sandbox });
+  const app = initializeApp({ sandbox }, `pyric-studio-${studioAppSeq++}`);
   const env = getInternalEnv(sandbox);
   return {
     sandbox,

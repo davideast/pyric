@@ -1,0 +1,17 @@
+{
+  "name": "app-registry-deleteapp-double",
+  "matrixRow": "app #10",
+  "rowIds": [
+    "app#10"
+  ],
+  "description": "firebase/app deleteApp(app) called a second time on an already-deleted app throws FirebaseError code app/app-deleted with the name embedded in the message. The try/catch catches both a synchronous throw and a rejected promise.",
+  "observedAt": "2026-07-12T01:20:59.102Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "threw": true,
+    "code": "app/app-deleted",
+    "errorName": "FirebaseError",
+    "isError": true,
+    "message": "Firebase: Firebase App named 'secondary' already deleted (app/app-deleted)."
+  }
+}

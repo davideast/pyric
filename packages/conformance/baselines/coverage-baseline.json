@@ -1,10 +1,16 @@
 {
-  "generatedAt": "2026-07-12T00:37:49.077Z",
+  "generatedAt": "2026-07-12T01:31:05.412Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
         "total": 69.1,
         "intended": 80.9
+      }
+    },
+    "app": {
+      "surfaceCoveragePct": {
+        "total": 39.1,
+        "intended": 90
       }
     },
     "auth": {
@@ -49,11 +55,26 @@
   },
   "overall": {
     "surfaceCoveragePct": {
-      "total": 54.5,
-      "intended": 62
+      "total": 53.5,
+      "intended": 62.9
     }
   },
   "rowStatuses": {
+    "app#1": "conforms",
+    "app#2": "conforms",
+    "app#3": "conforms",
+    "app#4": "conforms",
+    "app#5": "conforms",
+    "app#6": "conforms",
+    "app#7": "conforms",
+    "app#8": "conforms",
+    "app#9": "conforms",
+    "app#10": "conforms",
+    "app#11": "conforms",
+    "app#12": "conforms",
+    "app#13": "conforms",
+    "app#14": "conforms",
+    "app#15": "unsupported",
     "ai#getai-sandbox-dispatch": "conforms",
     "ai#getai-prod-dispatch": "conforms",
     "ai#getai-default-backend": "conforms",

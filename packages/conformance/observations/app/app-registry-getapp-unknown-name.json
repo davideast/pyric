@@ -1,0 +1,17 @@
+{
+  "name": "app-registry-getapp-unknown-name",
+  "matrixRow": "app #7",
+  "rowIds": [
+    "app#7"
+  ],
+  "description": "firebase/app getApp(name) for a name that was never initialized (empty registry) throws FirebaseError code app/no-app with a name-specific message directing the caller to initializeApp().",
+  "observedAt": "2026-07-12T01:20:59.103Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "threw": true,
+    "code": "app/no-app",
+    "errorName": "FirebaseError",
+    "isError": true,
+    "message": "Firebase: No Firebase App 'does-not-exist' has been created - call initializeApp() first (app/no-app)."
+  }
+}
