@@ -295,8 +295,28 @@ remains unchanged.
 | M74 | `onValue(ref, cb, { onlyOnce: true })` fires once then auto-unsubscribes (DB-B12) | ✓ | Sandbox aligned: `unit:modular/onvalue-onlyonce.test.ts`; upstream `api/Reference_impl.ts:975-980` |
 | M75 | **Divergence (DB-B12, honest doc):** the onChild* callbacks do NOT receive the `previousChildName` second argument; `onValue`/`onChild*` do NOT accept a `cancelCallback`; `onChildAdded`/`Changed`/`Removed`/`Moved` accept only plain refs (not `Query`); `child_moved` never fires (ordered-query move detection unmodeled). These listener-surface holes are out of scope for the current phase — consumers needing them use `firebase/database` directly. | ⚠ | divergence documented; partial coverage: `{ onlyOnce }` IS implemented (M74). |
 | M76 | **Divergence (DB-B9, honest doc):** `.validate` rules are NOT enforced on modular sandbox writes (`set`/`update`/`runTransaction`). The modular write path routes through the same `RulesEvaluator` → `SimulateHandler` as the simulator, which short-circuits on the first ancestor `.write` that grants access without also requiring every ancestor `.validate` to pass (same divergence as row #71). A write the live RTDB rejects via a deeper `.validate` still succeeds in the sandbox. | ⚠ | divergence documented (shared root with row #71). |
+## Not supported yet
 
-## Agent-tool surface — deny-list (intentionally NOT shimmed)
+Tracked but not implemented yet. Each flips to ✓ as support lands.
+
+| # | Behavior |
+|---|---|
+| M3 | `getDatabase(app)` builds a prod target; delegates to `firebase/database.getDatabase(app)` |
+| M37h | Concurrent contention / retry-on-conflict — single-client sandbox doesn't model real concurrency; the documented "up to 25 retries" contract is degenerate (the fn is invoked once) |
+| 94 | `getDatabase(ctx)` returns a tagged sandbox-target handle (frozen identity) |
+| 95 | `getDatabase(sandbox)` returns a tagged sandbox-live handle (per-op identity) |
+| 98 | Two `getDatabase(sandbox)` calls share state (same underlying `LocalEnvironment`) |
+| 99 | Handle dispatch by `TARGET_SYMBOL` brand — refs route to their owning target via a `refToTarget` WeakMap (mirror of firestore's pattern) |
+| 105 | Unknown ref (not produced by this package) → `TypeError` in shim ops |
+| 165 | No-op on sandbox-target handles (the sandbox IS the local emulator) |
+| 166 | Forwards to `firebase/database`'s `connectDatabaseEmulator` on prod-target handles |
+| 167 | `sandbox.setData(db, {path: value, ...})` bulk-loads data, bypassing rules |
+| 168 | `sandbox.setRules(db, rules)` loads rules into the underlying local environment; returns `LintResult` |
+| 169 | `sandbox.snapshotState(db)` dumps every path the local store has stored |
+| 170 | All `sandbox.*` methods throw on prod-target handles with `failed-precondition` |
+
+
+## Agent-tool surface — deny-list (intentionally not shimmed)
 
 Parts of `firebase/database` the agent-tool surface does not expose (the modular SDK surface below covers most of them):
 
@@ -496,7 +516,7 @@ the oracle locks it.
 | 169 | `sandbox.snapshotState(db)` dumps every path the local store has stored | — | Phase 3 |
 | 170 | All `sandbox.*` methods throw on prod-target handles with `failed-precondition` | — | Phase 3 |
 
-### Modular SDK surface — deny-list (intentionally NOT shimmed)
+### Modular SDK surface — deny-list (intentionally not shimmed)
 
 These exist in `firebase/database` but the modular sandbox does not shim them:
 

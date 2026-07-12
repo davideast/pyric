@@ -200,8 +200,26 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 | 110 | `getStorageService` on a prod-target handle throws `Error: …sandbox-only` | ✓ | `unit:prod-target.test.ts` ("throws — service is sandbox-only") |
 | 111 | `targetOf(storage)` returns the discriminated `Target` (sandbox / prod) | ✓ | `unit:service.test.ts` |
 | 117 | `connectStorageEmulator(storage, host, port)` is a no-op on sandbox targets — pyric replaces the Firebase emulator, so the sandbox IS already the local emulator. Forwards to `firebase/storage`'s real `connectStorageEmulator` on prod targets | ⚠ pyric replaces the Firebase emulator; connectStorageEmulator is a no-op | `unit:connect-storage-emulator.test.ts` ("is a no-op on a sandbox handle — does not throw") |
+## Not supported yet
 
-## Deny-list (intentionally NOT shimmed)
+Tracked but not implemented yet. Each flips to ✓ as support lands.
+
+| # | Behavior |
+|---|---|
+| 12 | `getStorageSandbox(undefined)` / bare-call default-to-sandbox in playground preview |
+| 47 | Exported by `firebase/storage`; returns an `UploadTask` with `pause()` / `resume()` / `cancel()` |
+| 48 | `task.on('state_changed', next, error, complete)` fires `next` with `{bytesTransferred, totalBytes, state}` snapshots |
+| 49 | `task.pause()` flips `state` to `'paused'`; `task.resume()` continues |
+| 50 | `task.cancel()` rejects the upload with `storage/canceled` |
+| 51 | Exported by `firebase/storage`; returns a token-signed HTTPS URL that fetches the blob |
+| 52 | Throws `storage/object-not-found` for missing objects |
+| 62 | Exported by `firebase/storage` (Node entry only); returns a Node `Readable` |
+| 78 | Exported by `firebase/storage`; accepts `{ maxResults, pageToken }`, returns a `ListResult` with `nextPageToken` set when more pages remain |
+| 92 | `FullMetadata.ref` lazy population (prod populates lazily) |
+| 93 | Exported by `firebase/storage`; reroutes a `FirebaseStorage` handle to a local emulator |
+
+
+## Deny-list (intentionally not shimmed)
 
 These exist in `firebase/storage` but the sandbox does not shim them.
 

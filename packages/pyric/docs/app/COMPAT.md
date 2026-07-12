@@ -32,3 +32,11 @@
 | 13 | `onLog(cb)` / `setLogLevel(level)` are the firebase diagnostic-logger seam (re-exported functioning implementations, not inert tokens): registering a handler returns undefined, raising the threshold takes effect, and a malformed `registerVersion` emits a `warn` entry (type `@firebase/app`) to the handler | ✓ (re-export) | oracle: `app-registry-onlog-setloglevel` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
 | 14 | `registerVersion(library, version)` registers a platform-logger version component (re-exported functioning implementation); a well-formed call returns undefined without throwing | ✓ (re-export) | oracle: `app-registry-registerversion` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
 | 15 | Not implemented — server-app (SSR) initialization is deferred: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet | — | deferred — see census deny-list (tier `deferred`) for the surface-coverage debt entry |
+
+## Not supported yet
+
+Tracked but not implemented yet. Each flips to ✓ as support lands.
+
+| # | Behavior |
+|---|---|
+| 15 | Not implemented — server-app (SSR) initialization is deferred: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet |

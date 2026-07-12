@@ -86,3 +86,11 @@ order: 8002
 <div class="compat-evidence"><div class="compat-probe">deferred — see census deny-list (tier <code>deferred</code>) for the surface-coverage debt entry</div></div>
 </details>
 </div>
+
+## Not supported yet
+
+Tracked but not implemented yet. Each flips to ✓ as support lands.
+
+| # | Behavior |
+|---|---|
+| 15 | Not implemented — server-app (SSR) initialization is deferred: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet |

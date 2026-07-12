@@ -882,7 +882,7 @@ shape consumer code depends on.
 </details>
 </div>
 
-## Deny-list (intentionally NOT shimmed)
+## Deny-list (intentionally not shimmed)
 
 These exist in `firebase/firestore` but the sandbox does not shim them.
 

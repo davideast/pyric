@@ -135,11 +135,37 @@ export function scoredBlocks(surface: CompatibilitySurfaceRegistry): Compatibili
   });
 }
 
+/** Consolidated list of the rows a surface tracks but has not implemented yet
+ *  (status `unsupported`, the `—` glyph), so a reader sees the gaps in one
+ *  place instead of scanning the whole matrix. Rendered just above the
+ *  deny-list. Empty string when nothing is pending. */
+function notSupportedSection(rows: CompatibilityRow[]): string {
+  if (rows.length === 0) return '';
+  return [
+    '## Not supported yet',
+    '',
+    'Tracked but not implemented yet. Each flips to ✓ as support lands.',
+    '',
+    '| # | Behavior |',
+    '|---|---|',
+    ...rows.map((r) => `| ${escapeCell(r.rowRef)} | ${escapeCell(r.behavior)} |`),
+    '',
+  ].join('\n');
+}
+
 export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): string {
   const parts: string[] = [GENERATED_HEADER, ''];
   const blocks = scoredBlocks(surface);
+  const pending = blocks.flatMap((b) => (b.kind === 'table' ? b.rows.filter((r) => r.status === 'unsupported') : []));
+  let pendingInjected = false;
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {
+      // Inject the consolidated "Not supported yet" list just above the first
+      // deny-list block (both answer "what can't I use", kept together).
+      if (!pendingInjected && pending.length > 0 && /deny-list/i.test(block.markdown)) {
+        parts.push(notSupportedSection(pending));
+        pendingInjected = true;
+      }
       parts.push(block.markdown);
       continue;
     }
@@ -150,6 +176,8 @@ export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): st
     const next = blocks[index + 1];
     if (next?.kind === 'table' || (next?.kind === 'markdown' && !next.markdown.startsWith('\n'))) parts.push('');
   }
+  // No deny-list block (some surfaces have none): append at the end.
+  if (!pendingInjected && pending.length > 0) parts.push('', notSupportedSection(pending));
   return parts.join('\n').replace(/\s+$/, '') + '\n';
 }
 

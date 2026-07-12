@@ -833,8 +833,28 @@ remains unchanged.
 <div class="compat-evidence"><div class="compat-probe">divergence documented (shared root with row #71).</div></div>
 </details>
 </div>
+## Not supported yet
 
-## Agent-tool surface — deny-list (intentionally NOT shimmed)
+Tracked but not implemented yet. Each flips to ✓ as support lands.
+
+| # | Behavior |
+|---|---|
+| M3 | `getDatabase(app)` builds a prod target; delegates to `firebase/database.getDatabase(app)` |
+| M37h | Concurrent contention / retry-on-conflict — single-client sandbox doesn't model real concurrency; the documented "up to 25 retries" contract is degenerate (the fn is invoked once) |
+| 94 | `getDatabase(ctx)` returns a tagged sandbox-target handle (frozen identity) |
+| 95 | `getDatabase(sandbox)` returns a tagged sandbox-live handle (per-op identity) |
+| 98 | Two `getDatabase(sandbox)` calls share state (same underlying `LocalEnvironment`) |
+| 99 | Handle dispatch by `TARGET_SYMBOL` brand — refs route to their owning target via a `refToTarget` WeakMap (mirror of firestore's pattern) |
+| 105 | Unknown ref (not produced by this package) → `TypeError` in shim ops |
+| 165 | No-op on sandbox-target handles (the sandbox IS the local emulator) |
+| 166 | Forwards to `firebase/database`'s `connectDatabaseEmulator` on prod-target handles |
+| 167 | `sandbox.setData(db, {path: value, ...})` bulk-loads data, bypassing rules |
+| 168 | `sandbox.setRules(db, rules)` loads rules into the underlying local environment; returns `LintResult` |
+| 169 | `sandbox.snapshotState(db)` dumps every path the local store has stored |
+| 170 | All `sandbox.*` methods throw on prod-target handles with `failed-precondition` |
+
+
+## Agent-tool surface — deny-list (intentionally not shimmed)
 
 Parts of `firebase/database` the agent-tool surface does not expose (the modular SDK surface below covers most of them):
 
@@ -1284,7 +1304,7 @@ the oracle locks it.
 </details>
 </div>
 
-### Modular SDK surface — deny-list (intentionally NOT shimmed)
+### Modular SDK surface — deny-list (intentionally not shimmed)
 
 These exist in `firebase/database` but the modular sandbox does not shim them:
 

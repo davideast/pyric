@@ -641,8 +641,21 @@ order: 8004
 <div class="compat-evidence"><div class="compat-probe">Was a BUG until this climb, and worth naming as one: the array was fabricated, not read. Now fixed and locked. <code>unit:sandbox-linking-reauth.test.ts</code> now pins that a Google link surfaces <code>google.com</code> in <code>providerData</code>, that <code>unlink</code> shrinks it, and that unlinking the last provider leaves it empty rather than falling back to a synthesized <code>'password'</code> entry.</div></div>
 </details>
 </div>
+## Not supported yet
 
-## Deny-list (intentionally NOT shimmed)
+Tracked but not implemented yet. Each flips to ✓ as support lands.
+
+| # | Behavior |
+|---|---|
+| 49 | Cancels with `auth/popup-closed-by-user` when the user dismisses the popup (prod) |
+| 53 | Custom scopes / params / language code |
+| 59 | `user.metadata.creationTime` / `lastSignInTime` |
+| 61 | `user.reload()` / `user.delete()` / `user.toJSON()` / `user.refreshToken` / `user.tenantId` |
+| 62 | `updateProfile(user, {displayName, photoURL})` |
+| 175 | NOT MIRRORED — the one genuinely out-of-scope symbol in the auth surface. Deprecated upstream as a SECURITY RETRACTION: the shipped `@firebase/auth` declaration states the API 'returns an empty list when Email Enumeration Protection is enabled, irrespective of the number of authentication methods available for the given email', and that 'migrating off of this method is recommended as a security best-practice'. Enumeration protection is on by default, so against a modern project the production function always returns `[]`. |
+
+
+## Deny-list (intentionally not shimmed)
 
 These exist in `firebase/auth` but the sandbox does not mirror them.
 

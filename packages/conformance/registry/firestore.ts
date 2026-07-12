@@ -3206,7 +3206,7 @@ export const firestoreRegistry = {
         },
       ],
     },
-    { kind: 'markdown', markdown: "\n## Deny-list (intentionally NOT shimmed)\n\nThese exist in `firebase/firestore` but the sandbox does not shim them.\n\n| Name | Reason |\n|---|---|\n| `CACHE_SIZE_UNLIMITED` / `PersistentCacheIndexManager` / `getPersistentCacheIndexManager` / `deleteAllPersistentCacheIndexes` / `enablePersistentCacheIndexAutoCreation` / `disablePersistentCacheIndexAutoCreation` / `setIndexConfiguration` | Index-tuning / GC-policy admin surface; no sandbox equivalent. |\n| `terminate` | `Sandbox.dispose()` covers teardown at the host level. |\n| `loadBundle` / `namedQuery` | Bundle-loading depends on server-side packaging not modeled in the sandbox. |\n" },
+    { kind: 'markdown', markdown: "\n## Deny-list (intentionally not shimmed)\n\nThese exist in `firebase/firestore` but the sandbox does not shim them.\n\n| Name | Reason |\n|---|---|\n| `CACHE_SIZE_UNLIMITED` / `PersistentCacheIndexManager` / `getPersistentCacheIndexManager` / `deleteAllPersistentCacheIndexes` / `enablePersistentCacheIndexAutoCreation` / `disablePersistentCacheIndexAutoCreation` / `setIndexConfiguration` | Index-tuning / GC-policy admin surface; no sandbox equivalent. |\n| `terminate` | `Sandbox.dispose()` covers teardown at the host level. |\n| `loadBundle` / `namedQuery` | Bundle-loading depends on server-side packaging not modeled in the sandbox. |\n" },
   ],
 } satisfies CompatibilitySurfaceRegistry;
 
