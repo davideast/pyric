@@ -413,9 +413,9 @@ function buildContext(
   // value instead of null. Without this, named-field access on request.path
   // silently DENYs any rule that reads it.
   const fullPath = new Path(fullPathSegs, pathVariables);
-  // resource.id = last segment of the relative path
-  const relSegs = relPath.split('/').filter(Boolean);
-  const docId = relSegs.length > 0 ? relSegs[relSegs.length - 1] : '';
+  // NOTE: no document id is derived here. Production does not expose one on
+  // `resource` (see the `resource` construction below, RULES-B12) — the id a
+  // rule can legitimately read comes from the match-path wildcard (`/{id}`).
 
   // Item 7 — project the after-state.
   //
@@ -482,19 +482,25 @@ function buildContext(
     },
     // `resource` is the PRE-WRITE stored document. On a `create` the target
     // does not exist yet, so production makes `resource` null — reading
-    // `resource.data`/`.id`/`.__name__` then errors → DENY. Synthesizing an
-    // identity here (the previous behavior) was a FALSE-ALLOW for the common
-    // ownership/existence idioms (`resource.data.owner == request.auth.uid`,
-    // `resource.id == id`). For get/list/update/delete `resource` reflects the
-    // existing doc (unchanged). Note: `request.resource` (proposed data) is
-    // built separately above and stays populated on create.
+    // `resource.data`/`.id`/`.__name__` then errors → DENY. Synthesizing a
+    // resource here (the previous behavior) was a FALSE-ALLOW for the common
+    // ownership/existence idioms (`resource.data.owner == request.auth.uid`).
+    //
+    // RULES-B12: for get/list/update/delete the resource carries `data` ONLY.
+    // Production builds `resource` from the stored document alone and does NOT
+    // derive an identity from the request path, so `resource.id` /
+    // `resource.__name__` are ABSENT and reading either errors:
+    //   "Property id is undefined on object."
+    //   "Property __name__ is undefined on object."
+    // → DENY (surviving negation, absorbed only by a determining `||`).
+    // Synthesizing `id`/`__name__` from tc.path made `resource.id == id` ALLOW
+    // where production DENIES — an OVER-PERMISSIVE divergence. Omitting the
+    // keys hands the evaluator's absent-key error path the same verdict prod
+    // gives. Note: `request.resource` (proposed data) is built separately above
+    // and is likewise `{ data }` only — `request.resource.id` errors in prod too.
     resource: tc.method === 'create'
       ? null
-      : {
-          data: existing ?? {},  // NOT resolved — resource is pre-write, no sentinels
-          id: docId,             // Item 6
-          __name__: fullPath,    // Item 6
-        },
+      : { data: existing ?? {} },  // NOT resolved — resource is pre-write, no sentinels
     mockDocuments: mockDocs,
     getDoc,
     pathVariables,

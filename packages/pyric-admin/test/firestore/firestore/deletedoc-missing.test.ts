@@ -3,7 +3,7 @@
  * missing doc must resolve cleanly with no throw and no side effects,
  * matching production `firebase/firestore` semantics.
  *
- * Empirical oracle: `scripts/oracle/observations/firestore-deletedoc-missing.json`
+ * Empirical oracle: `packages/conformance/observations/firestore/firestore-deletedoc-missing.json`
  * (`threw: false` against the `blockingfun` project, fb-js-sdk 12.13.0).
  *
  * Before the fix in `applyWrite` (`packages/sandbox/src/firestore/local-environment.ts`)

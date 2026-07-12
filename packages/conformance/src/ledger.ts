@@ -129,7 +129,7 @@ export function buildCompatibilityLedger(): CompatibilityLedger {
 /**
  * The audit-worklist query: rows that claim conformance with meaningful risk
  * but no oracle/test evidence or explicit exception. Shared by report.ts,
- * scripts/oracle/audit.ts, and summarizeLedger so the definition can't drift.
+ * packages/conformance/src/audit.ts, and summarizeLedger so the definition can't drift.
  */
 export function highRiskUnverifiedRows(ledger: CompatibilityLedger): RegistryEntry[] {
   return ledger.entries

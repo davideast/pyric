@@ -204,7 +204,7 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     if (!observationNames.has(exception)) problems.push(`observation exception '${exception}' does not match an observation file`);
   }
 
-  // ── Oracle rig manifests (scripts/oracle/rigs/*.ts) ───────────────────────
+  // ── Oracle rig manifests (packages/conformance/rigs/*.ts) ───────────────────────
   // Optional input so tests that don't exercise rig-manifest wiring don't
   // need to thread it through; the real compat:validate entry point below
   // always passes it, so these checks are CI-enforced.

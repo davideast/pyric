@@ -1,0 +1,26 @@
+{
+  "name": "rules-firestore-resource-document-identity",
+  "matrixRow": "firestore-rules#183",
+  "rowIds": [
+    "firestore-rules#183"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"resource-document-identity\" (RULES-B12). On an EXISTING doc, production leaves resource.id/__name__ absent — reading one errors → DENY, and the error survives negation. The simulator synthesized them from the request path, so `resource.id == id` ALLOWed where production DENIES (over-permissive). request.resource.id is absent in production likewise.",
+  "observedAt": "2026-07-12T03:58:05.325Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "resource.id == id on existing doc (get) → DENY (identity absent in prod)": "DENY",
+    "resource.id == id on existing doc (update) → DENY (identity absent in prod)": "DENY",
+    "resource.id == id on existing doc (delete) → DENY (identity absent in prod)": "DENY",
+    "resource.id is string on existing doc → DENY (read errors before the type test)": "DENY",
+    "resource.__name__ == request.path on existing doc → DENY (identity absent in prod)": "DENY",
+    "resource.id != 'zzz' on existing doc → DENY (error survives negation)": "DENY",
+    "!(resource.id == 'zzz') on existing doc → DENY (error survives negation)": "DENY",
+    "resource.id == 'zzz' || true → ALLOW (determining || operand absorbs the error)": "ALLOW",
+    "resource.id == 'zzz' && true → DENY (no false operand to absorb the error)": "DENY",
+    "resource.data.owner == 'alice' on existing doc → ALLOW (control: data is unaffected)": "ALLOW",
+    "request.resource.id == id on update → DENY (identity absent in prod)": "DENY",
+    "request.resource.id != 'zzz' on update → DENY (error survives negation)": "DENY",
+    "request.resource.data.owner == 'alice' on update → ALLOW (control: incoming data is unaffected)": "ALLOW"
+  }
+}

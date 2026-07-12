@@ -20,7 +20,7 @@ export type Surface =
 
 /**
  * Typed conformance status. Rendering (the ✓/⚠/✗/—/? glyphs in the
- * generated COMPAT.md docs) lives in scripts/compat/generate-docs.ts;
+ * generated COMPAT.md docs) lives in packages/conformance/src/generate-docs.ts;
  * nothing should string-match glyphs to derive meaning.
  */
 export type CompatStatus =
@@ -71,19 +71,26 @@ export interface CompatibilityRow {
   notes?: string;
   conformanceChecks?: OracleConformanceCheck[];
   /**
-   * For rules-engine rows (`firestore-rules` / `storage-rules`): the
-   * rules-language construct ids (`rules-language/<engine>.json`) whose behavior
-   * this row adjudicates — the row's SCOPE in the language.
+   * For rules-engine rows (`firestore-rules` / `storage-rules` / `rtdb-rules`):
+   * the rules-language construct ids (`rules-language/<engine>.json`) whose
+   * behavior this row's CAPTURED VERDICTS adjudicate — the row's SCOPE in the
+   * language. Not everything the ruleset happens to touch: only what the
+   * verdicts decide.
    *
-   * Required on every rules-engine row whose status is `diverged-documented` or
-   * `bug`, because that scope is what a divergence CONTAMINATES: the assurance
-   * capability derivation (`src/assurance-capabilities.ts`) downgrades any
-   * capability that depends on a construct listed here, so a known-wrong
-   * simulator cannot silently underwrite a security claim. A divergence with no
-   * declared scope would contaminate nothing, which is the failure mode this
-   * field exists to prevent.
+   * The scope is read in both directions (`src/production-verification.ts`):
    *
-   * Optional (and unused by the derivation) on conforming rows.
+   *   `diverged-documented` / `bug` — the scope is what the divergence
+   *   CONTAMINATES: the assurance capability derivation downgrades any
+   *   capability depending on a construct listed here, so a known-wrong
+   *   simulator cannot silently underwrite a security claim. REQUIRED on such a
+   *   row: a divergence with no declared scope would contaminate nothing, which
+   *   is the failure mode this field exists to prevent.
+   *
+   *   `conforms` + `oracle-backed` — the scope is what the row PROVES: the
+   *   BEHAVIORAL production-verification path. It credits a construct that no
+   *   ruleset source can express, so the syntactic analyzer has no node to
+   *   detect (the RTDB cascade semantics — what the engine does with a tree of
+   *   rules). Optional, and an omission only under-credits.
    */
   constructs?: string[];
 }

@@ -10,7 +10,7 @@ now flipped: the climb lane (`bun run compat:climb-ai`, the suites at
 `packages/pyric/test/ai`) passes 80 of 80 with no assertion
 weakened, and every row records the tier of evidence that vouches for it.
 
-Evidence tiers per `docs/conformance/ai/cdd-deltas.md`:
+Evidence tiers per `packages/conformance/docs/ai/cdd-deltas.md`:
 
 - `oracle-backed` (10 rows): the suite replays value-deterministic facts
   from a cited observation (error envelopes, countTokens, byte-compared
@@ -29,7 +29,7 @@ firebase/ai 2.12.0, each with the reason pinned in its notes.
 Generated-content VALUES are never claims. Production output is
 nondeterministic, so no row asserts on generated text, and the suites only
 compare text when the scripted engine was explicitly scripted to return it
-(the shape-backed tier ruling in `docs/conformance/ai/cdd-deltas.md`).
+(the shape-backed tier ruling in `packages/conformance/docs/ai/cdd-deltas.md`).
 
 ## Status legend
 
@@ -56,7 +56,7 @@ capture's distilled facts in the named test.
 | getai-prod-dispatch | `getAI(app)` dispatches to the production `firebase/ai` backend; the returned handle carries the app | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-prod-dispatch` (no capture; pass-through claim) |
 | getai-default-backend | With no options the backend defaults to `GoogleAIBackend` and `backendType` is `GOOGLE_AI` | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-default-backend` (matches upstream AIOptions default) |
 | getai-idempotent | Repeat `getAI` calls with the same target return a stable handle | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-idempotent` (no capture; structural claim) |
-| getai-engine-option | `getAI(sandbox, { backend: new GoogleAIBackend(), engine: { kind: "scripted" } })` selects the scripted engine explicitly and behaves identically to the zero-config default | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-engine-option` (engine seam per docs/conformance/ai/cdd-deltas.md) |
+| getai-engine-option | `getAI(sandbox, { backend: new GoogleAIBackend(), engine: { kind: "scripted" } })` selects the scripted engine explicitly and behaves identically to the zero-config default | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-engine-option` (engine seam per packages/conformance/docs/ai/cdd-deltas.md) |
 | backend-vertex | `VertexAIBackend` carries `backendType` `VERTEX_AI` and its `location` defaults to `us-central1` | ✓ | `unit:init-dispatch.test.ts` test `ai#backend-vertex` (matches upstream constructor default) |
 | model-name-short | A short model name such as `gemini-flash-lite-latest` normalizes to the `models/` resource name on `GenerativeModel.model` | ✓ | `unit:init-dispatch.test.ts` test `ai#model-name-short` (upstream AIModel normalization on the GoogleAI backend) |
 | model-name-prefixed | A `models/`-prefixed name is accepted without double prefixing | ⚠ normalization | `unit:init-dispatch.test.ts` test `ai#model-name-prefixed` (no capture; normalization claim) |

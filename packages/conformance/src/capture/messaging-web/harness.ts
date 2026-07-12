@@ -568,7 +568,7 @@ function payloadFacts(payload: Record<string, unknown>, tag: string) {
 
 // The messaging surface has been admitted under CDD: each capture cites the
 // born-unverified `messaging#*` receive-plane rows it evidences (see
-// scripts/compat/registry/messaging.ts) via `rowIds`. Citation is not replay —
+// packages/conformance/registry/messaging.ts) via `rowIds`. Citation is not replay —
 // the rows stay `unverified` until the conformance suite replays them.
 function writeObservation(
   name: string,

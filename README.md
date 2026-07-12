@@ -93,7 +93,7 @@ A sandbox session produces the artifacts a production deploy needs. Rules leave 
 
 A sandbox is only useful if it behaves like the real service. The evidence: 138 committed observations of production Firebase behavior, replayed against the sandbox in CI on every change, and a public compatibility matrix of 610 rows, 539 conforming today. Known divergences are documented rather than hidden, and an undocumented divergence is treated as a bug.
 
-Per service: [Firestore](packages/pyric/docs/firestore/COMPAT.md), [Auth](packages/pyric/docs/auth/COMPAT.md), [Realtime Database](packages/pyric/docs/database/COMPAT.md), [Storage](packages/pyric/docs/storage/COMPAT.md). How the system works: [running the conformance system](docs/conformance/how-to-run-the-conformance-system.md).
+Per service: [Firestore](packages/pyric/docs/firestore/COMPAT.md), [Auth](packages/pyric/docs/auth/COMPAT.md), [Realtime Database](packages/pyric/docs/database/COMPAT.md), [Storage](packages/pyric/docs/storage/COMPAT.md). How the system works: [running the conformance system](packages/conformance/docs/how-to-run-the-conformance-system.md).
 
 ## Using the packages directly
 

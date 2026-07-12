@@ -21,10 +21,10 @@
  *
  * Usage:
  *   export PYRIC_ORACLE_FIREBASE_CONFIG='{"apiKey":"…","authDomain":"…","projectId":"…","databaseURL":"https://<id>-default-rtdb.<region>.firebasedatabase.app","appId":"…"}'
- *   bun run scripts/oracle/check-rtdb-preflight.ts
+ *   bun run packages/conformance/src/check-rtdb-preflight.ts
  *
  * Exit code is 0 when every check passes, 1 otherwise. Intended as a gate
- * you can run before `bun run scripts/oracle/run.ts`.
+ * you can run before `bun run packages/conformance/src/run.ts`.
  */
 
 import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
@@ -56,7 +56,7 @@ interface FirebaseWebConfig {
 }
 
 // The exact RTDB rules the harness needs — mirrored from
-// scripts/oracle/README.md ("Loosen the rules"). Printed verbatim in the
+// packages/conformance/docs/oracle-project-setup.md ("Loosen the rules"). Printed verbatim in the
 // permission-denied remediation so the fix is copy-paste.
 const ORACLE_RTDB_RULES_SNIPPET = `{
   "rules": {
@@ -104,7 +104,7 @@ function loadConfig(): FirebaseWebConfig {
         '  2. Copy the config object (apiKey, authDomain, projectId, databaseURL, appId).',
         "  3. export PYRIC_ORACLE_FIREBASE_CONFIG='{\"apiKey\":\"…\",\"authDomain\":\"…\",\"projectId\":\"…\",\"databaseURL\":\"https://<id>-default-rtdb.<region>.firebasedatabase.app\",\"appId\":\"…\"}'",
         '',
-        'See scripts/oracle/README.md → "One-time project setup".',
+        'See packages/conformance/docs/oracle-project-setup.md → "One-time project setup".',
       ].join('\n'),
     );
   }
@@ -180,7 +180,7 @@ async function checkAnonymousAuth(auth: Auth): Promise<User | null> {
         '  3. Wait a few seconds for the setting to propagate, then re-run.',
         '',
         'Every RTDB probe signs in anonymously, so all of them will fail until',
-        'this is enabled. See scripts/oracle/README.md → "Enable Anonymous sign-in".',
+        'this is enabled. See packages/conformance/docs/oracle-project-setup.md → "Enable Anonymous sign-in".',
       ].join('\n'),
     );
     return null;
@@ -247,7 +247,7 @@ function rulesRemediation(lead: string): string {
     '',
     '  3. Publish the rules and wait ~5s for propagation, then re-run.',
     '',
-    'See scripts/oracle/README.md → "Realtime Database probes" → "Loosen the rules".',
+    'See packages/conformance/docs/oracle-project-setup.md → "Realtime Database probes" → "Loosen the rules".',
   ].join('\n');
 }
 

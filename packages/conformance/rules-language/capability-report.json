@@ -4,11 +4,11 @@
     {
       "engine": "firestore",
       "total": 140,
-      "implemented": 133,
+      "implemented": 131,
       "unsupported": 3,
-      "error": 1,
+      "error": 3,
       "unprobeable": 3,
-      "languageCoverage": 0.9779411764705882,
+      "languageCoverage": 0.9776119402985075,
       "constructs": [
         {
           "id": "firestore.binding.request",
@@ -85,14 +85,14 @@
         {
           "id": "firestore.binding.resource.id",
           "kind": "binding",
-          "classification": "implemented",
-          "detail": "decision ALLOW"
+          "classification": "error",
+          "detail": "eval error: No field 'id' on map (use 'in' or .get() to read a possibly-absent field)"
         },
         {
           "id": "firestore.binding.resource.__name__",
           "kind": "binding",
-          "classification": "implemented",
-          "detail": "decision ALLOW"
+          "classification": "error",
+          "detail": "eval error: No field '__name__' on map (use 'in' or .get() to read a possibly-absent field)"
         },
         {
           "id": "firestore.binding.request.resource.id",
@@ -1202,11 +1202,11 @@
     {
       "engine": "rtdb",
       "total": 56,
-      "implemented": 54,
-      "unsupported": 1,
+      "implemented": 55,
+      "unsupported": 0,
       "error": 0,
       "unprobeable": 1,
-      "languageCoverage": 0.9818181818181818,
+      "languageCoverage": 1,
       "constructs": [
         {
           "id": "rtdb.binding.auth",
@@ -1355,8 +1355,8 @@
         {
           "id": "rtdb.method.string.toUpperCase",
           "kind": "method",
-          "classification": "unsupported",
-          "detail": "EVALUATION_ERROR: Unknown string method: toUpperCase"
+          "classification": "implemented",
+          "detail": "ALLOW: Rule expression evaluated to true"
         },
         {
           "id": "rtdb.method.string.length",

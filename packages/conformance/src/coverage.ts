@@ -2,8 +2,8 @@
 /**
  * Compatibility coverage — the published, tracked, regression-guarded number.
  *
- * Combines two axes that scripts/compat/surface-census.ts and
- * scripts/compat/ledger.ts already compute, per COMPAT service:
+ * Combines two axes that packages/conformance/src/surface-census.ts and
+ * packages/conformance/src/ledger.ts already compute, per COMPAT service:
  *
  *   SURFACE coverage   = mirrored SDK exports / SDK exports (surface-census).
  *   BEHAVIOR conformance = `conforms` registry rows / evaluated rows (ledger).

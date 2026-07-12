@@ -11,7 +11,7 @@
  *     ignored.
  *   - `null` at any level erases that subtree. Locked by oracle
  *     observation
- *     `scripts/oracle/observations/rtdb-remove-vs-set-null.json` which
+ *     `packages/conformance/observations/rtdb/rtdb-remove-vs-set-null.json` which
  *     says `set(ref, null)` and `remove(ref)` produce equivalent end
  *     states.
  *   - A read of an absent path returns `null` (NOT an error). Matches

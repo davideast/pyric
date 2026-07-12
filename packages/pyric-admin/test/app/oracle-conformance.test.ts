@@ -1,6 +1,6 @@
 /**
  * Oracle conformance (admin app registry) — wires the Phase-A
- * `scripts/oracle/observations/admin-app-*.json` captures of firebase-admin's
+ * `packages/conformance/observations/auth/admin-app-*.json` captures of firebase-admin's
  * in-process app registry into the test suite so the CAPTURED real-firebase
  * behavior is machine-checked against pyric-admin's default-app registry, not
  * merely cited in comments.

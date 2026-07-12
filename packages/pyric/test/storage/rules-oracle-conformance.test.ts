@@ -2,7 +2,7 @@
  * Oracle conformance — Storage rules.
  *
  * The Storage counterpart of test/rules/oracle-conformance.test.ts. It wires
- * `scripts/oracle/observations/rules-storage-*.json` into the test suite so
+ * `packages/conformance/observations/storage-rules/rules-storage-*.json` into the test suite so
  * captured production Rules-Test-API verdicts are MACHINE-CHECKED against the
  * in-process storage evaluator (`evaluateStorageRules`), not merely cited.
  *
@@ -25,7 +25,7 @@
  * were fabricated). While the observation set is empty this suite SKIPS the
  * replay with a clear message and passes. The moment a capture lands, the
  * assertions go live verdict-for-verdict with no further edits — run
- * `scripts/oracle/run-rules-storage.ts` with PARITY_SA_BASE64 to produce them.
+ * `packages/conformance/src/run-rules-storage.ts` with PARITY_SA_BASE64 to produce them.
  */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -202,7 +202,7 @@ describe('oracle conformance (rules-storage)', () => {
   if (files.length === 0) {
     it('no rules-storage observations captured yet (staging) — skipping replay', () => {
       // Intentionally passes: the machinery is staged, the corpus is in place,
-      // but no captures have been run. Run `scripts/oracle/run-rules-storage.ts`
+      // but no captures have been run. Run `packages/conformance/src/run-rules-storage.ts`
       // with PARITY_SA_BASE64 to produce observations, after which these
       // assertions go live automatically.
       expect(files.length).toBe(0);

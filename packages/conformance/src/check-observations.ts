@@ -2,13 +2,13 @@
 /**
  * Oracle conformance gate (observations x probes).
  *
- * The pinned production records live in scripts/oracle/observations/*.json.
- * Typed registry rows in scripts/compat/registry/*.ts name the local probe
+ * The pinned production records live in packages/conformance/observations/*.json.
+ * Typed registry rows in packages/conformance/registry/*.ts name the local probe
  * tests that replay selected observations against the shim. Status is derived:
  * a passing probe means the shim conforms to the pinned observation; a failing
  * probe is either an infrastructure/setup failure or a live contradiction.
  *
- * Usage: bun run scripts/oracle/check-observations.ts [--json]
+ * Usage: bun run packages/conformance/src/check-observations.ts [--json]
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';

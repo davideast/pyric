@@ -24,10 +24,10 @@ export class DataHandler {
       // Two shapes have been observed against the live RTDB (fb-js-sdk 12.13.0):
       //   - set/get/remove: plain Error with `.code === 'PERMISSION_DENIED'`
       //     and `.message === 'PERMISSION_DENIED: Permission denied'`
-      //     (oracle: scripts/oracle/observations/rtdb-rules-denied-error-code.json)
+      //     (oracle: packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json)
       //   - runTransaction: plain Error with `.message === 'permission_denied'`
       //     (lowercase) and NO `.code` field
-      //     (oracle: scripts/oracle/observations/rtdb-modular-runtransaction-on-rules-denied-path.json)
+      //     (oracle: packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json)
       //
       // The lowercase message check catches both — the uppercase set/get path
       // also matches via the message (its message starts with 'PERMISSION_DENIED'),

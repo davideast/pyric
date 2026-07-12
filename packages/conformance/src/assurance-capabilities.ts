@@ -67,20 +67,20 @@
  *                  the whole RTDB language sits here), or nothing
  *                  production-verifies it (see below).
  *     supported    snapshot `accepted` AND capability probe `implemented` AND
- *                  production-verified (which, by the shared predicate, already
- *                  requires that no divergence covers it).
+ *                  production-verified AND no divergence covers it.
  *
- *   PRODUCTION-VERIFIED is not decided here. It is decided by the one shared
- *   predicate in src/rules-engine-rows.ts, which the coverage numerator counts
- *   with too — a construct cannot be verified in the published coverage number
- *   and unverified in the capability graph. Positive evidence earns credit (a
- *   production-captured corpus scenario's AST contains it, or a `conforms` +
- *   `oracle-backed` rules-engine row scopes it); a `diverged-documented`/`bug`
- *   rules-engine row scoping it WITHHOLDS credit and floors the dependency at
- *   `unsupported`, whatever positive evidence also exists. Negative evidence
- *   dominates: a construct the engine is known wrong about can never underwrite
- *   a security claim. An un-annotated row supplies no verification, so a missing
- *   annotation can only hold a capability DOWN, never lift it.
+ *   PRODUCTION-VERIFIED is not defined here. It is defined once, in
+ *   `production-verification.ts`, and this generator and the coverage analyzer
+ *   both call that predicate — the two numbers cannot drift apart. In short: a
+ *   construct is verified either SYNTACTICALLY (a production-captured corpus
+ *   scenario's ruleset AST contains it — `verifiedBy` in the coverage report) or
+ *   BEHAVIORALLY (a `conforms` + `oracle-backed` rules-engine row lists it in
+ *   `constructs`). The behavioral path exists because the analyzer detects
+ *   constructs in SOURCE, and an engine semantic (the RTDB cascades, error
+ *   absorption) has no source token to detect — only a verdict. See that
+ *   module's header for the honesty line on what a row may and may not credit.
+ *   An un-annotated row supplies no verification, so a missing annotation can
+ *   only hold a capability DOWN, never lift it.
  *
  *   registry-row dependency (auth acquisition, storage rules-engine behavior:
  *   surfaces the language snapshots do not model as constructs)
@@ -137,7 +137,7 @@ import {
   indexConstructScopes,
   isProductionVerified,
   productionEvidenceFor,
-} from './rules-engine-rows.ts';
+} from './production-verification.ts';
 import { loadAllSnapshots } from '../rules-language/load.ts';
 import { loadAssuranceCapabilityRecords, type LoadedCapability } from '../assurance-capabilities/load.ts';
 import type {
@@ -153,12 +153,6 @@ const CAPABILITY_DIR = join(HERE, '..', 'assurance-capabilities');
 const LANGUAGE_DIR = join(HERE, '..', 'rules-language');
 export const ARTIFACT_PATH = join(CAPABILITY_DIR, 'capabilities.json');
 export const GENERATED_TS_PATH = join(CAPABILITY_DIR, 'generated.ts');
-
-/** The rules-engine surfaces and the production-verification predicate are
- *  SHARED with the coverage analyzer (src/rules-engine-rows.ts) — the two
- *  consumers of the conformance graph must not answer "is this construct
- *  production-verified" differently. */
-
 
 const STATUS_ORDER: Record<AssuranceCapabilityStatus, number> = {
   unsupported: 0,
@@ -195,7 +189,8 @@ export interface ConformanceGraph {
   /** construct id -> ids of diverged/bug rules-engine rows that cover it */
   divergedBy: Map<string, string[]>;
   /** construct id -> ids of conforming, oracle-backed rules-engine rows that
-   *  cover it (the second production-verification path) */
+   *  cover it (the BEHAVIORAL production-verification path — see
+   *  production-verification.ts) */
   oracleProvedBy: Map<string, string[]>;
 }
 
@@ -228,12 +223,16 @@ export function loadConformanceGraph(): ConformanceGraph {
       for (const row of block.rows) rows.set(row.id, row);
     }
   }
-  // The construct-scope index (which rows prove a construct, which rows declare
-  // the simulator wrong about it) is built by the SHARED module, from the same
-  // registries the coverage analyzer reads.
   const { provingRows, divergingRows } = indexConstructScopes(surfaceRegistries);
 
-  return { snapshotStatus, probeClass, verifiedBy, rows, divergedBy: divergingRows, oracleProvedBy: provingRows };
+  return {
+    snapshotStatus,
+    probeClass,
+    verifiedBy,
+    rows,
+    divergedBy: divergingRows,
+    oracleProvedBy: provingRows,
+  };
 }
 
 /**
@@ -301,21 +300,22 @@ function deriveConstruct(graph: ConformanceGraph, id: string): DerivedDependency
     verdicts.push('supported');
   }
 
-  // Production verification: the ONE predicate (src/rules-engine-rows.ts), the
-  // same one the coverage numerator counts with. Positive evidence earns credit;
-  // a rules-engine divergence scoping the construct withholds it outright.
+  // The SHARED predicate (production-verification.ts): the same question the
+  // coverage report's `verifiedConstructs` numerator asks, answered once — over
+  // the same evidence, POSITIVE and NEGATIVE. A construct a rules-engine
+  // divergence covers is not production-verified here or there.
   const productionEvidence = productionEvidenceFor(
     id,
     { provingRows: graph.oracleProvedBy, divergingRows: graph.divergedBy },
     graph.verifiedBy.get(id) ?? [],
   );
-  evidence.push(...describeProductionEvidence(productionEvidence));
+  evidence.push(describeProductionEvidence(productionEvidence));
   verdicts.push(isProductionVerified(productionEvidence) ? 'supported' : 'qualified');
 
   // A construct the engine is KNOWN WRONG about must not underwrite a security
-  // claim at all: `qualified` (the graph is merely silent) is not enough — this
-  // is negative evidence, and it floors the dependency at `unsupported`, so a
-  // probe that depends on it abstains rather than reporting a conclusion.
+  // claim at all: `qualified` (the graph is merely silent) is not enough. This is
+  // negative evidence, and it floors the dependency at `unsupported`, so a probe
+  // depending on it abstains rather than reporting a conclusion.
   if (productionEvidence.divergingRows.length > 0) verdicts.push('unsupported');
 
   return { kind: 'construct', id, verdict: weakest(verdicts), evidence };

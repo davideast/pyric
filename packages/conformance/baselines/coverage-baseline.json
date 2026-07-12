@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T04:19:12.516Z",
+  "generatedAt": "2026-07-12T04:25:08.118Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -865,6 +865,7 @@
     "firestore-rules#180": "conforms",
     "firestore-rules#181": "conforms",
     "firestore-rules#182": "conforms",
+    "firestore-rules#183": "conforms",
     "storage-rules#94": "conforms",
     "storage-rules#95": "conforms",
     "storage-rules#96": "conforms",
@@ -1033,12 +1034,12 @@
       "denominator": 17
     },
     "behavior:firestore-rules:total": {
-      "numerator": 16,
-      "denominator": 23
+      "numerator": 17,
+      "denominator": 24
     },
     "behavior:firestore-rules:intended": {
-      "numerator": 16,
-      "denominator": 23
+      "numerator": 17,
+      "denominator": 24
     },
     "behavior:storage-rules:total": {
       "numerator": 17,
@@ -1065,15 +1066,15 @@
       "denominator": 313
     },
     "behavior:overall:total": {
-      "numerator": 691,
-      "denominator": 794
+      "numerator": 692,
+      "denominator": 795
     },
     "behavior:overall:intended": {
-      "numerator": 691,
-      "denominator": 764
+      "numerator": 692,
+      "denominator": 765
     },
     "rules-language:firestore:verified": {
-      "numerator": 105,
+      "numerator": 107,
       "denominator": 140
     },
     "rules-language:storage:verified": {
@@ -1081,16 +1082,16 @@
       "denominator": 55
     },
     "rules-language:rtdb:verified": {
-      "numerator": 52,
+      "numerator": 55,
       "denominator": 55
     }
   },
   "evidence": {
-    "observations": 231,
-    "observationDigest": "sha256:a6204e9879d3b870aec8823256bdc912577054c26164dd5f1562b0bb6c92c47e",
-    "verifiedScenarios": 45,
+    "observations": 232,
+    "observationDigest": "sha256:427c3daada3bff060908b55ab4707b6766495841ee073d5cbc44e85a13c66d8f",
+    "verifiedScenarios": 46,
     "conformanceChecks": 5,
-    "conformanceTests": 711,
+    "conformanceTests": 712,
     "mappedExports": 197
   },
   "rulesLanguageExclusions": {

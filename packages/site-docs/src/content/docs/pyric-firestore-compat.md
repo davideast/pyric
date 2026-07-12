@@ -958,5 +958,5 @@ Rows currently marked **—** that we might want to fill (rough priority):
 Per the design rationale's "What's next" section:
 
 1. **Probe-per-matrix-row.** Today's fixtures + unit tests cover 3-5 behaviors each. Splitting into one probe per row makes failures point at exactly one violation. The current bundled probes stay as integration tests; the new probe-per-row set becomes the conformance gate.
-2. **Empirical oracle harness.** Several rows marked **?** are ambiguous from docs alone. The harness at `scripts/oracle/run.ts` runs the probes against a real Firebase project and writes observations to `packages/conformance/observations/firestore/<name>.json`. Initial coverage locks #39, #116, #117 (above). Extend with additional probes for the remaining `?` and `⚠` rows.
+2. **Empirical oracle harness.** Several rows marked **?** are ambiguous from docs alone. The harness at `packages/conformance/src/run.ts` runs the probes against a real Firebase project and writes observations to `packages/conformance/observations/firestore/<name>.json`. Initial coverage locks #39, #116, #117 (above). Extend with additional probes for the remaining `?` and `⚠` rows.
 3. **CI gate.** `bun run debug:fixtures` becomes a required check on every PR that touches `packages/firestore`.

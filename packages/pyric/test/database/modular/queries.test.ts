@@ -2,7 +2,7 @@
  * `@pyric/rtdb` modular SDK — Tier 3 (queries) tests.
  *
  * Each test cites the specific oracle observation under
- * `scripts/oracle/observations/` (and the matrix row in
+ * `packages/conformance/observations/` (and the matrix row in
  * `packages/rtdb/COMPAT.md`) that it locks. The link from test →
  * observation is the conformance contract — if you change the test
  * expectation, run the matching probe and update the observation file

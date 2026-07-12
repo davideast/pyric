@@ -1,5 +1,5 @@
 /**
- * Oracle conformance — wires `scripts/oracle/observations/storage-*.json`
+ * Oracle conformance — wires `packages/conformance/observations/storage/storage-*.json`
  * into the test suite so the captured real-Firebase-Storage behavior is
  * MACHINE-CHECKED against the sandbox shim, not just cited in comments
  * (mirrors the auth suite at `test/auth/oracle-conformance.test.ts`, which

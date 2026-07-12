@@ -15,7 +15,7 @@ import type {
  * row id and failed by design until the mirror landed. The mirror is in
  * (commit e0cea50) and the climb lane passes 80 of 80 with no assertion
  * weakened, so every row is flipped: the automation field records the
- * evidence tier per docs/conformance/ai/cdd-deltas.md, and status records
+ * evidence tier per packages/conformance/docs/ai/cdd-deltas.md, and status records
  * conformance, with six documented divergences from the installed 2.12.0
  * pinned in row notes.
  */
@@ -67,7 +67,7 @@ function row(def: AiRowDef): CompatibilityRow {
 
 const ENGINE_EXCEPTION = 'answer-engine seam; no production counterpart to observe';
 
-const ENGINE_NOTE = 'The engine seam has no production analogue; sandbox-only per docs/conformance/ai/cdd-deltas.md.';
+const ENGINE_NOTE = 'The engine seam has no production analogue; sandbox-only per packages/conformance/docs/ai/cdd-deltas.md.';
 
 // Section: initialization and dispatch -------------------------------------
 
@@ -116,7 +116,7 @@ const initRows: CompatibilityRow[] = [
     api: 'getAI(target, options)',
     behavior: '`getAI(sandbox, { backend: new GoogleAIBackend(), engine: { kind: "scripted" } })` selects the scripted engine explicitly and behaves identically to the zero-config default',
     automation: 'sandbox-only',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-engine-option` (engine seam per docs/conformance/ai/cdd-deltas.md)',
+    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-engine-option` (engine seam per packages/conformance/docs/ai/cdd-deltas.md)',
     tests: ['init-dispatch.test.ts'],
     exceptionReason: ENGINE_EXCEPTION,
     notes: ENGINE_NOTE,
@@ -246,7 +246,7 @@ const generateRows: CompatibilityRow[] = [
     evidence: 'Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-modelversion-responseid`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['generate-content.test.ts'],
-    notes: 'Synthesized decoration (ruling 2 in docs/conformance/ai/cdd-deltas.md); the values are minted, only presence and determinism are claims.',
+    notes: 'Synthesized decoration (ruling 2 in packages/conformance/docs/ai/cdd-deltas.md); the values are minted, only presence and determinism are claims.',
   }),
   row({
     rowRef: 'generate-string-request',
@@ -307,7 +307,7 @@ const generateRows: CompatibilityRow[] = [
     evidence: 'Capture ai-generate-minimal-envelope replayed by packages/pyric/test/ai/generate-content.test.ts test `ai#generate-decoration-synthesized`',
     observations: ['ai-generate-minimal-envelope'],
     tests: ['generate-content.test.ts'],
-    notes: 'Ruling 2 in docs/conformance/ai/cdd-deltas.md: synthesized decoration is a standing by-design divergence class, documented per row and never hidden.',
+    notes: 'Ruling 2 in packages/conformance/docs/ai/cdd-deltas.md: synthesized decoration is a standing by-design divergence class, documented per row and never hidden.',
   }),
 ];
 
@@ -467,7 +467,7 @@ const chatRows: CompatibilityRow[] = [
     automation: 'unit-backed',
     evidence: '`unit:chat-session.test.ts` test `ai#chat-stream-single-user-turn` (no capture; divergence pinned by ruling, see notes)',
     tests: ['chat-session.test.ts'],
-    notes: 'Ruling 3 in docs/conformance/ai/cdd-deltas.md: the installed 2.12.0 duplicates the user turn, fixed upstream in 2.13.0. Reproducing a known upstream bug harms the developer the sandbox exists for, so the mirror ships the fix (packages/pyric/src/ai/models.ts).',
+    notes: 'Ruling 3 in packages/conformance/docs/ai/cdd-deltas.md: the installed 2.12.0 duplicates the user turn, fixed upstream in 2.13.0. Reproducing a known upstream bug harms the developer the sandbox exists for, so the mirror ships the fix (packages/pyric/src/ai/models.ts).',
   }),
   row({
     rowRef: 'chat-role-vocabulary',
@@ -995,7 +995,7 @@ now flipped: the climb lane (\`bun run compat:climb-ai\`, the suites at
 \`packages/pyric/test/ai\`) passes 80 of 80 with no assertion
 weakened, and every row records the tier of evidence that vouches for it.
 
-Evidence tiers per \`docs/conformance/ai/cdd-deltas.md\`:
+Evidence tiers per \`packages/conformance/docs/ai/cdd-deltas.md\`:
 
 - \`oracle-backed\` (10 rows): the suite replays value-deterministic facts
   from a cited observation (error envelopes, countTokens, byte-compared
@@ -1014,7 +1014,7 @@ firebase/ai 2.12.0, each with the reason pinned in its notes.
 Generated-content VALUES are never claims. Production output is
 nondeterministic, so no row asserts on generated text, and the suites only
 compare text when the scripted engine was explicitly scripted to return it
-(the shape-backed tier ruling in \`docs/conformance/ai/cdd-deltas.md\`).
+(the shape-backed tier ruling in \`packages/conformance/docs/ai/cdd-deltas.md\`).
 
 ## Status legend
 

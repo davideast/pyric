@@ -5,7 +5,7 @@
  * the installed `firebase/ai` model instance directly (pass-through).
  *
  * Behavior tracks the installed `@firebase/ai@2.12.0` with two pinned
- * deltas (docs/conformance/ai/cdd-deltas.md):
+ * deltas (packages/conformance/docs/ai/cdd-deltas.md):
  *
  *   - `sendMessageStream` implements the 2.13.0 FIXED single-user-turn
  *     semantics, not the installed duplicate-turn bug (ruling #99.3).

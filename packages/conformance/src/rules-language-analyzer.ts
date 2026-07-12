@@ -25,24 +25,33 @@
  * FIRST, paired with the absorbing boolean literal SECOND — see `fsIsRisky`).
  *
  * Some snapshot constructs are not merely hard to attribute today but can never
- * be credited by this method: a pure meta-semantic with no expression-level AST
- * representation (e.g. `storage.semantic.deny-by-default` — ambient engine
- * behavior, not something a ruleset's source text contains). Those constructs
- * carry an `excluded` record in their snapshot entry, under a reason CLASS whose
- * predicate the snapshot loader enforces (rules-language/types.ts), and are left
- * out of the coverage denominator rather than looking like an ordinary,
- * someday-closeable gap. An exclusion raises the published ratio by shrinking its
- * denominator, so the class — not prose — is what authorizes it.
+ * be credited at all: a pure meta-semantic that no single verdict positively
+ * demonstrates either (`storage.semantic.deny-by-default`,
+ * `rtdb.semantic.deny-by-default` — nothing matched, so nothing happened). Those
+ * constructs carry an `excluded` record in their snapshot entry, under a reason
+ * CLASS whose predicate the snapshot loader enforces (rules-language/types.ts),
+ * and are left out of the coverage denominator rather than looking like an
+ * ordinary, someday-closeable gap. An exclusion raises the published ratio by
+ * shrinking its denominator, so the class — not the prose — is what authorizes it.
  *
- * WHAT THE ANALYZER MAY NOT DECIDE ALONE
+ * NEGATIVE EVIDENCE. Being production-VERIFIED is not this file's decision: the
+ * shared predicate in production-verification.ts makes it, for this report and
+ * for the assurance generator alike. It WITHHOLDS credit from any construct a
+ * `diverged-documented`/`bug` rules-engine row scopes — the engine is known wrong
+ * about it, and a scenario that happens to exercise it does not make it verified.
+ * Negative evidence dominates positive evidence.
  *
- * Exercising a construct is a fact about the SOURCE, and this file establishes
- * it. Being production-VERIFIED is a fact about the EVIDENCE, and this file does
- * not decide it: the shared predicate in src/rules-engine-rows.ts does, for both
- * this coverage report and the assurance generator. It withholds credit from any
- * construct a `diverged-documented`/`bug` rules-engine row scopes — the engine is
- * known wrong about it, and a scenario that happens to exercise it does not make
- * it verified. Negative evidence dominates positive evidence.
+ * SOURCE IS NOT THE ONLY EVIDENCE. Everything above is the SYNTACTIC path: find
+ * the construct's node in a captured scenario's ruleset. A construct that IS a
+ * behavior of the engine rather than a token of the language (the RTDB cascade
+ * semantics: a truthy ancestor `.read`/`.write` grants below it; `.validate`
+ * does not cascade) has no node to find and would read 0% verified forever,
+ * even though production's captured VERDICTS prove it. Such a construct is
+ * credited BEHAVIORALLY, from a `conforms` + `oracle-backed` rules-engine
+ * registry row whose `constructs` scope lists it. Both paths, and the honesty
+ * line separating a creditable cascade grant from an uncreditable
+ * deny-by-default non-event, live in `production-verification.ts`; this file
+ * supplies the syntactic half and calls that predicate for the verdict.
  *
  * Also exposes the computed coverage-report writer (run as a script) that walks
  * every corpus scenario and emits rules-language/coverage-report.json.
@@ -65,7 +74,7 @@ import { parseStorageRules } from '../../../packages/pyric/src/storage/rules.ts'
 import { grammar as rtdbGrammar } from '../../../packages/pyric/src/database/grammar/RtdbExprParser.ts';
 import { loadSnapshot, type ConstructExclusion, type RulesEngine } from '../rules-language/load.ts';
 import { surfaceRegistries } from '../registry/index.ts';
-import { indexConstructScopes, isProductionVerified } from './rules-engine-rows.ts';
+import { indexConstructScopes, isProductionVerified, productionEvidenceFor } from './production-verification.ts';
 
 // ── Result shape ──────────────────────────────────────────────────────
 
@@ -809,44 +818,43 @@ export interface ConstructCoverage {
   kind: string;
   /** All scenario ids that exercise the construct. */
   exercisedBy: string[];
-  /** The subset whose observation twin exists: production's verdicts on a
-   *  ruleset containing this construct were captured and replayed. POSITIVE
-   *  evidence — necessary for credit, not sufficient (see `contaminatedBy`). */
+  /** SYNTACTIC verification: the subset of `exercisedBy` whose observation twin
+   *  exists, so production's verdict on that exact ruleset was captured and
+   *  replayed. */
   verifiedBy: string[];
-  /** Conforming, oracle-backed rules-engine rows whose `constructs` scope lists
-   *  it — the BEHAVIORAL positive path (src/rules-engine-rows.ts). */
-  provenBy: string[];
-  /** `diverged-documented` / `bug` rules-engine rows whose `constructs` scope
-   *  lists it: the simulator is KNOWN WRONG about this construct. NEGATIVE
-   *  evidence, and it dominates — a construct listed here is not counted in
-   *  `verifiedConstructs` no matter how many scenarios exercise it. */
+  /** BEHAVIORAL verification: the `conforms` + `oracle-backed` rules-engine
+   *  registry rows whose `constructs` scope lists this construct — production
+   *  verdicts that can only be explained by it. The path an engine semantic with
+   *  no source token (the RTDB cascades) is credited by; see
+   *  production-verification.ts. Either list, non-empty, verifies the construct. */
+  verifiedByRows: string[];
+  /** NEGATIVE evidence: the `diverged-documented` / `bug` rules-engine rows whose
+   *  `constructs` scope lists this construct. The simulator is KNOWN WRONG about
+   *  it, so it is not counted verified however many scenarios exercise it — see
+   *  THE CONTAMINATION RULE in production-verification.ts. */
   contaminatedBy: string[];
-  /** The verdict of the one shared predicate (src/rules-engine-rows.ts): the
-   *  construct has positive production evidence AND no divergence covers it.
-   *  This, not `verifiedBy.length > 0`, is what `verifiedConstructs` counts. */
+  /** The verdict of the shared predicate: positive evidence AND no divergence
+   *  covering it. This, not `verifiedBy.length > 0`, is what `verifiedConstructs`
+   *  counts. */
   productionVerified: boolean;
-  /** Mirrors the snapshot's `excluded` (see rules-language/types.ts): present
-   *  iff this construct is EXCLUDED from the coverage denominator under one of
-   *  the three reason classes, each with a predicate the snapshot loader
-   *  enforces. Such constructs are carried in `constructs` for the audit trail
-   *  but left out of `totalConstructs` and both ratios. An exclusion raises the
-   *  published ratio by shrinking its denominator, which is why the class — not
-   *  the prose — is what authorizes it. */
+  /** Mirrors the snapshot's `excluded` (see rules-language/types.ts): present iff
+   *  this construct is EXCLUDED from the coverage denominator, under one of three
+   *  reason CLASSES whose predicates the snapshot loader enforces. Such constructs
+   *  are carried in `constructs` for the audit trail but left out of
+   *  `totalConstructs` and both ratios. An exclusion raises the published ratio by
+   *  shrinking its denominator, which is why a class — not prose — authorizes it. */
   excluded?: ConstructExclusion;
 }
 
 export interface EngineCoverage {
   engine: RulesEngine;
-  /** Constructs in the denominator: every snapshot construct with no `excluded`. */
+  /** The denominator: snapshot constructs with no `excluded` record. */
   totalConstructs: number;
   exercisedConstructs: number;
-  /** Constructs the shared predicate calls production-verified: positive
-   *  evidence AND no divergence covering them. */
   verifiedConstructs: number;
-  /** Counted constructs a `diverged-documented`/`bug` rules-engine row scopes.
-   *  These are the constructs the engine is KNOWN WRONG about; they can never be
-   *  in `verifiedConstructs`. Published so the gap between exercised and verified
-   *  is attributable to a named row rather than looking like missing capture. */
+  /** Counted constructs a rules-engine divergence scopes. These can never be
+   *  verified: the distance between exercised and verified is a documented
+   *  divergence with a row id, not missing capture. */
   contaminatedConstructs: number;
   /** exercised / total, 0..1 (analyzer-measured breadth over the corpus). */
   exercisedCoverage: number;
@@ -867,9 +875,6 @@ const RULES_ENGINES: readonly RulesEngine[] = ['firestore', 'storage', 'rtdb'] a
 
 export async function computeCoverageReport(): Promise<CoverageReport> {
   const engines: EngineCoverage[] = [];
-  // What the rules-engine registry rows say about each construct: which rows
-  // PROVE one against production, and which rows declare the simulator known
-  // wrong about one. Both feed the single production-verification predicate.
   const scopes = indexConstructScopes(surfaceRegistries);
   for (const engine of RULES_ENGINES) {
     const snapshot = loadSnapshot(engine);
@@ -881,7 +886,7 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
         kind: c.kind,
         exercisedBy: [],
         verifiedBy: [],
-        provenBy: scopes.provingRows.get(c.id) ?? [],
+        verifiedByRows: scopes.provingRows.get(c.id) ?? [],
         contaminatedBy: scopes.divergingRows.get(c.id) ?? [],
         productionVerified: false,
         ...(c.excluded ? { excluded: c.excluded } : {}),
@@ -906,23 +911,17 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
       for (const u of result.unresolved) unresolved.push({ scenario: scenario.id, ...u });
     }
     const constructs = [...cov.values()];
-    // The single production-verification predicate (src/rules-engine-rows.ts),
-    // shared with the assurance generator so the two can never disagree about
-    // whether a construct is verified. Positive evidence (a captured scenario's
-    // AST, or a conforming oracle-backed row's scope) EARNS credit; a
-    // `diverged-documented`/`bug` rules-engine row scoping the construct VETOES
-    // it. A construct the engine is known wrong about is never counted verified,
-    // however many scenarios happen to exercise it.
+    // The SHARED predicate (src/production-verification.ts): positive evidence —
+    // syntactic (a captured scenario's AST contains it) or behavioral (a
+    // conforming, oracle-backed rules-engine row's scope lists it) — EARNS
+    // credit, and a `diverged-documented`/`bug` rules-engine row scoping the
+    // construct WITHHOLDS it. A construct the engine is known wrong about is
+    // never counted verified, however many scenarios happen to exercise it.
     for (const c of constructs) {
-      c.productionVerified = isProductionVerified({
-        scenarios: c.verifiedBy,
-        provingRows: c.provenBy,
-        divergingRows: c.contaminatedBy,
-      });
+      c.productionVerified = isProductionVerified(productionEvidenceFor(c.id, scopes, c.verifiedBy));
     }
-    // Excluded constructs (see ConstructCoverage.excluded) are carried in
-    // `constructs` for the audit trail but left out of the denominator, under a
-    // reason class whose predicate the snapshot loader enforces.
+    // Excluded constructs are carried in `constructs` for the audit trail but
+    // left out of the denominator, under a reason class the loader enforces.
     const counted = constructs.filter((c) => !c.excluded);
     const exercisedConstructs = counted.filter((c) => c.exercisedBy.length > 0).length;
     const verifiedConstructs = counted.filter((c) => c.productionVerified).length;
@@ -942,16 +941,14 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
       unresolved,
     });
   }
-  return {
-    generatedNote: GENERATED_NOTE,
-    engines,
-  };
+  return { generatedNote: GENERATED_NOTE, engines };
 }
 
 const GENERATED_NOTE = [
   'GENERATED by packages/conformance/src/rules-language-analyzer.ts. Do not edit by hand; run bun run compat:rules-coverage. compat:check fails on drift between this file and a fresh recomputation.',
-  'verifiedCoverage = production-verified constructs / counted constructs, per engine.',
-  'A construct is PRODUCTION-VERIFIED when positive evidence backs it AND no rules-engine divergence covers it (the one predicate in src/rules-engine-rows.ts, shared with the assurance generator). Positive evidence is a production-captured corpus scenario whose ruleset AST contains the construct (`verifiedBy`), or a conforming oracle-backed rules-engine row whose `constructs` scope lists it (`provenBy`). A `diverged-documented`/`bug` rules-engine row scoping the construct (`contaminatedBy`) withholds credit outright: the simulator is known wrong about it, and no quantity of positive evidence overrides a documented counterexample.',
+  'verifiedCoverage = production-verified constructs / counted constructs, per engine, by the single predicate in src/production-verification.ts (shared with the assurance generator, so the two can never disagree about the same construct).',
+  'POSITIVE evidence earns credit: SYNTACTIC — `verifiedBy` lists >=1 corpus scenario that exercises the construct and has an observation twin, so production\'s verdict on that exact ruleset was captured and replayed; or BEHAVIORAL — `verifiedByRows` lists >=1 `conforms` + `oracle-backed` rules-engine row whose `constructs` scope names it, meaning production verdicts only that construct explains were captured and matched. The behavioral path exists because the analyzer reads SOURCE, and an engine semantic (the RTDB read/write cascades, `.validate` non-cascade) has no source token to read, only a verdict.',
+  'NEGATIVE evidence WITHHOLDS credit and dominates: `contaminatedBy` lists the `diverged-documented`/`bug` rules-engine rows whose `constructs` scope names the construct. The simulator is known wrong about it, so it is never counted verified, however many scenarios exercise it. A conforming row speaks about the cases that were captured; a divergence speaks about the construct, and the sample does not outvote the counterexample.',
   'COUNTED constructs are those with no `excluded` record. An exclusion removes a construct from the denominator under one of three reason classes, each with a predicate the snapshot loader enforces (see rules-language/types.ts).',
 ].join(' ');
 
@@ -988,10 +985,11 @@ function summarize(report: CoverageReport): void {
 if (import.meta.main) {
   const report = await computeCoverageReport();
 
-  // Drift check. coverage-report.json is a COMMITTED artifact that the assurance
+  // Drift check. coverage-report.json is a COMMITTED artifact the assurance
   // generator reads and the coverage gate ratchets, so a hand-edit of the file
-  // moves published numbers with no change to any evidence behind them. Recompute
-  // and compare: the file must be what the analyzer says, not what someone typed.
+  // moves published numbers with no change to any evidence behind them.
+  // Recompute and compare: the file must be what the analyzer says, not what
+  // someone typed.
   if (process.argv.includes('--check')) {
     const { readFileSync } = await import('node:fs');
     const path = await coverageReportPath();
