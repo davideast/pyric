@@ -4,8 +4,8 @@
   "rowIds": [
     "rtdb-rules#15"
   ],
-  "description": "RTDB rules production verdicts for corpus scenario \"r15-validate-ancestor-scope\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). isolates the scope of .validate: a rule on an ancestor of the written path is evaluated against the merged post-write value at that ancestor (production denies), while the same write under a rule-free ancestor is allowed — so .validate reaches upward, and the simulator, which walks only from the write location down, is wrong.",
-  "observedAt": "2026-07-12T03:42:20.525Z",
+  "description": "RTDB rules production verdicts for corpus scenario \"r15-validate-ancestor-scope\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). isolates the scope of .validate: a rule on an ancestor of the written path is evaluated against the merged post-write value at that ancestor (production denies), while the same write under a rule-free ancestor is allowed; the simulator now reproduces that root-to-write validation walk.",
+  "observedAt": "2026-07-12T20:17:52.324Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "behavior": {

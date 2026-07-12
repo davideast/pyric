@@ -49,7 +49,8 @@
  *   # real capture (credentialed):
  *   PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \
  *     PYRIC_ORACLE_SA_PATH=ignored/service-account.json \
- *     bun run packages/conformance/src/run-rules-rtdb.ts
+ *     bun run packages/conformance/src/run-rules-rtdb.ts \
+ *     --scenario r15-validate-ancestor-scope
  */
 import { createSign } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -94,6 +95,11 @@ interface Observation {
   behavior: Record<string, unknown>;
 }
 
+interface ObservationLinkage {
+  matrixRow: string;
+  rowIds: string[];
+}
+
 /** Resolved (installed) firebase version — the value check-observation-versions.ts
  *  compares every observation against. */
 function resolvedFirebaseVersion(): string {
@@ -108,11 +114,61 @@ function observationPath(scenario: RtdbScenario): string {
   return join(OBS_DIR, `${rtdbObservationName(scenario)}.json`);
 }
 
-function totalCases(): number {
-  return ALL_RULES_RTDB_SCENARIOS.reduce((n, scenario) => n + scenario.cases.length, 0);
+function totalCases(scenarios: readonly RtdbScenario[]): number {
+  return scenarios.reduce((n, scenario) => n + scenario.cases.length, 0);
 }
 
-function printInertPlan(): void {
+export function selectRtdbScenarios(args: readonly string[]): RtdbScenario[] {
+  let selectedId: string | undefined;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === '--scenario') {
+      const value = args[index + 1];
+      if (!value || value.startsWith('--')) throw new Error('--scenario requires an id');
+      if (selectedId) throw new Error('--scenario may be supplied only once');
+      selectedId = value;
+      index++;
+      continue;
+    }
+    if (arg.startsWith('--scenario=')) {
+      const value = arg.slice('--scenario='.length);
+      if (!value) throw new Error('--scenario requires an id');
+      if (selectedId) throw new Error('--scenario may be supplied only once');
+      selectedId = value;
+      continue;
+    }
+    throw new Error(`unknown argument: ${arg}`);
+  }
+
+  if (!selectedId) return ALL_RULES_RTDB_SCENARIOS;
+  const scenario = ALL_RULES_RTDB_SCENARIOS.find((candidate) => candidate.id === selectedId);
+  if (!scenario) throw new Error(`unknown RTDB scenario: ${selectedId}`);
+  return [scenario];
+}
+
+export function observationLinkageOf(value: unknown): ObservationLinkage {
+  if (!value || typeof value !== 'object') return { matrixRow: '', rowIds: [] };
+  const record = value as Record<string, unknown>;
+  return {
+    matrixRow: typeof record.matrixRow === 'string' ? record.matrixRow : '',
+    rowIds: Array.isArray(record.rowIds)
+      ? record.rowIds.filter((id): id is string => typeof id === 'string')
+      : [],
+  };
+}
+
+export function assertMatchingOracleProjects(
+  config: Pick<FirebaseWebConfig, 'projectId'>,
+  serviceAccount: Pick<ServiceAccount, 'project_id'>,
+): void {
+  if (config.projectId !== serviceAccount.project_id) {
+    throw new Error(
+      `oracle project mismatch: Web config is ${config.projectId}, service account is ${serviceAccount.project_id}`,
+    );
+  }
+}
+
+function printInertPlan(scenarios: readonly RtdbScenario[]): void {
   console.log('[oracle:rules-rtdb] PYRIC_ORACLE_FIREBASE_CONFIG not set — INERT preview, no network calls.\n');
   console.log('  Credential env vars expected:');
   console.log('    PYRIC_ORACLE_FIREBASE_CONFIG  (Web SDK config JSON with databaseURL + apiKey; gates capture)');
@@ -124,8 +180,8 @@ function printInertPlan(): void {
   console.log('                    RTDB has no server-side rules test API, so production truth is observed by deploying real rules.');
   console.log('                    Clean run = rules canonical-JSON identical to the pre-run snapshot AND the run-scoped data');
   console.log('                    namespace absent from a shallow root read.\n');
-  console.log(`  Would capture ${ALL_RULES_RTDB_SCENARIOS.length} scenario(s):`);
-  for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
+  console.log(`  Would capture ${scenarios.length} scenario(s):`);
+  for (const scenario of scenarios) {
     const pending = scenario.cases.filter((c) => c.pendingCapture).length;
     const pendingNote = pending > 0 ? ` (${pending} pending-capture, excluded from replay)` : '';
     console.log(
@@ -133,11 +189,11 @@ function printInertPlan(): void {
         `${String(scenario.cases.length).padStart(2)} cases${pendingNote} → ${rtdbObservationName(scenario)}.json`,
     );
   }
-  console.log(`\n  Total: ${ALL_RULES_RTDB_SCENARIOS.length} scenarios, ${totalCases()} cases.`);
+  console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases(scenarios)} cases.`);
   console.log('\n  To capture for real:');
   console.log('    PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \\');
   console.log('      PYRIC_ORACLE_SA_PATH=ignored/service-account.json \\');
-  console.log('      bun run packages/conformance/src/run-rules-rtdb.ts');
+  console.log('      bun run packages/conformance/src/run-rules-rtdb.ts --scenario <scenario-id>');
 }
 
 /** Mint a short-lived OAuth access token from a service account for `scope`. */
@@ -226,7 +282,7 @@ function substituteUid<T>(v: T, uid: string): T {
   return v;
 }
 
-async function capture(): Promise<void> {
+async function capture(scenarios: readonly RtdbScenario[]): Promise<void> {
   // Heavy SDK imports are deferred to the credentialed path so the inert
   // preview stays dependency-light and always runnable.
   const { initializeApp, deleteApp } = await import('firebase/app');
@@ -248,6 +304,7 @@ async function capture(): Promise<void> {
     throw new Error(`service account not found at ${saPath}. RTDB rules deploy requires an SA to mint the firebase.database token. Set PYRIC_ORACLE_SA_PATH.`);
   }
   const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
+  assertMatchingOracleProjects(config, serviceAccount);
   const fbSdkVersion = resolvedFirebaseVersion();
 
   console.log(`[oracle:rules-rtdb] project: ${config.projectId}`);
@@ -328,16 +385,16 @@ async function capture(): Promise<void> {
     // Deploy every scenario's subtree under `<auditKey>/<scenario.id>`, merged with the
     // existing rules so real rules are preserved.
     const auditSubtree: Record<string, unknown> = {};
-    for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
+    for (const scenario of scenarios) {
       auditSubtree[scenario.id] = JSON.parse(scenario.rules);
     }
     await writeRules({ ...beforeRules, [auditKey]: auditSubtree });
-    console.log(`[oracle:rules-rtdb] deployed ${ALL_RULES_RTDB_SCENARIOS.length} scenario subtree(s) under /${auditKey}. Waiting 8s to propagate.`);
+    console.log(`[oracle:rules-rtdb] deployed ${scenarios.length} scenario subtree(s) under /${auditKey}. Waiting 8s to propagate.`);
     await new Promise((r) => setTimeout(r, 8_000));
 
     await signInAnonymously(auth);
 
-    for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
+    for (const scenario of scenarios) {
       const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
       for (const tc of scenario.cases as RtdbTestCase[]) {
         // Match auth context to the case.
@@ -429,30 +486,34 @@ async function capture(): Promise<void> {
 
   mkdirSync(OBS_DIR, { recursive: true });
   for (const { scenario, behavior } of observations) {
+    const path = observationPath(scenario);
+    const linkage = existsSync(path)
+      ? observationLinkageOf(JSON.parse(readFileSync(path, 'utf8')))
+      : observationLinkageOf(undefined);
     const obs: Observation = {
       name: rtdbObservationName(scenario),
-      matrixRow: '',
-      rowIds: [],
+      matrixRow: linkage.matrixRow,
+      rowIds: linkage.rowIds,
       description: `RTDB rules production verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ${scenario.rationale}`,
       observedAt: new Date().toISOString(),
       fbSdkVersion,
       projectId: config.projectId,
       behavior,
     };
-    writeFileSync(observationPath(scenario), JSON.stringify(obs, null, 2) + '\n');
+    writeFileSync(path, JSON.stringify(obs, null, 2) + '\n');
     console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
   }
 
   console.log('\n[oracle:rules-rtdb] capture complete — rules restored and run data removed, both read-back verified.');
-  console.log('[oracle:rules-rtdb] NEXT: the runner writes rowIds: [] on every capture, so re-wire each');
-  console.log('               observation into the compat registry — set its rowIds to the rtdb-rules');
-  console.log('               row(s) citing it (registry/rules.ts) — then run `bun run compat:validate`.');
+  console.log('[oracle:rules-rtdb] Existing observation matrixRow/rowIds linkage was preserved.');
+  console.log('[oracle:rules-rtdb] NEXT: review the observation diff, then run `bun run compat:validate`.');
 }
 
 if (import.meta.main) {
+  const scenarios = selectRtdbScenarios(process.argv.slice(2));
   if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) {
-    printInertPlan();
+    printInertPlan(scenarios);
     process.exit(0);
   }
-  await capture();
+  await capture(scenarios);
 }
