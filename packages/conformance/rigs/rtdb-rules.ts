@@ -11,18 +11,18 @@ import type { RigManifestRecord } from './types.ts';
  * the restore by reading the rules back and byte-comparing to the pre-run
  * snapshot. One observation per scenario lands as `rules-rtdb-<scenario.id>.json`.
  *
- * STAGED: no `rules-rtdb-*` capture has been run yet (credentials were not
- * available and no observation was fabricated), so `rules-rtdb-` is declared in
- * `pendingPrefixes` — a recognized surface prefix with no observation yet.
- * Without PYRIC_ORACLE_FIREBASE_CONFIG the runner makes no network calls at
- * all: it prints the capture plan and exits 0.
+ * CAPTURED: the `rules-rtdb-*` chain has run against the live oracle database,
+ * so `rules-rtdb-` is an `observationPrefixes` entry and its observations back
+ * the `rtdb-rules` native surface (surfaces/rtdb-rules.ts). Without
+ * PYRIC_ORACLE_FIREBASE_CONFIG the runner makes no network calls at all: it
+ * prints the capture plan and exits 0.
  */
 export const rig: RigManifestRecord = {
   description:
     'Deploys the RTDB rules conformance corpus to the dedicated oracle database, executes each op against the live service (RTDB has no server-side rules test API), records the production allow/deny verdict, then restores the prior ruleset and verifies the restore by read-back byte-compare; captures a per-case ALLOW/DENY verdict table as rules-rtdb- observations.',
   script: 'packages/conformance/src/run-rules-rtdb.ts',
-  observationPrefixes: [],
-  pendingPrefixes: ['rules-rtdb-'],
+  observationPrefixes: ['rules-rtdb-'],
+  pendingPrefixes: [],
   automation: 'credentialed',
   network: 'firebase-production',
   requires: {
@@ -49,7 +49,7 @@ export const rig: RigManifestRecord = {
     writes:
       'Deploys test rulesets to the dedicated oracle database under a unique run-scoped audit namespace MERGED with (never replacing) the existing rules, and writes/reads synthetic op data beneath that namespace as an anonymous user. Mutates the live rules document for the duration of a capture only.',
     cleanup:
-      'The restore invariant is the gate. After capturing, the runner restores the exact pre-run rules snapshot and VERIFIES it by reading the rules back and byte-comparing to the snapshot; a mismatch aborts loudly. Any failure mid-run (deploy, op, or read-back) triggers a restore attempt before exit. The only residual exposure is a hard process kill (SIGKILL) between deploy and restore, which would leave the run-scoped audit namespace deployed alongside — but not overwriting — the real rules; a subsequent run restores from its own fresh snapshot.',
+      'TWO invariants gate a clean run, and BOTH are read-back verified. (1) RULES RESTORED: the runner rewrites the exact pre-run rules snapshot and verifies it by reading the rules back and canonical-JSON comparing to the snapshot. (2) DATA REMOVED: the corpus ops write synthetic data beneath the run-scoped namespace `pyric_oracle_rulesrtdb_<runId>`, so the runner deletes that namespace with the admin token and verifies the deletion by a shallow read of the database root, which must no longer list the key. Both run in the same `finally` path, so any failure mid-run (deploy, op, or read-back) still triggers restore AND data cleanup before exit; either invariant failing to verify aborts loudly and refuses to write observations. The only residual exposure is a hard process kill (SIGKILL) mid-run, which would leave the run-scoped rules subtree deployed alongside — but not overwriting — the real rules, plus its data namespace; a subsequent run restores from its own fresh snapshot, and the stale namespace is inert data under a unique key.',
     unattendedSafe: true,
   },
   freshness: {

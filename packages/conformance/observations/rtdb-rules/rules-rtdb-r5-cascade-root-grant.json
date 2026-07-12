@@ -1,0 +1,17 @@
+{
+  "name": "rules-rtdb-r5-cascade-root-grant",
+  "matrixRow": "rtdb-rules#5",
+  "rowIds": [
+    "rtdb-rules#5"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r5-cascade-root-grant\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). root .read: true cascades to all descendants and a deeper .write: false cannot revoke an ancestor .write grant \u2014 production allows every op; the simulator must model grant-only cascade.",
+  "observedAt": "2026-07-12T02:54:57.994Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "cascade allows deep read": "ALLOW",
+    "cascade allows anon deep read (true)": "ALLOW",
+    "deeper false override write denied (BUT cascade from auth grant?)": "ALLOW",
+    "top-level write allowed (auth)": "ALLOW"
+  }
+}
