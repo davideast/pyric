@@ -349,7 +349,23 @@ export const ST_INPUT: EvaluationInput = {
     path: 'probe/x',
     resource: { size: 10, contentType: 'text/plain', metadata: { owner: 'u' } },
   },
-  resource: { size: 10, contentType: 'text/plain', metadata: { owner: 'u' } },
+  // The existing-object binding carries the object-identity/time fields, so a
+  // `resource.name == resource.name` style micro-probe genuinely EVALUATES the
+  // field. Leaving one out would make its probe hit the absent-property error
+  // and deny — which `stRun` would score as `implemented` ("DENY: …") without
+  // the construct ever having been read. The fields must be present for the
+  // probe to mean anything.
+  resource: {
+    size: 10,
+    contentType: 'text/plain',
+    metadata: { owner: 'u' },
+    name: 'probe/x',
+    bucket: 'demo-pyric.appspot.com',
+    timeCreated: '2025-01-01T00:00:00Z',
+    updated: '2025-01-02T00:00:00Z',
+    generation: 1,
+    metageneration: 1,
+  },
 };
 
 /**
@@ -395,6 +411,7 @@ function stRun(probe: StProbe): { classification: Classification; detail: string
 const ST_EXPR: Record<string, StProbe> = {
   'storage.function.timestamp.date': { expr: 'request.time < timestamp.date(2999, 1, 1)' },
   'storage.function.timestamp.value': { expr: 'request.time < timestamp.value(99999999999999)' },
+  'storage.function.duration.value': { expr: "request.time < resource.timeCreated + duration.value(99999, 'd')" },
   'storage.function.firestore.get': { expr: "firestore.get(/databases/(default)/documents/u/x).data.k == 'v'" },
   'storage.function.firestore.exists': { expr: 'firestore.exists(/databases/(default)/documents/u/x)' },
   'storage.method.string.matches': { expr: "request.resource.contentType.matches('text/.*')" },
@@ -413,6 +430,23 @@ const ST_EXPR: Record<string, StProbe> = {
   'storage.operator.not': { expr: '!(request.auth == null)' },
   'storage.operator.member': { expr: 'request.resource.metadata.owner == request.auth.uid' },
   'storage.operator.index': { expr: "request.resource.metadata['owner'] == request.auth.uid" },
+  // The existing-object identity/time fields. These carry a descriptive `note`
+  // (production's semantics for the field), and the generic binding branch
+  // below treats ANY noted binding as unprobeable — a heuristic meant for
+  // UNMODELED fields. They are modeled now, so give each an explicit probe;
+  // ST_EXPR is consulted before that heuristic.
+  'storage.binding.resource.name': { expr: "resource.name.matches('probe/.*')" },
+  'storage.binding.resource.bucket': { expr: 'resource.bucket == resource.bucket' },
+  // Both timestamp probes compare the two object timestamps against EACH OTHER
+  // rather than against `request.time`. A `request.time` comparison is not
+  // time-independent: the acceptance probe pins production's request.time to
+  // PROBE_TIME (2024) while the local capability probe defaults it to the
+  // wall clock, so the two backends would disagree on a fixed timeCreated —
+  // a harness artifact, not a fidelity signal. ST_INPUT has
+  // timeCreated (Jan 1) strictly before updated (Jan 2), so both are
+  // deterministically ALLOW on either backend.
+  'storage.binding.resource.timeCreated': { expr: 'resource.timeCreated < resource.updated' },
+  'storage.binding.resource.updated': { expr: 'resource.updated > resource.timeCreated' },
 };
 
 export function stProbeFor(c: LanguageConstruct): StProbe {

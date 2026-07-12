@@ -322,8 +322,8 @@
         "firestore.operator.in: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
         "firestore.semantic.hierarchical-match-cascade: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 23 captured scenario(s)",
         "firestore.semantic.recursive-wildcard: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
-        "firestore.semantic.error-absorption-and: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by conforming oracle-backed rules-engine row firestore-rules#163",
-        "firestore.semantic.error-absorption-or: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by conforming oracle-backed rules-engine row firestore-rules#163"
+        "firestore.semantic.error-absorption-and: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "firestore.semantic.error-absorption-or: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 3 captured scenario(s)"
       ],
       "dependencies": [
         {
@@ -593,7 +593,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by conforming oracle-backed rules-engine row firestore-rules#163"
+            "production-verified by 1 captured scenario(s)"
           ]
         },
         {
@@ -603,7 +603,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by conforming oracle-backed rules-engine row firestore-rules#163"
+            "production-verified by 3 captured scenario(s)"
           ]
         }
       ]
@@ -1125,12 +1125,28 @@
     {
       "id": "storage.advanced-rules",
       "service": "storage",
-      "status": "unsupported",
-      "description": "Granular verbs, functions, time, regex, and Firestore rule lookups.",
+      "status": "supported",
+      "description": "Granular verbs, functions, time, regex, object identity, and Firestore rule lookups.",
       "reasons": [
-        "storage.binding.resource.timeCreated: snapshot status \"unprobeable\"; capability probe \"unprobeable\"; production-verified by 1 captured scenario(s); covered by rules-engine divergence storage-rules#116",
-        "storage.binding.resource.timeUpdated: snapshot status \"unprobeable\"; capability probe \"unprobeable\"; no production-captured scenario and no conforming oracle-backed row verifies it; covered by rules-engine divergence storage-rules#116",
-        "storage-rules#116: registry row storage-rules#116 (storage-rules) status \"diverged-documented\"; divergence is in the rules engine itself: the verdict machinery is known wrong here"
+        "storage.rule-kind.allow-get: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 4 captured scenario(s)",
+        "storage.rule-kind.allow-list: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.rule-kind.allow-create: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 6 captured scenario(s)",
+        "storage.rule-kind.allow-update: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 3 captured scenario(s)",
+        "storage.rule-kind.allow-delete: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
+        "storage.rule-kind.function: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.rule-kind.let: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.method.string.matches: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 3 captured scenario(s)",
+        "storage.function.timestamp.date: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.function.timestamp.value: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.function.duration.value: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.function.firestore.get: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.function.firestore.exists: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.binding.request.time: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
+        "storage.binding.resource.name: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.binding.resource.bucket: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.binding.resource.timeCreated: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage.binding.resource.updated: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "storage-rules#116: registry row storage-rules#116 (storage-rules) status \"conforms\""
       ],
       "dependencies": [
         {
@@ -1170,7 +1186,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 2 captured scenario(s)"
+            "production-verified by 3 captured scenario(s)"
           ]
         },
         {
@@ -1180,7 +1196,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 1 captured scenario(s)"
+            "production-verified by 2 captured scenario(s)"
           ]
         },
         {
@@ -1210,7 +1226,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 2 captured scenario(s)"
+            "production-verified by 3 captured scenario(s)"
           ]
         },
         {
@@ -1226,6 +1242,16 @@
         {
           "kind": "construct",
           "id": "storage.function.timestamp.value",
+          "verdict": "supported",
+          "evidence": [
+            "snapshot status \"accepted\"",
+            "capability probe \"implemented\"",
+            "production-verified by 1 captured scenario(s)"
+          ]
+        },
+        {
+          "kind": "construct",
+          "id": "storage.function.duration.value",
           "verdict": "supported",
           "evidence": [
             "snapshot status \"accepted\"",
@@ -1266,42 +1292,49 @@
         {
           "kind": "construct",
           "id": "storage.binding.resource.name",
-          "verdict": "qualified",
+          "verdict": "supported",
           "evidence": [
-            "snapshot status \"unprobeable\"",
-            "capability probe \"unprobeable\"",
-            "no production-captured scenario and no conforming oracle-backed row verifies it"
+            "snapshot status \"accepted\"",
+            "capability probe \"implemented\"",
+            "production-verified by 1 captured scenario(s)"
+          ]
+        },
+        {
+          "kind": "construct",
+          "id": "storage.binding.resource.bucket",
+          "verdict": "supported",
+          "evidence": [
+            "snapshot status \"accepted\"",
+            "capability probe \"implemented\"",
+            "production-verified by 1 captured scenario(s)"
           ]
         },
         {
           "kind": "construct",
           "id": "storage.binding.resource.timeCreated",
-          "verdict": "unsupported",
+          "verdict": "supported",
           "evidence": [
-            "snapshot status \"unprobeable\"",
-            "capability probe \"unprobeable\"",
-            "production-verified by 1 captured scenario(s)",
-            "covered by rules-engine divergence storage-rules#116"
+            "snapshot status \"accepted\"",
+            "capability probe \"implemented\"",
+            "production-verified by 1 captured scenario(s)"
           ]
         },
         {
           "kind": "construct",
-          "id": "storage.binding.resource.timeUpdated",
-          "verdict": "unsupported",
+          "id": "storage.binding.resource.updated",
+          "verdict": "supported",
           "evidence": [
-            "snapshot status \"unprobeable\"",
-            "capability probe \"unprobeable\"",
-            "no production-captured scenario and no conforming oracle-backed row verifies it",
-            "covered by rules-engine divergence storage-rules#116"
+            "snapshot status \"accepted\"",
+            "capability probe \"implemented\"",
+            "production-verified by 1 captured scenario(s)"
           ]
         },
         {
           "kind": "registry-row",
           "id": "storage-rules#116",
-          "verdict": "unsupported",
+          "verdict": "supported",
           "evidence": [
-            "registry row storage-rules#116 (storage-rules) status \"diverged-documented\"",
-            "divergence is in the rules engine itself: the verdict machinery is known wrong here"
+            "registry row storage-rules#116 (storage-rules) status \"conforms\""
           ]
         }
       ]
@@ -1328,10 +1361,10 @@
         "storage.binding.resource.contentType: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
         "storage.binding.resource.metadata: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
         "storage.binding.path-variable: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 8 captured scenario(s)",
-        "storage.operator.eq: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 5 captured scenario(s)",
-        "storage.operator.neq: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
+        "storage.operator.eq: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 6 captured scenario(s)",
+        "storage.operator.neq: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 3 captured scenario(s)",
         "storage.operator.lt: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 4 captured scenario(s)",
-        "storage.operator.and: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
+        "storage.operator.and: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 3 captured scenario(s)",
         "storage.operator.or: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
         "storage.operator.not: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
         "storage.semantic.read-umbrella: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
@@ -1514,7 +1547,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 5 captured scenario(s)"
+            "production-verified by 6 captured scenario(s)"
           ]
         },
         {
@@ -1524,7 +1557,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 2 captured scenario(s)"
+            "production-verified by 3 captured scenario(s)"
           ]
         },
         {
@@ -1544,7 +1577,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 2 captured scenario(s)"
+            "production-verified by 3 captured scenario(s)"
           ]
         },
         {

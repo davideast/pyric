@@ -124,27 +124,32 @@
       "kind": "binding",
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/security/storage/resource#name",
-      "status": "unprobeable",
-      "note": "Discrepancy: resource.name is in the official Storage rules language, but the standalone evaluator's resource model (src/storage/rules.ts StorageResource) carries only size/contentType/metadata, so resource.name reads undefined.",
-      "probeNote": "resource.name is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Discrepancy: resource.name is in the official Storage rules language, but the standalone evaluator's resource model (src/storage/rules.ts StorageResource) carries only size/contentType/metadata, so resource.name reads undefined."
+      "status": "accepted",
+      "note": "resource.name is the object's FULL path within the bucket (GCS object-name convention, e.g. `uploads/pic.png`), sourced from the persisted record's fullPath — NOT the client SDK's last-path-segment name. Production returns it as a literal on the resource map; an absent name is an evaluation error that denies."
     },
     {
       "id": "storage.binding.resource.timeCreated",
       "kind": "binding",
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/security/storage/resource#timeCreated",
-      "status": "unprobeable",
-      "note": "Discrepancy: official field, out of scope in the standalone evaluator — the resource model has no server timestamps, so resource.timeCreated reads undefined (documented in src/storage/rules.ts header).",
-      "probeNote": "resource.timeCreated is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Discrepancy: official field, out of scope in the standalone evaluator — the resource model has no server timestamps, so resource.timeCreated reads undefined (documented in src/storage/rules.ts header)."
+      "status": "accepted",
+      "note": "resource.timeCreated is a timestamp (ISO-8601 in the persisted record; the evaluator compares it as epoch millis against request.time). Production rejects an int in a timestamp comparison; an absent timeCreated denies."
     },
     {
-      "id": "storage.binding.resource.timeUpdated",
+      "id": "storage.binding.resource.updated",
       "kind": "binding",
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/security/storage/resource#updated",
-      "status": "unprobeable",
-      "note": "Discrepancy: official field, out of scope in the standalone evaluator — resource.timeUpdated reads undefined (no server-timestamp model).",
-      "probeNote": "resource.timeUpdated is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Discrepancy: official field, out of scope in the standalone evaluator — resource.timeUpdated reads undefined (no server-timestamp model)."
+      "status": "accepted",
+      "note": "resource.updated is the object's last-update timestamp. The field is `updated` — the Storage rules language has NO `resource.timeUpdated` (live-probed: `timeUpdated` reads as an absent property). Renamed from the earlier mis-identified `storage.binding.resource.timeUpdated`."
+    },
+    {
+      "id": "storage.binding.resource.bucket",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#bucket",
+      "status": "accepted",
+      "note": "resource.bucket is the bucket the object resides in, sourced from the persisted record. Production returns it as a literal on the resource map; an absent bucket denies."
     },
     {
       "id": "storage.function.timestamp.date",
@@ -159,6 +164,14 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/security/storage/timestamp#value",
       "status": "accepted"
+    },
+    {
+      "id": "storage.function.duration.value",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/duration#value",
+      "status": "accepted",
+      "note": "duration.value(magnitude, unit) — a duration the evaluator returns as milliseconds so it adds to / subtracts from the millis-modeled timestamps, enabling the freshness idiom `request.time < resource.timeCreated + duration.value(1, 'h')`."
     },
     {
       "id": "storage.function.firestore.get",
@@ -392,7 +405,8 @@
       "kind": "semantic",
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
-      "status": "accepted"
+      "status": "accepted",
+      "unattributable": "Pure meta-semantic: the engine denies any request no `allow` matches. It is not written anywhere in a ruleset's source — there is no expression, operator, or declaration form that turns it on, so the AST walker (rules-language-analyzer.ts) has no node to credit it from. It could only be observed by evaluating a scenario's cases against the ruleset (a request whose path/verb no allow rule covers, expecting DENY) — a runtime/behavioral check, not a static-source fact, and this analyzer deliberately only walks parsed rules source, never evaluates. Crediting it to every ruleset unconditionally (since the fallback is unconditional) would be a hollow credit with no distinguishing AST evidence behind it, so it is intentionally left out of exercisedBy/verifiedBy rather than papered over as attributed."
     }
   ]
 }

@@ -854,11 +854,11 @@
     },
     {
       "engine": "storage",
-      "total": 54,
-      "implemented": 51,
+      "total": 56,
+      "implemented": 56,
       "unsupported": 0,
       "error": 0,
-      "unprobeable": 3,
+      "unprobeable": 0,
       "languageCoverage": 1,
       "constructs": [
         {
@@ -960,20 +960,26 @@
         {
           "id": "storage.binding.resource.name",
           "kind": "binding",
-          "classification": "unprobeable",
-          "detail": "resource.name is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Discrepancy: resource.name is in the official Storage rules language, but the standalone evaluator's resource model (src/storage/rules.ts StorageResource) carries only size/contentType/metadata, so resource.name reads undefined."
+          "classification": "implemented",
+          "detail": "DENY: no rule matches read /probe/x"
         },
         {
           "id": "storage.binding.resource.timeCreated",
           "kind": "binding",
-          "classification": "unprobeable",
-          "detail": "resource.timeCreated is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Discrepancy: official field, out of scope in the standalone evaluator — the resource model has no server timestamps, so resource.timeCreated reads undefined (documented in src/storage/rules.ts header)."
+          "classification": "implemented",
+          "detail": "DENY: no rule matches read /probe/x"
         },
         {
-          "id": "storage.binding.resource.timeUpdated",
+          "id": "storage.binding.resource.updated",
           "kind": "binding",
-          "classification": "unprobeable",
-          "detail": "resource.timeUpdated is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Discrepancy: official field, out of scope in the standalone evaluator — resource.timeUpdated reads undefined (no server-timestamp model)."
+          "classification": "implemented",
+          "detail": "DENY: no rule matches read /probe/x"
+        },
+        {
+          "id": "storage.binding.resource.bucket",
+          "kind": "binding",
+          "classification": "implemented",
+          "detail": "DENY: no rule matches read /probe/x"
         },
         {
           "id": "storage.function.timestamp.date",
@@ -983,6 +989,12 @@
         },
         {
           "id": "storage.function.timestamp.value",
+          "kind": "function",
+          "classification": "implemented",
+          "detail": "DENY: no rule matches read /probe/x"
+        },
+        {
+          "id": "storage.function.duration.value",
           "kind": "function",
           "classification": "implemented",
           "detail": "DENY: no rule matches read /probe/x"

@@ -1,6 +1,6 @@
 {
   "generatedNote": "Issue #185 step 5: production Rules Test API acceptance probe (firestore + storage arms). `status` on each snapshot construct is accepted/rejected/unprobeable — see rules-language/types.ts ConstructStatus doc. rejected constructs are findings: production disagrees with the snapshot's claim that the construct is real language surface. RTDB stays unprobed (no Test API for RTDB rules).",
-  "probedAt": "2026-07-12T01:57:27.930Z",
+  "probedAt": "2026-07-12T03:33:37.520Z",
   "engines": [
     {
       "engine": "firestore",
@@ -981,11 +981,11 @@
     },
     {
       "engine": "storage",
-      "total": 54,
-      "accepted": 51,
+      "total": 56,
+      "accepted": 56,
       "rejected": 0,
-      "unprobeable": 3,
-      "evaluationAgree": 51,
+      "unprobeable": 0,
+      "evaluationAgree": 56,
       "evaluationDisagree": 0,
       "constructs": [
         {
@@ -1103,20 +1103,30 @@
         {
           "id": "storage.binding.resource.name",
           "kind": "binding",
-          "status": "unprobeable",
-          "probeNote": "resource.name is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Discrepancy: resource.name is in the official Storage rules language, but the standalone evaluator's resource model (src/storage/rules.ts StorageResource) carries only size/contentType/metadata, so resource.name reads undefined."
+          "status": "accepted",
+          "evaluationAgreement": true,
+          "evaluationDetail": "expected ALLOW, got ALLOW"
         },
         {
           "id": "storage.binding.resource.timeCreated",
           "kind": "binding",
-          "status": "unprobeable",
-          "probeNote": "resource.timeCreated is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Discrepancy: official field, out of scope in the standalone evaluator — the resource model has no server timestamps, so resource.timeCreated reads undefined (documented in src/storage/rules.ts header)."
+          "status": "accepted",
+          "evaluationAgreement": true,
+          "evaluationDetail": "expected ALLOW, got ALLOW"
         },
         {
-          "id": "storage.binding.resource.timeUpdated",
+          "id": "storage.binding.resource.updated",
           "kind": "binding",
-          "status": "unprobeable",
-          "probeNote": "resource.timeUpdated is unmodeled by the standalone evaluator (reads undefined); a micro-scenario cannot distinguish unimplemented from implemented-but-absent. Discrepancy: official field, out of scope in the standalone evaluator — resource.timeUpdated reads undefined (no server-timestamp model)."
+          "status": "accepted",
+          "evaluationAgreement": true,
+          "evaluationDetail": "expected ALLOW, got ALLOW"
+        },
+        {
+          "id": "storage.binding.resource.bucket",
+          "kind": "binding",
+          "status": "accepted",
+          "evaluationAgreement": true,
+          "evaluationDetail": "expected ALLOW, got ALLOW"
         },
         {
           "id": "storage.function.timestamp.date",
@@ -1127,6 +1137,13 @@
         },
         {
           "id": "storage.function.timestamp.value",
+          "kind": "function",
+          "status": "accepted",
+          "evaluationAgreement": true,
+          "evaluationDetail": "expected ALLOW, got ALLOW"
+        },
+        {
+          "id": "storage.function.duration.value",
           "kind": "function",
           "status": "accepted",
           "evaluationAgreement": true,

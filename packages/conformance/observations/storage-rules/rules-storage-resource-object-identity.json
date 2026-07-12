@@ -1,0 +1,22 @@
+{
+  "name": "rules-storage-resource-object-identity",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#116"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"resource-object-identity\" (STORAGE-RES-IDENTITY). The resource binding's object-identity/time fields — name (full object path), timeCreated, updated, bucket — driving an extension guard, a freshness window, an immutability check, and an absent-property negation that must not false-allow.",
+  "observedAt": "2026-07-12T03:22:04.455Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "get: resource.name ends in .png → allow (extension guard)": "ALLOW",
+    "get: resource.name ends in .txt → deny (extension guard)": "DENY",
+    "get: resource.name absent → deny (absent-property error, no false-allow)": "DENY",
+    "delete: within 1h of timeCreated → allow (freshness)": "ALLOW",
+    "delete: more than 1h after timeCreated → deny (freshness)": "DENY",
+    "update: timeCreated == updated (never modified) → allow (immutability)": "ALLOW",
+    "update: timeCreated != updated (already modified) → deny (immutability)": "DENY",
+    "get: resource.name != literal, name present → allow": "ALLOW",
+    "get: resource.name != literal, name ABSENT → deny (error survives negation)": "DENY"
+  }
+}

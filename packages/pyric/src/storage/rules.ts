@@ -35,6 +35,9 @@
  *         `timestamp.date(y, m, d)` (UTC midnight) and
  *         `timestamp.value(epochMillis)`. The caller injects the time
  *         (3rd arg to `evaluateStorageRules`), defaulting to now.
+ *       `duration.value(n, unit)` — a duration in millis, so the freshness
+ *         idiom `request.time < resource.timeCreated + duration.value(1, 'h')`
+ *         evaluates.
  *       `string.matches(re)` — whole-string RE2-style regex match
  *         (see `evalMatches` for the RE2-vs-JS divergence handling)
  *       custom-metadata access in both dotted (`resource.metadata.owner`)
@@ -47,12 +50,23 @@
  *     outer), may call other functions, support `let` bindings, and are
  *     depth-capped. Any function-eval failure denies with a reason.
  *
- * Still out of scope (mirrors the survey + plan): cross-document lookups
- * (`firestore.get`/`exists`) and `resource.timeCreated`/`updated`
- * (the evaluator's resource model carries size/contentType/metadata only,
- * not server timestamps — those fields read `undefined`). Unknown builtins
- * deny with a reason rather than false-allow. Hooks for adding more live at
- * the obvious extension seams in the parser + evaluator.
+ *   - The object-identity / time fields of `resource`: `name` (the FULL object
+ *     path, GCS convention — not the client SDK's last-segment `name`),
+ *     `bucket`, `timeCreated`, `updated`, `generation`, `metageneration`. They
+ *     are sourced from the persisted object record (see `resourceFromStored`),
+ *     which already carries every one of them. There is no `resource.timeUpdated`
+ *     in the language; the update-time field is `updated`.
+ *
+ * ERROR SEMANTICS (live-probed against the production Rules Test API — see
+ * `RuleError`): reading a property that is ABSENT, or dereferencing a null,
+ * yields an error VALUE that absorbs to DENY and SURVIVES NEGATION. Modeling
+ * it as a plain `undefined` would false-allow `resource.name != 'x'` on an
+ * object with no `name`; production denies it.
+ *
+ * Still out of scope: the content-hash fields (`md5Hash`, `crc32c`, `etag`) and
+ * the remaining content-* fields. Unknown builtins deny with a reason rather
+ * than false-allow. Hooks for adding more live at the obvious extension seams in
+ * the parser + evaluator.
  */
 
 // ═══════════════════════════════════════════════════════════════
@@ -114,12 +128,45 @@ export interface StorageRequest {
   resource?: { size: number; contentType?: string; metadata?: Record<string, string> };
 }
 
-/** Existing-object bindings (for `resource.*`). `null` when no
- *  object exists yet (creates). */
+/**
+ * Existing-object bindings (for `resource.*`). `null` when no object exists
+ * yet (creates).
+ *
+ * The object-identity/time fields carry GOOGLE CLOUD STORAGE semantics, not
+ * the client SDK's `FullMetadata` semantics — the two disagree on `name`:
+ *
+ *   - rules `resource.name` is the object's FULL path within the bucket
+ *     (`uploads/pic.png`), the GCS object-name convention. The client SDK's
+ *     `FullMetadata.name` is the LAST path segment (`pic.png`). The adapter
+ *     (`resourceFromStored`) therefore sources `name` from the persisted
+ *     record's `fullPath`, NOT its `name`.
+ *   - `timeCreated` / `updated` are ISO-8601 strings here (the persisted
+ *     shape); the evaluator converts them to epoch millis when it builds the
+ *     binding, so they compare numerically against `request.time` and against
+ *     each other. Production types them as `timestamp` and rejects an int in
+ *     their place ("Received: int < timestamp").
+ *   - The update-time field is `updated`. There is NO `resource.timeUpdated`
+ *     in the Storage rules language.
+ *
+ * A field left `undefined` reads as ABSENT, which production treats as an
+ * evaluation error that denies (see {@link RuleError}).
+ */
 export interface StorageResource {
   size: number;
   contentType?: string;
   metadata?: Record<string, string>;
+  /** Full object path within the bucket, e.g. `uploads/pic.png`. */
+  name?: string;
+  /** Bucket the object lives in. */
+  bucket?: string;
+  /** ISO-8601 creation time. */
+  timeCreated?: string;
+  /** ISO-8601 time of the most recent content/metadata update. */
+  updated?: string;
+  /** Content generation (production types it `int`). */
+  generation?: number;
+  /** Metadata generation (production types it `int`). */
+  metageneration?: number;
 }
 
 export interface EvaluationInput {
@@ -772,7 +819,17 @@ function resolveFunctions(block: MatchBlock, parent: FunctionMap): void {
  */
 export function resourceFromStored(
   stored:
-    | { size: number; contentType?: string; customMetadata?: Record<string, string> }
+    | {
+        size: number;
+        contentType?: string;
+        customMetadata?: Record<string, string>;
+        fullPath?: string;
+        bucket?: string;
+        timeCreated?: string;
+        updated?: string;
+        generation?: string;
+        metageneration?: string;
+      }
     | null
     | undefined,
 ): StorageResource | null {
@@ -781,7 +838,57 @@ export function resourceFromStored(
     size: stored.size,
     contentType: stored.contentType,
     metadata: stored.customMetadata,
+    // GCS object-name semantics — see the StorageResource docblock. Neither of
+    // the persisted record's two path fields is this value as-is:
+    //   - `name` is the LAST SEGMENT (`pic.png`), the client SDK's FullMetadata
+    //     semantics — too short.
+    //   - `fullPath` is the FULL RESOURCE NAME including the
+    //     `b/<bucket>/o/` prefix (`b/pyric-default/o/uploads/pic.png`), because
+    //     that is the path the rules match tree walks — too long.
+    // The rules binding is the object path WITHIN the bucket
+    // (`uploads/pic.png`), which is `fullPath` with that prefix stripped.
+    name: objectNameFromFullPath(stored.fullPath, stored.bucket),
+    bucket: stored.bucket,
+    timeCreated: stored.timeCreated,
+    updated: stored.updated,
+    // Persisted as strings (FullMetadata shape); production types both `int`.
+    generation: numberOrUndefined(stored.generation),
+    metageneration: numberOrUndefined(stored.metageneration),
   };
+}
+
+/**
+ * Reduce a persisted `fullPath` to the rules language's `resource.name` — the
+ * object path WITHIN the bucket.
+ *
+ * The persisted path is the full resource name (`b/<bucket>/o/<object>`), the
+ * form the rules match tree walks. Production's `resource.name` is only the
+ * `<object>` part, so the `b/<bucket>/o/` prefix comes off. The bucket-specific
+ * prefix is tried first; a generic `b/<any>/o/` is the fallback so a record
+ * whose `bucket` field is missing still reduces correctly. A path carrying no
+ * such prefix is already an object path and passes through untouched.
+ */
+function objectNameFromFullPath(
+  fullPath: string | undefined,
+  bucket: string | undefined,
+): string | undefined {
+  if (fullPath === undefined) return undefined;
+  const path = fullPath.startsWith('/') ? fullPath.slice(1) : fullPath;
+  if (bucket !== undefined) {
+    const prefix = `b/${bucket}/o/`;
+    if (path.startsWith(prefix)) return path.slice(prefix.length);
+  }
+  const generic = /^b\/[^/]+\/o\//.exec(path);
+  if (generic) return path.slice(generic[0].length);
+  return path;
+}
+
+/** Parse a persisted numeric-string field, dropping anything unparseable so it
+ *  reads as ABSENT (→ deny) rather than as a bogus number. */
+function numberOrUndefined(v: string | undefined): number | undefined {
+  if (v === undefined) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /**
@@ -864,8 +971,8 @@ export function evaluateStorageRules(
         if (!applies) continue;
         let result: boolean;
         try {
-          result = rule.condition
-            ? truthy(evalExpr(rule.condition, {
+          const value = rule.condition
+            ? evalExpr(rule.condition, {
                 input,
                 now: nowMillis,
                 params: newParams,
@@ -873,8 +980,18 @@ export function evaluateStorageRules(
                 funcs: block.visibleFuncs ?? new Map(),
                 depth: 0,
                 firestoreLookup,
-              }))
+              })
             : true;
+          // An error value reaching the allow boundary DENIES, carrying
+          // production's own message (e.g. "Property name is undefined on
+          // object.") into the reason trace.
+          if (isErr(value)) {
+            reasons.push(
+              `match ${formatPath(block.segments)} ${input.request.method}: ${value.message}`,
+            );
+            continue;
+          }
+          result = truthy(value);
         } catch (err) {
           // Any function-evaluation failure (undefined function, wrong
           // arity, depth exceeded, error inside a body) denies this rule
@@ -960,7 +1077,52 @@ function matchSegments(
   return { left: remaining.slice(i), params: next };
 }
 
+/**
+ * A production ERROR VALUE — what the rules engine yields when an expression
+ * reads a property that is not present on an object, or dereferences a null.
+ *
+ * Live-probed against the production Rules Test API (`projects:test`), which
+ * reports these verbatim in `debugMessages`, e.g.
+ *
+ *   "Error: storage.rules line [4], column [40]. Property name is undefined on object."
+ *   "Error: storage.rules line [4], column [61]. Unsupported operation error.
+ *    Received: int < timestamp. …"
+ *
+ * The semantics production showed, and that this type reproduces:
+ *
+ *   - an error ABSORBS TO DENY at the allow boundary;
+ *   - it SURVIVES NEGATION — `resource.name != 'x'` and `!(resource.name == 'x')`
+ *     both DENY when `name` is absent. This is why an error must be a VALUE
+ *     that propagates rather than a plain `undefined`: `undefined != 'x'` is
+ *     `true` in JavaScript, which would FALSE-ALLOW exactly the extension-guard
+ *     rules users write;
+ *   - `<error> || true` is ALLOW (a true disjunct rescues it), while
+ *     `<error> && …` denies.
+ *
+ * Unlike {@link RuleEvalError} (thrown, for malformed function calls), this is a
+ * returned value: it flows through operators the way production's does.
+ */
+class RuleError {
+  constructor(readonly message: string) {}
+}
+
+function isErr(v: unknown): v is RuleError {
+  return v instanceof RuleError;
+}
+
+/** Property read against `obj`, with production's absent-property semantics:
+ *  a key that is missing — or present but holding `undefined` — is an ERROR,
+ *  never a silent `undefined`. */
+function readProperty(obj: Record<string, unknown>, name: string): unknown {
+  const v = obj[name];
+  if (v === undefined) return new RuleError(`Property ${name} is undefined on object.`);
+  return v;
+}
+
 function truthy(v: unknown): boolean {
+  // An error value is never truthy: it denies. (Without this, a `RuleError`
+  // object would be truthy and every absent-property read would FALSE-ALLOW.)
+  if (isErr(v)) return false;
   return v !== false && v !== null && v !== undefined && !(typeof v === 'number' && Number.isNaN(v));
 }
 
@@ -1019,22 +1181,27 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // Local (param / let) bindings win over globals and path params.
       if (expr.name in ctx.locals) return ctx.locals[expr.name];
       if (expr.name === 'request') return buildRequestObject(ctx.input, ctx.now);
-      if (expr.name === 'resource') return ctx.input.resource;
+      // `resource` stays a real `null` on a create (no object yet) so the
+      // documented `resource == null` idiom evaluates, rather than erroring.
+      if (expr.name === 'resource') return buildResourceObject(ctx.input.resource);
       if (expr.name in ctx.params) return ctx.params[expr.name];
       return undefined;
     }
     case 'member': {
       const t = evalExpr(expr.target, ctx);
-      if (t === null || t === undefined) return undefined;
-      const obj = t as Record<string, unknown>;
-      return obj[expr.name];
+      if (isErr(t)) return t;
+      // Production: dereferencing a null (e.g. `resource.name` on a create) is
+      // a "Null value error" — it denies, and denies through a negation too.
+      if (t === null || t === undefined) return new RuleError(`Null value error.`);
+      return readProperty(t as Record<string, unknown>, expr.name);
     }
     case 'index': {
       const t = evalExpr(expr.target, ctx);
-      if (t === null || t === undefined) return undefined;
+      if (isErr(t)) return t;
+      if (t === null || t === undefined) return new RuleError(`Null value error.`);
       const idx = evalExpr(expr.index, ctx);
-      const obj = t as Record<string | number, unknown>;
-      return obj[idx as string];
+      if (isErr(idx)) return idx;
+      return readProperty(t as Record<string, unknown>, String(idx));
     }
     case 'call':
       return evalCall(expr, ctx);
@@ -1045,21 +1212,35 @@ function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // argument (handled directly there). Reaching it anywhere else means
       // the rule used it out of position — deny rather than coerce.
       throw new RuleEvalError('a Firestore path literal is only valid as an argument to firestore.get()/exists()');
-    case 'unary':
-      return !truthy(evalExpr(expr.arg, ctx));
+    case 'unary': {
+      // An error survives negation (production: `!(resource.name == 'x')` with
+      // `name` absent DENIES). Propagate rather than flipping it to `true`.
+      const a = evalExpr(expr.arg, ctx);
+      if (isErr(a)) return a;
+      return !truthy(a);
+    }
     case 'binary': {
       // Short-circuit && / || so half-undefined chains don't trip
       // (e.g. `request.auth != null && request.auth.uid == 'a'`).
       if (expr.op === '&&') {
         const l = evalExpr(expr.left, ctx);
+        if (isErr(l)) return l;
         return truthy(l) ? evalExpr(expr.right, ctx) : l;
       }
       if (expr.op === '||') {
         const l = evalExpr(expr.left, ctx);
+        if (isErr(l)) {
+          // Production: `<error> || true` ALLOWS — a true disjunct rescues the
+          // error; `<error> || false` stays an error.
+          const r = evalExpr(expr.right, ctx);
+          return truthy(r) ? r : l;
+        }
         return truthy(l) ? l : evalExpr(expr.right, ctx);
       }
       const l = evalExpr(expr.left, ctx);
+      if (isErr(l)) return l;
       const r = evalExpr(expr.right, ctx);
+      if (isErr(r)) return r;
       switch (expr.op) {
         // Firebase rules treat `null` and `undefined` as
         // equivalent (helpful for `request.resource == null` on
@@ -1138,10 +1319,48 @@ function numOp(a: unknown, b: unknown, fn: (x: number, y: number) => number): un
   return fn(a, b);
 }
 
+/**
+ * Build the `resource.*` binding from the existing-object record, converting
+ * the ISO-8601 time fields to epoch millis so they compare numerically against
+ * `request.time` (which {@link buildRequestObject} models the same way) and
+ * against each other (`resource.timeCreated == resource.updated`).
+ *
+ * `null` in → `null` out: on a create there is no object, and `resource` must
+ * stay a real null so `resource == null` evaluates rather than erroring.
+ *
+ * A field the record does not carry is left `undefined`, which
+ * {@link readProperty} reports as production's absent-property ERROR.
+ */
+function buildResourceObject(resource: StorageResource | null): Record<string, unknown> | null {
+  if (resource === null) return null;
+  return {
+    size: resource.size,
+    contentType: resource.contentType,
+    metadata: resource.metadata,
+    name: resource.name,
+    bucket: resource.bucket,
+    generation: resource.generation,
+    metageneration: resource.metageneration,
+    timeCreated: isoToMillis(resource.timeCreated),
+    updated: isoToMillis(resource.updated),
+  };
+}
+
+/** ISO-8601 → epoch millis. An unparseable or absent value stays `undefined`
+ *  (→ absent-property error → deny) rather than becoming `NaN`. */
+function isoToMillis(iso: string | undefined): number | undefined {
+  if (iso === undefined) return undefined;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
 function buildRequestObject(input: EvaluationInput, now: number): Record<string, unknown> {
   return {
     auth: input.request.auth,
-    resource: input.request.resource,
+    // Present-but-null on reads (rather than absent) so the documented
+    // `request.resource == null` idiom evaluates. A read THROUGH it
+    // (`request.resource.size` on a get) still hits the null-dereference error.
+    resource: input.request.resource ?? null,
     method: input.request.method,
     path: input.request.path,
     // `request.time` as epoch millis — see the timestamp constructors in
@@ -1177,6 +1396,17 @@ function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCt
     !(expr.target.name in ctx.params)
   ) {
     return evalTimestampBuiltin(expr, ctx);
+  }
+
+  // Duration namespace: `duration.value(n, unit)`. Detected on the bare
+  // `duration` identifier so a user value named `duration` can't hijack it.
+  if (
+    expr.target.kind === 'ident' &&
+    expr.target.name === 'duration' &&
+    !(expr.target.name in ctx.locals) &&
+    !(expr.target.name in ctx.params)
+  ) {
+    return evalDurationBuiltin(expr, ctx);
   }
 
   // Firestore namespace: `firestore.get(path)` / `firestore.exists(path)`.
@@ -1284,6 +1514,47 @@ function buildFirestoreDocPath(
   return docSegments.join('/');
 }
 
+/**
+ * Milliseconds in each unit `duration.value(n, unit)` accepts.
+ * Production's units, per the rules language: weeks, days, hours, minutes,
+ * seconds, milliseconds, nanoseconds.
+ */
+const DURATION_UNIT_MILLIS: Record<string, number> = {
+  w: 7 * 24 * 60 * 60 * 1000,
+  d: 24 * 60 * 60 * 1000,
+  h: 60 * 60 * 1000,
+  m: 60 * 1000,
+  s: 1000,
+  ms: 1,
+  ns: 1e-6,
+};
+
+/**
+ * `duration.value(magnitude, unit)` — a duration, returned as milliseconds so
+ * it adds to / subtracts from the millis-modeled timestamps
+ * (`request.time`, `resource.timeCreated`). This is what makes the freshness
+ * idiom production accepts work here too:
+ *
+ *   request.time < resource.timeCreated + duration.value(1, 'h')
+ */
+function evalDurationBuiltin(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): number {
+  if (expr.method !== 'value') {
+    throw new RuleEvalError(`unsupported duration.${expr.method}()`);
+  }
+  const args = expr.args.map((a) => evalExpr(a, ctx));
+  if (args.length !== 2 || typeof args[0] !== 'number' || typeof args[1] !== 'string') {
+    throw new RuleEvalError(`duration.value() expects (magnitude: number, unit: string)`);
+  }
+  const [magnitude, unit] = args as [number, string];
+  const millis = DURATION_UNIT_MILLIS[unit];
+  if (millis === undefined) {
+    throw new RuleEvalError(
+      `duration.value() got unknown unit "${unit}" — expected one of ${Object.keys(DURATION_UNIT_MILLIS).join(', ')}`,
+    );
+  }
+  return magnitude * millis;
+}
+
 /** `timestamp.date(year, month, day)` (UTC midnight) and
  *  `timestamp.value(epochMillis)`, both returning epoch milliseconds. */
 function evalTimestampBuiltin(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): number {
@@ -1319,8 +1590,12 @@ function evalTimestampBuiltin(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: 
  * also deny. A non-string target (e.g. a missing metadata key → undefined)
  * denies too — production would error, and an error denies.
  */
-function evalMatches(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): boolean {
+function evalMatches(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
   const subject = evalExpr(expr.target, ctx);
+  // `resource.name.matches(…)` on an object whose `name` is absent: the target
+  // is already production's absent-property error. Propagate it (→ deny)
+  // rather than recasting it as a matches()-specific failure.
+  if (isErr(subject)) return subject;
   if (typeof subject !== 'string') {
     throw new RuleEvalError(`matches() requires a string target, got ${describeType(subject)}`);
   }
