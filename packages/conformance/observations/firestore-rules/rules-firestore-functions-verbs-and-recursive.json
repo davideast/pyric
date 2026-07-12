@@ -1,0 +1,20 @@
+{
+  "name": "rules-firestore-functions-verbs-and-recursive",
+  "matrixRow": "firestore-rules#182",
+  "rowIds": [
+    "firestore-rules#182"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"functions-verbs-and-recursive\" (Coverage: functions/let, granular verbs, ternary, recursive wildcard). Production must accept function declarations with let bindings, allow get/list/update/write verbs, the ternary operator, and a recursive {document=**} match.",
+  "observedAt": "2026-07-12T02:29:54.314Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "signed-in get ALLOW": "ALLOW",
+    "anonymous get DENY": "DENY",
+    "signed-in list with roleLevel 2 ALLOW (let + ternary + mul)": "ALLOW",
+    "signed-in update with roleLevel 2 ALLOW": "ALLOW",
+    "signed-in create covered by write grant ALLOW": "ALLOW",
+    "recursive subtree read when signed-in ALLOW": "ALLOW",
+    "recursive subtree read denied when anonymous DENY": "DENY"
+  }
+}

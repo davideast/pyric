@@ -1,0 +1,16 @@
+{
+  "name": "rules-firestore-time-math-and-casts",
+  "matrixRow": "firestore-rules#180",
+  "rowIds": [
+    "firestore-rules#180"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"time-math-and-casts\" (Coverage: Timestamp methods + math builtins + casts). Production must accept request.time.<accessor>() Timestamp methods, math.floor/round/sqrt/pow/isNaN, int/float/string casts, request.method, and >= / * operators.",
+  "observedAt": "2026-07-12T02:29:56.100Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "valid event within all bounds ALLOW": "ALLOW",
+    "qty too small so qty*2 < 2 DENY (mul + gte)": "DENY",
+    "negative area so sqrt precondition fails DENY (math.sqrt)": "DENY"
+  }
+}

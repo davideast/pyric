@@ -400,7 +400,16 @@ function stWalkExpr(e: StExpr, out: AnalyzeResult): void {
 
 function stWalkMatch(block: StMatch, depth: number, out: AnalyzeResult): void {
   out.ids.add('storage.rule-kind.match');
-  for (const seg of block.segments) if (seg.kind === 'wildcard') out.ids.add('storage.semantic.recursive-wildcard');
+  for (const seg of block.segments) {
+    // `{name=**}` is the multi-segment recursive wildcard; `{name}` is a
+    // single-segment path variable. BOTH bind a path variable — mirror the
+    // Firestore analyzer, which credits path-variable for its wildcard and
+    // recursive segments alike. (Previously only recursive-wildcard was
+    // credited, leaving storage.binding.path-variable unreachable despite
+    // every real storage ruleset binding at least `{bucket}`/`{fileId}`.)
+    if (seg.kind === 'wildcard') out.ids.add('storage.semantic.recursive-wildcard');
+    if (seg.kind === 'wildcard' || seg.kind === 'param') out.ids.add('storage.binding.path-variable');
+  }
   for (const fn of block.functions) {
     out.ids.add('storage.rule-kind.function');
     if (fn.lets.length > 0) out.ids.add('storage.rule-kind.let');
@@ -420,6 +429,12 @@ function stWalkMatch(block: StMatch, depth: number, out: AnalyzeResult): void {
 
 export function analyzeStorage(source: string): AnalyzeResult {
   const out: AnalyzeResult = { ids: new Set(), unresolved: [] };
+  // The storage parser accepts-and-DISCARDS the leading `rules_version`
+  // declaration (it implements v2 semantics regardless), so the version is not
+  // carried on the AST the way the Firestore parser exposes `ast.version`.
+  // Detect the declaration from source so a real storage ruleset that declares
+  // it is credited, mirroring analyzeFirestore's `if (ast.version)` branch.
+  if (/(^|\n)\s*rules_version\s*=/.test(source)) out.ids.add('storage.rule-kind.rules_version');
   const rules = parseStorageRules(source) as unknown as { _root: StMatch };
   stWalkMatch(rules._root, 0, out);
   return out;

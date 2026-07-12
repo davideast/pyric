@@ -1,0 +1,21 @@
+{
+  "name": "rules-storage-metadata-verbs-and-arithmetic",
+  "matrixRow": "storage-rules#117",
+  "rowIds": [
+    "storage-rules#117"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"metadata-verbs-and-arithmetic\" (Coverage: metadata, granular verbs, arithmetic operators). Production must accept request.resource.size arithmetic (+/-/*/\u00f7, >=, <=), request/resource content-type + metadata, request.method/path, request.auth.token OR-branch, allow list, and a recursive {allPaths=**} read tree.",
+  "observedAt": "2026-07-12T02:33:30.003Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "owner uploads a valid image ALLOW": "ALLOW",
+    "non-owner upload DENY": "DENY",
+    "oversize upload DENY (size < 5MiB)": "DENY",
+    "wrong content type DENY (matches image/.*)": "DENY",
+    "update growing the object keeping content type ALLOW": "ALLOW",
+    "update changing content type DENY (immutable)": "DENY",
+    "signed-in list ALLOW": "ALLOW",
+    "public recursive read ALLOW": "ALLOW"
+  }
+}
