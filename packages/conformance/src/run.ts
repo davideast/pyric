@@ -29,7 +29,7 @@
  * out. Anonymous users are deleted after each probe that signs
  * in, with one exception: the `auth-signout-idempotent` probe
  * ends signed out, so its anonymous user can't be deleted from
- * the client SDK. See `scripts/oracle/README.md` for that and
+ * the client SDK. See `packages/conformance/docs/oracle-project-setup.md` for that and
  * the one-time project setup.
  */
 import { createSign } from 'node:crypto';
@@ -687,7 +687,7 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
     ?? join(REPO_ROOT, 'ignored', 'service-account.json');
   if (!existsSync(saPath)) {
     throw new Error(
-      `service account not found at ${saPath}. Set PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_FIREBASE_CONFIG. See scripts/oracle/README.md.`,
+      `service account not found at ${saPath}. Set PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_FIREBASE_CONFIG. See packages/conformance/docs/oracle-project-setup.md.`,
     );
   }
   const sa = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
@@ -802,7 +802,7 @@ const RUN_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const RUN_DOC = (probe: string) => `pyric_oracle/${RUN_ID}/${probe}`;
 // Storage objects live under pyric_oracle/<RUN_ID>/<probe>/<filename>
 // so the namespace mirrors Firestore's. Storage rules need to be
-// deployed separately (see scripts/oracle/README.md); if the project's
+// deployed separately (see packages/conformance/docs/oracle-project-setup.md); if the project's
 // Storage rules deny writes to this namespace, the probes record the
 // observation and surface the failure as a `storage/unauthorized`
 // observation rather than a probe-runtime error.

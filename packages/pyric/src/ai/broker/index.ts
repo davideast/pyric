@@ -1,6 +1,6 @@
 /**
  * AI broker barrel — the in-process Gemini-wire model for the sandbox's ai
- * surface (CDD map #92; rulings in docs/conformance/ai/cdd-deltas.md).
+ * surface (CDD map #92; rulings in packages/conformance/docs/ai/cdd-deltas.md).
  * NOT wired into package exports yet: the `pyric/ai` mirror layer (next
  * stage) owns the public surface.
  */

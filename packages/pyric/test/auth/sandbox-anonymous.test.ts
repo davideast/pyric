@@ -27,7 +27,7 @@ describe('sandbox anonymous sign-in', () => {
     const auth = getAuth(sandbox);
     const credential = await signInAnonymously(auth);
     // Matches firebase/auth Web SDK: anonymous UserCredential.providerId is null.
-    // Locked empirically by scripts/oracle/observations/auth-anonymous-credential-providerid.json.
+    // Locked empirically by packages/conformance/observations/auth/auth-anonymous-credential-providerid.json
     expect(credential.providerId).toBe(null);
     expect(credential.operationType).toBe('signIn');
     expect(credential.user.isAnonymous).toBe(true);

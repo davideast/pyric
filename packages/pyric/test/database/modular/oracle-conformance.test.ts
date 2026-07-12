@@ -1,6 +1,6 @@
 /**
  * Oracle conformance (RTDB, `rtdb-modular-*` surface) — wires the frozen
- * `scripts/oracle/observations/rtdb-modular-*.json` captures into the
+ * `packages/conformance/observations/rtdb-modular/rtdb-modular-*.json` captures into the
  * test suite so the recorded real-Firebase-RTDB behavior is MACHINE-
  * CHECKED against the in-process modular sandbox, not just cited in
  * comments (mirrors the auth suite at

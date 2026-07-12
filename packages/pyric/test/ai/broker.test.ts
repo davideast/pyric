@@ -1,5 +1,5 @@
 /**
- * AI broker conformance — wires the `scripts/oracle/observations/ai-*.json`
+ * AI broker conformance — wires the `packages/conformance/observations/ai/ai-*.json`
  * captures into the suite so the broker's synthesized wire is MACHINE-CHECKED
  * against captured production behavior (auth's oracle-conformance pattern).
  *

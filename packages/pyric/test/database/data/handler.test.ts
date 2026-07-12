@@ -151,7 +151,7 @@ describe('DataHandler', () => {
   // ═══ Rules-denied surfaces as PERMISSION_DENIED (not READ_FAILED / WRITE_FAILED) ═══
 
   // Matches the set/get/remove rules-denied shape from
-  // scripts/oracle/observations/rtdb-rules-denied-error-code.json:
+  // packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json:
   //   plain Error, code: 'PERMISSION_DENIED' (uppercase),
   //   message: 'PERMISSION_DENIED: Permission denied'
   function makeRulesDeniedError(): Error {
@@ -161,14 +161,14 @@ describe('DataHandler', () => {
   }
 
   // Matches the runTransaction rules-denied shape from
-  // scripts/oracle/observations/rtdb-modular-runtransaction-on-rules-denied-path.json:
+  // packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json:
   //   plain Error, message: 'permission_denied' (lowercase), NO `.code` field
   function makeTransactionRulesDeniedError(): Error {
     return new Error('permission_denied');
   }
 
   test('rules-denied GET surfaces as PERMISSION_DENIED (not READ_FAILED)', async () => {
-    // Oracle: scripts/oracle/observations/rtdb-rules-denied-error-code.json
+    // Oracle: packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json
     const app = mockApp();
     app.getClientForUser = async () => { throw makeRulesDeniedError(); };
     const result = await handler.execute(app, 'get', '/private', undefined, { uid: 'u1' });
@@ -180,7 +180,7 @@ describe('DataHandler', () => {
   });
 
   test('rules-denied SET surfaces as PERMISSION_DENIED (not WRITE_FAILED)', async () => {
-    // Oracle: scripts/oracle/observations/rtdb-rules-denied-error-code.json
+    // Oracle: packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json
     const app = mockApp();
     app.getClientForUser = async () => { throw makeRulesDeniedError(); };
     const result = await handler.execute(app, 'set', '/private', { x: 1 }, { uid: 'u1' });
@@ -191,7 +191,7 @@ describe('DataHandler', () => {
   });
 
   test('rules-denied REMOVE surfaces as PERMISSION_DENIED (not WRITE_FAILED)', async () => {
-    // Oracle: scripts/oracle/observations/rtdb-rules-denied-error-code.json
+    // Oracle: packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json
     const app = mockApp();
     app.getClientForUser = async () => { throw makeRulesDeniedError(); };
     const result = await handler.execute(app, 'remove', '/private', undefined, { uid: 'u1' });
@@ -225,7 +225,7 @@ describe('DataHandler', () => {
   });
 
   test('transaction-shaped rules-denied (lowercase message, no .code) surfaces as PERMISSION_DENIED', async () => {
-    // Oracle: scripts/oracle/observations/rtdb-modular-runtransaction-on-rules-denied-path.json
+    // Oracle: packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-on-rules-denied-path.json
     // The runTransaction error shape is `Error('permission_denied')` with NO
     // `.code` field — the inspection's `.message.toLowerCase()` branch must
     // catch it. Even though `runTransaction` is not exposed by DataHandler

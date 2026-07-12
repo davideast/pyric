@@ -5,11 +5,11 @@
  * (onIdTokenChanged fires on refresh) divergences.
  *
  * Spec is the prod oracle:
- *   - scripts/oracle/observations/auth-getidtoken-force-refresh.json
+ *   - packages/conformance/observations/auth/auth-getidtoken-force-refresh.json
  *     `token0 !== token1`, `token1 === token2` — forceRefresh mints a
  *     new string; a subsequent getIdToken(false) returns the cached
  *     new token, not yet another fresh one.
- *   - scripts/oracle/observations/auth-onidtokenchanged-force-refresh.json
+ *   - packages/conformance/observations/auth/auth-onidtokenchanged-force-refresh.json
  *     `firesAfterRefresh > firesAfterSignIn` — the listener fires on
  *     a forced refresh in addition to identity transitions.
  */

@@ -122,7 +122,7 @@ describe('sandbox email/password sign-in', () => {
 
   it('createUserWithEmailAndPassword returns providerId: null (AUTH-B2 lock)', async () => {
     // Locks AUTH-B2 against the committed oracle
-    // scripts/oracle/observations/auth-createUser-operationType.json,
+    // packages/conformance/observations/auth/auth-createUser-operationType.json,
     // which pins providerId: null (and operationType: 'signIn') for the
     // email/password create path. Upstream providerIdForResponse returns
     // null because the signUp response carries no providerId/phoneNumber.
@@ -148,7 +148,7 @@ describe('sandbox email/password sign-in', () => {
   // ── Email format validation (matrix #18) ────────────────────────────
   // Prod rejects malformed emails with `auth/invalid-email`; sandbox
   // matches per oracle observation
-  // `scripts/oracle/observations/auth-row-18-invalid-email-error-code.json`.
+  // `packages/conformance/observations/auth/auth-row-18-invalid-email-error-code.json`.
 
   it('createUserWithEmailAndPassword throws auth/invalid-email for malformed email', async () => {
     const sandbox = initializeSandbox();
@@ -222,7 +222,7 @@ describe('sandbox email/password sign-in', () => {
   // ── Password strength validation (matrix #19) ────────────────────────
   // Prod rejects passwords shorter than 6 chars with `auth/weak-password`
   // per oracle observation
-  // `scripts/oracle/observations/auth-row-19-weak-password-error-code.json`.
+  // `packages/conformance/observations/auth/auth-row-19-weak-password-error-code.json`.
 
   it('createUserWithEmailAndPassword throws auth/weak-password for short password', async () => {
     const sandbox = initializeSandbox();

@@ -5,7 +5,7 @@ Enumerated from the packages installed in this repo, not from upstream source.
 - `firebase@12.13.0` -> `firebase/messaging` and `firebase/messaging/sw` both re-export the bundled `@firebase/messaging@0.12.26`. The real typings resolve through `node_modules/.bun/@firebase+messaging@0.12.26+f3d6e4e088e70e1e/node_modules/@firebase/messaging/dist/` (`index-public.d.ts`, `sw/index-public.d.ts`, `src/interfaces/public-types.d.ts`, `src/util/errors.d.ts`, runtime index `src/index.d.ts` / `src/index.sw.d.ts`). The thin re-export shims are `node_modules/firebase/messaging/dist/messaging/index.d.ts` and `.../sw/index.d.ts`.
 - `firebase-admin@13.10.0` -> `firebase-admin/messaging` at `node_modules/firebase-admin/lib/messaging/` (`index.d.ts`, `messaging.d.ts`, `messaging-api.d.ts`, `messaging-namespace.d.ts`) plus error codes at `node_modules/firebase-admin/lib/utils/error.d.ts`.
 
-Behavior claims below are the one-liners the typings themselves state (paraphrased from the JSDoc). "Evidenced tonight" points at the committed observations under `scripts/oracle/observations/`.
+Behavior claims below are the one-liners the typings themselves state (paraphrased from the JSDoc). "Evidenced tonight" points at the committed observations under `packages/conformance/observations/`.
 
 ---
 

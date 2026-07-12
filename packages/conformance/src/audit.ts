@@ -6,11 +6,11 @@
  * The old audit inferred risk and exceptions by regexing prose directly. That
  * was useful when the matrices were small; the compatibility ledger now parses
  * every row into structured metadata and keeps the prose heuristic as the
- * fallback classifier in one place (`scripts/compat/ledger.ts`).
+ * fallback classifier in one place (`packages/conformance/src/ledger.ts`).
  *
  * Usage:
- *   bun run scripts/oracle/audit.ts
- *   bun run scripts/oracle/audit.ts --json
+ *   bun run packages/conformance/src/audit.ts
+ *   bun run packages/conformance/src/audit.ts --json
  */
 import { buildCompatibilityLedger, highRiskUnverifiedRows, summarizeLedger } from './ledger.ts';
 

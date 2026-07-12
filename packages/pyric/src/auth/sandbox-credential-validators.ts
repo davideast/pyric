@@ -20,7 +20,7 @@ import { makeAuthError } from './auth-errors.js';
  * Throws `auth/invalid-email` with a message matching prod's shape so
  * consumer code that switches on `.code` sees the same error in
  * sandbox + prod. Oracle observation:
- * `scripts/oracle/observations/auth-row-18-invalid-email-error-code.json`.
+ * `packages/conformance/observations/auth/auth-row-18-invalid-email-error-code.json`.
  */
 export function validateEmailFormat(email: string): void {
   if (typeof email !== 'string' || email.length === 0) {
@@ -40,7 +40,7 @@ export function validateEmailFormat(email: string): void {
  * Empirical match for prod's password-strength rejection (matrix
  * row #19). Prod's observed message is "Password should be at least
  * 6 characters" with code `auth/weak-password`. Oracle observation:
- * `scripts/oracle/observations/auth-row-19-weak-password-error-code.json`.
+ * `packages/conformance/observations/auth/auth-row-19-weak-password-error-code.json`.
  */
 export function validatePasswordStrength(password: string): void {
   if (typeof password !== 'string' || password.length < 6) {

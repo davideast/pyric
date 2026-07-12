@@ -25,7 +25,7 @@
  * branches — structure is parallel and grep-friendly.
  *
  * **Critical contract — error shape (locked by oracle observation
- * `scripts/oracle/observations/rtdb-rules-denied-error-code.json`):**
+ * `packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json`):**
  *
  *   - Throws a **plain `Error`** (NOT a `FirebaseError`).
  *   - `.code === 'PERMISSION_DENIED'` (uppercase snake-case — distinct
@@ -842,7 +842,7 @@ export function onValue(
  * ref's path.
  *
  * Semantics (locked by oracle observations under
- * `scripts/oracle/observations/rtdb-modular-onchildadded-*.json`):
+ * `packages/conformance/observations/rtdb-modular/rtdb-modular-onchildadded-*.json`):
  *
  *   - On subscribe, replays every existing direct child of `ref`'s path
  *     (one fire per existing key, in `orderByKey`-default order).
@@ -1065,7 +1065,7 @@ function onChildEvent(
  * `off(ref, eventType?, callback?)` — unsubscribe variant.
  *
  * Semantics (locked by oracle observation
- * `scripts/oracle/observations/rtdb-modular-off-stops-child-fires.json`):
+ * `packages/conformance/observations/rtdb-modular/rtdb-modular-off-stops-child-fires.json`):
  *
  *   - `off(ref)` (no eventType) removes ALL listeners at that ref —
  *     value + every child event variety.

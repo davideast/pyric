@@ -17,7 +17,7 @@ now flipped: the climb lane (`bun run compat:climb-ai`, the suites at
 `packages/pyric/test/ai`) passes 80 of 80 with no assertion
 weakened, and every row records the tier of evidence that vouches for it.
 
-Evidence tiers per `docs/conformance/ai/cdd-deltas.md`:
+Evidence tiers per `packages/conformance/docs/ai/cdd-deltas.md`:
 
 - `oracle-backed` (10 rows): the suite replays value-deterministic facts
   from a cited observation (error envelopes, countTokens, byte-compared
@@ -36,7 +36,7 @@ firebase/ai 2.12.0, each with the reason pinned in its notes.
 Generated-content VALUES are never claims. Production output is
 nondeterministic, so no row asserts on generated text, and the suites only
 compare text when the scripted engine was explicitly scripted to return it
-(the shape-backed tier ruling in `docs/conformance/ai/cdd-deltas.md`).
+(the shape-backed tier ruling in `packages/conformance/docs/ai/cdd-deltas.md`).
 
 ## Status legend
 
@@ -76,7 +76,7 @@ capture's distilled facts in the named test.
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">getai-engine-option</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getAI(sandbox, { backend: new GoogleAIBackend(), engine: { kind: "scripted" } })</code> selects the scripted engine explicitly and behaves identically to the zero-config default</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-engine-option</code> (engine seam per docs/conformance/ai/cdd-deltas.md)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-engine-option</code> (engine seam per packages/conformance/docs/ai/cdd-deltas.md)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">backend-vertex</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>VertexAIBackend</code> carries <code>backendType</code> <code>VERTEX_AI</code> and its <code>location</code> defaults to <code>us-central1</code></span></summary>

@@ -1,7 +1,7 @@
 /**
  * Wire types for the AI broker — minimal STRUCTURAL types matching the
  * Gemini v1beta wire (GoogleAI backend), as captured by the ai-* oracle
- * observations in `scripts/oracle/observations/`. Deliberately NOT imported
+ * observations in `packages/conformance/observations/`. Deliberately NOT imported
  * from `firebase/ai`: the broker speaks the wire, and the `pyric/ai` mirror
  * layer (next stage) owns public SDK-facing types.
  *

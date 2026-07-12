@@ -3,7 +3,7 @@
  *
  * The counterpart of the auth exemplar (test/auth/oracle-conformance.test.ts)
  * for the Firestore rules surface. It wires
- * `scripts/oracle/observations/rules-firestore-*.json` into the test suite so
+ * `packages/conformance/observations/firestore-rules/rules-firestore-*.json` into the test suite so
  * captured production Rules-Test-API verdicts are MACHINE-CHECKED against the
  * in-process sandbox simulator, not merely cited.
  *
@@ -20,7 +20,7 @@
  * files were fabricated). While the observation set is empty this suite
  * SKIPS with a clear message and passes. The moment a capture lands, the
  * assertions below go live verdict-for-verdict with no further edits — run
- * `scripts/oracle/run-rules.ts` with PARITY_SA_BASE64 to produce them.
+ * `packages/conformance/src/run-rules.ts` with PARITY_SA_BASE64 to produce them.
  */
 import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -203,7 +203,7 @@ describe('oracle conformance (rules-firestore)', () => {
   if (files.length === 0) {
     it('no rules-firestore observations captured yet (staging) — skipping replay', () => {
       // Intentionally passes: the machinery is staged, the corpus is in place,
-      // but no captures have been run. Run `scripts/oracle/run-rules.ts` with
+      // but no captures have been run. Run `packages/conformance/src/run-rules.ts` with
       // PARITY_SA_BASE64 to produce observations, after which these assertions
       // go live automatically.
       expect(files.length).toBe(0);

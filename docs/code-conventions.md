@@ -14,7 +14,7 @@ The data-record convention is already ratified. These rules are settled and are 
 - Ordering uses stable keys, never global counters.
 - Captured evidence follows regenerate-don't-merge.
 
-The exemplars in the tree are the compat registry (`scripts/compat/registry/*.ts`, one record file per service), the oracle observations (`scripts/oracle/observations/*.json`, one observation per file, filename is the key, directory is the index), and the generated `COMPAT.md` documents. Source code now inherits the same discipline.
+The exemplars in the tree are the compat registry (`packages/conformance/registry/*.ts`, one record file per service), the oracle observations (`packages/conformance/observations/*.json`, one observation per file, filename is the key, directory is the index), and the generated `COMPAT.md` documents. Source code now inherits the same discipline.
 
 ## 1. Directory shape for a mirrored surface
 

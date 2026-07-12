@@ -2,7 +2,7 @@
  * `@pyric/rtdb` modular SDK — child-event listener tests (Tier 2).
  *
  * One claim per test; each test cites the matching oracle observation
- * under `scripts/oracle/observations/rtdb-modular-onchild*.json`. The
+ * under `packages/conformance/observations/rtdb-modular/rtdb-modular-onchild*.json`. The
  * link from test → observation is the conformance contract: the
  * sandbox must lock the same end-state behavior the prod observation
  * captured.
