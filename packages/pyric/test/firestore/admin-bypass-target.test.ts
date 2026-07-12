@@ -20,6 +20,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  onSnapshot,
   writeBatch,
   runTransaction,
 } from '../../src/firestore/index.js';
@@ -88,6 +89,53 @@ describe('deny-vs-bypass: getDoc / getDocs', () => {
     const admin = getAdminFirestore(sandbox);
     const snap = await getDocs(collection(admin, 'items'));
     expect(snap.docs.map((d) => d.id).sort()).toEqual(['a', 'b']);
+  });
+});
+
+describe('deny-vs-bypass: onSnapshot', () => {
+  it('admin document and query listeners bypass rules', async () => {
+    const sandbox = denyAllSandbox();
+    sandbox.admin.setDocument('locked/x', { a: 1 });
+    const admin = getAdminFirestore(sandbox);
+    const documentData: unknown[] = [];
+    const queryIds: string[][] = [];
+    const errors: unknown[] = [];
+
+    const unsubscribeDocument = onSnapshot(
+      doc(admin, 'locked/x'),
+      (snapshot) => documentData.push((snapshot as { data(): unknown }).data()),
+      (error) => errors.push(error),
+    );
+    const unsubscribeQuery = onSnapshot(
+      collection(admin, 'locked'),
+      (snapshot) =>
+        queryIds.push(
+          (snapshot as { docs: Array<{ id: string }> }).docs.map((item) => item.id),
+        ),
+      (error) => errors.push(error),
+    );
+
+    getInternalEnv(sandbox).flushListeners();
+
+    expect(errors).toEqual([]);
+    expect(documentData).toEqual([{ a: 1 }]);
+    expect(queryIds).toEqual([['x']]);
+    expect(
+      sandbox
+        .history()
+        .filter((event) => event.kind === 'request')
+        .map((event) => event.origin),
+    ).toEqual(['admin', 'admin']);
+
+    // A committed admin write re-reads both listeners through the same bypass
+    // path; they must not become rules-enforced after the initial snapshot.
+    await setDoc(doc(admin, 'locked/x'), { a: 2 });
+    expect(errors).toEqual([]);
+    expect(documentData).toEqual([{ a: 1 }, { a: 2 }]);
+    expect(queryIds).toEqual([['x'], ['x']]);
+
+    unsubscribeDocument();
+    unsubscribeQuery();
   });
 });
 

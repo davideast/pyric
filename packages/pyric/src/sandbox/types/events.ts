@@ -145,7 +145,7 @@ export interface RequestEvent {
    *  Absent on an implicit deny (no rule evaluated), a simulator-error deny,
    *  and unsupported results. */
   evaluatedRule?: import('../../rules/test/spec.js').EvaluatedRuleInfo;
-  origin: 'user' | 'listener' | 'transaction' | 'batch';
+  origin: 'user' | 'listener' | 'transaction' | 'batch' | 'admin';
   /** Shared across ops in one batch or transaction. Opaque to consumers. */
   groupId?: string;
   /** Disambiguates `origin: 'transaction' | 'batch'` cases when consumers

@@ -311,11 +311,23 @@ export function onSnapshot(
     options = rest as SnapshotListenOptions;
   }
 
+  // Admin refs carry the compat layer's rules-bypass bit. It must survive
+  // listener registration just as it survives get()/set()/query execution;
+  // otherwise an admin handle silently becomes a rules-enforced listener.
+  const bypassRules =
+    (reference as unknown as { bypassRules?: boolean }).bypassRules === true;
+
   // A `next`-less (error-only) observer registers with a no-op data handler
   // so the listener machinery stays on its non-optional callback contract;
   // denials still route to `onError` (FS-B14).
   return env.addSnapshotListener(
-    target, onNext ?? (() => {}), options, ctx.auth, onError, followsCurrentUser,
+    target,
+    onNext ?? (() => {}),
+    options,
+    ctx.auth,
+    onError,
+    followsCurrentUser,
+    bypassRules,
   );
 }
 

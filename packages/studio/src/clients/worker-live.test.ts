@@ -227,6 +227,50 @@ describe('listDocuments (F2 phantom-inclusive browse)', () => {
   });
 });
 
+describe('firestoreApi (F2 admin data viewer)', () => {
+  let restore: (() => void) | null = null;
+  afterEach(() => {
+    restore?.();
+    restore = null;
+  });
+
+  it('pins document and query subscriptions to the admin lens', () => {
+    const sw = controllableSharedWorker();
+    restore = sw.restore;
+    const plane = connectWorkerLive('worker://test')!;
+
+    // Another Studio surface may temporarily impersonate a user. The data
+    // viewer remains an admin console and must not inherit that mutable lens.
+    plane.setLens({ mode: 'as', uid: 'alice' });
+
+    const docRef = plane.firestoreApi.doc(
+      plane.db as never,
+      'users/alice',
+    );
+    const collRef = plane.firestoreApi.collection(
+      plane.db as never,
+      'users',
+    );
+    const unsubscribeDoc = plane.firestoreApi.onSnapshot(docRef, () => {});
+    const unsubscribeQuery = plane.firestoreApi.onSnapshot(collRef, () => {});
+
+    const subscriptions = sw.port.sent.filter(
+      (m): m is { t: 'sub'; target: object; actAs?: unknown } =>
+        (m as { t?: string }).t === 'sub' &&
+        typeof (m as { target?: unknown }).target === 'object',
+    );
+    expect(subscriptions).toHaveLength(2);
+    expect(subscriptions.map((message) => message.actAs)).toEqual([
+      { mode: 'admin' },
+      { mode: 'admin' },
+    ]);
+    expect(plane.getLens()).toEqual({ mode: 'as', uid: 'alice' });
+
+    unsubscribeDoc();
+    unsubscribeQuery();
+  });
+});
+
 describe("createStudioEnvironment('local') live-plane gating", () => {
   let restore: (() => void) | null = null;
   afterEach(() => {

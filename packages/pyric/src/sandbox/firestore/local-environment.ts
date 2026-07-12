@@ -214,7 +214,7 @@ interface EmitRequestInput {
   resourceData?: DocumentData;
   resourceBefore?: { data: DocumentData | null; exists: boolean };
   resourceAfter?: { data: DocumentData | null; exists: boolean };
-  origin: 'user' | 'listener' | 'transaction' | 'batch';
+  origin: 'user' | 'listener' | 'transaction' | 'batch' | 'admin';
   groupId?: string;
   triggeredBy?: { method: string; path: string };
   detail?: { admin?: boolean } & Record<string, unknown>;
@@ -809,8 +809,9 @@ export class LocalEnvironment {
    *
    * Slice 2: fires the **initial snapshot** synchronously after the
    * record is registered. The current matching docs are read under
-   * `auth`'s rules — denied reads invoke `errorCallback` and mark the
-   * listener `errored` (no further notifications). Slice 3 will add
+   * `auth`'s rules unless `bypassRules` pins the admin path — denied reads
+   * invoke `errorCallback` and mark the listener `errored` (no further
+   * notifications). Slice 3 will add
    * change-driven fires; Slice 5 batches them through `applyBatch`.
    *
    * `auth` is captured at registration so notifications later evaluate
@@ -832,6 +833,8 @@ export class LocalEnvironment {
      * which stay pinned to the auth they captured at registration.
      */
     followsCurrentUser = false,
+    /** Rules-bypassing admin listener. */
+    bypassRules = false,
   ): () => void {
     const id = String(this.nextListenerId++);
     const record: ListenerRecord = {
@@ -840,6 +843,7 @@ export class LocalEnvironment {
       callback,
       auth,
       followsCurrentUser,
+      bypassRules,
       options,
       currentSnapshot: undefined,
       errored: false,
@@ -903,7 +907,11 @@ export class LocalEnvironment {
    */
   private fireInitialSnapshot(record: ListenerRecord): void {
     if (record.target.kind === 'doc') {
-      const result = this.silentReadDoc(record.target.path, record.auth);
+      const result = this.silentReadDoc(
+        record.target.path,
+        record.auth,
+        record.bypassRules,
+      );
       if (!result.allowed) {
         this.markErrored(record, result.error);
         return;
@@ -935,7 +943,10 @@ export class LocalEnvironment {
 
     // Query target.
     const result = this.silentReadCollection(
-      record.target.collection, record.auth, record.target.constraints,
+      record.target.collection,
+      record.auth,
+      record.target.constraints,
+      record.bypassRules,
     );
     if (!result.allowed) {
       this.markErrored(record, result.error);
@@ -1071,7 +1082,11 @@ export class LocalEnvironment {
     if (record.target.kind !== 'doc') return;
     if (!touchedPaths.has(record.target.path)) return;
 
-    const result = this.silentReadDoc(record.target.path, record.auth);
+    const result = this.silentReadDoc(
+      record.target.path,
+      record.auth,
+      record.bypassRules,
+    );
     if (!result.allowed) {
       this.markErrored(record, result.error);
       return;
@@ -1181,7 +1196,10 @@ export class LocalEnvironment {
     if (!anyPathInCollection(touchedPaths, record.target.collection)) return;
 
     const result = this.silentReadCollection(
-      record.target.collection, record.auth, record.target.constraints,
+      record.target.collection,
+      record.auth,
+      record.target.constraints,
+      record.bypassRules,
     );
     if (!result.allowed) {
       this.markErrored(record, result.error);
@@ -1296,7 +1314,25 @@ export class LocalEnvironment {
   private silentReadDoc(
     path: string,
     auth: ListenerAuth,
+    bypassRules = false,
   ): { allowed: true; data: DocumentData | null } | { allowed: false; error: FirestoreSimError } {
+    if (bypassRules) {
+      const data = this.state.get(path);
+      this.emitRequest({
+        at: Date.now(),
+        evalMs: 0,
+        method: 'get',
+        path,
+        auth,
+        result: 'allow',
+        debugMessages: ['admin lens — rules bypassed'],
+        origin: 'admin',
+        resourceBefore: { data, exists: data !== null },
+        detail: { admin: true },
+        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+      });
+      return { allowed: true, data };
+    }
     const readServerTime = Timestamp.fromMillis(Date.now());
     const testCase = this.buildTestCase({ method: 'get', path, auth }, readServerTime);
     // Issue #307 — time the simulate call for listener-origin RequestEvents.
@@ -1397,8 +1433,8 @@ export class LocalEnvironment {
     collection: string,
     auth: ListenerAuth,
     constraints?: QueryConstraintApplier,
+    bypassRules = false,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
-    const readServerTime = Timestamp.fromMillis(Date.now());
     // List rules are defined at the document-match level, so the
     // simulator expects a document-style path with a synthetic
     // placeholder segment (matches the convention used by
@@ -1407,8 +1443,32 @@ export class LocalEnvironment {
     const listPath = `${collection}/__listPlaceholder__`;
     const structured: QueryConstraints = constraints?.structured ?? {};
     const requestQuery = listQueryFromStructured(structured);
-    const requestDetail = requestQuery ? { query: requestQuery } : undefined;
+    const requestDetail = {
+      ...(bypassRules ? { admin: true } : {}),
+      ...(requestQuery ? { query: requestQuery } : {}),
+    };
+    const detail = Object.keys(requestDetail).length > 0 ? requestDetail : undefined;
     const evalAt = Date.now();
+    if (bypassRules) {
+      const docs = this.state.list(collection)
+        .filter((document) => !document.phantom)
+        .map((document) => ({ path: document.path, data: document.data }));
+      const constrained = constraints ? constraints(docs) : docs;
+      this.emitRequest({
+        at: evalAt,
+        evalMs: 0,
+        method: 'list',
+        path: collection,
+        auth,
+        result: 'allow',
+        debugMessages: ['admin lens — rules bypassed'],
+        origin: 'admin',
+        ...(detail ? { detail } : {}),
+        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+      });
+      return { allowed: true, docs: constrained };
+    }
+    const readServerTime = Timestamp.fromMillis(Date.now());
     const evalStart = performance.now();
     // ── RULES-B11 gate: prove the query before evaluating the rule. ──
     const proof = proveListQuery(this.rulesAst(), listPath, auth, structured);
@@ -1418,7 +1478,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
         debugMessages: [message], origin: 'listener',
-        ...(requestDetail ? { detail: requestDetail } : {}),
+        ...(detail ? { detail } : {}),
         ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
       });
       return {
@@ -1440,7 +1500,7 @@ export class LocalEnvironment {
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
         debugMessages: [`Simulation error: ${simResult.error.message}`],
         origin: 'listener',
-        ...(requestDetail ? { detail: requestDetail } : {}),
+        ...(detail ? { detail } : {}),
         ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
       });
       return {
@@ -1455,7 +1515,7 @@ export class LocalEnvironment {
       this.emitRequest({
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'unsupported',
         debugMessages: renderLegacyDebugMessages(result), origin: 'listener',
-        ...(requestDetail ? { detail: requestDetail } : {}),
+        ...(detail ? { detail } : {}),
         ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
       });
       throw new SimulatorUnsupportedError(
@@ -1468,7 +1528,7 @@ export class LocalEnvironment {
         at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'deny',
         debugMessages: renderLegacyDebugMessages(result),
         evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
-        ...(requestDetail ? { detail: requestDetail } : {}),
+        ...(detail ? { detail } : {}),
         ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
       });
       return {
@@ -1484,7 +1544,7 @@ export class LocalEnvironment {
       at: evalAt, evalMs, method: 'list', path: collection, auth, result: 'allow',
       debugMessages: renderLegacyDebugMessages(result),
       evaluatedRule: projectEvaluatedRule(result), origin: 'listener',
-      ...(requestDetail ? { detail: requestDetail } : {}),
+      ...(detail ? { detail } : {}),
       ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
     });
     // RULES-B11 — the proof + list-rule eval decided the WHOLE query; no
@@ -1728,7 +1788,11 @@ export class LocalEnvironment {
    */
   private reEvaluateDocListener(record: ListenerRecord): void {
     if (record.target.kind !== 'doc') return;
-    const result = this.silentReadDoc(record.target.path, record.auth);
+    const result = this.silentReadDoc(
+      record.target.path,
+      record.auth,
+      record.bypassRules,
+    );
     if (!result.allowed) {
       if (record.errored) return;
       this.markErrored(record, result.error);
@@ -1769,7 +1833,10 @@ export class LocalEnvironment {
   private reEvaluateQueryListener(record: ListenerRecord): void {
     if (record.target.kind !== 'query') return;
     const result = this.silentReadCollection(
-      record.target.collection, record.auth, record.target.constraints,
+      record.target.collection,
+      record.auth,
+      record.target.constraints,
+      record.bypassRules,
     );
     if (!result.allowed) {
       if (record.errored) return;

@@ -130,7 +130,7 @@ export function actingAs(sandbox: Sandbox, identity: AuthState): Firestore {
 /**
  * Construct a **rules-bypassing** sandbox Firestore handle — the Pyric
  * Studio admin lens (Gap #2). Every modular op issued against the returned
- * handle (`getDoc`/`getDocs`/`setDoc`/`updateDoc`/`deleteDoc`/`addDoc`/
+ * handle (`getDoc`/`getDocs`/`onSnapshot`/`setDoc`/`updateDoc`/`deleteDoc`/`addDoc`/
  * `count`/`writeBatch`/`runTransaction`) SKIPS security-rule evaluation and
  * is treated as ALLOW, while still going through the same store + emitting
  * the same events + waking the same listeners. This is the modular sibling

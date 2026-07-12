@@ -130,6 +130,8 @@ export interface ListenerRecord {
    * identity chosen at handle-construction time (admin/testing path).
    */
   followsCurrentUser: boolean;
+  /** Rules-bypassing admin handle. Applies to initial and subsequent reads. */
+  bypassRules: boolean;
   options: SnapshotListenerOptions;
   /**
    * Last snapshot delivered to the callback. Slice 2 populates this on

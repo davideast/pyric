@@ -267,6 +267,29 @@ export function workerEventFeed(db: ClientDb): LiveEventFeed {
 }
 
 /**
+ * Bind one worker Firestore operation to Studio's admin lens.
+ *
+ * The worker client keeps its default lens in module state because rules-debug
+ * briefly impersonates a user. The data viewer is a separate admin surface and
+ * must never inherit that mutable choice. Worker operations stamp and post
+ * their request synchronously before returning, so the prior lens can be
+ * restored immediately while the returned promise or subscription continues.
+ */
+function pinAdminLens<Args extends unknown[], Result>(
+  operation: (...args: Args) => Result,
+): (...args: Args) => Result {
+  return (...args) => {
+    const previous = workerGetLens();
+    workerSetLens({ mode: 'admin' });
+    try {
+      return operation(...args);
+    } finally {
+      workerSetLens(previous);
+    }
+  };
+}
+
+/**
  * Connect Studio to the live SharedWorker backend, returning the {@link WorkerLivePlane},
  * or `null` when no `SharedWorker` is available (SSR / unsupported browser /
  * tests), so the env can fall back to the HTTP-only path. Never throws.
@@ -334,12 +357,12 @@ export function connectWorkerLive(
     firestoreApi: {
       collection: workerCollection,
       doc: workerDoc,
-      getDoc: workerGetDoc,
-      getDocs: workerGetDocs,
-      onSnapshot: workerOnSnapshot,
-      setDoc: workerSetDoc,
-      deleteDoc: workerDeleteDoc,
-      addDoc: workerAddDoc,
+      getDoc: pinAdminLens(workerGetDoc),
+      getDocs: pinAdminLens(workerGetDocs),
+      onSnapshot: pinAdminLens(workerOnSnapshot),
+      setDoc: pinAdminLens(workerSetDoc),
+      deleteDoc: pinAdminLens(workerDeleteDoc),
+      addDoc: pinAdminLens(workerAddDoc),
       query: workerQuery,
       limit: workerLimit,
       startAfter: workerStartAfter,
