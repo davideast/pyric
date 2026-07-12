@@ -32,6 +32,18 @@
  * their snapshot entry and are excluded from the coverage denominator rather
  * than left looking like an ordinary, someday-closeable gap.
  *
+ * SOURCE IS NOT THE ONLY EVIDENCE. Everything above is the SYNTACTIC path: find
+ * the construct's node in a captured scenario's ruleset. A construct that IS a
+ * behavior of the engine rather than a token of the language (the RTDB cascade
+ * semantics: a truthy ancestor `.read`/`.write` grants below it; `.validate`
+ * does not cascade) has no node to find and would read 0% verified forever,
+ * even though production's captured VERDICTS prove it. Such a construct is
+ * credited BEHAVIORALLY, from a `conforms` + `oracle-backed` rules-engine
+ * registry row whose `constructs` scope lists it. Both paths, and the honesty
+ * line separating a creditable cascade grant from an uncreditable
+ * deny-by-default non-event, live in `production-verification.ts`; this file
+ * supplies the syntactic half and calls that predicate for the verdict.
+ *
  * Also exposes the computed coverage-report writer (run as a script) that walks
  * every corpus scenario and emits rules-language/coverage-report.json.
  */
@@ -47,6 +59,8 @@ import type {
 import { parseStorageRules } from '../../../packages/pyric/src/storage/rules.ts';
 import { grammar as rtdbGrammar } from '../../../packages/pyric/src/database/grammar/RtdbExprParser.ts';
 import { loadSnapshot, type RulesEngine } from '../rules-language/load.ts';
+import { surfaceRegistries } from '../registry/index.ts';
+import { indexConstructScopes, isProductionVerified } from './production-verification.ts';
 
 // ── Result shape ──────────────────────────────────────────────────────
 
@@ -790,8 +804,16 @@ export interface ConstructCoverage {
   kind: string;
   /** All scenario ids that exercise the construct. */
   exercisedBy: string[];
-  /** The subset whose observation twin exists (production-verified). */
+  /** SYNTACTIC verification: the subset of `exercisedBy` whose observation twin
+   *  exists, so production's verdict on that exact ruleset was captured and
+   *  replayed. */
   verifiedBy: string[];
+  /** BEHAVIORAL verification: the `conforms` + `oracle-backed` rules-engine
+   *  registry rows whose `constructs` scope lists this construct — production
+   *  verdicts that can only be explained by it. The path an engine semantic with
+   *  no source token (the RTDB cascades) is credited by; see
+   *  production-verification.ts. Either list, non-empty, verifies the construct. */
+  verifiedByRows: string[];
   /** Mirrors the snapshot's `unattributable` (see rules-language/types.ts):
    *  present iff this construct can never be credited by static AST
    *  analysis. Such constructs are carried in `constructs` for the full
@@ -827,6 +849,7 @@ const RULES_ENGINES: readonly RulesEngine[] = ['firestore', 'storage', 'rtdb'] a
 
 export async function computeCoverageReport(): Promise<CoverageReport> {
   const engines: EngineCoverage[] = [];
+  const { provingRows } = indexConstructScopes(surfaceRegistries);
   for (const engine of RULES_ENGINES) {
     const snapshot = loadSnapshot(engine);
     const { scenarios, twinIds } = await loadScenarios(engine);
@@ -837,6 +860,7 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
         kind: c.kind,
         exercisedBy: [],
         verifiedBy: [],
+        verifiedByRows: provingRows.get(c.id) ?? [],
         ...(c.unattributable ? { unattributable: c.unattributable } : {}),
       });
     }
@@ -866,7 +890,11 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
     // coverage ratios for a reason unrelated to real gaps.
     const attributable = constructs.filter((c) => !c.unattributable);
     const exercisedConstructs = attributable.filter((c) => c.exercisedBy.length > 0).length;
-    const verifiedConstructs = attributable.filter((c) => c.verifiedBy.length > 0).length;
+    // The SHARED predicate: syntactic (a captured scenario's AST contains it) OR
+    // behavioral (a conforming, oracle-backed rules-engine row's scope lists it).
+    const verifiedConstructs = attributable.filter((c) =>
+      isProductionVerified({ scenarios: c.verifiedBy, provingRows: c.verifiedByRows }),
+    ).length;
     const total = attributable.length;
     engines.push({
       engine,
@@ -883,7 +911,7 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
   }
   return {
     generatedNote:
-      'DRAFT (issue #185 step 2). Verified coverage = snapshot constructs exercised by >=1 corpus scenario that has an observation twin / total ATTRIBUTABLE snapshot constructs. A construct carrying `unattributable` (a pure meta-semantic with no AST representation, e.g. storage/rtdb deny-by-default) is listed under its engine\'s `constructs` for the audit trail but excluded from totalConstructs/exercisedConstructs/verifiedConstructs and both ratios — it can never be credited by static AST analysis, so counting it against the total would put an un-earnable ceiling on the number for a reason unrelated to real coverage gaps. Regenerated by rules-language-analyzer.ts. Not yet wired into the ratchet (step 4).',
+      'Verified coverage = production-verified snapshot constructs / total ATTRIBUTABLE snapshot constructs. A construct is production-verified by either evidence path (the single predicate in src/production-verification.ts): SYNTACTIC — `verifiedBy` lists >=1 corpus scenario that exercises it and has an observation twin, so production\'s verdict on that exact ruleset was captured and replayed; or BEHAVIORAL — `verifiedByRows` lists >=1 `conforms` + `oracle-backed` rules-engine registry row whose `constructs` scope names it, meaning production verdicts that only that construct explains were captured and matched. The behavioral path exists because the analyzer reads SOURCE, and an engine semantic (the RTDB read/write cascades, `.validate` non-cascade) has no source token to read — only a verdict. A construct carrying `unattributable` (a pure meta-semantic that no single verdict positively demonstrates either: storage/rtdb deny-by-default, where nothing matched so nothing happened) is listed under its engine\'s `constructs` for the audit trail but excluded from totalConstructs/exercisedConstructs/verifiedConstructs and both ratios. Regenerated by rules-language-analyzer.ts.',
     engines,
   };
 }

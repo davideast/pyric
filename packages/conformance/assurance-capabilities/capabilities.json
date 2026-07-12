@@ -804,7 +804,7 @@
           "evidence": [
             "snapshot status \"unprobed\"",
             "capability probe \"implemented\"",
-            "no production-captured scenario and no conforming oracle-backed row verifies it"
+            "production-verified by conforming oracle-backed rules-engine row rtdb-rules#3, rtdb-rules#5, rtdb-rules#8, rtdb-rules#10"
           ]
         },
         {
@@ -837,8 +837,8 @@
         "rtdb.operator.and: snapshot status \"unprobed\"; capability probe \"implemented\"; production-verified by 6 captured scenario(s)",
         "rtdb.operator.or: snapshot status \"unprobed\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
         "rtdb.operator.not: snapshot status \"unprobed\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
-        "rtdb.semantic.read-cascade: snapshot status \"unprobed\"; capability probe \"implemented\"; no production-captured scenario and no conforming oracle-backed row verifies it",
-        "rtdb.semantic.write-cascade: snapshot status \"unprobed\"; capability probe \"implemented\"; no production-captured scenario and no conforming oracle-backed row verifies it",
+        "rtdb.semantic.read-cascade: snapshot status \"unprobed\"; capability probe \"implemented\"; production-verified by conforming oracle-backed rules-engine row rtdb-rules#3, rtdb-rules#5, rtdb-rules#8, rtdb-rules#10",
+        "rtdb.semantic.write-cascade: snapshot status \"unprobed\"; capability probe \"implemented\"; production-verified by conforming oracle-backed rules-engine row rtdb-rules#3, rtdb-rules#4, rtdb-rules#5",
         "rtdb.semantic.deny-by-default: snapshot status \"unprobed\"; capability probe \"implemented\"; no production-captured scenario and no conforming oracle-backed row verifies it"
       ],
       "dependencies": [
@@ -989,7 +989,7 @@
           "evidence": [
             "snapshot status \"unprobed\"",
             "capability probe \"implemented\"",
-            "no production-captured scenario and no conforming oracle-backed row verifies it"
+            "production-verified by conforming oracle-backed rules-engine row rtdb-rules#3, rtdb-rules#5, rtdb-rules#8, rtdb-rules#10"
           ]
         },
         {
@@ -999,7 +999,7 @@
           "evidence": [
             "snapshot status \"unprobed\"",
             "capability probe \"implemented\"",
-            "no production-captured scenario and no conforming oracle-backed row verifies it"
+            "production-verified by conforming oracle-backed rules-engine row rtdb-rules#3, rtdb-rules#4, rtdb-rules#5"
           ]
         },
         {
@@ -1060,7 +1060,7 @@
           "evidence": [
             "snapshot status \"unprobed\"",
             "capability probe \"implemented\"",
-            "no production-captured scenario and no conforming oracle-backed row verifies it"
+            "production-verified by conforming oracle-backed rules-engine row rtdb-rules#3, rtdb-rules#4, rtdb-rules#5"
           ]
         },
         {
@@ -1070,7 +1070,7 @@
           "evidence": [
             "snapshot status \"unprobed\"",
             "capability probe \"unprobeable\"",
-            "no production-captured scenario and no conforming oracle-backed row verifies it"
+            "production-verified by conforming oracle-backed rules-engine row rtdb-rules#4, rtdb-rules#10"
           ]
         },
         {
