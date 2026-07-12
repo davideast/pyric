@@ -20,11 +20,11 @@ import type { CensusSurface } from '../src/surface-denylist.ts';
 import type { CompatibilitySurfaceRegistry, Surface } from '../registry/types.ts';
 
 /**
- * The record authored in each `surfaces/<key>.ts` file. `surface` is deliberately
- * absent — the loader derives it from the filename so the key lives in exactly
- * one place (the filename itself).
+ * Fields every surface descriptor carries regardless of `kind`. `surface` is
+ * deliberately absent — the loader derives it from the filename so the key
+ * lives in exactly one place (the filename itself).
  */
-export interface SurfaceDescriptorRecord {
+interface SurfaceDescriptorRecordBase {
   /**
    * Ordinal for stable output ordering (the compat:coverage table, compat:report
    * surface list, and registry iteration). The loader sorts by it; filename sort
@@ -35,35 +35,23 @@ export interface SurfaceDescriptorRecord {
    * The hosting registry's `surface` field, as a key string the loader resolves
    * to the registry object (and its compatPath). Two descriptors may name the
    * same registry: `rtdb-modular` shares the `rtdb` registry, `messaging-admin`
-   * the `messaging` registry.
+   * the `messaging` registry, and `firestore-rules` / `storage-rules` share the
+   * `rules` registry.
    */
   registry: string;
   /**
-   * The underlying export-census surface (surface-census.ts). `rtdb` and
-   * `rtdb-modular` both map to `database` — surface-census does not distinguish
-   * the classic vs modular database export sets, so both report the same
-   * measurement.
-   */
-  censusSurface: CensusSurface;
-  /** Upstream `firebase/*` module the export census diffs against the mirror. */
-  upstream: string;
-  /**
-   * Mirror `pyric/*` module specifier(s). A symbol counts as mapped if ANY
-   * mirror module exports it (database's modular surface plus the barrel are
-   * both consulted).
-   */
-  mirrors: string[];
-  /**
    * Exact observation filename prefixes this surface owns
    * (`observations/<prefix>*.json`). Longest prefix wins. A surface may own more
-   * than one (auth owns `auth-` and `admin-app-`; firestore `firestore-` and
-   * `rules-firestore-`; storage `storage-` and `rules-storage-`).
+   * than one (auth owns `auth-` and `admin-app-`). The rules surfaces own the
+   * `rules-firestore-` / `rules-storage-` prefixes moved off firestore/storage.
    */
   observationPrefixes: string[];
   /**
    * Whether this surface is published in compat:coverage (the SERVICES set).
    * `messaging-admin` is false — the admin send plane mirrors firebase-admin,
-   * which has no runtime export census in this report.
+   * which has no runtime export census in this report. Native surfaces publish
+   * behavior conformance normally; their SURFACE column reads `native` (no
+   * upstream denominator), see coverage.ts.
    */
   coverage: boolean;
   /** One-line coverage scope statement (what is genuinely out of scope vs deferred). */
@@ -80,8 +68,55 @@ export interface SurfaceDescriptorRecord {
   climb?: boolean;
 }
 
-/** The loaded shape: the authored record plus the surface key and resolved registry. */
-export interface SurfaceDescriptor extends Omit<SurfaceDescriptorRecord, 'registry'> {
+/**
+ * A MIRROR surface: there is an upstream `firebase/*` module and a `pyric/*`
+ * mirror, and surface-census.ts diffs their export name sets. This is every
+ * descriptor that participates in the breadth census.
+ */
+export interface MirrorSurfaceDescriptorRecord extends SurfaceDescriptorRecordBase {
+  kind: 'mirror';
+  /**
+   * The underlying export-census surface (surface-census.ts). `rtdb-modular`
+   * maps to `database`.
+   */
+  censusSurface: CensusSurface;
+  /** Upstream `firebase/*` module the export census diffs against the mirror. */
+  upstream: string;
+  /**
+   * Mirror `pyric/*` module specifier(s). A symbol counts as mapped if ANY
+   * mirror module exports it (database's modular surface plus the barrel are
+   * both consulted).
+   */
+  mirrors: string[];
+}
+
+/**
+ * A NATIVE surface: there is NO upstream module to mirror, so the census
+ * (breadth) axis has no denominator. The claimable universe is instead the
+ * surface's OWN public API, declared as `symbolSource`. Native descriptors
+ * carry none of the census fields (`censusSurface` / `upstream` / `mirrors`).
+ * `symbolSource` is declared data for now — the Phase 3 symbol-claims gate
+ * that enumerates its exports and requires each to be claimed by a registry
+ * row is not built yet.
+ */
+export interface NativeSurfaceDescriptorRecord extends SurfaceDescriptorRecordBase {
+  kind: 'native';
+  /**
+   * The module specifier whose PUBLIC export set is this surface's claimable
+   * symbol universe (the census analog for a surface with no upstream), e.g.
+   * `pyric/rules`. Shared registries union their descriptors' symbolSources.
+   */
+  symbolSource: string;
+}
+
+/**
+ * The record authored in each `surfaces/<key>.ts` file — a discriminated union
+ * on `kind`. `surface-census.ts` and `coverage.ts` branch on `kind` (never on
+ * the surface name string) to decide which axis applies.
+ */
+export type SurfaceDescriptorRecord = MirrorSurfaceDescriptorRecord | NativeSurfaceDescriptorRecord;
+
+interface SurfaceDescriptorResolved {
   /** Derived from the filename. */
   surface: Surface;
   /** The registry key string as authored (kept for validation/reporting). */
@@ -91,6 +126,19 @@ export interface SurfaceDescriptor extends Omit<SurfaceDescriptorRecord, 'regist
   /** Convenience mirror of the resolved registry's compatPath. */
   compatPath: string;
 }
+
+/** The loaded MIRROR descriptor: the authored record plus resolved fields. */
+export interface MirrorSurfaceDescriptor
+  extends Omit<MirrorSurfaceDescriptorRecord, 'registry'>,
+    SurfaceDescriptorResolved {}
+
+/** The loaded NATIVE descriptor: the authored record plus resolved fields. */
+export interface NativeSurfaceDescriptor
+  extends Omit<NativeSurfaceDescriptorRecord, 'registry'>,
+    SurfaceDescriptorResolved {}
+
+/** The loaded shape: a discriminated union on `kind`, mirroring the authored record. */
+export type SurfaceDescriptor = MirrorSurfaceDescriptor | NativeSurfaceDescriptor;
 
 /**
  * An export-census surface with NO COMPAT matrix — it exists only for the

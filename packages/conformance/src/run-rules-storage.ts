@@ -45,8 +45,8 @@ import {
 } from '../rules-corpus/storage/index.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// rules-storage-* observations belong to the 'storage' surface.
-const OBS_DIR = join(HERE, '..', 'observations', 'storage');
+// rules-storage-* observations belong to the native 'storage-rules' surface.
+const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
 
 /** Resolved (installed) firebase version — the value the observation-version
  *  guard compares every observation against. */

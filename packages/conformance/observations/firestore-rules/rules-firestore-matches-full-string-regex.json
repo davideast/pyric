@@ -1,8 +1,8 @@
 {
   "name": "rules-firestore-matches-full-string-regex",
-  "matrixRow": "firestore#170",
+  "matrixRow": "firestore-rules#170",
   "rowIds": [
-    "firestore#170"
+    "firestore-rules#170"
   ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"matches-full-string-regex\" (RULES-B4). matches() is an anchored full-string RE2 match; a pattern matching only a substring must be false (JS partial-match said true).",
   "observedAt": "2026-07-10T22:41:19.540Z",

@@ -2,6 +2,7 @@ import type { SurfaceDescriptorRecord } from './types.ts';
 
 export const surface: SurfaceDescriptorRecord = {
   order: 1,
+  kind: 'mirror',
   registry: 'ai',
   censusSurface: 'ai',
   upstream: 'firebase/ai',

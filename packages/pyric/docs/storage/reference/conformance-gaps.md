@@ -10,7 +10,8 @@ the captured production verdict, and it is pinned rather than silently
 skipped.
 
 This capture also resolved a stale claim: the compatibility registry rows
-[`storage#96`](../COMPAT.md) and [`storage#104`](../COMPAT.md) previously
+[`storage-rules#96`](../../rules/COMPAT.md) and [`storage-rules#104`](../../rules/COMPAT.md)
+(moved to the native rules surface) previously
 marked granular verbs, user-defined functions, `request.time`, and
 `matches()` as unsupported. Production capture proves the evaluator already
 supports all of them; those rows — plus new rows for `matches()`,

@@ -44,8 +44,8 @@ import {
 } from '../rules-corpus/firestore/index.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// rules-firestore-* observations belong to the 'firestore' surface.
-const OBS_DIR = join(HERE, '..', 'observations', 'firestore');
+// rules-firestore-* observations belong to the native 'firestore-rules' surface.
+const OBS_DIR = join(HERE, '..', 'observations', 'firestore-rules');
 
 /** Resolved (installed) firebase version — the value the observation-version
  *  guard (check-observation-versions.ts) compares every observation against.

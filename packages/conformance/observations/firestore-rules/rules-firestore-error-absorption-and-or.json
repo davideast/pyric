@@ -1,8 +1,8 @@
 {
   "name": "rules-firestore-error-absorption-and-or",
-  "matrixRow": "firestore#163",
+  "matrixRow": "firestore-rules#163",
   "rowIds": [
-    "firestore#163"
+    "firestore-rules#163"
   ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"error-absorption-and-or\" (RULES-B3). CEL tri-state: `error || true` → ALLOW, `error && false` → DENY-as-false; errors absorb commutatively, not JS left-to-right.",
   "observedAt": "2026-07-10T22:41:19.225Z",

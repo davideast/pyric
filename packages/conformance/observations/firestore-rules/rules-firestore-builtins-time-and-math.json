@@ -1,8 +1,8 @@
 {
   "name": "rules-firestore-builtins-time-and-math",
-  "matrixRow": "firestore#160",
+  "matrixRow": "firestore-rules#160",
   "rowIds": [
-    "firestore#160"
+    "firestore-rules#160"
   ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"builtins-time-and-math\" (FM3). Simulator throws on math.*, timestamp.*, duration.* — agent rules using these silently deny in the simulator while production evaluates them.",
   "observedAt": "2026-07-10T22:41:17.791Z",

@@ -92,16 +92,20 @@ function runCensus(): CensusRow[] {
  */
 const SERVICES: Surface[] = surfaceDescriptors.filter((d) => d.coverage).map((d) => d.surface);
 
+/** Surface -> its descriptor, so the coverage math can branch on `kind`. */
+const DESCRIPTOR_FOR = new Map(surfaceDescriptors.map((d) => [d.surface, d]));
+
 /**
- * Each COMPAT surface's underlying surface-census surface, from the descriptors.
- * `rtdb` and `rtdb-modular` both map to `database` — surface-census.ts does not
- * distinguish the classic vs modular database API at the export level, so both
- * report the same measurement. The `messaging-admin` entry is inert (it is not
- * in SERVICES) and is present only to keep the map total over `Surface`.
+ * A MIRROR surface's underlying surface-census surface. Native surfaces have no
+ * upstream to census and are absent from this map — the SURFACE (breadth) axis
+ * does not apply to them; their completeness is the CLAIMED-API axis instead
+ * (published as `native` in the table until the Phase 3 symbol-claims gate
+ * lands). `rtdb-modular` is the sole owner of the `database` census now that
+ * classic `rtdb` is native.
  */
-const CENSUS_SURFACE_FOR: Record<Surface, CensusSurface> = Object.fromEntries(
-  surfaceDescriptors.map((d) => [d.surface, d.censusSurface]),
-) as Record<Surface, CensusSurface>;
+const CENSUS_SURFACE_FOR: Map<Surface, CensusSurface> = new Map(
+  surfaceDescriptors.flatMap((d) => (d.kind === 'mirror' ? [[d.surface, d.censusSurface] as const] : [])),
+);
 
 interface SurfaceCoverage {
   mapped: number;
@@ -164,9 +168,12 @@ function behaviorConformanceFor(rows: RegistryEntry[]): BehaviorConformance {
 
 interface ServiceCoverage {
   surface: Surface;
-  censusSurface: CensusSurface;
-  sharedCensus: boolean;
-  surfaceCoverage: SurfaceCoverage;
+  /** 'mirror' surfaces have an upstream census; 'native' surfaces do not. */
+  kind: 'mirror' | 'native';
+  /** The census surface for a mirror service; null for a native one. */
+  censusSurface: CensusSurface | null;
+  /** SURFACE (breadth) coverage — null for a native surface (no upstream denominator). */
+  surfaceCoverage: SurfaceCoverage | null;
   behavior: BehaviorConformance;
 }
 
@@ -189,22 +196,25 @@ function buildReport(): CoverageReport {
   const ledger = buildCompatibilityLedger();
 
   const services: ServiceCoverage[] = SERVICES.map((surface) => {
-    const censusSurface = CENSUS_SURFACE_FOR[surface];
+    const rows = ledger.entries.filter((r) => r.surface === surface);
+    const behavior = behaviorConformanceFor(rows);
+    const censusSurface = CENSUS_SURFACE_FOR.get(surface);
+    // Native surface: no upstream census. Report behavior only; the SURFACE
+    // (breadth) column is 'native', not a percentage against a denominator
+    // that does not exist.
+    if (censusSurface === undefined) {
+      return { surface, kind: 'native', censusSurface: null, surfaceCoverage: null, behavior };
+    }
     const census = censusBySurface.get(censusSurface);
     if (!census) throw new Error(`No surface census entry for '${censusSurface}' (service '${surface}')`);
-    const rows = ledger.entries.filter((r) => r.surface === surface);
-    return {
-      surface,
-      censusSurface,
-      sharedCensus: surface === 'rtdb' || surface === 'rtdb-modular',
-      surfaceCoverage: surfaceCoverageFor(census),
-      behavior: behaviorConformanceFor(rows),
-    };
+    return { surface, kind: 'mirror', censusSurface, surfaceCoverage: surfaceCoverageFor(census), behavior };
   });
 
-  // Overall surface coverage: sum each UNIQUE census surface once (rtdb +
-  // rtdb-modular share the `database` census — do not double-count it).
-  const uniqueCensusSurfaces = new Set(SERVICES.map((s) => CENSUS_SURFACE_FOR[s]));
+  // Overall surface coverage: sum each UNIQUE census surface once, over MIRROR
+  // services only (native surfaces have no upstream breadth to fold in).
+  const uniqueCensusSurfaces = new Set(
+    SERVICES.map((s) => CENSUS_SURFACE_FOR.get(s)).filter((cs): cs is CensusSurface => cs !== undefined),
+  );
   let mapped = 0, totalDen = 0, intendedDen = 0;
   for (const cs of uniqueCensusSurfaces) {
     const census = censusBySurface.get(cs)!;
@@ -259,16 +269,20 @@ function printTable(report: CoverageReport): void {
   }
   console.log('');
 
-  const header = 'service        surface(total)  surface(intended)  behavior(total)  behavior(intended)  diverged  unverified';
+  const header = 'service         surface(total)  surface(intended)  behavior(total)  behavior(intended)  diverged  unverified';
   console.log(header);
   console.log('-'.repeat(header.length));
   for (const s of report.services) {
-    const note = s.sharedCensus ? '*' : ' ';
+    // A native surface has no upstream breadth denominator — its SURFACE cells
+    // read 'native', never a percentage, so a reader can never confuse "N% of
+    // my own exports claimed" with "N% of upstream mirrored".
+    const surfaceTotal = s.surfaceCoverage ? `${s.surfaceCoverage.total.pct}%` : 'native';
+    const surfaceIntended = s.surfaceCoverage ? `${s.surfaceCoverage.intended.pct}%` : 'native';
     console.log(
       [
-        (s.surface + note).padEnd(15),
-        `${s.surfaceCoverage.total.pct}%`.padStart(14),
-        `${s.surfaceCoverage.intended.pct}%`.padStart(18),
+        s.surface.padEnd(15),
+        surfaceTotal.padStart(14),
+        surfaceIntended.padStart(18),
         `${s.behavior.total.pct}%`.padStart(16),
         `${s.behavior.intended.pct}%`.padStart(19),
         String(s.behavior.divergedDocumented).padStart(9),
@@ -288,16 +302,23 @@ function printTable(report: CoverageReport): void {
       String(report.overall.behavior.unverified).padStart(11),
     ].join('  '),
   );
-  console.log('\n* rtdb and rtdb-modular share one surface-census measurement (`database`) — surface-census.ts does not distinguish the classic vs modular export sets.');
+  console.log('\nSURFACE reads `native` for a surface with no upstream module (its completeness is measured against its own public API, not against Firebase); OVERALL surface coverage sums the mirror surfaces only.');
   console.log(`\nHigh-risk unverified conforms rows: ${report.highRiskUnverified.length}`);
   console.log(`Orphan observations: ${report.orphanObservations.length}`);
 }
 
 // ── Baseline + regression gate ──────────────────────────────────────────────
 
+interface BaselineService {
+  /** Absent for a native surface (no upstream breadth to ratchet). */
+  surfaceCoveragePct?: { total: number; intended: number };
+  /** Marks a native surface so the regression gate skips its (absent) breadth. */
+  native?: boolean;
+}
+
 interface Baseline {
   generatedAt: string;
-  services: Record<string, { surfaceCoveragePct: { total: number; intended: number } }>;
+  services: Record<string, BaselineService>;
   overall: { surfaceCoveragePct: { total: number; intended: number } };
   rowStatuses: Record<string, string>;
   highRiskUnverified: string[];
@@ -308,7 +329,12 @@ function toBaseline(report: CoverageReport): Baseline {
   return {
     generatedAt: report.generatedAt,
     services: Object.fromEntries(
-      report.services.map((s) => [s.surface, { surfaceCoveragePct: { total: s.surfaceCoverage.total.pct, intended: s.surfaceCoverage.intended.pct } }]),
+      report.services.map((s): [string, BaselineService] => [
+        s.surface,
+        s.surfaceCoverage
+          ? { surfaceCoveragePct: { total: s.surfaceCoverage.total.pct, intended: s.surfaceCoverage.intended.pct } }
+          : { native: true },
+      ]),
     ),
     overall: { surfaceCoveragePct: { total: report.overall.surfaceCoverage.total.pct, intended: report.overall.surfaceCoverage.intended.pct } },
     rowStatuses: report.rowStatuses,
@@ -332,7 +358,9 @@ function findRegressions(baseline: Baseline, report: CoverageReport): string[] {
 
   for (const s of report.services) {
     const base = baseline.services[s.surface];
-    if (!base) continue;
+    // A native surface has no breadth percentage to ratchet — skip. (Both the
+    // report side and the baseline side are absent for native.)
+    if (!base || !base.surfaceCoveragePct || !s.surfaceCoverage) continue;
     if (s.surfaceCoverage.total.pct < base.surfaceCoveragePct.total) {
       problems.push(`${s.surface}: surface coverage (total) dropped ${base.surfaceCoveragePct.total}% -> ${s.surfaceCoverage.total.pct}%`);
     }

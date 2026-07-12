@@ -2,7 +2,7 @@
   "name": "rules-storage-matches-regex",
   "matrixRow": "",
   "rowIds": [
-    "storage#113"
+    "storage-rules#113"
   ],
   "description": "Storage Rules Test API verdicts for corpus pack \"matches-regex\" (STORAGE-MATCHES). string.matches() whole-string anchoring: a partial match denies. (RE2-inexpressible patterns are rejected at ruleset compile time by production, so they are covered by evaluator unit tests, not oracle capture.)",
   "observedAt": "2026-07-11T03:09:46.149Z",

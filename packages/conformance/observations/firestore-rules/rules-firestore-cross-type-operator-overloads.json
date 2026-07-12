@@ -1,8 +1,8 @@
 {
   "name": "rules-firestore-cross-type-operator-overloads",
-  "matrixRow": "firestore#162",
+  "matrixRow": "firestore-rules#162",
   "rowIds": [
-    "firestore#162"
+    "firestore-rules#162"
   ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"cross-type-operator-overloads\" (Item 2). Wrapper binaryOp must produce typed results for Timestamp/Duration cross-type ops; numeric coercion would silently lose type identity and (post-Risk 2 guard) silently DENY.",
   "observedAt": "2026-07-10T22:41:18.228Z",

@@ -44,9 +44,6 @@ function recordProblems(file: string, value: unknown): string[] {
   if (typeof record.order !== 'number') fail("missing numeric 'order'");
   if (typeof record.registry !== 'string' || !record.registry.trim()) fail("missing 'registry' key string");
   else if (!registriesByKey[record.registry]) fail(`'registry' key '${record.registry}' resolves to no registry`);
-  if (typeof record.censusSurface !== 'string' || !record.censusSurface.trim()) fail("missing 'censusSurface'");
-  if (typeof record.upstream !== 'string' || !record.upstream.trim()) fail("missing 'upstream'");
-  if (!isStringArray(record.mirrors) || record.mirrors.length === 0) fail("'mirrors' must be a non-empty string array");
   if (!isStringArray(record.observationPrefixes) || record.observationPrefixes.length === 0) {
     fail("'observationPrefixes' must be a non-empty string array");
   }
@@ -57,6 +54,25 @@ function recordProblems(file: string, value: unknown): string[] {
     fail("'conformanceSuite' must be a string");
   }
   if (record.climb !== undefined && typeof record.climb !== 'boolean') fail("'climb' must be a boolean");
+
+  // ── Descriptor-kind integrity ─────────────────────────────────────────────
+  // The `kind` discriminant decides which axis fields a descriptor carries. A
+  // mirror descriptor asserts an upstream exists (census fields); a native
+  // descriptor asserts it does not (a declared symbolSource instead, and NONE
+  // of the census fields). Nothing string-matches the surface name to decide.
+  if (record.kind !== 'mirror' && record.kind !== 'native') {
+    fail("missing 'kind' — must be 'mirror' or 'native'");
+  } else if (record.kind === 'mirror') {
+    if (typeof record.censusSurface !== 'string' || !record.censusSurface.trim()) fail("mirror descriptor missing 'censusSurface'");
+    if (typeof record.upstream !== 'string' || !record.upstream.trim()) fail("mirror descriptor missing 'upstream'");
+    if (!isStringArray(record.mirrors) || record.mirrors.length === 0) fail("mirror descriptor 'mirrors' must be a non-empty string array");
+    if (record.symbolSource !== undefined) fail("mirror descriptor must not declare 'symbolSource'");
+  } else {
+    if (typeof record.symbolSource !== 'string' || !record.symbolSource.trim()) fail("native descriptor missing 'symbolSource'");
+    if (record.censusSurface !== undefined) fail("native descriptor must not declare 'censusSurface' (no upstream to census)");
+    if (record.upstream !== undefined) fail("native descriptor must not declare 'upstream' (no upstream to census)");
+    if (record.mirrors !== undefined) fail("native descriptor must not declare 'mirrors' (no upstream to census)");
+  }
 
   return problems;
 }
@@ -122,6 +138,8 @@ export function loadCensusPairs(): CensusMirrorPair[] {
     ordered.push({ order: c.order, pair: { surface: c.censusSurface, upstream: c.upstream, mirrors: c.mirrors } });
   }
   for (const d of surfaceDescriptors) {
+    // Native surfaces have no upstream to census — they contribute no pair.
+    if (d.kind !== 'mirror') continue;
     if (seen.has(d.censusSurface)) continue;
     seen.add(d.censusSurface);
     ordered.push({ order: d.order, pair: { surface: d.censusSurface, upstream: d.upstream, mirrors: d.mirrors } });
