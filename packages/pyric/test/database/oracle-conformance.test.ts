@@ -1,6 +1,6 @@
 /**
  * Oracle conformance (RTDB, `rtdb-*` surface) — wires the frozen
- * `packages/conformance/observations/*/rtdb-*.json` captures into the test suite
+ * `packages/conformance/observations/rtdb/rtdb-*.json` captures into the test suite
  * so the recorded real-Firebase-RTDB behavior is MACHINE-CHECKED against
  * the in-process sandbox, not just cited in comments (mirrors the auth
  * suite at `test/auth/oracle-conformance.test.ts` — see that file's
