@@ -152,6 +152,18 @@ const CAPABILITY_DIR = join(HERE, '..', 'assurance-capabilities');
 const LANGUAGE_DIR = join(HERE, '..', 'rules-language');
 export const ARTIFACT_PATH = join(CAPABILITY_DIR, 'capabilities.json');
 export const GENERATED_TS_PATH = join(CAPABILITY_DIR, 'generated.ts');
+/** The assurance runtime's copy. `pyric-tools` does not depend on this private
+ *  package, so the generator writes the capabilities into it directly. Checked
+ *  alongside the other outputs: drift here fails CI too. */
+export const RUNTIME_TS_PATH = join(
+  HERE,
+  '..',
+  '..',
+  'pyric-tools',
+  'src',
+  'assurance',
+  'generated-capabilities.ts',
+);
 
 const STATUS_ORDER: Record<AssuranceCapabilityStatus, number> = {
   unsupported: 0,
@@ -392,6 +404,23 @@ export function renderArtifactJson(artifact: AssuranceCapabilityArtifact): strin
   return `${JSON.stringify(artifact, null, 2)}\n`;
 }
 
+/** The capability object literals, shared by both generated TypeScript modules. */
+function renderCapabilityLiterals(capabilities: DerivedCapability[]): string[] {
+  const lines: string[] = [];
+  for (const capability of capabilities) {
+    lines.push('  {');
+    lines.push(`    id: ${JSON.stringify(capability.id)},`);
+    lines.push(`    service: ${JSON.stringify(capability.service)},`);
+    lines.push(`    status: ${JSON.stringify(capability.status)},`);
+    lines.push(`    description: ${JSON.stringify(capability.description)},`);
+    lines.push('    reasons: [');
+    for (const reason of capability.reasons) lines.push(`      ${JSON.stringify(reason)},`);
+    lines.push('    ],');
+    lines.push('  },');
+  }
+  return lines;
+}
+
 /** The generated TypeScript module: the same capabilities, inlined, in the shape
  *  the assurance runtime consumes (no filesystem, no JSON import). */
 export function renderGeneratedTs(capabilities: DerivedCapability[]): string {
@@ -416,19 +445,57 @@ export function renderGeneratedTs(capabilities: DerivedCapability[]): string {
     '}',
     '',
     'export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapability[] = [',
+    ...renderCapabilityLiterals(capabilities),
+    '];',
+    '',
   ];
-  for (const capability of capabilities) {
-    lines.push('  {');
-    lines.push(`    id: ${JSON.stringify(capability.id)},`);
-    lines.push(`    service: ${JSON.stringify(capability.service)},`);
-    lines.push(`    status: ${JSON.stringify(capability.status)},`);
-    lines.push(`    description: ${JSON.stringify(capability.description)},`);
-    lines.push('    reasons: [');
-    for (const reason of capability.reasons) lines.push(`      ${JSON.stringify(reason)},`);
-    lines.push('    ],');
-    lines.push('  },');
-  }
-  lines.push('];', '');
+  return lines.join('\n');
+}
+
+/**
+ * The same capabilities, emitted a second time into the assurance runtime
+ * (`pyric-tools`).
+ *
+ * The dependency runs one way — `pyric-tools` does not depend on this private
+ * conformance package — so the runtime cannot import the module above. Instead
+ * the generator writes a self-contained copy it CAN import: no imports at all,
+ * the service and status unions inlined. Both outputs are checked by
+ * `--check`, so a status that drifts in either one fails CI. The runtime's
+ * capability statuses therefore remain underivable by hand: there is no file a
+ * human may edit to assert one.
+ */
+export function renderRuntimeTs(capabilities: DerivedCapability[]): string {
+  const lines = [
+    '// GENERATED FILE. Do not edit by hand; run bun run compat:assurance.',
+    '//',
+    '// The assurance engine\'s capabilities, DERIVED from the conformance graph by',
+    '// packages/conformance/src/assurance-capabilities.ts (see that file\'s header for',
+    '// the derivation rules). This is the assurance runtime\'s copy: the conformance',
+    '// package is private and is NOT a dependency of pyric-tools, so the generator',
+    '// emits this self-contained module here rather than have the runtime import it.',
+    '//',
+    '// A capability status is never authorable. It is derived from the graph, and',
+    '// `bun run compat:assurance:check` fails if this file drifts from the graph.',
+    '// `reasons` carries the evidence a probe cites when it abstains (engine-gap).',
+    '',
+    "export type AssuranceCapabilityService = 'firestore' | 'rtdb' | 'storage' | 'auth';",
+    "export type AssuranceCapabilityStatus = 'supported' | 'qualified' | 'unsupported';",
+    '',
+    'export interface GeneratedAssuranceCapability {',
+    '  id: string;',
+    '  service: AssuranceCapabilityService;',
+    '  status: AssuranceCapabilityStatus;',
+    '  description: string;',
+    '  /** The graph evidence that pinned the status: the dependencies whose verdict',
+    '   *  equals it. A probe that abstains reports these. */',
+    '  reasons: string[];',
+    '}',
+    '',
+    'export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapability[] = [',
+    ...renderCapabilityLiterals(capabilities),
+    '];',
+    '',
+  ];
   return lines.join('\n');
 }
 
@@ -444,12 +511,14 @@ function main(): void {
   const capabilities = deriveAllCapabilities();
   const artifactJson = renderArtifactJson(buildArtifact(capabilities));
   const generatedTs = renderGeneratedTs(capabilities);
+  const runtimeTs = renderRuntimeTs(capabilities);
 
   if (args.has('--check')) {
     const drift: string[] = [];
     for (const [path, expected] of [
       [ARTIFACT_PATH, artifactJson],
       [GENERATED_TS_PATH, generatedTs],
+      [RUNTIME_TS_PATH, runtimeTs],
     ] as const) {
       let actual = '';
       try {
@@ -473,7 +542,8 @@ function main(): void {
   if (args.has('--write')) {
     writeFileSync(ARTIFACT_PATH, artifactJson);
     writeFileSync(GENERATED_TS_PATH, generatedTs);
-    console.log(`Wrote ${ARTIFACT_PATH}\nWrote ${GENERATED_TS_PATH}`);
+    writeFileSync(RUNTIME_TS_PATH, runtimeTs);
+    console.log(`Wrote ${ARTIFACT_PATH}\nWrote ${GENERATED_TS_PATH}\nWrote ${RUNTIME_TS_PATH}`);
     return;
   }
 

@@ -11,6 +11,8 @@
  * mode (fail-safe). Sandbox mode uses `never` universally.
  */
 
+import { ASSURANCE_TOOL_NAMES } from '../../assurance/tool-names.js';
+
 export type ConfirmPolicy = 'never' | 'session' | 'always' | 'deny';
 
 /**
@@ -39,6 +41,9 @@ export const DEFAULT_PROD_POLICIES: ReadonlyMap<string, ConfirmPolicy> = new Map
   ['rtdb_simulate_access', 'never'],
   ['rtdb_build_expression', 'never'],
   ['rtdb_crawl_structure', 'never'],
+  // Assurance tools execute only against explicit local targets with
+  // network forbidden. They never dispatch to the prod backend.
+  ...ASSURANCE_TOOL_NAMES.map((name) => [name, 'never'] as const),
 
   // ── Writes — always prompt ──────────────────────────────────────
   ['firestore_create_document', 'always'],
