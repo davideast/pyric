@@ -56,7 +56,6 @@ import {
 } from 'pyric/firestore';
 import type { Sandbox, PersistenceBackend, AuthLens } from 'pyric/sandbox';
 import { serializeToBuckets, bundleRecords, parseBundle, deserializeFromBuckets } from 'pyric/sandbox';
-import { sandbox as sandboxOps } from 'pyric/firestore';
 import { initializeApp } from 'pyric/app';
 import {
   getStorage,
@@ -148,6 +147,7 @@ import {
 import { isFirestoreReadOp, handleFirestoreReadOp } from './host/firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './host/firestore-writes.js';
 import { isRulesOp, handleRulesOp } from './host/rules.js';
+import { isAdminFirestoreOp, handleAdminFirestoreOp } from './host/admin-firestore.js';
 
 // Re-export so host.ts's public surface is unchanged after the decomposition.
 export { ensureAuth, portSession } from './host-auth.js';
@@ -343,55 +343,9 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
   if (isFirestoreReadOp(msg.method)) return handleFirestoreReadOp(ctx, port, msg, db);
   if (isFirestoreWriteOp(msg.method)) return handleFirestoreWriteOp(ctx, port, msg, db);
   if (isRulesOp(msg.method)) return handleRulesOp(ctx, port, msg, db);
+  if (isAdminFirestoreOp(msg.method)) return handleAdminFirestoreOp(ctx, port, msg);
 
   switch (msg.method) {
-    case 'admin.getDocument': {
-      try {
-        ok(port, msg.id, ctx.sandbox.admin.getDocument(msg.path));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'admin.listDocuments': {
-      try {
-        ok(port, msg.id, ctx.sandbox.admin.listDocuments(msg.path));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'admin.setDocument': {
-      try {
-        ctx.sandbox.admin.setDocument(msg.path, msg.data as Record<string, unknown>);
-        await bestEffortFlush(ctx);
-        ok(port, msg.id, null);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'admin.deleteDocument': {
-      try {
-        const deleted = ctx.sandbox.admin.deleteDocument(msg.path);
-        await bestEffortFlush(ctx);
-        ok(port, msg.id, deleted);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'admin.readState': {
-      try {
-        const snap = sandboxOps.snapshotState(ctx.adminDb ?? lensDb(ctx, { mode: 'admin' }));
-        const out: Record<string, unknown> = {};
-        const prefix = msg.path ?? '';
-        for (const [path, data] of Object.entries(snap)) {
-          if (prefix && !path.startsWith(prefix)) continue;
-          if (msg.maxDepth !== undefined && path.split('/').length > msg.maxDepth) continue;
-          out[path] = data;
-        }
-        ok(port, msg.id, out);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
     case 'rtdb.get': {
       try {
         const db = lensRtdb(ctx, msg.actAs, port);
