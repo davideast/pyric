@@ -3,7 +3,6 @@ import {
   isPlaygroundCommandMessage,
   isStudioEmbedSearch,
   normalizePlaygroundBase,
-  PLAYGROUND_OPEN_ACCOUNT_MESSAGE,
   PLAYGROUND_OPEN_KEYS_MESSAGE,
   PLAYGROUND_OPEN_SETTINGS_MESSAGE,
   PLAYGROUND_SET_MODEL_MESSAGE,
@@ -28,7 +27,6 @@ describe('Studio embed contract', () => {
   test('validates playground command messages from Studio', () => {
     expect(isPlaygroundCommandMessage({ type: PLAYGROUND_OPEN_KEYS_MESSAGE })).toBe(true);
     expect(isPlaygroundCommandMessage({ type: PLAYGROUND_OPEN_SETTINGS_MESSAGE })).toBe(true);
-    expect(isPlaygroundCommandMessage({ type: PLAYGROUND_OPEN_ACCOUNT_MESSAGE })).toBe(true);
     expect(
       isPlaygroundCommandMessage({
         type: PLAYGROUND_SET_MODEL_MESSAGE,

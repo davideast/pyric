@@ -27,7 +27,6 @@ import { FilesPanel } from './FilesPanel';
 import type { FirebaseSubTab } from './FirebaseTab';
 import { PanelTabs, type Tab } from './PanelTabs';
 import { TerminalPanel } from './TerminalPanel';
-import { AuthModal } from './AuthModal';
 import { AutosaveStatus } from './AutosaveStatus';
 import { SessionReadOnlyBanner } from './SessionReadOnlyBanner';
 import { SettingsModal } from './SettingsModal';
@@ -75,7 +74,6 @@ import {
 } from '~/lib/studio-embed';
 import { buildPlaygroundBreadcrumbs } from '~/lib/breadcrumbs';
 import { listToolHandlersForProfile } from '~/lib/tools';
-import { completeRedirectSignIn } from '~/lib/firebase/auth';
 import { completeSignInIfPending } from '~/lib/llm/openrouter-oauth';
 import { installDiagnosticsGlobals, logPage } from '~/lib/llm/inference/diagnostics';
 import { installOpenRouterInspector } from '~/lib/llm/inference/openrouter-inspect';
@@ -113,21 +111,13 @@ export function PlaygroundPage() {
   const [firebaseSubTab, setFirebaseSubTab] = useState<FirebaseSubTab>('sandbox');
   const [keysOpen, setKeysOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
   const openKeys = useCallback(() => {
     setSettingsOpen(false);
-    setAuthOpen(false);
     setKeysOpen(true);
   }, []);
   const openSettings = useCallback(() => {
     setKeysOpen(false);
-    setAuthOpen(false);
     setSettingsOpen(true);
-  }, []);
-  const openAccount = useCallback(() => {
-    setKeysOpen(false);
-    setSettingsOpen(false);
-    setAuthOpen(true);
   }, []);
 
   useEffect(() => {
@@ -141,9 +131,6 @@ export function PlaygroundPage() {
           break;
         case 'pyric:playground:open-settings':
           openSettings();
-          break;
-        case 'pyric:playground:open-account':
-          openAccount();
           break;
         case 'pyric:playground:set-model': {
           const provider = PROVIDERS[event.data.providerId];
@@ -163,7 +150,7 @@ export function PlaygroundPage() {
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [embeddedInStudio, openAccount, openKeys, openSettings]);
+  }, [embeddedInStudio, openKeys, openSettings]);
 
   // Publish the session breadcrumb to Studio so it renders in its Prototype
   // controls bar (the embed hides the TopBar, and the in-workspace StatusBar
@@ -184,19 +171,6 @@ export function PlaygroundPage() {
       title: crumbs.length > 1 ? current?.label ?? null : null,
     });
   }, [embeddedInStudio, playgroundBase, sessionRouting.title, sessionRouting.sessionId]);
-
-  // Complete the Google redirect flow on app load — only matters
-  // when the user picked the redirect fallback (popup is the
-  // primary sign-in path; popup returns the OAuth access token
-  // synchronously). Errors here are usually stale-redirect-cookie
-  // or third-party-cookie-blocked-and-lost-the-token; not user-
-  // facing emergencies, but visible in the console so devs can
-  // diagnose if the modal stays signed-out after a redirect.
-  useEffect(() => {
-    void completeRedirectSignIn().catch((e) => {
-      console.warn('[auth] redirect sign-in completion failed:', e);
-    });
-  }, []);
 
   // Page-lifecycle instrumentation — feeds the diagnostics activity
   // log. visibilitychange / freeze / resume / pagehide / online /
@@ -721,10 +695,6 @@ export function PlaygroundPage() {
     setKeysOpen(false);
   }, []);
 
-  const handleOpenAccount = useCallback(() => {
-    openAccount();
-  }, [openAccount]);
-
   const handleSandboxModeChange = useCallback(
     (mode: PlaygroundSandboxMode) => {
       if (mode === sessionRouting.sandboxMode) return;
@@ -863,7 +833,6 @@ export function PlaygroundPage() {
           githubRepo={sessionRouting.githubRepo}
           onOpenKeys={openKeys}
           onOpenSettings={openSettings}
-          onOpenAccount={handleOpenAccount}
         >
           {/* Desktop carries the picker in the TopBar. Mobile hides it
               here (the bar is tight) and renders it inside the key
@@ -875,7 +844,7 @@ export function PlaygroundPage() {
           {/* Ambient-autosave indicator — driven by the real save
               lifecycle reported from useSessionRouting. Its popover
               carries the persistence truth copy + the sign-in step. */}
-          <AutosaveStatus onOpenAccount={handleOpenAccount} />
+          <AutosaveStatus />
         </TopBar>
       ) : null}
 
@@ -927,8 +896,6 @@ export function PlaygroundPage() {
               },
               subTab: firebaseSubTab,
               onSubTabChange: setFirebaseSubTab,
-              sessionId: sessionRouting.sessionId,
-              contextWindow,
               sandboxMode: sessionRouting.sandboxMode,
               sandboxModeDisabled: !sessionRouting.isWriter,
               onSandboxModeChange: handleSandboxModeChange,
@@ -1072,8 +1039,6 @@ export function PlaygroundPage() {
       <BottomTabBar />
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
-
       <Modal open={keysOpen} onClose={() => setKeysOpen(false)} ariaLabel="API keys">
           {/* Picker rendered inside the modal on mobile so the user can
               switch providers + models in the same place they manage

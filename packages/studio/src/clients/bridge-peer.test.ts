@@ -23,7 +23,7 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 import { connectStudioBridgePeer } from './bridge-peer.js';
 import { createStudioEnvironment } from '../env.js';
-import { getFirestore, type ClientDb } from 'pyric-tools/serve/worker';
+import { getFirestore, type ClientDb } from '@pyric/cli/serve/worker';
 
 // ── Fakes ──────────────────────────────────────────────────────────────────
 

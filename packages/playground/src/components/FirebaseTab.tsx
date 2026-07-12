@@ -13,24 +13,21 @@
  *   - Ideas       — Firebase data/rules prompt starters.
  *   - Suggestions — agent-surfaced analysis suggestions, with one-click
  *                   prompt sends.
- *   - Deploy      — Firebase Hosting / Rules / Indexes deploy hooks.
  *
  * Replaces the old `AgentFirestoreTab` (Data + Traffic only) and the
- * sibling `Suggestions` and `Deploy` top-level tabs — pulling them
+ * sibling `Suggestions` top-level tab — pulling them
  * into one Firebase namespace gets the right panel down to five
  * top-level tabs (Agent · Files · Terminal · Output · Firebase).
  */
 import { AuthTab } from './AuthTab';
 import { CodeSubTabs } from './CodeSubTabs';
 import { DataSeedTab } from './DataSeedTab';
-import { DeployTab } from './DeployTab';
 import { IdeasTab } from './IdeasTab';
 import { FirestoreTab } from './FirestoreTab';
 import { FirestoreTabBoundary } from './FirestoreTabBoundary';
 import { RtdbTab } from './RtdbTab';
 import { SuggestionsTab } from './SuggestionsTab';
 import { TrafficTab } from './TrafficTab';
-import type { ContextWindowSnapshot } from '~/lib/agent/context-window';
 import type { AgentPromptProfile } from '~/lib/skills/registry';
 import type { PlaygroundSandboxMode } from '~/lib/studio-embed';
 import { useRuntimeStore } from '~/lib/store/runtime';
@@ -53,8 +50,6 @@ export interface FirebaseTabProps {
   /** Navigate back to the Agent (chat) tab — used by SuggestionsTab
    *  when the user invokes a one-click prompt. */
   onNavigateAgent?: () => void;
-  sessionId?: string | null;
-  contextWindow?: ContextWindowSnapshot;
   sandboxMode: PlaygroundSandboxMode;
   sandboxModeDisabled?: boolean;
   onSandboxModeChange: (mode: PlaygroundSandboxMode) => void;
@@ -68,8 +63,6 @@ export function FirebaseTab({
   subTab,
   onSubTabChange,
   onNavigateAgent,
-  sessionId,
-  contextWindow,
   sandboxMode,
   sandboxModeDisabled,
   onSandboxModeChange,
@@ -123,9 +116,6 @@ export function FirebaseTab({
             {...(onNavigateAgent ? { onNavigateActivity: onNavigateAgent } : {})}
             onNavigateFirestoreTraffic={() => onSubTabChange('traffic')}
           />
-        ) : null}
-        {activeSubTab === 'deploy' ? (
-          <DeployTab sessionId={sessionId} contextWindow={contextWindow} />
         ) : null}
       </div>
     </div>

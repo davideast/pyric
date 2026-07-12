@@ -36,7 +36,7 @@ Anything *about* rules:
 
 ## What stays out
 
-The Firestore Web SDK surface stays in `pyric/firestore`. The control-plane primitives (deploy, scope) stay in `pyric-tools/deploy`. The sandbox itself (the `LocalEnvironment` that holds documents and listeners) stays in `pyric/sandbox`. These three packages and this one form a loose hexagon: data plane, rules tooling, control plane, sandbox. Each depends on a small surface of the others; none of them depends on a kitchen-sink package.
+The Firestore Web SDK surface stays in `pyric/firestore`. The sandbox itself (the `LocalEnvironment` that holds documents and listeners) stays in `pyric/sandbox`. Production deployment stays with the Firebase CLI. Rules analysis therefore remains a focused authoring surface instead of becoming a kitchen-sink control plane.
 
 ## Tradeoffs
 

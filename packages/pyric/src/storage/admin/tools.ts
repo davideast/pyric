@@ -4,7 +4,7 @@
  * `createStorageAdminTools({ scope })` returns the two
  * provisioning/status tools as `ToolHandler[]`, consumable by
  * `@inbrowser/agent`'s registry — including by `composeMcpRegistry`.
- * Mirrors the `createFirestoreRulesTools` / `pyric-tools/deploy` factory
+ * Mirrors the `createFirestoreRulesTools` factory
  * shape: a `ProjectScope` in, JSON-Schema-typed `ToolHandler`s out.
  */
 import type { ToolHandler } from '@inbrowser/agent';
@@ -14,8 +14,7 @@ import type { ProvisionStorageInput } from './spec.js';
 import type { ProvisionProgress } from './api.js';
 
 export interface StorageAdminToolDeps {
-  /** Project identity + token resolver. Same shape `pyric-tools/deploy`'s
-   *  factories take. */
+  /** Project identity + token resolver. */
   scope: ProjectScope;
 }
 

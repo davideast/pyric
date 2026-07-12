@@ -6,9 +6,8 @@ into whatever runtime you use. They reach an agent two ways:
 
 1. **`pyric dev --bridge`** (or `pyric bridge`) — exposes the registry over
    MCP; the [Claude Code plugin](../pyric-plugin/README.md) auto-wires it.
-2. **Programmatic** — import a factory and register the handlers with any agent
-   framework (the playground does this with `@inbrowser/agent`), or compose the
-   prod registry via `composeMcpRegistry` (`pyric-tools/registry`).
+2. **Programmatic** — import a local factory and register the handlers with any
+   agent framework (the playground does this with `@inbrowser/agent`).
 
 Counts and names below are generated from the factory sources (grep
 `name: '…'` under each file). If this table disagrees with the code, the code
@@ -67,35 +66,3 @@ Data plane tooling for RTDB.
 ## Storage control plane — `createStorageAdminTools` (`pyric/storage`)
 
 `storage_get_status` · `storage_provision`
-
-## Deploy — `createFirestoreDeployTools` / `createRtdbDeployTools` / `createHostingDeployTools` / `createFunctionsDeployTools` (`pyric-tools/deploy`)
-
-The Firebase control plane over REST — no `firebase-tools` CLI required.
-Docs: [`packages/pyric-tools/docs/deploy/`](../packages/pyric-tools/docs/deploy/README.md).
-
-`firestore_get_rules` · `firestore_deploy_rules` · `firestore_ensure_rules` ·
-`firestore_provision_database` · `firestore_deploy_indexes` ·
-`firestore_create_index` · `firestore_get_index_status` ·
-`rtdb_get_rules` · `rtdb_deploy_rules` ·
-`hosting_deploy` · `hosting_ensure_site` ·
-`functions_deploy`
-
-## Discovery — `createFirestoreDiscoverTools` (`pyric-tools/discover`)
-
-`firestore_discover_paths` · `firestore_find_collection_group`
-
-## Auth configuration — `createAuthAdminTools` (`pyric-tools/auth`)
-
-Identity Toolkit project configuration.
-
-`auth_get_config` · `auth_configure_provider` · `auth_manage_domains`
-
----
-
-**Total: 51 unique tool names.** There are 53 factory entries when counting the
-scope-based `createRtdbDeployTools` `rtdb_get_rules` / `rtdb_deploy_rules`
-handlers separately from the host-backed RTDB rules factory. Removed since the
-legacy project-level SDK:
-`firebase_get_project`, `firebase_get_client_config` (died with that
-package; project overview is now `sandbox_inspect` +
-`firestore_discover_paths` + `auth_get_config` composed).

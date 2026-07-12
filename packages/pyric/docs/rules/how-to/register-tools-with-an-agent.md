@@ -23,25 +23,13 @@ registry.list().map((h) => h.name);
 
 These are pure-local: no network, no credentials, safe to expose anywhere.
 
-## With a `ProjectScope`: also expose live testing
+## Hosted testing
 
-Pass a `ProjectScope` and a fourth handler appears: `firestore_test_rules`, which calls Google's Rules Test API.
-
-```ts
-import { fromServiceAccount } from 'pyric-tools/deploy';
-
-const scope = await fromServiceAccount('./service-account.json');
-
-for (const handler of createFirestoreRulesTools({ scope })) {
-  registry.register(handler);
-}
-
-registry.list().map((h) => h.name);
-// → ['firestore_lint_rules', 'firestore_resolve_modules',
-//    'firestore_simulate_rules', 'firestore_test_rules']
-```
-
-Only attach `scope` when the host actually has credentials. The factory drops `firestore_test_rules` cleanly when `scope` is omitted, so an unsuspecting agent can't try to call it.
+Use `@pyric/cli` for hosted Rules Test API access. Its MCP server and
+`pyric verify --engine rulesTestApi` resolve an existing Firebase CLI login,
+Application Default Credentials, or a service account from the environment.
+The local factory omits `firestore_test_rules` when no project scope is
+provided, so an agent cannot accidentally attempt a hosted call.
 
 ## Dispatch a tool call
 

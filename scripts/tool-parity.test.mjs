@@ -10,7 +10,6 @@ import {
   audit,
   enumerateMcp,
   enumeratePlayground,
-  enumerateRegistry,
   loadAnnotations,
   renderMatrix,
 } from './tool-parity.mjs';
@@ -18,7 +17,6 @@ import {
 describe('tool-parity extraction against the real codebase', () => {
   const mcp = enumerateMcp();
   const playground = enumeratePlayground();
-  const registry = enumerateRegistry();
   const { rows, staleAnnotations } = audit();
 
   test('finds a sane minimum of tools overall', () => {
@@ -30,7 +28,6 @@ describe('tool-parity extraction against the real codebase', () => {
   test('each surface finds a sane minimum', () => {
     expect(mcp.size).toBeGreaterThanOrEqual(15); // 24 at time of writing
     expect(playground.size).toBeGreaterThanOrEqual(15); // 27 at time of writing
-    expect(registry.size).toBeGreaterThanOrEqual(20); // 41 at time of writing
   });
 
   test('known bridge tools are present (forwarded + in-process)', () => {
@@ -43,7 +40,6 @@ describe('tool-parity extraction against the real codebase', () => {
       'firestore_simulate_rules',
       'firestore_lint_rules',
       'firestore_rules_stdlib_list',
-      'firestore_test_rules',
       'firebase_assurance_attach',
       'firebase_assurance_verify',
     ]) {
@@ -75,34 +71,12 @@ describe('tool-parity extraction against the real codebase', () => {
       'try_rules_edit',
       'generate_fixture_from_session',
       'debug_firestore_rules',
-      'firestore_discover_paths',
-      'firestore_inspect_rules',
     ]) {
       expect(playground.get(name)).toStartWith('flag-gated');
     }
     // Registered in CORE_TOOLS despite living under diagnostics/.
     expect(playground.get('seed_firestore_data_as_admin')).toBe('always-on');
     expect(playground.get('build_game_rules')).toStartWith('skill-gated');
-  });
-
-  test('known registry tools are present', () => {
-    for (const name of [
-      'firestore_deploy_rules',
-      'firestore_get_rules',
-      'firestore_deploy_indexes',
-      'hosting_deploy',
-      'functions_deploy',
-      'auth_get_config',
-      'pyric_verify_fixture',
-      'firestore_extract_indexes',
-      'firestore_discover_paths',
-      'rtdb_simulate_access',
-      'rtdb_validated_write',
-      'firebase_assurance_start',
-      'firebase_assurance_export',
-    ]) {
-      expect(registry.has(name)).toBe(true);
-    }
   });
 
   test('the TOOL-SYSTEM.md gap rows are still gaps (playground-only)', () => {
@@ -133,7 +107,7 @@ describe('tool-parity extraction against the real codebase', () => {
   test('matrix renders one row per tool and reports counts', () => {
     const { markdown, counts } = renderMatrix(rows);
     for (const r of rows) expect(markdown).toContain(`| \`${r.name}\` |`);
-    expect(counts.gap + counts.deliberate + counts.unclassified).toBe(rows.length);
+    expect(counts.aligned + counts.gap + counts.deliberate + counts.unclassified).toBe(rows.length);
     expect(counts.gap).toBeGreaterThanOrEqual(4);
   });
 });

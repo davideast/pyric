@@ -24,10 +24,10 @@ Initialize an app and register it under `name`, mirroring `firebase-admin/app.in
 **Ambient arm: `initializeApp()` with no config.** The environment decides:
 
 - `PYRIC_SANDBOX` unset or empty: exactly firebase-admin's behavior. Delegates to `firebase-admin/app.initializeApp()` (its autoInit path: `FIREBASE_CONFIG` env plus application-default credentials) and registers the prod arm.
-- `PYRIC_SANDBOX=remote`: obtains a remote sandbox from the factory installed at `globalThis[Symbol.for('pyric.remote.sandboxFactory')]` by `pyric-tools/register`, and registers the sandbox arm. One activation line is logged to stderr.
+- `PYRIC_SANDBOX=remote`: obtains a remote sandbox from the factory installed at `globalThis[Symbol.for('pyric.remote.sandboxFactory')]` by `@pyric/cli/register`, and registers the sandbox arm. One activation line is logged to stderr.
 - `PYRIC_SANDBOX=remote:<url>`: same, with an explicit host url (split on the first colon only, since urls contain colons).
 - Any other `PYRIC_SANDBOX` value throws. An unrecognized activator never silently falls through to production.
-- If the env is set but no factory is installed, throws with remediation: run under `pyric dev`, or add `--import pyric-tools/register` to `NODE_OPTIONS`.
+- If the env is set but no factory is installed, throws with remediation: run under `pyric dev`, or add `--import @pyric/cli/register` to `NODE_OPTIONS`.
 
 **Production guard.** When `NODE_ENV === 'production'` and `PYRIC_SANDBOX` is set, the ambient arm throws instead of routing firebase-admin to a development sandbox. Set `PYRIC_SANDBOX_FORCE=1` if the routing is intentional.
 

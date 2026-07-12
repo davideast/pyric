@@ -5,8 +5,7 @@
  *
  * There is deliberately NO save icon: sessions autosave ambiently
  * (see `AutosaveStatus`, which the playground page renders into the
- * `children` slot), and the account icon opens the sign-in modal
- * without pretending to be a save action.
+ * `children` slot).
  */
 import type { SessionMeta } from '~/lib/sessions';
 export type SessionState = 'idle' | 'streaming' | 'complete' | 'failed';
@@ -17,9 +16,6 @@ export interface TopBarProps {
   githubRepo?: SessionMeta['githubRepo'] | null;
   onOpenKeys?: () => void;
   onOpenSettings?: () => void;
-  /** Opens the account/sign-in modal (`AuthModal`). Labeled as
-   *  account — sign-in is for deploys, not a prerequisite to save. */
-  onOpenAccount?: () => void;
   homeHref?: string;
   children?: React.ReactNode;
 }
@@ -51,7 +47,6 @@ export function TopBar({
   githubRepo,
   onOpenKeys,
   onOpenSettings,
-  onOpenAccount,
   homeHref,
   children,
 }: TopBarProps) {
@@ -127,16 +122,6 @@ export function TopBar({
               className="inline-flex items-center justify-center text-slate-gray hover:text-soft-white transition-colors p-1.5 rounded"
             >
               <span className="material-symbols-outlined text-[18px]">settings</span>
-            </button>
-          ) : null}
-          {onOpenAccount ? (
-            <button
-              type="button"
-              onClick={onOpenAccount}
-              title="Account — sign in for deploys"
-              className="inline-flex items-center justify-center text-slate-gray hover:text-soft-white transition-colors p-1.5 rounded"
-            >
-              <span className="material-symbols-outlined text-[18px]">account_circle</span>
             </button>
           ) : null}
         </div>

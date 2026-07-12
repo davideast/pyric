@@ -1,22 +1,9 @@
 /**
  * Resolve the user identifier sessions are scoped to.
  *
- * Two regimes:
- *   - Signed in via GIS: use the `sub` claim from the userinfo cache.
- *     Stable across sessions, identical across this user's devices once
- *     they sign in there.
- *   - Signed out: synthesize a `local-{uuid}` pseudo-id and pin it in
- *     localStorage. Sessions started signed-out get listed under this
- *     id; the future "rebind on sign-in" track will migrate them to
- *     the GIS sub when the user first authenticates.
- *
- * Sessions never silently fall through one regime to the other —
- * `getCurrentUserId()` returns whichever the caller has *right now*.
- * Re-call after sign-in (or subscribe to the GIS auth state) to pick
- * up the rebind.
+ * A `local-{uuid}` pseudo-id is pinned in localStorage. Playground
+ * sessions stay local and never require a cloud account.
  */
-
-import { getUserInfo } from '../auth/gis-token';
 
 const LOCAL_USER_ID_KEY = 'pyric:playground:local-user-id';
 
@@ -60,25 +47,11 @@ function cryptoRandomUUID(): string {
 }
 
 /**
- * Resolve the active user id for sessions. Returns the GIS `sub` claim
- * when signed in; otherwise a stable `local-{uuid}` pinned to this
- * browser profile.
+ * Resolve the stable local user id for sessions.
  *
  * Pure: no network, no async, no side effects beyond minting the
  * local id on first call. Safe to call from render paths.
  */
 export function getCurrentUserId(): string {
-  const info = getUserInfo();
-  if (info?.sub) return info.sub;
   return getOrCreateLocalUserId();
-}
-
-/**
- * True when the active user id comes from GIS (a real Google account)
- * rather than the local-uuid fallback. The home page uses this to
- * decide whether to surface the "Promote" action — promotion only
- * makes sense once we have a real account to write into.
- */
-export function isSignedInUser(userId: string): boolean {
-  return !userId.startsWith('local-');
 }

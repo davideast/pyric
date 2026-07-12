@@ -18,7 +18,6 @@
  * pyric's diagnostic context.
  */
 import { useWorkspaceStore } from '~/lib/store/workspace';
-import { useSessionStore } from '~/lib/store/session';
 import { useGithubSessionStore } from '~/lib/store/github-session';
 import { useSkillsStore } from '~/lib/store/skills';
 import { resolveActiveSkills } from '~/lib/skills/registry';
@@ -57,11 +56,6 @@ const INTRO_BASE = [
   'DOCS ON DEMAND — the `bash` tool ships `man`: `man -k` lists every topic. Read `man workflow` for the end-to-end tool orchestration, `man rules` BEFORE writing rules, `man test` for the workspace test-file format, `man diagnostics` for the rule-debugging tools, `man shell` for what the jailed shell can do.',
   '',
   'GITHUB PUBLISH — there is NO `git` command in bash. Local commits/branches: `workspace_git` (status, checkout, commit). Remote: `github_push_branch`, `github_create_pull_request` (PAT in Settings → github; read `man workflow` section  PUBLISH). `github_create_repo` is ONLY for sessions with no linked repo — it always creates a **private** repo. Never claim a push/PR succeeded unless a GitHub tool returned ok:true with a URL. `workspace_checkpoints` is local rollback only.',
-].join('\n');
-
-const REAL_PROJECT_TOOLS = [
-  '',
-  'REAL PROJECT TOOLS — `firestore_discover_paths`, `firestore_find_collection_group`, `firestore_get_rules` operate on the user\'s signed-in Firebase project, NOT the sandbox. Route questions about THEIR real Firestore to these — never answer real-project questions with `sandbox_*` tools, or vice versa. Nothing is cached between turns: call the tool when you need project structure or deployed rules — the result arrives in the same turn. Crawl-cost preview + detail: `man workflow`.',
 ].join('\n');
 
 export const SCOPE = [
@@ -244,12 +238,8 @@ export function buildSystemPrompt({ diagnosticsEnabled, prompt = '' }: BuildSyst
   // correcting: once the agent writes App.tsx or rules this flips false.
   const isFresh = (ws.rules ?? '').trim() === '' && (ws.appSource ?? '').trim() === '';
 
-  // Tack the real-project tool description onto INTRO only when the
-  // user is signed in with a project picked — otherwise the agent
-  // sees tools it can't actually call.
-  const hasRealProject = useSessionStore.getState().currentProjectId !== null;
   const linkedGithubRepo = useGithubSessionStore.getState().linkedRepo;
-  const intro = hasRealProject ? `${INTRO_BASE}\n${REAL_PROJECT_TOOLS}` : INTRO_BASE;
+  const intro = INTRO_BASE;
   const agentContext = resolveAgentContext({
     prompt,
     activeSkillIds: useSkillsStore.getState().activeSkillIds,

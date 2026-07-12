@@ -24,7 +24,6 @@ import { useFilesStore, APP_ENTRY_PATH, RULES_PATH } from '~/lib/store/files';
 import type { AgentPromptProfile } from '~/lib/skills/registry';
 
 import { AppPreview } from './AppPreview';
-import { DeployChip } from './DeployChip';
 import { FirebaseTab, type FirebaseTabProps } from './FirebaseTab';
 import { FileEditor } from './FileEditor';
 import { PanelTabs } from './PanelTabs';
@@ -85,11 +84,10 @@ export function WorkspacePanel({
 
   return (
     <div className="flex flex-col h-full bg-content-bg min-w-0">
-      <div className="flex items-center justify-between border-b border-[#2a2a35] pr-3 shrink-0">
+      <div className="flex items-center border-b border-[#2a2a35] shrink-0">
         <div className="flex-1 min-w-0">
           <PanelTabs tabs={tabs} activeTab={active} onTabChange={handleTabChange} />
         </div>
-        <DeployChip />
       </div>
       <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
         {active === 'preview' ? (

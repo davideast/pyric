@@ -179,14 +179,14 @@ const CAPABILITY_DIR = join(HERE, '..', 'assurance-capabilities');
 const LANGUAGE_DIR = join(HERE, '..', 'rules-language');
 export const ARTIFACT_PATH = join(CAPABILITY_DIR, 'capabilities.json');
 export const GENERATED_TS_PATH = join(CAPABILITY_DIR, 'generated.ts');
-/** The assurance runtime's copy. `pyric-tools` does not depend on this private
+/** The assurance runtime's copy. `@pyric/cli` does not depend on this private
  *  package, so the generator writes the capabilities into it directly. Checked
  *  alongside the other outputs: drift here fails CI too. */
 export const RUNTIME_TS_PATH = join(
   HERE,
   '..',
   '..',
-  'pyric-tools',
+  'cli',
   'src',
   'assurance',
   'generated-capabilities.ts',
@@ -439,7 +439,7 @@ export function renderArtifactJson(artifact: AssuranceCapabilityArtifact): strin
  * The read-time renderer, emitted INTO each generated module.
  *
  * It is emitted rather than imported because the consumer that needs it most —
- * the assurance runtime in `pyric-tools` — cannot import from this package
+ * the assurance runtime in `@pyric/cli` — cannot import from this package
  * (`conformance` is private and is not one of its dependencies). Emitting it
  * keeps one definition (this constant) and gives every generated copy the same
  * wording, whatever package it lands in. It depends on nothing but the record's
@@ -492,7 +492,7 @@ const EMITTED_RENDERER = [
  * The one definition of the capability-literal format. Emits each capability as
  * an object literal carrying the structured `dependencies` FACTS (never a
  * rendered sentence, never a count). Both generated copies — the conformance
- * module and the self-contained pyric-tools module — render their literals here,
+ * module and the self-contained @pyric/cli module — render their literals here,
  * so the two cannot drift.
  */
 function renderCapabilityLiterals(capabilities: DerivedCapability[]): string[] {
@@ -593,9 +593,9 @@ export function renderGeneratedTs(capabilities: DerivedCapability[]): string {
 
 /**
  * The same capabilities, emitted a second time into the assurance runtime
- * (`pyric-tools`).
+ * (`@pyric/cli`).
  *
- * The dependency runs one way — `pyric-tools` does not depend on this private
+ * The dependency runs one way — `@pyric/cli` does not depend on this private
  * conformance package — so the runtime cannot import the module above. Instead
  * the generator writes a self-contained copy it CAN import: no imports at all,
  * the service and status unions inlined. Both outputs are checked by
@@ -610,7 +610,7 @@ export function renderRuntimeTs(capabilities: DerivedCapability[]): string {
     '// The assurance engine\'s capabilities, DERIVED from the conformance graph by',
     '// packages/conformance/src/assurance-capabilities.ts (see that file\'s header for',
     '// the derivation rules). This is the assurance runtime\'s copy: the conformance',
-    '// package is private and is NOT a dependency of pyric-tools, so the generator',
+    '// package is private and is NOT a dependency of @pyric/cli, so the generator',
     '// emits this self-contained module here rather than have the runtime import it.',
     '//',
     '// A capability status is never authorable. It is derived from the graph, and',

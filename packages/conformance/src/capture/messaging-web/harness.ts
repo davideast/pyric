@@ -97,7 +97,7 @@ async function loadChromium() {
   const candidates = [
     'playwright',
     join(REPO, 'packages/playground/node_modules/playwright/index.mjs'),
-    join(REPO, 'packages/pyric-tools/node_modules/playwright/index.mjs'),
+    join(REPO, 'packages/cli/node_modules/playwright/index.mjs'),
   ];
   for (const c of candidates) {
     try {

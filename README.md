@@ -19,15 +19,17 @@ This is not the Firebase Emulator Suite behind a wrapper. There is no Java proce
 
 Application code keeps using `firebase/*` imports which are mapped to the sandbox during development. When you ship to production, the map goes away, and the app talks to production services.
 
-Pyric's tooling maps one-to-one to standard Firebase tools.
+Pyric keeps the SDK mirror and gives its own tooling a narrower job.
 
 ```bash
 npm i pyric       === npm i firebase
 npm i pyric-admin === npm i firebase-admin
-npm i pyric-tools === npm i firebase-tools
+npm i -D @pyric/cli
+npm i -D firebase-tools
 ```
 
-The pyric CLI, `pyric-tools`, is for managing the pyric environment and not meant to overlap with the utility of the Firebase CLI, `firebase-tools`. The small overlap `pyric login`, `pyric deploy`, is an extreme subset of the Firebase CLI's functionality and offered for convenience.
+`@pyric/cli` runs the sandbox, bridge, verification, rules generation, and
+index generation. `firebase-tools` deploys production artifacts.
 
 ### Backed by conformance
 The services are an independent implementation of Firebase's observable behavior, and that claim is tested rather than assumed: probes run against production Firebase, their recorded behavior is committed as observations, and CI replays every observation against the sandbox on every change. The section [What matches Firebase and what doesn't](#what-matches-firebase-and-what-doesnt) has the numbers.
@@ -46,7 +48,7 @@ A backend that runs inside the app removes the infrastructure from the loop. A d
 Install the CLI in an existing Firebase app or a new one:
 
 ```bash
-npm i -g pyric-tools            # installs the `pyric` command
+npm i -g @pyric/cli            # installs the `pyric` command
 pyric init --template web       # scaffold, or skip this in an existing app
 npm install                     # install the scaffolded app's deps
 pyric dev
@@ -59,9 +61,9 @@ pyric dev
 Pyric includes a rules engine for Firestore and Realtime Database rules: parser, linter, validator, and simulator, usable in-process and from the CLI.
 
 ```bash
-pyric rules:lint firestore.rules
-pyric rules:simulate --stdin
-pyric database:rules:validate database.rules.json
+pyric firestore rules lint firestore.rules
+pyric firestore rules simulate --stdin
+pyric database rules validate database.rules.json
 ```
 
 Rules edits take effect in the running app without a deploy. Realtime Database `.validate` rules are evaluated on writes, matching production behavior.
@@ -76,18 +78,17 @@ The sandbox emits a typed event for every operation it performs: reads, writes, 
 
 ## Browser Sandbox connected to local MCP
 
-Pyric provides a local MCP server with 51 tools. Yes, that's a lot. But the surface is wide because Firebase's is, and there's ongoing work to consolidate it into fewer, sharper tools. Pyric connects the browser sandbox to the server over a web socket bridge (the included [Claude Code plugin](pyric-plugin/README.md) auto-wires this) or composes programmatically into any agent framework. The inventory is in [docs/agent-tools.md](docs/agent-tools.md). The tools unique to its environment:
+Pyric provides a sandbox-only local MCP server. Pyric connects the browser sandbox to the server over a web socket bridge (the included [Claude Code plugin](pyric-plugin/README.md) auto-wires this). The inventory is in [docs/agent-tools.md](docs/agent-tools.md). The tools unique to its environment:
 
 - `firestore_simulate_rules` and `rtdb_simulate_access` evaluate a rules verdict for a hypothetical operation without performing it.
 - `firestore_simulator_*` runs a stateful Firestore session with seed, execute, batch, transaction, undo, redo, and an inspectable event log.
-- `sandbox_inspect`, `firestore_discover_paths`, and `rtdb_crawl_structure` map what exists in the data and how it is shaped.
+- `sandbox_inspect` maps the connected sandbox state.
 - `rtdb_validated_write` runs pre-flight checks before writing: it infers the schema at the target path, validates the payload against it, and simulates the rules verdict, returning schema warnings and simulation results alongside the write outcome.
-- `firestore_extract_indexes` derives composite-index definitions from the query shapes in source.
-- The deploy factories (`firestore_deploy_rules`, `firestore_deploy_indexes`, `rtdb_deploy_rules`, `hosting_deploy`, `functions_deploy`) drive the Firebase control plane over REST, without the `firebase-tools` CLI.
+- `pyric firestore indexes generate` derives composite-index definitions from query shapes in source.
 
 ## Work that carries to production
 
-A sandbox session produces the artifacts a production deploy needs. Rules leave the sandbox already exercised against the app's actual behavior; `pyric deploy rules` ships them. Composite indexes come from `firestore_extract_indexes` instead of a hand-maintained `firestore.indexes.json`; `pyric deploy indexes` ships those. And `pyric verify` replays a captured session against a candidate ruleset and reports which operations change verdict before production finds out.
+A sandbox session produces the artifacts a production deploy needs. Rules leave the sandbox already exercised against the app's actual behavior. `pyric firestore rules resolve`, `pyric database rules generate`, and `pyric firestore indexes generate` create standard Firebase files. `pyric verify` replays a captured session against a candidate ruleset and reports which operations change verdict. The Firebase CLI then deploys those artifacts.
 
 ## What matches Firebase and what doesn't
 
@@ -113,12 +114,12 @@ await db.ref('rooms/lobby').set({ topic: 'launch day' });
 |---|---|---|
 | `pyric` | Web SDK mirror, rules tooling, sandbox runtime | [docs](packages/pyric/docs/) |
 | `pyric-admin` | `firebase-admin` mirror over sandbox or production | [docs](packages/pyric-admin/docs/firestore/) |
-| `pyric-tools` | The `pyric` CLI: `dev`, `init`, MCP bridge, deploy, verify | [docs](packages/pyric-tools/docs/) |
+| `@pyric/cli` | The `pyric` CLI: `dev`, `init`, MCP bridge, deploy, verify | [docs](packages/cli/docs/) |
 | `@pyric/ui` | Headless React admin components and hooks | [docs](packages/ui/docs/) |
 | `@pyric/studio` | The local console behind `pyric dev --ui` | [README](packages/studio/README.md) |
 
 ```bash
-npm install -D pyric-tools    # the CLI; sufficient for most apps
+npm install -D @pyric/cli    # the CLI; sufficient for most apps
 npm install pyric pyric-admin # for direct sandbox control
 ```
 
@@ -131,7 +132,7 @@ Requires Bun and Node 22 or later.
 ```bash
 bun install
 bun run build
-bun test packages/pyric packages/pyric-admin packages/pyric-tools packages/ui
+bun test packages/pyric packages/pyric-admin packages/cli packages/ui
 npm run test:packaging
 ```
 

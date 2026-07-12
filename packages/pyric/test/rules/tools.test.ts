@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'bun:test';
 import { createToolRegistry, createDispatch } from '@inbrowser/agent';
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '../../src/project-scope.js';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
 import { createFirestoreRulesTools, createFirestoreSimulatorTools } from '../../src/rules/internal/node.js';
 

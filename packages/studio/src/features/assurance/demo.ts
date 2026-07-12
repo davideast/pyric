@@ -1,8 +1,8 @@
 import type {
   AssuranceProbeResult,
   FirebaseOperation,
-} from "pyric-tools/assurance";
-import type { AssuranceVisualizationSnapshot } from "pyric-tools/assurance/browser";
+} from "@pyric/cli/assurance";
+import type { AssuranceVisualizationSnapshot } from "@pyric/cli/assurance/browser";
 
 interface DemoResultInput {
   id: string;

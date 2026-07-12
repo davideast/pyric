@@ -522,7 +522,7 @@ function checkPermissiveRules(
       // as a hard error caused `sandbox.setRules(...)` to silently no-op
       // and the scaffolded `pyric init` quickstart to break in confusing
       // ways. The diagnostic itself stays — production deploy gates
-      // (`pyric deploy rules`) can re-run lint at a stricter level and
+      // A deployment pipeline can re-run lint at a stricter level and
       // refuse on warning-too. The dev-loop sandbox stays permissive.
       severity: 'warning',
       message:

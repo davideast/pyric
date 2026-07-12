@@ -46,26 +46,26 @@ import {
   getAdminFirestore as getBaseAdminFirestore,
 } from 'pyric/sandbox/admin-firestore';
 
-import { createBridge, type Bridge } from '../../../pyric-tools/src/bridge/server/bridge.js';
-import { createConsumerSession } from '../../../pyric-tools/src/bridge/server/peer.js';
+import { createBridge, type Bridge } from '../../../cli/src/bridge/server/bridge.js';
+import { createConsumerSession } from '../../../cli/src/bridge/server/peer.js';
 import {
   WORKER_RELAY_CAPABILITY,
   type BridgeMessage,
-} from '../../../pyric-tools/src/bridge/protocol.js';
+} from '../../../cli/src/bridge/protocol.js';
 import {
   createRemoteSandboxCore,
   createRemoteSandboxHandle,
   type RemoteSandbox,
-} from '../../../pyric-tools/src/remote/index.js';
+} from '../../../cli/src/remote/index.js';
 import {
   handleMessage,
   type HostCtx,
   type PortLike,
-} from '../../../pyric-tools/src/serve/worker/host.js';
+} from '../../../cli/src/serve/worker/host.js';
 import type {
   InboundMessage,
   OutboundMessage,
-} from '../../../pyric-tools/src/serve/worker/protocol.js';
+} from '../../../cli/src/serve/worker/protocol.js';
 
 import { initializeApp, deleteApp, getApps } from '../../src/app/index.js';
 import {

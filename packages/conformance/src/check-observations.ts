@@ -84,12 +84,6 @@ function runBuildScript(script: string): string | null {
 }
 
 function ensureWorkspaceBuild(): string | null {
-  const toolsDeployEntry = join(REPO_ROOT, 'packages', 'pyric-tools', 'dist', 'deploy', 'index.d.ts');
-  if (!existsSync(toolsDeployEntry)) {
-    const toolsProblem = runBuildScript('build:pyric-tools');
-    if (toolsProblem) return `build:pyric-tools failed before probes ran:\n   ${toolsProblem}`;
-  }
-
   const sandboxEntry = join(REPO_ROOT, 'packages', 'pyric', 'dist', 'sandbox', 'index.js');
   if (!existsSync(sandboxEntry)) {
     const pyricProblem = runBuildScript('build:pyric');

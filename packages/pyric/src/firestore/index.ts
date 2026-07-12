@@ -13,7 +13,7 @@
  *
  * This module is a re-export barrel over the per-family modules in this
  * directory — it holds no implementation. The families mirror the
- * symmetric `pyric-tools` worker client split:
+ * symmetric `@pyric/cli` worker client split:
  *   - `state`             the TARGET_SYMBOL brand + routing/converter
  *                         WeakMaps + tag/resolve helpers + value finalizers
  *   - `types`             public handle / reference / query / snapshot /

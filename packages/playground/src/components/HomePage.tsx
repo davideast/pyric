@@ -17,14 +17,13 @@
  * user explicitly chooses to overwrite). "Discard" hides the card and
  * leaves the original intact.
  *
- * The header (TopBar + model picker + key/settings/auth modals)
+ * The header (TopBar + model picker + key/settings modals)
  * matches the workspace exactly so the user can pick a model and set
  * an API key before they submit their first prompt.
  *
  * Sessions live in `@pyric/sandbox`-backed local storage (see
  * `~/lib/sessions/`) — no auth required, no network, no Firestore
- * dependency. Sign-in only matters for deploy + promote (handled on
- * the workspace page).
+ * dependency.
  */
 import {
   useCallback,
@@ -71,7 +70,6 @@ import { useLlmStore } from '~/lib/store/llm';
 import { ApiKeyForm } from './ApiKeyForm';
 import { AgentModeControl } from './AgentModeControl';
 import { buildApiKeyField } from './byok-field';
-import { AuthModal } from './AuthModal';
 import {
   canStartWithGitHubRepo,
   GitHubRepoSetup,
@@ -176,21 +174,13 @@ export function HomePage() {
   // model + API key before submitting their first prompt.
   const [keysOpen, setKeysOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
   const openKeys = useCallback(() => {
     setSettingsOpen(false);
-    setAuthOpen(false);
     setKeysOpen(true);
   }, []);
   const openSettings = useCallback(() => {
     setKeysOpen(false);
-    setAuthOpen(false);
     setSettingsOpen(true);
-  }, []);
-  const openAccount = useCallback(() => {
-    setKeysOpen(false);
-    setSettingsOpen(false);
-    setAuthOpen(true);
   }, []);
 
   useEffect(() => {
@@ -204,9 +194,6 @@ export function HomePage() {
           break;
         case 'pyric:playground:open-settings':
           openSettings();
-          break;
-        case 'pyric:playground:open-account':
-          openAccount();
           break;
         case 'pyric:playground:set-model': {
           const provider = PROVIDERS[event.data.providerId];
@@ -226,7 +213,7 @@ export function HomePage() {
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [embeddedInStudio, openAccount, openKeys, openSettings]);
+  }, [embeddedInStudio, openKeys, openSettings]);
   // Bumped by handleSaveKeys after keys are written to localStorage.
   // `hasKey` depends on it so the enhance button leaves its "Set API
   // key" state the moment a key is saved (byok is localStorage-backed,
@@ -492,7 +479,6 @@ export function HomePage() {
           homeHref={playgroundHomeHref({ base: playgroundBase })}
           onOpenKeys={openKeys}
           onOpenSettings={openSettings}
-          onOpenAccount={openAccount}
         >
           <div className="hidden md:flex">
             <ModelPicker />
@@ -608,8 +594,6 @@ export function HomePage() {
       </main>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
-
       <Modal open={keysOpen} onClose={() => setKeysOpen(false)} ariaLabel="API keys">
           <div className={embeddedInStudio ? 'mb-4' : 'md:hidden mb-4'}>
             <p className="text-[11px] uppercase tracking-wider text-slate-gray mb-2">

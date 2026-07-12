@@ -25,7 +25,7 @@ Returns the `LintResult` from `pyric/rules`. Source with parse-level errors is n
 
 After a successful swap, every active snapshot listener re-evaluates under the new rules. See [Listener re-evaluation on `deployRules`](../../../sandbox/docs/explanation/listener-re-evaluation.md).
 
-On prod, import `firestore` from `pyric-tools/deploy` and call `firestore.rules.deploy(...)`. That hits Firebase's rules API.
+On prod, write the generated source to `firestore.rules` and deploy it with `firebase deploy --only firestore:rules`.
 
 ## `sandbox.seedDocuments(db, documents): LintResult`
 
@@ -83,4 +83,4 @@ Both styles work. The chosen tradeoff in `pyric/firestore` is "stay shape-faithf
 ## Where to look next
 
 - For the lint result shape, see [`pyric/rules` lint rules reference](../../rules/reference/lint-rules.md).
-- For prod rule deploys, see [`pyric-tools/deploy`'s firestore namespace](../../../../pyric-tools/docs/deploy/reference/firestore-namespace.md).
+- For production deployment, use the [Firebase CLI documentation](https://firebase.google.com/docs/cli).

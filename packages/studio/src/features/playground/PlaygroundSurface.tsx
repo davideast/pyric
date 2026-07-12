@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { IconKey, IconSettings, IconUser } from '../../shell/icons.js';
+import { IconKey, IconSettings } from '../../shell/icons.js';
 import { PlaygroundModelControl } from './PlaygroundModelControl.js';
 import './playground.css';
 
@@ -29,7 +29,6 @@ function isPlaygroundBreadcrumbMessage(value: unknown): value is PlaygroundBread
 export type PlaygroundCommandMessage =
   | { type: 'pyric:playground:open-keys' }
   | { type: 'pyric:playground:open-settings' }
-  | { type: 'pyric:playground:open-account' }
   | {
       type: 'pyric:playground:set-model';
       providerId: 'gemini' | 'openrouter' | 'ollama' | 'llamaServer';
@@ -157,15 +156,6 @@ export function PlaygroundSurface({
             onClick={() => sendCommand({ type: 'pyric:playground:open-settings' })}
           >
             <IconSettings />
-          </button>
-          <button
-            type="button"
-            className="studio-icon-button"
-            aria-label="Prototype account"
-            title="Account"
-            onClick={() => sendCommand({ type: 'pyric:playground:open-account' })}
-          >
-            <IconUser />
           </button>
         </div>
       </div>

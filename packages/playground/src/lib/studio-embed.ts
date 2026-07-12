@@ -4,7 +4,6 @@ export const PLAYGROUND_SANDBOX_PARAM = 'sandbox';
 export const STUDIO_NAVIGATE_SETTINGS_MESSAGE = 'pyric:studio:navigate-settings';
 export const PLAYGROUND_OPEN_KEYS_MESSAGE = 'pyric:playground:open-keys';
 export const PLAYGROUND_OPEN_SETTINGS_MESSAGE = 'pyric:playground:open-settings';
-export const PLAYGROUND_OPEN_ACCOUNT_MESSAGE = 'pyric:playground:open-account';
 export const PLAYGROUND_SET_MODEL_MESSAGE = 'pyric:playground:set-model';
 /** playground → Studio: the current session breadcrumb, so Studio can render
  *  it in its own Prototype controls bar (the embed-hidden TopBar has no home
@@ -30,7 +29,6 @@ export type PlaygroundSandboxMode = 'shared' | 'isolated';
 export type PlaygroundCommandMessage =
   | { type: typeof PLAYGROUND_OPEN_KEYS_MESSAGE }
   | { type: typeof PLAYGROUND_OPEN_SETTINGS_MESSAGE }
-  | { type: typeof PLAYGROUND_OPEN_ACCOUNT_MESSAGE }
   | {
       type: typeof PLAYGROUND_SET_MODEL_MESSAGE;
       providerId: PlaygroundProviderId;
@@ -55,8 +53,7 @@ export function isPlaygroundCommandMessage(value: unknown): value is PlaygroundC
   const type = (value as { type?: unknown }).type;
   if (
     type === PLAYGROUND_OPEN_KEYS_MESSAGE ||
-    type === PLAYGROUND_OPEN_SETTINGS_MESSAGE ||
-    type === PLAYGROUND_OPEN_ACCOUNT_MESSAGE
+    type === PLAYGROUND_OPEN_SETTINGS_MESSAGE
   ) {
     return true;
   }

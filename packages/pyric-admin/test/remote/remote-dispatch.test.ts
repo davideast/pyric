@@ -3,7 +3,7 @@
  * (remote sandbox, slice 1 / checkpoint 2).
  *
  * Extends checkpoint 1's headless harness (see
- * `pyric-tools/test/bridge/worker-relay.test.ts`): the REAL worker host
+ * `@pyric/cli/test/bridge/worker-relay.test.ts`): the REAL worker host
  * (`handleMessage` + fake `{ postMessage }` ports) behind the REAL bridge
  * core and consumer session, fronted by the EXACT branded handle
  * `connectRemoteSandbox()` returns (`createRemoteSandboxHandle`) — no
@@ -31,26 +31,26 @@ import { REMOTE_SANDBOX_FACTORY, initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import type { AuthUserRecord } from 'pyric/auth';
 
-import { createBridge, type Bridge } from '../../../pyric-tools/src/bridge/server/bridge.js';
-import { createConsumerSession } from '../../../pyric-tools/src/bridge/server/peer.js';
+import { createBridge, type Bridge } from '../../../cli/src/bridge/server/bridge.js';
+import { createConsumerSession } from '../../../cli/src/bridge/server/peer.js';
 import {
   WORKER_RELAY_CAPABILITY,
   type BridgeMessage,
-} from '../../../pyric-tools/src/bridge/protocol.js';
+} from '../../../cli/src/bridge/protocol.js';
 import {
   createRemoteSandboxCore,
   createRemoteSandboxHandle,
   type RemoteSandbox,
-} from '../../../pyric-tools/src/remote/index.js';
+} from '../../../cli/src/remote/index.js';
 import {
   handleMessage,
   type HostCtx,
   type PortLike,
-} from '../../../pyric-tools/src/serve/worker/host.js';
+} from '../../../cli/src/serve/worker/host.js';
 import type {
   InboundMessage,
   OutboundMessage,
-} from '../../../pyric-tools/src/serve/worker/protocol.js';
+} from '../../../cli/src/serve/worker/protocol.js';
 
 import { initializeApp, deleteApp, getApps } from '../../src/app/index.js';
 import { getDatabase } from '../../src/database/index.js';
@@ -481,7 +481,7 @@ describe('remote dispatch — ambient init (bare initializeApp + no-arg handles)
   it('routes no-arg getDatabase()/getAuth() through the worker via the factory global', async () => {
     // Same headless stack, but the app comes from a BARE initializeApp():
     // PYRIC_SANDBOX activates, and the factory global (here: a fake
-    // installed the way `pyric-tools/register` would) mints the real
+    // installed the way `@pyric/cli/register` would) mints the real
     // branded remote handle.
     const bridge = createBridge({ mode: 'sandbox', version: 'test' });
     const ctx = makeWorkerCtx();

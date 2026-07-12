@@ -49,47 +49,22 @@ sandboxOps.seedDocuments(db, ...); // throws 'failed-precondition'
 sandboxOps.snapshotState(db);     // throws 'failed-precondition'
 ```
 
-The sandbox namespace operations are sandbox-only by design. On prod, deploy rules through `pyric-tools/deploy`:
-
-```ts
-import { fromServiceAccount, firestore } from 'pyric-tools/deploy';
-
-const scope = await fromServiceAccount('./service-account.json');
-await firestore.rules.deploy(scope, `rules_version = '2'; ...`);
-```
+The sandbox namespace operations are sandbox-only by design. On prod, keep
+the source in `firestore.rules` and deploy it with the Firebase CLI.
 
 Seed data via writes, the same as any other production code. For dumping state there's no efficient API on the prod side, but you can iterate collections via `getDocs`.
 
 ## Step 3: Make sure rules are deployed
 
-The sandbox-shaped tutorial deployed rules inline. On prod, you need rules deployed *before* you run the code, or every write will deny. Two options:
-
-### Deploy via the Firebase CLI
+The sandbox-shaped tutorial deployed rules inline. On prod, you need rules
+deployed *before* you run the code, or every write will deny:
 
 ```bash
 firebase deploy --only firestore:rules
 ```
 
-The CLI reads your local `firestore.rules` and pushes it.
-
-### Deploy programmatically
-
-If you're running the demo as part of a larger script:
-
-```ts
-import { fromServiceAccount, firestore } from 'pyric-tools/deploy';
-
-const scope = await fromServiceAccount('./service-account.json');
-await firestore.rules.deploy(scope, `rules_version = '2';
-service cloud.firestore {
-  match /databases/{db}/documents {
-    match /notes/{id} {
-      allow read: if request.auth != null;
-      allow write: if request.auth.uid == request.resource.data.ownerId;
-    }
-  }
-}`);
-```
+The CLI reads your local `firestore.rules` and pushes it using Firebase's
+supported project and credential configuration.
 
 ## Step 4: Auth
 
@@ -135,6 +110,6 @@ There's no proxy, no wrapper, no overhead. The package is mostly the dispatch la
 
 ## Where to go next
 
-- For deploying rules to prod, see [`pyric-tools/deploy`'s firestore namespace](../../../../pyric-tools/docs/deploy/reference/firestore-namespace.md).
+- For deploying rules to prod, see the [Firebase CLI documentation](https://firebase.google.com/docs/cli).
 - For why the two-backend story works, see [Why two backends behind one surface](../explanation/two-backends-one-surface.md).
 - To adopt `pyric/firestore` in an existing codebase, see [How to use `pyric/firestore` in existing code](../how-to/migrate-from-firebase-firestore.md).

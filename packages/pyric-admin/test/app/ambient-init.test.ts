@@ -2,10 +2,10 @@
  * Ambient init — bare `initializeApp()` + environment (adoption
  * experience, layer 3). The user's server code contains zero pyric
  * identifiers; `PYRIC_SANDBOX` decides the backend, and the remote
- * handle comes from the factory `pyric-tools/register` installs at
+ * handle comes from the factory `@pyric/cli/register` installs at
  * `globalThis[Symbol.for('pyric.remote.sandboxFactory')]`.
  *
- * These tests install a FAKE factory (the real one is `pyric-tools`'
+ * These tests install a FAKE factory (the real one is `@pyric/cli`'
  * concern — the global symbol is the seam) and cover:
  *   - env unset → prod arm, factory never consulted
  *   - `remote` / `remote:<url>` parsing (url after the FIRST colon)
@@ -179,10 +179,10 @@ describe('ambient init — PYRIC_SANDBOX set', () => {
 // ─── Missing factory ────────────────────────────────────────────────────
 
 describe('ambient init — factory global absent', () => {
-  it('throws with the pyric dev / --import pyric-tools/register remediation', () => {
+  it('throws with the pyric dev / --import @pyric/cli/register remediation', () => {
     process.env.PYRIC_SANDBOX = 'remote';
     expect(() => initializeApp()).toThrow(
-      /pyric\.remote\.sandboxFactory.*pyric dev.*--import pyric-tools\/register.*NODE_OPTIONS/s,
+      /pyric\.remote\.sandboxFactory.*pyric dev.*--import @pyric/cli\/register.*NODE_OPTIONS/s,
     );
     expect(getApps()).toHaveLength(0); // nothing half-registered
     expect(stderrLines).toHaveLength(0); // no activation log on failure

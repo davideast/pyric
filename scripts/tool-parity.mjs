@@ -2,24 +2,18 @@
 /**
  * Tool-registry parity audit (TOOL-SYSTEM.md, "Exposure matrix").
  *
- * Enumerates the three tool surfaces by static extraction and emits the
+ * Enumerates the two agent tool surfaces by static extraction and emits the
  * exposure matrix mechanically, so drift is detected rather than
  * remembered:
  *
  *   1. MCP bridge (sandbox mode) — what
- *      packages/pyric-tools/src/bridge/server/tool-metadata.ts composes:
- *      forwarded sandbox tools + in-process rules tools. (Prod-mode
- *      bridges take `prodTools` from composeMcpRegistry — that IS the
- *      registry surface below, so it is not double-counted here.)
+ *      packages/cli/src/bridge/server/tool-metadata.ts composes:
+ *      forwarded sandbox tools + in-process rules tools.
  *   2. Playground agent — what
  *      packages/playground/src/lib/tools/index.ts's buildToolRegistry()
  *      registers: core / auth / git / checkpoints always-on, diagnostics
  *      flag-gated, skill tools skill-gated. Profile filtering
  *      (AUTHORING_TOOL_NAMES) is parsed from source, not restated here.
- *   3. pyric-tools registry — the maximal composeMcpRegistry() surface
- *      (profile 'full', scope + adminDeps + rtdbHost all supplied), with
- *      per-tool gates recorded.
- *
  * Extraction is static: tool `name: '...'` literals are read out of the
  * factory function bodies that each composition file references. The
  * per-surface manifests below MIRROR the composition files; a freshness
@@ -107,7 +101,7 @@ function factoryNames(rel, factoryName) {
 // subset the composition actually registers.
 
 const PYRIC = 'packages/pyric/src';
-const TOOLS = 'packages/pyric-tools/src';
+const TOOLS = 'packages/cli/src';
 const PLAY = 'packages/playground/src/lib';
 
 /** MCP bridge, sandbox mode — mirrors bridge/server/tool-metadata.ts. */
@@ -123,30 +117,9 @@ const MCP_CONTRIBUTIONS = [
     file: `${PYRIC}/rules/tools.ts`,
     factory: 'createFirestoreRulesTools',
     gate: 'in-process',
-    gates: { firestore_test_rules: 'in-process, scope-gated' },
+    omit: ['firestore_test_rules'],
   },
   { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'in-process' },
-];
-
-/** pyric-tools registry — mirrors registry/compose.ts (maximal: profile
- *  'full' with scope + adminDeps + rtdbHost). */
-const REGISTRY_CONTRIBUTIONS = [
-  { file: `${TOOLS}/deploy/tools.ts`, factory: 'createFirestoreDeployTools', gate: 'always' },
-  // Skipped when rtdbHost is supplied (createRtdbRulesTools carries the
-  // same rtdb_get_rules / rtdb_deploy_rules names).
-  { file: `${TOOLS}/deploy/tools.ts`, factory: 'createRtdbDeployTools', gate: 'when no rtdbHost' },
-  { file: `${TOOLS}/deploy/tools.ts`, factory: 'createHostingDeployTools', gate: 'always' },
-  { file: `${TOOLS}/deploy/tools.ts`, factory: 'createFunctionsDeployTools', gate: 'always' },
-  { file: `${PYRIC}/rules/tools.ts`, factory: 'createFirestoreRulesTools', gate: 'not control-plane-only' },
-  { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'not control-plane-only' },
-  { file: `${TOOLS}/auth/tools.ts`, factory: 'createAuthAdminTools', gate: 'not control-plane-only' },
-  { file: `${TOOLS}/verify/tools.ts`, factory: 'createVerifyTools', gate: 'not control-plane-only' },
-  { file: `${TOOLS}/assurance/tools.ts`, factory: 'createAssuranceTools', gate: 'not control-plane-only, local-only' },
-  { file: `${PYRIC}/rules/indexes/extractTool.ts`, factory: 'createFirestoreExtractTool', gate: 'full profile' },
-  { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'adminDeps' },
-  { file: `${TOOLS}/discover/tools.ts`, factory: 'createFirestoreDiscoverTools', gate: 'adminDeps' },
-  { file: `${PYRIC}/database/tools.ts`, factory: 'createRtdbRulesTools', gate: 'rtdbHost' },
-  { file: `${PYRIC}/database/tools.ts`, factory: 'createRtdbDataTools', gate: 'rtdbHost' },
 ];
 
 /**
@@ -184,16 +157,6 @@ const PLAYGROUND_WRAPPERS = {
     pick: ['firestore_rules_stdlib_list', 'firestore_rules_stdlib_get'],
     gate: 'always-on',
   },
-  [`${PLAY}/tools/diagnostics/firestore-rules-inspect.ts`]: {
-    file: `${PYRIC}/rules/inspect/tools.ts`,
-    factory: 'createFirestoreInspectTool',
-    gate: 'flag-gated + requires sign-in/project',
-  },
-  [`${PLAY}/tools/diagnostics/firestore-discover.ts`]: {
-    file: `${TOOLS}/discover/tools.ts`,
-    factory: 'createFirestoreDiscoverTools',
-    gate: 'flag-gated + requires sign-in/project',
-  },
 };
 
 /** Standalone playground tool modules registered outside lib/tools. */
@@ -224,16 +187,6 @@ function checkFreshness() {
   assertCovered(
     `${TOOLS}/bridge/server/tool-metadata.ts`,
     new Set(MCP_CONTRIBUTIONS.map((c) => c.factory)),
-  );
-  assertCovered(
-    `${TOOLS}/registry/compose.ts`,
-    new Set([
-      ...REGISTRY_CONTRIBUTIONS.map((c) => c.factory),
-      // Local wrappers in compose.ts around covered factories.
-      'createFirestoreAdminDataTools',
-      'createFirestoreAdminDiscoverTools',
-    ]),
-    { ignore: ['createToolRegistry'] },
   );
   // Playground: every wrapper-style tool module (builder export, no name
   // literal) must have an explicit entry, or its tools would be missed.
@@ -274,17 +227,8 @@ export function enumerateMcp() {
   const surface = new Map();
   for (const c of MCP_CONTRIBUTIONS) {
     for (const name of factoryNames(c.file, c.factory)) {
+      if (c.omit?.includes(name)) continue;
       addTool(surface, name, c.gates?.[name] ?? c.gate);
-    }
-  }
-  return surface;
-}
-
-export function enumerateRegistry() {
-  const surface = new Map();
-  for (const c of REGISTRY_CONTRIBUTIONS) {
-    for (const name of factoryNames(c.file, c.factory)) {
-      addTool(surface, name, c.gate);
     }
   }
   return surface;
@@ -328,10 +272,9 @@ export function audit() {
   checkFreshness();
   const mcp = enumerateMcp();
   const playground = enumeratePlayground();
-  const registry = enumerateRegistry();
   const annotations = loadAnnotations();
 
-  const names = [...new Set([...mcp.keys(), ...playground.keys(), ...registry.keys()])].sort();
+  const names = [...new Set([...mcp.keys(), ...playground.keys()])].sort();
   const staleAnnotations = Object.keys(annotations).filter((n) => !names.includes(n));
 
   const rows = names.map((name) => {
@@ -340,9 +283,10 @@ export function audit() {
       name,
       mcp: mcp.get(name) ?? null,
       playground: playground.get(name) ?? null,
-      registry: registry.get(name) ?? null,
-      decision: annotation?.decision ?? 'unclassified',
-      reason: annotation?.reason ?? '(no recorded decision — annotate in scripts/tool-parity.annotations.json)',
+      decision: annotation?.decision ?? (mcp.has(name) && playground.has(name) ? 'aligned' : 'unclassified'),
+      reason: annotation?.reason ?? (mcp.has(name) && playground.has(name)
+        ? 'present on both surfaces'
+        : '(no recorded decision — annotate in scripts/tool-parity.annotations.json)'),
     };
   });
   return { rows, staleAnnotations };
@@ -355,26 +299,26 @@ function cell(gate) {
 }
 
 export function renderMatrix(rows) {
-  const counts = { gap: 0, deliberate: 0, unclassified: 0 };
+  const counts = { gap: 0, deliberate: 0, aligned: 0, unclassified: 0 };
   const lines = [
     '# Tool exposure parity matrix',
     '',
     `Generated by \`bun run tool:parity\` from ${rows.length} tools across the MCP bridge`,
-    '(sandbox mode), the playground agent registry, and composeMcpRegistry (maximal',
-    "'full' profile). Classification source: scripts/tool-parity.annotations.json.",
+    '(sandbox mode) and the playground agent registry. Classification source:',
+    'scripts/tool-parity.annotations.json.',
     '',
-    '| Tool | MCP bridge | Playground agent | pyric-tools registry | Classification |',
-    '|---|---|---|---|---|',
+    '| Tool | MCP bridge | Playground agent | Classification |',
+    '|---|---|---|---|',
   ];
   for (const r of rows) {
     counts[r.decision] = (counts[r.decision] ?? 0) + 1;
     lines.push(
-      `| \`${r.name}\` | ${cell(r.mcp)} | ${cell(r.playground)} | ${cell(r.registry)} | **${r.decision}** — ${r.reason} |`,
+      `| \`${r.name}\` | ${cell(r.mcp)} | ${cell(r.playground)} | **${r.decision}** — ${r.reason} |`,
     );
   }
   lines.push(
     '',
-    `Totals: ${rows.length} tools — ${counts.gap} gap, ${counts.deliberate} deliberate, ${counts.unclassified} unclassified.`,
+    `Totals: ${rows.length} tools — ${counts.aligned} aligned, ${counts.gap} gap, ${counts.deliberate} deliberate, ${counts.unclassified} unclassified.`,
     '',
   );
   return { markdown: lines.join('\n'), counts };

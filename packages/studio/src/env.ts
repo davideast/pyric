@@ -18,7 +18,7 @@
  */
 
 import { createMemoryBackend } from 'pyric/sandbox';
-import type { ConnectedBridgeState } from 'pyric-tools/bridge/client';
+import type { ConnectedBridgeState } from '@pyric/cli/bridge/client';
 
 import type {
   PersistenceBackend,

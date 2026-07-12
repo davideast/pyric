@@ -68,7 +68,7 @@ Two named exports sit alongside the production-shaped surface:
 
 ## Position in the Pyric stack
 
-`pyric/firestore` is the **modular-shape data-plane adapter**. Sibling to `pyric-admin` (admin-shape). Both run on top of `pyric/sandbox`. Rules tooling lives in `pyric/rules`. Deploy primitives live in `pyric-tools/deploy`.
+`pyric/firestore` is the **modular-shape data-plane adapter**. Sibling to `pyric-admin` (admin-shape). Both run on top of `pyric/sandbox`. Rules tooling lives in `pyric/rules`; production deployment belongs to the Firebase CLI.
 
 ## Licence
 

@@ -1,5 +1,5 @@
 {
-  "_readme": "Exposure decisions for the tool parity audit (scripts/tool-parity.mjs). Every tool visible on any surface (MCP bridge / playground agent / pyric-tools registry) must be recorded here as 'gap' (absence is a defect to fix) or 'deliberate' (absence is design, with the reason). Unannotated tools fail `bun run tool:parity --check`. Seeded from docs/design/TOOL-SYSTEM.md's exposure matrix.",
+  "_readme": "Exposure decisions for the tool parity audit (scripts/tool-parity.mjs). Every tool visible on the MCP bridge or playground agent must be recorded here as 'gap' (absence is a defect to fix) or 'deliberate' (absence is design, with the reason). Unannotated tools fail `bun run tool:parity --check`.",
   "tools": {
     "inspect_firestore_traffic": {
       "decision": "gap",
@@ -71,43 +71,159 @@
     },
     "firebase_assurance_attach": {
       "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+      "reason": "external-agent local assurance workflow — bridge and programmatic assurance surface only; Studio is the visualization client"
     },
     "firebase_assurance_start": {
       "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+      "reason": "external-agent local assurance workflow — bridge and programmatic assurance surface only; Studio is the visualization client"
     },
     "firebase_assurance_map": {
       "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+      "reason": "external-agent local assurance workflow — bridge and programmatic assurance surface only; Studio is the visualization client"
     },
     "firebase_assurance_define": {
       "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+      "reason": "external-agent local assurance workflow — bridge and programmatic assurance surface only; Studio is the visualization client"
     },
     "firebase_assurance_propose": {
       "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+      "reason": "external-agent local assurance workflow — bridge and programmatic assurance surface only; Studio is the visualization client"
     },
     "firebase_assurance_run": {
       "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+      "reason": "external-agent local assurance workflow — bridge and programmatic assurance surface only; Studio is the visualization client"
     },
     "firebase_assurance_inspect": {
       "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+      "reason": "external-agent local assurance workflow — bridge and programmatic assurance surface only; Studio is the visualization client"
     },
     "firebase_assurance_minimize": {
       "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+      "reason": "external-agent local assurance workflow — bridge and programmatic assurance surface only; Studio is the visualization client"
     },
     "firebase_assurance_verify": {
       "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+      "reason": "external-agent local assurance workflow — bridge and programmatic assurance surface only; Studio is the visualization client"
     },
     "firebase_assurance_export": {
       "decision": "deliberate",
-      "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+      "reason": "external-agent local assurance workflow — bridge and programmatic assurance surface only; Studio is the visualization client"
+    },
+    "build_game_rules": {
+      "decision": "deliberate",
+      "reason": "playground skill tool whose lifecycle is tied to an active skill chip"
+    },
+    "debug_firestore_rules": {
+      "decision": "gap",
+      "reason": "the bridge should eventually expose the same local rules-debugging orchestration"
+    },
+    "firestore_add_document": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge primitive; the playground operates through its workspace-oriented sandbox tools"
+    },
+    "firestore_batch_write": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge primitive; the playground operates through its workspace-oriented sandbox tools"
+    },
+    "firestore_create_document": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge primitive; the playground operates through its workspace-oriented sandbox tools"
+    },
+    "firestore_create_with_auto_id": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge primitive; the playground operates through its workspace-oriented sandbox tools"
+    },
+    "firestore_delete_document": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge primitive; the playground operates through its workspace-oriented sandbox tools"
+    },
+    "firestore_get_document": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge primitive; the playground operates through its workspace-oriented sandbox tools"
+    },
+    "firestore_list_documents": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge primitive; the playground operates through its workspace-oriented sandbox tools"
+    },
+    "firestore_query_where": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge primitive; the playground operates through its workspace-oriented sandbox tools"
+    },
+    "firestore_update_document": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge primitive; the playground operates through its workspace-oriented sandbox tools"
+    },
+    "firestore_simulator_batch": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge simulator primitive; the playground owns its runtime session directly"
+    },
+    "firestore_simulator_create": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge simulator primitive; the playground owns its runtime session directly"
+    },
+    "firestore_simulator_events": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge simulator primitive; the playground owns its runtime session directly"
+    },
+    "firestore_simulator_execute": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge simulator primitive; the playground owns its runtime session directly"
+    },
+    "firestore_simulator_read": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge simulator primitive; the playground owns its runtime session directly"
+    },
+    "firestore_simulator_redo": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge simulator primitive; the playground owns its runtime session directly"
+    },
+    "firestore_simulator_transaction": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge simulator primitive; the playground owns its runtime session directly"
+    },
+    "firestore_simulator_undo": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge simulator primitive; the playground owns its runtime session directly"
+    },
+    "firestore_extract_indexes": {
+      "decision": "deliberate",
+      "reason": "available to external agents through `pyric firestore indexes generate`; the playground keeps an in-turn wrapper"
+    },
+    "firestore_lint_rules": {
+      "decision": "deliberate",
+      "reason": "external agents use the MCP primitive or service-first CLI; the playground integrates lint into file writes"
+    },
+    "firestore_resolve_modules": {
+      "decision": "deliberate",
+      "reason": "external agents use the MCP primitive or service-first CLI; the playground resolves modules in its write flow"
+    },
+    "firestore_simulate_rules": {
+      "decision": "deliberate",
+      "reason": "the playground exposes the equivalent simulate_firestore_write diagnostic"
+    },
+    "inspect_auth_users": {
+      "decision": "gap",
+      "reason": "sandbox auth inspection should be available to external agents through the bridge"
+    },
+    "run_workspace_tests": {
+      "decision": "deliberate",
+      "reason": "playground VFS concern; external agents run the project's test command directly"
+    },
+    "sandbox_discover_paths": {
+      "decision": "gap",
+      "reason": "external agents should be able to inspect the connected sandbox schema"
+    },
+    "sandbox_inspect": {
+      "decision": "deliberate",
+      "reason": "external-agent bridge snapshot; the playground exposes the same state through its native panels"
+    },
+    "seed_auth_users": {
+      "decision": "gap",
+      "reason": "sandbox auth fixture setup should be available to external agents through the bridge"
+    },
+    "seed_firestore_data_as_admin": {
+      "decision": "gap",
+      "reason": "sandbox fixture setup should be available to external agents through the bridge"
     }
   }
 }

@@ -28,7 +28,6 @@ describe('Playground workbench layout helpers', () => {
       'seed',
       'ideas',
       'suggestions',
-      'deploy',
     ]);
   });
 

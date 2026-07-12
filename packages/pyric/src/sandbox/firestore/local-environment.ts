@@ -1639,7 +1639,7 @@ export class LocalEnvironment {
     // figure out why its rules weren't applied (CLAUDE_DEBUG_SESSION.md).
     // Lint is *diagnosis*, not enforcement. The dev-loop sandbox
     // installs whatever the caller asks for; the production deploy
-    // gate (`pyric deploy rules`) re-lints at stricter severity and
+    // gate (before `firebase deploy`) re-lints at stricter severity and
     // refuses to ship genuinely bad rules. Callers that care about
     // the lint result still get it back; the `sandbox_inspect`
     // MCP tool surfaces it for agents.

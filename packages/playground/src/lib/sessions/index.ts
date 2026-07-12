@@ -53,7 +53,7 @@ export type {
   SessionSaveInput,
 } from './types';
 export { SessionError } from './types';
-export { getCurrentUserId, isSignedInUser } from './userId';
+export { getCurrentUserId } from './userId';
 
 /**
  * Resolves once the sessions sandbox has restored any prior persisted

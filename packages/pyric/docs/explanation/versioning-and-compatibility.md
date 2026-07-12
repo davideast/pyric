@@ -49,7 +49,7 @@ Surface coverage answers "will my app's calls exist against the mirror." Behavio
 
 ## Where the numbers stand today
 
-Firebase's latest npm release is 12.16.0. Pyric's pinned oracle and conformance version is 12.13.0, so the first real tag will be `fb12.13`, the line pyric is actually tested against, not `fb12.16`. Pyric's own packages are at `0.1.0-alpha.8`, in lockstep across `pyric`, `pyric-admin`, `pyric-tools`, and `@pyric/ui`. A `fb` tag can point at an alpha release; the compatibility claim and the stability claim are separate, and the `fb` tag speaks only to the first.
+Firebase's latest npm release is 12.16.0. Pyric's pinned oracle and conformance version is 12.13.0, so the first real tag will be `fb12.13`, the line pyric is actually tested against, not `fb12.16`. Pyric's own packages are at `0.1.0-alpha.8`, in lockstep across `pyric`, `pyric-admin`, `@pyric/cli`, and `@pyric/ui`. A `fb` tag can point at an alpha release; the compatibility claim and the stability claim are separate, and the `fb` tag speaks only to the first.
 
 ---
 

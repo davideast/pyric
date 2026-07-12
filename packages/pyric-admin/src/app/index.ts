@@ -53,12 +53,12 @@
  *     delegate to `firebase-admin/app.initializeApp()` (FIREBASE_CONFIG
  *     env + application-default credentials), register the prod arm.
  *   - `PYRIC_SANDBOX=remote` or `remote:<url>` → obtain a remote sandbox
- *     handle from the factory installed by `pyric-tools/register` at
+ *     handle from the factory installed by `@pyric/cli/register` at
  *     `globalThis[REMOTE_SANDBOX_FACTORY]`
  *     (`Symbol.for('pyric.remote.sandboxFactory')`) and register the
  *     sandbox arm. One activation line is logged to stderr. If the env
  *     is set but no factory is installed, throw with remediation (run
- *     under `pyric dev`, or add `--import pyric-tools/register` to
+ *     under `pyric dev`, or add `--import @pyric/cli/register` to
  *     NODE_OPTIONS).
  *   - Production guard: refuses to route to a sandbox when
  *     `NODE_ENV === 'production'`, unless `PYRIC_SANDBOX_FORCE=1`.
@@ -332,7 +332,7 @@ function initializeAmbientApp(name: string): PyricAdminApp {
       `pyric-admin: PYRIC_SANDBOX=${env} is set but no remote sandbox ` +
         'factory is installed (globalThis[Symbol.for(' +
         "'pyric.remote.sandboxFactory')] is absent). Run your server " +
-        'under `pyric dev`, or add `--import pyric-tools/register` to ' +
+        'under `pyric dev`, or add `--import @pyric/cli/register` to ' +
         'NODE_OPTIONS.',
     );
   }

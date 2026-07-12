@@ -178,7 +178,7 @@ called against a prod-backed handle.
 
 | Symbol | Status | Note | Use in `appSource`? |
 |---|---|---|---|
-| `sandbox.setRules(db, rulesSource)` | ✅ | Sandbox-only; use `pyric-tools/deploy` for prod | **No**: never appears in deployed app code |
+| `sandbox.setRules(db, rulesSource)` | ✅ | Sandbox-only; use the Firebase CLI for prod | **No**: never appears in deployed app code |
 | `sandbox.seedDocuments(db, docs)` | ✅ | Sandbox-only; bulk-load bypassing rules | **No**: same |
 | `sandbox.snapshotState(db)` | ✅ | Sandbox-only; dump of all stored docs | **No**: same |
 | `TARGET_SYMBOL` | ✅ | Internal brand; agents should not read it | No |

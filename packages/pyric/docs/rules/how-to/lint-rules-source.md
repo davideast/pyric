@@ -32,7 +32,7 @@ Pre-parse syntax hints (JS-isms like `===`, `?.`, `??`, backtick strings) fire e
 
 ## Block deploys on errors only
 
-`issues` mixes severities. The deploy path in `pyric-tools/deploy` refuses to swap a ruleset when any issue has `severity: 'error'`. Mirror that behaviour:
+`issues` mixes severities. Fail the deployment pipeline before invoking the Firebase CLI when any issue has `severity: 'error'`:
 
 ```ts
 const errors = issues.filter((i) => i.severity === 'error');

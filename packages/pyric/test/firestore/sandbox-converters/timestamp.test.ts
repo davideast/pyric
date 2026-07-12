@@ -25,9 +25,9 @@ import { LocalEnvironment } from 'pyric/sandbox/internal';
 import { LocalState } from 'pyric/sandbox/internal';
 import { Timestamp } from 'pyric/rules/internal';
 import { encodeValue } from 'pyric/sandbox/internal';
-import { wireValueToFieldType } from 'pyric-tools/discover';
-import { LocalEnvironmentCrawlerAdapter } from 'pyric-tools/discover';
-import { crawl } from 'pyric-tools/discover';
+import { wireValueToFieldType } from '@pyric/cli/internal/discover';
+import { LocalEnvironmentCrawlerAdapter } from '@pyric/cli/internal/discover';
+import { crawl } from '@pyric/cli/internal/discover';
 
 const ALLOW_ALL =
   "rules_version = '2'; service cloud.firestore { " +

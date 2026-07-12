@@ -19,23 +19,12 @@
  *     context fields (`ctx.lint` etc.) gated on the same master.
  */
 import type { ToolHandler } from '@inbrowser/agent';
-import { readCachedTokenSync } from '~/lib/auth/gis-token';
-import { useSessionStore } from '~/lib/store/session';
 import { isDiagnosticToolEnabled, useSettingsStore } from '~/lib/store/settings';
 import { buildDebugFirestoreRulesHandler } from './debug-firestore-rules';
-import { buildFirestoreDiscoverHandlers } from './firestore-discover';
-import { buildFirestoreRulesInspectHandler } from './firestore-rules-inspect';
 import { buildGenerateFixtureFromSessionHandler } from './generate-fixture-from-session';
 import { buildInspectFirestoreTrafficHandler } from './inspect-firestore-traffic';
 import { buildSimulateFirestoreWriteHandler } from './simulate-firestore-write';
 import { buildTryRulesEditHandler } from './try-rules-edit';
-
-export interface DiagnosticBuildContext {
-  /** Signed-in project id, or `null` if no project picked. */
-  projectId: string | null;
-  /** Cached GIS access token, or `null` if cache is empty. */
-  accessToken: string | null;
-}
 
 export interface DiagnosticToolEntry {
   /** Stable key persisted in localStorage as the per-tool flag. */
@@ -44,32 +33,11 @@ export interface DiagnosticToolEntry {
   label: string;
   /** Body text rendered under the title (one-liner is fine). */
   description: string;
-  /** Factory that yields 0+ ToolHandlers. Returns `[]` to signal that
-   *  the tool can't activate this turn (e.g. missing credentials). */
-  build(ctx: DiagnosticBuildContext): ToolHandler[];
+  /** Factory that yields local ToolHandlers. */
+  build(): ToolHandler[];
 }
 
 export const DIAGNOSTIC_TOOL_MANIFEST: readonly DiagnosticToolEntry[] = [
-  {
-    key: 'firestore_discover',
-    label: 'Firestore: discover paths',
-    description:
-      'firestore_discover_paths + firestore_find_collection_group. Live-crawls the user\'s Firestore for paths and a collection-group index. Results are returned in-turn only — nothing is cached or persisted.',
-    build: ({ projectId, accessToken }) => {
-      if (!projectId || !accessToken) return [];
-      return buildFirestoreDiscoverHandlers({ projectId, accessToken });
-    },
-  },
-  {
-    key: 'firestore_rules_inspect',
-    label: 'Firestore: inspect deployed rules',
-    description:
-      'firestore_get_rules. Reads the active Firestore ruleset from the user\'s project and returns it in-turn — nothing is cached or persisted.',
-    build: ({ projectId, accessToken }) => {
-      if (!projectId || !accessToken) return [];
-      return [buildFirestoreRulesInspectHandler({ projectId, accessToken })];
-    },
-  },
   {
     key: 'simulate_firestore_write',
     label: 'Firestore: simulate rule evaluation',
@@ -127,15 +95,12 @@ export const DIAGNOSTIC_TOOL_MANIFEST: readonly DiagnosticToolEntry[] = [
  */
 export function getDiagnosticTools(): ToolHandler[] {
   if (typeof window === 'undefined') return [];
-  const projectId = useSessionStore.getState().currentProjectId;
-  const accessToken = readCachedTokenSync();
   const settings = useSettingsStore.getState();
-  const ctx: DiagnosticBuildContext = { projectId, accessToken };
 
   const handlers: ToolHandler[] = [];
   for (const entry of DIAGNOSTIC_TOOL_MANIFEST) {
     if (!isDiagnosticToolEnabled(settings, entry.key)) continue;
-    handlers.push(...entry.build(ctx));
+    handlers.push(...entry.build());
   }
   return handlers;
 }

@@ -6,7 +6,7 @@ public API was replaced in one clean break, and the AI, messaging, and rules
 surfaces were admitted to the compatibility registry.
 
 This is a Bun-managed monorepo for **Pyric: Firebase for agents**. `pyric`,
-`pyric-admin`, `pyric-tools`, and `@pyric/ui` published their first npm alpha
+`pyric-admin`, `@pyric/cli`, and `@pyric/ui` published their first npm alpha
 on 2026-07-09. The public site (pyric.dev) and a generated docs site are part
 of the repo, `pyric serve` was renamed `pyric dev`, and the sandbox persistence
 model has browser-IndexedDB worker-mode defaults across Firestore, Auth, RTDB,
@@ -44,14 +44,15 @@ The strategy is still the Firebase mirror:
 - `pyric` mirrors the modular Web SDK package shape (`firebase/*`) while adding
   in-process sandboxing, rules tooling, replay, and local test helpers.
 - `pyric-admin` mirrors `firebase-admin`.
-- `pyric-tools` mirrors the useful local/deploy/control-plane shape of
+- `@pyric/cli` owns Pyric-specific local development, verification, bridge,
+  MCP, and artifact-generation workflows. Production deployment belongs to
   `firebase-tools`.
 - `@pyric/ui` contains headless React components for Firebase/Pyric admin
   surfaces.
 - `@pyric/studio` is the local data-management and debugging console served by
   `pyric dev --ui`.
 - `@pyric/playground` is a private in-browser agent playground package. It is
-  built into `pyric-tools` for `pyric dev`/embedded playground use, but it is
+  built into `@pyric/cli` for `pyric dev`/embedded playground use, but it is
   not a public npm package.
 - `@pyric/conformance` is the private workspace package that holds the trust
   proof: the compatibility registry, the frozen production observations, the
@@ -79,7 +80,7 @@ packages/
   playground      @pyric/playground   Private Astro playground and agent demo
   pyric           pyric               Web SDK mirror + sandbox + rules
   pyric-admin     pyric-admin         Admin SDK mirror
-  pyric-tools     pyric-tools         CLI, bridge, dev server, deploy, verify
+  cli             @pyric/cli         CLI, bridge, dev server, generate, verify
   ui              @pyric/ui           Headless React components and hooks
   studio          @pyric/studio       Local sandbox console served by --ui
   site-docs       @pyric/site-docs    Astro docs site over every package's docs
@@ -95,7 +96,7 @@ Test-file counts (`find packages -name '*.test.ts' -o -name '*.test.tsx'`):
 | Package | Test files |
 |---|---:|
 | `pyric` | 286 |
-| `pyric-tools` | 127 |
+| `@pyric/cli` | 127 |
 | `@pyric/playground` | 95 |
 | `@pyric/ui` | 84 |
 | `pyric-admin` | 45 |
@@ -103,7 +104,7 @@ Test-file counts (`find packages -name '*.test.ts' -o -name '*.test.tsx'`):
 | `@pyric/conformance` | 8 |
 | **Total** | **675** |
 
-The root `test` script runs `pyric`, `pyric-admin`, `pyric-tools`, `@pyric/ui`,
+The root `test` script runs `pyric`, `pyric-admin`, `@pyric/cli`, `@pyric/ui`,
 `@pyric/studio`, `@pyric/conformance`, and the tool-parity test. It does not run
 the large `@pyric/playground` suite or `@pyric/site-docs`'s own test/audit suite.
 
@@ -118,7 +119,7 @@ pyric/
     pyric/            Core: app, auth, firestore, database, storage, rules,
                       ai, messaging, firestore-values, sandbox.
     pyric-admin/      Admin-shaped app/auth/firestore/database/storage/messaging.
-    pyric-tools/      CLI, dev server, bridge, deploy, verify, auth config,
+    @pyric/cli/      CLI, dev server, bridge, deploy, verify, auth config,
                       discover, credentials, registry, Vite integration.
     conformance/      The conformance system (see below).
     ui/               Headless React components/hooks.
@@ -199,13 +200,13 @@ Node `>=22`. Exports: `pyric-admin/app`, `/auth`, `/firestore`, `/database`,
 It depends on `pyric` and `firebase-admin`. Sandbox backends route into
 `pyric/sandbox`; prod backends delegate to real `firebase-admin`.
 
-### `pyric-tools`
+### `@pyric/cli`
 
 Version `0.1.0-alpha.8` (lockstep). ESM-only, Node `>=22`, binary name `pyric`.
 
-Exports: `pyric-tools/deploy`, `/register`, `/registry`, `/credentials`,
-`/credentials/node`, `/verify`, `/bridge`, `/bridge/client`, `/discover`,
-`/auth`, `/remote`, `/vite`, `/serve/worker`.
+Exports: `@pyric/cli/register`, `/verify`, `/assurance`,
+`/assurance/browser`, `/bridge`, `/bridge/client`, `/internal/discover`,
+`/remote`, `/vite`, `/serve/worker`.
 
 The `bridge` export has `node`, `browser`, and `default` import conditions, but
 no CommonJS `require` condition.
@@ -268,7 +269,7 @@ Version `0.0.0`. "Firebase console for Pyric", served by `pyric dev --ui`.
 Exports `@pyric/studio/ports` and `@pyric/studio/env`.
 
 The root build produces it with base `/__pyric/ui/` and copies it into
-`packages/pyric-tools/dist/serve/studio-ui/`. Its CSS is split into
+`packages/cli/dist/serve/studio-ui/`. Its CSS is split into
 `src/styles/{index,tokens,update-lights}.css`.
 
 Feature surface under `packages/studio/src/features/`: History-API routing, a
@@ -285,12 +286,12 @@ sub-expression evaluation trace, and `?inspect=<id>` deep links.
 Both `0.0.1`, private. Playground is the Astro/React in-browser agent shell
 (BYOK/inference, virtual preview bundling, sessions, GitHub import/export,
 fixtures, evals, embedded Studio); it builds with base `/__pyric/playground/`
-into `pyric-tools`' dist.
+into `@pyric/cli`' dist.
 
 `site-docs` composes every `packages/<pkg>/docs` tree into one browsable site
 with flat `.md` twins, `/llms.txt`, and `/docs/index.json`. Its port
 (`packages/site-docs/scripts/port-content.ts`) walks the docs roots of `pyric`,
-`pyric-admin`, `pyric-tools`, and `ui` only, and FAILS the build on an unclaimed
+`pyric-admin`, `@pyric/cli`, and `ui` only, and FAILS the build on an unclaimed
 doc in any of them. `packages/conformance/docs/` is deliberately not among those
 roots: it is maintainer documentation for a private package, not product docs.
 
@@ -320,7 +321,7 @@ Admin, tools, UI, Studio, and Playground:
 The alpha split that matters:
 
 - Mirrored Firebase APIs are the product contract, even while incomplete.
-- Non-mirrored exported APIs (`pyric-tools/serve/worker`, `pyric/sandbox/internal`,
+- Non-mirrored exported APIs (`@pyric/cli/serve/worker`, `pyric/sandbox/internal`,
   the `pyric/rules/internal*` seams, Studio ports, verification helpers) are
   public-alpha utility surfaces. They may change quickly, but they must still
   install, type-resolve, and import correctly from published tarballs.
@@ -343,20 +344,20 @@ Flags on `pyric dev` layer on top:
   existing state file, but does not clear browser IndexedDB.
 
 The coverage matrix lives in
-`packages/pyric-tools/docs/how-to/serve-persistence-and-multi-tab.md`.
+`packages/cli/docs/how-to/serve-persistence-and-multi-tab.md`.
 
 ### Sandbox-build mode
 
-The Vite plugin (`pyric-tools/vite`) swaps `firebase/*` imports for the Pyric
+The Vite plugin (`@pyric/cli/vite`) swaps `firebase/*` imports for the Pyric
 sandbox shim always in `vite dev`, and in `vite build` whenever
 `mode != production` (or `swapInBuild` is set). Builds carry a marker
-(`packages/pyric-tools/src/serve/sandbox-marker.ts`). `pyric dev` hard-refuses to
-serve a bundle that inlines the real Firebase SDK, and `pyric deploy hosting`
-refuses to deploy a marked sandbox build.
+(`packages/cli/src/serve/sandbox-marker.ts`). `pyric dev` hard-refuses to
+serve a bundle that inlines the real Firebase SDK. The marker identifies an
+artifact as sandbox-only; production deployment remains a Firebase CLI job.
 
 ## CLI Surface
 
-The binary is `pyric` from `pyric-tools`. Subcommands:
+The binary is `pyric` from `@pyric/cli`. Subcommands:
 
 - `pyric init [dir]`
 - `pyric bridge`
@@ -365,21 +366,24 @@ The binary is `pyric` from `pyric-tools`. Subcommands:
   [--json] [-- <cmd>]`
 - `pyric snapshot [--out=FILE]`
 - `pyric verify [fixture|dir]` / `pyric verify cases [fixture]`
-- `pyric deploy <rules|indexes|database|hosting|functions>`
-- `pyric rules:lint|rules:validate|rules:simulate`
-- `pyric database:rules:lint|database:rules:validate|database:rules:simulate|database:rules:generate`
-- `pyric auth:configure-provider <id> <enabled>`
-- `pyric auth:manage-domains <add|remove|list> [domain]`
+- `pyric firestore rules lint|validate|simulate|resolve`
+- `pyric firestore indexes generate`
+- `pyric database rules lint|validate|simulate|generate`
+- `pyric mcp`
+- `pyric vendor [dir]`
+
+Production rules, indexes, hosting, functions, and service configuration are
+deployed with the Firebase CLI.
 
 `pyric serve` was renamed `pyric dev`; there is no `serve` alias. Default port
 is 3473, scanning forward when taken. Current CLI docs:
-`packages/pyric-tools/docs/reference/cli.md`.
+`packages/cli/docs/reference/cli.md`.
 
 ## Packaging Contract
 
 Publishable packages in the packaging gate: `packages/pyric`,
-`packages/pyric-admin`, `packages/pyric-tools`, `packages/ui`. `@pyric/studio`
-and `@pyric/playground` are embedded into `pyric-tools` as runtime assets.
+`packages/pyric-admin`, `packages/cli`, `packages/ui`. `@pyric/studio`
+and `@pyric/playground` are embedded into `@pyric/cli` as runtime assets.
 `@pyric/conformance` and `@pyric/site-docs` are private and never packed.
 
 Release gates: `bash scripts/build.sh`, `bash scripts/manifest-lint.sh`,
@@ -392,7 +396,7 @@ assets, smokes subpath imports (derived at run time from each package's
 `exports` map, so it cannot drift behind new exports), and verifies the CLI.
 
 `scripts/pack-packages.sh` swaps the root `README.md` into `pyric`,
-`pyric-admin`, and `pyric-tools` at pack time.
+`pyric-admin`, and `@pyric/cli` at pack time.
 `scripts/publish-alpha.sh <version>` drives `npm publish`.
 
 ## The Conformance System
@@ -534,7 +538,7 @@ Root docs: `README.md`, `docs/agent-tools.md`, `docs/code-conventions.md`,
 `docs/conformance/cdd.md`, `docs/site-rewrite/` (the outcome-first guide).
 
 Package docs: `packages/pyric/docs`, `packages/pyric-admin/docs`,
-`packages/pyric-tools/docs`, `packages/ui/docs`,
+`packages/cli/docs`, `packages/ui/docs`,
 `packages/conformance/docs`, plus `packages/studio/README.md` and
 `packages/playground/README.md`.
 
@@ -573,7 +577,7 @@ Repo-local skills: `.agents/skills/playground-prompts`,
 
 ## Release State
 
-`pyric`, `pyric-admin`, `pyric-tools`, and `@pyric/ui` published their first npm
+`pyric`, `pyric-admin`, `@pyric/cli`, and `@pyric/ui` published their first npm
 alpha on 2026-07-09, all at `0.1.0-alpha.8`, lockstep-versioned. Both the `alpha`
 and `latest` dist-tags point at `0.1.0-alpha.8`; no `fb*` compatibility tag is
 published yet.

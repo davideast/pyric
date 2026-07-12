@@ -145,15 +145,15 @@ pulls in Node builtins.
 #### CLI
 
 ```sh
-pyric database:rules:generate [--config <path>] [--out <path>]
+pyric database rules generate [--config <path>] [--out <path>]
 ```
 
 Loads a constraints module (default `database.rules.ts`, or the `--config`
 path), looks for a named `rules` export or a default export produced by
 `defineRtdbRules(...)`, compiles it to rules JSON, and writes it to `--out`
 (default: the `database.rules` path from `firebase.json`, or
-`database.rules.json`). Run this before `pyric deploy database` so the static
-file can be inspected, diffed, and committed ahead of a live deploy.
+`database.rules.json`). Inspect, diff, and commit that static file before
+deploying it with `firebase deploy --only database`.
 
 #### MCP
 
@@ -164,11 +164,11 @@ a user the rules before calling `rtdb_deploy_rules`.
 
 ### Verifying captured sessions
 
-Constraints documents can be passed directly to `pyric-tools/verify` as
+Constraints documents can be passed directly to `@pyric/cli/verify` as
 candidate RTDB rules:
 
 ```ts
-import { verifyFixture } from 'pyric-tools/verify';
+import { verifyFixture } from '@pyric/cli/verify';
 import { rules } from './database.rules.js';
 
 const fixture = JSON.parse(await Bun.file('.pyric/last-session.json').text());
@@ -186,10 +186,10 @@ await Bun.write('database.rules.json', JSON.stringify(rtdbRules(rules).toJSON(),
 ```
 
 ```sh
-pyric verify --service rtdb --rules rtdb=database.rules.json
+pyric verify --service database --rules database=database.rules.json
 ```
 
-Verification lives in `pyric-tools/verify` because constraints are an authoring
+Verification lives in `@pyric/cli/verify` because constraints are an authoring
 surface and captured-session replay is local tooling around an app session.
 The Firebase Rules Test API engine is Firestore-only; RTDB constraints verify by
 compiling to RTDB rules JSON and replaying captured RTDB commits locally.

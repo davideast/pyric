@@ -70,6 +70,6 @@ A separate hard limit applies to document reads from rules (`get(...)` and `exis
 
 ## Why the linter sometimes blocks the deploy
 
-Most lint warnings are advisory. A handful are not: `SOURCE_SIZE`, `CHAIN_DEPTH` (above the band), `LET_LIMIT`, `GET_COUNT` (above 10), `PERMISSIVE_RULE`, `RECURSIVE_WILDCARD_OPEN`, `HALLUCINATED_METHOD`, `INVALID_OPERATOR`. The `pyric-tools/deploy` path refuses to swap a ruleset that contains any `severity: 'error'` warning. The choice is deliberate: these are the categories where the cost of shipping the bad rule is high (a deploy that fails compilation; a publicly-readable database) and the cost of demanding a fix is low (the linter tells you exactly what's wrong).
+Most lint warnings are advisory. A handful are not: `SOURCE_SIZE`, `CHAIN_DEPTH` (above the band), `LET_LIMIT`, `GET_COUNT` (above 10), `PERMISSIVE_RULE`, `RECURSIVE_WILDCARD_OPEN`, `HALLUCINATED_METHOD`, `INVALID_OPERATOR`. A deployment pipeline should stop before invoking the Firebase CLI when the ruleset contains any `severity: 'error'` warning. These are the categories where the cost of shipping the bad rule is high (a deploy that fails compilation; a publicly-readable database) and the cost of demanding a fix is low (the linter tells you exactly what's wrong).
 
 `RULES_WEAKENED` is `warning`, not `error`. There are legitimate reasons to remove a predicate: a refactor, a dedupe, an intentional broadening. The signal is "review this", not "block the deploy".

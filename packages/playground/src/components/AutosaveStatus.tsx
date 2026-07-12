@@ -5,9 +5,7 @@
  * timer here re-renders the relative-time label).
  *
  * Clicking it opens a small popover with the persistence truth copy
- * (`AUTOSAVE_TRUTH_COPY`) and an explicit, honestly-labeled sign-in
- * step — the affordance that replaced the old save icon, which used
- * to open a bare sign-in modal as if signing in were "save".
+ * (`AUTOSAVE_TRUTH_COPY`).
  */
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -31,16 +29,11 @@ const TONE_ICONS: Record<string, string> = {
   error: 'error',
 };
 
-export interface AutosaveStatusProps {
-  /** Opens the account/sign-in modal (`AuthModal`). The popover's CTA
-   *  labels it as sign-in — signing in is for deploys/promote, never
-   *  a prerequisite for saving. */
-  onOpenAccount?: () => void;
-}
+export interface AutosaveStatusProps {}
 
-export function AutosaveStatus({ onOpenAccount }: AutosaveStatusProps) {
+export function AutosaveStatus(_: AutosaveStatusProps) {
   const state = useAutosaveStore((s) => s.state);
-  return <AutosaveStatusView state={state} {...(onOpenAccount ? { onOpenAccount } : {})} />;
+  return <AutosaveStatusView state={state} />;
 }
 
 export interface AutosaveStatusViewProps extends AutosaveStatusProps {
@@ -50,7 +43,7 @@ export interface AutosaveStatusViewProps extends AutosaveStatusProps {
 /** Presentational half — state in via props so render states are
  *  testable with `renderToString` (the store hook resolves to its
  *  initial state under SSR). */
-export function AutosaveStatusView({ state, onOpenAccount }: AutosaveStatusViewProps) {
+export function AutosaveStatusView({ state }: AutosaveStatusViewProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -136,27 +129,6 @@ export function AutosaveStatusView({ state, onOpenAccount }: AutosaveStatusViewP
             <p className="text-[11px] font-mono text-[#f0a0a0] break-words">
               {state.message}
             </p>
-          ) : null}
-          {onOpenAccount ? (
-            <div className="pt-2 border-t border-[#2a2a35] space-y-2">
-              <p className="text-[11px] text-slate-gray leading-relaxed">
-                Saving never requires an account. Sign in only to deploy
-                to your own Firebase project.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  onOpenAccount();
-                }}
-                className={[
-                  'w-full px-3 py-1.5 rounded text-[11px] font-mono uppercase tracking-wider',
-                  'bg-[#2a2a35] hover:bg-[#3a3a48] text-soft-white transition-colors',
-                ].join(' ')}
-              >
-                Sign in for deploys
-              </button>
-            </div>
           ) : null}
         </div>
       ) : null}

@@ -12,14 +12,14 @@ for those imports; no app code changes.
 
 ## Run
 
-From this directory, with the repo built (`bun run build:pyric-tools` at the
+From this directory, with the repo built (`bun run build:cli` at the
 root):
 
 ```sh
-node ../../packages/pyric-tools/dist/cli/index.js dev --no-open
+node ../../packages/cli/dist/cli/index.js dev --no-open
 ```
 
-Or, with pyric-tools installed, just `pyric dev`. Open the printed URL
+Or, with @pyric/cli installed, just `pyric dev`. Open the printed URL
 (serve picks a free port).
 
 ## The two modes
@@ -68,6 +68,6 @@ This page is the destination of the AI surface work: the oracle capture app
 shape running unchanged under `pyric dev` on the scripted engine, and the
 same app answered by a real local model through an OpenAI-compatible server.
 The e2e smoke test at
-`packages/pyric-tools/test/e2e/ai-demo.pw.ts` boots serve on this directory,
+`packages/cli/test/e2e/ai-demo.pw.ts` boots serve on this directory,
 drives both modes in a real browser, and asserts the scripted half performs
 zero requests to Google AI endpoints.

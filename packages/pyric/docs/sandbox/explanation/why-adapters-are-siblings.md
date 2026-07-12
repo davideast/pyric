@@ -61,7 +61,7 @@ This is what makes "the substrate is shared" workable. Both adapters bottom out 
 | Admin-SDK-shaped Firestore API | `pyric-admin` |
 | Modular Web SDK-shaped Firestore API | `pyric/firestore` |
 | Rules parser, linter, simulator | `pyric/rules/internal` |
-| Deploy primitives (rules, indexes, hosting, functions) | `pyric-tools/deploy` |
+| Production deployment (rules, indexes, hosting, functions) | Firebase CLI |
 
 The rule of thumb: anything *shape-agnostic* (the data, the rules, the lifecycle) lives in the substrate; anything *shape-specific* lives in an adapter.
 
@@ -84,6 +84,6 @@ The same pattern extends to other services. Hypothetical `pyric/auth` would:
 
 The substrate would need a multi-service split inside `LocalEnvironment` (currently Firestore-only) and the adapter would slot in.
 
-Same for `pyric/database` (Realtime Database) and `pyric/storage` (Cloud Storage). `pyric/storage` already exists for the storage data plane; its admin surface (CORS, bucket lifecycle) will eventually land in `pyric-tools/deploy`.
+Same for `pyric/database` (Realtime Database) and `pyric/storage` (Cloud Storage). `pyric/storage` already exists for the storage data plane; production administration stays with Firebase and Google Cloud tooling.
 
 The point of the sibling-package shape is that each new adapter is a contained addition. Nobody who already uses `pyric-admin` cares when `pyric/database` lands; the substrate gets a new service slot but the existing adapter surface doesn't move.

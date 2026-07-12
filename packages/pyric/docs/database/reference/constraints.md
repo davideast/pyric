@@ -152,7 +152,11 @@ Placement semantics worth knowing:
 
 ## The two deploy tool pairs
 
-Two different tools share the names `rtdb_get_rules` and `rtdb_deploy_rules`. The host-backed pair from `createRtdbRulesTools` (this package) works in IR: `rtdb_get_rules` fetches deployed rules into a cached IR, `rtdb_simulate_access` evaluates against that cache, and `rtdb_deploy_rules` takes a full `RtdbIR`. The scope-backed pair in `pyric-tools`' deploy factories takes raw `rulesJson` and a `ProjectScope`. They do not interchange; pick by which input you hold.
+The host-backed tools from `createRtdbRulesTools` work in IR:
+`rtdb_get_rules` reads rules into a cached IR, `rtdb_simulate_access`
+evaluates against that cache, and `rtdb_deploy_rules` updates the host-backed
+rules environment. They do not deploy production rules; use the Firebase CLI
+for that boundary.
 
 ## Exported types
 

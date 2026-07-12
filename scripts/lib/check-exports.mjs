@@ -19,14 +19,14 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const PUBLISHABLE = ['pyric', 'pyric-admin', 'pyric-tools', 'ui'].map((p) => join(REPO, 'packages', p));
+const PUBLISHABLE = ['pyric', 'pyric-admin', 'cli', 'ui'].map((p) => join(REPO, 'packages', p));
 
 // dist/<dir> entrypoints that are intentionally NOT exported (internal-only build
 // artifacts a consumer should never import directly). Keyed by package name.
 const REVERSE_ALLOW = {
   // The CLI is the `pyric` bin (package.json "bin"), reachable as a command — not
   // a subpath import — so it is intentionally absent from "exports".
-  'pyric-tools': ['cli'],
+  '@pyric/cli': ['cli'],
 };
 
 /** Collect every string leaf under an exports condition tree. */

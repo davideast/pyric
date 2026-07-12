@@ -21,7 +21,7 @@ By keeping rules tooling in `pyric/rules`, the swap-in surface stays bit-faithfu
 | Stdlib (`auth`, `validation`, ... modules) | resolved via `pyric/rules/internal/node` |
 | `Timestamp`, `Path`, `Bytes` (rules wrapper classes) | `pyric/rules/internal` |
 | Tool factories for lint / simulate / test | `pyric/rules/internal/node` |
-| `firestore.rules.deploy(scope, source)` | `pyric-tools/deploy` |
+| Production rules deployment | Firebase CLI |
 
 There's some name overlap: `Timestamp` is both a sentinel value (data plane) and a wrapper class (rules engine). The two share a wire format but are distinct types. Each package exports its own; converters bridge them when needed.
 
@@ -29,7 +29,7 @@ There's some name overlap: `Timestamp` is both a sentinel value (data plane) and
 
 Three common cases:
 
-- **Linting before deploy.** `lint(source)` (public) returns every issue as a `RuleIssue[]`. The deploy path in `pyric-tools/deploy` runs the engine-internal linter internally; consumers running their own deploy gate call the public `lint` explicitly.
+- **Linting before deploy.** `lint(source)` (public) returns every issue as a `RuleIssue[]`. Consumers run it as a gate before invoking the Firebase CLI.
 - **Testing rules locally.** `firestoreRules(source).simulate(cases)` (public) runs rules against synthetic requests without deploying or hitting the network. Useful for unit tests of complex rule logic.
 - **Inspecting rules programmatically.** `firestoreRules(source).toJSON()` (public) returns a typed tree consumers can walk for custom analysis; the internal `parseToAST(source)` (`pyric/rules/internal`) is available for callers that need the parser directly.
 
@@ -59,7 +59,7 @@ The cycle is benign. Documented loudly. The module direction is `rules` → `san
 
 - `pyric/firestore` is small. The package wraps a few hundred functions over two backends; its dependency graph is bounded.
 - `pyric/rules` can evolve independently. New lint rules, new simulator features, new validator codes: none affect `pyric/firestore`'s surface.
-- `pyric-tools/deploy` deploys rules without depending on the data plane. CI pipelines pull only what they need.
+- Production deployment stays with the Firebase CLI, outside the data-plane and rules packages.
 - Consumers reach for exactly the surface they want by package name. The package name is the documentation.
 
 The downside is exactly one: a beginner asking "where is the linter?" has to learn it lives in a different public subpath. That's a one-time cost (the README and docs point at it explicitly) versus the recurring cost of a kitchen-sink surface that complicates every other consumer's bundle.
