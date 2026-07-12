@@ -4,8 +4,8 @@
   "rowIds": [
     "rtdb-rules#5"
   ],
-  "description": "RTDB rules production verdicts for corpus scenario \"r5-cascade-root-grant\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). root .read: true cascades to all descendants and a deeper .write: false cannot revoke an ancestor .write grant \u2014 production allows every op; the simulator must model grant-only cascade.",
-  "observedAt": "2026-07-12T02:54:57.994Z",
+  "description": "RTDB rules production verdicts for corpus scenario \"r5-cascade-root-grant\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). root .read: true cascades to all descendants and a deeper .write: false cannot revoke an ancestor .write grant — production allows every op; the simulator must model grant-only cascade.",
+  "observedAt": "2026-07-12T03:35:03.045Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "behavior": {

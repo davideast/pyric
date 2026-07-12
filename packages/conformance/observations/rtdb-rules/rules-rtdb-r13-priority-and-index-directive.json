@@ -1,0 +1,17 @@
+{
+  "name": "rules-rtdb-r13-priority-and-index-directive",
+  "matrixRow": "rtdb-rules#13",
+  "rowIds": [
+    "rtdb-rules#13"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r13-priority-and-index-directive\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a plain `set` leaves priority unset, so `getPriority()` must report null in the simulator exactly as it does in production, and a ruleset carrying `.indexOn` must deploy and evaluate without the directive disturbing any verdict.",
+  "observedAt": "2026-07-12T03:35:03.041Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "plain set under an indexed node has a null priority": "ALLOW",
+    "plain set has a null priority": "ALLOW",
+    "plain set cannot satisfy a non-null priority demand": "DENY",
+    "auth-gated read of the indexed node allowed": "ALLOW"
+  }
+}

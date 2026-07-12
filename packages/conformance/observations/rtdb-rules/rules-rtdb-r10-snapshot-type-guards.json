@@ -1,0 +1,20 @@
+{
+  "name": "rules-rtdb-r10-snapshot-type-guards",
+  "matrixRow": "rtdb-rules#10",
+  "rowIds": [
+    "rtdb-rules#10"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r10-snapshot-type-guards\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). structure and type guards are the backbone of RTDB validation rules, and `parent()` re-projects a field snapshot at its record node — the simulator must resolve both the type predicates and the upward path climb exactly as production does.",
+  "observedAt": "2026-07-12T03:35:03.038Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "well-typed profile allowed": "ALLOW",
+    "missing required name child denied": "DENY",
+    "numeric name fails isString": "DENY",
+    "string age fails isNumber": "DENY",
+    "string active fails isBoolean": "DENY",
+    "name without sibling age fails the parent climb": "DENY",
+    "auth-gated read allowed": "ALLOW"
+  }
+}

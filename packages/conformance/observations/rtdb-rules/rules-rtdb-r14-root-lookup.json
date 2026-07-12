@@ -1,0 +1,16 @@
+{
+  "name": "rules-rtdb-r14-root-lookup",
+  "matrixRow": "rtdb-rules#14",
+  "rowIds": [
+    "rtdb-rules#14"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r14-root-lookup\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). cross-path `root` lookups are a staple of RTDB rules, and the simulator must resolve the root binding and report a missing child as absent exactly as production does; the sentinel keeps the claim mount-invariant across a run-scoped capture namespace and a replay mount at the root.",
+  "observedAt": "2026-07-12T03:35:03.041Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "sentinel absent from the database root": "ALLOW",
+    "sentinel cannot be found present at the database root": "DENY",
+    "auth-gated read allowed": "ALLOW"
+  }
+}
