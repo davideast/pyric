@@ -247,6 +247,11 @@ interface RulesLanguageCoverage {
   /** The construct ids taken OUT of the denominator, so the gate can see an
    *  exclusion appear (a denominator shrink is a reclassification, not work). */
   excluded: string[];
+  /** construct id -> the rules-engine divergence rows scoping it. Recorded per
+   *  construct (not merely counted) so the gate can tell a construct RELEASED
+   *  because the engine was FIXED from one released because the annotation was
+   *  quietly narrowed while the divergence still stands. */
+  contaminatedBy: Record<string, string[]>;
   /** Corpus scenarios with an observation twin — the evidence behind `verified`. */
   scenariosWithTwins: number;
 }
@@ -375,6 +380,9 @@ async function buildReport(): Promise<CoverageReport> {
     contaminated: e.contaminatedConstructs,
     pct: pct(e.verifiedConstructs, e.totalConstructs),
     excluded: e.constructs.filter((c) => c.excluded).map((c) => c.id).sort(),
+    contaminatedBy: Object.fromEntries(
+      e.constructs.filter((c) => c.contaminatedBy.length > 0).map((c) => [c.id, c.contaminatedBy]),
+    ),
     scenariosWithTwins: e.verifiedScenarioCount,
   }));
 
@@ -538,6 +546,11 @@ export interface Baseline {
   /** Construct ids taken out of a rules-language denominator, per engine. A new
    *  entry here is a denominator shrink: a reclassification, not work. */
   rulesLanguageExclusions: Record<string, string[]>;
+  /** engine -> (construct id -> the divergence rows scoping it), at baseline time.
+   *  A construct that LEAVES this map has been released from contamination;
+   *  releaseProblems() checks whether the divergence holding it was RESOLVED, or
+   *  merely un-annotated. */
+  rulesLanguageContamination: Record<string, Record<string, string[]>>;
 }
 
 function toBaseline(report: CoverageReport): Baseline {
@@ -559,6 +572,7 @@ function toBaseline(report: CoverageReport): Baseline {
     metrics: report.metrics,
     evidence: report.evidence,
     rulesLanguageExclusions: Object.fromEntries(report.rulesLanguage.map((e) => [e.engine, e.excluded])),
+    rulesLanguageContamination: Object.fromEntries(report.rulesLanguage.map((e) => [e.engine, e.contaminatedBy])),
   };
 }
 
@@ -693,6 +707,54 @@ export function movementProblems(movements: Movement[]): string[] {
 }
 
 /**
+ * CONTAMINATION RELEASE — the one way a rules-language numerator can rise with no
+ * new evidence, no denominator change, and nothing for the movement rules above
+ * to catch.
+ *
+ * A construct is held out of the verified count by a `diverged-documented`/`bug`
+ * rules-engine row whose `constructs` scope lists it. Delete the construct from
+ * that scope and it silently regains credit: the divergence still stands, the
+ * engine is still wrong, and the published number rises. It is the cheapest fake
+ * in the chain — a one-line edit to an annotation that looks like nothing. The
+ * evidence census cannot catch it either: ANY unrelated capture landing in the
+ * same PR moves the census and excuses the numerator's rise.
+ *
+ * So a construct may only LEAVE contamination if the divergence that held it was
+ * actually resolved. The check is exact: for every construct contaminated at
+ * baseline and no longer contaminated, look at the rows that were holding it. If
+ * one is STILL `diverged-documented`/`bug`, the divergence was never fixed and
+ * the scope was merely narrowed — that FAILS, naming the construct and the row.
+ * If the row is now `conforms` (its replay matches production, and its
+ * oracle-conformance test is what says so) or the row is gone from the registry,
+ * the release stands.
+ *
+ * The way to raise this number is to fix the ENGINE. Narrowing the annotation is
+ * how you hide that you did not.
+ */
+export function releaseProblems(baseline: Baseline, report: CoverageReport): string[] {
+  const problems: string[] = [];
+  const contaminationNow = new Map(report.rulesLanguage.map((e) => [e.engine, e.contaminatedBy]));
+
+  for (const [engine, wasContaminated] of Object.entries(baseline.rulesLanguageContamination ?? {})) {
+    const now = contaminationNow.get(engine) ?? {};
+    for (const [construct, holdingRows] of Object.entries(wasContaminated)) {
+      if (now[construct]?.length) continue; // Still contaminated: nothing to explain.
+
+      const stillDiverged = holdingRows.filter((rowId) => {
+        const status = report.rowStatuses[rowId];
+        return status === 'diverged-documented' || status === 'bug';
+      });
+      if (stillDiverged.length > 0) {
+        problems.push(
+          `${construct}: released from contamination and re-credited, but ${stillDiverged.join(', ')} is STILL '${report.rowStatuses[stillDiverged[0]]}' — the divergence was not fixed, its 'constructs' scope was narrowed. Fix the engine; do not un-annotate it`,
+        );
+      }
+    }
+  }
+  return problems;
+}
+
+/**
  * Regression-only gate. Deliberately does NOT fail on an absolute percentage
  * — a threshold gate invites relabeling rows `conforms` just to clear the
  * bar, which is the exact dishonesty this ratchet exists to prevent. It only
@@ -808,7 +870,7 @@ async function main(): Promise<void> {
       if (previous.metrics) {
         const movements = classifyMovements(previous, report);
         printMovements(movements);
-        const refused = movementProblems(movements);
+        const refused = [...movementProblems(movements), ...releaseProblems(previous, report)];
         if (refused.length > 0) {
           console.log('\nACCEPTING the following movements, which the gate would otherwise REFUSE:');
           for (const r of refused) console.log(`  - ${r}`);
@@ -851,7 +913,7 @@ async function main(): Promise<void> {
 
   const movements = classifyMovements(baseline, report);
   printMovements(movements);
-  const unearned = movementProblems(movements);
+  const unearned = [...movementProblems(movements), ...releaseProblems(baseline, report)];
 
   const problems = [...regressions, ...unearned.map((u) => `UNEARNED MOVEMENT — ${u}`)];
   if (problems.length > 0) {

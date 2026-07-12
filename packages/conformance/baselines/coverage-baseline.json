@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T04:25:08.118Z",
+  "generatedAt": "2026-07-12T04:31:56.546Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -1088,7 +1088,7 @@
   },
   "evidence": {
     "observations": 232,
-    "observationDigest": "sha256:427c3daada3bff060908b55ab4707b6766495841ee073d5cbc44e85a13c66d8f",
+    "observationDigest": "sha256:a108e40028b6ed15e6ec8ef32153ccf1e1520acb225139d9409dd7e7ae3742d1",
     "verifiedScenarios": 46,
     "conformanceChecks": 5,
     "conformanceTests": 712,
@@ -1102,5 +1102,77 @@
     "rtdb": [
       "rtdb.semantic.deny-by-default"
     ]
+  },
+  "rulesLanguageContamination": {
+    "firestore": {
+      "firestore.binding.request.query": [
+        "firestore-rules#166"
+      ],
+      "firestore.binding.resource.id": [
+        "firestore-rules#165"
+      ],
+      "firestore.binding.resource.__name__": [
+        "firestore-rules#165"
+      ],
+      "firestore.function.get": [
+        "firestore-rules#165"
+      ],
+      "firestore.function.exists": [
+        "firestore-rules#165"
+      ],
+      "firestore.function.getAfter": [
+        "firestore-rules#164"
+      ],
+      "firestore.function.existsAfter": [
+        "firestore-rules#164"
+      ],
+      "firestore.function.hashing.md5": [
+        "firestore-rules#161"
+      ],
+      "firestore.function.hashing.sha256": [
+        "firestore-rules#161"
+      ],
+      "firestore.function.hashing.crc32": [
+        "firestore-rules#161"
+      ],
+      "firestore.function.hashing.crc32c": [
+        "firestore-rules#161"
+      ],
+      "firestore.function.cast.int": [
+        "firestore-rules#167"
+      ],
+      "firestore.function.cast.float": [
+        "firestore-rules#167"
+      ],
+      "firestore.function.cast.path": [
+        "firestore-rules#171"
+      ],
+      "firestore.method.string.toUtf8": [
+        "firestore-rules#161"
+      ],
+      "firestore.method.bytes.size": [
+        "firestore-rules#161"
+      ],
+      "firestore.method.bytes.toBase64": [
+        "firestore-rules#161"
+      ],
+      "firestore.method.bytes.toHexString": [
+        "firestore-rules#161"
+      ],
+      "firestore.method.path.bind": [
+        "firestore-rules#171"
+      ],
+      "firestore.operator.div": [
+        "firestore-rules#167"
+      ],
+      "firestore.operator.is": [
+        "firestore-rules#167"
+      ],
+      "firestore.operator.slice": [
+        "firestore-rules#173"
+      ]
+    },
+    "storage": {},
+    "rtdb": {}
   }
 }

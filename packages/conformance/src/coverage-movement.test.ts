@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   classifyMovements,
   movementProblems,
+  releaseProblems,
   type Baseline,
   type CoverageReport,
   type EvidenceCensus,
@@ -21,7 +22,11 @@ const EVIDENCE: EvidenceCensus = {
   mappedExports: 400,
 };
 
-function baseline(metrics: Record<string, Metric>, evidence: EvidenceCensus = EVIDENCE): Baseline {
+function baseline(
+  metrics: Record<string, Metric>,
+  evidence: EvidenceCensus = EVIDENCE,
+  contamination: Record<string, Record<string, string[]>> = {},
+): Baseline {
   return {
     generatedAt: 'then',
     services: {},
@@ -33,10 +38,15 @@ function baseline(metrics: Record<string, Metric>, evidence: EvidenceCensus = EV
     metrics,
     evidence,
     rulesLanguageExclusions: {},
+    rulesLanguageContamination: contamination,
   };
 }
 
-function report(metrics: Record<string, Metric>, evidence: EvidenceCensus = EVIDENCE): CoverageReport {
+function report(
+  metrics: Record<string, Metric>,
+  evidence: EvidenceCensus = EVIDENCE,
+  over: Partial<CoverageReport> = {},
+): CoverageReport {
   return {
     generatedAt: 'now',
     services: [],
@@ -48,6 +58,7 @@ function report(metrics: Record<string, Metric>, evidence: EvidenceCensus = EVID
     highRiskUnverified: [],
     rowStatuses: {},
     entryPath: [],
+    ...over,
   } as unknown as CoverageReport;
 }
 
@@ -146,5 +157,68 @@ describe('number-movement accounting: the gate REFUSES a number that rose on not
     const run = report({ 'surface:overall:total': { numerator: 400, denominator: 800 } });
     expect(attribution(base, run, 'surface:overall:total')).toBe('unchanged');
     expect(movementProblems(classifyMovements(base, run))).toEqual([]);
+  });
+});
+
+
+describe('contamination release: the gate REFUSES credit reclaimed by narrowing a divergence', () => {
+  /** At baseline, two constructs are held out of the verified count by one
+   *  `diverged-documented` rules-engine row. */
+  const heldBy161 = {
+    firestore: {
+      'firestore.function.hashing.md5': ['firestore-rules#161'],
+      'firestore.method.bytes.toBase64': ['firestore-rules#161'],
+    },
+  };
+
+  it('NEGATIVE — deleting a construct from a STILL-DIVERGED row\'s scope fails, naming the construct and the row', () => {
+    // The cheapest fake in the chain: the engine is still wrong about md5, the
+    // row still says so, but the construct is quietly removed from that row's
+    // `constructs` scope and silently regains credit.
+    const base = baseline({}, EVIDENCE, heldBy161);
+    const run = report({}, EVIDENCE, {
+      rulesLanguage: [{ engine: 'firestore', contaminatedBy: {} }],
+      rowStatuses: { 'firestore-rules#161': 'diverged-documented' },
+    } as unknown as Partial<CoverageReport>);
+
+    const problems = releaseProblems(base, run);
+    expect(problems.length).toBe(2);
+    expect(problems[0]).toContain('firestore.function.hashing.md5');
+    expect(problems[0]).toContain("firestore-rules#161 is STILL 'diverged-documented'");
+    expect(problems[0]).toContain('Fix the engine; do not un-annotate it');
+  });
+
+  it('NEGATIVE — it fires even when unrelated evidence lands in the same PR', () => {
+    // The evidence census cannot catch this one: any unrelated capture moves the
+    // census and would excuse the numerator's rise. The release rule is what
+    // closes that, and it does not consult the census at all.
+    const base = baseline({}, EVIDENCE, heldBy161);
+    const run = report(
+      {},
+      { ...EVIDENCE, observations: 999, observationDigest: 'sha256:brand-new' },
+      {
+        rulesLanguage: [{ engine: 'firestore', contaminatedBy: {} }],
+        rowStatuses: { 'firestore-rules#161': 'diverged-documented' },
+      } as unknown as Partial<CoverageReport>,
+    );
+    expect(releaseProblems(base, run).length).toBe(2);
+  });
+
+  it('POSITIVE — a construct released because the ENGINE WAS FIXED (row now `conforms`) is allowed', () => {
+    const base = baseline({}, EVIDENCE, heldBy161);
+    const run = report({}, EVIDENCE, {
+      rulesLanguage: [{ engine: 'firestore', contaminatedBy: {} }],
+      rowStatuses: { 'firestore-rules#161': 'conforms' },
+    } as unknown as Partial<CoverageReport>);
+    expect(releaseProblems(base, run)).toEqual([]);
+  });
+
+  it('POSITIVE — a construct still held by its divergence raises nothing', () => {
+    const base = baseline({}, EVIDENCE, heldBy161);
+    const run = report({}, EVIDENCE, {
+      rulesLanguage: [{ engine: 'firestore', contaminatedBy: heldBy161.firestore }],
+      rowStatuses: { 'firestore-rules#161': 'diverged-documented' },
+    } as unknown as Partial<CoverageReport>);
+    expect(releaseProblems(base, run)).toEqual([]);
   });
 });
