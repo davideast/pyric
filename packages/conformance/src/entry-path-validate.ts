@@ -6,7 +6,7 @@
  * so a bad citation blocks the build the same way any other registry
  * integrity problem does:
  *
- *  1. CRITICAL SYMBOLS (`entry-path/critical-symbols.json`, computed by
+ *  1. CRITICAL SYMBOLS (derived on demand from the entry-path programs by
  *     `entry-path-symbols.ts`) — every symbol the entry-path corpus imports
  *     from a `pyric/*` package that maps to a census surface must be
  *     census-MAPPED right now, or covered by an `expected-failures.ts` record

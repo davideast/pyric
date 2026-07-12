@@ -998,7 +998,6 @@ reading what changed.
 - `packages/conformance/assurance-capabilities/{capabilities.json,generated.ts}` (via `compat:assurance`)
 - `packages/conformance/rules-language/{coverage,capability,acceptance}-report.json` (via the three report scripts)
 - `packages/conformance/baselines/*.json` (each via its own gate's `--update`)
-- `packages/conformance/entry-path/critical-symbols.json` (via `src/entry-path-symbols.ts`)
 - `packages/site-docs/src/content/docs/*` (via the docs-site port)
 
 Each one has a gate that catches a hand edit. Editing one to make a gate pass is
