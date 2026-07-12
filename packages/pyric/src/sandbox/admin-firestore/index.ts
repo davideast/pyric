@@ -35,11 +35,11 @@ import type { LintResult } from 'pyric/rules/internal';
 import { isRemoteSandbox, SandboxError, type AuthLens, type AuthState, type Sandbox, type SandboxContext } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { CONTEXT_SYMBOL, registerOnSnapshotImpl, wrapWithErrorTranslation } from './error-translation.js';
+import { createRemoteFirestore } from './remote/remote-firestore.js';
 import {
-  createRemoteFirestore,
   getRemoteSnapshotRegistrar,
   registerRemoteOnSnapshotImpl,
-} from './remote.js';
+} from './remote/listeners.js';
 
 // Re-export commonly-needed foundation types so most consumers can
 // import everything from `pyric-admin`. Anyone needing more reaches
