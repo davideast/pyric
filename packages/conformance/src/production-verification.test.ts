@@ -1,8 +1,8 @@
 /**
- * Tests for the ONE production-verification predicate.
+ * Tests for the ONE production-verification graph.
  *
- * The negative cases carry the weight. `isProductionVerified` decides what goes
- * into the coverage report's trust number AND what lets an assurance capability
+ * The negative cases carry the weight. `factOf` decides what goes into the
+ * coverage report's trust number AND what lets an assurance capability
  * claim `supported` instead of abstaining, so a false positive here is a false
  * security claim downstream. Each way a construct can FAIL to be credited —
  * the row is not conforming, the row is not oracle-backed, the row is not on a
@@ -12,9 +12,10 @@
 import { describe, expect, it } from 'bun:test';
 import {
   RULES_ENGINE_SURFACES,
+  deriveConformanceGraph,
+  describeProductionFact,
   describeProductionEvidence,
   indexConstructScopes,
-  isProductionVerified,
 } from './production-verification.ts';
 import { surfaceRegistries } from '../registry/index.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from '../registry/types.ts';
@@ -50,19 +51,75 @@ function registry(rows: CompatibilityRow[]): CompatibilitySurfaceRegistry {
   } as CompatibilitySurfaceRegistry;
 }
 
-describe('isProductionVerified', () => {
+function factFrom(over: {
+  scenarios?: string[];
+  provingRows?: string[];
+  divergingRows?: string[];
+} = {}) {
+  const id = 'rtdb.semantic.test';
+  return deriveConformanceGraph({
+    scenariosByConstruct: new Map([[id, over.scenarios ?? []]]),
+    provingRowsByConstruct: new Map([[id, over.provingRows ?? []]]),
+    divergingRowsByConstruct: new Map([[id, over.divergingRows ?? []]]),
+  }).factOf(id);
+}
+
+describe('DerivedConformanceGraph.factOf', () => {
+  it('reports a construct as diverged when negative evidence contradicts positive evidence', () => {
+    const scopes = indexConstructScopes([
+      registry([
+        row('rtdb-rules#4', {
+          constructs: ['rtdb.semantic.validate-non-cascade'],
+        }),
+        row('rtdb-rules#15', {
+          status: 'diverged-documented',
+          constructs: ['rtdb.semantic.validate-non-cascade'],
+        }),
+      ]),
+    ]);
+    const graph = deriveConformanceGraph({
+      scenariosByConstruct: new Map(),
+      provingRowsByConstruct: scopes.provingRows,
+      divergingRowsByConstruct: scopes.divergingRows,
+    });
+
+    expect(graph.factOf('rtdb.semantic.validate-non-cascade')).toEqual({
+      id: 'rtdb.semantic.validate-non-cascade',
+      verdict: 'diverged',
+      scenarios: [],
+      provingRows: ['rtdb-rules#4'],
+      divergingRows: ['rtdb-rules#15'],
+    });
+  });
+
   it('credits a construct SYNTACTICALLY: a captured scenario exercises it', () => {
-    expect(isProductionVerified({ scenarios: ['r1-auth-only'], provingRows: [] })).toBe(true);
+    expect(factFrom({ scenarios: ['r1-auth-only'] }).verdict).toBe('verified');
   });
 
   it('credits a construct BEHAVIORALLY: a conforming oracle-backed row scopes it', () => {
-    expect(isProductionVerified({ scenarios: [], provingRows: ['rtdb-rules#5'] })).toBe(true);
+    expect(factFrom({ provingRows: ['rtdb-rules#5'] }).verdict).toBe('verified');
   });
 
   it('does NOT credit a construct nothing backs', () => {
-    expect(isProductionVerified({ scenarios: [], provingRows: [] })).toBe(false);
+    expect(factFrom().verdict).toBe('unverified');
   });
+});
 
+describe('describeProductionFact', () => {
+  it('leads with the divergence when positive and negative evidence coexist', () => {
+    expect(
+      describeProductionFact(
+        factFrom({
+          scenarios: ['r4-validate-structure'],
+          provingRows: ['rtdb-rules#4'],
+          divergingRows: ['rtdb-rules#15'],
+        }),
+      ),
+    ).toBe('production divergence documented by rules-engine row rtdb-rules#15');
+  });
+});
+
+describe('describeProductionEvidence', () => {
   it('cites the syntactic path when both are present (a scenario is the stronger evidence)', () => {
     expect(describeProductionEvidence({ scenarios: ['a', 'b'], provingRows: ['x#1'] })).toBe(
       'production-verified by 2 captured scenario(s)',
@@ -92,16 +149,16 @@ describe('indexConstructScopes', () => {
   });
 
   it('does NOT prove a construct the row scope OMITS, even on a conforming row', () => {
-    const { provingRows } = indexConstructScopes([
+    const scopes = indexConstructScopes([
       registry([row('rtdb-rules#5', { constructs: ['rtdb.semantic.read-cascade'] })]),
     ]);
-    expect(provingRows.get('rtdb.semantic.write-cascade')).toBeUndefined();
-    expect(
-      isProductionVerified({
-        scenarios: [],
-        provingRows: provingRows.get('rtdb.semantic.write-cascade') ?? [],
-      }),
-    ).toBe(false);
+    const graph = deriveConformanceGraph({
+      scenariosByConstruct: new Map(),
+      provingRowsByConstruct: scopes.provingRows,
+      divergingRowsByConstruct: scopes.divergingRows,
+    });
+    expect(scopes.provingRows.get('rtdb.semantic.write-cascade')).toBeUndefined();
+    expect(graph.factOf('rtdb.semantic.write-cascade').verdict).toBe('unverified');
   });
 
   it('does NOT prove anything from a row that is not `conforms`', () => {
@@ -149,22 +206,20 @@ describe('indexConstructScopes', () => {
 });
 
 describe('the real graph', () => {
-  const { provingRows } = indexConstructScopes(surfaceRegistries);
+  const scopes = indexConstructScopes(surfaceRegistries);
 
-  it('credits the three RTDB cascade semantics behaviorally — no ruleset can express them syntactically', () => {
-    for (const id of [
-      'rtdb.semantic.read-cascade',
-      'rtdb.semantic.write-cascade',
-      'rtdb.semantic.validate-non-cascade',
-    ]) {
+  it('credits all three RTDB semantics after the ancestor validation fix', () => {
+    for (const [id, verdict] of [
+      ['rtdb.semantic.read-cascade', 'verified'],
+      ['rtdb.semantic.write-cascade', 'verified'],
+      ['rtdb.semantic.validate-non-cascade', 'verified'],
+    ] as const) {
       const construct = coverageReport.engines
         .flatMap((e) => e.constructs)
         .find((c) => c.id === id)!;
       expect(construct.verifiedBy).toEqual([]);
       expect(construct.verifiedByRows.length).toBeGreaterThan(0);
-      expect(
-        isProductionVerified({ scenarios: construct.verifiedBy, provingRows: construct.verifiedByRows }),
-      ).toBe(true);
+      expect(construct.verdict).toBe(verdict);
     }
   });
 
@@ -177,7 +232,7 @@ describe('the real graph', () => {
       // single captured verdict positively demonstrates it.
       expect(construct.unattributable).toBeTruthy();
       expect(construct.verifiedBy).toEqual([]);
-      expect(provingRows.get('rtdb.semantic.deny-by-default')).toBeUndefined();
+      expect(scopes.provingRows.get('rtdb.semantic.deny-by-default')).toBeUndefined();
     }
     const rtdb = coverageReport.engines.find((e) => e.engine === 'rtdb')!;
     expect(rtdb.constructs.filter((c) => !c.unattributable).length).toBe(rtdb.totalConstructs);
@@ -186,9 +241,19 @@ describe('the real graph', () => {
 
   it('the coverage report and the derivation agree, construct for construct', () => {
     for (const engine of coverageReport.engines) {
-      const verified = engine.constructs
-        .filter((c) => !c.unattributable)
-        .filter((c) => isProductionVerified({ scenarios: c.verifiedBy, provingRows: c.verifiedByRows }));
+      const graph = deriveConformanceGraph({
+        scenariosByConstruct: new Map(
+          engine.constructs.map((construct) => [construct.id, construct.verifiedBy]),
+        ),
+        provingRowsByConstruct: scopes.provingRows,
+        divergingRowsByConstruct: scopes.divergingRows,
+      });
+      const verified = engine.constructs.filter(
+        (construct) => !construct.unattributable && graph.factOf(construct.id).verdict === 'verified',
+      );
+      for (const construct of engine.constructs) {
+        expect(construct.verdict).toBe(graph.factOf(construct.id).verdict);
+      }
       expect(verified.length).toBe(engine.verifiedConstructs);
     }
   });

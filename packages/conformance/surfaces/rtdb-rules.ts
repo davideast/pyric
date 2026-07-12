@@ -21,7 +21,7 @@ export const surface: SurfaceDescriptorRecord = {
   observationPrefixes: ['rules-rtdb-'],
   coverage: true,
   scopeNote:
-    'native (no upstream): the RTDB rules simulator, measured against production by deploy-observe-restore (RTDB has no server-side rules test API). The simulator agrees with production on every captured corpus case.',
+    'native (no upstream): the RTDB rules simulator, measured against production by deploy-observe-restore (RTDB has no server-side rules test API). Captured agreement and documented divergences are reported row by row.',
   conformanceSuite: 'packages/pyric/test/database/rules-conformance.test.ts',
   captureRigs: ['rtdb-rules'],
 };
