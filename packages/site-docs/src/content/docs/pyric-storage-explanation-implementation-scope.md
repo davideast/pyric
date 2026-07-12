@@ -54,9 +54,9 @@ A sibling `pyric/storage-admin` package could mirror `firebase-admin/storage` th
 
 Storage's behavior is not yet pinned to recorded production observations the way Auth and Firestore are. The rules engine is verified against the engine spec; the data plane is verified against the documented API. Pinning Storage to recorded production behavior is future work.
 
-### `resource.timeCreated` / `resource.updated`
+### `resource` content-hash fields
 
-The engine doesn't yet expose these metadata timestamp fields on `resource`. Everything else on `resource` (`size`, `contentType`, `metadata`) works.
+The engine doesn't yet expose `md5Hash`, `crc32c`, or `etag` on `resource`. The object-identity and time fields (`name`, `bucket`, `timeCreated`, `updated`, `generation`, `metageneration`) and the content fields (`size`, `contentType`, `metadata`) all work, sourced from the persisted object record.
 
 ### Gated `listAll`
 

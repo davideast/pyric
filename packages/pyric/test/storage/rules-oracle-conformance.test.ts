@@ -154,11 +154,21 @@ function toEvaluationInput(tc: StorageTestCase): EvaluationInput {
       metadata: tc.resource.metadata,
     };
   }
+  // The existing-object binding carries the object-identity/time fields too.
+  // They are forwarded VERBATIM from the same corpus field the capture sent to
+  // production, so both sides read byte-identical `resource.*` values — the
+  // only way the replay's verdict comparison means anything.
   const existing = tc.existingResource
     ? {
         size: tc.existingResource.size ?? 0,
         contentType: tc.existingResource.contentType,
         metadata: tc.existingResource.metadata,
+        name: tc.existingResource.name,
+        bucket: tc.existingResource.bucket,
+        timeCreated: tc.existingResource.timeCreated,
+        updated: tc.existingResource.updated,
+        generation: tc.existingResource.generation,
+        metageneration: tc.existingResource.metageneration,
       }
     : null;
   return { request, resource: existing };

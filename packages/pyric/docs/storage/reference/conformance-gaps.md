@@ -53,10 +53,12 @@ pinned divergences:
 - `rules-storage-matches-regex`
 - `rules-storage-metadata-access`
 - `rules-storage-request-time-timestamp`
-- `rules-storage-resource-timestamp-witness` (a witness scenario: both cases
-  correctly DENY on both sides, but the evaluator's DENY is coincidental —
-  `resource.timeCreated` / `resource.updated` are not modeled, so any
-  comparison denies. See [Storage rules subset](./rules-subset.md#out-of-scope).)
+- `rules-storage-resource-object-identity` (the object-identity/time fields of
+  `resource` — `name`, `timeCreated`, `updated`, `bucket` — driving an
+  extension guard, a freshness window, an immutability check, and an
+  absent-property negation. All 9 cases are asserted against production; none
+  is a known gap. It replaces the former `rules-storage-resource-timestamp-witness`,
+  which recorded these fields as unmodeled.)
 
 ## Self-policing pin mechanism
 

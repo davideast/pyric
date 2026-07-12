@@ -1974,11 +1974,11 @@
     },
     {
       "engine": "storage",
-      "totalConstructs": 53,
-      "exercisedConstructs": 51,
-      "verifiedConstructs": 51,
-      "exercisedCoverage": 0.9622641509433962,
-      "verifiedCoverage": 0.9622641509433962,
+      "totalConstructs": 55,
+      "exercisedConstructs": 55,
+      "verifiedConstructs": 55,
+      "exercisedCoverage": 1,
+      "verifiedCoverage": 1,
       "constructs": [
         {
           "id": "storage.binding.request",
@@ -1990,7 +1990,7 @@
             "metadata-access",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness"
+            "resource-object-identity"
           ],
           "verifiedBy": [
             "firestore-lookup",
@@ -1999,7 +1999,7 @@
             "metadata-access",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness"
+            "resource-object-identity"
           ]
         },
         {
@@ -2095,11 +2095,11 @@
           "kind": "binding",
           "exercisedBy": [
             "request-time-timestamp",
-            "resource-timestamp-witness"
+            "resource-object-identity"
           ],
           "verifiedBy": [
             "request-time-timestamp",
-            "resource-timestamp-witness"
+            "resource-object-identity"
           ]
         },
         {
@@ -2128,13 +2128,13 @@
           "exercisedBy": [
             "metadata-access",
             "metadata-verbs-and-arithmetic",
-            "resource-timestamp-witness",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
             "metadata-access",
             "metadata-verbs-and-arithmetic",
-            "resource-timestamp-witness",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ]
         },
@@ -2178,7 +2178,7 @@
             "metadata-access",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
@@ -2188,31 +2188,49 @@
             "metadata-access",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ]
         },
         {
           "id": "storage.binding.resource.name",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "resource-object-identity"
+          ],
+          "verifiedBy": [
+            "resource-object-identity"
+          ]
         },
         {
           "id": "storage.binding.resource.timeCreated",
           "kind": "binding",
           "exercisedBy": [
-            "resource-timestamp-witness"
+            "resource-object-identity"
           ],
           "verifiedBy": [
-            "resource-timestamp-witness"
+            "resource-object-identity"
           ]
         },
         {
-          "id": "storage.binding.resource.timeUpdated",
+          "id": "storage.binding.resource.updated",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "resource-object-identity"
+          ],
+          "verifiedBy": [
+            "resource-object-identity"
+          ]
+        },
+        {
+          "id": "storage.binding.resource.bucket",
+          "kind": "binding",
+          "exercisedBy": [
+            "resource-object-identity"
+          ],
+          "verifiedBy": [
+            "resource-object-identity"
+          ]
         },
         {
           "id": "storage.function.timestamp.date",
@@ -2232,6 +2250,16 @@
           ],
           "verifiedBy": [
             "request-time-timestamp"
+          ]
+        },
+        {
+          "id": "storage.function.duration.value",
+          "kind": "function",
+          "exercisedBy": [
+            "resource-object-identity"
+          ],
+          "verifiedBy": [
+            "resource-object-identity"
           ]
         },
         {
@@ -2259,11 +2287,13 @@
           "kind": "method",
           "exercisedBy": [
             "matches-regex",
-            "metadata-verbs-and-arithmetic"
+            "metadata-verbs-and-arithmetic",
+            "resource-object-identity"
           ],
           "verifiedBy": [
             "matches-regex",
-            "metadata-verbs-and-arithmetic"
+            "metadata-verbs-and-arithmetic",
+            "resource-object-identity"
           ]
         },
         {
@@ -2274,6 +2304,7 @@
             "functions-let-scope",
             "metadata-access",
             "metadata-verbs-and-arithmetic",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
@@ -2281,6 +2312,7 @@
             "functions-let-scope",
             "metadata-access",
             "metadata-verbs-and-arithmetic",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ]
         },
@@ -2289,10 +2321,12 @@
           "kind": "operator",
           "exercisedBy": [
             "metadata-verbs-and-arithmetic",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
             "metadata-verbs-and-arithmetic",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ]
         },
@@ -2303,13 +2337,13 @@
             "functions-let-scope",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness"
+            "resource-object-identity"
           ],
           "verifiedBy": [
             "functions-let-scope",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness"
+            "resource-object-identity"
           ]
         },
         {
@@ -2348,10 +2382,12 @@
           "id": "storage.operator.add",
           "kind": "operator",
           "exercisedBy": [
-            "metadata-verbs-and-arithmetic"
+            "metadata-verbs-and-arithmetic",
+            "resource-object-identity"
           ],
           "verifiedBy": [
-            "metadata-verbs-and-arithmetic"
+            "metadata-verbs-and-arithmetic",
+            "resource-object-identity"
           ]
         },
         {
@@ -2391,11 +2427,13 @@
           "kind": "operator",
           "exercisedBy": [
             "functions-let-scope",
-            "metadata-verbs-and-arithmetic"
+            "metadata-verbs-and-arithmetic",
+            "resource-object-identity"
           ],
           "verifiedBy": [
             "functions-let-scope",
-            "metadata-verbs-and-arithmetic"
+            "metadata-verbs-and-arithmetic",
+            "resource-object-identity"
           ]
         },
         {
@@ -2428,7 +2466,7 @@
             "metadata-access",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness"
+            "resource-object-identity"
           ],
           "verifiedBy": [
             "firestore-lookup",
@@ -2437,7 +2475,7 @@
             "metadata-access",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness"
+            "resource-object-identity"
           ]
         },
         {
@@ -2478,13 +2516,13 @@
           "exercisedBy": [
             "firestore-lookup",
             "metadata-access",
-            "resource-timestamp-witness",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
             "firestore-lookup",
             "metadata-access",
-            "resource-timestamp-witness",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ]
         },
@@ -2523,10 +2561,12 @@
           "kind": "rule-kind",
           "exercisedBy": [
             "metadata-verbs-and-arithmetic",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
             "metadata-verbs-and-arithmetic",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ]
         },
@@ -2534,9 +2574,11 @@
           "id": "storage.rule-kind.allow-delete",
           "kind": "rule-kind",
           "exercisedBy": [
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ]
         },
@@ -2550,7 +2592,7 @@
             "metadata-access",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
@@ -2560,7 +2602,7 @@
             "metadata-access",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ]
         },
@@ -2594,7 +2636,7 @@
             "metadata-access",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
@@ -2604,7 +2646,7 @@
             "metadata-access",
             "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
-            "resource-timestamp-witness",
+            "resource-object-identity",
             "verbs-umbrella-granular"
           ]
         },

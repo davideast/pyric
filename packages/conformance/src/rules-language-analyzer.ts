@@ -523,6 +523,8 @@ function stWalkExpr(e: StExpr, out: AnalyzeResult): void {
       const t = e.target;
       if (t && t.kind === 'ident' && t.name === 'timestamp') {
         add(`storage.function.timestamp.${e.method}`);
+      } else if (t && t.kind === 'ident' && t.name === 'duration') {
+        add(`storage.function.duration.${e.method}`);
       } else if (t && t.kind === 'ident' && t.name === 'firestore') {
         add(`storage.function.firestore.${e.method}`);
       } else if (e.method === 'matches') {

@@ -488,12 +488,36 @@ export type StorageTestMethod = (typeof STORAGE_TEST_METHODS)[number];
  *  value works; keep it constant so observation paths are reproducible. */
 export const DEFAULT_STORAGE_BUCKET = 'demo-pyric.appspot.com';
 
-/** `request.resource.*` / `resource.*` binding shape the Storage rules
- *  language sees: object size, content type, and custom metadata. */
+/**
+ * `request.resource.*` / `resource.*` binding shape the Storage rules language
+ * sees.
+ *
+ * This is ALSO the wire shape: the production Rules Test API takes the
+ * `resource` field of a test case as a LITERAL MAP and derives nothing from the
+ * request path — live-probed, a case that sends `{ size }` and whose rule reads
+ * `resource.name` gets "Property name is undefined on object." and DENIES.
+ * So every field a scenario's rule reads must be supplied here explicitly.
+ *
+ * Types follow production: `timeCreated` / `updated` are TIMESTAMPS and must be
+ * ISO-8601 strings (sending epoch millis is rejected with "Unsupported
+ * operation error. Received: int < timestamp"); `generation` /
+ * `metageneration` are ints.
+ */
 export interface StorageResourceShape {
   size?: number;
   contentType?: string;
   metadata?: Record<string, string>;
+  /** Full object path within the bucket (`uploads/pic.png`) — GCS object-name
+   *  semantics, NOT the client SDK's last-path-segment `name`. */
+  name?: string;
+  bucket?: string;
+  /** ISO-8601. Production types it `timestamp`. */
+  timeCreated?: string;
+  /** ISO-8601. Production types it `timestamp`. The language has NO
+   *  `timeUpdated` field — this is the update-time field. */
+  updated?: string;
+  generation?: number;
+  metageneration?: number;
 }
 
 export const StorageFunctionMockSchema = z.object({

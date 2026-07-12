@@ -11,34 +11,43 @@ order: 8006
 
 Rules is a NATIVE conformance surface: there is no `firebase/rules` module to
 mirror, so this contract is NOT measured against an upstream SDK. It is measured
-two ways. The claimable API is the public export set of `pyric/rules` (and the
-Storage rules exports on `pyric/storage`); the fidelity is the in-process rules
-simulators replayed verdict-for-verdict against the production Firestore and
-Storage **Rules Test API** engines. There is no export-breadth percentage here
-(no upstream denominator); completeness is measured against the surface's own
-public API.
+two ways. The claimable API is the public export set of `pyric/rules` (plus the
+Storage rules exports on `pyric/storage` and the RTDB rules simulator on
+`pyric/database`); the fidelity is the in-process rules simulators replayed
+verdict-for-verdict against production. There is no export-breadth percentage
+here (no upstream denominator); completeness is measured against the surface's
+own public API.
 
-The two engines share this one document because `pyric/rules` is one package
+The three engines share this one document because `pyric/rules` is one package
 front door: its engine-agnostic exports (`lint`, `eachCase`, `assertCase`,
 `explainCase`, the value helpers) cannot be partitioned across per-engine
-registries. Firestore rules and Storage rules each carry their own engine table
-below, partitioned by observation prefix (`rules-firestore-` / `rules-storage-`).
+registries. Firestore rules, Storage rules, and RTDB rules each carry their own
+engine table below, partitioned by observation prefix (`rules-firestore-` /
+`rules-storage-` / `rules-rtdb-`).
+
+**How production truth is obtained differs by engine.** Firestore and Storage
+have a server-side **Rules Test API**, so their verdicts are read from an
+endpoint. RTDB has NO such API: its verdicts are captured by DEPLOYING each
+corpus ruleset to a dedicated oracle database, executing the ops against the
+live service, recording allow/deny, then restoring the prior ruleset and
+deleting the run's data — both verified by read-back. The rows are equally
+oracle-backed; only the acquisition path differs.
 
 ## Status legend
 
 <div class="compat-key">
-<span class="compat-key-item"><span class="compat-dot" data-status="ok"></span><strong>Conforming</strong> — the simulator matches the production Rules Test API verdict, locked by a replayed observation</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="ok"></span><strong>Conforming</strong> — the simulator matches the production verdict, locked by a replayed observation</span>
 <span class="compat-key-item"><span class="compat-dot" data-status="diverged"></span><strong>Diverged (documented)</strong> — a known simulator divergence from production with a written reason</span>
 <span class="compat-key-item"><span class="compat-dot" data-status="bug"></span><strong>Bug</strong> — should match production but doesn't; a failing replay pins it</span>
 <span class="compat-key-item"><span class="compat-dot" data-status="unsupported"></span><strong>Unsupported</strong> — not modeled yet (deliberately or pending)</span>
 <span class="compat-key-item"><span class="compat-dot" data-status="unverified"></span><strong>Unverified</strong> — a claim we haven't yet observed against the production engine</span>
 </div>
 
-Oracle references: `oracle:rules-firestore-<scenario>` / `oracle:rules-storage-<scenario>` cite
-an observation captured by `packages/conformance/src/run-rules.ts` /
-`run-rules-storage.ts` against the production Rules Test API and replayed by the
-rules oracle-conformance suites. The corpus lives at
-`packages/conformance/rules-corpus/{firestore,storage}/`.
+Oracle references: `oracle:rules-firestore-<scenario>` / `oracle:rules-storage-<scenario>` /
+`oracle:rules-rtdb-<scenario>` cite an observation captured by
+`packages/conformance/src/run-rules.ts` / `run-rules-storage.ts` /
+`run-rules-rtdb.ts` and replayed by the rules oracle-conformance suites. The
+corpus lives at `packages/conformance/rules-corpus/{firestore,storage,rtdb}/`.
 
 ---
 
@@ -117,6 +126,26 @@ rules oracle-conformance suites. The corpus lives at
 <summary class="compat-line"><span class="compat-num">177</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Explicit <code>UNSUPPORTED</code> reporting for unimplemented built-ins (Item 0.A) in rules — an unimplemented built-in abstains rather than silently DENYing</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-firestore-unsupported-feature-witness</code> — production Firestore Rules Test API verdicts for corpus scenario "unsupported-feature-witness", replayed verdict-for-verdict against the local rules simulator by <code>unit:rules/oracle-conformance.test.ts</code>; all cases match production.</div></div>
 </details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">178</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Required-fields validation idiom in rules — <code>request.resource.data.keys().hasAll()/hasOnly()</code> and the <code>diff().addedKeys()/removedKeys()/changedKeys()/affectedKeys()/unchangedKeys()</code> MapDiff family gating field-level mutations</span></summary>
+<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-12: production capture proves the simulator matches the production Firestore Rules Test API verdict-for-verdict on all 7 cases (exact required-field set on create, field-scoped update via MapDiff). <code>oracle:rules-firestore-required-fields-and-mapdiff</code> — replayed by <code>unit:rules/oracle-conformance.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">179</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>String.split()/lower()/upper()/trim()/replace()/size()</code>, <code>List.hasAll()/hasAny()/hasOnly()/join()</code>, and <code>Map.values()</code> in rules</span></summary>
+<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-12: production capture proves the simulator matches the production Firestore Rules Test API verdict-for-verdict on all 4 cases (CSV-split membership, slug/title/code normalization). <code>oracle:rules-firestore-list-and-string-methods</code> — replayed by <code>unit:rules/oracle-conformance.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">180</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>request.time</code> Timestamp accessors (year/month/day/hours/minutes/seconds/nanos/dayOfWeek/dayOfYear/toMillis/date/time), <code>math.floor/round/sqrt/pow/isNaN</code>, <code>int()/float()/string()</code> casts, <code>request.method</code>, and <code>&gt;=</code> / <code>*</code> operators in rules</span></summary>
+<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-12: production capture proves the simulator matches the production Firestore Rules Test API verdict-for-verdict on all 3 cases (request.time pinned via requestTime for determinism). <code>oracle:rules-firestore-time-math-and-casts</code> — replayed by <code>unit:rules/oracle-conformance.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">181</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>latlng.value().latitude()/longitude()/distance()</code> and <code>duration.value()/time()/abs()</code> in rules</span></summary>
+<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-12: production capture proves the simulator matches the production Firestore Rules Test API verdict-for-verdict on all 2 cases (coordinate + duration bounds). <code>oracle:rules-firestore-duration-and-latlng</code> — replayed by <code>unit:rules/oracle-conformance.test.ts</code>.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">182</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User-defined <code>function</code>/<code>let</code>, granular <code>allow get/list/update/write</code> verbs, the ternary operator, and a recursive <code>{document=**}</code> match in rules</span></summary>
+<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-12: production capture proves the simulator matches the production Firestore Rules Test API verdict-for-verdict on all 7 cases (role-gated docs + public recursive subtree). <code>oracle:rules-firestore-functions-verbs-and-recursive</code> — replayed by <code>unit:rules/oracle-conformance.test.ts</code>.</div></div>
+</details>
 </div>
 
 ## Storage rules engine — `parseStorageRules` / `evaluateStorageRules` (rules-storage corpus)
@@ -182,8 +211,49 @@ rules oracle-conformance suites. The corpus lives at
 <summary class="compat-line"><span class="compat-num">115</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Cross-service <code>firestore.get()</code> / <code>firestore.exists()</code> lookups from a Storage ruleset, with <code>$(expr)</code> path interpolation and qualified function-mock names</span></summary>
 <div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-10: production capture proves the evaluator resolves cross-service Firestore lookups from Storage rules, including interpolated document paths and both the map-returning <code>get()</code> and bool-returning <code>exists()</code> forms. <code>oracle:rules-storage-firestore-lookup</code> matches production verdict-for-verdict on all 4 cases.</div></div>
 </details>
-<details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">116</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>resource.timeCreated</code> / <code>resource.updated</code> — server-populated object timestamps</span></summary>
-<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-10: witness capture confirms the evaluator's resource model carries only size/contentType/metadata, so <code>resource.timeCreated</code>/<code>resource.updated</code> read <code>undefined</code> and any comparison denies in-process, while production evaluates a real server timestamp. <code>oracle:rules-storage-resource-timestamp-witness</code> records production's DENY verdict on both cases; the evaluator's DENY happens to match here because both operands are non-comparable rather than because the field is modeled — the underlying field is still unsupported.</div></div>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">116</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>resource.name</code> (full object path), <code>resource.timeCreated</code>, <code>resource.updated</code>, <code>resource.bucket</code> — the object-identity and time fields of the existing-object binding, plus <code>duration.value(n, unit)</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe">ROW CORRECTED, 2026-07-12: the fields are now modeled, sourced from the persisted object record. <code>oracle:rules-storage-resource-object-identity</code> matches production verdict-for-verdict on all 9 cases — an extension guard (<code>resource.name.matches</code>), a freshness window (<code>resource.timeCreated + duration.value(1, 'h')</code>), an immutability check (<code>resource.timeCreated == resource.updated</code>), and an absent-property negation. Production semantics pinned by the capture: <code>resource.name</code> is the object's FULL path within the bucket (GCS object-name convention, sourced from the persisted record's <code>fullPath</code>, not the client SDK's last-segment <code>name</code>); <code>timeCreated</code>/<code>updated</code> are timestamps (production rejects an int with "Unsupported operation error. Received: int &lt; timestamp"); the update-time field is <code>updated</code> — there is NO <code>resource.timeUpdated</code>. An absent property is an evaluation error that absorbs to DENY and SURVIVES negation, so <code>resource.name != 'x'</code> on an object with no name denies rather than false-allowing. The prior row recorded these fields as an unsupported gap; that gap is closed.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">117</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>request.resource.size</code> arithmetic bounds (<code>+</code>/<code>-</code>/<code><em></code>/<code>/</code>, <code>&gt;=</code>/<code>&lt;=</code>), request/existing content-type and custom <code>metadata</code> checks, <code>request.method</code>/<code>request.path</code>, a <code>request.auth.token</code> custom-claim branch, granular <code>allow list</code>, and a recursive <code>{allPaths=</em>*}</code> public read tree</span></summary>
+<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-12: production capture proves the evaluator matches the production Storage Rules Test API verdict-for-verdict on all 8 cases (owner-scoped size-bounded upload, immutable-content-type update, list grant, public recursive read). <code>oracle:rules-storage-metadata-verbs-and-arithmetic</code> — replayed by <code>packages/pyric/test/storage/rules-oracle-conformance.test.ts</code>.</div></div>
+</details>
+</div>
+
+## RTDB rules engine — production simulator conformance (rules-rtdb corpus)
+
+<div class="compat-list">
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">1</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>auth != null</code> gate on <code>.read</code>/<code>.write</code> — authed ops allow, signed-out ops deny</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-rtdb-r1-auth-only</code> — production verdicts captured by deploy-observe-restore against the live oracle database (RTDB has no server-side rules test API), replayed verdict-for-verdict against the in-process simulator by <code>packages/pyric/test/database/rules-conformance.test.ts</code>; all 4 cases match production.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">2</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>$uid</code> path-variable ownership (<code>$uid === auth.uid</code>) — the owner path allows, a foreign uid and an anonymous request deny</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-rtdb-r2-own-uid</code> — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict against the in-process simulator; all 5 cases match production, so the simulator binds the path variable against <code>auth.uid</code> exactly as production does.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">3</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Write-rule CASCADE — a truthy ancestor <code>.write</code> grants the write regardless of a deeper <code>!data.exists()</code> rule, so the populated-path write ALLOWS</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-rtdb-r3-data-exists</code> — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict. Production ALLOWS the write to the populated path even though the child rule is <code>!data.exists()</code>: the ancestor <code>.write: auth != null</code> already granted it, and RTDB never consults a deeper rule to revoke a grant. All 3 cases match; the simulator models the same cascade.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>.validate</code> VETO — a failing child <code>.validate</code> denies a write the <code>.write</code> rule would otherwise permit (validate does not cascade and cannot be overridden)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-rtdb-r4-validate-structure</code> — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; both cases match production. This row was the corpus's one historical simulator-vs-production divergence: at the 2026-05-18 agreement capture the simulator ALLOWED the missing-body write because it did not veto on the child <code>.validate</code>. The simulator now denies it, and this fresh capture re-confirms production's DENY, so the divergence is RESOLVED and needs no pin.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">5</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Cascade is GRANT-ONLY — a root <code>.read: true</code> grants every descendant read (authed and anonymous), and a deeper <code>.write: false</code> cannot revoke a truthy ancestor <code>.write</code> grant</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-rtdb-r5-cascade-root-grant</code> — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 4 cases ALLOW in production, including the write to a node whose own <code>.write</code> is literal <code>false</code>. The simulator reproduces grant-only cascade rather than treating the deeper <code>false</code> as a veto.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">6</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Literal <code>.read</code>/<code>.write: false</code> — the deny-all baseline denies every op, authed or anonymous, read or write</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-rtdb-r6-deny-everything</code> — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 3 cases DENY in production and in the simulator.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">7</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Nested path variable in an expression (<code>$sessionId === auth.uid</code>) — the matching session allows, a mismatched session denies, and an unmatched anonymous op denies with no matching rule</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-rtdb-r7-pathvar-binding</code> — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 4 cases match. The simulator binds the nested variable identically and returns NO_MATCHING_RULE (read as deny) where production denies for want of a rule.</div></div>
+</details>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">8</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>newData</code> is projected at the RULE node, not the written path — a root <code>.write</code> reading <code>newData.hasChildren(['owner'])</code> sees <code>{item:{...}}</code> for a write one level deeper, so the predicate is false and the write DENIES</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-rtdb-r8-combined-check</code> — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict. Production DENIES all three writes, including the "matching owner" case whose <code>owner</code> field lives under <code>/item</code> rather than at the rule node; only the auth-gated read allows. All 4 cases match, so the simulator projects <code>newData</code> at the same node production does — rule placement relative to the written path decides the outcome.</div></div>
 </details>
 </div>
