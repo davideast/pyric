@@ -12,6 +12,14 @@
  * back-to-back refreshes for the same uid + claims also get
  * different tokens. NOT a cryptographic primitive. The
  * `sandbox-id-token-` prefix is grepable in logs.
+ *
+ * Claims-sensitivity is locked with uid AND serial held fixed (two
+ * independent fresh backends, each at its first mint) in
+ * `test/auth/sandbox-token-refresh.test.ts` — "token string is
+ * sensitive to claims, not just the mint serial". Every other token
+ * test compares mints across a serial bump (refresh, re-sign-in),
+ * which alone can't distinguish "claims changed the hash" from "serial
+ * changed the hash".
  */
 export function sandboxTokenFor(uid: string, claims: Record<string, unknown>, serial: number): string {
   let hash = 5381;

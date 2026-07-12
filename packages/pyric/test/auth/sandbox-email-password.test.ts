@@ -187,6 +187,22 @@ describe('sandbox email/password sign-in', () => {
     expect(auth.currentUser).toBeNull();
   });
 
+  it('createUserWithEmailAndPassword throws auth/invalid-email for empty local-part', async () => {
+    // `@` at index 0 — no local-part before the `@`. Guards against the
+    // `atIdx <= 0` -> `atIdx < 0` mutant, which would let `@example.com`
+    // through (an `@` at the very start is still `>= 0`, so a strict
+    // "no `@` at all" check misses this shape).
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    try {
+      await createUserWithEmailAndPassword(auth, '@example.com', 'pw123456');
+      throw new Error('expected throw');
+    } catch (e) {
+      expect((e as { code: string }).code).toBe('auth/invalid-email');
+    }
+    expect(auth.currentUser).toBeNull();
+  });
+
   it('signInWithEmailAndPassword throws auth/invalid-email for malformed email', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
