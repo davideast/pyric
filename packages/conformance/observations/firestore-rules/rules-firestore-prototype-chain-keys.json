@@ -1,0 +1,18 @@
+{
+  "name": "rules-firestore-prototype-chain-keys",
+  "matrixRow": "firestore-rules#172",
+  "rowIds": [
+    "firestore-rules#172"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus pack \"prototype-chain-keys\" (RULES-B7). `'toString' in map` must be false (own keys only) and `.constructor` access must error; JS prototype-chain leakage said true / returned Object.",
+  "observedAt": "2026-07-10T22:41:19.624Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "'toString' in data (no such field) → DENY": "DENY",
+    "no proto names leak into `in` → ALLOW": "ALLOW",
+    "literal field named 'toString' IS a key → ALLOW": "ALLOW",
+    ".constructor access (no such field) → DENY (error)": "DENY",
+    "keys() lists own keys only → ALLOW": "ALLOW"
+  }
+}

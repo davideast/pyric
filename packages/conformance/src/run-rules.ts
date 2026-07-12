@@ -3,10 +3,10 @@
  * Firestore rules oracle capture runner.
  *
  * Reads the conformance corpus (rules-corpus/firestore/) and,
- * when credentialed, replays each pack against the PRODUCTION Firestore Rules
+ * when credentialed, replays each scenario against the PRODUCTION Firestore Rules
  * Test API via the same `TestFirestoreRulesHandler` the live parity harness
- * uses. One observation JSON is written per pack into
- * `observations/firestore/rules-firestore-<pack.id>.json`, using the
+ * uses. One observation JSON is written per scenario into
+ * `observations/firestore/rules-firestore-<scenario.id>.json`, using the
  * standard Observation envelope. Production is the source of truth: the
  * captured `behavior` is a verdict table keyed by case description
  * (ALLOW / DENY), which the in-process replay suite then checks the sandbox
@@ -19,8 +19,8 @@
  *
  * RUNNABLE-BUT-INERT WITHOUT CREDENTIALS:
  *   With PARITY_SA_BASE64 absent, this runner makes NO network calls. It
- *   prints exactly what it WOULD capture (every pack, its case count, and the
- *   observation file path each pack lands in) plus the env var name it needs,
+ *   prints exactly what it WOULD capture (every scenario, its case count, and the
+ *   observation file path each scenario lands in) plus the env var name it needs,
  *   then exits 0. This is the intended state of the staging branch: the
  *   machinery is in place, but no captures have been run and no observation
  *   files have been fabricated.
@@ -37,15 +37,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TestFirestoreRulesResult } from '../../../packages/pyric/src/rules/test/spec.ts';
 import {
-  ALL_RULES_FIRESTORE_PACKS,
+  ALL_RULES_FIRESTORE_SCENARIOS,
   RULES_FIRESTORE_OBSERVATION_PREFIX,
   observationName,
-  type Pack,
+  type Scenario,
 } from '../rules-corpus/firestore/index.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// rules-firestore-* observations belong to the 'firestore' surface.
-const OBS_DIR = join(HERE, '..', 'observations', 'firestore');
+// rules-firestore-* observations belong to the native 'firestore-rules' surface.
+const OBS_DIR = join(HERE, '..', 'observations', 'firestore-rules');
 
 /** Resolved (installed) firebase version — the value the observation-version
  *  guard (check-observation-versions.ts) compares every observation against.
@@ -75,25 +75,25 @@ interface Observation {
   behavior: Record<string, unknown>;
 }
 
-/** Absolute path an observation for `pack` writes to. */
-function observationPath(pack: Pack): string {
-  return join(OBS_DIR, `${observationName(pack)}.json`);
+/** Absolute path an observation for `scenario` writes to. */
+function observationPath(scenario: Scenario): string {
+  return join(OBS_DIR, `${observationName(scenario)}.json`);
 }
 
-/** Build the verdict table (case description → prod decision) for a pack. */
+/** Build the verdict table (case description → prod decision) for a scenario. */
 function verdictTable(
-  pack: Pack,
+  scenario: Scenario,
   res: TestFirestoreRulesResult,
 ): Record<string, 'ALLOW' | 'DENY' | 'UNSUPPORTED'> {
   if (!res.success) {
     throw new Error(
-      `Production Rules Test API failed for pack "${pack.id}": ` +
+      `Production Rules Test API failed for scenario "${scenario.id}": ` +
         `${res.error.code} ${res.error.message}`,
     );
   }
   const table: Record<string, 'ALLOW' | 'DENY' | 'UNSUPPORTED'> = {};
   res.data.results.forEach((r, i) => {
-    table[pack.cases[i].description] = r.decision;
+    table[scenario.cases[i].description] = r.decision;
   });
   return table;
 }
@@ -104,16 +104,16 @@ function printInertPlan(): void {
   console.log(`    (base64-encoded service-account JSON with firebaserules.rulesets.test)\n`);
   console.log(`  Observation output directory: ${OBS_DIR}`);
   console.log(`  Observation filename prefix:  ${RULES_FIRESTORE_OBSERVATION_PREFIX}\n`);
-  console.log(`  Would capture ${ALL_RULES_FIRESTORE_PACKS.length} pack(s):`);
+  console.log(`  Would capture ${ALL_RULES_FIRESTORE_SCENARIOS.length} scenario(s):`);
   let totalCases = 0;
-  for (const pack of ALL_RULES_FIRESTORE_PACKS) {
-    totalCases += pack.cases.length;
+  for (const scenario of ALL_RULES_FIRESTORE_SCENARIOS) {
+    totalCases += scenario.cases.length;
     console.log(
-      `    - ${pack.id.padEnd(42)} [${pack.fm.padEnd(9)}] ` +
-        `${String(pack.cases.length).padStart(2)} cases → ${observationName(pack)}.json`,
+      `    - ${scenario.id.padEnd(42)} [${scenario.fm.padEnd(9)}] ` +
+        `${String(scenario.cases.length).padStart(2)} cases → ${observationName(scenario)}.json`,
     );
   }
-  console.log(`\n  Total: ${ALL_RULES_FIRESTORE_PACKS.length} packs, ${totalCases} cases.`);
+  console.log(`\n  Total: ${ALL_RULES_FIRESTORE_SCENARIOS.length} scenarios, ${totalCases} cases.`);
   console.log('\n  To capture for real:');
   console.log('    PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \\');
   console.log('      bun run packages/conformance/src/run-rules.ts');
@@ -135,28 +135,28 @@ async function capture(): Promise<void> {
   const handler = new TestFirestoreRulesHandler();
   mkdirSync(OBS_DIR, { recursive: true });
 
-  console.log(`[oracle:rules] capturing ${ALL_RULES_FIRESTORE_PACKS.length} pack(s) against project "${scope.projectId}"`);
+  console.log(`[oracle:rules] capturing ${ALL_RULES_FIRESTORE_SCENARIOS.length} scenario(s) against project "${scope.projectId}"`);
   console.log(`[oracle:rules] firebase ${fbSdkVersion}\n`);
 
-  for (const pack of ALL_RULES_FIRESTORE_PACKS) {
-    const res = await handler.execute(scope, pack.rules, pack.cases);
-    const behavior = verdictTable(pack, res);
+  for (const scenario of ALL_RULES_FIRESTORE_SCENARIOS) {
+    const res = await handler.execute(scope, scenario.rules, scenario.cases);
+    const behavior = verdictTable(scenario, res);
     const obs: Observation = {
-      name: observationName(pack),
+      name: observationName(scenario),
       matrixRow: '',
       rowIds: [],
-      description: `Firestore Rules Test API verdicts for corpus pack "${pack.id}" (${pack.fm}). ${pack.rationale}`,
+      description: `Firestore Rules Test API verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). ${scenario.rationale}`,
       observedAt: new Date().toISOString(),
       fbSdkVersion,
       projectId: scope.projectId,
       behavior,
     };
-    const path = observationPath(pack);
+    const path = observationPath(scenario);
     writeFileSync(path, JSON.stringify(obs, null, 2) + '\n');
     const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
     const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
     console.log(
-      `  ✓ ${pack.id.padEnd(42)} allow=${allows} deny=${denies} → ${observationName(pack)}.json`,
+      `  ✓ ${scenario.id.padEnd(42)} allow=${allows} deny=${denies} → ${observationName(scenario)}.json`,
     );
   }
 

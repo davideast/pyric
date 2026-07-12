@@ -328,6 +328,7 @@ const NAV_ALIASES: Record<string, string> = {
   'pyric-sandbox-how-to-seed-data-and-rules': 'Seed data and rules',
   'pyric-sandbox-reference-sandbox-and-context': 'Sandbox and context',
   'pyric-storage-compat': 'Compatibility matrix',
+  'pyric-rules-compat': 'Compatibility matrix',
   'pyric-firestore-tutorials-02-swap-to-prod-backend': 'Swap to prod backend',
   'pyric-rules-tutorials-02-write-a-test-suite-for-your-rules': 'Write a rules test suite',
   'pyric-sandbox-how-to-switch-users': 'Switch users',
@@ -506,6 +507,7 @@ const COMPAT_PAGES: { file: string; label: string }[] = [
   { file: 'auth/COMPAT.md', label: 'Auth' },
   { file: 'database/COMPAT.md', label: 'Realtime Database' },
   { file: 'storage/COMPAT.md', label: 'Storage' },
+  { file: 'rules/COMPAT.md', label: 'Rules' },
   { file: 'messaging/COMPAT.md', label: 'Messaging' },
   { file: 'ai/COMPAT.md', label: 'AI Logic' },
 ];

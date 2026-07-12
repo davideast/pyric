@@ -2,6 +2,7 @@ import type { SurfaceDescriptorRecord } from './types.ts';
 
 export const surface: SurfaceDescriptorRecord = {
   order: 8,
+  kind: 'mirror',
   // Shares the messaging registry file and COMPAT doc; the admin send plane
   // (pyric-admin) captures under the `messaging-send-` prefix.
   registry: 'messaging',

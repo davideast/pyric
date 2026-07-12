@@ -1,0 +1,22 @@
+{
+  "name": "rules-firestore-map-get-string-and-list-form",
+  "matrixRow": "firestore-rules#169",
+  "rowIds": [
+    "firestore-rules#169"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus pack \"map-get-string-and-list-form\" (Item 3). Sim must implement Map.get(key, default) including list-form nested traversal; pre-fix it threw UnsupportedError.",
+  "observedAt": "2026-07-10T22:41:18.315Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "single-key present → returns value ALLOW": "ALLOW",
+    "single-key absent → returns default ALLOW": "ALLOW",
+    "list-form leaf present → returns leaf ALLOW": "ALLOW",
+    "list-form leaf absent → returns default ALLOW": "ALLOW",
+    "list-form intermediate absent → returns default ALLOW": "ALLOW",
+    "list-form top-level absent → returns default ALLOW": "ALLOW",
+    "list-form intermediate is string → returns default ALLOW": "ALLOW",
+    "list-form intermediate is int → returns default ALLOW": "ALLOW",
+    "present-key compare against wrong value DENY": "DENY"
+  }
+}

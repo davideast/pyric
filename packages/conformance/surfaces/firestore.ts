@@ -2,14 +2,16 @@ import type { SurfaceDescriptorRecord } from './types.ts';
 
 export const surface: SurfaceDescriptorRecord = {
   order: 3,
+  kind: 'mirror',
   registry: 'firestore',
   censusSurface: 'firestore',
   upstream: 'firebase/firestore',
   mirrors: ['pyric/firestore'],
-  // `rules-firestore-` observations are Rules-Test-API replay captures that reuse
-  // the firestore registry; firestore owns the prefix.
-  observationPrefixes: ['firestore-', 'rules-firestore-'],
+  // The `rules-firestore-` prefix and its rules-engine fidelity rows moved to the
+  // native `firestore-rules` surface (registry/rules.ts); firestore keeps only
+  // the SDK export census and its own SDK-behavior rows.
+  observationPrefixes: ['firestore-'],
   coverage: true,
   scopeNote: 'out of scope: internal plumbing only. Deferred: bundle-loading, cache index-tuning knobs.',
-  captureRigs: ['oracle-run', 'rules-firestore'],
+  captureRigs: ['oracle-run'],
 };

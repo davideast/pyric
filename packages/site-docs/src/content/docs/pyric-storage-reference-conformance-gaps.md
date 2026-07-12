@@ -16,7 +16,8 @@ the captured production verdict, and it is pinned rather than silently
 skipped.
 
 This capture also resolved a stale claim: the compatibility registry rows
-[`storage#96`](../pyric-storage-compat/) and [`storage#104`](../pyric-storage-compat/) previously
+[`storage-rules#96`](../pyric-rules-compat/) and [`storage-rules#104`](../pyric-rules-compat/)
+(moved to the native rules surface) previously
 marked granular verbs, user-defined functions, `request.time`, and
 `matches()` as unsupported. Production capture proves the evaluator already
 supports all of them; those rows — plus new rows for `matches()`,
@@ -42,7 +43,7 @@ null` on create evaluates true and allows, matching the documented,
 intuitive semantics but not what production does today.
 
 Not a false-permissive gap for real rulesets: the mirrored companion case
-in the same pack (`create denied when object already exists`) matches
+in the same scenario (`create denied when object already exists`) matches
 production exactly, so a ruleset guarding writes with `resource == null` /
 `resource != null` still denies unauthorized writes correctly on the
 evaluator; only the specific "genuinely-new-object create" case is
@@ -58,7 +59,7 @@ pinned divergences:
 - `rules-storage-matches-regex`
 - `rules-storage-metadata-access`
 - `rules-storage-request-time-timestamp`
-- `rules-storage-resource-timestamp-witness` (a witness pack: both cases
+- `rules-storage-resource-timestamp-witness` (a witness scenario: both cases
   correctly DENY on both sides, but the evaluator's DENY is coincidental —
   `resource.timeCreated` / `resource.updated` are not modeled, so any
   comparison denies. See [Storage rules subset](../pyric-storage-reference-rules-subset/#out-of-scope).)

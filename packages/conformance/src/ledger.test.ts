@@ -9,8 +9,8 @@ import { loadObservations, REPO_ROOT } from './ledger.ts';
 import { validateCompatibilityRegistry } from './validate-registry.ts';
 import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
-import { ALL_RULES_FIRESTORE_PACKS } from '../rules-corpus/firestore/index.ts';
-import { ALL_RULES_STORAGE_PACKS } from '../rules-corpus/storage/index.ts';
+import { ALL_RULES_FIRESTORE_SCENARIOS } from '../rules-corpus/firestore/index.ts';
+import { ALL_RULES_STORAGE_SCENARIOS } from '../rules-corpus/storage/index.ts';
 import { listProbeFiles } from '../probes/load.ts';
 
 describe('single-source compatibility registry', () => {
@@ -308,41 +308,41 @@ describe('oracle rig manifests', () => {
 });
 
 describe('rules corpus filename-twin integrity', () => {
-  test('every checked-in rules-firestore/rules-storage observation has a matching corpus pack', () => {
-    const rulesFirestorePackIds = ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id);
-    const rulesStoragePackIds = ALL_RULES_STORAGE_PACKS.map((pack) => pack.id);
-    expect(rulesFirestorePackIds.length).toBeGreaterThan(0);
-    expect(rulesStoragePackIds.length).toBeGreaterThan(0);
+  test('every checked-in rules-firestore/rules-storage observation has a matching corpus scenario', () => {
+    const rulesFirestoreScenarioIds = ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => scenario.id);
+    const rulesStorageScenarioIds = ALL_RULES_STORAGE_SCENARIOS.map((scenario) => scenario.id);
+    expect(rulesFirestoreScenarioIds.length).toBeGreaterThan(0);
+    expect(rulesStorageScenarioIds.length).toBeGreaterThan(0);
     const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
       observations: loadObservations(),
       observationExceptions,
-      rulesFirestorePackIds,
-      rulesStoragePackIds,
+      rulesFirestoreScenarioIds,
+      rulesStorageScenarioIds,
     });
     expect(problems).toEqual([]);
   });
 
-  test('surfaces an orphan rules-firestore observation with no corpus pack twin', () => {
-    const rulesFirestorePackIds = ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id).filter(
+  test('surfaces an orphan rules-firestore observation with no corpus scenario twin', () => {
+    const rulesFirestoreScenarioIds = ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => scenario.id).filter(
       (id) => id !== 'builtins-time-and-math',
     );
-    const rulesStoragePackIds = ALL_RULES_STORAGE_PACKS.map((pack) => pack.id);
+    const rulesStorageScenarioIds = ALL_RULES_STORAGE_SCENARIOS.map((scenario) => scenario.id);
     const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
       observations: loadObservations(),
       observationExceptions,
-      rulesFirestorePackIds,
-      rulesStoragePackIds,
+      rulesFirestoreScenarioIds,
+      rulesStorageScenarioIds,
     });
-    expect(problems.some((p) => p.includes('rules-firestore-builtins-time-and-math.json: no matching rules-corpus/firestore/builtins-time-and-math.ts pack — orphan observation'))).toBe(true);
+    expect(problems.some((p) => p.includes('rules-firestore-builtins-time-and-math.json: no matching rules-corpus/firestore/builtins-time-and-math.ts scenario — orphan observation'))).toBe(true);
   });
 
-  test('surfaces an orphan rules-storage observation with no corpus pack twin', () => {
-    const rulesFirestorePackIds = ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id);
-    const rulesStoragePackIds = ALL_RULES_STORAGE_PACKS.map((pack) => pack.id).filter(
+  test('surfaces an orphan rules-storage observation with no corpus scenario twin', () => {
+    const rulesFirestoreScenarioIds = ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => scenario.id);
+    const rulesStorageScenarioIds = ALL_RULES_STORAGE_SCENARIOS.map((scenario) => scenario.id).filter(
       (id) => id !== 'verbs-umbrella-granular',
     );
     const problems = validateCompatibilityRegistry({
@@ -350,36 +350,36 @@ describe('rules corpus filename-twin integrity', () => {
       descriptors: surfaceDescriptors,
       observations: loadObservations(),
       observationExceptions,
-      rulesFirestorePackIds,
-      rulesStoragePackIds,
+      rulesFirestoreScenarioIds,
+      rulesStorageScenarioIds,
     });
-    expect(problems.some((p) => p.includes('rules-storage-verbs-umbrella-granular.json: no matching rules-corpus/storage/verbs-umbrella-granular.ts pack — orphan observation'))).toBe(true);
+    expect(problems.some((p) => p.includes('rules-storage-verbs-umbrella-granular.json: no matching rules-corpus/storage/verbs-umbrella-granular.ts scenario — orphan observation'))).toBe(true);
   });
 
-  test('surfaces a pack id colliding across the firestore and storage corpora', () => {
-    const rulesFirestorePackIds = ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id);
-    const rulesStoragePackIds = [...ALL_RULES_STORAGE_PACKS.map((pack) => pack.id), 'builtins-time-and-math'];
+  test('surfaces a scenario id colliding across the firestore and storage corpora', () => {
+    const rulesFirestoreScenarioIds = ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => scenario.id);
+    const rulesStorageScenarioIds = [...ALL_RULES_STORAGE_SCENARIOS.map((scenario) => scenario.id), 'builtins-time-and-math'];
     const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
       observations: loadObservations(),
       observationExceptions,
-      rulesFirestorePackIds,
-      rulesStoragePackIds,
+      rulesFirestoreScenarioIds,
+      rulesStorageScenarioIds,
     });
-    expect(problems.some((p) => p.includes("pack id 'builtins-time-and-math' exists in BOTH rules-corpus/firestore/ and rules-corpus/storage/"))).toBe(true);
+    expect(problems.some((p) => p.includes("scenario id 'builtins-time-and-math' exists in BOTH rules-corpus/firestore/ and rules-corpus/storage/"))).toBe(true);
   });
 
-  test('a pack without a captured observation is not itself a problem', () => {
-    const rulesFirestorePackIds = [...ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id), 'not-yet-captured-pack'];
-    const rulesStoragePackIds = ALL_RULES_STORAGE_PACKS.map((pack) => pack.id);
+  test('a scenario without a captured observation is not itself a problem', () => {
+    const rulesFirestoreScenarioIds = [...ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => scenario.id), 'not-yet-captured-scenario'];
+    const rulesStorageScenarioIds = ALL_RULES_STORAGE_SCENARIOS.map((scenario) => scenario.id);
     const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
       observations: loadObservations(),
       observationExceptions,
-      rulesFirestorePackIds,
-      rulesStoragePackIds,
+      rulesFirestoreScenarioIds,
+      rulesStorageScenarioIds,
     });
     expect(problems).toEqual([]);
   });

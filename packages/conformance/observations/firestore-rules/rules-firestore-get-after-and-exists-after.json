@@ -1,0 +1,18 @@
+{
+  "name": "rules-firestore-get-after-and-exists-after",
+  "matrixRow": "firestore-rules#164",
+  "rowIds": [
+    "firestore-rules#164"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus pack \"get-after-and-exists-after\" (Item 7). Sim must implement getAfter()/existsAfter(). Pre-fix: both threw UnsupportedError; rules using them silently denied.",
+  "observedAt": "2026-07-10T22:41:19.074Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "getAfter target == request.resource.data ALLOW": "DENY",
+    "existsAfter create true ALLOW": "DENY",
+    "existsAfter delete false ALLOW": "DENY",
+    "existsAfter unrelated mocked path ALLOW": "DENY",
+    "wrong existsAfter on create DENY": "DENY"
+  }
+}

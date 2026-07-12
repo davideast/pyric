@@ -1,0 +1,23 @@
+{
+  "name": "rules-firestore-range-slice-list-and-string",
+  "matrixRow": "firestore-rules#173",
+  "rowIds": [
+    "firestore-rules#173"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus pack \"range-slice-list-and-string\" (Item 4). Sim must parse and evaluate range slice [i:j] for List and String; pre-fix grammar rejected the syntax outright.",
+  "observedAt": "2026-07-10T22:41:18.430Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "list mid-slice → sub-list of size 2 ALLOW": "ALLOW",
+    "list slice indexing → element at slice[0] ALLOW": "ALLOW",
+    "list full-length slice → size 4 ALLOW": "ALLOW",
+    "list slice [i:i] → empty ALLOW": "ALLOW",
+    "list slice end OOB clamps to length ALLOW": "DENY",
+    "string mid-substring ALLOW": "ALLOW",
+    "string prefix substring ALLOW": "ALLOW",
+    "string slice [i:i] → empty string ALLOW": "ALLOW",
+    "string slice end OOB clamps to length ALLOW": "DENY",
+    "list slice with wrong expected size DENY": "DENY"
+  }
+}

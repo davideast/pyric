@@ -6,7 +6,15 @@ export type Surface =
   | 'rtdb-modular'
   | 'storage'
   | 'messaging'
-  | 'messaging-admin';
+  | 'messaging-admin'
+  // Native surfaces (no upstream module to mirror; conformance is measured
+  // against their own public API and the production Rules Test API engine).
+  // `firestore-rules` and `storage-rules` are descriptor surfaces; `rules` is
+  // the shared registry key both resolve to (the one COMPAT doc they share),
+  // on the `rtdb`/`rtdb-modular` -> `rtdb` registry precedent.
+  | 'firestore-rules'
+  | 'storage-rules'
+  | 'rules';
 
 /**
  * Typed conformance status. Rendering (the ✓/⚠/✗/—/? glyphs in the
