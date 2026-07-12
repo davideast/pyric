@@ -6,7 +6,7 @@
  * runtime and diffs their export name sets. Every upstream export must be one
  * of:
  *   1. MAPPED   — re-exported by the mirror, or
- *   2. DENIED   — listed in scripts/compat/surface-denylist.ts with a reason, or
+ *   2. DENIED   — listed in packages/conformance/src/surface-denylist.ts with a reason, or
  *   3. UNMAPPED — a genuine gap. Any UNMAPPED symbol fails the gate (exit 1).
  *
  * The deny-list itself is also checked for two decay classes, both FATAL —
@@ -24,9 +24,9 @@
  * rules schemas, …) are reported informationally and NEVER fail the run.
  *
  * Usage:
- *   bun run scripts/compat/surface-census.ts            # gate: summary + gaps, exit 1 on UNMAPPED
- *   bun run scripts/compat/surface-census.ts --report   # full inventory, still exits 1 on UNMAPPED
- *   bun run scripts/compat/surface-census.ts --json      # machine-readable, exit 1 on UNMAPPED
+ *   bun run packages/conformance/src/surface-census.ts            # gate: summary + gaps, exit 1 on UNMAPPED
+ *   bun run packages/conformance/src/surface-census.ts --report   # full inventory, still exits 1 on UNMAPPED
+ *   bun run packages/conformance/src/surface-census.ts --json      # machine-readable, exit 1 on UNMAPPED
  *
  * House style: descriptor-driven (the pairs below are the one list), typed, and
  * no regex in the trust path — every classification is exact Set/Map lookup.
@@ -182,10 +182,10 @@ async function main(): Promise<void> {
   printSummary(censuses);
 
   if (totalStaleOrRedundant > 0) {
-    console.log(`\n✗ ${totalStaleOrRedundant} stale or redundant deny-list entr${totalStaleOrRedundant === 1 ? 'y' : 'ies'}. A stale entry denies a symbol no longer exported upstream; a redundant entry denies a symbol that IS mirrored. Remove them from scripts/compat/surface-denylist.ts.`);
+    console.log(`\n✗ ${totalStaleOrRedundant} stale or redundant deny-list entr${totalStaleOrRedundant === 1 ? 'y' : 'ies'}. A stale entry denies a symbol no longer exported upstream; a redundant entry denies a symbol that IS mirrored. Remove them from packages/conformance/src/surface-denylist.ts.`);
   }
   if (totalUnmapped > 0) {
-    console.log(`\n✗ ${totalUnmapped} unmapped upstream symbol(s). Mirror them, or add a deny-list entry with a reason in scripts/compat/surface-denylist.ts.`);
+    console.log(`\n✗ ${totalUnmapped} unmapped upstream symbol(s). Mirror them, or add a deny-list entry with a reason in packages/conformance/src/surface-denylist.ts.`);
   }
   if (totalUnmapped > 0 || totalStaleOrRedundant > 0) {
     process.exit(1);

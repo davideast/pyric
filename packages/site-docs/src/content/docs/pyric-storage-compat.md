@@ -37,7 +37,7 @@ attributes failures).
 Probe references: `unit:<file>` means a Bun test under
 `packages/pyric/test/storage/<file>`. `oracle:<name>` cites an observation
 under `packages/conformance/observations/storage/<name>.json` captured by
-`scripts/oracle/run.ts` against a real Firebase project.
+`packages/conformance/src/run.ts` against a real Firebase project.
 
 Targets:
 - **sandbox** — IDB-backed handle built via `getStorageSandbox(target, options?)`.

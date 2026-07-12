@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Prints the `fb<major>.<minor>` dist-tag derived from the pinned Firebase
 // version, and only that — no other output, so a caller can capture stdout
-// directly (`FB_TAG="$(bun run scripts/compat/print-fb-tag.ts)"`).
+// directly (`FB_TAG="$(bun run packages/conformance/src/print-fb-tag.ts)"`).
 //
 // The pin is FIREBASE_TESTED_AGAINST (packages/pyric-tools/src/version/
 // compat-target.ts) — the same constant `pyric --version` prints. The patch

@@ -20,7 +20,7 @@ export type Surface =
 
 /**
  * Typed conformance status. Rendering (the ✓/⚠/✗/—/? glyphs in the
- * generated COMPAT.md docs) lives in scripts/compat/generate-docs.ts;
+ * generated COMPAT.md docs) lives in packages/conformance/src/generate-docs.ts;
  * nothing should string-match glyphs to derive meaning.
  */
 export type CompatStatus =

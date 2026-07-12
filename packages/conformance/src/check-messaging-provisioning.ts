@@ -13,7 +13,7 @@
  *   carries cloudmessaging.messages.create (e.g. Firebase Cloud Messaging
  *   API Admin). The project id is read from the key itself.
  *
- * Run: bun run scripts/oracle/check-messaging-provisioning.ts
+ * Run: bun run packages/conformance/src/check-messaging-provisioning.ts
  *
  * No VAPID key needed here: that is browser-side token registration, which
  * stays deferred. This script exercises only the send plane.

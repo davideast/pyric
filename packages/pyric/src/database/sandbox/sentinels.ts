@@ -7,7 +7,7 @@
  * and the server stamps `Date.now()` (epoch ms) into the field. On
  * read-back the client never sees the marker — only the resolved
  * number. Oracle observation
- * `scripts/oracle/observations/rtdb-servertimestamp-resolves.json`
+ * `packages/conformance/observations/rtdb/rtdb-servertimestamp-resolves.json`
  * confirms the shape.
  *
  * Sandbox match: we recognise the same `{ ".sv": "timestamp" }` marker

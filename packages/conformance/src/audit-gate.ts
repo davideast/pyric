@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * CI gate over scripts/oracle/audit.ts.
+ * CI gate over packages/conformance/src/audit.ts.
  *
  * The audit produces a ranked worklist of COMPAT rows that claim ✓
  * conformance but have no oracle observation, local test evidence, or
@@ -15,8 +15,8 @@
  * row is oracle-locked or honestly downgraded).
  *
  * Usage:
- *   bun run scripts/oracle/audit-gate.ts            # enforce (CI)
- *   bun run scripts/oracle/audit-gate.ts --update   # rewrite baseline to current set
+ *   bun run packages/conformance/src/audit-gate.ts            # enforce (CI)
+ *   bun run packages/conformance/src/audit-gate.ts --update   # rewrite baseline to current set
  *
  * Exit codes: 0 clean (subset of baseline), 1 NEW uncited ✓ row(s).
  */

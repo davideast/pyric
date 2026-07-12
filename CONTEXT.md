@@ -434,7 +434,7 @@ three packages is the repo root README rather than the in-repo package doc.
 
 ## Compatibility And Oracle Gates
 
-Compatibility machinery lives under `scripts/compat` and generated docs under
+Compatibility machinery lives under `packages/conformance/` and generated docs under
 `packages/pyric/docs/*/COMPAT.md`.
 
 Current root scripts:
@@ -520,7 +520,7 @@ port:
   `@pyric/firestore-rules`, `@pyric/deploy`, `@pyric/auth`, and
   `@pyric/sandbox`. Some are harmless historical comments; some should be
   migrated to current import paths before broad documentation polish. The RTDB
-  compat registry (`scripts/compat/registry/rtdb.ts`) is the largest remaining
+  compat registry (`packages/conformance/registry/rtdb.ts`) is the largest remaining
   concentration of `@pyric/rtdb` prose.
 - `.agents/skills/playground-prompts/SKILL.md` still references
   `examples/playground-next`; it should point at `packages/playground`.

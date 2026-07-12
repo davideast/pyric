@@ -3511,7 +3511,7 @@ export class LocalEnvironment {
         // `firebase/firestore` (and the Admin SDK): rules already
         // allowed, the doc isn't there to remove, and the call
         // resolves without throwing. Locked by oracle observation
-        // `scripts/oracle/observations/firestore-deletedoc-missing.json`
+        // `packages/conformance/observations/firestore/firestore-deletedoc-missing.json`
         // (matrix row Firestore #39). `state.delete` returns
         // `success:false` for a missing path; we collapse that into
         // null (no error) so `execute()` reports the delete as

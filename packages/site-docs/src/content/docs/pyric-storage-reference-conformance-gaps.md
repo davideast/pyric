@@ -8,7 +8,7 @@ order: 15007
 
 The oracle-conformance suite (`packages/pyric/test/storage/rules-oracle-conformance.test.ts`)
 replays captured production Rules-Test-API verdicts
-(`scripts/oracle/observations/rules-storage-*.json`) against the local
+(`packages/conformance/observations/storage-rules/rules-storage-*.json`) against the local
 evaluator (`evaluateStorageRules`). 7 observation files are captured. 6
 replay clean — the evaluator's decision matches production case-for-case.
 1 observation contains a case where the evaluator's decision diverges from

@@ -5,7 +5,7 @@ Status: DRAFT - owner review pending
 This document codifies the process decided in wayfinder ticket #47. The
 decisions themselves are settled; this document derives the mechanics from
 them, grounded in the machinery this repository already runs (see
-`docs/conformance/how-to-run-the-conformance-system.md` and
+`packages/conformance/docs/how-to-run-the-conformance-system.md` and
 `teach/GLOSSARY.md` for the vocabulary used here without redefinition).
 
 The messaging surface is the first surface to run this loop, and its
@@ -53,13 +53,13 @@ instead of hardcoding surface lists.
 
 For messaging, admission means:
 
-1. **Extend the `Surface` union** in `scripts/compat/registry/types.ts` to
+1. **Extend the `Surface` union** in `packages/conformance/registry/types.ts` to
    include `'messaging'`.
-2. **Create the registry file** `scripts/compat/registry/messaging.ts`
+2. **Create the registry file** `packages/conformance/registry/messaging.ts`
    exporting a `CompatibilitySurfaceRegistry` with
    `compatPath: 'packages/pyric/docs/messaging/COMPAT.md'` and the row
    blocks described in step 2.
-3. **Add the descriptor** to `scripts/compat/registry/index.ts`:
+3. **Add the descriptor** to `packages/conformance/registry/index.ts`:
 
    ```ts
    {
@@ -118,7 +118,7 @@ Rows whose behavior has no observation yet are still authored (the census
 says the shape must exist), but their `behavior` text is written from
 upstream documentation and marked as such in `evidence`. They carry
 `riskReasons` accordingly, and they are candidates for new probes in
-`scripts/oracle/run.ts` before their implementation starts.
+`packages/conformance/src/run.ts` before their implementation starts.
 
 The registry is the single source of truth from day zero: the generated
 `COMPAT.md`, the report, the audit, and the suite all derive from these
@@ -198,7 +198,7 @@ two roles from blurring.
 **Job shape.** A separate job in `.github/workflows/build.yml` (or a
 sibling `climb.yml` workflow), `needs: build-and-test` so it runs against
 built packages, driven by a script (working name
-`scripts/compat/climb.ts`) that:
+`packages/conformance/src/climb.ts`) that:
 
 1. Iterates `surfaceDescriptors` and selects descriptors marked
    `climb: true`.
@@ -264,7 +264,7 @@ when the conforming count is zero. Honesty at zero is the feature: the doc
 tells a reader exactly what is promised (nothing yet) and exactly what the
 targets are (every row).
 
-**The climb header.** `scripts/compat/generate-docs.ts` renders a block at
+**The climb header.** `packages/conformance/src/generate-docs.ts` renders a block at
 the top of a climbing surface's doc, above the status legend, derived from
 the registry alone (only the registry changes claims, and the generated
 doc is a view of claims):
@@ -279,7 +279,7 @@ The counts come from row statuses. Live suite results do not appear in the
 doc, because the doc is a view of claims and suite results are evidence in
 flight; the lane's job summary and `compat:report` carry those.
 
-**The report's climb section.** `scripts/compat/report.ts` gains a
+**The report's climb section.** `packages/conformance/src/report.ts` gains a
 `## Climb` section listing each climbing surface with: total rows, counts
 by status, the conforming ratio, high-risk unverified rows under that
 surface, and orphan observations under its prefix. The section informs; it
@@ -356,14 +356,14 @@ The eight questions this draft originally posed were answered by the owner; each
 2. Regression escalation: a lane failure on an already-green row halts further row flips until fixed, fix-forward on the WIP branch. No automation (auto-filed issues, required checks) during the experiment phase.
 3. Receive-plane harness: row assertions run headless (bun) against the in-process broker, like every other surface's suite. The real-browser demo page is reserved as the graduation check, not a per-run harness.
 4. Surface partitioning: two surfaces, messaging (client and sw rows, pyric) and messaging-admin (send rows, pyric-admin), sharing one registry file and one COMPAT doc, on the rtdb / rtdb-modular precedent. Per-surface conformanceSuite paths resolve the cross-package suite question.
-5. Row-universe sign-off: docs/conformance/messaging/surface-inventory.md is the signed v1 universe; the registry file header cites it. Instance-method and option-field completeness closes with the tier-2 assignability census.
+5. Row-universe sign-off: packages/conformance/docs/messaging/surface-inventory.md is the signed v1 universe; the registry file header cites it. Instance-method and option-field completeness closes with the tier-2 assignability census.
 6. Audit ratchet: climbing surfaces are exempt from the audit gate until graduation. Isolation is the WIP branch plus flag-gated exports; the mirror does not merge until the owner calls it safe.
 7. conformanceChecks at flip: match the current ratchet; only rows above the audit's high-risk line enroll in blocking compat:oracle-check.
 8. Demo-page criterion: manual owner sign-off during the experiment, recorded in the graduation PR; automated at graduation by driving the demo page against pyric dev with the existing capture rig.
 
 ## Relationship to existing documents
 
-- `docs/conformance/how-to-run-the-conformance-system.md` remains the
+- `packages/conformance/docs/how-to-run-the-conformance-system.md` remains the
   operational guide; every command named here is documented there. CDD
   changes when things happen, not how they run.
 - `teach/GLOSSARY.md` is the vocabulary authority. This document uses

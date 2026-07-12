@@ -1,7 +1,7 @@
 /**
  * `pyric/ai` — modular Web-SDK AI adapter for the Pyric sandbox.
  *
- * Mirrors `firebase/ai`'s v1 surface (docs/conformance/ai/surface-inventory.md:
+ * Mirrors `firebase/ai`'s v1 surface (packages/conformance/docs/ai/surface-inventory.md:
  * exactly the 38 runtime value exports of the installed 2.12.0 that are
  * admitted to v1; the 17 denied runtime exports — Imagen, Live API, server
  * templates, hybrid/on-device — are intentionally NOT exported) with two

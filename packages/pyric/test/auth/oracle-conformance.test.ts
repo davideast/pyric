@@ -1,5 +1,5 @@
 /**
- * Oracle conformance — wires `scripts/oracle/observations/auth-*.json` into the
+ * Oracle conformance — wires `packages/conformance/observations/auth/auth-*.json` into the
  * test suite so the captured real-Firebase behavior is MACHINE-CHECKED against
  * the sandbox shim, not just cited in comments (audit H5: the oracle was
  * decorative; H6 — a committed capture contradicting the shim — went unnoticed

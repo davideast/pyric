@@ -5,7 +5,7 @@ import type { CompatibilityRow, CompatibilitySurfaceRegistry, Surface } from './
  * Conformance Driven Development (CDD; see `docs/conformance/cdd.md`).
  *
  * ROW UNIVERSE. Every row below is signed off by
- * `docs/conformance/messaging/surface-inventory.md` (wayfinder #44), the v1
+ * `packages/conformance/docs/messaging/surface-inventory.md` (wayfinder #44), the v1
  * shape universe enumerated from the installed `firebase@12.13.0`
  * (`@firebase/messaging@0.12.26`, client + service-worker planes) and
  * `firebase-admin@13.10.0` (send plane) typings. Instance-method and
@@ -712,7 +712,7 @@ const INTRO = [
   'Firebase Cloud Messaging surface" — the client (`firebase/messaging`) and',
   'service-worker (`firebase/messaging/sw`) receive planes, and the admin',
   '(`firebase-admin/messaging`) send plane. The signed row universe is',
-  '`docs/conformance/messaging/surface-inventory.md` (wayfinder #44).',
+  '`packages/conformance/docs/messaging/surface-inventory.md` (wayfinder #44).',
   '',
   '## Status legend',
   '',

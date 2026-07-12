@@ -1,7 +1,7 @@
 /**
  * `pyric/messaging/sw` — the `firebase/messaging/sw` (service-worker) mirror
  * over the sandbox {@link MessagingBroker}. Surface `messaging`, rows
- * `messaging#13`–`messaging#17` in `scripts/compat/registry/messaging.ts`.
+ * `messaging#13`–`messaging#17` in `packages/conformance/registry/messaging.ts`.
  *
  * MODULE BOUNDARY (row messaging#17): this entry exports
  * `onBackgroundMessage` / `getMessaging` / the BigQuery metrics toggle /
