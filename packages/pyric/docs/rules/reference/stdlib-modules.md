@@ -115,6 +115,103 @@ match /games/{gameId} {
 }
 ```
 
+## `counters`
+
+Denormalized numeric integrity: likes, votes, moves, quantities that may only change by a known step or stay within known bounds.
+
+| Function | Returns |
+|---|---|
+| `incrementedBy(field, n)` | Field changed by exactly `n` versus the existing document (`n` may be negative). Update rules only |
+| `changedBy(field, min, max)` | Field's delta is within `[min, max]`; a delta of 0 passes when the range spans 0 |
+| `boundedNumber(field, min, max)` | Incoming value is an int or float within `[min, max]`; a missing field fails the check |
+
+## `timing`
+
+Cooldown and rate-limit enforcement: the stored timestamp must be strictly older than the window.
+
+| Function | Returns |
+|---|---|
+| `cooldownElapsed(field, seconds)` | `request.time` is later than the stored timestamp plus `seconds`. Update rules only; a missing or non-timestamp field errors, which denies |
+
+Pair with `lifecycle`'s `isServerTimestamp` on the same write so the stored timestamp can't be forged by the client:
+
+```rules
+import { cooldownElapsed } from 'timing';
+import { isServerTimestamp } from 'lifecycle';
+
+allow update: if cooldownElapsed('lastMoveAt', 2) && isServerTimestamp('lastMoveAt');
+```
+
+## `content`
+
+Author-owned documents: posts, notes, docs, comments, tasks. Field names are parameters, not conventions.
+
+| Function | Returns |
+|---|---|
+| `validAuthorCreate(authorField)` | Signed in, and the incoming document's author field equals the caller. Create rules |
+| `isAuthor(authorField)` | The caller is the existing document's author. Update and delete rules |
+| `canReadContent(statusField, authorField)` | Published content is public; anything else is visible to its author only. List queries must filter for `status == 'published'` themselves, rules are not filters |
+| `notDeleted()` | The existing document's `deleted` field is not `true`. Bracket access, so a document without the field passes |
+
+## `spaces`
+
+Cross-document membership gating for shared spaces (teams, rooms, groups, projects): a parent document defines who may touch its children. Explicit param, like `geometry`: the caller reads the parent doc once and passes its data in.
+
+| Function | Returns |
+|---|---|
+| `isSpaceMember(spaceData)` | The caller's uid is in `spaceData.members`, covering both list (`['a', 'b']`) and map (`{a: 'admin'}`) shapes |
+| `hasSpaceRole(spaceData, role)` | The caller's role in a map-shaped members field equals `role`; denies on a list shape, which carries no roles |
+| `validMemberCreate(spaceData, authorField)` | The caller is a member, and the incoming child document's author field equals the caller |
+
+Usage:
+
+```rules
+import { isSpaceMember, hasSpaceRole, validMemberCreate } from 'spaces';
+
+match /spaces/{spaceId}/tasks/{taskId} {
+  function space() {
+    return get(/databases/$(database)/documents/spaces/$(spaceId)).data;
+  }
+  allow read: if isSpaceMember(space());
+  allow create: if validMemberCreate(space(), 'author');
+  allow delete: if hasSpaceRole(space(), 'admin');
+}
+```
+
+## `joining`
+
+Self-service join and leave on a map-shaped `members` field, with no privilege escalation. Compose with `lifecycle`'s `onlyFieldsChanged` so the write can't touch anything else on the document.
+
+| Function | Returns |
+|---|---|
+| `onlyAddedSelf(membersField, role)` | The write adds exactly the caller to the members map at exactly `role`, changing and removing nobody else |
+| `onlyRemovedSelf(membersField)` | The write removes exactly the caller from the members map, adding and changing nobody else |
+
+## `atomic`
+
+Cross-document integrity for batch writes, via the `get()` / `getAfter()` pair: a write is valid only if a companion write happened in the same batch.
+
+| Function | Returns |
+|---|---|
+| `companionChangedBy(before, after, field, n)` | The companion document's field changed by exactly `n` in this batch; a solo write denies because `after == before` |
+| `consumedFlag(before, after, flagField)` | Single-use consumption: `flagField` was `false` before the batch and `true` after; replays and solo writes deny |
+
+`before` and `after` are the same companion document's `get().data` and `getAfter().data`:
+
+```rules
+import { companionChangedBy, consumedFlag } from 'atomic';
+
+match /teams/{teamId}/tasks/{taskId} {
+  function teamBefore() {
+    return get(/databases/$(database)/documents/teams/$(teamId)).data;
+  }
+  function teamAfter() {
+    return getAfter(/databases/$(database)/documents/teams/$(teamId)).data;
+  }
+  allow create: if companionChangedBy(teamBefore(), teamAfter(), 'taskCount', 1);
+}
+```
+
 ## Importing private functions
 
 Functions in a module that aren't marked `export` are still inlined by the resolver, but renamed with a module prefix (`{module}__{name}`) so they don't collide with source-defined functions or with private helpers in other modules. You can't import a private function by name; doing so produces `UNKNOWN_FUNCTION` with a message that explains the function exists but isn't exported.

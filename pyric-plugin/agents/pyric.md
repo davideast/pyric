@@ -11,7 +11,7 @@ open (see the `/pyric:pyric-start` skill).
 
 Working rules:
 
-- **Orient first.** Call `pyric_sandbox_inspect` before guessing at state —
+- **Orient first.** Call `sandbox_inspect` before guessing at state —
   it answers "are rules loaded? what's in the DB?" in one call.
 - **Rules change via FILE EDITS, not a tool.** Edit `firestore.rules`; the dev server
   hot-reloads it. There is NO write-rules MCP tool — don't stall looking for

@@ -28,7 +28,7 @@ A denial event tells you the story in one object:
 - **`method` and `path`**: what was attempted, and where. `update` on `notes/n1`.
 - **`auth`**: who attempted it, including token claims if the identity had them. `null` means unauthenticated, which is its own common answer.
 - **`reasons`**: the trace of the decision, rule by rule.
-- **`matchedRule`**: the index and operations of the rule that decided.
+- **`matchedRule`**: the `ruleIndex` and `operations` of the rule that decided.
 - **`resourceBefore` and `request.resourceData`**: the existing document and the incoming payload, the exact data the rule evaluated against.
 - **`origin`**: whether the op came from your code, a listener re-evaluation, a batch, or a transaction. A listener denial also carries `triggeredBy`, the write that provoked it.
 
@@ -36,26 +36,39 @@ That last field earns its place. A listener silently dropping documents because 
 
 If you are running `pyric dev --ui`, you do not have to write the subscription. The Traffic tab in Studio shows the same stream live, and a denial row opens into the rule, the path, and the data. The stream itself, and what else it can tell you, is covered in [see what's happening](../see-whats-happening/).
 
+## Read the rule that allowed it, too
+
+A denial is not the only verdict worth reading. When you want to confirm exactly which `allow` rule granted access, ask the ruleset to explain a single case:
+```ts
+import { firestoreRules } from 'pyric/rules';
+
+const explanation = firestoreRules(source).explain({
+  description: 'owner reads own note',
+  expectation: 'ALLOW',
+  method: 'get',
+  path: 'notes/n1',
+  auth: { uid: 'alice' },
+  resource: { ownerId: 'alice', title: 'note' },
+});
+
+console.log(explanation.decision);           // 'ALLOW'
+console.log(explanation.deciding?.verdict);   // 'allow'
+console.log(explanation.deciding?.line);      // source line of the allow rule
+console.log(explanation.deciding?.expression); // the condition text that granted it
+```
+`explain` returns the same structured account for an allow as for a deny. Its `deciding` field is an `EvaluatedRuleInfo`: the `verdict`, the source `line`, the `expression` that decided, and an `expressionTrace` stepping through each sub-expression. For an allow it points at the rule that granted access, so "why did this succeed" is as answerable as "why did this fail." On a default-deny, where no `allow` rule matched at all, `deciding` is absent.
+
 ## The other kind of denial bug
 
 A denial that should not happen is one failure mode. The quieter one is its opposite: an operation that should be denied and no longer is, because a rules edit removed a predicate somewhere. This usually happens while making a failing test pass.
 
-Pyric catches it by diffing rulesets. Lint the candidate with the previously deployed source:
-```ts
-import { lintFirestoreRules } from 'pyric/rules';
-
-const result = lintFirestoreRules(newSource, { previousSource: oldSource });
-const weakened = result.warnings.filter((w) => w.rule === 'RULES_WEAKENED');
+Pyric catches it by replay. A `pyric dev` session records the real operations your app ran into `.pyric/last-session.json`. Point `pyric verify` at a candidate ruleset and it re-issues every captured operation against it, then reports any verdict that flipped:
+```bash
+pyric verify --rules firestore=firestore.rules
 ```
-The linter normalizes every match path and diffs the predicates conjunct by conjunct. It reports three shapes of weakening:
+If an operation that was denied under the recorded run now succeeds, that is a divergence, and `verify` exits `1`. The op that used to be blocked is now allowed, in the exact traffic your app produces, before the rules ship. Run it in CI and a weakened rule fails the build.
 
-- a match block that had `allow` rules and is gone
-- an `allow` rule that was deleted
-- a dropped conjunct, for example `auth.uid == ownerId && status == 'open'` becoming only `auth.uid == ownerId`
-
-`RULES_WEAKENED` is a warning, not an error, because removing a predicate is sometimes a legitimate refactor. The signal is "a human should look at this," and in CI you decide whether that means a required ack or a hard block.
-
-One boundary stated plainly: the diff compares the predicates in `allow` statements, so weakening a helper function's body does not fire it. Your [test suite](../write-a-rules-test-suite/) is the net for that shape.
+One boundary stated plainly: replay only sees the operations in the capture. A flip on a path your session never exercised will not surface here. The breadth of the capture bounds it, and your [test suite](../write-a-rules-test-suite/) is the net for the operations traffic did not reach.
 
 ## And from an agent
 

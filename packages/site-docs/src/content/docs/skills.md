@@ -4,38 +4,76 @@ navLabel: "Skills"
 group: "Work with an agent"
 section: ""
 order: 6003
-description: "Packaged expert procedures for the problems that need a method, not more tools."
+description: "Six packaged procedures for the problems that need a method, each with the prompt that runs it."
 ---
 
 # Teach your agent the hard Firebase things
 
-Tools give an agent hands. Skills give it a method. A skill is a written procedure the agent follows step by step, with a completion check on every step and the specific Pyric moves each step uses named in place.
+A skill is a written procedure your agent follows step by step, with a completion check on every step and the specific Pyric tool calls named in place. An auth-model skill does not say "think about identity." It says map every identity, check what providers are enabled with `auth_get_config`, connect every `request.auth.uid` in the rules to a real data shape, and do not stop until every access boundary has a named identity.
 
-An auth-model skill does not say "think about identity." It says map every identity, check what providers are enabled with `auth_get_config`, connect every `request.auth.uid` in the rules to a real data shape, and do not stop until every access boundary has a named identity.
-
-Six skills ship today, one per hard problem.
+Type a prompt like the ones below and the agent runs the whole procedure, not one tool call. Six skills ship today, one per hard problem.
 
 ## Install them
 
-The skills live in the Pyric repository under `.agents/skills/`, one folder per skill.
+The skills live under `.agents/skills/` in the Pyric repository, one folder per skill. Agents that read the `.agents/skills` convention pick them up in place. For Claude Code, copy the folder you want:
+```bash
+cp -r .agents/skills/firestore-rules-audit .claude/skills/
+```
+The Claude Code plugin's `pyric-start` skill boots and wires the sandbox connection, so a copied skill below slots into a session that already has tools to call.
 
-- Agents that read the `.agents/skills` convention pick them up in place.
-- For Claude Code, copy the folders you want into your project's `.claude/skills/` directory.
-- The Claude Code plugin ships its own operational pieces (`pyric-start` boots and wires the sandbox), so the domain skills below slot into a session that is already connected.
+## firebase-auth-model
 
-## What each skill does
+Design or audit an identity model, then connect it to your rules: providers, UIDs, custom claims versus document roles, and the test users that exercise each branch.
+```
+Design an auth model for a photo-sharing app: anonymous browsing,
+signed-in uploads, and an admin role that can remove any photo.
+```
+The skill names every identity (anonymous, owner, admin claim-holder), checks enabled providers with `auth_get_config`, and decides where profile data lives so `request.auth.uid` in the rules maps to a real document. It ends by seeding test users with `firestore_add_document` and verifying each identity's access with `firestore_simulate_rules`. Serves [sign in and manage users](../sign-in-and-manage-users/).
 
-**firebase-auth-model.** Design or audit an identity model that actually connects to your rules. It maps every identity your app has, chooses provider flows, decides where profile data lives and which document IDs use `uid`, and draws the line between custom claims and document roles so they never contradict, ending with test users you can seed. Serves [sign in and manage users](../sign-in-and-manage-users/).
+## firestore-query-indexes
 
-**firestore-query-indexes.** Treat a query plan as an index proof. The skill inventories every read the product performs, proves each list query is constrained so rules can allow it, then extracts the composite indexes from your actual query code instead of hand-writing JSON. If the extractor returns nothing, the fix is the source, not the JSON. Serves [store and query data](../store-and-query-data/).
+Turn a query plan into an index proof: inventory the reads, prove rules allow them, then extract the composite indexes from your actual query code.
+```
+I need a query for the 20 most recent orders for the signed-in user,
+sorted by date. Set up the index for it.
+```
+The skill writes the query in modular SDK shape, runs `firestore_extract_indexes` against it, and deploys the result with `firestore_deploy_indexes`. A zero-shape extraction means the query code doesn't expose a pattern the extractor can see, so the skill fixes the source rather than hand-writing `firestore.indexes.json`. Serves [store and query data](../store-and-query-data/).
 
-**firestore-rules-audit.** Answer who can do what, with evidence. It lints, builds an identity-by-operation access matrix with no blank cells, checks each expression against its operation context (a `list` cannot lean on one document's `resource.data`, a `create` has no `resource.data` at all), and flags the composition traps where a permissive wildcard quietly overrides a careful restriction. Serves [audit your rules](../audit-your-rules/).
+## firestore-rules-audit
 
-**rtdb-security-rules.** Realtime Database rules cascade downward: a permissive parent grants every descendant and a child cannot take it back. The skill starts from a locked root, opens the smallest useful paths, pairs every open path with a validation, and walks each cascade so you can state the effective access at every path a client touches. Realtime Database support in Pyric is experimental. Serves [audit your rules](../audit-your-rules/).
+Answer who can do what, with evidence, not a reading of the source.
+```
+Audit the rules in firestore.rules and show me who can read
+and write each collection.
+```
+The skill runs `firestore_lint_rules`, builds an identity-by-operation access matrix with no blank cells, and checks each expression against its operation context (a `create` has no `resource.data` yet; a `list` can't lean on one document's fields). Every critical or high finding is proven with `firestore_simulate_rules` before it makes the report. Serves [audit your rules](../audit-your-rules/).
 
-**rtdb-data-model.** One JSON tree, where reading a path downloads everything below it, so structure is performance. The skill designs paths around the reads: flat entity collections, index tables for reverse lookups, denormalized summaries sized for list screens, and a fan-out write plan so every duplicated field updates atomically. Realtime Database support in Pyric is experimental. Serves [sync realtime data](../sync-realtime-data/).
+## rtdb-security-rules
 
-**firebase-audit.** The whole-project posture check, read-only by design. It collects rules, real data shape, and auth configuration, then cross-references them: data paths with no meaningful rule, rules guarding paths where no data exists, writable paths without validation, and rule assumptions no enabled provider can satisfy. The output is a severity-ranked report with evidence for every finding. Serves [audit your rules](../audit-your-rules/).
+Realtime Database rules cascade downward, so a permissive parent grants every descendant and a child cannot take it back. Realtime Database support in Pyric is experimental; [how we know it matches Firebase](../how-we-know-it-matches-firebase/) says what that costs you.
+```
+Lock down database.rules.json so only a post's author can edit
+or delete it, and any signed-in user can read.
+```
+The skill starts from a locked root, opens only the paths the prompt names, and pairs each with a `.validate` shape check. Before anything ships, it simulates four case families per path with `rtdb_simulate_access` (intended actor, anonymous, cross-user, invalid shape) and deploys with `rtdb_deploy_rules`. Serves [audit your rules](../audit-your-rules/).
+
+## rtdb-data-model
+
+One JSON tree, where reading a path downloads everything below it, so structure is performance. Realtime Database support in Pyric is experimental; [how we know it matches Firebase](../how-we-know-it-matches-firebase/) says what that costs you.
+```
+I have a chat app where each room shows its last 50 messages plus
+a live list of who's typing. Model the tree for that.
+```
+The skill inventories the reads first, then designs flat top-level collections and denormalized summary nodes sized for those reads, with a multi-path `rtdb_update` fan-out for every duplicated field. It declares `.indexOn` for each ordered read and confirms the shape by seeding with `rtdb_set` and reading it back with `rtdb_get`. Serves [sync realtime data](../sync-realtime-data/).
+
+## firebase-audit
+
+The whole-project posture check, read-only by design: rules, real data, and auth configuration, cross-referenced for where they disagree.
+```
+Audit the whole project, Firestore, RTDB, and Auth, and tell me
+where the rules and the real data disagree.
+```
+The skill collects rules with `firestore_get_rules` and `rtdb_get_rules`, maps real data shape with `firestore_discover_paths` and `rtdb_crawl_structure`, and checks `auth_get_config` against every `request.auth` assumption the rules make. The output is a severity-ranked report, and remediation is proposed in it, never applied without asking. Serves [audit your rules](../audit-your-rules/).
 
 ## Where to go next
 

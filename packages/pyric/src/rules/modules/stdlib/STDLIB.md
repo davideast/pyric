@@ -7,12 +7,12 @@ Last audited: 2026-07-03
 | Module | Exports | Dependency | Pattern | Verified |
 |--------|---------|------------|---------|----------|
 | [auth](#auth) | 2 | Self-contained | — | Simulator |
-| [validation](#validation) | 2 | Self-contained | — | Simulator |
+| [validation](#validation) | 4 | Self-contained | — | Simulator |
 | [lobby](#lobby) | 3 | Self-contained | — | Simulator |
 | [turns](#turns) | 2 | Self-contained | — | Simulator |
 | [state](#state) | 3 | Self-contained | — | Simulator |
 | [membership](#membership) | 4 | Self-contained | — | Simulator |
-| [lifecycle](#lifecycle) | 2 | Self-contained | — | Simulator |
+| [lifecycle](#lifecycle) | 5 | Self-contained | — | Simulator |
 | [transitions](#transitions) | 3 | Self-contained | — | Simulator |
 | [geometry](#geometry) | 2 | Explicit param | Patterns 12-14 | Simulator + live Rules validation |
 | [counters](#counters) | 3 | Self-contained | — | Simulator |

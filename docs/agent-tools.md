@@ -20,8 +20,9 @@ CRUD + queries against the sandbox or prod backend (whichever the handle
 carries), plus sandbox inspection.
 
 `firestore_get_document` · `firestore_list_documents` ·
-`firestore_create_document` · `firestore_update_document` ·
-`firestore_delete_document` · `firestore_query_where` ·
+`firestore_create_document` · `firestore_add_document` ·
+`firestore_update_document` · `firestore_delete_document` ·
+`firestore_batch_write` · `firestore_query_where` ·
 `sandbox_inspect`
 
 ## Firestore rules — `createFirestoreRulesTools` / `createFirestoreRulesStdlibTools` (`pyric/rules`, Node-only pieces under `pyric/rules/node`)
@@ -76,7 +77,7 @@ Docs: [`packages/pyric-tools/docs/deploy/`](../packages/pyric-tools/docs/deploy/
 `firestore_get_rules` · `firestore_deploy_rules` · `firestore_ensure_rules` ·
 `firestore_provision_database` · `firestore_deploy_indexes` ·
 `firestore_create_index` · `firestore_get_index_status` ·
-`rtdb_get_rules` · `rtdb_deploy_rules` ·
+`rtdb_get_rules` · `rtdb_deploy_rules` · `rtdb_generate_rules` ·
 `hosting_deploy` · `hosting_ensure_site` ·
 `functions_deploy`
 
@@ -92,7 +93,7 @@ Identity Toolkit project configuration.
 
 ---
 
-**Total: 51 unique tool names.** There are 53 factory entries when counting the
+**Total: 54 unique tool names.** There are 56 factory entries when counting the
 scope-based `createRtdbDeployTools` `rtdb_get_rules` / `rtdb_deploy_rules`
 handlers separately from the host-backed RTDB rules factory. Removed since the
 legacy project-level SDK:

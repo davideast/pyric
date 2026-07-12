@@ -1,64 +1,94 @@
 ---
 title: How we know it matches Firebase
 navLabel: Conformance
-outcome: Understand the evidence behind "it behaves like the real one," and what a divergence means when you hit one.
+outcome: See the recordings, the scores they generate, and the boundary where the proof stops.
 status: draft
 ---
 
 # How we know it matches Firebase
 
-"Behaves like Firebase" is a claim anyone can make. Pyric's version is tested, not asserted, and this page shows you the machinery so you can decide how much to trust it.
+Every "behaves like Firebase" claim on this site traces to a recording of production and a test that replays it. This page shows the recordings, the scores they generate, and exactly where the scores stop.
 
-## Recorded from production, replayed on every change
+## The call is identical, only the import moves
 
-Probes run against a real Firebase project and record what actually happens: the error code a bad password returns, the shape a server timestamp resolves to, the way a query orders missing fields. The loop:
+The mirror is one to one. The call you write against Firebase is the call Pyric runs, character for character.
 
-1. Each recording is committed as an observation.
-2. CI replays every committed observation against the sandbox on every change.
-3. If a change makes the sandbox answer differently than production did, the build fails before the change lands.
+```ts
+import { signInWithEmailAndPassword } from 'firebase/auth'; // production
+import { signInWithEmailAndPassword } from 'pyric/auth';    // development
+```
 
-The observations are re-capturable, and the git diff of a re-capture is the drift report. An unchanged file means production still behaves as pinned. A changed file means the behavior moved, and the affected claims get reviewed.
+Same arguments, same return shape, same errors. So "does Pyric match?" becomes one question asked per behavior: does Pyric answer what production answered?
 
-When Pyric tells you how Firebase behaves, it is citing a recording, not repeating documentation.
+## An observation is production, pinned
 
-## The matrices are the contract
+A probe runs the call against a real Firebase project and records what came back. Here is the recording that pins what a wrong password throws:
 
-Each service publishes a compatibility matrix: one row per behavior, each row carrying a status and the evidence that locks it. The rule that governs the whole system is short. **A documented divergence is a row. An undocumented divergence is a bug.**
+```json
+{
+  "name": "auth-wrong-password-error-code",
+  "rowIds": ["auth#15"],
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "code": "auth/wrong-password",
+    "messageContains": { "wrongPassword": true, "invalidCredential": false }
+  }
+}
+```
 
-There is no third category. A row marked diverged states both sides, the reason, and the test that pins both behaviors, so the difference cannot silently widen.
+Each recording is committed, and `compat:check` replays every one against the sandbox on every change: validate, census, entry-path, generate-docs, assurance, coverage. Entry-path conformance gates one canonical init program per service end to end. If the sandbox answers differently than the recording, the build fails before the change lands.
 
-A mismatch with no row is a defect to report, and the fix's regression test already half-exists, because recording the divergence pinned both sides.
+Re-capturing a recording is the drift check. An unchanged file means production still behaves as pinned. A changed file means the behavior moved, and the git diff is the report.
 
-The matrices are generated from the evidence registry, never edited by hand, and the counts in them move as rows land, so read them directly rather than trusting a number quoted anywhere else:
+## SDK behavior: 709 of 813 rows conform
+
+Each service publishes a matrix, one row per behavior, generated from the evidence registry (the file's own banner says so). The counts below are generated, not asserted, and they move as rows land, so read a matrix for its live number.
+
+| Service | Conforming | Documented divergence | Unmirrored | Rows |
+|---|---|---|---|---|
+| Firestore | 146 | 20 | 0 | 166 |
+| Auth | 84 | 11 | 6 | 101 |
+| AI Logic | 74 | 6 | 0 | 80 |
+| Messaging | 56 | 0 | 0 | 56 |
+| App | 14 | 0 | 1 | 15 |
+| Realtime Database | 224 | 10 | 24 | 258 |
+| Storage | 85 | 6 | 12 | 103 |
+
+Across every service, 709 of 813 rows conform. The remaining 104 are accounted for: 61 documented divergences, 30 behaviors out of v1 scope, 13 not yet pinned to a recording (the last two make up the Unmirrored column). A divergence with a row states both sides and the test that pins them. A mismatch with no row is a bug to report, and its regression test half-exists already, because recording the divergence pins both sides.
+
+Messaging conforms on all 56 of its rows but is conformance-held, not yet published.
+
+## Rules language: measured against its own API
+
+Rules is a native surface, so it is scored construct by construct against Google's hosted Rules Test API rather than against an SDK. Each number is verified constructs over the constructs a static analyzer can attribute, generated by the rules-language analyzer.
+
+| Engine | Verified | Attributable constructs | Coverage |
+|---|---|---|---|
+| Storage | 51 | 53 | 96.2% |
+| Firestore | 128 | 140 | 91.4% |
+| Realtime Database | 18 | 55 | 32.7% |
+
+Firestore and Storage rules are exercised deeply. Realtime Database rules sit at 18 of 55, and the Realtime Database and Storage SDKs are experimental. Their matrices, linked below, state the exact boundary.
+
+## Assurance: when the engine abstains
+
+A separate report asks a different question: for a given security capability, can the engine assert a verdict at all? Its capabilities are derived from the graph above, not authored: of 16, 2 are supported, 2 qualified, 12 unsupported.
+
+Supported means the engine asserts. Anything short of supported means it abstains, an engine-gap, rather than return a conclusion it cannot back. The 12 that abstain today are mostly cross-write atomicity, listener re-evaluation, and query-shape authorization that no construct yet models.
+
+## The matrices, per service
+
+The receipts behind every number above, one page each:
 
 - [Firestore](../../../../packages/pyric/docs/firestore/COMPAT.md)
 - [Auth](../../../../packages/pyric/docs/auth/COMPAT.md)
+- [Rules](../../../../packages/pyric/docs/rules/COMPAT.md)
 - [Realtime Database](../../../../packages/pyric/docs/database/COMPAT.md)
 - [Storage](../../../../packages/pyric/docs/storage/COMPAT.md)
-
-## The rules engine has its own harness
-
-Rules are where local-versus-production differences hurt most, so the rules simulator does not lean on the matrices alone. It keeps a corpus of rulesets, valid, invalid, and edge cases, each saved with its known outcome.
-
-A parity harness runs that corpus against Google's hosted Rules Test API in CI. The same source goes to both engines, and the verdicts are compared. Building that corpus is also where much of Pyric's rules knowledge came from: you cannot save every variant with its known outcome without first discovering the outcomes.
-
-You can run the same cross-check on your own traffic:
-
-```bash
-pyric verify --engine both --project my-app --rules firestore=firestore.rules
-```
-
-It sends your captured session through the local engine and the hosted one and flags any disagreement. See [Ship to production](../ship/ship-to-production.md).
-
-## What a divergence means for you
-
-If you hit behavior that differs from production, check the service's matrix first.
-
-- A row means the difference is intentional, explained, and stable. Read the reason and decide whether it affects you.
-- No row means you found a bug, and reporting it comes with a built-in guarantee: the fix will be pinned by an observation, so it cannot regress silently.
-
-One honest boundary: this level of proof currently holds for Auth, Firestore, and Rules. Realtime Database and Storage work and are documented, but most of their behavior is not yet pinned to production observations — see their matrices, linked above, for the exact boundary.
+- [AI Logic](../../../../packages/pyric/docs/ai/COMPAT.md)
+- [Messaging](../../../../packages/pyric/docs/messaging/COMPAT.md)
+- [App](../../../../packages/pyric/docs/app/COMPAT.md)
 
 ## Where to go next
 
-Read the [Realtime Database](../../../../packages/pyric/docs/database/COMPAT.md) and [Storage](../../../../packages/pyric/docs/storage/COMPAT.md) matrices for the exact boundary, or put the claim under load yourself: run the app, break a rule, and compare the verdict against production's.
+Put the claim under load yourself: run the app, break a rule, and compare the verdict against production's in [ship to production](../ship/ship-to-production.md).

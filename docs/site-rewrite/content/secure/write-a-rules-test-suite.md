@@ -9,19 +9,16 @@ status: draft
 
 A ruleset is code that decides who sees what. It deserves tests like any other code that matters.
 
-In Pyric a rules test is a small fixture, a `TestCase`, and a whole suite runs in-process in milliseconds. No Firebase project, no network, no deploy.
+In Pyric a rules test is a small fixture, a test case, and a whole suite runs in-process in milliseconds. No Firebase project, no network, no deploy.
 
 ## The fixtures
 
-A `TestCase` describes one hypothetical request and the verdict you expect:
+A test case describes one hypothetical request and the verdict you expect. The public type is `FirestoreCase`:
 
 ```ts
-import {
-  SimulateFirestoreRulesHandler,
-  type TestCase,
-} from 'pyric/rules';
+import { firestoreRules, assertCase, type FirestoreCase } from 'pyric/rules';
 
-const testCases: TestCase[] = [
+const cases: FirestoreCase[] = [
   {
     description: 'authenticated read on /notes is allowed',
     expectation: 'ALLOW',
@@ -57,31 +54,44 @@ const testCases: TestCase[] = [
 
 The fields map straight onto what the rule sees. `resource` is the existing document, `data` is the proposed write, `auth.uid` becomes `request.auth.uid`, and `auth.token` becomes `request.auth.token` for rules that check custom claims.
 
-## Run the suite
+## Run the suite in your test runner
+
+Compile the source once, then let each case become a test. `assertCase` throws on a miss, and its message is the trace, so a failing test tells you which rule decided:
 
 ```ts
-const sim = new SimulateFirestoreRulesHandler();
-const result = sim.simulate(source, testCases);
-
-const { passed, failed, unsupported, results } = result.data;
-console.log(`${passed} passed · ${failed} failed · ${unsupported} unsupported`);
+const ruleset = firestoreRules(source);
+for (const c of cases) {
+  test(c.description, () => assertCase(ruleset, c));
+}
 ```
 
-A failed case means the simulator's verdict disagreed with your `expectation`, and its `debugMessages` trace shows which rule decided. An `UNSUPPORTED` case means the simulator hit a feature it does not implement and abstained. It is not counted as a failure, and it is never a guess.
+A passing case returns `void`. A mismatch throws `RulesAssertionError`. A case that hits a feature the simulator does not implement throws `RulesUnsupportedError`, so an abstention never masquerades as a pass.
+
+Prefer a summary over per-case tests? Run every case at once and read the counts:
+
+```ts
+const summary = firestoreRules(source).simulate(cases);
+console.log(`${summary.passed} passed · ${summary.failed} failed · ${summary.unsupported} unsupported`);
+```
+
+`simulate` returns a `SimulationSummary`: the three counts plus a `cases` array of results. A result whose `passed` is `false` disagreed with your `expectation`. One whose `unsupported` is `true` abstained, and is not counted as a failure.
 
 Two fixture fields worth knowing before your suite grows:
 
 - For `update` and merge writes, set `writeMode` so the simulator projects the post-write document the way Firestore does.
-- For rules that read `request.time`, pin `requestTime` to an ISO timestamp so the verdict does not depend on the clock. Pass `{ testCases }` to `lintFirestoreRules` and `REQUEST_TIME_NOT_PINNED` flags the cases you missed.
+- For rules that read `request.time`, pin `requestTime` to an ISO timestamp so the verdict does not depend on the clock.
 
 ## Gate CI on it
 
-The suite is a script, so CI is one exit code away:
+The suite is a script, so CI is one exit code away. `explainCase` renders any result as a readable trace, so a failure prints its own reason:
 
 ```ts
-if (!result.success || result.data.failed > 0) {
-  for (const r of result.data.results) {
-    if (r.state === 'FAILED') console.error(`FAILED: ${r.description}`);
+import { explainCase } from 'pyric/rules';
+
+const summary = firestoreRules(source).simulate(cases);
+if (summary.failed > 0) {
+  for (const r of summary.cases) {
+    if (!r.passed && !r.unsupported) console.error(explainCase(r));
   }
   process.exit(1);
 }
@@ -89,36 +99,23 @@ if (!result.success || result.data.failed > 0) {
 
 Sub-millisecond per case once the rules are parsed. There is no reason not to run this on every push.
 
+You can also run a scripted suite from the command line. `pyric rules:simulate --stdin` reads a JSON `{ source, testCases }` request and prints each verdict, which keeps rules out of your test-runner setup when you want a standalone check.
+
 ## When you want Google's own answer
 
-The hosted Rules Test API evaluates your cases on Google's servers, in the same engine production uses, without deploying anything. It takes the same `TestCase` objects and returns the same result shape. It needs a real project and credentials:
+The hosted Rules Test API evaluates cases on Google's servers, in the same engine production uses, without deploying anything. It is Firestore-only and needs a real project and credentials. Reach it through `pyric verify`: replay a captured session against both engines and it reports any divergence.
 
-```ts
-import { TestFirestoreRulesHandler } from 'pyric/rules';
-import { fromServiceAccount } from 'pyric-tools/deploy';
-
-const scope = await fromServiceAccount('./service-account.json');
-const remote = await new TestFirestoreRulesHandler()
-  .execute(scope, source, testCases);
+```bash
+pyric verify journeys/checkout.json --engine both --project demo-app
 ```
 
-The practical pattern is local-first: run everything through the simulator, then send only the `UNSUPPORTED` cases to the hosted engine.
+`--engine sandbox` (the default) runs the local simulator, `--engine rules-test-api` runs Google's, and `--engine both` runs each and diffs the verdicts. The practical pattern is local-first: run the sandbox on every push, and reserve the hosted engine for the cases the simulator marked `unsupported`.
 
-```ts
-const escalate = testCases.filter(
-  (_, i) => result.data.results[i].state === 'UNSUPPORTED',
-);
-if (escalate.length > 0) {
-  const remote = await new TestFirestoreRulesHandler()
-    .execute(scope, source, escalate);
-}
-```
-
-Each hosted call is one HTTP round-trip, tens to hundreds of milliseconds. The simulator itself is held to that engine's answers by a parity corpus that runs in CI, so for most suites the local verdicts are the same verdicts, sooner.
+The simulator itself is held to that engine's answers by a parity corpus that runs in CI, so for most suites the local verdicts are the same verdicts, sooner.
 
 ## And from an agent
 
-An agent can run this exact loop through `firestore_simulate_rules` and `firestore_test_rules`, which means the rules it writes arrive with a passing suite instead of a promise. See [skills](../agent/skills.md).
+An agent can run this exact loop: compile with `firestoreRules`, assert each case with `assertCase`, and read the `explainCase` trace on any miss. The rules it writes then arrive with a passing suite instead of a promise, and it can escalate the same cases to Google's engine through `pyric verify` when it needs the authoritative answer. See [skills](../agent/skills.md).
 
 ## Where to go next
 

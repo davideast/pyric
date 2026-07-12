@@ -11,15 +11,45 @@ A broken ruleset fails late: a `400` at deploy time, or a `403` at runtime. Pyri
 
 Simulation tells you what a rule decides. Linting tells you what the production compiler and runtime will reject, and why, in the language of the mistake you made.
 
-## Simulate a hypothetical request
+## Simulate a request from the command line
 
-Ask the simulator whether a specific request would be allowed. It runs in-process, no network, no project:
+Feed the rules source and one or more cases to the simulator on stdin. It runs in-process, no network, no project. Put the request in a JSON file:
+
+```json
+{
+  "source": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /notes/{noteId} {\n      allow read: if request.auth != null;\n    }\n  }\n}",
+  "testCases": [
+    {
+      "description": "unauthenticated read is denied",
+      "expectation": "DENY",
+      "method": "get",
+      "path": "notes/n1"
+    }
+  ]
+}
+```
+
+Then pipe it in:
+
+```bash
+pyric rules:simulate --stdin < request.json
+```
+
+Each case reports `PASSED`, `FAILED`, or `UNSUPPORTED`, and each carries a trace naming the rule that decided:
+
+```
+Rule #0 (read) → deny
+Simulated: DENY
+```
+
+`UNSUPPORTED` means the simulator hit a feature it does not implement and abstained rather than guessed. Those cases can be escalated to Google's own engine through `pyric verify --engine rules-test-api`. See [write a rules test suite](../secure/write-a-rules-test-suite.md).
+
+The same simulator is available in code. Compile the source once, then run the cases:
 
 ```ts
-import { SimulateFirestoreRulesHandler } from 'pyric/rules';
+import { firestoreRules } from 'pyric/rules';
 
-const sim = new SimulateFirestoreRulesHandler();
-const result = sim.simulate(source, [
+const summary = firestoreRules(source).simulate([
   {
     description: 'unauthenticated read is denied',
     expectation: 'DENY',
@@ -27,18 +57,10 @@ const result = sim.simulate(source, [
     path: 'notes/n1',
   },
 ]);
+console.log(`${summary.passed} passed, ${summary.failed} failed`);
 ```
 
-Each result is `PASSED`, `FAILED`, or `UNSUPPORTED`, and each carries `debugMessages`, a trace naming the rule that decided:
-
-```
-Rule #0 (read) → deny
-Simulated: DENY
-```
-
-`UNSUPPORTED` means the simulator hit a feature it does not implement and abstained rather than guessed. Those cases can be routed to Google's own engine. See [write a rules test suite](../secure/write-a-rules-test-suite.md).
-
-The same simulator is on the command line as `pyric rules:simulate`, and it is what evaluates every operation inside your running sandbox.
+`simulate` never throws on a rule outcome. It returns a `SimulationSummary` (`passed`, `failed`, `unsupported`, and a `cases` array), so a denied or abstained case is data you read, not an exception you catch. The same simulator evaluates every operation inside your running sandbox.
 
 ## Lint before the compiler can reject you
 
@@ -46,15 +68,15 @@ The same simulator is on the command line as `pyric rules:simulate`, and it is w
 pyric rules:lint firestore.rules
 ```
 
-Or in code:
+Or in code. The tolerant `lint` function accepts any source, never throws, and returns one flat list of issues:
 
 ```ts
-import { lintFirestoreRules } from 'pyric/rules';
+import { lint } from 'pyric/rules';
 
-const { warnings, metrics } = lintFirestoreRules(source);
+const issues = lint(source);
 ```
 
-The linter checks two different kinds of failure.
+Each `RuleIssue` carries a `code`, a `severity` of `'error' | 'warning' | 'info'`, a `message`, and often a `fix`. The linter checks two different kinds of failure.
 
 **The production limits.** The rules compiler enforces hard caps: a 256 KB source ceiling, a boolean chain depth of 98, 11 `let` bindings per function, `get()` call counts, and a runtime evaluation budget that fails as a silent `permission-denied` under load. The linter carries each cap as an exact threshold, measured by probing the production engine. The numbers live in [the compiler and evaluator limits](../secure/limits-that-bite.md).
 
@@ -75,7 +97,7 @@ Code like `resource.data.tags.includes('x')` parses fine and then fails at runti
 | `request.data` | `request.resource.data` |
 | `undefined` | `null` |
 
-Each of these emits a warning that names the mistake:
+Each of these emits an issue whose `message` names the mistake and whose `fix` carries the correction:
 
 ```
 [HALLUCINATED_METHOD] `.includes()` does not exist in Firestore rules.
@@ -86,11 +108,10 @@ The syntax-level catches (`===`, `?.`, `??`, arrow functions, backtick strings) 
 
 ## Let the errors block the deploy
 
-Warnings carry a severity. `pyric deploy rules` refuses to ship a ruleset with any `error`-severity finding, and you can mirror that gate in CI:
+Every issue carries a severity. `pyric deploy rules` refuses to ship a ruleset with any `error`-severity finding, and you can mirror that gate in CI:
 
 ```ts
-const errors = lintFirestoreRules(source).warnings
-  .filter((w) => w.severity === 'error');
+const errors = lint(source).filter((i) => i.severity === 'error');
 if (errors.length > 0) process.exit(1);
 ```
 
@@ -98,7 +119,7 @@ A hallucinated method is always an error, because the named method literally doe
 
 ## And from an agent
 
-This is the loop that keeps an agent honest. It calls `firestore_lint_rules` on the rules it wrote, reads the fixes in the warnings, and corrects itself before anything deploys. Then `firestore_simulate_rules` confirms the behavior. The mistakes the linter catches are, in large part, the mistakes models make. See [what your agent can do](../agent/skills.md).
+This is the loop that keeps an agent honest. It runs `lint` on the rules it wrote, reads the `fix` on each issue, and corrects itself before anything deploys. Then a `simulate` run confirms the behavior. The mistakes the linter catches are, in large part, the mistakes models make. See [what your agent can do](../agent/skills.md).
 
 ## Where to go next
 
