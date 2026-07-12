@@ -587,7 +587,18 @@ async function loadScenarios(
   const { join, dirname } = await import('node:path');
   const { fileURLToPath } = await import('node:url');
   const here = dirname(fileURLToPath(import.meta.url));
-  const obsDir = join(here, '..', 'observations', engine);
+  // The rules capture runners write to the engine's NATIVE conformance surface
+  // dir (issue #184): Firestore/Storage rules twins land in
+  // `observations/<engine>-rules/`, not `observations/<engine>/` (which holds the
+  // SDK-surface twins). RTDB rules ride the plain `rtdb` surface (its runner
+  // writes there and has no Test API twins). Read from the same dir the runner
+  // wrote to, or every twin is invisible and verified coverage reads 0.
+  const OBS_SURFACE_DIR: Record<RulesEngine, string> = {
+    firestore: 'firestore-rules',
+    storage: 'storage-rules',
+    rtdb: 'rtdb',
+  };
+  const obsDir = join(here, '..', 'observations', OBS_SURFACE_DIR[engine]);
   let obsFiles: string[] = [];
   try {
     obsFiles = readdirSync(obsDir);

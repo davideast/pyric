@@ -32,8 +32,10 @@ import {
   type Scenario,
 } from '../../../../packages/conformance/rules-corpus/firestore/index.ts';
 
-// rules-firestore-* observations live under the 'firestore' surface subdirectory.
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'firestore');
+// rules-firestore-* observations live under the native 'firestore-rules'
+// conformance surface (issue #184) — distinct from the SDK-surface 'firestore'
+// dir. The capture runner (run-rules.ts) writes here; read from the same place.
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'firestore-rules');
 
 /** name (no extension) → scenario, for O(1) observation→scenario resolution. */
 const SCENARIO_BY_OBSERVATION = new Map<string, Scenario>(
