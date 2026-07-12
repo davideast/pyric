@@ -872,7 +872,7 @@
     "storage-rules#113": "conforms",
     "storage-rules#114": "conforms",
     "storage-rules#115": "conforms",
-    "storage-rules#116": "diverged-documented"
+    "storage-rules#116": "conforms"
   },
   "highRiskUnverified": [
     "storage#67",

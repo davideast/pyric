@@ -81,8 +81,15 @@ For existing objects:
 - `resource.size`: byte count.
 - `resource.contentType`: MIME string.
 - `resource.metadata`: custom metadata, accessible both by bracket (`resource.metadata['sessionId']`) and dotted form (`resource.metadata.sessionId`).
+- `resource.name`: the object's **full path within the bucket** (`uploads/pic.png`) — the Cloud Storage object-name convention. This is not the client SDK's `FullMetadata.name`, which is only the last path segment.
+- `resource.bucket`: the bucket the object resides in.
+- `resource.timeCreated` / `resource.updated`: the object's creation and last-update timestamps. The update-time field is `updated`; the language has no `resource.timeUpdated`.
 
-`resource.timeCreated` / `resource.updated` are still unsupported — see [Implementation scope](../pyric-storage-explanation-implementation-scope/).
+`duration.value(n, unit)` builds a duration, so a freshness window reads:
+```
+allow delete: if request.time < resource.timeCreated + duration.value(1, 'h');
+```
+Reading a field an object does not carry is an evaluation error, and an error **denies** — including through a negation, so `resource.name != 'x'` on an object with no name denies rather than allowing.
 
 ## Cross-service lookups
 
@@ -109,7 +116,7 @@ Strings (`'...'` or `"..."`), numbers, booleans (`true` / `false`), `null`, `tim
 
 These still produce parse or evaluation errors:
 
-- `resource.timeCreated` / `resource.updated` metadata fields.
+- The content-hash fields (`resource.md5Hash`, `resource.crc32c`, `resource.etag`).
 - Regex constructs that RE2 can't express inside `matches()`.
 
 See [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) for the reasoning.

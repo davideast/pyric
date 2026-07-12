@@ -1193,3 +1193,102 @@ describe('firestore lookups thread through real storage enforcement', () => {
     ).rejects.toThrow(/unauthorized/);
   });
 });
+
+// ─── resource object-identity / time fields ───────────────────────────────────
+
+/** Extension guard on the object's FULL path (`resource.name`), plus an
+ *  immutability check on the server timestamps. Both fields come from the
+ *  persisted object record, so these rules only work if the persistence layer
+ *  actually feeds them into the evaluator. */
+const OBJECT_IDENTITY_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileId} {
+      allow write: if true;
+      // Only image objects are readable — matched against the FULL object path.
+      allow get: if resource.name.matches('uploads/.*[.]png');
+      // A metadata update is allowed only while the object was never modified.
+      allow update: if resource.timeCreated == resource.updated;
+    }
+  }
+}`;
+
+describe('resource object-identity / time fields thread through real ops', () => {
+  it('resource.name is the FULL object path, so an extension guard admits a .png', async () => {
+    const sandbox = initializeSandbox({});
+    const dbName = uniqueDbName('res-name-png');
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName,
+      rules: OBJECT_IDENTITY_RULES,
+    });
+    const path = 'b/pyric-default/o/uploads/pic.png';
+    await uploadBytes(ref(alice, path), new Blob(['x']), { contentType: 'image/png' });
+    const blob = await getBlob(ref(alice, path));
+    expect(await blob.text()).toBe('x');
+  });
+
+  it('the same guard denies a .txt — the field is read, not silently undefined', async () => {
+    const sandbox = initializeSandbox({});
+    const dbName = uniqueDbName('res-name-txt');
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName,
+      rules: OBJECT_IDENTITY_RULES,
+    });
+    const path = 'b/pyric-default/o/uploads/notes.txt';
+    await uploadBytes(ref(alice, path), new Blob(['x']), { contentType: 'text/plain' });
+    await expect(getBlob(ref(alice, path))).rejects.toThrow(/unauthorized/);
+  });
+
+  it('resource.timeCreated == resource.updated admits the first metadata update', async () => {
+    const sandbox = initializeSandbox({});
+    const dbName = uniqueDbName('res-immutable');
+    const alice = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
+      dbName,
+      rules: OBJECT_IDENTITY_RULES,
+    });
+    const path = 'b/pyric-default/o/uploads/pic.png';
+    await uploadBytes(ref(alice, path), new Blob(['x']), { contentType: 'image/png' });
+    // Freshly uploaded: timeCreated === updated, so the update is allowed.
+    const meta = await updateMetadata(ref(alice, path), { contentType: 'image/png' });
+    expect(meta.contentType).toBe('image/png');
+  });
+});
+
+describe('absent resource properties error and deny (no false-allow)', () => {
+  const rules = parseStorageRules(`rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{id} {
+      allow get: if resource.name != 'nope';
+    }
+  }
+}`);
+
+  /** The regression this guards: modeling an absent field as plain `undefined`
+   *  makes `undefined != 'nope'` TRUE in JavaScript, which would ALLOW. */
+  it('denies `resource.name != <literal>` when name is absent', () => {
+    const result = evaluateStorageRules(rules, {
+      request: { auth: { uid: 'a' }, method: 'get', path: '/b/b1/o/x/1' },
+      resource: { size: 10 },
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.reasons.join(' ')).toMatch(/Property name is undefined/);
+  });
+
+  it('allows the same rule when name is present and differs', () => {
+    const result = evaluateStorageRules(rules, {
+      request: { auth: { uid: 'a' }, method: 'get', path: '/b/b1/o/x/1' },
+      resource: { size: 10, name: 'x/1' },
+    });
+    expect(result.allowed).toBe(true);
+  });
+
+  it('denies a property read through a null resource (create with no object)', () => {
+    const result = evaluateStorageRules(rules, {
+      request: { auth: { uid: 'a' }, method: 'get', path: '/b/b1/o/x/1' },
+      resource: null,
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.reasons.join(' ')).toMatch(/Null value error/);
+  });
+});
