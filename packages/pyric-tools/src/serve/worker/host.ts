@@ -54,25 +54,8 @@ import {
   type CollectionReference,
   type Query,
 } from 'pyric/firestore';
-import type { Sandbox, PersistenceBackend, AuthLens } from 'pyric/sandbox';
+import type { Sandbox, PersistenceBackend } from 'pyric/sandbox';
 import { serializeToBuckets, bundleRecords, parseBundle, deserializeFromBuckets } from 'pyric/sandbox';
-import { initializeApp } from 'pyric/app';
-import {
-  getStorage,
-  getStorageSandbox,
-  ref as storageRef,
-  listAll as storageListAll,
-  getMetadata as storageGetMetadata,
-  getBlob as storageGetBlob,
-  getBytes as storageGetBytes,
-  uploadBytes as storageUploadBytes,
-  deleteObject as storageDeleteObject,
-  type FirebaseStorage,
-  type SettableMetadata,
-} from 'pyric/storage';
-// Host-only rules-bypass admin plane — the storage mirror of
-// `getAdminFirestore`/`getAdminDatabase`, resolved for `actAs: { mode: 'admin' }`.
-import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import {
   ref as rtdbRef,
   onValue as rtdbOnValue,
@@ -94,11 +77,6 @@ import {
   isRtdbSub,
   isAiSub,
   isMessagingSub,
-  bytesToBase64,
-  base64ToBytes,
-  storagePayloadTooLarge,
-  MAX_STORAGE_OP_BYTES,
-  MAX_STORAGE_OP_B64_LENGTH,
 } from './protocol.js';
 // The canonical agent tool dispatcher — reused on the worker so a bridged agent
 // executes against THIS sandbox (one backend for app + Studio + agent), instead
@@ -130,8 +108,6 @@ import {
   resolveTarget,
   serializeDocSnap,
   lensDb,
-  authStateForLens,
-  lensCacheKey,
   lensProvenance,
   sessionDb,
   lensRtdb,
@@ -142,6 +118,7 @@ import { isFirestoreWriteOp, handleFirestoreWriteOp } from './host/firestore-wri
 import { isRulesOp, handleRulesOp } from './host/rules.js';
 import { isAdminFirestoreOp, handleAdminFirestoreOp } from './host/admin-firestore.js';
 import { isRtdbOp, handleRtdbOp, rtdbSnapToWire } from './host/rtdb.js';
+import { isStorageOp, handleStorageOp } from './host/storage.js';
 
 // Re-export so host.ts's public surface is unchanged after the decomposition.
 export { ensureAuth, portSession } from './host-auth.js';
@@ -205,98 +182,6 @@ async function writeBranchRegistry(idb: PersistenceBackend, names: string[]): Pr
 
 // ─── Op handlers ──────────────────────────────────────────────────────────
 
-/** The shared Storage handle, lazily created (Pyric Studio data browse): one per
- *  worker, over an app bound to the shared sandbox. The high-level
- *  `pyric/storage` ops enforce rules, so the host reads through them. */
-function ensureStorage(ctx: HostCtx): FirebaseStorage {
-  return (ctx.storage ??= getStorage(initializeApp({ sandbox: ctx.sandbox })));
-}
-
-/**
- * Resolve the Storage handle a storage op runs against, given its `actAs`
- * lens — the storage mirror of {@link lensRtdb}:
- *
- *   - absent / `app-session` → the shared anonymous page handle
- *     ({@link ensureStorage}). Storage rules apply only when the HOST
- *     configured them on this sandbox's storage service (first call per
- *     sandbox wins) — the SERVED worker configures them via
- *     `applyServeInit` (`serve-init.ts`), which opens the storage service
- *     with `payload.storageRules` BEFORE any op can reach `ensureStorage`/
- *     `lensStorage`, so every lens on a served worker enforces the
- *     project's storage.rules (or runs open when the project has none,
- *     matching Firestore/RTDB's no-rules posture). The lens split still
- *     matters for embedding/test hosts that open the service directly.
- *     (Storage also has no per-port session plumbing — reads always ran
- *     anonymous; writes keep that.)
- *   - `{ mode: 'admin' }` → the rules-BYPASS handle from
- *     `pyric/storage/internal`'s admin plane — same per-sandbox store +
- *     ruleset, rule evaluation skipped (firebase-admin semantics for the
- *     `pyric-admin` remote arm / Studio admin lens).
- *   - `{ mode: 'as', uid }` → a frozen-identity `getStorageSandbox(
- *     sandbox.withAuth({ uid, token? }))` handle; rules evaluate AS that
- *     user. Cached per uid/token key on `ctx.lensStorages`.
- */
-function lensStorage(ctx: HostCtx, actAs?: AuthLens): FirebaseStorage {
-  if (!actAs || actAs.mode === 'app-session') {
-    return ensureStorage(ctx);
-  }
-  if (actAs.mode === 'admin') {
-    return (ctx.adminStorage ??= getAdminStorageSandbox(ctx.sandbox));
-  }
-  // Genuinely unauthenticated — see the `anon` note on lensDb. Distinct from
-  // the shared page handle only when the host configured storage rules, but
-  // pinning it keeps remote `withAuth(null)` semantics uniform across services.
-  if (actAs.mode === 'anon') {
-    return (ctx.anonStorage ??= getStorageSandbox(ctx.sandbox.withAuth(null)));
-  }
-  const handles = (ctx.lensStorages ??= new Map());
-  const key = lensCacheKey(actAs);
-  let handle = handles.get(key);
-  if (!handle) {
-    handle = getStorageSandbox(ctx.sandbox.withAuth(authStateForLens(actAs)));
-    handles.set(key, handle);
-  }
-  return handle;
-}
-
-/**
- * Map a wire `storage.putBytes` payload to `pyric/storage`'s
- * `SettableMetadata`. The explicit `contentType` field wins; recognized
- * settable fields are lifted from `metadata`; a GCS-style nested custom map
- * (`metadata.metadata`, as `@google-cloud/storage`'s `save` spells it) or a
- * pyric-style `metadata.customMetadata` becomes `customMetadata` with
- * values coerced to strings (the storage-rules `metadata` model).
- */
-function toSettableMetadata(msg: {
-  contentType?: string;
-  metadata?: Record<string, unknown>;
-}): SettableMetadata {
-  const md = msg.metadata ?? {};
-  const str = (key: string): string | undefined =>
-    typeof md[key] === 'string' ? (md[key] as string) : undefined;
-  const customSource = md['customMetadata'] ?? md['metadata'];
-  let customMetadata: Record<string, string> | undefined;
-  if (customSource !== null && typeof customSource === 'object' && !Array.isArray(customSource)) {
-    customMetadata = {};
-    for (const [k, v] of Object.entries(customSource as Record<string, unknown>)) {
-      customMetadata[k] = String(v);
-    }
-  }
-  const settable: SettableMetadata = {};
-  const contentType = msg.contentType ?? str('contentType');
-  if (contentType !== undefined) settable.contentType = contentType;
-  const cacheControl = str('cacheControl');
-  if (cacheControl !== undefined) settable.cacheControl = cacheControl;
-  const contentDisposition = str('contentDisposition');
-  if (contentDisposition !== undefined) settable.contentDisposition = contentDisposition;
-  const contentEncoding = str('contentEncoding');
-  if (contentEncoding !== undefined) settable.contentEncoding = contentEncoding;
-  const contentLanguage = str('contentLanguage');
-  if (contentLanguage !== undefined) settable.contentLanguage = contentLanguage;
-  if (customMetadata !== undefined) settable.customMetadata = customMetadata;
-  return settable;
-}
-
 async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
   // Explicit lens (Studio admin / as / app-session) → lensDb; no lens → the
   // PORT'S SESSION (#754), so app ops run as whoever this tab signed in as.
@@ -316,6 +201,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
   if (isRulesOp(msg.method)) return handleRulesOp(ctx, port, msg, db);
   if (isAdminFirestoreOp(msg.method)) return handleAdminFirestoreOp(ctx, port, msg);
   if (isRtdbOp(msg.method)) return handleRtdbOp(ctx, port, msg);
+  if (isStorageOp(msg.method)) return handleStorageOp(ctx, port, msg);
 
   switch (msg.method) {
     case 'getVersion': {
@@ -417,113 +303,6 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
       // Export the current sandbox snapshot (Pyric Studio rules re-run): Studio
       // forks it locally to test edited rules / re-issue as the user on a branch.
       ok(port, msg.id, ctx.sandbox.snapshot());
-      break;
-    }
-
-    case 'storage.listAll': {
-      // Object browse. `listAll` enforces `read` rules on the scanned prefix
-      // under the op's lens (admin lens bypasses — see lensStorage).
-      try {
-        const storage = lensStorage(ctx, msg.actAs);
-        const result = await storageListAll(storageRef(storage, msg.path));
-        ok(port, msg.id, {
-          items: result.items.map((r) => ({ fullPath: r.fullPath, name: r.name })),
-          prefixes: result.prefixes.map((r) => ({ fullPath: r.fullPath, name: r.name })),
-        });
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'storage.getMetadata': {
-      try {
-        const storage = lensStorage(ctx, msg.actAs);
-        // FullMetadata is plain JSON (bucket/fullPath/name/size/contentType/...).
-        ok(port, msg.id, await storageGetMetadata(storageRef(storage, msg.path)));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'storage.getBlob': {
-      // MessagePort-ONLY: the Blob structured-clones to in-page callers
-      // (Studio previews) but silently corrupts under the JSON WS relay — the
-      // bridge client rejects relaying it (binary-payload guard). Remote
-      // callers use `storage.getBytes` (base64) instead.
-      try {
-        const storage = lensStorage(ctx, msg.actAs);
-        ok(port, msg.id, await storageGetBlob(storageRef(storage, msg.path)));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'storage.putBytes': {
-      // Byte upload (remote sandbox, slice 2). Decode-end size cap: reject an
-      // oversized base64 string BEFORE materializing its bytes, then re-check
-      // the exact decoded length. Rules enforce under the op's lens; the
-      // upload emits `service_mutation` events. Storage dispatch is async, so
-      // the event escapes the ambient-provenance window `handleMessage` opened;
-      // thread the op's provenance EXPLICITLY so a Studio-issued write is
-      // attributable end to end (issue #84 item 3).
-      try {
-        if (msg.dataB64.length > MAX_STORAGE_OP_B64_LENGTH) {
-          throw storagePayloadTooLarge(
-            Math.floor(msg.dataB64.length * 0.75),
-            `storage.putBytes payload for '${msg.path}'`,
-          );
-        }
-        const bytes = base64ToBytes(msg.dataB64);
-        if (bytes.byteLength > MAX_STORAGE_OP_BYTES) {
-          throw storagePayloadTooLarge(bytes.byteLength, `storage.putBytes payload for '${msg.path}'`);
-        }
-        const storage = lensStorage(ctx, msg.actAs);
-        const result = await storageUploadBytes(
-          storageRef(storage, msg.path),
-          bytes,
-          toSettableMetadata(msg),
-          opProvenance(msg),
-        );
-        // FullMetadata — plain JSON, relay-safe.
-        ok(port, msg.id, result.metadata);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'storage.getBytes': {
-      // JSON-safe byte download (remote sandbox, slice 2): base64 in the
-      // result. Encode-end size cap so a big browser-side object can't blow
-      // up the relay. Metadata is read alongside for contentType (both reads
-      // run under the same lens; rule-eval order keeps `unauthorized`
-      // superseding `not-found`, matching pyric/storage).
-      try {
-        const storage = lensStorage(ctx, msg.actAs);
-        const r = storageRef(storage, msg.path);
-        const meta = await storageGetMetadata(r);
-        if (meta.size > MAX_STORAGE_OP_BYTES) {
-          throw storagePayloadTooLarge(meta.size, `object '${msg.path}'`);
-        }
-        const buf = await storageGetBytes(r);
-        if (buf.byteLength > MAX_STORAGE_OP_BYTES) {
-          throw storagePayloadTooLarge(buf.byteLength, `object '${msg.path}'`);
-        }
-        ok(port, msg.id, {
-          dataB64: bytesToBase64(new Uint8Array(buf)),
-          contentType: meta.contentType,
-          size: buf.byteLength,
-        });
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'storage.deleteObject': {
-      // `pyric/storage`'s sandbox delete is idempotent (no-op on missing) —
-      // matching the pyric-admin local arm's delete semantics. Rules enforce
-      // `write` under the op's lens; deletes emit `service_mutation` events.
-      // Async dispatch escapes the ambient window — thread provenance
-      // explicitly (issue #84 item 3).
-      try {
-        const storage = lensStorage(ctx, msg.actAs);
-        await storageDeleteObject(storageRef(storage, msg.path), opProvenance(msg));
-        ok(port, msg.id, null);
-      } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
