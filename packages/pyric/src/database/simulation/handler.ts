@@ -42,44 +42,11 @@ function snapshotChildKeys(snap: DataSnapshot): string[] {
 }
 
 /**
- * Descend the rule tree to the node sitting exactly at the write location,
- * accumulating `$pathVar` bindings along the way. Returns `null` when the
- * write path runs deeper than the rule tree — i.e. there is no rule node
- * at or below the write location, so nothing to validate. (Mirrors
- * {@link collectAncestors}' first-match descent so bindings stay
- * consistent.)
- */
-function findWriteLocationNode(
-  node: RtdbNode,
-  segments: string[],
-  bindings: Record<string, string>,
-): { node: RtdbNode; bindings: Record<string, string> } | null {
-  if (segments.length === 0) return { node, bindings };
-
-  for (const child of node.children) {
-    const childSegments = child.path.split('/').filter(Boolean);
-    if (childSegments.length === 0) continue;
-
-    const lastSegment = childSegments[childSegments.length - 1];
-    const isPathVar = lastSegment.startsWith('$');
-
-    if (isPathVar || segments[0] === lastSegment) {
-      const newBindings = isPathVar
-        ? { ...bindings, [lastSegment]: segments[0] }
-        : { ...bindings };
-      return findWriteLocationNode(child, segments.slice(1), newBindings);
-    }
-  }
-
-  return null;
-}
-
-/**
- * Non-cascading `.validate` enforcement for a write. RTDB evaluates
- * `.validate` on the post-write value at the write location and at every
- * descendant present in that value; unlike `.read`/`.write` these rules do
- * NOT cascade — ALL must evaluate true, and a single failure denies the
- * whole write. Nodes whose proposed value is null (a delete) are skipped.
+ * `.validate` enforcement for a write. RTDB evaluates every rule on the path
+ * from the root to the write location, then every descendant rule present in
+ * the written value. Each rule sees the merged post-write snapshot rooted at
+ * its own location. Unlike `.read`/`.write`, validation never grants: ALL
+ * applicable rules must evaluate true. Null proposed values are skipped.
  *
  * An unparseable `.validate` expression is a simulator gap, not a pass:
  * production would still evaluate it and may reject the write, so treating
@@ -88,10 +55,9 @@ function findWriteLocationNode(
  * the Firestore simulator's posture where an `UnsupportedError` never
  * counts as a real evaluation. A genuine `false` found anywhere in the
  * tree still wins over an unsupported node elsewhere (a confirmed DENY is
- * stronger evidence than an abstention). Ancestor `.validate` rules ABOVE
- * the write location are not evaluated. Returns the first real failure,
- * else the first unsupported node, else `null` when every applicable
- * `.validate` passes.
+ * stronger evidence than an abstention). Returns the first real failure, else
+ * the first unsupported node, else `null` when every applicable `.validate`
+ * passes.
  */
 function findFailingValidate(
   node: RtdbNode,
@@ -99,6 +65,7 @@ function findFailingValidate(
   newData: DataSnapshot,
   bindings: Record<string, string>,
   buildContext: ContextBuilder,
+  pathToWrite: string[],
 ): ValidateFailure | null {
   let firstUnsupported: ValidateFailure | null = null;
 
@@ -107,6 +74,7 @@ function findFailingValidate(
     data: DataSnapshot,
     newData: DataSnapshot,
     bindings: Record<string, string>,
+    remainingPath: string[],
   ): ValidateFailure | null {
     // A null proposed value is a delete — RTDB does not validate deletes.
     if (!newData.exists()) return null;
@@ -131,6 +99,20 @@ function findFailingValidate(
       const lastSegment = childSegments[childSegments.length - 1];
       const isPathVar = lastSegment.startsWith('$');
 
+      // Above the write location, validation follows only the operation path.
+      // Once the write location is reached, it fans out through every child
+      // present in the proposed value.
+      if (remainingPath.length > 0) {
+        if (!isPathVar && remainingPath[0] !== lastSegment) continue;
+        return walk(
+          child,
+          data.child(remainingPath[0]),
+          newData.child(remainingPath[0]),
+          isPathVar ? { ...bindings, [lastSegment]: remainingPath[0] } : bindings,
+          remainingPath.slice(1),
+        );
+      }
+
       if (isPathVar) {
         // Bind the path variable to each key actually present in the new
         // data — a `$var` node validates every child of the written value.
@@ -140,11 +122,18 @@ function findFailingValidate(
             data.child(key),
             newData.child(key),
             { ...bindings, [lastSegment]: key },
+            [],
           );
           if (failure) return failure;
         }
       } else {
-        const failure = walk(child, data.child(lastSegment), newData.child(lastSegment), bindings);
+        const failure = walk(
+          child,
+          data.child(lastSegment),
+          newData.child(lastSegment),
+          bindings,
+          [],
+        );
         if (failure) return failure;
       }
     }
@@ -152,7 +141,7 @@ function findFailingValidate(
     return null;
   }
 
-  const realFailure = walk(node, data, newData, bindings);
+  const realFailure = walk(node, data, newData, bindings, pathToWrite);
   return realFailure ?? firstUnsupported;
 }
 
@@ -310,9 +299,6 @@ export class SimulateHandler {
           : projectPostWriteTree(mockData, pathSegments, newData, updates);
       const mergedRootData = new DataSnapshot(mergedRoot, '/');
 
-      const dataAtPath = rootData.child(pathSegments.join('/'));
-      const newDataSnap = mergedRootData.child(pathSegments.join('/'));
-
       const buildContext: ContextBuilder = (data, newDataArg, bindings) => {
         const pvBindings: Record<string, string> = {};
         for (const [k, v] of Object.entries(bindings)) {
@@ -358,21 +344,20 @@ export class SimulateHandler {
 
         if (Boolean(result)) {
           // A granting `.write` is necessary but not sufficient: RTDB also
-          // enforces every `.validate` rule at or below the write location.
+          // enforces every `.validate` rule from the root through the write
+          // location and through every present descendant.
           // Unlike `.read`/`.write`, `.validate` does NOT cascade — all must
           // pass (a single failure denies the write). Read ops have no
           // validate phase.
           if (operation === 'write') {
-            const located = findWriteLocationNode(rootNode, pathSegments, {});
-            const failure = located
-              ? findFailingValidate(
-                  located.node,
-                  dataAtPath,
-                  newDataSnap,
-                  located.bindings,
-                  buildContext,
-                )
-              : null;
+            const failure = findFailingValidate(
+              rootNode,
+              rootData,
+              mergedRootData,
+              {},
+              buildContext,
+              pathSegments,
+            );
             if (failure) {
               return {
                 success: true,

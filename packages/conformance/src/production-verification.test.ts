@@ -208,11 +208,11 @@ describe('indexConstructScopes', () => {
 describe('the real graph', () => {
   const scopes = indexConstructScopes(surfaceRegistries);
 
-  it('credits conforming RTDB cascade semantics and contaminates validate scope', () => {
+  it('credits all three RTDB semantics after the ancestor validation fix', () => {
     for (const [id, verdict] of [
       ['rtdb.semantic.read-cascade', 'verified'],
       ['rtdb.semantic.write-cascade', 'verified'],
-      ['rtdb.semantic.validate-non-cascade', 'diverged'],
+      ['rtdb.semantic.validate-non-cascade', 'verified'],
     ] as const) {
       const construct = coverageReport.engines
         .flatMap((e) => e.constructs)

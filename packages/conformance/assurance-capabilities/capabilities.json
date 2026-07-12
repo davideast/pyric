@@ -903,13 +903,11 @@
         {
           "kind": "construct",
           "id": "rtdb.semantic.validate-non-cascade",
-          "verdict": "unsupported",
+          "verdict": "qualified",
           "snapshot": "unprobed",
           "probe": "unprobeable",
-          "productionVerified": false,
-          "divergedBy": [
-            "rtdb-rules#15"
-          ]
+          "productionVerified": true,
+          "divergedBy": []
         },
         {
           "kind": "unbacked",

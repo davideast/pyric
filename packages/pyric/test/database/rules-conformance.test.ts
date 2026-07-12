@@ -26,11 +26,10 @@
  * either side moves, and is enumerated by the "enumerate simulator-vs-prod
  * divergences" test so it can never hide.
  *
- * CURRENT STATE: r15 records one live false ALLOW. Production evaluates an
- * ancestor `.validate` against the merged post-write value and denies; the
- * simulator starts its validate walk at the write location and allows. The
- * production verdict remains the corpus expectation, and the pin records both
- * sides until issue 201 is fixed.
+ * CURRENT STATE: the in-process simulator agrees with every captured
+ * production verdict. The r15 ancestor-validate false ALLOW is resolved: the
+ * simulator now evaluates the full root-to-write validation path against the
+ * merged post-write tree.
  */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -56,24 +55,15 @@ const DATABASE_URL = 'https://pyric-oracle.firebaseio.com';
  * Each entry pins BOTH sides so the suite stays green today but fails loudly the
  * moment either side's actual behavior changes, forcing a revisit.
  *
- * r15 isolates the live ancestor-validate divergence. A future fix or any new
- * divergence fails loudly: the first makes this pin stale, while the second is
- * unpinned and therefore rejected by the enumerator below.
+ * Empty today. A regression or new divergence fails the replay assertion and
+ * the enumerator below until it is fixed or pinned with both sides.
  *
  * Keyed by `${scenarioId} :: ${caseDescription}`.
  */
 const KNOWN_DIVERGENCES: Record<
   string,
-  { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string; issue: number }
-> = {
-  'r15-validate-ancestor-scope :: deep write under a validated ancestor denied (ancestor .validate is evaluated)': {
-    prodVerdict: 'DENY',
-    simVerdict: 'ALLOW',
-    reason:
-      "production evaluates the ancestor's `.validate` against the merged post-write value at that ancestor; the simulator collects `.validate` rules only from the write location downward, so it never sees the rule and allows the write.",
-    issue: 201,
-  },
-};
+  { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string }
+> = {};
 
 interface RulesObservation {
   name: string;

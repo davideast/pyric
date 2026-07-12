@@ -19,15 +19,10 @@
  * ancestor `.read`/`.write`, which does) — it does not mean an ancestor's
  * `.validate` is skipped. Every applicable rule must pass.
  *
- * SIMULATOR DIVERGENCE (pinned, not weakened). pyric's `SimulateHandler`
- * collects `.validate` rules from the WRITE LOCATION DOWNWARD only
- * (`findWriteLocationNode` + `findFailingValidate`), so it never evaluates the
- * ancestor rule and ALLOWS the p1 deep write production denies — a false ALLOW.
- * The expectations below are production's; the divergence is pinned in
- * packages/pyric/test/database/rules-conformance.test.ts KNOWN_DIVERGENCES with
- * both sides asserted, so it fails loudly the moment either side moves. It is a
- * fidelity bug in the RTDB validate walk, reported for its own fix rather than
- * papered over here.
+ * The simulator formerly walked `.validate` only from the write location
+ * downward and false-allowed the first case. It now walks from the root through
+ * the write location, evaluating every applicable ancestor against the merged
+ * post-write tree, and matches all five captured production controls.
  *
  * Expectations are the PRODUCTION verdicts recorded by the deploy-observe-
  * restore capture
@@ -38,7 +33,7 @@ import type { RtdbScenarioRecord } from './types.ts';
 export const scenario: RtdbScenarioRecord = {
   fm: 'rtdb#71',
   rationale:
-    'isolates the scope of .validate: a rule on an ancestor of the written path is evaluated against the merged post-write value at that ancestor (production denies), while the same write under a rule-free ancestor is allowed — so .validate reaches upward, and the simulator, which walks only from the write location down, is wrong.',
+    'isolates the scope of .validate: a rule on an ancestor of the written path is evaluated against the merged post-write value at that ancestor (production denies), while the same write under a rule-free ancestor is allowed; the simulator now reproduces that root-to-write validation walk.',
   provenance:
     'Authored to settle the validate-scope semantic empirically after r14 showed production denying a write beneath a validated node, then captured against the live oracle database; expectations are the captured production verdicts.',
   rules: JSON.stringify({

@@ -3255,9 +3255,9 @@
       "engine": "rtdb",
       "totalConstructs": 55,
       "exercisedConstructs": 52,
-      "verifiedConstructs": 54,
+      "verifiedConstructs": 55,
       "exercisedCoverage": 0.9454545454545454,
-      "verifiedCoverage": 0.9818181818181818,
+      "verifiedCoverage": 1,
       "constructs": [
         {
           "id": "rtdb.binding.auth",
@@ -4105,14 +4105,12 @@
         {
           "id": "rtdb.semantic.validate-non-cascade",
           "kind": "semantic",
-          "verdict": "diverged",
+          "verdict": "verified",
           "exercisedBy": [],
           "verifiedBy": [],
           "verifiedByRows": [
             "rtdb-rules#4",
-            "rtdb-rules#10"
-          ],
-          "divergedByRows": [
+            "rtdb-rules#10",
             "rtdb-rules#15"
           ]
         },

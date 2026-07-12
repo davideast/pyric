@@ -35,12 +35,12 @@ describe('rules-language production verdicts', () => {
     expect(firestore?.verifiedConstructs).toBe(107);
   });
 
-  it('removes RTDB validate scope from the numerator while the ancestor case diverges', async () => {
+  it('restores RTDB validate scope only after the ancestor case conforms', async () => {
     const report = await computeCoverageReport();
     const rtdb = report.engines.find((engine) => engine.engine === 'rtdb');
 
-    expect(rtdb?.constructs.find((construct) => construct.id === 'rtdb.semantic.validate-non-cascade')?.verdict).toBe('diverged');
-    expect(rtdb?.verifiedConstructs).toBe(54);
+    expect(rtdb?.constructs.find((construct) => construct.id === 'rtdb.semantic.validate-non-cascade')?.verdict).toBe('verified');
+    expect(rtdb?.verifiedConstructs).toBe(55);
   });
 });
 

@@ -255,7 +255,7 @@ export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapabilit
       {"kind":"construct","id":"rtdb.binding.newData","verdict":"qualified","snapshot":"unprobed","probe":"implemented","productionVerified":true,"divergedBy":[]},
       {"kind":"construct","id":"rtdb.binding.root","verdict":"qualified","snapshot":"unprobed","probe":"implemented","productionVerified":true,"divergedBy":[]},
       {"kind":"construct","id":"rtdb.semantic.write-cascade","verdict":"qualified","snapshot":"unprobed","probe":"implemented","productionVerified":true,"divergedBy":[]},
-      {"kind":"construct","id":"rtdb.semantic.validate-non-cascade","verdict":"unsupported","snapshot":"unprobed","probe":"unprobeable","productionVerified":false,"divergedBy":["rtdb-rules#15"]},
+      {"kind":"construct","id":"rtdb.semantic.validate-non-cascade","verdict":"qualified","snapshot":"unprobed","probe":"unprobeable","productionVerified":true,"divergedBy":[]},
       {"kind":"unbacked","id":"`data`/`newData` bound to an ANCESTOR rule location, with `newData` as the merged future tree of the whole write","verdict":"unsupported","reason":"the snapshot enumerates the data/newData bindings but not their rule-location binding or future-tree projection, and no registry row adjudicates ancestor-location binding against production"},
     ],
   },
