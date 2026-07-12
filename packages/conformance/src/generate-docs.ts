@@ -458,6 +458,18 @@ const SCOREBOARD_METHODOLOGY = [
   '- **The row universe is not all of Firebase.** These matrices track the behaviors someone thought to probe. Firebase surface that no one has exercised is not on the board, and absence from the board is not a pass.',
   '- **The proof is uneven.** Auth, Firestore, and Rules are pinned deeply. Realtime Database and Storage are earlier, with fewer recordings, and Realtime Database rules are the thinnest of all. The scores above say where the ground is solid and where it is still early, on purpose.',
   '',
+  '### How scores are calculated',
+  '',
+  'Every percentage on these pages, the figure at the top of each matrix and each bar on the scoreboard, is the same calculation: the share of a surface\'s evaluated behaviors that conform.',
+  '',
+  '```',
+  'score = conforming rows / evaluated rows',
+  '```',
+  '',
+  'An evaluated row is any behavior the registry tracks with a recorded status: conforming, a documented difference, not supported yet, or not verified yet. Only conforming rows count toward the score. The other three sit in the denominator but not the numerator, which is why the four buckets under each figure always add back up to the total. The denominator is the tracked row universe, not all of Firebase, so a rising score means more of what has been probed conforms, not that more of Firebase has been covered.',
+  '',
+  'No number here is typed by hand. Each row\'s status is read from the ledger (`baselines/coverage-baseline.json`) at generate time, and `compat:check` re-reads the same ledger, so a page whose figure drifts from the data fails the build before it can merge.',
+  '',
   'Put the claim under load yourself: run the app, break a rule, and compare the verdict against production in <a href="../ship-to-production/">ship to production</a>.',
 ].join('\n');
 
