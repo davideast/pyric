@@ -158,9 +158,9 @@ import { fileURLToPath } from 'node:url';
 import { surfaceRegistries, type CompatibilityRow } from '../registry/index.ts';
 import {
   RULES_ENGINE_SURFACES,
-  describeProductionEvidence,
+  deriveConformanceGraph,
+  describeProductionFact,
   indexConstructScopes,
-  isProductionVerified,
 } from './production-verification.ts';
 import { loadAllSnapshots } from '../rules-language/load.ts';
 import { loadAssuranceCapabilityRecords, type LoadedCapability } from '../assurance-capabilities/load.ts';
@@ -346,15 +346,21 @@ function deriveConstruct(graph: ConformanceGraph, id: string): DerivedConstructD
   // coverage report's `verifiedConstructs` numerator asks, answered once. The
   // artifact records the ANSWER (a boolean), never the evidence population that
   // produced it.
-  const productionVerified = isProductionVerified({
-    scenarios: graph.verifiedBy.get(id) ?? [],
-    provingRows: graph.oracleProvedBy.get(id) ?? [],
-  });
+  const productionFact = productionFactOf(graph, id);
+  const productionVerified = productionFact.verdict === 'verified';
   verdicts.push(productionVerified ? 'supported' : 'qualified');
 
   if (divergedBy.length > 0) verdicts.push('unsupported');
 
   return { kind: 'construct', id, verdict: weakest(verdicts), snapshot, probe, productionVerified, divergedBy };
+}
+
+function productionFactOf(graph: ConformanceGraph, id: string) {
+  return deriveConformanceGraph({
+    scenariosByConstruct: graph.verifiedBy,
+    provingRowsByConstruct: graph.oracleProvedBy,
+    divergingRowsByConstruct: graph.divergedBy,
+  }).factOf(id);
 }
 
 function deriveRow(graph: ConformanceGraph, id: string): DerivedRegistryRowDependency {
@@ -726,14 +732,8 @@ function describeForReport(graph: ConformanceGraph, dependency: DerivedDependenc
   const facts = [
     `snapshot status "${dependency.snapshot}"`,
     `capability probe "${dependency.probe}"`,
-    describeProductionEvidence({
-      scenarios: graph.verifiedBy.get(dependency.id) ?? [],
-      provingRows: graph.oracleProvedBy.get(dependency.id) ?? [],
-    }),
+    describeProductionFact(productionFactOf(graph, dependency.id)),
   ];
-  if (dependency.divergedBy.length > 0) {
-    facts.push(`covered by rules-engine divergence ${dependency.divergedBy.join(', ')}`);
-  }
   return `${dependency.id}: ${facts.join('; ')}`;
 }
 

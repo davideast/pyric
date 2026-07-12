@@ -18,7 +18,13 @@
  * database); the cleanup contract it depends on is.
  */
 import { describe, it, expect } from 'bun:test';
-import { verifyRunDataCleanup, type RunDataStore } from './run-rules-rtdb.ts';
+import {
+  assertMatchingOracleProjects,
+  observationLinkageOf,
+  selectRtdbScenarios,
+  verifyRunDataCleanup,
+  type RunDataStore,
+} from './run-rules-rtdb.ts';
 
 const AUDIT_KEY = 'pyric_oracle_rulesrtdb_1752000000000_ab12cd';
 
@@ -86,5 +92,52 @@ describe('run-rules-rtdb data cleanup contract', () => {
   it('propagates a failing read-back rather than assuming the delete worked', async () => {
     const store = fakeStore({ rootKeys: [AUDIT_KEY], failRead: true });
     await expect(verifyRunDataCleanup(store, AUDIT_KEY)).rejects.toThrow(/shallow root read failed/);
+  });
+});
+
+describe('run-rules-rtdb scenario selection', () => {
+  it('keeps the full corpus when no selector is supplied', () => {
+    expect(selectRtdbScenarios([]).length).toBeGreaterThan(1);
+  });
+
+  it('selects exactly one scenario by id', () => {
+    expect(selectRtdbScenarios(['--scenario', 'r15-validate-ancestor-scope']).map((s) => s.id)).toEqual([
+      'r15-validate-ancestor-scope',
+    ]);
+    expect(selectRtdbScenarios(['--scenario=r15-validate-ancestor-scope']).map((s) => s.id)).toEqual([
+      'r15-validate-ancestor-scope',
+    ]);
+  });
+
+  it('rejects a missing or unknown scenario instead of silently capturing everything', () => {
+    expect(() => selectRtdbScenarios(['--scenario'])).toThrow(/requires an id/);
+    expect(() => selectRtdbScenarios(['--scenario', 'not-a-scenario'])).toThrow(/unknown RTDB scenario/);
+  });
+});
+
+describe('run-rules-rtdb observation metadata', () => {
+  it('preserves the registry linkage from an existing observation', () => {
+    expect(observationLinkageOf({
+      matrixRow: 'rtdb-rules#15',
+      rowIds: ['rtdb-rules#15'],
+    })).toEqual({
+      matrixRow: 'rtdb-rules#15',
+      rowIds: ['rtdb-rules#15'],
+    });
+  });
+
+  it('uses empty linkage only when no prior observation exists', () => {
+    expect(observationLinkageOf(undefined)).toEqual({ matrixRow: '', rowIds: [] });
+  });
+
+  it('rejects a Web config and service account from different projects', () => {
+    expect(() => assertMatchingOracleProjects(
+      { projectId: 'oracle-a' },
+      { project_id: 'oracle-b' },
+    )).toThrow(/project mismatch/);
+    expect(() => assertMatchingOracleProjects(
+      { projectId: 'oracle-a' },
+      { project_id: 'oracle-a' },
+    )).not.toThrow();
   });
 });

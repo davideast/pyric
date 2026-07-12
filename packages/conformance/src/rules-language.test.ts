@@ -19,10 +19,30 @@ import {
   analyzeFirestore,
   analyzeRtdb,
   analyzeStorage,
+  computeCoverageReport,
 } from './rules-language-analyzer.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../rules-corpus/storage/index.ts';
 import { ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
+
+describe('rules-language production verdicts', () => {
+  it('does not count constructs whose positive evidence is contaminated by a production divergence', async () => {
+    const report = await computeCoverageReport();
+    const firestore = report.engines.find((engine) => engine.engine === 'firestore');
+
+    expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.id')?.verdict).toBe('diverged');
+    expect(firestore?.constructs.find((construct) => construct.id === 'firestore.binding.resource.__name__')?.verdict).toBe('diverged');
+    expect(firestore?.verifiedConstructs).toBe(107);
+  });
+
+  it('restores RTDB validate scope only after the ancestor case conforms', async () => {
+    const report = await computeCoverageReport();
+    const rtdb = report.engines.find((engine) => engine.engine === 'rtdb');
+
+    expect(rtdb?.constructs.find((construct) => construct.id === 'rtdb.semantic.validate-non-cascade')?.verdict).toBe('verified');
+    expect(rtdb?.verifiedConstructs).toBe(55);
+  });
+});
 
 describe('rules-language snapshots + loader', () => {
   it('loads and validates all three shipped snapshots', () => {

@@ -179,7 +179,7 @@
           "verdict": "unsupported",
           "snapshot": "rejected",
           "probe": "implemented",
-          "productionVerified": true,
+          "productionVerified": false,
           "divergedBy": [
             "firestore-rules#164"
           ]
@@ -190,7 +190,7 @@
           "verdict": "unsupported",
           "snapshot": "rejected",
           "probe": "implemented",
-          "productionVerified": true,
+          "productionVerified": false,
           "divergedBy": [
             "firestore-rules#164"
           ]
@@ -573,7 +573,7 @@
           "verdict": "unsupported",
           "snapshot": "accepted",
           "probe": "implemented",
-          "productionVerified": true,
+          "productionVerified": false,
           "divergedBy": [
             "firestore-rules#166"
           ]
@@ -1238,7 +1238,7 @@
           "verdict": "unsupported",
           "snapshot": "accepted",
           "probe": "implemented",
-          "productionVerified": true,
+          "productionVerified": false,
           "divergedBy": [
             "storage-rules#118"
           ]

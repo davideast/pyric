@@ -411,9 +411,9 @@ describe('SimulateHandler — .validate (write path)', () => {
     expect(result.success && result.data.allowed).toBe(true);
   });
 
-  test('an ancestor .validate above the write location does not run on a deeper write', () => {
-    // Writing `/doc/extra` must NOT trigger `/doc`'s `.validate` (RTDB
-    // validation runs at/below the write location, not on ancestors).
+  test('an ancestor .validate runs against its merged value on a deeper write', () => {
+    // Production evaluates `/doc`'s rule against `{extra: 5}` and denies
+    // because the merged ancestor value still lacks `title`.
     const ancestorIR = ir(
       node({
         path: '/',
@@ -428,7 +428,11 @@ describe('SimulateHandler — .validate (write path)', () => {
       mockData: {},
       newData: 5,
     });
-    expect(result.success && result.data.allowed).toBe(true);
+    expect(result.success && result.data.allowed).toBe(false);
+    if (result.success) {
+      expect(result.data.matchedPath).toBe('/doc');
+      expect(result.data.matchedRule).toBe("newData.hasChildren(['title'])");
+    }
   });
 
   test('an unparseable .validate is reported unsupported, not silently passed', () => {

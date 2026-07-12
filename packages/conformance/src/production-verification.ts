@@ -94,6 +94,26 @@ export interface ConstructScopeIndex {
   divergingRows: Map<string, string[]>;
 }
 
+export type ProductionVerdict = 'verified' | 'diverged' | 'unverified';
+
+export interface DerivedConformanceFact {
+  id: string;
+  verdict: ProductionVerdict;
+  scenarios: readonly string[];
+  provingRows: readonly string[];
+  divergingRows: readonly string[];
+}
+
+export interface DerivedConformanceGraph {
+  factOf(id: string): DerivedConformanceFact;
+}
+
+export interface DeriveConformanceGraphInput {
+  scenariosByConstruct: ReadonlyMap<string, readonly string[]>;
+  provingRowsByConstruct: ReadonlyMap<string, readonly string[]>;
+  divergingRowsByConstruct: ReadonlyMap<string, readonly string[]>;
+}
+
 /** Index every registry row's `constructs` scope. */
 export function indexConstructScopes(
   registries: readonly CompatibilitySurfaceRegistry[],
@@ -107,6 +127,48 @@ export function indexConstructScopes(
     }
   }
   return { provingRows, divergingRows };
+}
+
+/**
+ * Resolve production evidence once for every caller. A live divergence is the
+ * strongest fact in the graph: positive evidence can show that adjacent cases
+ * conform, but it cannot make a construct trustworthy while another captured
+ * case proves the simulator wrong about that construct.
+ */
+export function deriveConformanceGraph(
+  input: DeriveConformanceGraphInput,
+): DerivedConformanceGraph {
+  return {
+    factOf(id: string): DerivedConformanceFact {
+      const scenarios = input.scenariosByConstruct.get(id) ?? [];
+      const proving = input.provingRowsByConstruct.get(id) ?? [];
+      const diverging = input.divergingRowsByConstruct.get(id) ?? [];
+      const verdict: ProductionVerdict = diverging.length > 0
+        ? 'diverged'
+        : scenarios.length > 0 || proving.length > 0
+          ? 'verified'
+          : 'unverified';
+
+      return {
+        id,
+        verdict,
+        scenarios,
+        provingRows: proving,
+        divergingRows: diverging,
+      };
+    },
+  };
+}
+
+/** Describe the resolved fact, preserving the graph's evidence precedence. */
+export function describeProductionFact(fact: DerivedConformanceFact): string {
+  if (fact.verdict === 'diverged') {
+    return `production divergence documented by rules-engine row ${fact.divergingRows.join(', ')}`;
+  }
+  return describeProductionEvidence({
+    scenarios: fact.scenarios,
+    provingRows: fact.provingRows,
+  });
 }
 
 function addRow(
@@ -130,15 +192,6 @@ export interface ProductionEvidence {
   scenarios: readonly string[];
   /** BEHAVIORAL: conforming, oracle-backed rules-engine rows whose scope lists it. */
   provingRows: readonly string[];
-}
-
-/**
- * THE PREDICATE. A construct is production-verified when at least one evidence
- * path backs it. Support is positive: no evidence is not verification, so the
- * absence of a scenario and the absence of a row can never produce a claim.
- */
-export function isProductionVerified(evidence: ProductionEvidence): boolean {
-  return evidence.scenarios.length > 0 || evidence.provingRows.length > 0;
 }
 
 /** The one wording for the evidence, so both consumers cite it identically. */

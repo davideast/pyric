@@ -205,7 +205,7 @@ describe('construct derivation', () => {
         verdict: 'unsupported',
         snapshot: 'accepted',
         probe: 'implemented',
-        productionVerified: true,
+        productionVerified: false,
         divergedBy: ['firestore-rules#166'],
       },
     ]);
