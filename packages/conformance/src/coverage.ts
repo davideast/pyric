@@ -36,7 +36,7 @@
  *   RULES-LANGUAGE verified coverage = production-verified constructs /
  *              counted constructs, per engine. A construct is production-verified
  *              only when positive evidence backs it AND no `diverged-documented`/
- *              `bug` rules-engine row scopes it (src/rules-engine-rows.ts, the one
+ *              `bug` rules-engine row scopes it (src/production-verification.ts, the one
  *              predicate the assurance generator shares). It is recomputed here
  *              rather than read from the committed report, so the gate ratchets
  *              what today's evidence says.
@@ -233,7 +233,7 @@ interface ServiceCoverage {
 interface RulesLanguageCoverage {
   engine: string;
   /** Production-verified constructs (positive evidence, no divergence covering
-   *  them — src/rules-engine-rows.ts). */
+   *  them — src/production-verification.ts). */
   verified: number;
   /** Constructs some corpus scenario's AST contains. */
   exercised: number;
@@ -481,7 +481,7 @@ function printTable(report: CoverageReport): void {
   console.log('\nSURFACE reads `native` for a surface with no upstream module (its completeness is measured against its own public API, not against Firebase); OVERALL surface coverage sums the mirror surfaces only.');
 
   console.log('\nRULES-LANGUAGE verified coverage (production-verified constructs / counted constructs, per engine).');
-  console.log('A construct is production-verified when positive evidence backs it AND no `diverged-documented`/`bug` rules-engine row scopes it: an engine KNOWN WRONG about a construct never counts it verified, however many scenarios exercise it (src/rules-engine-rows.ts).');
+  console.log('A construct is production-verified when positive evidence backs it AND no `diverged-documented`/`bug` rules-engine row scopes it: an engine KNOWN WRONG about a construct never counts it verified, however many scenarios exercise it (src/production-verification.ts).');
   console.log('engine       verified   exercised  contaminated  excluded  scenarios(twins)');
   console.log('-'.repeat(72));
   for (const e of report.rulesLanguage) {
