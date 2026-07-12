@@ -2,7 +2,20 @@
 
 # `pyric/ai` compatibility matrix
 
-**74 of 80 tracked behaviors match production Firebase (93%).**
+<div class="compat-stat">
+<p class="compat-stat-figure"><span class="compat-stat-pct">93%</span><span class="compat-stat-label">match production Firebase</span></p>
+<p class="compat-stat-denom">74 of 80 tracked behaviors</p>
+<div class="compat-stat-bar">
+<span class="compat-stat-seg" data-status="ok" style="flex-grow: 74"></span>
+<span class="compat-stat-seg" data-status="diverged" style="flex-grow: 6"></span>
+</div>
+<p class="compat-stat-key">
+<span class="compat-stat-item"><span class="compat-dot" data-status="ok"></span>74 match</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="diverged"></span>6 documented differences</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="unsupported"></span>0 not yet supported</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="unverified"></span>0 not yet verified</span>
+</p>
+</div>
 
 ## Status legend
 

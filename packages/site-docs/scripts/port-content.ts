@@ -831,11 +831,14 @@ function transformCompatTables(body: string): string {
               const cells = splitRow(lines[j]);
               const apiName = (cells[0] ?? '').trim();
               const detail = (cells[1] ?? '').trim();
+              // No API name (the section heading names the API): the detail is
+              // the row's main line, never an empty heading or a bare number.
+              const mainInner = apiName
+                ? `<code class="compat-api">${mdInlineHtml(apiName)}</code><span class="compat-sub">${mdInlineHtml(detail)}</span>`
+                : `<span class="compat-behavior">${mdInlineHtml(detail)}</span>`;
               html.push(
                 '<div class="compat-row">',
-                `<div class="compat-line"><span class="compat-main"><code class="compat-api">${mdInlineHtml(
-                  apiName,
-                )}</code><span class="compat-sub">${mdInlineHtml(detail)}</span></span></div>`,
+                `<div class="compat-line"><span class="compat-main">${mainInner}</span></div>`,
                 '</div>',
               );
               j++;
@@ -886,7 +889,6 @@ function transformCompatTables(body: string): string {
               const probe = iPr >= 0 ? (cells[iPr] ?? '').trim() : '';
               const apiName = iApi >= 0 ? (cells[iApi] ?? '').trim() : '';
               const category = iCat >= 0 ? (cells[iCat] ?? '').trim() : '';
-              const num = iNum >= 0 ? (cells[iNum] ?? '').trim() : '';
               const extras = cells
                 .map((c, k) => ({ c, k }))
                 .filter(({ k }) => ![iNum, iApi, iCat, iBeh, iSt, iPr].includes(k))
@@ -899,17 +901,24 @@ function transformCompatTables(body: string): string {
               const dot = meta
                 ? `<span class="compat-dot" data-status="${meta.key}" role="img" aria-label="${meta.label}" title="${meta.label}"></span>`
                 : `<span class="compat-status">${mdInlineHtml(status)}</span>`;
-              const heading = apiName || num;
-              const sub = [
-                category ? `<span class="compat-category">${mdInlineHtml(category)}</span>` : '',
-                `<span class="compat-behavior">${mdInlineHtml(cells[iBeh] ?? '')}</span>`,
-              ]
-                .filter(Boolean)
-                .join(' · ');
-              const scanLine = [
-                dot,
-                `<span class="compat-main"><code class="compat-api">${mdInlineHtml(heading)}</code><span class="compat-sub">${sub}</span></span>`,
-              ].join('');
+              const behaviorHtml = mdInlineHtml(cells[iBeh] ?? '');
+              // A row with no API name carries no per-row heading — the section
+              // heading already names the API. Its behavior becomes the main
+              // line, never a bare row number. Rows WITH an API name keep the
+              // heading + "category · behavior" sub-label stack.
+              let mainInner: string;
+              if (apiName) {
+                const sub = [
+                  category ? `<span class="compat-category">${mdInlineHtml(category)}</span>` : '',
+                  `<span class="compat-behavior">${behaviorHtml}</span>`,
+                ]
+                  .filter(Boolean)
+                  .join(' · ');
+                mainInner = `<code class="compat-api">${mdInlineHtml(apiName)}</code><span class="compat-sub">${sub}</span>`;
+              } else {
+                mainInner = `<span class="compat-behavior">${behaviorHtml}</span>`;
+              }
+              const scanLine = [dot, `<span class="compat-main">${mainInner}</span>`].join('');
               const evidence = [
                 probe ? `<div class="compat-probe">${mdInlineHtml(probe)}</div>` : '',
                 qualifier ? `<div class="compat-note">${mdInlineHtml(qualifier)}</div>` : '',

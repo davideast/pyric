@@ -2,7 +2,22 @@
 
 # `pyric/auth` compatibility matrix
 
-**84 of 101 tracked behaviors match production Firebase (83%).**
+<div class="compat-stat">
+<p class="compat-stat-figure"><span class="compat-stat-pct">83%</span><span class="compat-stat-label">match production Firebase</span></p>
+<p class="compat-stat-denom">84 of 101 tracked behaviors</p>
+<div class="compat-stat-bar">
+<span class="compat-stat-seg" data-status="ok" style="flex-grow: 84"></span>
+<span class="compat-stat-seg" data-status="diverged" style="flex-grow: 11"></span>
+<span class="compat-stat-seg" data-status="unsupported" style="flex-grow: 5"></span>
+<span class="compat-stat-seg" data-status="unverified" style="flex-grow: 1"></span>
+</div>
+<p class="compat-stat-key">
+<span class="compat-stat-item"><span class="compat-dot" data-status="ok"></span>84 match</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="diverged"></span>11 documented differences</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="unsupported"></span>5 not yet supported</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="unverified"></span>1 not yet verified</span>
+</p>
+</div>
 
 ## Status legend
 
@@ -135,10 +150,10 @@
 
 | API | Category | Behavior | Status | Probe |
 |---|---|---|---|---|
-| 50 |  | Exports the same constructor signatures as `firebase/auth` for each provider | ✓ | type-only smoke in `unit:types.test.ts` |
-| 51 |  | `Provider.credential(...)` static factories produce `AuthCredential`-shaped objects | ✓ | `unit:sandbox-providers.test.ts` |
-| 52 |  | `GoogleAuthProvider.providerId === 'google.com'` (and per-provider analogs) | ✓ | `unit:sandbox-providers.test.ts` |
-| 53 |  | Custom scopes / params / language code | — | sandbox ignores; prod forwards |
+|  |  | Exports the same constructor signatures as `firebase/auth` for each provider | ✓ | type-only smoke in `unit:types.test.ts` |
+|  |  | `Provider.credential(...)` static factories produce `AuthCredential`-shaped objects | ✓ | `unit:sandbox-providers.test.ts` |
+|  |  | `GoogleAuthProvider.providerId === 'google.com'` (and per-provider analogs) | ✓ | `unit:sandbox-providers.test.ts` |
+|  |  | Custom scopes / params / language code | — | sandbox ignores; prod forwards |
 
 ## `User` methods
 
@@ -287,7 +302,7 @@ Tracked but not implemented yet. Each flips to ✓ as support lands.
 | API | Behavior |
 |---|---|
 | signInWithPopup(auth, provider)` / `signInWithCredential(auth, credential) | Cancels with `auth/popup-closed-by-user` when the user dismisses the popup (prod) |
-| 53 | Custom scopes / params / language code |
+|  | Custom scopes / params / language code |
 | User` methods | `user.metadata.creationTime` / `lastSignInTime` |
 | User` methods | `user.reload()` / `user.delete()` / `user.toJSON()` / `user.refreshToken` / `user.tenantId` |
 | User` methods | `updateProfile(user, {displayName, photoURL})` |

@@ -958,6 +958,142 @@ samp {
   color: inherit;
 }
 
+/* ── Data-journal stat block (the COMPAT page lead) ──────────────────
+   The generator (statBlock) injects this under the H1, above the status
+   legend. The figure carries the conformance percentage; the bar reads
+   to scale; the key always lists all four buckets so a documented gap
+   never reads as unimplemented. Segment fills and key dots reuse the
+   .compat-dot status colours, so it holds up in both themes off tokens
+   alone (never a hard-coded colour). */
+.prose .compat-stat {
+  margin: var(--space-5) 0 var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.prose .compat-stat-figure {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  line-height: 1;
+}
+
+.prose .compat-stat-pct {
+  font-size: 2.75rem;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose .compat-stat-label {
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.prose .compat-stat-denom {
+  margin: var(--space-2) 0 0;
+  font-size: 0.85rem;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose .compat-stat-bar {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  height: 10px;
+  margin: var(--space-4) 0;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.prose .compat-stat-seg {
+  min-width: 0;
+  background: var(--muted);
+}
+
+.prose .compat-stat-seg[data-status='ok'] {
+  background: var(--diff-add);
+}
+
+.prose .compat-stat-seg[data-status='diverged'] {
+  background: var(--accent);
+}
+
+.prose .compat-stat-seg[data-status='unsupported'] {
+  background: var(--line-2);
+}
+
+.prose .compat-stat-seg[data-status='unverified'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--faint);
+}
+
+.prose .compat-stat-key {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.prose .compat-stat-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-caption);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Conformance scoreboard: one linked row per surface ──────────────
+   Same visual language as the stat block — a prominent percentage and a
+   to-scale mini bar (compat-stat-bar--mini), one surface per row. */
+.prose .compat-scoreboard {
+  display: flex;
+  flex-direction: column;
+  margin: var(--space-5) 0;
+  border-top: 1px solid var(--line);
+}
+
+.prose .compat-score-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 11rem) 3.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+}
+
+.prose .compat-score-name {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.prose .compat-score-row:hover .compat-score-name {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.prose .compat-score-pct {
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-align: right;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.prose .compat-stat-bar--mini {
+  height: 6px;
+  margin: 0;
+}
+
 /* Heading anchors need room under the sticky bar. */
 .prose h1,
 .prose h2,

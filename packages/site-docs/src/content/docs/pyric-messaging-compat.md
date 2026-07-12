@@ -9,7 +9,19 @@ order: 8008
 
 # `pyric` messaging compatibility matrix
 
-**56 of 56 tracked behaviors match production Firebase (100%).**
+<div class="compat-stat">
+<p class="compat-stat-figure"><span class="compat-stat-pct">100%</span><span class="compat-stat-label">match production Firebase</span></p>
+<p class="compat-stat-denom">56 of 56 tracked behaviors</p>
+<div class="compat-stat-bar">
+<span class="compat-stat-seg" data-status="ok" style="flex-grow: 56"></span>
+</div>
+<p class="compat-stat-key">
+<span class="compat-stat-item"><span class="compat-dot" data-status="ok"></span>56 match</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="diverged"></span>0 documented differences</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="unsupported"></span>0 not yet supported</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="unverified"></span>0 not yet verified</span>
+</p>
+</div>
 
 ## Status legend
 

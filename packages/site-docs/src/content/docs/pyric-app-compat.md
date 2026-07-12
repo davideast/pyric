@@ -9,7 +9,20 @@ order: 8002
 
 # `pyric/app` compatibility matrix
 
-**14 of 15 tracked behaviors match production Firebase (93%).**
+<div class="compat-stat">
+<p class="compat-stat-figure"><span class="compat-stat-pct">93%</span><span class="compat-stat-label">match production Firebase</span></p>
+<p class="compat-stat-denom">14 of 15 tracked behaviors</p>
+<div class="compat-stat-bar">
+<span class="compat-stat-seg" data-status="ok" style="flex-grow: 14"></span>
+<span class="compat-stat-seg" data-status="unsupported" style="flex-grow: 1"></span>
+</div>
+<p class="compat-stat-key">
+<span class="compat-stat-item"><span class="compat-dot" data-status="ok"></span>14 match</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="diverged"></span>0 documented differences</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="unsupported"></span>1 not yet supported</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="unverified"></span>0 not yet verified</span>
+</p>
+</div>
 
 ## Status legend
 

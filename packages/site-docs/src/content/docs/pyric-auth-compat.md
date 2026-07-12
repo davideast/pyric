@@ -9,7 +9,22 @@ order: 8004
 
 # `pyric/auth` compatibility matrix
 
-**84 of 101 tracked behaviors match production Firebase (83%).**
+<div class="compat-stat">
+<p class="compat-stat-figure"><span class="compat-stat-pct">83%</span><span class="compat-stat-label">match production Firebase</span></p>
+<p class="compat-stat-denom">84 of 101 tracked behaviors</p>
+<div class="compat-stat-bar">
+<span class="compat-stat-seg" data-status="ok" style="flex-grow: 84"></span>
+<span class="compat-stat-seg" data-status="diverged" style="flex-grow: 11"></span>
+<span class="compat-stat-seg" data-status="unsupported" style="flex-grow: 5"></span>
+<span class="compat-stat-seg" data-status="unverified" style="flex-grow: 1"></span>
+</div>
+<p class="compat-stat-key">
+<span class="compat-stat-item"><span class="compat-dot" data-status="ok"></span>84 match</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="diverged"></span>11 documented differences</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="unsupported"></span>5 not yet supported</span>
+<span class="compat-stat-item"><span class="compat-dot" data-status="unverified"></span>1 not yet verified</span>
+</p>
+</div>
 
 ## Status legend
 
@@ -334,19 +349,19 @@ order: 8004
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">50</code><span class="compat-sub"><span class="compat-behavior">Exports the same constructor signatures as <code>firebase/auth</code> for each provider</span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior">Exports the same constructor signatures as <code>firebase/auth</code> for each provider</span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">type-only smoke in <code>unit:types.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">51</code><span class="compat-sub"><span class="compat-behavior"><code>Provider.credential(...)</code> static factories produce <code>AuthCredential</code>-shaped objects</span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>Provider.credential(...)</code> static factories produce <code>AuthCredential</code>-shaped objects</span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">52</code><span class="compat-sub"><span class="compat-behavior"><code>GoogleAuthProvider.providerId === 'google.com'</code> (and per-provider analogs)</span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><span class="compat-behavior"><code>GoogleAuthProvider.providerId === 'google.com'</code> (and per-provider analogs)</span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><code class="compat-api">53</code><span class="compat-sub"><span class="compat-behavior">Custom scopes / params / language code</span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-main"><span class="compat-behavior">Custom scopes / params / language code</span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">sandbox ignores; prod forwards</div></div>
 </details>
 </div>
@@ -721,7 +736,7 @@ Tracked but not implemented yet. Each flips to ✓ as support lands.
 <div class="compat-line"><span class="compat-main"><code class="compat-api">signInWithPopup(auth, provider)<code> / </code>signInWithCredential(auth, credential)</code><span class="compat-sub">Cancels with <code>auth/popup-closed-by-user</code> when the user dismisses the popup (prod)</span></span></div>
 </div>
 <div class="compat-row">
-<div class="compat-line"><span class="compat-main"><code class="compat-api">53</code><span class="compat-sub">Custom scopes / params / language code</span></span></div>
+<div class="compat-line"><span class="compat-main"><span class="compat-behavior">Custom scopes / params / language code</span></span></div>
 </div>
 <div class="compat-row">
 <div class="compat-line"><span class="compat-main"><code class="compat-api">User` methods</code><span class="compat-sub"><code>user.metadata.creationTime</code> / <code>lastSignInTime</code></span></span></div>

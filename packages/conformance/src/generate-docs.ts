@@ -69,30 +69,81 @@ const SCORE_SPECS: Record<string, SurfaceScoreSpec> = {
 
 interface BehaviorScore {
   conforms: number;
+  diverged: number;
+  unsupported: number;
+  unverified: number;
   total: number;
   pct: number;
 }
 
-/** The behavior conformance for a surface: conforming rows over evaluated rows. */
+/**
+ * The behavior conformance for a surface: the full status breakdown over its
+ * evaluated rows. `diverged` counts `diverged-documented`; `pct` is the
+ * conforming share, rounded. Every field is read from the baseline ledger.
+ */
 function computeBehavior(spec: SurfaceScoreSpec, base: CoverageBaseline): BehaviorScore {
   let conforms = 0;
+  let diverged = 0;
+  let unsupported = 0;
+  let unverified = 0;
   let total = 0;
   for (const [key, status] of Object.entries(base.rowStatuses)) {
     const svc = key.slice(0, key.indexOf('#'));
     if (!spec.rowServices.includes(svc)) continue;
     total += 1;
     if (status === 'conforms') conforms += 1;
+    else if (status === 'diverged-documented') diverged += 1;
+    else if (status === 'unsupported') unsupported += 1;
+    else if (status === 'unverified') unverified += 1;
   }
   const pct = total > 0 ? Math.round((conforms / total) * 100) : 0;
-  return { conforms, total, pct };
+  return { conforms, diverged, unsupported, unverified, total, pct };
 }
 
-/** The single behavior-conformance headline each surface doc leads with. */
-export function behaviorHeadline(surface: CompatibilitySurfaceRegistry): string | null {
+/** The bar segments for a score, one per non-empty bucket, `flex-grow` set to
+ *  the count so the bar reads to scale. Segment `data-status` mirrors the
+ *  `.compat-dot` status keys (conforms → `ok`). */
+function statBar(score: BehaviorScore, extraClass = ''): string {
+  const segs: Array<[string, number]> = [
+    ['ok', score.conforms],
+    ['diverged', score.diverged],
+    ['unsupported', score.unsupported],
+    ['unverified', score.unverified],
+  ];
+  const cls = extraClass ? `compat-stat-bar ${extraClass}` : 'compat-stat-bar';
+  return [
+    `<div class="${cls}">`,
+    ...segs
+      .filter(([, count]) => count > 0)
+      .map(([status, count]) => `<span class="compat-stat-seg" data-status="${status}" style="flex-grow: ${count}"></span>`),
+    '</div>',
+  ].join('\n');
+}
+
+/**
+ * The data-journal stat block each surface doc leads with: the conformance
+ * percentage as the figure, the count as the denominator, a to-scale bar, and
+ * a key that ALWAYS lists all four buckets (including zeros) so "documented
+ * differences" and "not yet supported" read as distinct and a gap can never be
+ * mistaken for something unimplemented. Raw HTML the porter passes through.
+ */
+export function statBlock(surface: CompatibilitySurfaceRegistry): string | null {
   const spec = SCORE_SPECS[surface.surface];
   if (!spec) return null;
-  const { conforms, total, pct } = computeBehavior(spec, readArtifact(COVERAGE_BASELINE_PATH));
-  return `**${conforms} of ${total} tracked behaviors match production Firebase (${pct}%).**`;
+  const s = computeBehavior(spec, readArtifact(COVERAGE_BASELINE_PATH));
+  return [
+    '<div class="compat-stat">',
+    `<p class="compat-stat-figure"><span class="compat-stat-pct">${s.pct}%</span><span class="compat-stat-label">match production Firebase</span></p>`,
+    `<p class="compat-stat-denom">${s.conforms} of ${s.total} tracked behaviors</p>`,
+    statBar(s),
+    '<p class="compat-stat-key">',
+    `<span class="compat-stat-item"><span class="compat-dot" data-status="ok"></span>${s.conforms} match</span>`,
+    `<span class="compat-stat-item"><span class="compat-dot" data-status="diverged"></span>${s.diverged} documented differences</span>`,
+    `<span class="compat-stat-item"><span class="compat-dot" data-status="unsupported"></span>${s.unsupported} not yet supported</span>`,
+    `<span class="compat-stat-item"><span class="compat-dot" data-status="unverified"></span>${s.unverified} not yet verified</span>`,
+    '</p>',
+    '</div>',
+  ].join('\n');
 }
 
 /** The one status legend every surface doc shares, generator-owned and identical across pages. */
@@ -117,12 +168,13 @@ function renderStatus(row: CompatibilityRow): string {
  * category sub-label. The `api` field carries them joined by ` — `; the part
  * before is the name, the part after is the category. A row with no ` — ` has an
  * empty category. When `api` is empty or is just the section string repeated, it
- * carries no per-row information, so the row ref stands in as the name.
+ * carries no per-row information, so the row has NO API name (an empty name — the
+ * section heading already names the API, and a bare row ref would only mislead).
  */
 function apiParts(row: CompatibilityRow): { name: string; category: string } {
   const raw = row.api.trim();
   if (raw === '' || raw.toLowerCase() === row.section.trim().toLowerCase()) {
-    return { name: row.rowRef, category: '' };
+    return { name: '', category: '' };
   }
   const at = raw.indexOf(' — ');
   if (at === -1) return { name: raw, category: '' };
@@ -135,19 +187,19 @@ function renderRow(row: CompatibilityRow): string {
 }
 
 /**
- * The surface's blocks with the behavior headline and shared status legend
+ * The surface's blocks with the behavior stat block and shared status legend
  * injected under the H1 (the registry's first markdown block holds only the
  * H1). Both `renderSurfaceMarkdown` and `generatedRowLineNumbers` consume this
  * one block list, so they stay byte-for-byte in sync. A surface with no score
  * spec is unchanged.
  */
 export function scoredBlocks(surface: CompatibilitySurfaceRegistry): CompatibilityDocBlock[] {
-  const headline = behaviorHeadline(surface);
-  if (headline === null) return surface.blocks;
+  const stat = statBlock(surface);
+  if (stat === null) return surface.blocks;
   return surface.blocks.map((block, index) => {
     if (index === 0 && block.kind === 'markdown') {
       const h1 = block.markdown.trim();
-      return { ...block, markdown: `${h1}\n\n${headline}\n\n${STATUS_LEGEND}\n` };
+      return { ...block, markdown: `${h1}\n\n${stat}\n\n${STATUS_LEGEND}\n` };
     }
     return block;
   });
@@ -273,30 +325,50 @@ export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry): 
 const SCOREBOARD_SURFACE_ORDER = ['firestore', 'auth', 'rtdb', 'storage', 'messaging', 'rules', 'ai', 'app'];
 
 /**
- * The central scoreboard doc: one row per surface with its behavior-conformance
- * number, then one plain grouping sentence. Every number is read from the
- * baseline ledger at generate time, never asserted here.
+ * The directory-relative href from the scoreboard to a surface's COMPAT page.
+ * The port (port-content.ts `slugFor`) slugs each page as `pyric-<dir>-compat`
+ * and rewrites intra-doc links to `../<slug>/`; the scoreboard authors that
+ * final form directly because it lives in a raw-HTML `<a href>`, which the
+ * porter's markdown-link rewriter never touches.
+ */
+function scoreboardHref(compatPath: string | undefined): string {
+  const dir = compatPath?.match(/packages\/pyric\/docs\/(.+)\/COMPAT\.md$/)?.[1] ?? '';
+  return `../pyric-${dir}-compat/`;
+}
+
+/**
+ * The central scoreboard doc: one linked row per surface, its conformance
+ * percentage prominent, with a to-scale mini bar in the same visual language
+ * as the per-surface stat blocks. Every number is read from the baseline
+ * ledger at generate time, never asserted here.
  */
 export function renderScoreboardMarkdown(): string {
   const base = readArtifact<CoverageBaseline>(COVERAGE_BASELINE_PATH);
+  const compatPathBySurface = new Map(surfaceRegistries.map((s) => [s.surface, s.compatPath]));
 
   const lines: string[] = [
     GENERATED_HEADER,
     '',
     '# Conformance scores by surface',
     '',
-    '| Service | Behaves like Firebase |',
-    '|---|---|',
+    '<div class="compat-scoreboard">',
   ];
 
   for (const key of SCOREBOARD_SURFACE_ORDER) {
     const spec = SCORE_SPECS[key];
     if (!spec) continue;
-    const { conforms, total, pct } = computeBehavior(spec, base);
-    lines.push(`| ${escapeCell(spec.label)} | ${pct}% (${conforms} / ${total}) |`);
+    const score = computeBehavior(spec, base);
+    lines.push(
+      `<a class="compat-score-row" href="${scoreboardHref(compatPathBySurface.get(key))}">`,
+      `<span class="compat-score-name">${spec.label}</span>`,
+      `<span class="compat-score-pct">${score.pct}%</span>`,
+      statBar(score, 'compat-stat-bar--mini'),
+      '</a>',
+    );
   }
 
   lines.push(
+    '</div>',
     '',
     'Auth, Firestore, and Rules are held to recorded production behavior. Realtime Database and Storage are earlier and pinned to fewer production observations.',
   );
