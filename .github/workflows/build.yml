@@ -86,6 +86,18 @@ jobs:
         # built pyric/* packages, so dist must exist first.
         run: bun run compat:validate && bun run compat:census-gate && bun run packages/conformance/src/generate-docs.ts --check
 
+      - name: Entry-path conformance gate (CLIFF, not a ratchet)
+        # Runs packages/conformance/entry-path/*.ts in-process: one canonical
+        # initialization program per service (app+auth, app+firestore,
+        # app+database, app+storage), each adapted from Firebase's official
+        # web quickstart shape. No baseline, no tolerance — a program either
+        # passes, or its failure is cited by an entry-path/expected-failures.ts
+        # record naming a real, currently-existing gap (compat:validate above
+        # already checked every citation is valid), or the build fails.
+        # Runs after the build: the programs import the built pyric/*
+        # packages, so dist must exist first.
+        run: bun run compat:entry-path
+
       - name: Compat coverage gate (surface + behavior %, regression-only)
         # Runs scripts/compat/coverage.ts, which combines surface-census.ts
         # (mirrored SDK exports / SDK exports) and the compat ledger

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { allCompatibilityRows, type Automation, type CompatibilityRow, type CompatStatus } from '../registry/index.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { observationExceptions } from '../exceptions/load.ts';
@@ -14,6 +15,10 @@ import { ALL_RULES_STORAGE_PACKS } from '../rules-corpus/storage/index.ts';
 import { ALL_RULES_RTDB_PACKS } from '../rules-corpus/rtdb/index.ts';
 import { longestPrefixOwners, soleLongestPrefixOwner } from './observation-surface.ts';
 import { listProbeFiles, type ProbeFile } from '../probes/load.ts';
+import { checkCriticalSymbolsUpToDate, computeCriticalSymbols } from './entry-path-symbols.ts';
+import { validateEntryPath, type EntryPathCensusRow } from './entry-path-validate.ts';
+import { expectedFailures as entryPathExpectedFailures } from '../entry-path/expected-failures.ts';
+import { listEntryPathProgramFiles } from '../entry-path/load.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -59,6 +64,13 @@ export interface ValidationInput {
    *  entry point always passes it, so the twin-path check below (a probe's
    *  surface directory must match its paired observation's) is CI-enforced. */
   probeFiles?: ProbeFile[];
+  /** The live surface census (surface-census.ts --json), for the entry-path
+   *  critical-symbol + expected-failure citation checks below. Optional for
+   *  the same reason as `rigManifests`; the real compat:validate entry point
+   *  always passes it (a subprocess call, same pattern as coverage.ts /
+   *  census-gate.ts), so the entry-path CLIFF's citation integrity is
+   *  CI-enforced. */
+  entryPathCensus?: EntryPathCensusRow[];
 }
 
 export function validateCompatibilityRegistry(input: ValidationInput): string[] {
@@ -307,9 +319,49 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     }
   }
 
+  // ── Entry-path critical-set + expected-failure citation integrity ────────
+  // Optional for the same reason as `rigManifests` etc.; the real
+  // compat:validate entry point below always passes a live census, so the
+  // entry-path CLIFF's citation integrity (entry-path-gate.ts, wired into
+  // compat:check) is CI-enforced: every symbol the corpus needs is either
+  // census-mapped right now, or covered by an expected-failure record that
+  // itself cites a real, currently-existing gap.
+  if (input.entryPathCensus) {
+    problems.push(...checkCriticalSymbolsUpToDate());
+    problems.push(
+      ...validateEntryPath({
+        criticalSymbols: computeCriticalSymbols(),
+        expectedFailures: entryPathExpectedFailures,
+        census: input.entryPathCensus,
+        ledgerRowStatuses: new Map(input.rows.map((row) => [row.id, row.status])),
+        programNames: listEntryPathProgramFiles().map((f) => f.name),
+      }),
+    );
+  }
+
   if (input.checkMarkdown) problems.push(...checkGeneratedMarkdown());
 
   return problems;
+}
+
+/**
+ * Runs surface-census.ts as a subprocess (same pattern as coverage.ts /
+ * census-gate.ts's own `runCensus()`) so the entry-path checks above see the
+ * live mapped/unmapped sets, not a stale in-process snapshot. The census
+ * exits 1 on any UNMAPPED gap — expected steady state, not a validate-
+ * registry failure in itself — so a non-zero exit is tolerated as long as
+ * stdout parses.
+ */
+function runEntryPathCensus(): EntryPathCensusRow[] {
+  const script = join(REPO_ROOT, 'packages', 'conformance', 'src', 'surface-census.ts');
+  try {
+    const out = execFileSync('bun', ['run', script, '--json'], { encoding: 'utf8', cwd: REPO_ROOT });
+    return (JSON.parse(out) as { surfaces: EntryPathCensusRow[] }).surfaces;
+  } catch (err) {
+    const e = err as { stdout?: string };
+    if (!e.stdout) throw err;
+    return (JSON.parse(e.stdout) as { surfaces: EntryPathCensusRow[] }).surfaces;
+  }
 }
 
 if (import.meta.main) {
@@ -327,6 +379,7 @@ if (import.meta.main) {
     rulesFirestorePackIds: ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id),
     rulesStoragePackIds: ALL_RULES_STORAGE_PACKS.map((pack) => pack.id),
     rulesRtdbPackIds: ALL_RULES_RTDB_PACKS.map((pack) => pack.id),
+    entryPathCensus: runEntryPathCensus(),
   });
 
   const wantJson = process.argv.includes('--json');

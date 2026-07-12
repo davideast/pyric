@@ -52,6 +52,7 @@ import { buildCompatibilityLedger, highRiskUnverifiedRows, type RegistryEntry } 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..');
 const CENSUS_SCRIPT = join(HERE, 'surface-census.ts');
+const ENTRY_PATH_GATE_SCRIPT = join(HERE, 'entry-path-gate.ts');
 const BASELINE_PATH = join(HERE, '..', 'baselines', 'coverage-baseline.json');
 
 // ── Surface census (subprocess — reuses surface-census.ts unmodified) ──────
@@ -81,6 +82,32 @@ function runCensus(): CensusRow[] {
     out = e.stdout;
   }
   return (JSON.parse(out) as { surfaces: CensusRow[] }).surfaces;
+}
+
+// ── Entry-path (surface-census.ts's sibling CLIFF gate — reused, not
+// reimplemented) ────────────────────────────────────────────────────────────
+
+/** One program's result, as entry-path-gate.ts --json reports it (subset). */
+interface EntryPathProgramSummary {
+  program: string;
+  verdict: 'green' | 'red-known' | 'red' | 'stale-expected-failure';
+}
+
+function runEntryPathGate(): EntryPathProgramSummary[] {
+  // Same subprocess-reuse pattern as runCensus() just above: entry-path-
+  // gate.ts exits 1 whenever a program is genuinely RED (or an
+  // expected-failure has gone stale) — that is a real compat:check failure
+  // elsewhere in the chain, not something coverage.ts re-fails on; it just
+  // reports the current per-program status honestly.
+  let out: string;
+  try {
+    out = execFileSync('bun', ['run', ENTRY_PATH_GATE_SCRIPT, '--json'], { encoding: 'utf8', cwd: REPO_ROOT });
+  } catch (err) {
+    const e = err as { stdout?: string };
+    if (!e.stdout) throw err;
+    out = e.stdout;
+  }
+  return (JSON.parse(out) as { results: EntryPathProgramSummary[] }).results;
 }
 
 /**
@@ -188,6 +215,13 @@ export interface CoverageReport {
   highRiskUnverified: string[];
   /** rowId -> status, for the per-row regression check (a row flipping OFF conforms). */
   rowStatuses: Record<string, string>;
+  /** One line per entry-path corpus program (compat:entry-path — the CLIFF
+   *  gate over packages/conformance/entry-path/*.ts), reused here (not
+   *  recomputed) so the published coverage surface always shows today's
+   *  real green/red-known status. See findRegressions()'s ONE-WAY rule: a
+   *  green -> red-known transition is a FAILURE, cliff semantics, not a
+   *  ratchet. */
+  entryPath: EntryPathProgramSummary[];
 }
 
 function buildReport(): CoverageReport {
@@ -237,6 +271,8 @@ function buildReport(): CoverageReport {
   const rowStatuses: Record<string, string> = {};
   for (const r of ledger.entries) rowStatuses[r.id] = r.status;
 
+  const entryPath = runEntryPathGate();
+
   return {
     generatedAt: new Date().toISOString(),
     services,
@@ -244,6 +280,7 @@ function buildReport(): CoverageReport {
     orphanObservations: ledger.orphanObservations.map((o) => o.name),
     highRiskUnverified: highRisk,
     rowStatuses,
+    entryPath,
   };
 }
 
@@ -305,6 +342,11 @@ function printTable(report: CoverageReport): void {
   console.log('\nSURFACE reads `native` for a surface with no upstream module (its completeness is measured against its own public API, not against Firebase); OVERALL surface coverage sums the mirror surfaces only.');
   console.log(`\nHigh-risk unverified conforms rows: ${report.highRiskUnverified.length}`);
   console.log(`Orphan observations: ${report.orphanObservations.length}`);
+
+  console.log('\nEntry-path (compat:entry-path — CLIFF, not a ratchet; a green program that regresses is a published FAILURE, never tolerated):');
+  for (const p of report.entryPath) {
+    console.log(`  ${p.program.padEnd(12)} ${p.verdict}`);
+  }
 }
 
 // ── Baseline + regression gate ──────────────────────────────────────────────
@@ -323,6 +365,10 @@ interface Baseline {
   rowStatuses: Record<string, string>;
   highRiskUnverified: string[];
   orphanObservations: string[];
+  /** program -> verdict, at baseline time. See findRegressions()'s entry-path
+   *  rule: this is the ONE cliff exception to the ratchet — a program that
+   *  was 'green' and is no longer is a FAILURE, full stop, never tolerated. */
+  entryPathVerdicts: Record<string, string>;
 }
 
 function toBaseline(report: CoverageReport): Baseline {
@@ -340,6 +386,7 @@ function toBaseline(report: CoverageReport): Baseline {
     rowStatuses: report.rowStatuses,
     highRiskUnverified: report.highRiskUnverified,
     orphanObservations: report.orphanObservations,
+    entryPathVerdicts: Object.fromEntries(report.entryPath.map((p) => [p.program, p.verdict])),
   };
 }
 
@@ -392,6 +439,22 @@ function findRegressions(baseline: Baseline, report: CoverageReport): string[] {
 
   if (report.highRiskUnverified.length > baseline.highRiskUnverified.length) {
     problems.push(`high-risk unverified rows increased: ${baseline.highRiskUnverified.length} -> ${report.highRiskUnverified.length}`);
+  }
+
+  // Entry-path: the one CLIFF exception to this whole function's ratchet
+  // framing (see entry-path-gate.ts's header). A program that was GREEN and
+  // is no longer is a FAILURE here regardless of WHY (red, red-known, or a
+  // now-stale expected-failure) — there is no tolerance, unlike every other
+  // check in this function, which only flags a regression once it crosses a
+  // baseline it previously cleared.
+  for (const [program, prevVerdict] of Object.entries(baseline.entryPathVerdicts)) {
+    if (prevVerdict !== 'green') continue;
+    const currentVerdict = report.entryPath.find((p) => p.program === program)?.verdict;
+    if (currentVerdict === undefined) {
+      problems.push(`entry-path '${program}': was green, program removed from the corpus`);
+    } else if (currentVerdict !== 'green') {
+      problems.push(`entry-path '${program}': was green, now '${currentVerdict}' — CLIFF regression, never tolerated`);
+    }
   }
 
   return problems;
