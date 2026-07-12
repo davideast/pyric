@@ -834,25 +834,65 @@ These exist in `firebase/firestore` but Pyric does not implement them.
 
 Where the local engine and production Firebase differ today. Each difference is pinned and tracked.
 
-| API | Difference |
-|---|---|
-| getDoc(ref) | Rules denial throws `SandboxError('permission-denied', …)` on sandbox; `FirebaseError('permission-denied')` on prod |
-| getDocs(query) | Query-proof **prover scope is conservative** — only top-level AND-conjunct `resource.data.<field> == <literal>` predicates (with `request.auth.uid` pinned to the caller) are dischargeable by `where(field, '==', value)`. Disjunctions over doc data, inequality/range proofs (`resource.data.score > 10` + `where('score','>',10)`), `in`-operand proofs, and nested-path predicates conservatively DENY the whole query where production's prover may allow it. Never a false ALLOW — the conservative direction prod also takes for unprovable queries. |
-| addDoc(coll, data) | Auto-id format — prod uses 20-char base64-ish IDs; sandbox uses `pyric-admin`'s auto-id (also opaque, distinct format) |
-| Query construction | `limitToLast(n)` — trailing n in ordered result (requires `orderBy`). Sandbox: the no-orderBy precondition throws a `FirestoreError` with `.code === 'invalid-argument'` (FS-B16; pre-fix plain `Error`s). Prod: the same precondition throws `.code === 'unimplemented'` |
-| Query construction | Index validation against `firestore.indexes.json` — sandbox uses `LocalEnvironment`'s lint pass; prod has its own server-side validation |
-| Aggregates | Aggregates count documents server-side without paying read cost per doc in prod; sandbox computes locally (no cost model) |
-| runTransaction(db, fn) | Retry behavior — prod retries on contention up to 5 times; sandbox is single-threaded, no contention possible |
-| Equality helpers | `queryEqual(a, b)` — true on identity for sandbox; structural for prod via `fb.queryEqual` |
-| Equality helpers | `snapshotEqual(a, b)`. Prod: returns a boolean — true on identity, false even for two fetches of the same data. Sandbox: **throws** (`unrecognized reference`) for sandbox-target snapshots instead of returning a boolean |
-| enableIndexedDbPersistence | Resolves on sandbox targets — persistence is already the default; does not reject with `'failed-precondition'` when called after other ops (deliberately more lenient than the real SDK — no cache-init race to protect). Forwards to `fb.enableIndexedDbPersistence` on prod targets |
-| enableMultiTabIndexedDbPersistence | Resolves on sandbox targets — the SharedWorker path already is the one shared store every tab talks to. Forwards to `fb.enableMultiTabIndexedDbPersistence` on prod targets |
-| enableNetwork / disableNetwork | Resolve on sandbox targets — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated). Forward to `fb.enableNetwork` / `fb.disableNetwork` on prod targets |
-| waitForPendingWrites | Resolves immediately on sandbox targets — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip. Forwards to `fb.waitForPendingWrites` on prod targets |
-| terminate | Genuinely tears the target down on sandbox targets — calls `Sandbox.dispose()`, which tears down listener registries on the sandbox's environment (idempotent, doesn't touch data). This differs from the real SDK in scope: `dispose()` operates on the whole `Sandbox`, not a Firestore-only slice, so if `pyric/database`/`pyric/storage` share the same `Sandbox` their listener registries are torn down too. Forwards to `fb.terminate` on prod targets, which only tears down the one Firestore instance |
-| initializeFirestore | Delegates to `getFirestore(app)` and returns the same handle. Accepts the `settings` argument (so the explicit-init pattern doesn't crash at import) but no-ops the cache/network settings — persistence is always on. Prod path forwards only to `getFirestore(app)`; a real settings pass-through for prod is out of scope for this tier-1 pass |
-| persistentLocalCache / memoryLocalCache / persistentSingleTabManager / persistentMultipleTabManager / memoryEagerGarbageCollector / memoryLruGarbageCollector | Config token accepted, inert — each returns a small tagged object so identity/usage doesn't crash. Persistence is the sandbox default; there is no cache tier left to configure |
-| getDocFromCache / getDocsFromCache | Delegates to `getDoc` / `getDocs` on sandbox targets. Real Firebase THROWS `'unavailable'` here on a genuine cache miss; pyric never misses — the local store always has the answer (or a non-existent snapshot) — so it never throws for that reason. Forwards to `fb.getDocFromCache` / `fb.getDocsFromCache` on prod targets, which DO throw on a real cache miss |
-| setLogLevel | Accepted no-op — the sandbox has no modular-SDK-style logger to wire a level into; it uses host-level `console` logging directly, gated by `pyric dev`'s own flags, not this call |
-| onSnapshotsInSync | Fires the callback once the current snapshot-delivery microtask queue settles — the closest honest approximation of "every active listener has delivered its latest state" available without a true cross-listener sync signal. Not scoped to real server round-trips like the real SDK's guarantee; scoped to local delivery only. Forwards to `fb.onSnapshotsInSync` on prod targets |
-| 138a | DEFERRED sub-items of row 138: strict bool in `&&`/`\|\|`/ternary (`1 && true` should error) — corpus-coupled, needs emulator; a FLOAT stored in JSON test-data reads as int (`data.x is float`→false; prod uses the stored Firestore type tag) — needs a `__type:'float'` test-data revive marker; `resource`-null-on-create (RULES-B12 rest) |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getDoc(ref)</code><span class="compat-sub">Rules denial throws <code>SandboxError('permission-denied', …)</code> on sandbox; <code>FirebaseError('permission-denied')</code> on prod</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getDocs(query)</code><span class="compat-sub">Query-proof <strong>prover scope is conservative</strong> — only top-level AND-conjunct <code>resource.data.&lt;field&gt; == &lt;literal&gt;</code> predicates (with <code>request.auth.uid</code> pinned to the caller) are dischargeable by <code>where(field, '==', value)</code>. Disjunctions over doc data, inequality/range proofs (<code>resource.data.score &gt; 10</code> + <code>where('score','&gt;',10)</code>), <code>in</code>-operand proofs, and nested-path predicates conservatively DENY the whole query where production's prover may allow it. Never a false ALLOW — the conservative direction prod also takes for unprovable queries.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">addDoc(coll, data)</code><span class="compat-sub">Auto-id format — prod uses 20-char base64-ish IDs; sandbox uses <code>pyric-admin</code>'s auto-id (also opaque, distinct format)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Query construction</code><span class="compat-sub"><code>limitToLast(n)</code> — trailing n in ordered result (requires <code>orderBy</code>). Sandbox: the no-orderBy precondition throws a <code>FirestoreError</code> with <code>.code === 'invalid-argument'</code> (FS-B16; pre-fix plain <code>Error</code>s). Prod: the same precondition throws <code>.code === 'unimplemented'</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Query construction</code><span class="compat-sub">Index validation against <code>firestore.indexes.json</code> — sandbox uses <code>LocalEnvironment</code>'s lint pass; prod has its own server-side validation</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Aggregates</code><span class="compat-sub">Aggregates count documents server-side without paying read cost per doc in prod; sandbox computes locally (no cost model)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">runTransaction(db, fn)</code><span class="compat-sub">Retry behavior — prod retries on contention up to 5 times; sandbox is single-threaded, no contention possible</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Equality helpers</code><span class="compat-sub"><code>queryEqual(a, b)</code> — true on identity for sandbox; structural for prod via <code>fb.queryEqual</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Equality helpers</code><span class="compat-sub"><code>snapshotEqual(a, b)</code>. Prod: returns a boolean — true on identity, false even for two fetches of the same data. Sandbox: <strong>throws</strong> (<code>unrecognized reference</code>) for sandbox-target snapshots instead of returning a boolean</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">enableIndexedDbPersistence</code><span class="compat-sub">Resolves on sandbox targets — persistence is already the default; does not reject with <code>'failed-precondition'</code> when called after other ops (deliberately more lenient than the real SDK — no cache-init race to protect). Forwards to <code>fb.enableIndexedDbPersistence</code> on prod targets</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">enableMultiTabIndexedDbPersistence</code><span class="compat-sub">Resolves on sandbox targets — the SharedWorker path already is the one shared store every tab talks to. Forwards to <code>fb.enableMultiTabIndexedDbPersistence</code> on prod targets</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">enableNetwork / disableNetwork</code><span class="compat-sub">Resolve on sandbox targets — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated). Forward to <code>fb.enableNetwork</code> / <code>fb.disableNetwork</code> on prod targets</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">waitForPendingWrites</code><span class="compat-sub">Resolves immediately on sandbox targets — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip. Forwards to <code>fb.waitForPendingWrites</code> on prod targets</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">terminate</code><span class="compat-sub">Genuinely tears the target down on sandbox targets — calls <code>Sandbox.dispose()</code>, which tears down listener registries on the sandbox's environment (idempotent, doesn't touch data). This differs from the real SDK in scope: <code>dispose()</code> operates on the whole <code>Sandbox</code>, not a Firestore-only slice, so if <code>pyric/database</code>/<code>pyric/storage</code> share the same <code>Sandbox</code> their listener registries are torn down too. Forwards to <code>fb.terminate</code> on prod targets, which only tears down the one Firestore instance</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">initializeFirestore</code><span class="compat-sub">Delegates to <code>getFirestore(app)</code> and returns the same handle. Accepts the <code>settings</code> argument (so the explicit-init pattern doesn't crash at import) but no-ops the cache/network settings — persistence is always on. Prod path forwards only to <code>getFirestore(app)</code>; a real settings pass-through for prod is out of scope for this tier-1 pass</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">persistentLocalCache / memoryLocalCache / persistentSingleTabManager / persistentMultipleTabManager / memoryEagerGarbageCollector / memoryLruGarbageCollector</code><span class="compat-sub">Config token accepted, inert — each returns a small tagged object so identity/usage doesn't crash. Persistence is the sandbox default; there is no cache tier left to configure</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getDocFromCache / getDocsFromCache</code><span class="compat-sub">Delegates to <code>getDoc</code> / <code>getDocs</code> on sandbox targets. Real Firebase THROWS <code>'unavailable'</code> here on a genuine cache miss; pyric never misses — the local store always has the answer (or a non-existent snapshot) — so it never throws for that reason. Forwards to <code>fb.getDocFromCache</code> / <code>fb.getDocsFromCache</code> on prod targets, which DO throw on a real cache miss</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">setLogLevel</code><span class="compat-sub">Accepted no-op — the sandbox has no modular-SDK-style logger to wire a level into; it uses host-level <code>console</code> logging directly, gated by <code>pyric dev</code>'s own flags, not this call</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">onSnapshotsInSync</code><span class="compat-sub">Fires the callback once the current snapshot-delivery microtask queue settles — the closest honest approximation of "every active listener has delivered its latest state" available without a true cross-listener sync signal. Not scoped to real server round-trips like the real SDK's guarantee; scoped to local delivery only. Forwards to <code>fb.onSnapshotsInSync</code> on prod targets</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">138a</code><span class="compat-sub">DEFERRED sub-items of row 138: strict bool in <code>&amp;&amp;</code>/<code>||</code>/ternary (<code>1 &amp;&amp; true</code> should error) — corpus-coupled, needs emulator; a FLOAT stored in JSON test-data reads as int (<code>data.x is float</code>→false; prod uses the stored Firestore type tag) — needs a <code>__type:'float'</code> test-data revive marker; <code>resource</code>-null-on-create (RULES-B12 rest)</span></span></div>
+</div>
+</div>

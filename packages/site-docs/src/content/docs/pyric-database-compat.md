@@ -1300,53 +1300,121 @@ These exist in `firebase/database` but Pyric does not implement them:
 
 Where the local engine and production Firebase differ today. Each difference is pinned and tracked.
 
-| API | Difference |
-|---|---|
-| rtdb_simulate_access` / `simulate(input) | Cross-path `root.child(…).val()` reads return `null` for paths NOT present in `mockData` — divergence from real prod rules where the engine reads the live database |
-| M75 | **Divergence (DB-B12, honest doc):** the onChild* callbacks do NOT receive the `previousChildName` second argument; `onValue`/`onChild*` do NOT accept a `cancelCallback`; `onChildAdded`/`Changed`/`Removed`/`Moved` accept only plain refs (not `Query`); `child_moved` never fires (ordered-query move detection unmodeled). These listener-surface holes are out of scope for the current phase — consumers needing them use `firebase/database` directly. |
-| M76 | **Divergence (DB-B9, honest doc):** `.validate` rules are NOT enforced on modular sandbox writes (`set`/`update`/`runTransaction`). The modular write path routes through the same `RulesEvaluator` → `SimulateHandler` as the simulator, which short-circuits on the first ancestor `.write` that grants access without also requiring every ancestor `.validate` to pass (same divergence as row #71). A write the live RTDB rejects via a deeper `.validate` still succeeds in the sandbox. |
-| 137 | `onChildMoved` under an ordered query. Prod: fires when a child's `orderByChild`/`orderByValue` priority changes — emitted only on ordered queries. Sandbox: **never fires on reorder** — `onChildMoved` supports the plain-ref (no-fire) case only; the ordered-query overload is unimplemented |
-| 163 | `goOffline(db)` — accepted no-op on sandbox handles: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and `get()` keep working). Forwards to `firebase/database`'s `goOffline` on prod handles |
-| 164 | `goOnline(db)` — accepted no-op on sandbox handles: there is no connection to reopen (see `goOffline`). Forwards to `firebase/database`'s `goOnline` on prod handles |
-| 171 | `forceLongPolling()` — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs. Process-global setter with no `db` handle, so there is no prod handle to forward through |
-| 172 | `forceWebSockets()` — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (see `forceLongPolling`) |
-| 173 | `enableLogging(logger?, persistent?)` — accepted no-op: the sandbox has no modular-SDK-style logger to wire a level/sink into (it uses host-level `console` logging directly, matching `pyric/firestore`'s `setLogLevel`). Accepted so init code that calls it compiles + runs |
-| 174 | `refFromURL(db, url)` — real alias: parses the path out of the absolute database URL and delegates to `ref(db, path)`, so the returned ref resolves + reads exactly like `ref(db, path)`. Divergence: the sandbox is single-database with no host/namespace, so the URL's HOST is NOT validated against the handle (the real SDK throws if the host doesn't match the db's namespace); only the path is honored |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">rtdb_simulate_access<code> / </code>simulate(input)</code><span class="compat-sub">Cross-path <code>root.child(…).val()</code> reads return <code>null</code> for paths NOT present in <code>mockData</code> — divergence from real prod rules where the engine reads the live database</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">M75</code><span class="compat-sub"><strong>Divergence (DB-B12, honest doc):</strong> the onChild<em> callbacks do NOT receive the <code>previousChildName</code> second argument; <code>onValue</code>/<code>onChild</em></code> do NOT accept a <code>cancelCallback</code>; <code>onChildAdded</code>/<code>Changed</code>/<code>Removed</code>/<code>Moved</code> accept only plain refs (not <code>Query</code>); <code>child_moved</code> never fires (ordered-query move detection unmodeled). These listener-surface holes are out of scope for the current phase — consumers needing them use <code>firebase/database</code> directly.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">M76</code><span class="compat-sub"><strong>Divergence (DB-B9, honest doc):</strong> <code>.validate</code> rules are NOT enforced on modular sandbox writes (<code>set</code>/<code>update</code>/<code>runTransaction</code>). The modular write path routes through the same <code>RulesEvaluator</code> → <code>SimulateHandler</code> as the simulator, which short-circuits on the first ancestor <code>.write</code> that grants access without also requiring every ancestor <code>.validate</code> to pass (same divergence as row #71). A write the live RTDB rejects via a deeper <code>.validate</code> still succeeds in the sandbox.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">137</code><span class="compat-sub"><code>onChildMoved</code> under an ordered query. Prod: fires when a child's <code>orderByChild</code>/<code>orderByValue</code> priority changes — emitted only on ordered queries. Sandbox: <strong>never fires on reorder</strong> — <code>onChildMoved</code> supports the plain-ref (no-fire) case only; the ordered-query overload is unimplemented</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">163</code><span class="compat-sub"><code>goOffline(db)</code> — accepted no-op on sandbox handles: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and <code>get()</code> keep working). Forwards to <code>firebase/database</code>'s <code>goOffline</code> on prod handles</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">164</code><span class="compat-sub"><code>goOnline(db)</code> — accepted no-op on sandbox handles: there is no connection to reopen (see <code>goOffline</code>). Forwards to <code>firebase/database</code>'s <code>goOnline</code> on prod handles</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">171</code><span class="compat-sub"><code>forceLongPolling()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs. Process-global setter with no <code>db</code> handle, so there is no prod handle to forward through</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">172</code><span class="compat-sub"><code>forceWebSockets()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (see <code>forceLongPolling</code>)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">173</code><span class="compat-sub"><code>enableLogging(logger?, persistent?)</code> — accepted no-op: the sandbox has no modular-SDK-style logger to wire a level/sink into (it uses host-level <code>console</code> logging directly, matching <code>pyric/firestore</code>'s <code>setLogLevel</code>). Accepted so init code that calls it compiles + runs</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">174</code><span class="compat-sub"><code>refFromURL(db, url)</code> — real alias: parses the path out of the absolute database URL and delegates to <code>ref(db, path)</code>, so the returned ref resolves + reads exactly like <code>ref(db, path)</code>. Divergence: the sandbox is single-database with no host/namespace, so the URL's HOST is NOT validated against the handle (the real SDK throws if the host doesn't match the db's namespace); only the path is honored</span></span></div>
+</div>
+</div>
 
 ## Not supported yet
 
 Tracked but not implemented yet. Each flips to ✓ as support lands.
 
-| API | Behavior |
-|---|---|
-| M3 | `getDatabase(app)` builds a prod target; delegates to `firebase/database.getDatabase(app)` |
-| M37h | Concurrent contention / retry-on-conflict — single-client sandbox doesn't model real concurrency; the documented "up to 25 retries" contract is degenerate (the fn is invoked once) |
-| 94 | `getDatabase(ctx)` returns a tagged sandbox-target handle (frozen identity) |
-| 95 | `getDatabase(sandbox)` returns a tagged sandbox-live handle (per-op identity) |
-| 98 | Two `getDatabase(sandbox)` calls share state (same underlying `LocalEnvironment`) |
-| 99 | Handle dispatch by `TARGET_SYMBOL` brand — refs route to their owning target via a `refToTarget` WeakMap (mirror of firestore's pattern) |
-| 105 | Unknown ref (not produced by this package) → `TypeError` in shim ops |
-| 165 | No-op on sandbox-target handles (the sandbox IS the local emulator) |
-| 166 | Forwards to `firebase/database`'s `connectDatabaseEmulator` on prod-target handles |
-| 167 | `sandbox.setData(db, {path: value, ...})` bulk-loads data, bypassing rules |
-| 168 | `sandbox.setRules(db, rules)` loads rules into the underlying local environment; returns `LintResult` |
-| 169 | `sandbox.snapshotState(db)` dumps every path the local store has stored |
-| 170 | All `sandbox.*` methods throw on prod-target handles with `failed-precondition` |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">M3</code><span class="compat-sub"><code>getDatabase(app)</code> builds a prod target; delegates to <code>firebase/database.getDatabase(app)</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">M37h</code><span class="compat-sub">Concurrent contention / retry-on-conflict — single-client sandbox doesn't model real concurrency; the documented "up to 25 retries" contract is degenerate (the fn is invoked once)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">94</code><span class="compat-sub"><code>getDatabase(ctx)</code> returns a tagged sandbox-target handle (frozen identity)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">95</code><span class="compat-sub"><code>getDatabase(sandbox)</code> returns a tagged sandbox-live handle (per-op identity)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">98</code><span class="compat-sub">Two <code>getDatabase(sandbox)</code> calls share state (same underlying <code>LocalEnvironment</code>)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">99</code><span class="compat-sub">Handle dispatch by <code>TARGET_SYMBOL</code> brand — refs route to their owning target via a <code>refToTarget</code> WeakMap (mirror of firestore's pattern)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">105</code><span class="compat-sub">Unknown ref (not produced by this package) → <code>TypeError</code> in shim ops</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">165</code><span class="compat-sub">No-op on sandbox-target handles (the sandbox IS the local emulator)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">166</code><span class="compat-sub">Forwards to <code>firebase/database</code>'s <code>connectDatabaseEmulator</code> on prod-target handles</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">167</code><span class="compat-sub"><code>sandbox.setData(db, {path: value, ...})</code> bulk-loads data, bypassing rules</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">168</code><span class="compat-sub"><code>sandbox.setRules(db, rules)</code> loads rules into the underlying local environment; returns <code>LintResult</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">169</code><span class="compat-sub"><code>sandbox.snapshotState(db)</code> dumps every path the local store has stored</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">170</code><span class="compat-sub">All <code>sandbox.*</code> methods throw on prod-target handles with <code>failed-precondition</code></span></span></div>
+</div>
+</div>
 
 ## Not verified yet
 
 Tracked but not yet checked against recorded production behavior.
 
-| API | Not yet verified |
-|---|---|
-| 96 | `getDatabase(app)` returns a tagged prod target |
-| 100 | `ref(db, path)` returns a tagged `DatabaseReference` carrying `key`, `parent`, `root`, `toString()` |
-| 101 | `ref(db)` with no path returns the root ref (`key === null`, `parent === null`) |
-| 102 | `child(ref, 'a/b')` joins a relative path, including embedded slashes |
-| 103 | `ref.parent` is `null` at root, otherwise the parent ref |
-| 104 | `ref.key` is the final path segment, `null` for root |
-| 111 | Replaces the value at the path entirely; resolves to `undefined` (unlike `setDoc` which resolves to `void`, RTDB's `set` is documented as `Promise<void>`) |
-| 120 | Update path validation — overlapping paths (e.g. `'/a'` and `'/a/x'` in the same call) throws synchronously before any write |
-| 132 | The returned value from `onValue(ref, cb)` is the unsubscribe function (NOT an object); calling it removes the listener |
-| 157 | Two concurrent `increment` calls interleave correctly (last-write-wins is NOT the contract — both deltas accumulate) |
-| 161 | Concurrent contention — if another client writes between the read and write, the update fn is retried with the new current value (typically up to 25 retries by default) |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">96</code><span class="compat-sub"><code>getDatabase(app)</code> returns a tagged prod target</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">100</code><span class="compat-sub"><code>ref(db, path)</code> returns a tagged <code>DatabaseReference</code> carrying <code>key</code>, <code>parent</code>, <code>root</code>, <code>toString()</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">101</code><span class="compat-sub"><code>ref(db)</code> with no path returns the root ref (<code>key === null</code>, <code>parent === null</code>)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">102</code><span class="compat-sub"><code>child(ref, 'a/b')</code> joins a relative path, including embedded slashes</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">103</code><span class="compat-sub"><code>ref.parent</code> is <code>null</code> at root, otherwise the parent ref</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">104</code><span class="compat-sub"><code>ref.key</code> is the final path segment, <code>null</code> for root</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">111</code><span class="compat-sub">Replaces the value at the path entirely; resolves to <code>undefined</code> (unlike <code>setDoc</code> which resolves to <code>void</code>, RTDB's <code>set</code> is documented as <code>Promise&lt;void&gt;</code>)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">120</code><span class="compat-sub">Update path validation — overlapping paths (e.g. <code>'/a'</code> and <code>'/a/x'</code> in the same call) throws synchronously before any write</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">132</code><span class="compat-sub">The returned value from <code>onValue(ref, cb)</code> is the unsubscribe function (NOT an object); calling it removes the listener</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">157</code><span class="compat-sub">Two concurrent <code>increment</code> calls interleave correctly (last-write-wins is NOT the contract — both deltas accumulate)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">161</code><span class="compat-sub">Concurrent contention — if another client writes between the read and write, the update fn is retried with the new current value (typically up to 25 retries by default)</span></span></div>
+</div>
+</div>

@@ -661,42 +661,88 @@ These exist in `firebase/auth` but Pyric does not implement them.
 
 Where the local engine and production Firebase differ today. Each difference is pinned and tracked.
 
-| API | Difference |
-|---|---|
-| signInAnonymously(auth) | Auto-generates a uid for fresh sign-ins (sandbox format: `anonymous-{N}`) |
-| signInAnonymously(auth) | Anonymous users persist across page reload via configured `Persistence` (prod only — sandbox has no persistence layer) |
-| signInWithEmailAndPassword(auth, email, password) | An EMPTY password throws `auth/missing-password` (message "A non-empty password must be provided"), fired before the user-DB lookup so it can't be used to enumerate seeded emails. Upstream maps the `MISSING_PASSWORD` server error (`core/errors.ts:92,282,563`). ⚠ best-known semantics — message text not yet captured against a live project (STOP-flagged for an oracle pass; the `.code` is the load-bearing part). |
-| signOut(auth) | Clears the active session's persistence in prod; sandbox has no persistence |
-| setPersistence(auth, persistence) | Actually changes where the auth state is persisted |
-| signInWithPopup(auth, provider)` / `signInWithCredential(auth, credential) | Opens a popup window in prod |
-| beforeAuthStateChanged(auth, callback, onAbort?) | `sandbox.setUser` (the sandbox-only test driver) BYPASSES the gate entirely — it is a raw identity force with no prod analog (same bypass it already has for provider enforcement / `signInProvider` tracking), so no registered `beforeAuthStateChanged` callback runs and none can block it. |
-| beforeAuthStateChanged(auth, callback, onAbort?) | Served-worker path (SharedWorker-backed auth, `pyric-tools`'s `serve/entries/auth.ts`): the worker owns the shared user pool and commits transitions on its own side of the port, so a page-local `beforeAuthStateChanged` registration can't actually gate a worker-driven sign-in. Rather than silently accept a callback that would never run, registering THROWS immediately (`auth/operation-not-supported-in-this-environment`) — same defensive pattern as `signInWithCredential` over the worker. |
-| updateEmail(user, newEmail) | Changes the stored email (via the same path as `sandbox.updateUser`, rejecting `auth/email-already-in-use` / `auth/invalid-email`) and mutates the held `user` in place, so the next sign-in resolves against the new email. Leniency vs prod: the sandbox does NOT enforce `auth/requires-recent-login` and is not routed through `verifyBeforeUpdateEmail` (which the real SDK requires when email-enumeration protection is on) |
-| updatePassword(user, newPassword) | Sets the stored password (validated for strength). The sandbox DOES store and verify passwords, so this is a real mutation: a subsequent `signInWithEmailAndPassword` with the new password succeeds and the old one throws `auth/wrong-password`. Leniency vs prod: no `auth/requires-recent-login` enforcement |
-| useDeviceLanguage(auth) | Accepted no-op — the sandbox has no device locale to read, so there is no language to set; accepted so init code that calls it compiles + runs |
-| sendSignInLinkToEmail | Prod rejects a continue URL whose domain is not on the project's authorized-domains list. The sandbox has NO domain allowlist and does not invent one: it accepts any parseable continue URL. A continue URL that would be rejected in production is accepted here. |
-| reauthenticate* | In production the POINT of re-authentication is the `auth/requires-recent-login` gate: `updateEmail` / `updatePassword` / `deleteUser` refuse to run on a session whose sign-in is older than a few minutes, and re-auth is how you clear it. The sandbox does NOT enforce that gate — those three mutations already run on a session of any age (a pre-existing documented divergence), so there is no gate here for re-auth to clear. What re-auth DOES do here is real but narrower: it genuinely re-verifies the credential, mints a fresh token, and returns `operationType: 'reauthenticate'`. Code that calls it runs unchanged against prod, where it also clears the gate. |
-| signInWithCustomToken(auth, customToken) | Throws `auth/invalid-custom-token` for a malformed token and for the empty string. The sandbox accepts a token in the two shapes it can honestly read: a JSON (optionally base64url) `{uid, claims}` payload — exactly what `admin.auth().createCustomToken` signs, so the pyric-admin mint and this redeem compose — or a real three-part JWT whose payload segment carries `uid`/`sub`. The SIGNATURE IS NOT VERIFIED: the sandbox has no service-account key. The identity is created if it does not exist, and the credential carries `providerId: null` (custom-token sign-in is not a federated provider). |
-| inMemoryPersistence / browserSessionPersistence / browserLocalPersistence / indexedDBLocalPersistence / browserCookiePersistence / browserPopupRedirectResolver / debugErrorMap / prodErrorMap | Inert configuration tokens, accepted so the idiomatic `initializeAuth(app, { persistence: indexedDBLocalPersistence })` and `setPersistence(auth, browserCookiePersistence)` compile, run, and behave identically. The `.type` discriminant matches upstream exactly (`NONE` / `SESSION` / `LOCAL` / `LOCAL` / `COOKIE`) because consumer code branches on it. `browserPopupRedirectResolver` is accepted and ignored — the sandbox has its own first-class pluggable equivalent (`sandbox.setAuthFlowResolver`). `prodErrorMap` is accepted and DELIBERATELY not honored: installing it upstream strips error messages, and doing that in a sandbox whose purpose is to tell a developer what went wrong would be actively hostile. |
-| revokeAccessToken(auth, token) | Accepted no-op. In production this reaches OUTSIDE Firebase entirely — it tells the identity provider (in practice Apple) to revoke an OAuth access token, which is a call landing on Apple's servers. There is no external IdP behind a sandbox sign-in, so there is no token out there to revoke and nothing this call could truthfully do. It resolves (so the account-deletion flow Apple requires an app to ship runs end to end against the sandbox) and changes no sandbox state (because claiming otherwise would be a lie). |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">signInAnonymously(auth)</code><span class="compat-sub">Auto-generates a uid for fresh sign-ins (sandbox format: <code>anonymous-{N}</code>)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">signInAnonymously(auth)</code><span class="compat-sub">Anonymous users persist across page reload via configured <code>Persistence</code> (prod only — sandbox has no persistence layer)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">signInWithEmailAndPassword(auth, email, password)</code><span class="compat-sub">An EMPTY password throws <code>auth/missing-password</code> (message "A non-empty password must be provided"), fired before the user-DB lookup so it can't be used to enumerate seeded emails. Upstream maps the <code>MISSING_PASSWORD</code> server error (<code>core/errors.ts:92,282,563</code>). ⚠ best-known semantics — message text not yet captured against a live project (STOP-flagged for an oracle pass; the <code>.code</code> is the load-bearing part).</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">signOut(auth)</code><span class="compat-sub">Clears the active session's persistence in prod; sandbox has no persistence</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">setPersistence(auth, persistence)</code><span class="compat-sub">Actually changes where the auth state is persisted</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">signInWithPopup(auth, provider)<code> / </code>signInWithCredential(auth, credential)</code><span class="compat-sub">Opens a popup window in prod</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">beforeAuthStateChanged(auth, callback, onAbort?)</code><span class="compat-sub"><code>sandbox.setUser</code> (the sandbox-only test driver) BYPASSES the gate entirely — it is a raw identity force with no prod analog (same bypass it already has for provider enforcement / <code>signInProvider</code> tracking), so no registered <code>beforeAuthStateChanged</code> callback runs and none can block it.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">beforeAuthStateChanged(auth, callback, onAbort?)</code><span class="compat-sub">Served-worker path (SharedWorker-backed auth, <code>pyric-tools</code>'s <code>serve/entries/auth.ts</code>): the worker owns the shared user pool and commits transitions on its own side of the port, so a page-local <code>beforeAuthStateChanged</code> registration can't actually gate a worker-driven sign-in. Rather than silently accept a callback that would never run, registering THROWS immediately (<code>auth/operation-not-supported-in-this-environment</code>) — same defensive pattern as <code>signInWithCredential</code> over the worker.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">updateEmail(user, newEmail)</code><span class="compat-sub">Changes the stored email (via the same path as <code>sandbox.updateUser</code>, rejecting <code>auth/email-already-in-use</code> / <code>auth/invalid-email</code>) and mutates the held <code>user</code> in place, so the next sign-in resolves against the new email. Leniency vs prod: the sandbox does NOT enforce <code>auth/requires-recent-login</code> and is not routed through <code>verifyBeforeUpdateEmail</code> (which the real SDK requires when email-enumeration protection is on)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">updatePassword(user, newPassword)</code><span class="compat-sub">Sets the stored password (validated for strength). The sandbox DOES store and verify passwords, so this is a real mutation: a subsequent <code>signInWithEmailAndPassword</code> with the new password succeeds and the old one throws <code>auth/wrong-password</code>. Leniency vs prod: no <code>auth/requires-recent-login</code> enforcement</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">useDeviceLanguage(auth)</code><span class="compat-sub">Accepted no-op — the sandbox has no device locale to read, so there is no language to set; accepted so init code that calls it compiles + runs</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">sendSignInLinkToEmail</code><span class="compat-sub">Prod rejects a continue URL whose domain is not on the project's authorized-domains list. The sandbox has NO domain allowlist and does not invent one: it accepts any parseable continue URL. A continue URL that would be rejected in production is accepted here.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">reauthenticate*</code><span class="compat-sub">In production the POINT of re-authentication is the <code>auth/requires-recent-login</code> gate: <code>updateEmail</code> / <code>updatePassword</code> / <code>deleteUser</code> refuse to run on a session whose sign-in is older than a few minutes, and re-auth is how you clear it. The sandbox does NOT enforce that gate — those three mutations already run on a session of any age (a pre-existing documented divergence), so there is no gate here for re-auth to clear. What re-auth DOES do here is real but narrower: it genuinely re-verifies the credential, mints a fresh token, and returns <code>operationType: 'reauthenticate'</code>. Code that calls it runs unchanged against prod, where it also clears the gate.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">signInWithCustomToken(auth, customToken)</code><span class="compat-sub">Throws <code>auth/invalid-custom-token</code> for a malformed token and for the empty string. The sandbox accepts a token in the two shapes it can honestly read: a JSON (optionally base64url) <code>{uid, claims}</code> payload — exactly what <code>admin.auth().createCustomToken</code> signs, so the pyric-admin mint and this redeem compose — or a real three-part JWT whose payload segment carries <code>uid</code>/<code>sub</code>. The SIGNATURE IS NOT VERIFIED: the sandbox has no service-account key. The identity is created if it does not exist, and the credential carries <code>providerId: null</code> (custom-token sign-in is not a federated provider).</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">inMemoryPersistence / browserSessionPersistence / browserLocalPersistence / indexedDBLocalPersistence / browserCookiePersistence / browserPopupRedirectResolver / debugErrorMap / prodErrorMap</code><span class="compat-sub">Inert configuration tokens, accepted so the idiomatic <code>initializeAuth(app, { persistence: indexedDBLocalPersistence })</code> and <code>setPersistence(auth, browserCookiePersistence)</code> compile, run, and behave identically. The <code>.type</code> discriminant matches upstream exactly (<code>NONE</code> / <code>SESSION</code> / <code>LOCAL</code> / <code>LOCAL</code> / <code>COOKIE</code>) because consumer code branches on it. <code>browserPopupRedirectResolver</code> is accepted and ignored — the sandbox has its own first-class pluggable equivalent (<code>sandbox.setAuthFlowResolver</code>). <code>prodErrorMap</code> is accepted and DELIBERATELY not honored: installing it upstream strips error messages, and doing that in a sandbox whose purpose is to tell a developer what went wrong would be actively hostile.</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">revokeAccessToken(auth, token)</code><span class="compat-sub">Accepted no-op. In production this reaches OUTSIDE Firebase entirely — it tells the identity provider (in practice Apple) to revoke an OAuth access token, which is a call landing on Apple's servers. There is no external IdP behind a sandbox sign-in, so there is no token out there to revoke and nothing this call could truthfully do. It resolves (so the account-deletion flow Apple requires an app to ship runs end to end against the sandbox) and changes no sandbox state (because claiming otherwise would be a lie).</span></span></div>
+</div>
+</div>
 
 ## Not supported yet
 
 Tracked but not implemented yet. Each flips to ✓ as support lands.
 
-| API | Behavior |
-|---|---|
-| signInWithPopup(auth, provider)` / `signInWithCredential(auth, credential) | Cancels with `auth/popup-closed-by-user` when the user dismisses the popup (prod) |
-| 53 | Custom scopes / params / language code |
-| User` methods | `user.metadata.creationTime` / `lastSignInTime` |
-| User` methods | `user.reload()` / `user.delete()` / `user.toJSON()` / `user.refreshToken` / `user.tenantId` |
-| User` methods | `updateProfile(user, {displayName, photoURL})` |
-| fetchSignInMethodsForEmail(auth, email) | Not implemented. Deprecated upstream: production returns an empty list when email-enumeration protection is on (the default), so mirroring it would mislead callers. |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">signInWithPopup(auth, provider)<code> / </code>signInWithCredential(auth, credential)</code><span class="compat-sub">Cancels with <code>auth/popup-closed-by-user</code> when the user dismisses the popup (prod)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">53</code><span class="compat-sub">Custom scopes / params / language code</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">User` methods</code><span class="compat-sub"><code>user.metadata.creationTime</code> / <code>lastSignInTime</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">User` methods</code><span class="compat-sub"><code>user.reload()</code> / <code>user.delete()</code> / <code>user.toJSON()</code> / <code>user.refreshToken</code> / <code>user.tenantId</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">User` methods</code><span class="compat-sub"><code>updateProfile(user, {displayName, photoURL})</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">fetchSignInMethodsForEmail(auth, email)</code><span class="compat-sub">Not implemented. Deprecated upstream: production returns an empty list when email-enumeration protection is on (the default), so mirroring it would mislead callers.</span></span></div>
+</div>
+</div>
 
 ## Not verified yet
 
 Tracked but not yet checked against recorded production behavior.
 
-| API | Not yet verified |
-|---|---|
-| getAuth(target) | `getAuth(app)` dispatches to the production backend |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getAuth(target)</code><span class="compat-sub"><code>getAuth(app)</code> dispatches to the production backend</span></span></div>
+</div>
+</div>

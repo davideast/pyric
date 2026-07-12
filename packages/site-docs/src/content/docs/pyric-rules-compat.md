@@ -125,35 +125,35 @@ order: 8007
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">parseStorageRules()</code><span class="compat-sub"><span class="compat-category">ruleset parsing</span> · <span class="compat-behavior"><code>parseStorageRules(source)</code> returns an opaque handle</span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">ruleset parsing</code><span class="compat-sub"><span class="compat-behavior">A Storage rules file parses to a ruleset</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("parses the canonical session-archive ruleset")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">parseStorageRules()</code><span class="compat-sub"><span class="compat-category">service header check</span> · <span class="compat-behavior"><code>parseStorageRules</code> rejects non-<code>firebase.storage</code> service headers</span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">service header</code><span class="compat-sub"><span class="compat-behavior">A Storage ruleset must declare the <code>firebase.storage</code> service header. Any other service header is rejected</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("rejects unknown service header")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">allow verbs</code><span class="compat-sub"><span class="compat-category">granular and umbrella grants</span> · <span class="compat-behavior"><code>evaluateStorageRules</code> supports granular verbs (<code>get</code>/<code>list</code>/<code>create</code>/<code>update</code>/<code>delete</code>) alongside <code>read</code>/<code>write</code> umbrella expansion, comma-separated verb lists, and per-verb default-deny</span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">allow verbs</code><span class="compat-sub"><span class="compat-category">granular and umbrella grants</span> · <span class="compat-behavior">Granular verbs (<code>get</code>, <code>list</code>, <code>create</code>, <code>update</code>, <code>delete</code>) alongside the <code>read</code> and <code>write</code> umbrellas, comma-separated verb lists, and per-verb default-deny</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe">STALE ROW, corrected 2026-07-10: production capture proves the evaluator already supports the full six-verb grant surface (umbrella read→{get,list}, write→{create,update,delete}, single granular grants, comma-separated grants, per-verb deny-by-default), matching production verdict-for-verdict on 12 of the scenario's 13 non-existence cases. <code>oracle:rules-storage-verbs-umbrella-granular</code> (all <code>read</code>/<code>write</code>/<code>get</code>/comma-verb cases). One related existence-semantics case in the same scenario diverges — pinned separately as a KNOWN_DIVERGENCE, not a granular-verb gap.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">parseStorageRules()</code><span class="compat-sub"><span class="compat-category">unterminated string check</span> · <span class="compat-behavior"><code>parseStorageRules</code> rejects unterminated string literals with <code>SyntaxError</code></span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">unterminated string literal</code><span class="compat-sub"><span class="compat-behavior">An unterminated string literal is a parse-time <code>SyntaxError</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("rejects unterminated strings")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">evaluateStorageRules()</code><span class="compat-sub"><span class="compat-category">authed read match</span> · <span class="compat-behavior"><code>evaluateStorageRules</code> matches <code>match /sessions/{id} { allow read: if request.auth != null; }</code> for an authed read</span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">match with request.auth</code><span class="compat-sub"><span class="compat-behavior">A <code>match /sessions/{id} { allow read: if request.auth != null; }</code> block allows an authenticated read</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("allows authenticated reads of /sessions/{id}")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">request.auth</code><span class="compat-sub"><span class="compat-category">anonymous read denial</span> · <span class="compat-behavior"><code>evaluateStorageRules</code> denies anonymous reads when the rule requires <code>request.auth != null</code></span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">request.auth</code><span class="compat-sub"><span class="compat-category">anonymous read denial</span> · <span class="compat-behavior">An anonymous read is denied when the rule requires <code>request.auth != null</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("denies anonymous reads")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">request.resource.size</code><span class="compat-sub"><span class="compat-category">size constraints</span> · <span class="compat-behavior"><code>evaluateStorageRules</code> supports <code>request.resource.size &lt; N</code> constraints (with arithmetic literals like <code>10 <em> 1024 </em> 1024</code>)</span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">request.resource.size</code><span class="compat-sub"><span class="compat-category">size constraints</span> · <span class="compat-behavior">A <code>request.resource.size &lt; N</code> constraint bounds an upload, with arithmetic literals like <code>10 <em> 1024 </em> 1024</code></span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("allows JSON writes under 10MB")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">request.resource.contentType</code><span class="compat-sub"><span class="compat-category">MIME constraints</span> · <span class="compat-behavior"><code>evaluateStorageRules</code> supports <code>request.resource.contentType == '&lt;mime&gt;'</code> constraints</span></span></span></summary>
+<summary class="compat-line"><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-main"><code class="compat-api">request.resource.contentType</code><span class="compat-sub"><span class="compat-category">MIME constraints</span> · <span class="compat-behavior">A <code>request.resource.contentType == '&lt;mime&gt;'</code> constraint gates an upload by MIME type</span></span></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> (mime constraint inside the session-archive ruleset)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
@@ -259,12 +259,26 @@ order: 8007
 
 Where the local engine and production Firebase differ today. Each difference is pinned and tracked.
 
-| API | Difference |
-|---|---|
-| Bytes / toUtf8() / hashing functions | `Bytes`, `String.toUtf8()`, and `hashing.{md5,sha256,crc32,crc32c}()` (Item 5.3) in rules |
-| getAfter() / existsAfter() | `getAfter()`/`existsAfter()` (Item 7) in rules, post-write document identity and existence semantics |
-| get() | `get()` of a missing document (RULES-B8) in rules. Resource identity (`id`/`__name__`) exposure on a mocked/missing get() result |
-| request.path / request.query / resource.id | `request.path`/`request.query`/`resource.id`/`resource.__name__` globals (Item 6) in rules |
-| int / float division | `int`/`float` division and type distinction (RULES-B5) in rules. Truncating int÷int, float division stays float, div-by-zero denies, `is int`/`is float` distinct |
-| path() / Path.bind() | `Path` wrapper, `path()` constructor, and `Path.bind()` (Item 5.4) in rules |
-| [i:j] slice | Range-slice `[i:j]` syntax for `List` and `String` (Item 4) in rules |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Bytes / toUtf8() / hashing functions</code><span class="compat-sub"><code>Bytes</code>, <code>String.toUtf8()</code>, and <code>hashing.{md5,sha256,crc32,crc32c}()</code> (Item 5.3) in rules</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getAfter() / existsAfter()</code><span class="compat-sub"><code>getAfter()</code>/<code>existsAfter()</code> (Item 7) in rules, post-write document identity and existence semantics</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">get()</code><span class="compat-sub"><code>get()</code> of a missing document (RULES-B8) in rules. Resource identity (<code>id</code>/<code>__name__</code>) exposure on a mocked/missing get() result</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">request.path / request.query / resource.id</code><span class="compat-sub"><code>request.path</code>/<code>request.query</code>/<code>resource.id</code>/<code>resource.__name__</code> globals (Item 6) in rules</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">int / float division</code><span class="compat-sub"><code>int</code>/<code>float</code> division and type distinction (RULES-B5) in rules. Truncating int÷int, float division stays float, div-by-zero denies, <code>is int</code>/<code>is float</code> distinct</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">path() / Path.bind()</code><span class="compat-sub"><code>Path</code> wrapper, <code>path()</code> constructor, and <code>Path.bind()</code> (Item 5.4) in rules</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">[i:j] slice</code><span class="compat-sub">Range-slice <code>[i:j]</code> syntax for <code>List</code> and <code>String</code> (Item 4) in rules</span></span></div>
+</div>
+</div>

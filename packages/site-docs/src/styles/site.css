@@ -818,6 +818,13 @@ samp {
   margin: 1rem 0;
 }
 
+/* The consolidated status roundups (Documented differences, Not supported
+   yet, Not verified yet) reuse the row list without a status dot: drop the
+   dot gutter so the API name and its sub-line start at the left edge. */
+.prose .compat-list--plain .compat-line {
+  grid-template-columns: 1fr;
+}
+
 .prose .compat-line {
   display: grid;
   grid-template-columns: 0.75rem 1fr auto;

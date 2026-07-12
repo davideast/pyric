@@ -816,6 +816,35 @@ function transformCompatTables(body: string): string {
           const iSt = col('status');
           const iPr = col('probe');
           const iMeaning = col('meaning');
+          // The consolidated status roundups (Documented differences, Not
+          // supported yet, Not verified yet) are 2-column `| API | <label> |`
+          // tables with no status column, so the matrix branch below skips
+          // them and they would render as cramped HTML tables. Render each row
+          // as a stacked list item — the API name (the heading) over the
+          // second column as a muted sub-line — the matrix row shape minus the
+          // status dot. The section heading already states the status, so no
+          // dot is carried and the row uses the no-dot grid variant.
+          if (header.length === 2 && header[0] === 'api') {
+            let j = i + 2;
+            const html: string[] = ['<div class="compat-list compat-list--plain">'];
+            while (j < lines.length && /^\s*\|/.test(lines[j])) {
+              const cells = splitRow(lines[j]);
+              const apiName = (cells[0] ?? '').trim();
+              const detail = (cells[1] ?? '').trim();
+              html.push(
+                '<div class="compat-row">',
+                `<div class="compat-line"><span class="compat-main"><code class="compat-api">${mdInlineHtml(
+                  apiName,
+                )}</code><span class="compat-sub">${mdInlineHtml(detail)}</span></span></div>`,
+                '</div>',
+              );
+              j++;
+            }
+            html.push('</div>');
+            out.push(html.join('\n'));
+            i = j - 1;
+            continue;
+          }
           // The status legend becomes the key for the dots: one compact
           // line per status, same dot the rows use.
           if (iBeh < 0 && iSt >= 0 && iMeaning >= 0) {

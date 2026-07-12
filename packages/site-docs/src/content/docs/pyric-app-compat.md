@@ -91,6 +91,8 @@ order: 8002
 
 Tracked but not implemented yet. Each flips to ✓ as support lands.
 
-| API | Behavior |
-|---|---|
-| initializeServerApp | Not implemented — server-app (SSR) initialization is deferred: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">initializeServerApp</code><span class="compat-sub">Not implemented — server-app (SSR) initialization is deferred: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet</span></span></div>
+</div>
+</div>

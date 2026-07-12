@@ -410,11 +410,23 @@ order: 8009
 
 Where the local engine and production Firebase differ today. Each difference is pinned and tracked.
 
-| API | Difference |
-|---|---|
-| getGenerativeModel(ai, modelParams) | A `models/`-prefixed name is accepted without double prefixing |
-| generateContentStream() | The aggregated response carries the final chunk `finishReason` and `usageMetadata` |
-| ChatSession.sendMessage() / getHistory() | `sendMessage` appends the user turn and the model turn; `getHistory()` returns the ordered `Content[]` with alternating roles |
-| ChatSession.getHistory() | Blocked prompts and blocked candidates are excluded from `getHistory()` |
-| ChatSession.sendMessageStream() | Exactly one user turn is recorded per `sendMessageStream` call; the mirror implements the 2.13.0 fixed semantics, not the installed 2.12.0 duplicate-user-turn bug |
-| Schema.enumString() | `Schema.enumString` serializes the enum values with type `string` and format `enum` |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getGenerativeModel(ai, modelParams)</code><span class="compat-sub">A <code>models/</code>-prefixed name is accepted without double prefixing</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">generateContentStream()</code><span class="compat-sub">The aggregated response carries the final chunk <code>finishReason</code> and <code>usageMetadata</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">ChatSession.sendMessage() / getHistory()</code><span class="compat-sub"><code>sendMessage</code> appends the user turn and the model turn; <code>getHistory()</code> returns the ordered <code>Content[]</code> with alternating roles</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">ChatSession.getHistory()</code><span class="compat-sub">Blocked prompts and blocked candidates are excluded from <code>getHistory()</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">ChatSession.sendMessageStream()</code><span class="compat-sub">Exactly one user turn is recorded per <code>sendMessageStream</code> call; the mirror implements the 2.13.0 fixed semantics, not the installed 2.12.0 duplicate-user-turn bug</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">Schema.enumString()</code><span class="compat-sub"><code>Schema.enumString</code> serializes the enum values with type <code>string</code> and format <code>enum</code></span></span></div>
+</div>
+</div>

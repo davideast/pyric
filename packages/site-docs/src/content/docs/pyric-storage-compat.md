@@ -542,37 +542,73 @@ These exist in `firebase/storage` but Pyric does not implement them.
 
 Where the local engine and production Firebase differ today. Each difference is pinned and tracked.
 
-| API | Difference |
-|---|---|
-| uploadString(ref, value, format?, metadata?) | Sandbox: `format='base64url'` (or any unknown format) rejected with `storage/invalid-format` naming the bad format. Prod: `base64url` is ACCEPTED (upload succeeds); a genuinely-unrecognized format throws `storage/unknown` |
-| getBytes(ref, maxDownloadSize?) | Throws when `blob.size > maxDownloadSize` with `.code` exposed |
-| deleteObject(ref) | Sandbox: no-op on missing path (does NOT throw) |
-| getMetadata(ref)` / `updateMetadata(ref, metadata) | `updateMetadata` with `undefined` field values preserves the prior value (does NOT clear it) |
-| getMetadata(ref)` / `updateMetadata(ref, metadata) | `FullMetadata.md5Hash` populated on uploads |
-| connectStorageEmulator | `connectStorageEmulator(storage, host, port)` is a no-op on sandbox targets — pyric replaces the Firebase emulator, so the sandbox IS already the local emulator. Forwards to `firebase/storage`'s real `connectStorageEmulator` on prod targets |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadString(ref, value, format?, metadata?)</code><span class="compat-sub">Sandbox: <code>format='base64url'</code> (or any unknown format) rejected with <code>storage/invalid-format</code> naming the bad format. Prod: <code>base64url</code> is ACCEPTED (upload succeeds); a genuinely-unrecognized format throws <code>storage/unknown</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getBytes(ref, maxDownloadSize?)</code><span class="compat-sub">Throws when <code>blob.size &gt; maxDownloadSize</code> with <code>.code</code> exposed</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">deleteObject(ref)</code><span class="compat-sub">Sandbox: no-op on missing path (does NOT throw)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><code>updateMetadata</code> with <code>undefined</code> field values preserves the prior value (does NOT clear it)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><code>FullMetadata.md5Hash</code> populated on uploads</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">connectStorageEmulator</code><span class="compat-sub"><code>connectStorageEmulator(storage, host, port)</code> is a no-op on sandbox targets — pyric replaces the Firebase emulator, so the sandbox IS already the local emulator. Forwards to <code>firebase/storage</code>'s real <code>connectStorageEmulator</code> on prod targets</span></span></div>
+</div>
+</div>
 
 ## Not supported yet
 
 Tracked but not implemented yet. Each flips to ✓ as support lands.
 
-| API | Behavior |
-|---|---|
-| getStorageSandbox(target, options?)` / `getStorageProd(app, options?) | `getStorageSandbox(undefined)` / bare-call default-to-sandbox in playground preview |
-| uploadBytesResumable(ref, data, metadata?) | Exported by `firebase/storage`; returns an `UploadTask` with `pause()` / `resume()` / `cancel()` |
-| uploadBytesResumable(ref, data, metadata?) | `task.on('state_changed', next, error, complete)` fires `next` with `{bytesTransferred, totalBytes, state}` snapshots |
-| uploadBytesResumable(ref, data, metadata?) | `task.pause()` flips `state` to `'paused'`; `task.resume()` continues |
-| uploadBytesResumable(ref, data, metadata?) | `task.cancel()` rejects the upload with `storage/canceled` |
-| getDownloadURL(ref) | Exported by `firebase/storage`; returns a token-signed HTTPS URL that fetches the blob |
-| getDownloadURL(ref) | Throws `storage/object-not-found` for missing objects |
-| getStream(ref, maxDownloadSize?) | Exported by `firebase/storage` (Node entry only); returns a Node `Readable` |
-| list(ref, options?) | Exported by `firebase/storage`; accepts `{ maxResults, pageToken }`, returns a `ListResult` with `nextPageToken` set when more pages remain |
-| getMetadata(ref)` / `updateMetadata(ref, metadata) | `FullMetadata.ref` lazy population (prod populates lazily) |
-| connectStorageEmulator(storage, host, port) | Exported by `firebase/storage`; reroutes a `FirebaseStorage` handle to a local emulator |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getStorageSandbox(target, options?)<code> / </code>getStorageProd(app, options?)</code><span class="compat-sub"><code>getStorageSandbox(undefined)</code> / bare-call default-to-sandbox in playground preview</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub">Exported by <code>firebase/storage</code>; returns an <code>UploadTask</code> with <code>pause()</code> / <code>resume()</code> / <code>cancel()</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub"><code>task.on('state_changed', next, error, complete)</code> fires <code>next</code> with <code>{bytesTransferred, totalBytes, state}</code> snapshots</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub"><code>task.pause()</code> flips <code>state</code> to <code>'paused'</code>; <code>task.resume()</code> continues</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadBytesResumable(ref, data, metadata?)</code><span class="compat-sub"><code>task.cancel()</code> rejects the upload with <code>storage/canceled</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getDownloadURL(ref)</code><span class="compat-sub">Exported by <code>firebase/storage</code>; returns a token-signed HTTPS URL that fetches the blob</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getDownloadURL(ref)</code><span class="compat-sub">Throws <code>storage/object-not-found</code> for missing objects</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getStream(ref, maxDownloadSize?)</code><span class="compat-sub">Exported by <code>firebase/storage</code> (Node entry only); returns a Node <code>Readable</code></span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">list(ref, options?)</code><span class="compat-sub">Exported by <code>firebase/storage</code>; accepts <code>{ maxResults, pageToken }</code>, returns a <code>ListResult</code> with <code>nextPageToken</code> set when more pages remain</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">getMetadata(ref)<code> / </code>updateMetadata(ref, metadata)</code><span class="compat-sub"><code>FullMetadata.ref</code> lazy population (prod populates lazily)</span></span></div>
+</div>
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">connectStorageEmulator(storage, host, port)</code><span class="compat-sub">Exported by <code>firebase/storage</code>; reroutes a <code>FirebaseStorage</code> handle to a local emulator</span></span></div>
+</div>
+</div>
 
 ## Not verified yet
 
 Tracked but not yet checked against recorded production behavior.
 
-| API | Not yet verified |
-|---|---|
-| uploadBytes(ref, data, metadata?) | Replaces any existing object at the path (overwrite, not append) |
+<div class="compat-list compat-list--plain">
+<div class="compat-row">
+<div class="compat-line"><span class="compat-main"><code class="compat-api">uploadBytes(ref, data, metadata?)</code><span class="compat-sub">Replaces any existing object at the path (overwrite, not append)</span></span></div>
+</div>
+</div>
