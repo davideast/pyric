@@ -406,7 +406,7 @@ export class LocalState implements DocStore {
           // and `Transaction.delete` on an absent doc resolve cleanly,
           // matching the single-op `deleteDoc` contract (matrix row
           // Firestore #39, oracle:
-          // scripts/oracle/observations/firestore-deletedoc-missing.json).
+          // packages/conformance/observations/firestore/firestore-deletedoc-missing.json).
           // Apply phase below tolerates the absence via `documents.delete`,
           // which is itself a no-op on a missing key.
           break;

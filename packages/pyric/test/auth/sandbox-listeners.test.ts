@@ -203,7 +203,7 @@ describe('onIdTokenChanged (sandbox)', () => {
   });
 
   it('fires on getIdToken(true) — forced refresh fans out to id-token listeners (matches prod)', async () => {
-    // Oracle: scripts/oracle/observations/auth-onidtokenchanged-force-refresh.json
+    // Oracle: packages/conformance/observations/auth/auth-onidtokenchanged-force-refresh.json
     // — prod fires onIdTokenChanged on a forced refresh; the previously-
     // documented sandbox divergence was closed in this commit.
     const sandbox = initializeSandbox();

@@ -1,7 +1,7 @@
 /**
  * `pyric/messaging` — the `firebase/messaging` (window client) mirror over
  * the sandbox {@link MessagingBroker}. Surface `messaging`, rows
- * `messaging#1`–`messaging#12` in `scripts/compat/registry/messaging.ts`.
+ * `messaging#1`–`messaging#12` in `packages/conformance/registry/messaging.ts`.
  *
  * MODULE BOUNDARY (row messaging#17): this entry exports `getToken` /
  * `deleteToken` / `onMessage` and does NOT export `onBackgroundMessage` or

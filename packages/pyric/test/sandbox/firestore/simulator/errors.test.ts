@@ -112,7 +112,7 @@ describe('LocalEnvironment.execute — typed error codes', () => {
     // Matrix row Firestore #39: `deleteDoc` on an absent path resolves
     // cleanly in production — no throw, no listener fire, no state
     // change. Oracle:
-    //   scripts/oracle/observations/firestore-deletedoc-missing.json
+    //   packages/conformance/observations/firestore/firestore-deletedoc-missing.json
     // The previous behavior (demote to `not-found`) was a divergence
     // from prod; tests now lock the no-op.
     const env = new LocalEnvironment();

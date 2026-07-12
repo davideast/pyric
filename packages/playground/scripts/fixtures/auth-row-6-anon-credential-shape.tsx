@@ -7,7 +7,7 @@
  *
  * The providerId being `null` (not `'anonymous'`) was confirmed
  * empirically by the oracle harness against firebase-js-sdk 12.13.0:
- * scripts/oracle/observations/auth-anonymous-credential-providerid.json.
+ * packages/conformance/observations/auth/auth-anonymous-credential-providerid.json.
  */
 import { useEffect, useState } from "react";
 import { getAuth, signInAnonymously } from "firebase/auth";

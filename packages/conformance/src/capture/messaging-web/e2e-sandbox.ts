@@ -35,8 +35,8 @@
  *   - occlusion-disable args are stripped in headed mode, as in the rig.
  *
  * Run headless (default) or headed:
- *   bun run scripts/oracle/messaging-web/e2e-sandbox.ts
- *   PYRIC_MSG_E2E_HEADED=1 bun run scripts/oracle/messaging-web/e2e-sandbox.ts
+ *   bun run packages/conformance/src/capture/messaging-web/e2e-sandbox.ts
+ *   PYRIC_MSG_E2E_HEADED=1 bun run packages/conformance/src/capture/messaging-web/e2e-sandbox.ts
  * Serve-only (a human and their own browser, no automation):
  *   PYRIC_MSG_E2E_SERVE_ONLY=1 bun run packages/conformance/src/capture/messaging-web/e2e-sandbox.ts
  */

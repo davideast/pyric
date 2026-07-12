@@ -4,7 +4,7 @@
  * with a key produced by `firebase/database`'s real `push(ref)`.
  *
  * Locked by oracle observation
- * `scripts/oracle/observations/rtdb-push-autoid-format.json`:
+ * `packages/conformance/observations/rtdb/rtdb-push-autoid-format.json`:
  * length 20, leading `-`, lexicographically monotonic when generated
  * in quick succession.
  *

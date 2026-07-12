@@ -231,11 +231,11 @@ gate enforce the deny-list at build time.
 Rows currently marked **?** (need explicit probes):
 
 - #3 `getAuth(app)` prod-backend dispatch — landing once the
-  empirical oracle harness (`scripts/oracle/run.ts`) captures the
+  empirical oracle harness (`packages/conformance/src/run.ts`) captures the
   observation against a real Firebase project. Harness is in
   place; needs the `PYRIC_ORACLE_FIREBASE_CONFIG` env var pointed
   at a dedicated oracle project before observations can be
-  committed. See `scripts/oracle/README.md` for project setup.
+  committed. See `packages/conformance/docs/oracle-project-setup.md` for project setup.
 - #69 (ordering only) — disabled-vs-wrong-password precedence on
   `signInWithEmailAndPassword`. Sandbox checks disabled BEFORE the
   password compare (anti-probing best-known semantics); needs an

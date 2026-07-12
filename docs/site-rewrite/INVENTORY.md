@@ -166,7 +166,7 @@ Local console at `/__pyric/ui/`. Eight tabs (`packages/studio/src/shell/routes.t
 
 ## 5. What proves it matches Firebase
 
-The claim "it behaves like Firebase" is tested, not asserted. Probes run against a real Firebase project and record its behavior as observations (`scripts/oracle/`). CI replays every observation against the sandbox on every change. The public contract is the COMPAT matrix per service (section 1). Firestore and Auth distinguish three targets: sandbox (frozen context), sandbox-live (per-op identity, what the playground uses), and prod. A documented divergence is a row; an undocumented one is a bug.
+The claim "it behaves like Firebase" is tested, not asserted. Probes run against a real Firebase project and record its behavior as observations (`packages/conformance/`). CI replays every observation against the sandbox on every change. The public contract is the COMPAT matrix per service (section 1). Firestore and Auth distinguish three targets: sandbox (frozen context), sandbox-live (per-op identity, what the playground uses), and prod. A documented divergence is a row; an undocumented one is a bug.
 
 ---
 

@@ -1589,7 +1589,7 @@ The sandbox implementation has landed (`packages/pyric/src/database/modular.ts` 
 
 ### Harness extension: `ensureOracleRtdbRules`
 
-`scripts/oracle/run.ts` now deploys an RTDB rules namespace
+`packages/conformance/src/run.ts` now deploys an RTDB rules namespace
 analogous to `ensureOracleRules` / `ensureOracleStorageRules`. The
 JSON shape:```json
 {

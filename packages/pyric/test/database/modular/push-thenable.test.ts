@@ -7,7 +7,7 @@
  * denial REJECTS the promise rather than throwing synchronously and
  * discarding the key.
  *
- * Confirmed against oracle `scripts/oracle/observations/rtdb-push-autoid-format.json`
+ * Confirmed against oracle `packages/conformance/observations/rtdb/rtdb-push-autoid-format.json`
  * ("push.key is minted client-side ... available immediately even when
  * the subsequent server write is denied by rules") + upstream
  * `api/Reference_impl.ts:599-630` (ThenableReference shape).

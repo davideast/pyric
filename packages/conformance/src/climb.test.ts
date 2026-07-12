@@ -1,11 +1,11 @@
 /**
- * Unit coverage for the climb lane's pure core (scripts/compat/climb.ts). These
+ * Unit coverage for the climb lane's pure core (packages/conformance/src/climb.ts). These
  * guard the two behaviors that cannot be exercised until rows begin to flip:
  * the regression rule (cdd.md Step 5.5 / Step 6) and the row-id boundary
  * matching that keeps `messaging#1` from being mistaken for `messaging#12`.
  *
  * Not part of the blocking `npm test` run (which globs the package suites, not
- * scripts/compat). Run explicitly: `bun test scripts/compat/climb.test.ts`.
+ * packages/conformance/). Run explicitly: `bun test packages/conformance/src/climb.test.ts`.
  */
 import { describe, expect, test } from 'bun:test';
 import { classifyRows, mentionsRow, parseJUnit, type RowInput, type TestCase } from './climb.ts';

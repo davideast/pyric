@@ -1,7 +1,7 @@
 /**
  * `pyric-admin/messaging` — the `firebase-admin/messaging` send-plane mirror
  * (surface `messaging-admin`, rows `messaging-admin#1`–`#39` in
- * `scripts/compat/registry/messaging.ts`).
+ * `packages/conformance/registry/messaging.ts`).
  *
  * Backend dispatch on the `pyric-admin/app` brand, exactly like
  * `pyric-admin/storage`:

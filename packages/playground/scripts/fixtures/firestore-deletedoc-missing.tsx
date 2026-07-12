@@ -5,7 +5,7 @@
  * row Firestore #39.
  *
  * Empirical oracle:
- *   scripts/oracle/observations/firestore-deletedoc-missing.json
+ *   packages/conformance/observations/firestore/firestore-deletedoc-missing.json
  * (`threw: false` against blockingfun, fb-js-sdk 12.13.0).
  */
 import { useEffect, useState } from "react";

@@ -417,7 +417,7 @@ export async function signInWithEmailAndPassword(
   // `providerIdForResponse` returns null when the token response carries
   // no providerId (email/password responses don't; only OAuth/phone do —
   // `core/user/user_credential_impl.ts:84-96`). Oracle:
-  // scripts/oracle/observations/auth-createUser-operationType.json pins
+  // packages/conformance/observations/auth/auth-createUser-operationType.json pins
   // providerId: null against prod (AUTH-B2).
   await target.backend.transitionCurrentUser(user, 'password');
   return { user, providerId: null, operationType: 'signIn' };
@@ -595,7 +595,7 @@ export function onIdTokenChanged(auth: Auth, observer: AuthObserver): Unsubscrib
   if (target.kind === 'prod') return prodOnIdTokenChanged(target.auth, observer);
   // Sandbox: fires on identity transitions AND on
   // `getIdToken(true)` forced refreshes — matches prod.
-  // Oracle: scripts/oracle/observations/auth-onidtokenchanged-force-refresh.json.
+  // Oracle: packages/conformance/observations/auth/auth-onidtokenchanged-force-refresh.json
   return target.backend.subscribe('id-token', observer);
 }
 
