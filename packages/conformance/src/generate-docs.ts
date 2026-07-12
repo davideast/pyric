@@ -468,7 +468,7 @@ const SCOREBOARD_METHODOLOGY = [
   'score = conforming rows / evaluated rows',
   '```',
   '',
-  'An evaluated row is any behavior the registry tracks with a recorded status: conforming, a documented difference, not supported yet, or not verified yet. Only conforming rows count toward the score. The other three sit in the denominator but not the numerator, which is why the four buckets under each figure always add back up to the total. APIs a surface deliberately leaves out, the ones listed under intentionally not implemented, are not rows at all and never enter the count. The denominator is the tracked row universe, not all of Firebase, so a rising score means more of what has been probed conforms, not that more of Firebase has been covered.',
+  'An evaluated row is any behavior the registry tracks with a recorded status: conforming, a documented difference, not supported yet, or not verified yet. Only conforming rows count toward the score. The other three sit in the denominator but not the numerator, which is why the four buckets under each figure always add back up to the total. The denominator is the tracked row universe, not all of Firebase, so a rising score means more of what has been probed conforms, not that more of Firebase has been covered.',
   '',
   'No number here is typed by hand. Each row\'s status is read from the ledger (`baselines/coverage-baseline.json`) at generate time, and `compat:check` re-reads the same ledger, so a page whose figure drifts from the data fails the build before it can merge.',
   '',
