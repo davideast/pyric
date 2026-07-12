@@ -307,6 +307,18 @@ async function capture(): Promise<void> {
   const app = initializeApp(config, `oracle-rules-rtdb-${runId}`);
   const auth = getAuth(app);
   const rtdb = getDatabase(app);
+  const adminApp = adminInitializeApp(
+    {
+      credential: adminCert({
+        projectId: serviceAccount.project_id,
+        clientEmail: serviceAccount.client_email,
+        privateKey: serviceAccount.private_key,
+      }),
+      databaseURL: config.databaseURL,
+    },
+    `oracle-rules-rtdb-admin-${runId}`,
+  );
+  const adminDb = getAdminDatabase(config.databaseURL, adminApp);
 
   const observations: { scenario: RtdbScenario; behavior: Record<string, 'ALLOW' | 'DENY'> }[] = [];
   let restoreVerified = false;
@@ -338,33 +350,28 @@ async function capture(): Promise<void> {
         const opPath = substituteUid(tc.opPath, liveUid);
         const newData = tc.newData !== undefined ? substituteUid(tc.newData, liveUid) : undefined;
         const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, liveUid) : undefined;
-        const fullPath = `/${auditKey}/${scenario.id}${opPath}`;
+        const mountPath = `/${auditKey}/${scenario.id}`;
+        const fullPath = `${mountPath}${opPath}`;
+
+        // Replay starts every case from an empty root, then applies its declared
+        // seed and mockData. Production capture must start from the same state:
+        // clear only this scenario's run-scoped data, then write preconditions
+        // through the rules-bypassing admin adapter.
+        await adminDb.ref(mountPath).set(null);
+        for (const [seedPath, seedValue] of Object.entries(tc.seed ?? {})) {
+          await adminDb
+            .ref(`${mountPath}${substituteUid(seedPath, liveUid)}`)
+            .set(substituteUid(seedValue, liveUid));
+        }
+        if (mockData !== undefined && mockData !== null) {
+          await adminDb.ref(fullPath).set(mockData);
+        }
 
         let allowed = false;
         try {
           if (tc.operation === 'read') {
             await rtdbGet(rtdbRef(rtdb, fullPath));
           } else {
-            // Seed the pre-existing value (mockData) via the admin SDK so the
-            // rule sees it, bypassing the rule under test.
-            if (mockData !== undefined && mockData !== null) {
-              const seedApp = adminInitializeApp(
-                {
-                  credential: adminCert({
-                    projectId: serviceAccount.project_id,
-                    clientEmail: serviceAccount.client_email,
-                    privateKey: serviceAccount.private_key,
-                  }),
-                  databaseURL: config.databaseURL,
-                },
-                `oracle-rules-rtdb-seed-${runId}-${scenario.id}-${tc.description.replace(/\s+/g, '_')}`,
-              );
-              try {
-                await getAdminDatabase(config.databaseURL, seedApp).ref(fullPath).set(mockData);
-              } finally {
-                try { await adminDeleteApp(seedApp); } catch { /* ignored */ }
-              }
-            }
             await rtdbSet(rtdbRef(rtdb, fullPath), newData ?? null);
           }
           allowed = true;
@@ -407,6 +414,7 @@ async function capture(): Promise<void> {
       console.error(`[oracle:rules-rtdb] DATA CLEANUP FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }
     try { await deleteApp(app); } catch { /* ignored */ }
+    try { await adminDeleteApp(adminApp); } catch { /* ignored */ }
   }
 
   // Only write observations once BOTH invariants held. A run that could not

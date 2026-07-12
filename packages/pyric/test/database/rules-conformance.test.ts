@@ -26,111 +26,29 @@
  * either side moves, and is enumerated by the "enumerate simulator-vs-prod
  * divergences" test so it can never hide.
  *
- * CURRENT STATE: the in-process simulator agrees with production on ALL 29
- * cases — zero live divergences, so KNOWN_DIVERGENCES is empty. The frozen
- * agreement observation (captured 2026-05-18) recorded ONE disagreement:
- * r4-validate-structure's missing-body write (prod DENY, simulator-at-capture
- * ALLOW — the simulator then did not veto on the child `.validate`). The
- * current simulator DENIES that write, matching production; the historical
- * divergence is RESOLVED. The corpus expectation stays the production verdict
- * (DENY), which the current simulator now satisfies without a pin.
+ * CURRENT STATE: r15 records one live false ALLOW. Production evaluates an
+ * ancestor `.validate` against the merged post-write value and denies; the
+ * simulator starts its validate walk at the write location and allows. The
+ * production verdict remains the corpus expectation, and the pin records both
+ * sides until issue 201 is fixed.
  */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { RtdbMapper } from '../../src/database/mapper.js';
-import { SimulateHandler } from '../../src/database/simulation/handler.js';
-import type { SimulationInput } from '../../src/database/simulation/spec.js';
 import {
   ALL_RULES_RTDB_SCENARIOS,
   RULES_RTDB_OBSERVATION_PREFIX,
   rtdbObservationName,
   type RtdbScenario,
-  type RtdbTestCase,
 } from '../../../../packages/conformance/rules-corpus/rtdb/index.ts';
+import { replayRtdbScenario } from '../../../../packages/conformance/src/rules-rtdb-replay.ts';
 
 // rules-rtdb-* observations live under the 'rtdb-rules' surface subdirectory
 // (surfaces/rtdb-rules.ts owns the prefix), NOT the SDK-plane 'rtdb' one.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb-rules');
 
-/** A fixed replay uid substituted for the `<UID>` token in authed ops — the
- *  in-process analogue of the signed-in anonymous uid the agreement probe
- *  captured. The exact value is immaterial to allow/deny: an owner rule
- *  (`$uid === auth.uid`) holds as long as the path uid and `auth.uid` are the
- *  same string, which this constant guarantees. Anonymous ops substitute the
- *  empty string, exactly as the probe did (signed-out `liveUid = ''`). */
-const REPLAY_UID = 'THP041EPnYbzh9c8GGBniSDoUKc2';
 const DATABASE_URL = 'https://pyric-oracle.firebaseio.com';
-
-/** Recursively replace the `<UID>` token in a value, mirroring the agreement
- *  probe's substituteUid so replay inputs reconstruct the captured ops. */
-function substituteUid<T>(v: T, uid: string): T {
-  if (typeof v === 'string') return v.replaceAll('<UID>', uid) as unknown as T;
-  if (v === null || v === undefined) return v;
-  if (Array.isArray(v)) return v.map((item) => substituteUid(item, uid)) as unknown as T;
-  if (typeof v === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = substituteUid(val, uid);
-    return out as unknown as T;
-  }
-  return v;
-}
-
-/** Build the root-relative mock snapshot for a case, exactly as the probe's
- *  buildSimMock: nest `mockData` under the op path's segments so
- *  `data.exists()` at the op path sees it. Empty root when there is no
- *  pre-existing value. */
-function buildSimMock(simPath: string, mockData: unknown): Record<string, unknown> {
-  if (mockData === undefined || mockData === null) return {};
-  const segs = simPath.split('/').filter(Boolean);
-  const root: Record<string, unknown> = {};
-  let cursor = root;
-  for (let i = 0; i < segs.length - 1; i++) {
-    const child: Record<string, unknown> = {};
-    cursor[segs[i]] = child;
-    cursor = child;
-  }
-  cursor[segs[segs.length - 1]] = mockData;
-  return root;
-}
-
-/** The simulator's allow/deny for one case, reconstructing the agreement
- *  probe's simulator input: the scenario subtree mounted under the scenario id beneath
- *  a deny-all root, the op path prefixed with the mount key, and the same auth
- *  context. A simulator error (NO_MATCHING_RULE etc.) reads as DENY, as the
- *  probe did. */
-function simulatorVerdict(scenario: RtdbScenario, tc: RtdbTestCase): 'ALLOW' | 'DENY' {
-  const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
-  const simRulesJson = {
-    rules: {
-      '.read': false,
-      '.write': false,
-      [scenario.id]: subtree,
-    },
-  };
-  const ir = RtdbMapper.mapToIR(simRulesJson, null, DATABASE_URL);
-  const handler = new SimulateHandler();
-
-  const uid = tc.authPresent ? REPLAY_UID : '';
-  const opPath = substituteUid(tc.opPath, uid);
-  const newData = tc.newData !== undefined ? substituteUid(tc.newData, uid) : undefined;
-  const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, uid) : undefined;
-  const simPath = `/${scenario.id}${opPath}`;
-
-  const input: SimulationInput = {
-    operation: tc.operation,
-    path: simPath,
-    auth: tc.authPresent
-      ? { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } }
-      : null,
-    mockData: buildSimMock(simPath, mockData),
-    newData,
-  };
-
-  const res = handler.execute(ir, input);
-  if (!res.success) return 'DENY';
-  return res.data.allowed ? 'ALLOW' : 'DENY';
-}
 
 /**
  * Recorded simulator-vs-production divergences, pinned per the Firestore/Storage
@@ -138,21 +56,24 @@ function simulatorVerdict(scenario: RtdbScenario, tc: RtdbTestCase): 'ALLOW' | '
  * Each entry pins BOTH sides so the suite stays green today but fails loudly the
  * moment either side's actual behavior changes, forcing a revisit.
  *
- * EMPTY today: the current simulator agrees with production on every corpus
- * case. The one historical disagreement — r4-validate-structure's missing-body
- * write, recorded ALLOW by the simulator at capture (2026-05-18) against a prod
- * DENY — has since been fixed (the simulator now vetoes on the child
- * `.validate` and denies), so there is nothing to pin. A future regression that
- * reopens it, or any new divergence, will fail the replay assertion and the
- * "enumerate simulator-vs-prod divergences" test until it is triaged and either
- * fixed or pinned here with both sides and a reason.
+ * r15 isolates the live ancestor-validate divergence. A future fix or any new
+ * divergence fails loudly: the first makes this pin stale, while the second is
+ * unpinned and therefore rejected by the enumerator below.
  *
  * Keyed by `${scenarioId} :: ${caseDescription}`.
  */
 const KNOWN_DIVERGENCES: Record<
   string,
-  { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string }
-> = {};
+  { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string; issue: number }
+> = {
+  'r15-validate-ancestor-scope :: deep write under a validated ancestor denied (ancestor .validate is evaluated)': {
+    prodVerdict: 'DENY',
+    simVerdict: 'ALLOW',
+    reason:
+      "production evaluates the ancestor's `.validate` against the merged post-write value at that ancestor; the simulator collects `.validate` rules only from the write location downward, so it never sees the rule and allows the write.",
+    issue: 201,
+  },
+};
 
 interface RulesObservation {
   name: string;
@@ -193,19 +114,17 @@ describe('oracle conformance (rules-rtdb)', () => {
   // ── verdict-for-verdict replay against the prod-derived corpus expectations ──
   for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
     it(`${rtdbObservationName(scenario)}: simulator matches frozen production verdicts`, () => {
-      for (const tc of scenario.cases) {
-        if (tc.pendingCapture) continue; // recorded but not assertable yet
-        const key = `${scenario.id} :: ${tc.description}`;
-        const sim = simulatorVerdict(scenario, tc);
+      for (const result of replayRtdbScenario(scenario)) {
+        const key = `${scenario.id} :: ${result.caseKey}`;
         const known = KNOWN_DIVERGENCES[key];
         if (known) {
           // Pinned divergence: assert BOTH sides so the pin fails loudly the
           // moment production's recorded verdict or the simulator's behavior moves.
-          expect(tc.expectation, `${key} (recorded production verdict)`).toBe(known.prodVerdict);
-          expect(sim, `${key} (simulator verdict)`).toBe(known.simVerdict);
+          expect(result.production, `${key} (recorded production verdict)`).toBe(known.prodVerdict);
+          expect(result.simulator, `${key} (simulator verdict)`).toBe(known.simVerdict);
           continue;
         }
-        expect(sim, key).toBe(tc.expectation);
+        expect(result.simulator, key).toBe(result.production);
       }
     });
   }
@@ -214,11 +133,11 @@ describe('oracle conformance (rules-rtdb)', () => {
   it('enumerate simulator-vs-prod divergences (findings)', () => {
     const found: string[] = [];
     for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
-      for (const tc of scenario.cases) {
-        if (tc.pendingCapture) continue;
-        const key = `${scenario.id} :: ${tc.description}`;
-        const sim = simulatorVerdict(scenario, tc);
-        if (sim !== tc.expectation) found.push(`${key} — prod ${tc.expectation}, sim ${sim}`);
+      for (const result of replayRtdbScenario(scenario)) {
+        const key = `${scenario.id} :: ${result.caseKey}`;
+        if (result.simulator !== result.production) {
+          found.push(`${key} — prod ${result.production}, sim ${result.simulator}`);
+        }
       }
     }
     // Every divergence found must be an explicitly-pinned, tracked one; an

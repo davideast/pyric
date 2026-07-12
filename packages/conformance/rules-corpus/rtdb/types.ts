@@ -44,6 +44,10 @@ export interface RtdbTestCase {
    *  the simulator this becomes the mock snapshot at the op path; for prod the
    *  runner seeds it via the admin SDK. */
   mockData?: unknown;
+  /** Pre-existing values at paths relative to the scenario mount. Capture writes
+   *  them through the admin adapter; local replay projects the same paths into
+   *  the simulator root before the operation. */
+  seed?: Record<string, unknown>;
   /** Set ONLY when the frozen agreement observation carried no recoverable
    *  production verdict for this tuple (prodAllowed was null). Such a case is
    *  RECORDED but EXCLUDED from replay assertions until a fresh capture lands.

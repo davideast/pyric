@@ -179,7 +179,7 @@
           "verdict": "unsupported",
           "snapshot": "rejected",
           "probe": "implemented",
-          "productionVerified": true,
+          "productionVerified": false,
           "divergedBy": [
             "firestore-rules#164"
           ]
@@ -190,7 +190,7 @@
           "verdict": "unsupported",
           "snapshot": "rejected",
           "probe": "implemented",
-          "productionVerified": true,
+          "productionVerified": false,
           "divergedBy": [
             "firestore-rules#164"
           ]
@@ -573,7 +573,7 @@
           "verdict": "unsupported",
           "snapshot": "accepted",
           "probe": "implemented",
-          "productionVerified": true,
+          "productionVerified": false,
           "divergedBy": [
             "firestore-rules#166"
           ]
@@ -903,11 +903,13 @@
         {
           "kind": "construct",
           "id": "rtdb.semantic.validate-non-cascade",
-          "verdict": "qualified",
+          "verdict": "unsupported",
           "snapshot": "unprobed",
           "probe": "unprobeable",
-          "productionVerified": true,
-          "divergedBy": []
+          "productionVerified": false,
+          "divergedBy": [
+            "rtdb-rules#15"
+          ]
         },
         {
           "kind": "unbacked",
@@ -1238,7 +1240,7 @@
           "verdict": "unsupported",
           "snapshot": "accepted",
           "probe": "implemented",
-          "productionVerified": true,
+          "productionVerified": false,
           "divergedBy": [
             "storage-rules#118"
           ]

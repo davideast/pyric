@@ -60,7 +60,11 @@ import { parseStorageRules } from '../../../packages/pyric/src/storage/rules.ts'
 import { grammar as rtdbGrammar } from '../../../packages/pyric/src/database/grammar/RtdbExprParser.ts';
 import { loadSnapshot, type RulesEngine } from '../rules-language/load.ts';
 import { surfaceRegistries } from '../registry/index.ts';
-import { indexConstructScopes, isProductionVerified } from './production-verification.ts';
+import {
+  deriveConformanceGraph,
+  indexConstructScopes,
+  type ProductionVerdict,
+} from './production-verification.ts';
 
 // ── Result shape ──────────────────────────────────────────────────────
 
@@ -802,6 +806,10 @@ async function loadScenarios(
 export interface ConstructCoverage {
   id: string;
   kind: string;
+  /** The production-evidence conclusion. A divergence wins over every positive
+   *  path, so a construct cannot remain in the verified numerator while a
+   *  captured rules-engine row proves the simulator wrong about it. */
+  verdict: ProductionVerdict;
   /** All scenario ids that exercise the construct. */
   exercisedBy: string[];
   /** SYNTACTIC verification: the subset of `exercisedBy` whose observation twin
@@ -814,6 +822,8 @@ export interface ConstructCoverage {
    *  no source token (the RTDB cascades) is credited by; see
    *  production-verification.ts. Either list, non-empty, verifies the construct. */
   verifiedByRows: string[];
+  /** Rules-engine rows that prove the simulator diverges on this construct. */
+  divergedByRows?: string[];
   /** Mirrors the snapshot's `unattributable` (see rules-language/types.ts):
    *  present iff this construct can never be credited by static AST
    *  analysis. Such constructs are carried in `constructs` for the full
@@ -849,7 +859,7 @@ const RULES_ENGINES: readonly RulesEngine[] = ['firestore', 'storage', 'rtdb'] a
 
 export async function computeCoverageReport(): Promise<CoverageReport> {
   const engines: EngineCoverage[] = [];
-  const { provingRows } = indexConstructScopes(surfaceRegistries);
+  const scopes = indexConstructScopes(surfaceRegistries);
   for (const engine of RULES_ENGINES) {
     const snapshot = loadSnapshot(engine);
     const { scenarios, twinIds } = await loadScenarios(engine);
@@ -858,9 +868,10 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
       cov.set(c.id, {
         id: c.id,
         kind: c.kind,
+        verdict: 'unverified',
         exercisedBy: [],
         verifiedBy: [],
-        verifiedByRows: provingRows.get(c.id) ?? [],
+        verifiedByRows: [],
         ...(c.unattributable ? { unattributable: c.unattributable } : {}),
       });
     }
@@ -883,6 +894,21 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
       for (const u of result.unresolved) unresolved.push({ scenario: scenario.id, ...u });
     }
     const constructs = [...cov.values()];
+    const graph = deriveConformanceGraph({
+      scenariosByConstruct: new Map(
+        constructs.map((construct) => [construct.id, construct.verifiedBy]),
+      ),
+      provingRowsByConstruct: scopes.provingRows,
+      divergingRowsByConstruct: scopes.divergingRows,
+    });
+    for (const construct of constructs) {
+      const fact = graph.factOf(construct.id);
+      construct.verdict = fact.verdict;
+      construct.verifiedByRows = [...fact.provingRows];
+      if (fact.divergingRows.length > 0) {
+        construct.divergedByRows = [...fact.divergingRows];
+      }
+    }
     // Permanently-unattributable constructs (see ConstructCoverage.unattributable)
     // are carried in `constructs` for the audit trail but excluded from the
     // denominator: they can never be credited by static AST analysis, so
@@ -890,11 +916,10 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
     // coverage ratios for a reason unrelated to real gaps.
     const attributable = constructs.filter((c) => !c.unattributable);
     const exercisedConstructs = attributable.filter((c) => c.exercisedBy.length > 0).length;
-    // The SHARED predicate: syntactic (a captured scenario's AST contains it) OR
-    // behavioral (a conforming, oracle-backed rules-engine row's scope lists it).
-    const verifiedConstructs = attributable.filter((c) =>
-      isProductionVerified({ scenarios: c.verifiedBy, provingRows: c.verifiedByRows }),
-    ).length;
+    // The shared graph verdict includes both positive paths and contamination.
+    // Negative production evidence dominates, so only an explicit `verified`
+    // verdict belongs in the trust numerator.
+    const verifiedConstructs = attributable.filter((c) => c.verdict === 'verified').length;
     const total = attributable.length;
     engines.push({
       engine,
@@ -911,7 +936,7 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
   }
   return {
     generatedNote:
-      'Verified coverage = production-verified snapshot constructs / total ATTRIBUTABLE snapshot constructs. A construct is production-verified by either evidence path (the single predicate in src/production-verification.ts): SYNTACTIC — `verifiedBy` lists >=1 corpus scenario that exercises it and has an observation twin, so production\'s verdict on that exact ruleset was captured and replayed; or BEHAVIORAL — `verifiedByRows` lists >=1 `conforms` + `oracle-backed` rules-engine registry row whose `constructs` scope names it, meaning production verdicts that only that construct explains were captured and matched. The behavioral path exists because the analyzer reads SOURCE, and an engine semantic (the RTDB read/write cascades, `.validate` non-cascade) has no source token to read — only a verdict. A construct carrying `unattributable` (a pure meta-semantic that no single verdict positively demonstrates either: storage/rtdb deny-by-default, where nothing matched so nothing happened) is listed under its engine\'s `constructs` for the audit trail but excluded from totalConstructs/exercisedConstructs/verifiedConstructs and both ratios. Regenerated by rules-language-analyzer.ts.',
+      'Verified coverage = production-verified snapshot constructs / total ATTRIBUTABLE snapshot constructs. A construct is production-verified by either positive evidence path in src/production-verification.ts: SYNTACTIC — `verifiedBy` lists >=1 corpus scenario that exercises it and has an observation twin; or BEHAVIORAL — `verifiedByRows` lists >=1 `conforms` + `oracle-backed` rules-engine row whose captured verdicts adjudicate it. Negative production evidence dominates both paths: any `diverged-documented` or `bug` rules-engine row in `divergedByRows` makes the construct `diverged` and removes it from the verified numerator until the finding is resolved. A construct carrying `unattributable` is retained for the audit trail but excluded from the denominator only where no source node or distinguishing verdict can ever attribute it. Regenerated by rules-language-analyzer.ts.',
     engines,
   };
 }
