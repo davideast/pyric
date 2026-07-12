@@ -17,6 +17,8 @@
 import { describe, expect, it } from 'bun:test';
 import * as backendModule from '../../src/auth/sandbox-backend.js';
 import { SandboxBackend } from '../../src/auth/sandbox-backend.js';
+import { makeAuthError as originalMakeAuthError } from '../../src/auth/auth-errors.js';
+import { NO_PASSWORD_SENTINEL as originalNoPasswordSentinel } from '../../src/auth/sandbox-backend-types.js';
 
 /** Every runtime (value) export of the barrel. Type-only exports are
  *  erased at runtime and are guarded by `tsc` on the consumers instead. */
@@ -113,5 +115,17 @@ describe('sandbox-backend export surface (frozen)', () => {
       .filter((name) => name !== 'constructor')
       .sort();
     expect(actual).toEqual(FROZEN_PROTOTYPE_METHODS);
+  });
+
+  // A re-export can be re-pointed at a look-alike (a local shim, a
+  // differently-configured factory) without changing its name or
+  // typeof — the two checks above wouldn't notice. Assert value
+  // identity against the origin modules so a future re-export fork
+  // (barrel re-exports a DIFFERENT `makeAuthError` /
+  // `NO_PASSWORD_SENTINEL` than the one the rest of the codebase
+  // imports) breaks this test instead of silently diverging.
+  it('re-exports are the SAME binding as their origin modules, not a fork', () => {
+    expect(backendModule.makeAuthError).toBe(originalMakeAuthError);
+    expect(backendModule.NO_PASSWORD_SENTINEL).toBe(originalNoPasswordSentinel);
   });
 });

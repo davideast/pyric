@@ -119,6 +119,64 @@ describe('getIdToken(forceRefresh) — sandbox', () => {
   });
 });
 
+describe('token string is sensitive to claims, not just the mint serial', () => {
+  // `sandboxTokenFor(uid, claims, serial)` hashes claims + serial; every
+  // adversarial-review test elsewhere compares tokens ACROSS mints
+  // (refresh, re-sign-in), where the monotonic serial always advances
+  // too — so a mutant that dropped `claims` from the hash and hashed
+  // only `uid + serial` would still pass every one of those. Isolate
+  // the claims effect by holding uid AND serial fixed: two freshly
+  // initialized sandboxes each have their own independent
+  // `nextTokenSerial` counter starting at 1, so the FIRST `getIdToken()`
+  // call in each (the first cache-miss mint) lands on serial 1. Seed
+  // the SAME uid with DIFFERENT customClaims in each sandbox and take
+  // that first token — uid and serial are pinned equal, so any
+  // difference in the token string is attributable to the claims alone.
+  it('same uid + same mint-serial, different customClaims -> different token', async () => {
+    const sandboxX = initializeSandbox();
+    const authX = getAuth(sandboxX);
+    authSandbox.seedUsers(authX, [
+      { uid: 'twin', email: 'twin@example.com', password: 'pw', customClaims: { role: 'admin' } },
+    ]);
+    await signInWithEmailAndPassword(authX, 'twin@example.com', 'pw');
+    const tokenX = await authX.currentUser!.getIdToken();
+
+    const sandboxY = initializeSandbox();
+    const authY = getAuth(sandboxY);
+    authSandbox.seedUsers(authY, [
+      { uid: 'twin', email: 'twin@example.com', password: 'pw', customClaims: { role: 'guest' } },
+    ]);
+    await signInWithEmailAndPassword(authY, 'twin@example.com', 'pw');
+    const tokenY = await authY.currentUser!.getIdToken();
+
+    expect(tokenX).not.toBe(tokenY);
+  });
+
+  it('same uid + same mint-serial, same customClaims -> same token (determinism control)', async () => {
+    // Companion to the test above: proves the two-sandbox setup itself
+    // holds uid + serial equal (so the prior test's divergence really
+    // is the claims), by showing identical claims collapse back to an
+    // identical token.
+    const sandboxX = initializeSandbox();
+    const authX = getAuth(sandboxX);
+    authSandbox.seedUsers(authX, [
+      { uid: 'twin', email: 'twin@example.com', password: 'pw', customClaims: { role: 'admin' } },
+    ]);
+    await signInWithEmailAndPassword(authX, 'twin@example.com', 'pw');
+    const tokenX = await authX.currentUser!.getIdToken();
+
+    const sandboxY = initializeSandbox();
+    const authY = getAuth(sandboxY);
+    authSandbox.seedUsers(authY, [
+      { uid: 'twin', email: 'twin@example.com', password: 'pw', customClaims: { role: 'admin' } },
+    ]);
+    await signInWithEmailAndPassword(authY, 'twin@example.com', 'pw');
+    const tokenY = await authY.currentUser!.getIdToken();
+
+    expect(tokenX).toBe(tokenY);
+  });
+});
+
 describe('onIdTokenChanged fires on forced refresh — sandbox', () => {
   it('fires once on subscribe + once on signIn + once on getIdToken(true)', async () => {
     // Mirrors `auth-onidtokenchanged-force-refresh.json` shape:
