@@ -34,17 +34,14 @@ import type {
 export { ASSURANCE_ENGINE_CAPABILITIES, capabilityReasons };
 export type { GeneratedAssuranceCapability };
 
-const CAPABILITY_BY_ID: ReadonlyMap<string, GeneratedAssuranceCapability> =
-  new Map(ASSURANCE_ENGINE_CAPABILITIES.map((item) => [item.id, item]));
-
 /**
  * A probe's `requires` names graph nodes (constructs, registry rows) directly,
  * and the engine resolves each against the node's DERIVED verdict. Those
- * verdicts already exist in the generated capabilities: every capability
- * dependency carries its own node verdict, graph-derived and identical
- * wherever the node appears. Flattening them is the interim source of the
- * per-node verdict map, until the generator emits a dedicated node-status
- * snapshot (the fold's next step); the values are the same either way.
+ * verdicts are single-sourced from the generated capability catalog: every
+ * capability dependency carries its own node verdict, graph-derived and
+ * identical wherever the node appears, so flattening the catalog IS the node
+ * verdict map. There is no separate node snapshot to keep in sync; the catalog
+ * the agent reads and the map a probe resolves against are the same derivation.
  */
 const GRAPH_NODE_VERDICT: ReadonlyMap<string, "supported" | "qualified" | "unsupported"> =
   (() => {
@@ -63,8 +60,7 @@ const GRAPH_NODE_VERDICT: ReadonlyMap<string, "supported" | "qualified" | "unsup
  * Resolve one `requires` node against the derived graph verdict, appending a
  * requirement. A `supported` node passes; a `qualified`/`unsupported` node
  * abstains (engine-gap); a node the graph does not model is an authoring error
- * (invalid-probe). Mirrors the deprecated capability-id path below, one graph
- * layer lower.
+ * (invalid-probe).
  */
 function resolveRequiredNode(
   dependency: CapabilityDependency,
@@ -449,52 +445,12 @@ export function qualifyProbe(
         ? rtdbRequirements(target, probe)
         : storageRequirements(target);
 
-  // Resolve each declared capability against the DERIVED graph statuses. Only a
-  // `supported` capability lets the probe proceed. A `qualified` or
-  // `unsupported` capability forces the engine to abstain (engine-gap), citing
-  // the graph reasons the generated capability carries. A capability id the
-  // engine does not define is a campaign authoring error (invalid-probe).
+  // A probe names the graph nodes its verdict depends on, and each resolves
+  // against the node's DERIVED verdict in the same pass as the structural
+  // checks above. Only `supported` proceeds; `qualified`/`unsupported` abstains
+  // (engine-gap); a node the graph does not model is a campaign authoring error
+  // (invalid-probe), which outranks engine-gap for the single classification.
   let abstention: EngineQualification["classification"];
-  for (const id of probe.requirements ?? []) {
-    const capability = CAPABILITY_BY_ID.get(id);
-    if (!capability) {
-      requirements.push(
-        requirement(
-          id,
-          false,
-          `The campaign declared capability '${id}', which the assurance engine does not define.`,
-        ),
-      );
-      abstention = "invalid-probe";
-      continue;
-    }
-    if (capability.status !== "supported") {
-      const reasons = capabilityReasons(capability);
-      const cited = reasons.length
-        ? ` The conformance graph derived this status from: ${reasons.join(" ")}`
-        : "";
-      requirements.push(
-        requirement(
-          id,
-          false,
-          `Capability '${id}' is derived '${capability.status}', not 'supported'; the engine abstains.${cited}`,
-        ),
-      );
-      if (abstention !== "invalid-probe") abstention = "engine-gap";
-      continue;
-    }
-    requirements.push(
-      requirement(
-        id,
-        true,
-        `Capability '${id}' is derived 'supported'.`,
-      ),
-    );
-  }
-
-  // The forward contract: a probe names graph nodes directly, resolved one
-  // layer below the capability bundle. `invalid-probe` outranks `engine-gap`
-  // for the qualification's single classification, matching the loop above.
   for (const dependency of probe.requires ?? []) {
     const nodeAbstention = resolveRequiredNode(dependency, requirements);
     if (nodeAbstention === "invalid-probe") abstention = "invalid-probe";

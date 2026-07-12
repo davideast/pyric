@@ -300,7 +300,7 @@ export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapabilit
   {
     id: "storage.coarse-rules",
     service: "storage",
-    status: "supported",
+    status: "unsupported",
     description: "Coarse read/write with auth, size, content type, metadata, and path matching.",
     dependencies: [
       {"kind":"construct","id":"storage.rule-kind.match","verdict":"supported","snapshot":"accepted","probe":"implemented","productionVerified":true,"divergedBy":[]},
@@ -314,7 +314,7 @@ export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapabilit
       {"kind":"construct","id":"storage.binding.request.resource.size","verdict":"supported","snapshot":"accepted","probe":"implemented","productionVerified":true,"divergedBy":[]},
       {"kind":"construct","id":"storage.binding.request.resource.contentType","verdict":"supported","snapshot":"accepted","probe":"implemented","productionVerified":true,"divergedBy":[]},
       {"kind":"construct","id":"storage.binding.request.resource.metadata","verdict":"supported","snapshot":"accepted","probe":"implemented","productionVerified":true,"divergedBy":[]},
-      {"kind":"construct","id":"storage.binding.resource","verdict":"supported","snapshot":"accepted","probe":"implemented","productionVerified":true,"divergedBy":[]},
+      {"kind":"construct","id":"storage.binding.resource","verdict":"unsupported","snapshot":"accepted","probe":"implemented","productionVerified":true,"divergedBy":["storage-rules#118"]},
       {"kind":"construct","id":"storage.binding.resource.size","verdict":"supported","snapshot":"accepted","probe":"implemented","productionVerified":true,"divergedBy":[]},
       {"kind":"construct","id":"storage.binding.resource.contentType","verdict":"supported","snapshot":"accepted","probe":"implemented","productionVerified":true,"divergedBy":[]},
       {"kind":"construct","id":"storage.binding.resource.metadata","verdict":"supported","snapshot":"accepted","probe":"implemented","productionVerified":true,"divergedBy":[]},
