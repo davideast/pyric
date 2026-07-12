@@ -9,6 +9,15 @@ THE SHAPE:
    used. A reviewer should understand what changed before reading a single sentence
    of prose.
 
+   THE SAMPLE DEFINES EVERYTHING IT USES. No `myCampaign`, no `...`, no "assume a
+   config". If the input is the interesting part of the change, the input goes in the
+   sample in full. A reader who does not already know the system must be able to run
+   it. A placeholder variable is a confession that you hid the thing worth showing.
+
+   AND IT EXPLAINS ITS OWN TERMS. If a result is `local-counterexample` or
+   `engine-gap`, the comment says what pyric actually DID to produce it, in plain
+   words. A term the reader cannot define from the sample is noise, however precise.
+
 2. NARRATIVE HEADINGS. A heading states a fact, not a category. "Two capabilities now
    abstain" beats "Behavior changes". "resource.id no longer allows what Firebase
    denies" beats "Bug fix".
