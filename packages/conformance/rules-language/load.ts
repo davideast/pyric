@@ -95,6 +95,14 @@ function snapshotProblems(engine: RulesEngine, snap: unknown): string[] {
     if (c.probeNote !== undefined && (typeof c.probeNote !== 'string' || c.probeNote.length === 0)) {
       problems.push(`${at} (${c.id}): probeNote present but empty`);
     }
+    // An exclusion from the verified denominator is only honest with its reason
+    // attached: a blank marker would silently shrink the denominator.
+    if (
+      c.outOfVerifiedDenominator !== undefined &&
+      (typeof c.outOfVerifiedDenominator !== 'string' || c.outOfVerifiedDenominator.length === 0)
+    ) {
+      problems.push(`${at} (${c.id}): outOfVerifiedDenominator present but carries no reason`);
+    }
     if ((c.status === 'rejected' || c.status === 'unprobeable') &&
         (typeof c.probeNote !== 'string' || c.probeNote.length === 0)) {
       problems.push(`${at} (${c.id}): status "${c.status}" requires a non-empty probeNote`);

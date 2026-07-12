@@ -130,7 +130,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { surfaceRegistries, type CompatibilityRow } from '../registry/index.ts';
+import { type CompatibilityRow } from '../registry/index.ts';
+import { allRegistryRows, indexRulesEngineRows, RULES_ENGINE_SURFACES } from './rules-engine-rows.ts';
 import { loadAllSnapshots } from '../rules-language/load.ts';
 import { loadAssuranceCapabilityRecords, type LoadedCapability } from '../assurance-capabilities/load.ts';
 import type {
@@ -146,11 +147,6 @@ const CAPABILITY_DIR = join(HERE, '..', 'assurance-capabilities');
 const LANGUAGE_DIR = join(HERE, '..', 'rules-language');
 export const ARTIFACT_PATH = join(CAPABILITY_DIR, 'capabilities.json');
 export const GENERATED_TS_PATH = join(CAPABILITY_DIR, 'generated.ts');
-
-/** The registry surfaces that ARE the rules engine (as opposed to an SDK that
- *  enforces its verdict). A divergence here is a divergence in the machinery
- *  that decides ALLOW/DENY. */
-const RULES_ENGINE_SURFACES = new Set(['firestore-rules', 'storage-rules']);
 
 const STATUS_ORDER: Record<AssuranceCapabilityStatus, number> = {
   unsupported: 0,
@@ -213,25 +209,11 @@ export function loadConformanceGraph(): ConformanceGraph {
     for (const construct of engine.constructs) verifiedBy.set(construct.id, construct.verifiedBy ?? []);
   }
 
-  const rows = new Map<string, CompatibilityRow>();
-  const divergedBy = new Map<string, string[]>();
-  const oracleProvedBy = new Map<string, string[]>();
-  for (const registry of surfaceRegistries) {
-    for (const block of registry.blocks) {
-      if (block.kind !== 'table') continue;
-      for (const row of block.rows) {
-        rows.set(row.id, row);
-        if (!RULES_ENGINE_SURFACES.has(row.surface)) continue;
-        const contaminating = row.status === 'diverged-documented' || row.status === 'bug';
-        const proving = row.status === 'conforms' && row.automation === 'oracle-backed';
-        const target = contaminating ? divergedBy : proving ? oracleProvedBy : undefined;
-        if (!target) continue;
-        for (const construct of row.constructs ?? []) {
-          target.set(construct, [...(target.get(construct) ?? []), row.id]);
-        }
-      }
-    }
-  }
+  // The rules-engine row scopes, read through the SHARED predicate the coverage
+  // analyzer reads them through (src/rules-engine-rows.ts) — one definition of
+  // what a row proves and what it contaminates, not two.
+  const rows = allRegistryRows();
+  const { provedBy: oracleProvedBy, divergedBy } = indexRulesEngineRows(rows.values());
 
   return { snapshotStatus, probeClass, verifiedBy, rows, divergedBy, oracleProvedBy };
 }

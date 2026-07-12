@@ -5,11 +5,16 @@
  * ../storage/types.ts) for the `realtime-database` surface. Unlike those two,
  * RTDB has NO server-side rules test API: its production truth is captured by
  * DEPLOYING a real ruleset, executing ops against the live database, observing
- * allow/deny, then restoring the prior ruleset. Every scenario here is a
- * decomposition of one ruleset from the frozen
- * `rtdb-simulator-vs-prod-agreement` agreement observation, and each case's
- * `expectation` is the production verdict that observation recorded — never the
- * simulator's, never invented.
+ * allow/deny, then restoring the prior ruleset.
+ *
+ * Every case's `expectation` IS a production verdict — never the simulator's,
+ * never invented. Scenarios reach that state by one of two routes:
+ *   - r1..r8 were decomposed from the frozen `rtdb-simulator-vs-prod-agreement`
+ *     observation (one ruleset per scenario) and later re-captured;
+ *   - r9.. were authored to exercise named rules-language constructs, then
+ *     CAPTURED against the live database. Where an authored expectation
+ *     disagreed with the captured verdict, the captured verdict won and the
+ *     scenario was corrected.
  *
  * An `RtdbScenario` is a self-contained conformance unit: one ruleset SUBTREE plus
  * the ops that exercise it. `rules` is the JSON string of the subtree exactly as
@@ -44,6 +49,30 @@ export interface RtdbTestCase {
    *  the simulator this becomes the mock snapshot at the op path; for prod the
    *  runner seeds it via the admin SDK. */
   mockData?: unknown;
+  /**
+   * Pre-existing values at paths OTHER than the op path, keyed by a path
+   * RELATIVE TO THE SCENARIO MOUNT (e.g. `/rooms/r1/members/<UID>`). `mockData`
+   * seeds only the op path, which cannot express a rule that reads a SIBLING
+   * subtree — the membership-list idiom
+   * (`data.parent().parent().child('members').hasChild(auth.uid)`) needs the
+   * members list to exist somewhere the op path is not.
+   *
+   * Both consumers apply the seed before the op and see the identical tree: the
+   * capture runner writes each path with the admin SDK beneath the run-scoped
+   * namespace (so the run's cleanup still removes it), and the replay suite
+   * nests each path under the scenario mount in the simulator's mock root.
+   * `<UID>` tokens in keys and values are substituted, as everywhere else.
+   *
+   * MOUNT-RELATIVE, NOT ROOT-RELATIVE. The scenario subtree mounts under a
+   * run-scoped namespace in production (`/<auditKey>/<id>`) and directly under
+   * the mock root in the simulator (`/<id>`), so only rules that navigate
+   * RELATIVE to their own node (`data.parent()`, `data.child()`) see the same
+   * tree in both. A rule that reaches the absolute database root (`root.child(
+   * 'x')`) sees production's real root and the simulator's mock root — those
+   * agree only on the ABSENCE of a top-level key, which is the only form of
+   * `root` assertion a scenario may rely on.
+   */
+  seed?: Record<string, unknown>;
   /** Set ONLY when the frozen agreement observation carried no recoverable
    *  production verdict for this tuple (prodAllowed was null). Such a case is
    *  RECORDED but EXCLUDED from replay assertions until a fresh capture lands.

@@ -633,7 +633,17 @@ function rtProbeFor(c: LanguageConstruct): RtProbe {
     if (name === 'read-cascade') return { subtree: { probe: { '.read': 'true', child: {} } }, op: 'read', opPath: '/probe/child' };
     if (name === 'write-cascade') return { subtree: { probe: { '.write': 'true', child: {} } }, op: 'write', opPath: '/probe/child', newData: 'v' };
     if (name === 'validate-non-cascade') {
-      return { unprobeable: 'validate non-cascade is a multi-node relationship (a parent .validate must NOT govern a deeper write); it is not a single allow/deny micro-scenario.' };
+      // The semantic is a multi-node relationship, not a single allow/deny
+      // micro-scenario. Its CONTENT is settled by production, not by this
+      // probe's prose: a `.validate` never GRANTS (unlike a truthy ancestor
+      // `.read`/`.write`), but it is NOT skipped on ancestors of the written
+      // path — production evaluates the ancestor rule against the merged
+      // post-write value and denies. Corpus scenario r15-validate-ancestor-scope
+      // captured that, refuting the earlier claim here that "a parent .validate
+      // must NOT govern a deeper write"; the simulator, which walks .validate
+      // from the write location downward only, diverges (registry row
+      // rtdb-rules#15).
+      return { unprobeable: 'validate non-cascade is a multi-node relationship (a `.validate` never grants, and every applicable rule — at the write location, below it, AND on its ancestors — must pass); it is not a single allow/deny micro-scenario.' };
     }
     if (name === 'deny-by-default') return { subtree: { probe: {} }, op: 'read', opPath: '/probe' };
     if (name === 'regex-literal') return { op: 'write', read: 'newData.val().matches(/^a/)', newData: 'abc' };

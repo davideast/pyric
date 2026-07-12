@@ -1,0 +1,19 @@
+{
+  "name": "rules-rtdb-r14-priority-and-validate-scope",
+  "matrixRow": "rtdb-rules#14",
+  "rowIds": [
+    "rtdb-rules#14"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r14-priority-and-validate-scope\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). getPriority() in both directions (a plain set carries no priority, so the priority-required node denies every write) and the scope of .validate (an ancestor .validate DOES govern a write to a node beneath it — production denies, the simulator allows).",
+  "observedAt": "2026-07-12T03:42:20.525Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "unprioritized document allowed (getPriority is null)": "ALLOW",
+    "document missing body denied (ancestor validate at the write location)": "DENY",
+    "write beneath the validated node denied (the ancestor .validate is evaluated)": "DENY",
+    "write beneath the validated node still meets its own validate": "DENY",
+    "priority-required node denies a plain write (getPriority is null)": "DENY",
+    "document read allowed": "ALLOW"
+  }
+}

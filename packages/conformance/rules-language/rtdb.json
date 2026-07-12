@@ -198,7 +198,7 @@
       "reference": "https://firebase.google.com/docs/reference/security/database/string#toUpperCase",
       "status": "unprobed",
       "receiverType": "string",
-      "note": "Discrepancy: toUpperCase() is in the official RTDB String method set, but the parser validator's ALL_KNOWN_METHODS (database/grammar/validator.ts) lists toLowerCase without toUpperCase — the parser would reject it as UNKNOWN_METHOD."
+      "note": "Production ACCEPTS and evaluates `toUpperCase()`, exactly as it does `toLowerCase()`. The repo validator omitted it from STRING_METHODS and the evaluator had no dispatch arm, so the simulator rejected a ruleset production accepts and abstained on a `.validate` production evaluates. Found by rules-rtdb-r11-string-validation; both were corrected."
     },
     {
       "id": "rtdb.method.string.length",
@@ -347,7 +347,8 @@
       "kind": "operator",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/rules-conditions",
-      "status": "unprobed"
+      "status": "unprobed",
+      "note": "Production accepts `[]` ONLY on the auth token map (`auth.token['admin']`, dynamic keys included). It REJECTS an array literal in an expression outright (deploying `[10, 100, 1000][plan]` fails with `Unexpected array literal.`), so an array literal is legal only as a `hasChildren([...])` argument; and it rejects indexing a snapshot value (`data.val()['plan']` fails with `No such method/property 'plan'`), so `.child()` is the only way into a snapshot. The repo grammar (RtdbExpr.ohm CallExpr_indexAccess) is broader than production. Observed by deploy-acceptance probe against the live oracle database while capturing rules-rtdb-r9-quota-math / r12-claims-and-server-time."
     },
     {
       "id": "rtdb.rule-kind.read",
@@ -375,7 +376,8 @@
       "kind": "rule-kind",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/indexing-data",
-      "status": "unprobed"
+      "status": "unprobed",
+      "outOfVerifiedDenominator": "`.indexOn` is a query-index directive, not an access-control construct: it tells the database which child keys to index for ordering and filtering, and produces no ALLOW/DENY verdict of its own. The verified axis is evidenced by captured allow/deny verdicts, so no production authorization capture can ever verify it and leaving it in the denominator would permanently depress the number with work that cannot exist. Its deploy/round-trip through the rules JSON IS production-proven, by the rtdb-rules-json-roundtrip observation."
     },
     {
       "id": "rtdb.rule-kind.location-wildcard",
@@ -403,7 +405,8 @@
       "kind": "semantic",
       "engine": "rtdb",
       "reference": "https://firebase.google.com/docs/database/security/core-syntax#validation-rules",
-      "status": "unprobed"
+      "status": "unprobed",
+      "note": "Production evaluates a `.validate` rule on ANCESTORS of the written path too, against the merged post-write value at that ancestor: writing `/p1/sub/k1` under a parent whose rule is `newData.hasChildren(['x'])` is DENIED, while the same write under a rule-free ancestor is allowed, and is allowed again once `/p1/x` exists. So the non-cascade property means only that a `.validate` never GRANTS (unlike a truthy ancestor `.read`/`.write`); it is NOT skipped on ancestors, and every applicable rule must pass. The simulator collects `.validate` rules from the write location DOWNWARD only and therefore allows writes production denies (a false ALLOW). Captured by rules-rtdb-r15-validate-ancestor-scope; divergence documented on registry row rtdb-rules#15 and pinned in the replay suite."
     },
     {
       "id": "rtdb.semantic.deny-by-default",

@@ -1190,11 +1190,11 @@
     {
       "engine": "rtdb",
       "total": 56,
-      "implemented": 54,
-      "unsupported": 1,
+      "implemented": 55,
+      "unsupported": 0,
       "error": 0,
       "unprobeable": 1,
-      "languageCoverage": 0.9818181818181818,
+      "languageCoverage": 1,
       "constructs": [
         {
           "id": "rtdb.binding.auth",
@@ -1343,8 +1343,8 @@
         {
           "id": "rtdb.method.string.toUpperCase",
           "kind": "method",
-          "classification": "unsupported",
-          "detail": "EVALUATION_ERROR: Unknown string method: toUpperCase"
+          "classification": "implemented",
+          "detail": "ALLOW: Rule expression evaluated to true"
         },
         {
           "id": "rtdb.method.string.length",
@@ -1518,7 +1518,7 @@
           "id": "rtdb.semantic.validate-non-cascade",
           "kind": "semantic",
           "classification": "unprobeable",
-          "detail": "validate non-cascade is a multi-node relationship (a parent .validate must NOT govern a deeper write); it is not a single allow/deny micro-scenario."
+          "detail": "validate non-cascade is a multi-node relationship (a `.validate` never grants, and every applicable rule — at the write location, below it, AND on its ancestors — must pass); it is not a single allow/deny micro-scenario."
         },
         {
           "id": "rtdb.semantic.deny-by-default",

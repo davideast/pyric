@@ -19,7 +19,9 @@
  *   RULES RESTORED — the pre-run ruleset is rewritten and read back, canonical-
  *     JSON identical to the pre-run snapshot.
  *   DATA REMOVED — the corpus ops write synthetic data beneath the run-scoped
- *     namespace `/pyric_oracle_rulesrtdb_<runId>`, so the runner deletes that
+ *     namespace `/pyric_oracle_rulesrtdb_<runId>` (the ops themselves, plus the
+ *     pre-existing values a case declares via `mockData` / `seed`, which the
+ *     admin SDK writes there rules-bypassed), so the runner deletes that
  *     namespace and proves it gone with a shallow read of the root.
  * deploy → capture → restore + cleanup → read-back verify runs as one guarded
  * sequence: ANY failure mid-run (deploy, op loop, or either read-back) aborts
@@ -308,6 +310,23 @@ async function capture(): Promise<void> {
   const auth = getAuth(app);
   const rtdb = getDatabase(app);
 
+  // One admin app for the whole run. It writes the pre-existing data a case
+  // declares — `mockData` at the op path and `seed` at any other path under the
+  // scenario mount — BYPASSING the rules, so the rule under test sees the data
+  // without the seeding itself being subject to that rule.
+  const adminApp = adminInitializeApp(
+    {
+      credential: adminCert({
+        projectId: serviceAccount.project_id,
+        clientEmail: serviceAccount.client_email,
+        privateKey: serviceAccount.private_key,
+      }),
+      databaseURL: config.databaseURL,
+    },
+    `oracle-rules-rtdb-admin-${runId}`,
+  );
+  const adminDb = getAdminDatabase(config.databaseURL, adminApp);
+
   const observations: { scenario: RtdbScenario; behavior: Record<string, 'ALLOW' | 'DENY'> }[] = [];
   let restoreVerified = false;
   let dataCleanupVerified = false;
@@ -338,33 +357,30 @@ async function capture(): Promise<void> {
         const opPath = substituteUid(tc.opPath, liveUid);
         const newData = tc.newData !== undefined ? substituteUid(tc.newData, liveUid) : undefined;
         const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, liveUid) : undefined;
-        const fullPath = `/${auditKey}/${scenario.id}${opPath}`;
+        const mountPath = `/${auditKey}/${scenario.id}`;
+        const fullPath = `${mountPath}${opPath}`;
+
+        // Pre-existing data the case declares, written with the admin SDK
+        // (rules-bypassing) before the op: `seed` at paths relative to the
+        // scenario mount — what a sibling-subtree lookup like
+        // `data.parent().parent().child('members')` needs — and `mockData` at
+        // the op path itself. Both land under the run-scoped namespace, so the
+        // run's cleanup still removes them. Seeds apply to reads as well as
+        // writes; a read rule may consult existing data just as a write rule can.
+        for (const [seedPath, seedValue] of Object.entries(tc.seed ?? {})) {
+          await adminDb
+            .ref(`${mountPath}${substituteUid(seedPath, liveUid)}`)
+            .set(substituteUid(seedValue, liveUid));
+        }
+        if (mockData !== undefined && mockData !== null) {
+          await adminDb.ref(fullPath).set(mockData);
+        }
 
         let allowed = false;
         try {
           if (tc.operation === 'read') {
             await rtdbGet(rtdbRef(rtdb, fullPath));
           } else {
-            // Seed the pre-existing value (mockData) via the admin SDK so the
-            // rule sees it, bypassing the rule under test.
-            if (mockData !== undefined && mockData !== null) {
-              const seedApp = adminInitializeApp(
-                {
-                  credential: adminCert({
-                    projectId: serviceAccount.project_id,
-                    clientEmail: serviceAccount.client_email,
-                    privateKey: serviceAccount.private_key,
-                  }),
-                  databaseURL: config.databaseURL,
-                },
-                `oracle-rules-rtdb-seed-${runId}-${scenario.id}-${tc.description.replace(/\s+/g, '_')}`,
-              );
-              try {
-                await getAdminDatabase(config.databaseURL, seedApp).ref(fullPath).set(mockData);
-              } finally {
-                try { await adminDeleteApp(seedApp); } catch { /* ignored */ }
-              }
-            }
             await rtdbSet(rtdbRef(rtdb, fullPath), newData ?? null);
           }
           allowed = true;
@@ -407,6 +423,7 @@ async function capture(): Promise<void> {
       console.error(`[oracle:rules-rtdb] DATA CLEANUP FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }
     try { await deleteApp(app); } catch { /* ignored */ }
+    try { await adminDeleteApp(adminApp); } catch { /* ignored */ }
   }
 
   // Only write observations once BOTH invariants held. A run that could not

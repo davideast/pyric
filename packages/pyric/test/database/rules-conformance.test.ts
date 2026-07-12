@@ -76,21 +76,39 @@ function substituteUid<T>(v: T, uid: string): T {
   return v;
 }
 
-/** Build the root-relative mock snapshot for a case, exactly as the probe's
- *  buildSimMock: nest `mockData` under the op path's segments so
- *  `data.exists()` at the op path sees it. Empty root when there is no
- *  pre-existing value. */
-function buildSimMock(simPath: string, mockData: unknown): Record<string, unknown> {
-  if (mockData === undefined || mockData === null) return {};
-  const segs = simPath.split('/').filter(Boolean);
-  const root: Record<string, unknown> = {};
+/** Write `value` at `path` into `root`, creating the intermediate objects — the
+ *  in-memory twin of the capture runner's admin-SDK `ref(path).set(value)`. */
+function setAt(root: Record<string, unknown>, path: string, value: unknown): void {
+  const segs = path.split('/').filter(Boolean);
+  if (segs.length === 0) return;
   let cursor = root;
   for (let i = 0; i < segs.length - 1; i++) {
-    const child: Record<string, unknown> = {};
+    const existing = cursor[segs[i]];
+    const child = existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? (existing as Record<string, unknown>)
+      : {};
     cursor[segs[i]] = child;
     cursor = child;
   }
-  cursor[segs[segs.length - 1]] = mockData;
+  cursor[segs[segs.length - 1]] = value;
+}
+
+/** The root-relative mock tree a case's rules evaluate against: the same
+ *  pre-existing data the capture runner writes with the admin SDK before the op
+ *  — the case's `seed` paths (relative to the scenario mount) and its
+ *  `mockData` at the op path. Empty root when the case declares neither. */
+function buildSimMock(
+  scenario: RtdbScenario,
+  simPath: string,
+  mockData: unknown,
+  seed: Record<string, unknown> | undefined,
+  uid: string,
+): Record<string, unknown> {
+  const root: Record<string, unknown> = {};
+  for (const [seedPath, seedValue] of Object.entries(seed ?? {})) {
+    setAt(root, `/${scenario.id}${substituteUid(seedPath, uid)}`, substituteUid(seedValue, uid));
+  }
+  if (mockData !== undefined && mockData !== null) setAt(root, simPath, mockData);
   return root;
 }
 
@@ -123,7 +141,7 @@ function simulatorVerdict(scenario: RtdbScenario, tc: RtdbTestCase): 'ALLOW' | '
     auth: tc.authPresent
       ? { uid, token: { firebase: { sign_in_provider: 'anonymous' }, provider_id: 'anonymous' } }
       : null,
-    mockData: buildSimMock(simPath, mockData),
+    mockData: buildSimMock(scenario, simPath, mockData, tc.seed, uid),
     newData,
   };
 
@@ -138,21 +156,41 @@ function simulatorVerdict(scenario: RtdbScenario, tc: RtdbTestCase): 'ALLOW' | '
  * Each entry pins BOTH sides so the suite stays green today but fails loudly the
  * moment either side's actual behavior changes, forcing a revisit.
  *
- * EMPTY today: the current simulator agrees with production on every corpus
- * case. The one historical disagreement — r4-validate-structure's missing-body
- * write, recorded ALLOW by the simulator at capture (2026-05-18) against a prod
- * DENY — has since been fixed (the simulator now vetoes on the child
- * `.validate` and denies), so there is nothing to pin. A future regression that
- * reopens it, or any new divergence, will fail the replay assertion and the
- * "enumerate simulator-vs-prod divergences" test until it is triaged and either
- * fixed or pinned here with both sides and a reason.
+ * OPEN DIVERGENCE — `.validate` DOES REACH ANCESTORS OF THE WRITTEN PATH.
+ * Production evaluates the `.validate` rule at every node ABOVE the write
+ * location too, against the merged post-write value at that node. Writing
+ * `/p1/sub/k1` under a parent whose rule is `newData.hasChildren(['x'])` leaves
+ * `/p1` as `{sub: {k1: ...}}` — no `x` — and production DENIES.
+ * r15-validate-ancestor-scope isolates it: the same deep write ALLOWS under a
+ * rule-free ancestor (control), and ALLOWS again once `/p1/x` already exists
+ * (the ancestor rule is satisfied by the merged value).
+ *
+ * `SimulateHandler` walks `.validate` from the WRITE LOCATION DOWNWARD only
+ * (`findWriteLocationNode` -> `findFailingValidate`), so it never evaluates the
+ * ancestor rule and ALLOWS both writes production denies. That is a FALSE
+ * ALLOW: the simulator tells a developer a write passes that production
+ * rejects. It is a fidelity bug in the validate walk, pinned here with both
+ * sides and reported for its own fix — the corpus keeps production's DENY.
  *
  * Keyed by `${scenarioId} :: ${caseDescription}`.
  */
 const KNOWN_DIVERGENCES: Record<
   string,
   { prodVerdict: 'ALLOW' | 'DENY'; simVerdict: 'ALLOW' | 'DENY'; reason: string }
-> = {};
+> = {
+  'r15-validate-ancestor-scope :: deep write under a validated ancestor denied (ancestor .validate is evaluated)': {
+    prodVerdict: 'DENY',
+    simVerdict: 'ALLOW',
+    reason:
+      "production evaluates the ancestor's `.validate` against the merged post-write value at that ancestor; the simulator collects `.validate` rules only from the write location downward, so it never sees the rule and allows the write.",
+  },
+  'r14-priority-and-validate-scope :: write beneath the validated node denied (the ancestor .validate is evaluated)': {
+    prodVerdict: 'DENY',
+    simVerdict: 'ALLOW',
+    reason:
+      'the same ancestor-`.validate` gap as r15, reached through a real document ruleset: writing `/docs/$docId/meta/$key` leaves the document without `title`/`body`, which production rejects and the simulator does not.',
+  },
+};
 
 interface RulesObservation {
   name: string;

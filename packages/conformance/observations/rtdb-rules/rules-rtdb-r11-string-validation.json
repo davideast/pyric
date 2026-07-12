@@ -1,0 +1,25 @@
+{
+  "name": "rules-rtdb-r11-string-validation",
+  "matrixRow": "rtdb-rules#11",
+  "rowIds": [
+    "rtdb-rules#11"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r11-string-validation\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). every string method the RTDB rules language exposes decides one field of a handle record — length, contains, endsWith, toLowerCase, beginsWith, matches against a regex literal, replace and toUpperCase — so a per-field deny pins each method against production.",
+  "observedAt": "2026-07-12T03:42:20.525Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "valid handle allowed": "ALLOW",
+    "display shorter than three characters denied (length)": "DENY",
+    "email without an at-sign denied (contains)": "DENY",
+    "email not ending in .com denied (endsWith)": "DENY",
+    "email not already lower-cased denied (toLowerCase)": "DENY",
+    "slug without the u- prefix denied (beginsWith)": "DENY",
+    "slug with an illegal character denied (regex literal)": "DENY",
+    "slug stripping to a different handle denied (replace)": "DENY",
+    "shout not the upper-cased display denied (toUpperCase)": "DENY",
+    "missing shout denied (hasChildren)": "DENY",
+    "signed-in read of a handle": "ALLOW",
+    "anonymous read of a handle denied": "DENY"
+  }
+}

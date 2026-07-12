@@ -1,0 +1,25 @@
+{
+  "name": "rules-rtdb-r9-quota-math",
+  "matrixRow": "rtdb-rules#9",
+  "rowIds": [
+    "rtdb-rules#9"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r9-quota-math\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). arithmetic and comparison operators decide a real quota: the limit is pinned to the plan by multiplication and addition, remaining by subtraction, pctUsed by multiplication and division under a ternary zero-guard, and the write ratchet uses || plus >= — production must agree with the simulator on every field.",
+  "observedAt": "2026-07-12T03:42:20.526Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "consistent quota allowed": "ALLOW",
+    "used beyond limit plus grace denied (add)": "DENY",
+    "limit not the plan allowance denied (mul)": "DENY",
+    "fractional used denied (mod)": "DENY",
+    "remaining not limit minus used denied (sub)": "DENY",
+    "pctUsed not used times 100 over limit denied (div)": "DENY",
+    "negative used denied (unary minus bound)": "DENY",
+    "grace at or above ten denied (lt)": "DENY",
+    "owner reads own quota": "ALLOW",
+    "foreign quota read denied": "DENY",
+    "lowering an existing limit denied (write ratchet)": "DENY",
+    "raising an existing limit allowed (write ratchet)": "ALLOW"
+  }
+}

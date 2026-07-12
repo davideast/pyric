@@ -1,0 +1,20 @@
+{
+  "name": "rules-rtdb-r13-cross-tree-lookup",
+  "matrixRow": "rtdb-rules#13",
+  "rowIds": [
+    "rtdb-rules#13"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r13-cross-tree-lookup\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a message rule that authorizes against the room membership list two levels up (data.parent().parent().child(...)) — production must resolve the same sibling subtree the simulator does — plus a root-level maintenance flag and a path with no rule at all (deny by default).",
+  "observedAt": "2026-07-12T03:42:20.525Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "member posts a message": "ALLOW",
+    "non-member post denied (sibling membership lookup)": "DENY",
+    "member reads the room messages (maintenance flag absent at the root)": "ALLOW",
+    "anonymous read of room messages denied": "DENY",
+    "joining a room writes the membership entry": "ALLOW",
+    "maintenance node read denied (flag absent at the root)": "DENY",
+    "read of a path with no rule denied (deny by default)": "DENY"
+  }
+}

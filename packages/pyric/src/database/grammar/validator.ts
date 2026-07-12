@@ -12,9 +12,14 @@ const DATASNAPSHOT_METHODS = new Set([
   'isBoolean', 'child', 'parent', 'getPriority',
 ]);
 
+// The RTDB rules String type. `toUpperCase` is production surface exactly as
+// `toLowerCase` is — omitting it made the validator reject a ruleset production
+// ACCEPTS, and the simulator abstain on a `.validate` production evaluates
+// (conformance scenario r11-string-validation: production ALLOWS the handle
+// whose `shout` field is checked with `.toUpperCase()`).
 const STRING_METHODS = new Set([
   'matches', 'contains', 'beginsWith', 'endsWith', 'replace', 'toLowerCase',
-  'length',
+  'toUpperCase', 'length',
 ]);
 
 const ALL_KNOWN_METHODS = new Set([...DATASNAPSHOT_METHODS, ...STRING_METHODS]);

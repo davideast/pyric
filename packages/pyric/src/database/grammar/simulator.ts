@@ -149,6 +149,10 @@ class RtdbString {
     return this.value.toLowerCase();
   }
 
+  toUpperCase(): string {
+    return this.value.toUpperCase();
+  }
+
   get length(): number {
     return this.value.length;
   }
@@ -229,6 +233,7 @@ evalSemantics.addOperation<unknown>('eval', {
         case 'endsWith': return str.endsWith(String(argValues[0]));
         case 'replace': return str.replace(argValues[0] as string | RegExp, String(argValues[1]));
         case 'toLowerCase': return str.toLowerCase();
+        case 'toUpperCase': return str.toUpperCase();
         default: throw new Error(`Unknown string method: ${method}`);
       }
     }

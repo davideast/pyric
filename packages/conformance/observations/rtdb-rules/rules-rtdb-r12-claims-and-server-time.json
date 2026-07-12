@@ -1,0 +1,21 @@
+{
+  "name": "rules-rtdb-r12-claims-and-server-time",
+  "matrixRow": "rtdb-rules#12",
+  "rowIds": [
+    "rtdb-rules#12"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r12-claims-and-server-time\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). auth.token claims and the server-time binding `now` decide a real append-only log: the provider claim the anonymous session carries grants the read, the email_verified and admin claims it lacks deny two others, a future timestamp is rejected against now, and an existing entry cannot be overwritten.",
+  "observedAt": "2026-07-12T03:42:20.525Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "entry read allowed by the provider claim": "ALLOW",
+    "entry read denied when signed out (no token)": "DENY",
+    "entry stamped in the past allowed (now)": "ALLOW",
+    "entry stamped in the future denied (now)": "DENY",
+    "entry attributed to another uid denied": "DENY",
+    "read of the verified-only node denied (missing email_verified claim)": "DENY",
+    "read of the admin-only node denied (missing admin claim, read by index)": "DENY",
+    "overwriting an existing entry denied (append-only)": "DENY"
+  }
+}

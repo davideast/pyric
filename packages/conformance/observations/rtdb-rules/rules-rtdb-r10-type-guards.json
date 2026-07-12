@@ -1,0 +1,24 @@
+{
+  "name": "rules-rtdb-r10-type-guards",
+  "matrixRow": "rtdb-rules#10",
+  "rowIds": [
+    "rtdb-rules#10"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r10-type-guards\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). the snapshot type guards decide a real profile write: a stringly-typed age, a stringly-typed active flag, an empty name and a reserved internal child must each deny, and the locked-profile lock must hold — production and the simulator must agree guard for guard.",
+  "observedAt": "2026-07-12T03:42:20.524Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "well-typed profile allowed": "ALLOW",
+    "empty name denied (strict inequality)": "DENY",
+    "numeric age as string denied (isNumber)": "DENY",
+    "boolean active as string denied (isBoolean)": "DENY",
+    "name as number denied (isString)": "DENY",
+    "missing name denied (hasChild)": "DENY",
+    "reserved internal child denied (negated hasChild)": "DENY",
+    "any signed-in user reads a profile": "ALLOW",
+    "foreign profile write denied": "DENY",
+    "unlocked profile rewritten (loose equality against null)": "ALLOW",
+    "locked profile rewrite denied": "DENY"
+  }
+}

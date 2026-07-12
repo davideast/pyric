@@ -33,6 +33,7 @@ import type {
 import { parseStorageRules } from '../../../packages/pyric/src/storage/rules.ts';
 import { grammar as rtdbGrammar } from '../../../packages/pyric/src/database/grammar/RtdbExprParser.ts';
 import { loadSnapshot, type RulesEngine } from '../rules-language/load.ts';
+import { rulesEngineRowIndex } from './rules-engine-rows.ts';
 
 // ── Result shape ──────────────────────────────────────────────────────
 
@@ -646,8 +647,19 @@ export interface ConstructCoverage {
   kind: string;
   /** All scenario ids that exercise the construct. */
   exercisedBy: string[];
-  /** The subset whose observation twin exists (production-verified). */
+  /** The subset whose observation twin exists (production-verified by capture). */
   verifiedBy: string[];
+  /**
+   * Ids of conforming, oracle-backed rules-engine registry rows whose
+   * `constructs` scope names this construct — the SECOND production-verification
+   * path (src/rules-engine-rows.ts). It exists because this analyzer attributes
+   * constructs SYNTACTICALLY: a `semantic` that is not a token (RTDB's read/write
+   * cascade, the deny-by-default floor) can never be credited by the AST walk, no
+   * matter how completely production proves it. The row that proves it says so.
+   */
+  verifiedByRows: string[];
+  /** Set when the construct is OUT of the verified denominator: the reason. */
+  outOfVerifiedDenominator?: string;
 }
 
 export interface EngineCoverage {
@@ -657,8 +669,18 @@ export interface EngineCoverage {
   verifiedConstructs: number;
   /** exercised / total, 0..1 (analyzer-measured breadth over the corpus). */
   exercisedCoverage: number;
-  /** verified / total, 0..1 — the trust number (production-confirmed). */
+  /**
+   * The verified axis's denominator: `totalConstructs` MINUS the constructs the
+   * snapshot marks out of it (`outOfVerifiedDenominator`) — constructs that are
+   * not access-control surface at all, so no ALLOW/DENY capture can verify them
+   * and leaving them in would depress the number with work that cannot exist.
+   * Each exclusion carries its reason in {@link outOfDenominator}.
+   */
+  verifiedDenominator: number;
+  /** verified / verifiedDenominator, 0..1 — the trust number (production-confirmed). */
   verifiedCoverage: number;
+  /** The excluded constructs and why, so the denominator is auditable. */
+  outOfDenominator: Array<{ id: string; reason: string }>;
   constructs: ConstructCoverage[];
   scenarioCount: number;
   verifiedScenarioCount: number;
@@ -673,13 +695,28 @@ export interface CoverageReport {
 const RULES_ENGINES: readonly RulesEngine[] = ['firestore', 'storage', 'rtdb'] as const;
 
 export async function computeCoverageReport(): Promise<CoverageReport> {
+  // The rules-engine row scopes, read through the SHARED predicate the assurance
+  // generator reads them through (src/rules-engine-rows.ts): a construct named in
+  // a conforming, oracle-backed rules-engine row's `constructs` scope is
+  // production-verified even when no corpus scenario exercises it syntactically.
+  const { provedBy } = rulesEngineRowIndex();
   const engines: EngineCoverage[] = [];
   for (const engine of RULES_ENGINES) {
     const snapshot = loadSnapshot(engine);
     const { scenarios, twinIds } = await loadScenarios(engine);
     const cov = new Map<string, ConstructCoverage>();
     for (const c of snapshot.constructs) {
-      cov.set(c.id, { id: c.id, kind: c.kind, exercisedBy: [], verifiedBy: [] });
+      cov.set(c.id, {
+        id: c.id,
+        kind: c.kind,
+        exercisedBy: [],
+        verifiedBy: [],
+        verifiedByRows: provedBy.get(c.id) ?? [],
+        // The snapshot is the single source of truth for what is not
+        // access-control surface (rules-language/types.ts
+        // `outOfVerifiedDenominator`), reason attached.
+        ...(c.outOfVerifiedDenominator ? { outOfVerifiedDenominator: c.outOfVerifiedDenominator } : {}),
+      });
     }
     const unresolved: EngineCoverage['unresolved'] = [];
     for (const scenario of scenarios) {
@@ -700,16 +737,29 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
       for (const u of result.unresolved) unresolved.push({ scenario: scenario.id, ...u });
     }
     const constructs = [...cov.values()];
+    // A construct counts as production-verified by EITHER path: a captured
+    // corpus scenario exercises it, or a conforming oracle-backed row proves it.
+    const isVerified = (c: ConstructCoverage) => c.verifiedBy.length > 0 || c.verifiedByRows.length > 0;
     const exercisedConstructs = constructs.filter((c) => c.exercisedBy.length > 0).length;
-    const verifiedConstructs = constructs.filter((c) => c.verifiedBy.length > 0).length;
+    const outOfDenominator = constructs
+      .filter((c) => c.outOfVerifiedDenominator)
+      .map((c) => ({ id: c.id, reason: c.outOfVerifiedDenominator! }));
+    // The verified denominator excludes constructs that are not access-control
+    // surface; a verified count still includes any of those that a row happens
+    // to prove, but they never sit in the denominator as an unreachable gap.
+    const inDenominator = constructs.filter((c) => !c.outOfVerifiedDenominator);
+    const verifiedConstructs = inDenominator.filter(isVerified).length;
     const total = constructs.length;
+    const verifiedDenominator = inDenominator.length;
     engines.push({
       engine,
       totalConstructs: total,
       exercisedConstructs,
       verifiedConstructs,
       exercisedCoverage: total ? exercisedConstructs / total : 0,
-      verifiedCoverage: total ? verifiedConstructs / total : 0,
+      verifiedDenominator,
+      verifiedCoverage: verifiedDenominator ? verifiedConstructs / verifiedDenominator : 0,
+      outOfDenominator,
       constructs,
       scenarioCount: scenarios.length,
       verifiedScenarioCount: scenarios.filter((s) => twinIds.has(s.id)).length,
@@ -718,7 +768,7 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
   }
   return {
     generatedNote:
-      'DRAFT (issue #185 step 2). Verified coverage = snapshot constructs exercised by >=1 corpus scenario that has an observation twin / total snapshot constructs. Regenerated by rules-language-analyzer.ts. Not yet wired into the ratchet (step 4).',
+      'Verified coverage = constructs production-confirmed / the verified denominator (total snapshot constructs minus those marked out-of-denominator — non-access-control surface no ALLOW/DENY capture can verify). A construct is production-confirmed by EITHER path: a captured corpus scenario exercises it (verifiedBy), or a conforming oracle-backed rules-engine row proves it (verifiedByRows) — the second path is the only one open to semantics, which the analyzer cannot attribute syntactically. Regenerated by rules-language-analyzer.ts.',
     engines,
   };
 }
@@ -740,7 +790,7 @@ if (import.meta.main) {
   for (const e of report.engines) {
     console.log(
       `${e.engine}: exercised ${e.exercisedConstructs}/${e.totalConstructs} ` +
-        `(${(e.exercisedCoverage * 100).toFixed(1)}%), verified ${e.verifiedConstructs}/${e.totalConstructs} ` +
+        `(${(e.exercisedCoverage * 100).toFixed(1)}%), verified ${e.verifiedConstructs}/${e.verifiedDenominator} ` +
         `(${(e.verifiedCoverage * 100).toFixed(1)}%) over ${e.scenarioCount} scenarios ` +
         `(${e.verifiedScenarioCount} with twins); ${e.unresolved.length} unresolved refs`,
     );

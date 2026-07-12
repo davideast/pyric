@@ -109,6 +109,24 @@ export interface LanguageConstruct {
    *  acceptance probe (issue #185 step 5) observed. A construct can carry
    *  both. */
   probeNote?: string;
+  /**
+   * Present when the construct is NOT access-control surface, and therefore is
+   * subtracted from the VERIFIED-COVERAGE denominator rather than counted as a
+   * permanent gap: the reason, which must name why no ALLOW/DENY capture could
+   * ever verify it.
+   *
+   * The verified axis asks "has production CONFIRMED the simulator's behavior
+   * on this construct", and its evidence is a captured allow/deny verdict. A
+   * construct that produces no verdict at all — a query-index directive
+   * configures which child keys the database indexes; it decides nothing about
+   * who may read or write — cannot be verified by that evidence no matter how
+   * much work is done, so leaving it in the denominator would permanently
+   * depress the number with work that cannot exist. Excluding it is honest only
+   * BECAUSE the reason is recorded here and rendered in the coverage report's
+   * `outOfDenominator`; an exclusion without a stated reason would be exactly
+   * the number-gaming this field exists to prevent.
+   */
+  outOfVerifiedDenominator?: string;
 }
 
 /** A whole-engine snapshot: the file shape of `<engine>.json`. */
