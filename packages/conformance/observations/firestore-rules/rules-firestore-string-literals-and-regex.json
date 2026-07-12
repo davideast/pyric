@@ -1,8 +1,8 @@
 {
   "name": "rules-firestore-string-literals-and-regex",
-  "matrixRow": "firestore#175",
+  "matrixRow": "firestore-rules#175",
   "rowIds": [
-    "firestore#175"
+    "firestore-rules#175"
   ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"string-literals-and-regex\" (Class B). Pre-fix the simulator forwarded raw `\\\\.` to RegExp without unescaping; production-style `.matches('...\\\\.com')` denied silently.",
   "observedAt": "2026-07-10T22:41:17.909Z",

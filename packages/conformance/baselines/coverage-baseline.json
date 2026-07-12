@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-11T21:56:42.078Z",
+  "generatedAt": "2026-07-12T00:37:49.077Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -20,10 +20,7 @@
       }
     },
     "rtdb": {
-      "surfaceCoveragePct": {
-        "total": 64.8,
-        "intended": 79.5
-      }
+      "native": true
     },
     "rtdb-modular": {
       "surfaceCoveragePct": {
@@ -42,6 +39,12 @@
         "total": 100,
         "intended": 100
       }
+    },
+    "firestore-rules": {
+      "native": true
+    },
+    "storage-rules": {
+      "native": true
     }
   },
   "overall": {
@@ -398,24 +401,6 @@
     "firestore#138a": "diverged-documented",
     "firestore#139": "conforms",
     "firestore#139a": "conforms",
-    "firestore#160": "conforms",
-    "firestore#161": "diverged-documented",
-    "firestore#162": "conforms",
-    "firestore#163": "conforms",
-    "firestore#164": "diverged-documented",
-    "firestore#165": "diverged-documented",
-    "firestore#166": "diverged-documented",
-    "firestore#167": "diverged-documented",
-    "firestore#168": "conforms",
-    "firestore#169": "conforms",
-    "firestore#170": "conforms",
-    "firestore#171": "diverged-documented",
-    "firestore#172": "conforms",
-    "firestore#173": "diverged-documented",
-    "firestore#174": "conforms",
-    "firestore#175": "conforms",
-    "firestore#176": "conforms",
-    "firestore#177": "conforms",
     "rtdb#1": "conforms",
     "rtdb#2": "conforms",
     "rtdb#3": "conforms",
@@ -769,22 +754,6 @@
     "storage#91": "diverged-documented",
     "storage#92": "unsupported",
     "storage#93": "unsupported",
-    "storage#94": "conforms",
-    "storage#95": "conforms",
-    "storage#96": "conforms",
-    "storage#97": "conforms",
-    "storage#98": "conforms",
-    "storage#99": "conforms",
-    "storage#100": "conforms",
-    "storage#101": "conforms",
-    "storage#102": "conforms",
-    "storage#103": "conforms",
-    "storage#104": "conforms",
-    "storage#112": "conforms",
-    "storage#113": "conforms",
-    "storage#114": "conforms",
-    "storage#115": "conforms",
-    "storage#116": "diverged-documented",
     "storage#105": "conforms",
     "storage#106": "conforms",
     "storage#107": "conforms",
@@ -848,7 +817,41 @@
     "messaging-admin#36": "conforms",
     "messaging-admin#37": "conforms",
     "messaging-admin#38": "conforms",
-    "messaging-admin#39": "conforms"
+    "messaging-admin#39": "conforms",
+    "firestore-rules#160": "conforms",
+    "firestore-rules#161": "diverged-documented",
+    "firestore-rules#162": "conforms",
+    "firestore-rules#163": "conforms",
+    "firestore-rules#164": "diverged-documented",
+    "firestore-rules#165": "diverged-documented",
+    "firestore-rules#166": "diverged-documented",
+    "firestore-rules#167": "diverged-documented",
+    "firestore-rules#168": "conforms",
+    "firestore-rules#169": "conforms",
+    "firestore-rules#170": "conforms",
+    "firestore-rules#171": "diverged-documented",
+    "firestore-rules#172": "conforms",
+    "firestore-rules#173": "diverged-documented",
+    "firestore-rules#174": "conforms",
+    "firestore-rules#175": "conforms",
+    "firestore-rules#176": "conforms",
+    "firestore-rules#177": "conforms",
+    "storage-rules#94": "conforms",
+    "storage-rules#95": "conforms",
+    "storage-rules#96": "conforms",
+    "storage-rules#97": "conforms",
+    "storage-rules#98": "conforms",
+    "storage-rules#99": "conforms",
+    "storage-rules#100": "conforms",
+    "storage-rules#101": "conforms",
+    "storage-rules#102": "conforms",
+    "storage-rules#103": "conforms",
+    "storage-rules#104": "conforms",
+    "storage-rules#112": "conforms",
+    "storage-rules#113": "conforms",
+    "storage-rules#114": "conforms",
+    "storage-rules#115": "conforms",
+    "storage-rules#116": "diverged-documented"
   },
   "highRiskUnverified": [
     "storage#67",

@@ -2,9 +2,9 @@
   "name": "rules-storage-resource-timestamp-witness",
   "matrixRow": "",
   "rowIds": [
-    "storage#116"
+    "storage-rules#116"
   ],
-  "description": "Storage Rules Test API verdicts for corpus pack \"resource-timestamp-witness\" (STORAGE-RES-TS). Witness: resource.timeCreated / resource.updated are production Storage fields the evaluator does not model (reads undefined \u2192 deny) \u2014 records the known gap.",
+  "description": "Storage Rules Test API verdicts for corpus pack \"resource-timestamp-witness\" (STORAGE-RES-TS). Witness: resource.timeCreated / resource.updated are production Storage fields the evaluator does not model (reads undefined → deny) — records the known gap.",
   "observedAt": "2026-07-11T03:09:46.423Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",

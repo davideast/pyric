@@ -516,73 +516,14 @@ matrix has to cover:
 </details>
 </div>
 
-## Rules — `parseStorageRules` / `evaluateStorageRules` / `getStorage(ctx, { rules })`
+## Op-level rules enforcement — a denied op throws `storage/unauthorized`
+
+These are Storage SDK behaviors: how an upload / read / metadata / delete op
+surfaces a rules DENY verdict. The rules-ENGINE fidelity rows
+(`parseStorageRules` / `evaluateStorageRules` vs the production Rules Test
+API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 
 <div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">94</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>parseStorageRules(source)</code> returns an opaque handle</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("parses the canonical session-archive ruleset")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">95</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>parseStorageRules</code> rejects non-<code>firebase.storage</code> service headers</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("rejects unknown service header")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">96</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>evaluateStorageRules</code> supports granular verbs (<code>get</code>/<code>list</code>/<code>create</code>/<code>update</code>/<code>delete</code>) alongside <code>read</code>/<code>write</code> umbrella expansion, comma-separated verb lists, and per-verb default-deny</span></summary>
-<div class="compat-evidence"><div class="compat-probe">STALE ROW, corrected 2026-07-10: production capture proves the evaluator already supports the full six-verb grant surface (umbrella read→{get,list}, write→{create,update,delete}, single granular grants, comma-separated grants, per-verb deny-by-default), matching production verdict-for-verdict on 12 of the pack's 13 non-existence cases. <code>oracle:rules-storage-verbs-umbrella-granular</code> (all <code>read</code>/<code>write</code>/<code>get</code>/comma-verb cases). One related existence-semantics case in the same pack diverges — pinned separately as a KNOWN_DIVERGENCE, not a granular-verb gap.</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">97</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>parseStorageRules</code> rejects unterminated string literals with <code>SyntaxError</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("rejects unterminated strings")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">98</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>evaluateStorageRules</code> matches <code>match /sessions/{id} { allow read: if request.auth != null; }</code> for an authed read</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("allows authenticated reads of /sessions/{id}")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">99</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>evaluateStorageRules</code> denies anonymous reads when the rule requires <code>request.auth != null</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("denies anonymous reads")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">100</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>evaluateStorageRules</code> supports <code>request.resource.size &lt; N</code> constraints (with arithmetic literals like <code>10 <em> 1024 </em> 1024</code>)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> ("allows JSON writes under 10MB")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">101</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>evaluateStorageRules</code> supports <code>request.resource.contentType == '&lt;mime&gt;'</code> constraints</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> (mime constraint inside the session-archive ruleset)</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">102</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Multi-segment wildcard <code>{allPaths=**}</code> matches zero-or-more remaining segments</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> (parser + evaluator both honor the <code>**</code> form)</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">103</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Path-parameter binding (<code>{sessionId}</code>) accessible inside the <code>if</code> expression</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">104</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User-defined <code>function</code> definitions — <code>let</code> bindings, functions calling functions, and match-block-scoped helper functions (lexical scoping)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">STALE ROW, corrected 2026-07-10: production capture proves the evaluator supports user-defined functions with <code>let</code> bindings, nested function calls, and block-scoped helpers. <code>oracle:rules-storage-functions-let-scope</code> matches production verdict-for-verdict on all 5 cases. Same-name shadowing and undefined-function calls are compile-time rejections in production and are covered by evaluator unit tests instead (they cannot be captured as a clean production verdict).</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">112</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>request.time</code> compared against <code>timestamp.date(y,m,d)</code> and <code>timestamp.value(ms)</code> constructors</span></summary>
-<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-10: production capture proves the evaluator supports <code>request.time</code> comparisons against both timestamp constructors. <code>oracle:rules-storage-request-time-timestamp</code> matches production verdict-for-verdict on all 4 cases (deadline-before/after via <code>timestamp.date()</code>, epoch-bound before/after via <code>timestamp.value()</code>).</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">113</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>string.matches(regex)</code> with whole-string anchoring (a partial match denies)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-10: production capture proves <code>matches()</code> is whole-string anchored, matching a RE2 pattern only when it covers the entire string. <code>oracle:rules-storage-matches-regex</code> matches production verdict-for-verdict on all 3 cases. RE2-inexpressible patterns are rejected at ruleset compile time by production and are covered by evaluator unit tests instead.</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">114</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>resource.metadata.&lt;key&gt;</code> custom-metadata access in dotted (<code>resource.metadata.owner</code>) and bracket (<code>resource.metadata['owner']</code>) form, including missing-key deny</span></summary>
-<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-10: production capture proves dotted and bracket metadata access resolve identically, and a missing key denies. <code>oracle:rules-storage-metadata-access</code> matches production verdict-for-verdict on all 5 cases.</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">115</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Cross-service <code>firestore.get()</code> / <code>firestore.exists()</code> lookups from a Storage ruleset, with <code>$(expr)</code> path interpolation and qualified function-mock names</span></summary>
-<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-10: production capture proves the evaluator resolves cross-service Firestore lookups from Storage rules, including interpolated document paths and both the map-returning <code>get()</code> and bool-returning <code>exists()</code> forms. <code>oracle:rules-storage-firestore-lookup</code> matches production verdict-for-verdict on all 4 cases.</div></div>
-</details>
-<details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">116</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>resource.timeCreated</code> / <code>resource.updated</code> — server-populated object timestamps</span></summary>
-<div class="compat-evidence"><div class="compat-probe">NEW ROW, 2026-07-10: witness capture confirms the evaluator's resource model carries only size/contentType/metadata, so <code>resource.timeCreated</code>/<code>resource.updated</code> read <code>undefined</code> and any comparison denies in-process, while production evaluates a real server timestamp. <code>oracle:rules-storage-resource-timestamp-witness</code> records production's DENY verdict on both cases; the evaluator's DENY happens to match here because both operands are non-comparable rather than because the field is modeled — the underlying field is still unsupported.</div></div>
-</details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">105</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Op-level enforcement: <code>uploadBytes</code> against a denied path throws <code>storage/unauthorized</code> on sandbox / <code>storage/unauthorized</code> on prod, <code>.code</code> exposed on both</span></summary>
 <div class="compat-evidence"><div class="compat-probe">ST-B1 fixed: sandbox now throws a <code>StorageError</code> (see <code>src/storage/errors.ts</code>) whose <code>.code === 'storage/unauthorized'</code> — matching prod's <code>FirebaseError.code</code>. Probe: <code>unit:error-codes.test.ts</code> ("unauthorized when rules deny the operation"). Residual divergence (documented, not a <code>.code</code> gap): the sandbox <code>StorageError.name</code> is <code>'StorageError'</code> (plain <code>Error</code> subclass, same shape as Firestore's <code>SandboxError</code>) where prod reports <code>name: 'FirebaseError'</code> / <code>isFirebaseError: true</code>, and the message wording differs (sandbox embeds the matched-rule reason chain). Oracle-locked: <code>packages/conformance/observations/storage/storage-rules-denied-error-code.json</code> (against blockingfun, fb-js-sdk 12.13.0: <code>code: 'storage/unauthorized'</code>, message <code>"Firebase Storage: User does not have permission to access '&lt;path&gt;'."</code>, <code>name: 'FirebaseError'</code>, <code>isFirebaseError: true</code>).</div></div>

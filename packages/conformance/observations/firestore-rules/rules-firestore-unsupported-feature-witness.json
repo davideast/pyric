@@ -1,8 +1,8 @@
 {
   "name": "rules-firestore-unsupported-feature-witness",
-  "matrixRow": "firestore#177",
+  "matrixRow": "firestore-rules#177",
   "rowIds": [
-    "firestore#177"
+    "firestore-rules#177"
   ],
   "description": "Firestore Rules Test API verdicts for corpus pack \"unsupported-feature-witness\" (Item 0.A). Sim must report UNSUPPORTED (not silently DENY) when it hits a real built-in it has not implemented.",
   "observedAt": "2026-07-10T22:41:18.085Z",
