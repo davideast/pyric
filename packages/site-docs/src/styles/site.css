@@ -1094,6 +1094,63 @@ samp {
   margin: 0;
 }
 
+/* ── Conformance flow: at-a-glance overview of the pipeline ──────────
+   A horizontal row of labeled steps joined by arrows, stacking to a
+   column on narrow screens. Theme-aware via tokens. */
+.prose .conformance-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 var(--space-6);
+}
+
+.prose .flow-step {
+  flex: 1 1 0;
+  min-width: 116px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 550;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.prose .flow-sub {
+  font-size: var(--fs-caption);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.prose .flow-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--faint);
+  font-size: 1.1rem;
+}
+
+@media (max-width: 640px) {
+  .prose .conformance-flow {
+    flex-direction: column;
+  }
+
+  .prose .flow-step {
+    width: 100%;
+  }
+
+  .prose .flow-arrow {
+    justify-content: center;
+    transform: rotate(90deg);
+  }
+}
+
 /* Heading anchors need room under the sticky bar. */
 .prose h1,
 .prose h2,
