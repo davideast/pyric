@@ -4,11 +4,11 @@
     {
       "engine": "firestore",
       "total": 140,
-      "implemented": 133,
+      "implemented": 131,
       "unsupported": 3,
-      "error": 1,
+      "error": 3,
       "unprobeable": 3,
-      "languageCoverage": 0.9779411764705882,
+      "languageCoverage": 0.9776119402985075,
       "constructs": [
         {
           "id": "firestore.binding.request",
@@ -85,14 +85,14 @@
         {
           "id": "firestore.binding.resource.id",
           "kind": "binding",
-          "classification": "implemented",
-          "detail": "decision ALLOW"
+          "classification": "error",
+          "detail": "eval error: No field 'id' on map (use 'in' or .get() to read a possibly-absent field)"
         },
         {
           "id": "firestore.binding.resource.__name__",
           "kind": "binding",
-          "classification": "implemented",
-          "detail": "decision ALLOW"
+          "classification": "error",
+          "detail": "eval error: No field '__name__' on map (use 'in' or .get() to read a possibly-absent field)"
         },
         {
           "id": "firestore.binding.request.resource.id",

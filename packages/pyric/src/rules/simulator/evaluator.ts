@@ -48,15 +48,30 @@ export interface SimRequest {
   time: Timestamp; // request.time as Timestamp wrapper (Item 1.3 flip — was ISO string)
 }
 
-// Item 6: resource exposes both data and the document identity.
-//   id        → last segment of the path (string)
-//   __name__  → full Path
-// These two were never populated; rules that referenced them silently
-// denied because the property access returned undefined.
+// A document value in rules: `data` plus, WHERE PRODUCTION EXPOSES IT, the
+// document identity.
+//
+// RULES-B12 — resource identity is NOT synthesized for the request target.
+// Production's Rules Test API builds `resource` (and `request.resource`) from
+// the caller-supplied document alone: the object carries the keys it was given
+// and nothing more. It does NOT derive `id`/`__name__` from the request path.
+// Reading an absent one is a runtime ERROR, verbatim:
+//   "Property id is undefined on object."
+//   "Property __name__ is undefined on object."
+// which absorbs to DENY, survives negation (`resource.id != 'x'` DENIES —
+// the error propagates rather than yielding `true`), and is absorbed only by
+// a determining `||` operand. Synthesizing an id/__name__ here — the previous
+// behavior for get/list/update/delete — made `resource.id == id` ALLOW where
+// production DENIES: an OVER-PERMISSIVE divergence, the dangerous direction.
+//
+// `id`/`__name__` are therefore OPTIONAL. The request-target `resource` omits
+// them (absent → the evaluator's absent-key error → DENY, matching prod). The
+// value returned by `get()`/`getAfter()` still carries them; that synthesis is
+// a separate, already-documented divergence (firestore-rules#165).
 export interface SimResource {
   data: Record<string, unknown>;
-  id: string;
-  __name__: Path;
+  id?: string;
+  __name__?: Path;
 }
 
 export interface SimulationContext {

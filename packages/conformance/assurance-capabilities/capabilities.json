@@ -296,31 +296,31 @@
       "status": "supported",
       "description": "Rules-respecting get, create, set, merge, update, and delete operations.",
       "reasons": [
-        "firestore.rule-kind.match: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 23 captured scenario(s)",
+        "firestore.rule-kind.match: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 24 captured scenario(s)",
         "firestore.rule-kind.allow-read: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 3 captured scenario(s)",
         "firestore.rule-kind.allow-write: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
-        "firestore.rule-kind.allow-get: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
+        "firestore.rule-kind.allow-get: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
         "firestore.rule-kind.allow-create: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 20 captured scenario(s)",
-        "firestore.rule-kind.allow-update: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
-        "firestore.rule-kind.allow-delete: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
-        "firestore.binding.request: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 22 captured scenario(s)",
+        "firestore.rule-kind.allow-update: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 3 captured scenario(s)",
+        "firestore.rule-kind.allow-delete: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
+        "firestore.binding.request: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 23 captured scenario(s)",
         "firestore.binding.request.auth: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 18 captured scenario(s)",
         "firestore.binding.request.auth.uid: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
         "firestore.binding.request.auth.token: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 3 captured scenario(s)",
-        "firestore.binding.request.resource: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 14 captured scenario(s)",
-        "firestore.binding.request.resource.data: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 14 captured scenario(s)",
+        "firestore.binding.request.resource: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 15 captured scenario(s)",
+        "firestore.binding.request.resource.data: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 15 captured scenario(s)",
         "firestore.binding.request.method: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
-        "firestore.binding.resource: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
-        "firestore.binding.resource.data: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
-        "firestore.binding.path-variable: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 23 captured scenario(s)",
-        "firestore.operator.eq: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 16 captured scenario(s)",
-        "firestore.operator.neq: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 17 captured scenario(s)",
-        "firestore.operator.and: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 19 captured scenario(s)",
-        "firestore.operator.or: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 4 captured scenario(s)",
-        "firestore.operator.not: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 5 captured scenario(s)",
-        "firestore.operator.member: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 23 captured scenario(s)",
+        "firestore.binding.resource: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 3 captured scenario(s)",
+        "firestore.binding.resource.data: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
+        "firestore.binding.path-variable: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 24 captured scenario(s)",
+        "firestore.operator.eq: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 17 captured scenario(s)",
+        "firestore.operator.neq: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 18 captured scenario(s)",
+        "firestore.operator.and: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 20 captured scenario(s)",
+        "firestore.operator.or: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 5 captured scenario(s)",
+        "firestore.operator.not: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 6 captured scenario(s)",
+        "firestore.operator.member: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 24 captured scenario(s)",
         "firestore.operator.in: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 2 captured scenario(s)",
-        "firestore.semantic.hierarchical-match-cascade: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 23 captured scenario(s)",
+        "firestore.semantic.hierarchical-match-cascade: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 24 captured scenario(s)",
         "firestore.semantic.recursive-wildcard: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
         "firestore.semantic.error-absorption-and: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 1 captured scenario(s)",
         "firestore.semantic.error-absorption-or: snapshot status \"accepted\"; capability probe \"implemented\"; production-verified by 3 captured scenario(s)"
@@ -333,7 +333,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 23 captured scenario(s)"
+            "production-verified by 24 captured scenario(s)"
           ]
         },
         {
@@ -363,7 +363,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 1 captured scenario(s)"
+            "production-verified by 2 captured scenario(s)"
           ]
         },
         {
@@ -383,7 +383,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 2 captured scenario(s)"
+            "production-verified by 3 captured scenario(s)"
           ]
         },
         {
@@ -393,7 +393,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 1 captured scenario(s)"
+            "production-verified by 2 captured scenario(s)"
           ]
         },
         {
@@ -403,7 +403,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 22 captured scenario(s)"
+            "production-verified by 23 captured scenario(s)"
           ]
         },
         {
@@ -443,7 +443,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 14 captured scenario(s)"
+            "production-verified by 15 captured scenario(s)"
           ]
         },
         {
@@ -453,7 +453,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 14 captured scenario(s)"
+            "production-verified by 15 captured scenario(s)"
           ]
         },
         {
@@ -473,7 +473,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 2 captured scenario(s)"
+            "production-verified by 3 captured scenario(s)"
           ]
         },
         {
@@ -483,7 +483,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 1 captured scenario(s)"
+            "production-verified by 2 captured scenario(s)"
           ]
         },
         {
@@ -493,7 +493,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 23 captured scenario(s)"
+            "production-verified by 24 captured scenario(s)"
           ]
         },
         {
@@ -503,7 +503,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 16 captured scenario(s)"
+            "production-verified by 17 captured scenario(s)"
           ]
         },
         {
@@ -513,7 +513,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 17 captured scenario(s)"
+            "production-verified by 18 captured scenario(s)"
           ]
         },
         {
@@ -523,7 +523,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 19 captured scenario(s)"
+            "production-verified by 20 captured scenario(s)"
           ]
         },
         {
@@ -533,7 +533,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 4 captured scenario(s)"
+            "production-verified by 5 captured scenario(s)"
           ]
         },
         {
@@ -543,7 +543,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 5 captured scenario(s)"
+            "production-verified by 6 captured scenario(s)"
           ]
         },
         {
@@ -553,7 +553,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 23 captured scenario(s)"
+            "production-verified by 24 captured scenario(s)"
           ]
         },
         {
@@ -573,7 +573,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 23 captured scenario(s)"
+            "production-verified by 24 captured scenario(s)"
           ]
         },
         {
@@ -624,7 +624,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 23 captured scenario(s)"
+            "production-verified by 24 captured scenario(s)"
           ]
         },
         {
@@ -634,7 +634,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 23 captured scenario(s)"
+            "production-verified by 24 captured scenario(s)"
           ]
         },
         {
@@ -685,7 +685,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 1 captured scenario(s)"
+            "production-verified by 2 captured scenario(s)"
           ]
         },
         {
@@ -695,7 +695,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 16 captured scenario(s)"
+            "production-verified by 17 captured scenario(s)"
           ]
         },
         {
@@ -705,7 +705,7 @@
           "evidence": [
             "snapshot status \"accepted\"",
             "capability probe \"implemented\"",
-            "production-verified by 19 captured scenario(s)"
+            "production-verified by 20 captured scenario(s)"
           ]
         },
         {
