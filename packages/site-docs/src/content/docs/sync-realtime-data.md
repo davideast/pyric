@@ -37,7 +37,7 @@ import { getDatabase, ref, set } from 'pyric/database';
 const sandbox = initializeSandbox();
 const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
 ```
-## Model the tree around your reads
+## Model the tree around the reads
 
 Every RTDB path is an endpoint, and reading a path downloads everything below it. So structure follows the reads, not the entities. The defaults that hold up:
 
@@ -67,7 +67,7 @@ Nothing in RTDB stops a typo'd field name or a mistyped value. The tree accepts 
 
 A wrong type, a misspelled key, or a write your rules would deny is reported before it lands. The tool sits on Pyric's agent surface alongside `rtdb_get`, `rtdb_set`, `rtdb_push`, `rtdb_update`, and the crawl and rules tools, and the same factories are callable from your own code through `getRtdbTools`.
 
-## And from an agent
+## Design the RTDB tree from an agent
 
 The `rtdb-data-model` skill designs the tree the way this page describes, starting from an inventory of reads. On an existing database, `rtdb_crawl_structure` maps the actual shape first, and `rtdb_validated_write` guards every write the agent makes. Install the skill from the [catalog](../skills/), and see [set up an agent](../set-up-an-agent/) for the wiring.
 

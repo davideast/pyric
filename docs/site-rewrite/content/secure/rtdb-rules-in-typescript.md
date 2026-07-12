@@ -69,7 +69,7 @@ pyric deploy database
 
 `toJSON()` emits the `{ rules: ... }` document Firebase expects, and `pyric deploy database` ships the file your `firebase.json` points at. The CLI's `database:rules:lint`, `database:rules:validate`, and `database:rules:simulate` run the same checks against the JSON file, so CI can gate on them without TypeScript in the loop.
 
-## Turn enforcement, from a deployed game
+## Enforce turns and wins in a deployed game
 
 The tic-tac-toe [case study](../secure/whats-possible.md) is built from these same parts, deployed and playable:
 
@@ -97,7 +97,7 @@ const game = ruleset('https://<db>.firebaseio.com', {
 
 Three constraints carry the whole game. `turnGuard` reads stored state, never the incoming write, so a player cannot hand themselves the turn. `flip` makes turn order a validation rule. And `winCheckHelper` verifies a win claim against the actual board, so the winner field only accepts the truth.
 
-## And from an agent
+## Author and simulate RTDB rules from an agent
 
 An agent authors and checks the same way you do: `rtdb_build_expression` parse-checks a single expression before it enters a ruleset, `rtdb_simulate_access` evaluates an operation against the deployed rules (fetch them first with `rtdb_get_rules`), and `rtdb_deploy_rules` ships the result. The [rtdb-security-rules skill](../agent/skills.md) packages the whole discipline.
 

@@ -5,7 +5,7 @@ outcome: Read, write, query, and stream Firestore documents locally, and derive 
 status: draft
 ---
 
-# Store and query your data
+# Store and query data
 
 Firestore in Pyric is v1. The modular SDK surface, reads and writes, queries, snapshots, transactions, and aggregations, runs locally with your rules enforced, and it is tested against recorded production behavior. Your imports stay `firebase/firestore`.
 
@@ -100,7 +100,7 @@ When branchy code enumerates more shapes than your app will ever run, guide the 
 
 The index file stops being a hand-kept artifact. It becomes derived output, and [ship to production](../ship/ship-to-production.md) deploys it.
 
-## And from an agent
+## Design query shapes and indexes from an agent
 
 The `firestore-query-indexes` skill designs read shapes the way a review would: it inventories every query the product performs, proves each list query is constrained the way the rules demand, then runs `firestore_extract_indexes` after every change so the index file tracks the code. Install it from the [skills catalog](../agent/skills.md).
 

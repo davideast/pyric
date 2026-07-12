@@ -1,11 +1,11 @@
 ---
-title: Point your agent at the sandbox
+title: Connect an agent to the sandbox
 navLabel: Set up an agent
 outcome: Connect Claude Code, Cursor, Codex, or any MCP client to your backend in minutes.
 status: draft
 ---
 
-# Point your agent at the sandbox
+# Connect an agent to the sandbox
 
 One connection and your agent has the whole backend as tools. It can read and write documents as any user, run queries, lint and simulate rules, seed data, and inspect everything, against the same sandbox your app and Studio see. Nothing it does leaves your machine.
 
@@ -77,7 +77,7 @@ The generic recipe is two options, and every client above is one of them applied
 
 Whatever your client's config file looks like, one of those two lines is the whole setup. Then ask it to inspect the sandbox and read what comes back.
 
-## If your app uses the Vite plugin
+## Bridge through the Vite plugin
 
 One option in `vite.config.ts` makes your own `vite dev` the bridge:
 

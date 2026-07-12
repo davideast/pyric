@@ -1,5 +1,5 @@
 ---
-title: "Seed, snapshot, reset, and replay the backend like source"
+title: "Seed, snapshot, reset, and replay the backend"
 navLabel: "Seed, snapshot, replay"
 group: "Observe & shape"
 section: ""
@@ -7,7 +7,7 @@ order: 4002
 description: "Put the backend in any state you want, capture the good ones, and get them back on demand."
 ---
 
-# Seed, snapshot, reset, and replay the backend like source
+# Seed, snapshot, reset, and replay the backend
 
 Your backend is local state. That changes what you can do with it. You can seed a scenario, snapshot the moment it looks right, commit that file, wipe everything between tests, and replay a whole session later to see if it still holds. The same moves you make on source code, on your data.
 
@@ -73,7 +73,7 @@ That recording is a rules regression suite you didn't write. It knows a re-resol
 
 The place this pays off is the deploy gate, where the same replay runs against the rules you're about to ship. See [Ship to production](../ship-to-production/). You can also replay in code with `sandbox.history()` and `replay(events, rules)` when you want the divergence list programmatically.
 
-## And from an agent
+## Seed and reset scenarios from an agent
 
 Seed, reset, and snapshot are tools on the same MCP surface your editor connects to, so an agent can stand up a scenario, run its checks, and reset to a clean slate without your help. For scratch work it can open a stateful simulator session with its own undo stack, and `sandbox_inspect` tells it what state it's actually in. See [Set up an agent](../set-up-an-agent/).
 

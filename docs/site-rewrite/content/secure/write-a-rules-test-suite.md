@@ -1,11 +1,11 @@
 ---
-title: Rules you trust because they are tested
+title: Write a rules test suite
 navLabel: Write a rules test suite
 outcome: A suite of allow/deny cases that runs in-process, gates CI, and can escalate to Google's own engine.
 status: draft
 ---
 
-# Rules you trust because they are tested
+# Write a rules test suite
 
 A ruleset is code that decides who sees what. It deserves tests like any other code that matters.
 
@@ -54,7 +54,7 @@ const cases: FirestoreCase[] = [
 
 The fields map straight onto what the rule sees. `resource` is the existing document, `data` is the proposed write, `auth.uid` becomes `request.auth.uid`, and `auth.token` becomes `request.auth.token` for rules that check custom claims.
 
-## Run the suite in your test runner
+## Run the suite in the test runner
 
 Compile the source once, then let each case become a test. `assertCase` throws on a miss, and its message is the trace, so a failing test tells you which rule decided:
 
@@ -101,7 +101,7 @@ Sub-millisecond per case once the rules are parsed. There is no reason not to ru
 
 You can also run a scripted suite from the command line. `pyric rules:simulate --stdin` reads a JSON `{ source, testCases }` request and prints each verdict, which keeps rules out of your test-runner setup when you want a standalone check.
 
-## When you want Google's own answer
+## Escalate to Google's Rules Test API
 
 The hosted Rules Test API evaluates cases on Google's servers, in the same engine production uses, without deploying anything. It is Firestore-only and needs a real project and credentials. Reach it through `pyric verify`: replay a captured session against both engines and it reports any divergence.
 
@@ -113,7 +113,7 @@ pyric verify journeys/checkout.json --engine both --project demo-app
 
 The simulator itself is held to that engine's answers by a parity corpus that runs in CI, so for most suites the local verdicts are the same verdicts, sooner.
 
-## And from an agent
+## Prove a rules suite from an agent
 
 An agent can run this exact loop: compile with `firestoreRules`, assert each case with `assertCase`, and read the `explainCase` trace on any miss. The rules it writes then arrive with a passing suite instead of a promise, and it can escalate the same cases to Google's engine through `pyric verify` when it needs the authoritative answer. See [skills](../agent/skills.md).
 

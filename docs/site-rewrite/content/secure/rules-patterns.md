@@ -107,7 +107,7 @@ There are three places the computation can go:
 
 The US tax example takes this the whole way. The client computes its own tax return, and the rules verify every intermediate figure against the bracket config. A return that lies about its math is a permission denial.
 
-## And from an agent
+## Import these patterns as stdlib modules from an agent
 
 The patterns with stable shapes ship as standard library modules an agent imports instead of re-deriving: `geometry` for the config-document lookup, `counters` for the honest arithmetic, `timing` for cooldowns. `firestore_rules_stdlib_get` serves each with its gotchas attached, and `firestore_lint_rules` catches a shared gate before it costs a debugging session. See [skills](../agent/skills.md).
 

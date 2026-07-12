@@ -1,17 +1,17 @@
 ---
-title: Teach your agent the hard Firebase things
+title: Agent skills for Firebase tasks
 navLabel: Skills
 outcome: Six packaged procedures for the problems that need a method, each with the prompt that runs it.
 status: draft
 ---
 
-# Teach your agent the hard Firebase things
+# Agent skills for Firebase tasks
 
 A skill is a written procedure your agent follows step by step, with a completion check on every step and the specific Pyric tool calls named in place. An auth-model skill does not say "think about identity." It says map every identity, check what providers are enabled with `auth_get_config`, connect every `request.auth.uid` in the rules to a real data shape, and do not stop until every access boundary has a named identity.
 
 Type a prompt like the ones below and the agent runs the whole procedure, not one tool call. Six skills ship today, one per hard problem.
 
-## Install them
+## Install a skill into an agent
 
 The skills live under `.agents/skills/` in the Pyric repository, one folder per skill. Agents that read the `.agents/skills` convention pick them up in place. For Claude Code, copy the folder you want:
 

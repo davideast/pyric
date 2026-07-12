@@ -1,13 +1,12 @@
 ---
-title: "The same code goes live"
-navLabel: "Ship to production"
+title: "Ship to production"
 group: "Ship & test"
 section: ""
 order: 5001
 description: "Deploy rules, indexes, hosting, and functions, and learn what would change before production does."
 ---
 
-# The same code goes live
+# Ship to production
 
 There is no graduation step. The `firebase/*` imports that resolved to the sandbox all through development resolve to real Firebase in your production build, and the config you passed to `initializeApp`, ignored in dev, is the config the built app uses in production. Your source does not change.
 ```bash
@@ -16,13 +15,13 @@ pyric deploy hosting
 ```
 One guard stands between the two worlds. A sandbox build (from `vite build --mode development`) carries a marker in its `index.html`, and `pyric deploy hosting` refuses a marked dist. A build wired to the sandbox never reaches production by accident.
 
-## Deploy your rules
+## Deploy the rules
 ```bash
 pyric deploy rules
 ```
 This pushes the `firestore.rules` named in `firebase.json` to your project over REST. By the time you run it, those rules have already been exercised: every operation your app performed in development was evaluated against them, verdict by verdict. You are not deploying a guess.
 
-## Deploy indexes from your query shapes
+## Deploy indexes from the query shapes
 
 Composite indexes usually live in a hand-kept file that drifts from the queries. Pyric derives them instead: index extraction reads your `query(collection, where, orderBy)` call sites in source and produces the `firestore.indexes.json` those shapes require. Then:
 ```bash
@@ -30,7 +29,7 @@ pyric deploy indexes
 ```
 Index builds are long-running on Firebase's side; the deploy starts them, reports per-index status, and tells you which already existed.
 
-## Learn what flips before production does
+## Replay the session to catch flipped verdicts
 
 This is the step the others earn. While you worked, `pyric dev` captured the session to `.pyric/last-session.json`: every write, every identity, every timestamp. Replay that session against the rules you are about to ship:
 ```bash

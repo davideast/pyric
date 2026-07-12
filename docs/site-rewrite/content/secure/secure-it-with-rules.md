@@ -100,7 +100,7 @@ pyric deploy rules --project my-app
 
 The deploy refuses a ruleset with error-severity lint findings, so the mistakes that produce opaque production failures get stopped at the door.
 
-## Where the wing goes deeper
+## The rest of the rules wing
 
 That loop is the core. The wing deepens each step.
 
@@ -113,7 +113,7 @@ That loop is the core. The wing deepens each step.
 - [Audit rules and data](../secure/audit-a-ruleset.md). An evidence-backed answer to who can access what.
 - [Case studies](../secure/whats-possible.md). Deployed rulesets that enforce chess, connect four, and tax math.
 
-## And from an agent
+## Verify a denial from an agent before it commits
 
 An agent working in your sandbox can run the same real operation and read the same `denialContext` before it commits anything, so it verifies its own rules instead of guessing. The audit skills go further: point one at your ruleset and it hunts for holes methodically. See [skills](../agent/skills.md).
 

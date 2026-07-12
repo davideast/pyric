@@ -17,7 +17,7 @@ pyric dev --ui
 ```
 Studio mounts at `/__pyric/ui/` on your dev server. The Traffic tab shows the stream live: each request, who made it, the allow or deny verdict, and how long the rules evaluation took. Sign in, write a document, break a rule on purpose. Each one appears as it happens, in the same backend your open tabs are using.
 
-## Read the stream yourself
+## Subscribe to the event stream with onEvent
 
 One subscription covers everything observable:
 ```ts
@@ -50,11 +50,11 @@ sandbox.onEvent((event) => {
 ```
 The subscription survives `sandbox.reset()`. A `session_boundary` event fires before each rollover, so a subscriber attached once keeps working across every test.
 
-## When a denial needs explaining
+## Read a denial in the stream
 
 A `deny` event is not a bare `permission-denied` string. It carries the method and path, the identity the rules saw, the reasons, and the request data that was evaluated. That is enough to answer "which rule said no, and what did it see" without adding a single log line. [Read a denial and understand it](../read-a-denial/) walks through one.
 
-## Build your own monitor
+## Build a traffic monitor on onEvent
 
 Studio's Traffic view is a consumer of `onEvent`, and you can build your own in about seventy lines. Subscribe, format each kind, and you get a terminal log like this:
 ```
@@ -68,7 +68,7 @@ Two things to know before you ship one:
 - Listener re-evaluations dominate the raw stream. Default your view to user-origin requests, deliveries, lifecycle, and denials, and put `origin: 'listener'` traffic behind a toggle.
 - Your callback runs synchronously with the operation that produced it, so push heavy work off the hot path with `queueMicrotask` or a worker.
 
-## And from an agent
+## Inspect the backend in one sandbox_inspect call
 
 An agent doesn't scroll a panel. It calls `sandbox_inspect` and gets the current rules, a lint summary, a document census, and the recent requests and denials in one response. That one call replaced a debugging session that once took fifty-one tool calls. See [Set up an agent](../set-up-an-agent/).
 

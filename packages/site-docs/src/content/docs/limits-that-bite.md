@@ -13,7 +13,7 @@ A ruleset can be syntactically perfect and still fail two ways. A 400 at deploy 
 
 Both come from real limits in the production compiler and evaluator, researched and observed behavior: Pyric's tooling probed production Firestore directly, isolating one variable at a time, and recorded what it measured. The numbers below ship inside Pyric's linter as thresholds, so you do not have to remember them.
 
-## 256 KB of source, not the folklore 30-37 KB
+## 256 KB of source
 
 For a long time the working assumption was a "30 to 37 KB practical limit" on rules source. It was wrong: that number was chain depth in disguise, because complex rulesets happened to hit the depth limit around that size, and size took the blame.
 ```rules
@@ -116,7 +116,7 @@ allow write: if isMove() && moveType == 'piece' && movePiece();
 ```
 The structural pattern this points to is covered in [rules patterns](../rules-patterns/).
 
-## The linter remembers so you don't
+## The linter carries every threshold
 ```bash
 pyric rules:lint firestore.rules
 ``````

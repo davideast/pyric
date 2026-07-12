@@ -82,7 +82,7 @@ Authentication answers who the user is. Rules answer what that identity may do. 
 
 One caution that pays for itself: users must never be able to grant themselves a role through a writable profile field. Your rules have to protect the shape of profile creates and updates, not only who performs them.
 
-## How identity reaches your rules
+## How identity reaches the rules
 
 Every operation in the sandbox carries `request.auth`, exactly as production rules see it:
 
@@ -110,7 +110,7 @@ Not in v1, and loud about it:
 
 Code that reaches for these fails with a remediation message instead of returning bad data. The full deny list lives in the reference.
 
-## And from an agent
+## Design or audit an identity model from an agent
 
 The `firebase-auth-model` skill designs or audits an identity model end to end: it names the actors, maps UIDs to data shapes, weighs claims against document roles, and then verifies each rule branch by simulating the identities it defined. Point it at an existing app and it reports where the model and the rules disagree. Install it from the [skills catalog](../agent/skills.md).
 

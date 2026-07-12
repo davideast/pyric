@@ -9,7 +9,7 @@ status: draft
 
 In development, your app's `firebase/*` imports resolve to a local backend with rules enforced, and no request leaves your machine. In production they resolve to Firebase, unchanged. Here's how, in three parts.
 
-## Your imports resolve differently in dev
+## Imports resolve differently in dev
 
 Install `pyric-tools`, globally for the CLI or as a dev dependency for the Vite plugin, and `pyric` comes along as a real dependency. Its package.json exports one subpath per Firebase service, `pyric/firestore`, `pyric/auth`, `pyric/database`, `pyric/storage`, mirroring `firebase/firestore` and its siblings.
 

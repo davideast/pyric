@@ -37,7 +37,7 @@ console.log(listing.items.map((item) => item.name)); // ['s1']
 
 await deleteObject(ref(storage, 'sessions/s1'));
 ```
-## Metadata rides along
+## Set, read, and update metadata
 
 Set it at upload, read it back, patch it later:
 ```ts

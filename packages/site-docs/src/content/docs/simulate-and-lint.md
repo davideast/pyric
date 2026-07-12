@@ -1,13 +1,13 @@
 ---
-title: "Catch the error before Firebase's opaque 400"
-navLabel: "Simulate and lint before you deploy"
+title: "Simulate and lint rules before deploying"
+navLabel: "Simulate and lint before deploying"
 group: "Secure & debug"
 section: ""
 order: 3002
 description: "Get a rules verdict and a lint report locally, before production answers with an unexplained 400 or 403."
 ---
 
-# Catch the error before Firebase's opaque 400
+# Simulate and lint rules before deploying
 
 A broken ruleset fails late: a `400` at deploy time, or a `403` at runtime. Pyric moves both failures to your machine, before the deploy.
 
@@ -56,7 +56,7 @@ console.log(`${summary.passed} passed, ${summary.failed} failed`);
 ```
 `simulate` never throws on a rule outcome. It returns a `SimulationSummary` (`passed`, `failed`, `unsupported`, and a `cases` array), so a denied or abstained case is data you read, not an exception you catch. The same simulator evaluates every operation inside your running sandbox.
 
-## Lint before the compiler can reject you
+## Lint before the compiler rejects the rules
 ```bash
 pyric rules:lint firestore.rules
 ```
@@ -103,7 +103,7 @@ if (errors.length > 0) process.exit(1);
 ```
 A hallucinated method is always an error, because the named method literally does not exist. Blocking on it is never a false alarm.
 
-## And from an agent
+## Self-correct rules with lint from an agent
 
 This is the loop that keeps an agent honest. It runs `lint` on the rules it wrote, reads the `fix` on each issue, and corrects itself before anything deploys. Then a `simulate` run confirms the behavior. The mistakes the linter catches are, in large part, the mistakes models make. See [what your agent can do](../skills/).
 

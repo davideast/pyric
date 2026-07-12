@@ -1,11 +1,11 @@
 ---
-title: Build your rules from tested parts
+title: The Firestore rules standard library
 navLabel: The rules standard library
 outcome: Compose security rules from tested modules, with an import system that compiles away before Firebase ever sees it.
 status: draft
 ---
 
-# Build your rules from tested parts
+# The Firestore rules standard library
 
 This is a Firestore rules file:
 
@@ -125,7 +125,7 @@ service cloud.firestore {
 
 The fixtures assert each of those denials by name. That is the point of importing over pasting: the failure cases you would not have thought to test are already cases.
 
-## And from an agent
+## Load stdlib modules into an agent's context
 
 An agent writing rules does not memorize this catalog. It calls `firestore_rules_stdlib_list()` for the module keys, then `firestore_rules_stdlib_get({ key: 'joining' })` for that module's signatures, examples, and common-mistake notes, so the library doubles as context that teaches the agent the same habit this page teaches you. The playground enforces it too: an invented function name fails compile, an imported one resolves. See [skills](../agent/skills.md).
 

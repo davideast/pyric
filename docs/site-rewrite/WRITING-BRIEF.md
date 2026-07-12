@@ -43,7 +43,9 @@ Five things a heading must not do:
 - **Pitch or opine.** No "tested parts", "the hard things", "rules you trust". Name the feature; let the reader decide it is good. "Write a rules test suite", not "Rules you trust because they are tested".
 - **Go vague-relational.** Still banned from the first pass: "What you do with it", "Where your agent fits", "Why it holds up", "The catalog", "Where the wing goes deeper". If the heading would fit on any product's page, it says nothing about this one.
 
-The bar is the boring accurate name over the memorable one. "Store and query data", "Sign users in and manage them", "How the swap works", "Firestore rules compiler and evaluator limits" are correct: each names its subject and stands alone. Prefer the noun phrase that names the feature or the plain imperative that names the task. Never let a nav item echo its group label ("Get started > Start building" stutters; "Quickstart" does not).
+The positive job: **describe what the section specifically teaches.** This is what "narrative heading" means here, and it cuts the other way too. A generic label that could sit on any section is as useless as a cute pitch: "What", "How to use it", "What you need to know", "What just happened", "Overview", "Details". Those spend the heading saying nothing when they could be naming the exact thing the section covers. Do not trade a cute heading for a generic one. Trade it for a specific one.
+
+So the bar is the specific accurate name over both the memorable one and the generic one. "Store and query data", "Sign users in and manage them", "How the swap works", "Firestore rules compiler and evaluator limits" are correct: each names its own subject and could not be lifted onto another page. Prefer the noun phrase that names the feature or the plain imperative that names the task, and make it specific to this section. Never let a nav item echo its group label ("Get started > Start building" stutters; "Quickstart" does not).
 
 ## Never against Firebase (owner review, first pass)
 

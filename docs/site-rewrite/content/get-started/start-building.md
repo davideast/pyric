@@ -1,11 +1,11 @@
 ---
-title: Your backend in one command
+title: A running backend in one command
 navLabel: Quickstart
 outcome: Run a working Firebase backend locally, in a new app or the one you already have.
 status: draft
 ---
 
-# Your backend in one command
+# A running backend in one command
 
 ```bash
 npm i -g pyric-tools
@@ -35,7 +35,7 @@ Put the rule back and the posts return. That loop, edit rules and watch real enf
 
 Building a script or a test suite instead of a page? `pyric init --template node` scaffolds the Node shape.
 
-## Add Pyric to an app you already have
+## Add Pyric to an existing app
 
 Pick by how your app is built.
 
@@ -57,7 +57,7 @@ export default defineConfig({
 
 It can run your own dev command too: `pyric dev -- npm run dev`.
 
-## Your data survives
+## Data survives a refresh
 
 The sandbox runs in a SharedWorker, so every tab shares one backend and a write in one tab shows up live in the others. The data lives in IndexedDB and survives a refresh. Three flags control it:
 
@@ -65,7 +65,7 @@ The sandbox runs in a SharedWorker, so every tab shares one backend and a write 
 - `--seed <file>` loads a fixture on boot.
 - `--fresh` starts over.
 
-## And from an agent
+## Give an agent the same backend with --bridge
 
 One flag gives your agent the same backend:
 

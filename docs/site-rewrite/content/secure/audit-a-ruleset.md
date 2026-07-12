@@ -11,7 +11,7 @@ An audit answers three questions with evidence: who can do what, whether an expr
 
 Pyric packages each audit as a skill, a procedure you or your agent runs against the real project. A finding does not make the report on a reading alone. It has to cite a simulation, a test, or a lint result that demonstrates it.
 
-## Audit your Firestore rules
+## Audit Firestore rules
 
 The `firestore-rules-audit` skill starts by building an access matrix: for every match block, identity by operation (get, list, create, update, delete), with no blank cells. Public writes, public reads on sensitive paths, and writes with no auth check fall out of the matrix immediately.
 
@@ -58,7 +58,7 @@ if (!result.passed) console.log(explainCase(result));
 
 `FAIL: stranger reads the admin panel (expected DENY, got ALLOW)`. The same check from a terminal is `pyric rules:lint firestore.rules`, which catches the wildcard-plus-`if true` shape as `RECURSIVE_WILDCARD_OPEN` before a single case runs. From an agent it is `firestore_simulate_rules` and `firestore_lint_rules`, and the report arrives severity-ranked with a fix per finding.
 
-## Audit your Realtime Database rules
+## Audit Realtime Database rules
 
 RTDB fails differently: access cascades downward. (Authoring those rules from typed constraints is its own page: [RTDB rules in TypeScript](../secure/rtdb-rules-in-typescript.md).) A `.read: true` near the root silently exposes every descendant, and a restrictive child cannot revoke what a permissive parent granted.
 
@@ -95,7 +95,7 @@ Rules can be individually correct and collectively wrong. The `firebase-audit` s
 
 The report is severity-ranked, critical findings first, each citing the simulation or lint result that proves it. The audit stays read-only. Remediation is proposed in the report and applied only when you ask.
 
-## And from an agent
+## Run the three audits as agent skills
 
 All three audits are agent skills. Install them once and "audit my rules" becomes a request your agent executes end to end, running the same simulations and returning the same evidence-backed report. Install and catalog: [skills](../agent/skills.md).
 

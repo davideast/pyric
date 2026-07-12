@@ -1,11 +1,11 @@
 ---
-title: Never debug a bare permission-denied again
+title: Read a denial
 navLabel: Read a denial and understand it
 outcome: See which rule denied an operation, on what path, with what data, the moment it happens.
 status: draft
 ---
 
-# Never debug a bare permission-denied again
+# Read a denial
 
 In production, a blocked operation answers with one string: `permission-denied`. Not which rule. Not what the rule saw.
 
@@ -60,7 +60,7 @@ console.log(explanation.deciding?.expression); // the condition text that grante
 
 `explain` returns the same structured account for an allow as for a deny. Its `deciding` field is an `EvaluatedRuleInfo`: the `verdict`, the source `line`, the `expression` that decided, and an `expressionTrace` stepping through each sub-expression. For an allow it points at the rule that granted access, so "why did this succeed" is as answerable as "why did this fail." On a default-deny, where no `allow` rule matched at all, `deciding` is absent.
 
-## The other kind of denial bug
+## Catch a rule that stopped denying
 
 A denial that should not happen is one failure mode. The quieter one is its opposite: an operation that should be denied and no longer is, because a rules edit removed a predicate somewhere. This usually happens while making a failing test pass.
 
@@ -74,7 +74,7 @@ If an operation that was denied under the recorded run now succeeds, that is a d
 
 One boundary stated plainly: replay only sees the operations in the capture. A flip on a path your session never exercised will not surface here. The breadth of the capture bounds it, and your [test suite](../secure/write-a-rules-test-suite.md) is the net for the operations traffic did not reach.
 
-## And from an agent
+## Diagnose a denial in one sandbox_inspect call
 
 When an agent hits a denial, one `sandbox_inspect` call returns the current rules, a lint summary, and the recent denials from the event log together, so "why is my rule failing" is one tool call instead of an archaeology session. See [skills](../agent/skills.md).
 

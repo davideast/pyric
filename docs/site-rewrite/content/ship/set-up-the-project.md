@@ -1,11 +1,11 @@
 ---
-title: Stand up the real Firebase project without leaving the terminal
+title: Set up the Firebase project from the terminal
 navLabel: Set up the project
 outcome: Enable providers, authorize domains, and provision databases, Storage, and hosting sites from the CLI or a script.
 status: draft
 ---
 
-# Stand up the real Firebase project without leaving the terminal
+# Set up the Firebase project from the terminal
 
 Between "the app works in the sandbox" and "the app works in production" sits project configuration: sign-in providers to enable, domains to authorize, a database and a bucket to provision. That work usually means clicking through the Console. Pyric does it over REST with your credentials, from the CLI, a script, or an agent.
 
@@ -13,7 +13,7 @@ Every step probes before it mutates, so rerunning is safe, and every step return
 
 These commands change a real project. There is no dry run. Pass `--project` when you want to be certain which one.
 
-## Enable the sign-in providers your app uses
+## Enable the sign-in providers
 
 ```bash
 pyric auth:configure-provider anonymous true --project my-app
@@ -25,7 +25,7 @@ pyric auth:configure-provider email true --project my-app
 - Enabling `phone` succeeds, but SMS delivery needs a billing account, and the result carries a warning saying so.
 - `google` can only be toggled once its OAuth client exists. That client cannot be minted from scratch over the API, so the first enable happens once in the Console (Authentication, Sign-in method, Google), after which Pyric can enable and disable it freely. When the client is missing, the command tells you exactly that instead of pretending.
 
-## Authorize the domains you sign in from
+## Authorize the sign-in domains
 
 Firebase Auth keeps an allowlist of domains for OAuth redirects. Deploy to a new hosting domain without adding it, and Google sign-in fails on the new site. That failure is one command:
 
@@ -81,7 +81,7 @@ Five steps, each skipped when already done:
 
 The result reports which steps ran, so a second invocation returns with everything marked already done.
 
-## APIs enable themselves
+## Required APIs enable automatically
 
 Each of these operations needs certain Google APIs active on the project. Before the real work starts, deploys run a preflight that:
 
@@ -90,7 +90,7 @@ Each of these operations needs certain Google APIs active on the project. Before
 
 When your credential lacks permission to enable an API, the preflight surfaces that as the actionable error instead of a downstream failure.
 
-## And from an agent
+## Provision a project from an agent
 
 The same operations ship as agent tools: the deploy factories, the auth configuration tools, and the Storage control plane. Given a service account, an agent can take a bare project to configured infrastructure and report each step's outcome. See [Set up an agent](../agent/set-up-an-agent.md).
 
