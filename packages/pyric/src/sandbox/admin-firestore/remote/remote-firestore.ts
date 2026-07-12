@@ -56,7 +56,7 @@ import {
   isCollectionPath,
   isDocumentPath,
 } from '../../firestore/admin-compat/paths.js';
-import type { SandboxFirestore } from '../index.js';
+import type { SandboxFirestore } from '../types.js';
 import { type RemoteArm } from './channel.js';
 import { invalidArgument } from './errors.js';
 import { makeCollectionRef, makeDocRef } from './doc-ref.js';
