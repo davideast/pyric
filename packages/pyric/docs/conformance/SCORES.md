@@ -76,6 +76,8 @@
 
 Auth, Firestore, and Rules are held to recorded production behavior. Realtime Database and Storage are earlier and pinned to fewer production observations.
 
+> These scores measure how much of each surface Pyric's conformance system has verified against recorded production behavior. They are a measure of that system, not a guarantee that Pyric matches production in every case, and not a substitute for testing your own changes before you ship.
+
 ## How does pyric know it works like Firebase?
 
 If Pyric is a mirror of Firebase, how does it know it actually behaves like Firebase? You can read the documentation and you can mirror the TypeScript API, but documentation describes intent and types describe shape. Neither is production behavior. The only source of truth for what Firebase does is Firebase itself, so the only honest way to mirror it is to capture that behavior and hold yourself to it. That is what it means to conform.
@@ -207,4 +209,10 @@ An evaluated row is any behavior the registry tracks with a recorded status: con
 
 No number here is typed by hand. Each row's status is read from the ledger (`baselines/coverage-baseline.json`) at generate time, and `compat:check` re-reads the same ledger, so a page whose figure drifts from the data fails the build before it can merge.
 
-Put the claim under load yourself: run the app, break a rule, and compare the verdict against production in <a href="../ship-to-production/">ship to production</a>.
+### Verify against production before you ship
+
+Pyric works hard to mirror production behavior, but a mirror is still a mirror, and comprehensive production fidelity is not something any local tool can promise. That is what verification and testing are for, and it is why Pyric hands you the tools to check its work against the real thing rather than asking you to take the scores on faith.
+
+`pyric verify` replays a recorded session of your app against a candidate ruleset and reports which verdicts would change, so a regression is caught before it reaches users. And because the same code runs against real Firebase in production, shipping is itself the final check: run the app, break a rule, and compare the verdict against production in <a href="../ship-to-production/">ship to production</a>.
+
+> Use Pyric for local development, where it is fast and has no production consequences. Then test the impact of your changes in a staging or production environment before you ship them, the way you would with any backend. The scores on this page measure how well Pyric's conformance system has done its job; they do not, and cannot, stand in for that final test against production itself.
