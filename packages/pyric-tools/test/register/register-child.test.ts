@@ -1,5 +1,5 @@
 /**
- * Child-process integration for `pyric-tools/register`: real `node --import`
+ * Child-process integration for `@pyric/cli/register`: real `node --import`
  * runs against fixture scripts in a temp project whose node_modules symlinks
  * the workspace's built pyric packages (plus the real firebase/firebase-admin
  * for the inertness check). No browser, no server — resolution + activation
@@ -129,17 +129,17 @@ afterAll(() => {
   if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true });
 });
 
-describe('pyric-tools/register (child process)', () => {
+describe('@pyric/cli/register (child process)', () => {
   it('rewrites ESM imports and installs the factory global when PYRIC_SANDBOX is set', () => {
     const res = runNode('main.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
-    expect(res.stderr).toContain('pyric-tools/register: active');
+    expect(res.stderr).toContain('@pyric/cli/register: active');
     expect(res.stdout).toContain('ESM_OK');
     expect(res.status).toBe(0);
   });
 
   it("rewrites user imports but EXEMPTS the mirrors' own prod-arm imports", () => {
     const res = runNode('prod-arm.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
-    expect(res.stderr).toContain('pyric-tools/register: active');
+    expect(res.stderr).toContain('@pyric/cli/register: active');
     // The success line is only reachable when pyric-admin/database loaded,
     // i.e. its internal firebase-admin/database import stayed unrewritten.
     expect(res.stdout).toContain('PROD_ARM_OK');
@@ -148,7 +148,7 @@ describe('pyric-tools/register (child process)', () => {
 
   it.skipIf(!hasRegisterHooks)('rewrites CJS require() via the sync hooks', () => {
     const res = runNode('main.cjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
-    expect(res.stderr).toContain('pyric-tools/register: active');
+    expect(res.stderr).toContain('@pyric/cli/register: active');
     expect(res.stdout).toContain('CJS_OK');
     expect(res.status).toBe(0);
   });
@@ -157,7 +157,7 @@ describe('pyric-tools/register (child process)', () => {
     const res = runNode('probe.mjs', {});
     expect(res.status).toBe(0);
     expect(JSON.parse(res.stdout)).toEqual({ rewritten: false, factory: 'undefined' });
-    expect(res.stderr).not.toContain('pyric-tools/register');
+    expect(res.stderr).not.toContain('@pyric/cli/register');
   });
 
   it('refuses under NODE_ENV=production (logs, stays inert)', () => {
@@ -177,7 +177,7 @@ describe('pyric-tools/register (child process)', () => {
       PYRIC_SANDBOX_FORCE: '1',
     });
     expect(res.status).toBe(0);
-    expect(res.stderr).toContain('pyric-tools/register: active');
+    expect(res.stderr).toContain('@pyric/cli/register: active');
     expect(JSON.parse(res.stdout)).toEqual({ rewritten: true, factory: 'function' });
   });
 });

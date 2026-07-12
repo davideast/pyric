@@ -1,5 +1,5 @@
 /**
- * pyric-tools' OWN package version, resolved at runtime — the version-skew
+ * @pyric/cli' OWN package version, resolved at runtime — the version-skew
  * stamp both ends of the worker relay compare (integration-smoke fix: an old
  * `pyric dev` accepting a newer client's frame and dying mid-handling used to
  * surface as a bare 30s timeout with no hint).
@@ -8,7 +8,7 @@
  *   1. A standalone `bun build --compile` binary's baked version
  *      (`globalThis.__PYRIC_EMBEDDED__.version` — see serve/standalone-assets).
  *   2. The nearest `package.json` walking up from THIS module (dist/ or src/),
- *      i.e. the pyric-tools install actually executing.
+ *      i.e. the @pyric/cli install actually executing.
  *   3. `'0.0.0'` when neither resolves (never throws).
  *
  * Node-only (node:fs / node:url) — do NOT import from browser-bundled modules
@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 
 let cached: string | null = null;
 
-export function pyricToolsVersion(): string {
+export function cliVersion(): string {
   if (cached !== null) return cached;
   const embedded = (
     globalThis as { __PYRIC_EMBEDDED__?: { version?: string } }

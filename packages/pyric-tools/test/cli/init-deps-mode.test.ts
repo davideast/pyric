@@ -1,7 +1,7 @@
 /** `pyric init` deps-mode resolution + dependency rewriting.
  *
  *  Pure-function coverage for the vendor/npm split (init.ts): which mode wins
- *  given flags/env/standalone, and how `pyric` / `pyric-tools` deps are
+ *  given flags/env/standalone, and how `pyric` / `@pyric/cli` deps are
  *  rewritten in each. No binary, no tarballs — the real `bun install` proof
  *  lives in scripts/standalone-vendor-smoke against a compiled binary. */
 import { describe, expect, it } from 'bun:test';
@@ -32,11 +32,11 @@ describe('resolveDepsMode', () => {
 });
 
 describe('applyDepsMode — vendor', () => {
-  const specs = { pyric: 'file:vendor/pyric.tgz', 'pyric-tools': 'file:vendor/pyric-tools.tgz' };
+  const specs = { pyric: 'file:vendor/pyric.tgz', '@pyric/cli': 'file:vendor/pyric-cli.tgz' };
 
-  it('web template: rewrites pyric-tools and ADDS pyric (needed transitively)', () => {
+  it('web template: rewrites @pyric/cli and ADDS pyric (needed transitively)', () => {
     const out = applyDepsMode(TEMPLATES.web, 'vendor', { vendorSpecs: specs });
-    expect(out.devDependencies['pyric-tools']).toBe('file:vendor/pyric-tools.tgz');
+    expect(out.devDependencies['@pyric/cli']).toBe('file:vendor/pyric-cli.tgz');
     expect(out.devDependencies['pyric']).toBe('file:vendor/pyric.tgz');
     // unrelated deps untouched
     expect(out.dependencies['firebase']).toBe(TEMPLATES.web.dependencies['firebase']);
@@ -48,7 +48,7 @@ describe('applyDepsMode — vendor', () => {
   it('node template: rewrites both, no duplicate pyric', () => {
     const out = applyDepsMode(TEMPLATES.node, 'vendor', { vendorSpecs: specs });
     expect(out.dependencies['pyric']).toBe('file:vendor/pyric.tgz');
-    expect(out.dependencies['pyric-tools']).toBe('file:vendor/pyric-tools.tgz');
+    expect(out.dependencies['@pyric/cli']).toBe('file:vendor/pyric-cli.tgz');
   });
 
   it('does not mutate the shared template object', () => {
@@ -61,13 +61,13 @@ describe('applyDepsMode — vendor', () => {
 describe('applyDepsMode — npm', () => {
   it('pins to ^version when given, never adds pyric or overrides to the web template', () => {
     const out = applyDepsMode(TEMPLATES.web, 'npm', { version: '0.1.2' });
-    expect(out.devDependencies['pyric-tools']).toBe('^0.1.2');
+    expect(out.devDependencies['@pyric/cli']).toBe('^0.1.2');
     expect('pyric' in out.devDependencies).toBe(false); // npm resolves it transitively
     expect(out.overrides).toBeUndefined();
   });
 
   it('keeps the template range when no version is available', () => {
     const out = applyDepsMode(TEMPLATES.web, 'npm', { version: null });
-    expect(out.devDependencies['pyric-tools']).toBe(TEMPLATES.web.devDependencies['pyric-tools']);
+    expect(out.devDependencies['@pyric/cli']).toBe(TEMPLATES.web.devDependencies['@pyric/cli']);
   });
 });

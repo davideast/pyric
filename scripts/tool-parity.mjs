@@ -16,7 +16,7 @@
  *      registers: core / auth / git / checkpoints always-on, diagnostics
  *      flag-gated, skill tools skill-gated. Profile filtering
  *      (AUTHORING_TOOL_NAMES) is parsed from source, not restated here.
- *   3. pyric-tools registry — the maximal composeMcpRegistry() surface
+ *   3. @pyric/cli registry — the maximal composeMcpRegistry() surface
  *      (profile 'full', scope + adminDeps + rtdbHost all supplied), with
  *      per-tool gates recorded.
  *
@@ -128,7 +128,7 @@ const MCP_CONTRIBUTIONS = [
   { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'in-process' },
 ];
 
-/** pyric-tools registry — mirrors registry/compose.ts (maximal: profile
+/** @pyric/cli registry — mirrors registry/compose.ts (maximal: profile
  *  'full' with scope + adminDeps + rtdbHost). */
 const REGISTRY_CONTRIBUTIONS = [
   { file: `${TOOLS}/deploy/tools.ts`, factory: 'createFirestoreDeployTools', gate: 'always' },
@@ -363,7 +363,7 @@ export function renderMatrix(rows) {
     '(sandbox mode), the playground agent registry, and composeMcpRegistry (maximal',
     "'full' profile). Classification source: scripts/tool-parity.annotations.json.",
     '',
-    '| Tool | MCP bridge | Playground agent | pyric-tools registry | Classification |',
+    '| Tool | MCP bridge | Playground agent | @pyric/cli registry | Classification |',
     '|---|---|---|---|---|',
   ];
   for (const r of rows) {

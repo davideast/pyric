@@ -15,7 +15,7 @@
  * surface.
  */
 import type { ToolHandler } from '@inbrowser/agent';
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '@pyric/cli/deploy';
 import { getAuthTools } from './resolver.js';
 import type { ConfigureProviderInput } from './provider/spec.js';
 import type { ManageDomainsInput } from './domains/spec.js';

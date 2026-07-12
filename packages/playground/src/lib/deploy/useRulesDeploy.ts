@@ -16,7 +16,7 @@
  */
 import { useCallback, useState } from 'react';
 
-import { firestore, AdminApiError, type ProjectScope } from 'pyric-tools/deploy';
+import { firestore, AdminApiError, type ProjectScope } from '@pyric/cli/deploy';
 
 import { useAccessToken } from '~/lib/deploy/useAccessToken';
 import { useTargetProject } from '~/lib/deploy/useTargetProject';

@@ -1,4 +1,4 @@
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '@pyric/cli/deploy';
 import type { ConfigureProviderInput, ConfigureAuthResult, ProviderId } from './spec.js';
 
 export class ConfigureProviderHandler {

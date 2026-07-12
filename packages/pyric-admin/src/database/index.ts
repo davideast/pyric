@@ -61,7 +61,7 @@
  *
  *   - **Remote sandbox arm** (sandbox target whose `Sandbox` carries the
  *     `pyric/sandbox` remote brand — a Node-side handle onto the
- *     browser-hosted SharedWorker sandbox, built by `pyric-tools`'
+ *     browser-hosted SharedWorker sandbox, built by `@pyric/cli`'
  *     `connectRemoteSandbox()`) — every `Reference` data operation routes
  *     through the handle's worker-relay channel (`rtdb.get/set/update/
  *     remove/push` ops with `actAs: { mode: 'admin' }` pinned — firebase-

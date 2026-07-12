@@ -38,7 +38,7 @@ function capture() {
 const tmp = () => mkdtempSync(join(tmpdir(), 'pyric-init-'));
 
 describe('pyric init v2 — web template (default, Vite)', () => {
-  it('scaffolds a Vite app wired to pyric-tools/vite, canonical firebase imports', async () => {
+  it('scaffolds a Vite app wired to @pyric/cli/vite, canonical firebase imports', async () => {
     const dir = tmp();
     const c = capture();
     expect(await runInit(args(), c.deps(dir))).toBe(0);
@@ -70,7 +70,7 @@ describe('pyric init v2 — web template (default, Vite)', () => {
 
     // the swap lives in vite.config, not the app
     const viteConfig = readFileSync(join(dir, 'vite.config.ts'), 'utf8');
-    expect(viteConfig).toContain("from 'pyric-tools/vite'");
+    expect(viteConfig).toContain("from '@pyric/cli/vite'");
     expect(viteConfig).toContain('pyricSandbox(');
 
     // hosting serves Vite's build output
@@ -87,7 +87,7 @@ describe('pyric init v2 — web template (default, Vite)', () => {
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
     expect(pkg.type).toBe('module');
     expect(pkg.dependencies.firebase).toMatch(/^\^/);
-    expect(pkg.devDependencies['pyric-tools']).toBeDefined();
+    expect(pkg.devDependencies['@pyric/cli']).toBeDefined();
     expect(pkg.devDependencies.vite).toMatch(/^\^/);
     expect(pkg.scripts.dev).toBe('vite');
     expect(pkg.scripts.build).toBe('vite build');
@@ -326,16 +326,16 @@ describe('pyric init output contract', () => {
       web: {
         '.env.example': '28dfe95f880d2ef18c36d150760286eee88c09054cb5341466f3b22c0f5ff297',
         '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
-        'README.md': '3e2a46853813c10c2d6e9c221761d3ddc9da6892a8934decaf33fccff8245459',
+        'README.md': '4433e7e5c8c82c1f18cc9a31ca352a880619edce012fa2387cf60da2ec5862c6',
         'firebase.json': '06ed33d14b46379011c4a805299016f8c03adf5f47994624fde82b794f09ec2b',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '5251fb08767a1a8ae2242eb6784cd96838311499bd888fe5a975f65d3a0247ac',
         'index.html': '12f621f10493b0556d5f38acc3a0625c97646e32bd2bca740098ec5715f50aad',
-        'package.json': 'd806151138164386a2bc559983da5a7ca95d564291ee78d0563dd401f7dc8a97',
-        'src/main.ts': 'db0eeeddf207bf2fe88ce32b9b2014ace6481ef8ac06bb66ae6f763fc66789b5',
+        'package.json': '992a082645627845cdedf2538f4b0a265b7abc4fd39a50f265248440d99304a3',
+        'src/main.ts': '3e165d28c4d22df0b868d26cd4071950a6c47cfd0c8944d01c2dadc66c0dfab2',
         'src/vite-env.d.ts': '65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5',
         'tsconfig.json': '5bb892360953642d2644a442a81abbad91e62be2f7fcb646505cc7f33a6bcc08',
-        'vite.config.ts': '5d30839f5dc77f0101e806bff0658bf6efc98b6ee59e63a9122aade2b7540755',
+        'vite.config.ts': '2c4fd6ee8faa56bc468283b99d587d25f89c0c26efebdbb9d5046b76c2f4a005',
       },
       node: {
         '.env.example': 'e60553a1045edd51d9df5f4057e9f920fa21fcf0742e0df945628f6958e67ddf',
@@ -344,7 +344,7 @@ describe('pyric init output contract', () => {
         'firebase.json': 'e817f89d2f9776ba460ec062be7d40f827b8f910d740cff2522b72232f1cdf5a',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': 'fb36f8e6d6e6f5fd7365316fc929a1ad3f99eeff8d624cf6bada39c619501b47',
-        'package.json': 'ad4653edc8d99217ac04d26e59f4ff6992d3e6894a094bb051f325cd25e9413b',
+        'package.json': '389d67729f3848fa9a74515c98740a303e2324c950d3e743f8d80fffff4b7995',
         'src/app.ts': '46e94dd60c6ab8ca32a3df234737780643a8826f352c448af311de190aaa3008',
         'src/seed.ts': 'cf9a890fcc9e1f4a836bf5c150573978a0af454763077fcf4aaed5199d04ded8',
       },
@@ -355,7 +355,7 @@ describe('pyric init output contract', () => {
         'firebase.json': 'da40b786caed050b30a5bb108c6e369376477e89a8e08e09c105445ef01bd0fd',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '75a93ddd7994180a083b2f3337538eb0bcff8fa775c2edd72a13bce051dbc9f3',
-        'package.json': 'ed25a12b612cabbb7d03a1af4399f1550f1f2109e29f1952c29981b16cb3b74a',
+        'package.json': '8d2885c4be73d9901cffa294697aa796132c2ad2f78f7ae57b93e25c0d2a7e14',
         'public/app.js': '6e6b85c76d17e3f5d637afd8162233822b21c311a6f7d33ae02996d5565a3ed7',
         'public/index.html': 'a878cd6b5508217014e966a8f18ffb8be7789118602acc1c8108df244d2bef4e',
         'seed.json': 'd7d4bed7b5b88e4c30720647f630a83769edbb7eb379e5bcec05403e15148935',

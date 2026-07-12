@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { InspectFirestoreRulesHandler } from '../../../src/rules/inspect/handler.js';
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '@pyric/cli/deploy';
 
 const originalFetch = global.fetch;
 function restoreFetch() { global.fetch = originalFetch; }

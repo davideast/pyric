@@ -1,5 +1,5 @@
 /**
- * `pyric-tools/deploy.preflight` unit tests. Network calls are stubbed
+ * `@pyric/cli/deploy.preflight` unit tests. Network calls are stubbed
  * via `fetch` mocks following the pattern in `firestore.test.ts`.
  * Integration against the live REST APIs is out of scope here —
  * the playground deploy track owns that.

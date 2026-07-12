@@ -1,5 +1,5 @@
 /**
- * Public credential surface (`pyric-tools/credentials`) for consumers that build
+ * Public credential surface (`@pyric/cli/credentials`) for consumers that build
  * their own auth flow on the isomorphic core — notably the playground's BFF
  * server endpoints. The core (auth-url + PKCE, token exchange, scope policy) plus
  * the framework-agnostic BFF helpers. Browser-safe core; the BFF helpers are

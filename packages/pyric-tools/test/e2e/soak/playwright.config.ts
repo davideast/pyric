@@ -8,7 +8,7 @@ import { defineConfig } from '@playwright/test';
 // Files are named `*.soak.ts` so neither `bun test` (`*.test.ts` /
 // `*.spec.ts`) nor the sibling auth e2e config (`**/*.pw.ts`) ever picks
 // them up. Run via the root `bun run test:soak` (requires the built
-// pyric-tools dist + `bunx playwright install chromium`).
+// @pyric/cli dist + `bunx playwright install chromium`).
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.soak.ts',

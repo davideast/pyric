@@ -62,7 +62,7 @@ describe('rewriteSpecifier (mirror-package exemption)', () => {
     join(repoRoot, 'packages/pyric-admin/src/database/index.ts'),
   ).href;
   const pyricParent = pathToFileURL(join(repoRoot, 'packages/pyric/src/app/index.ts')).href;
-  const pyricToolsParent = pathToFileURL(
+  const cliParent = pathToFileURL(
     join(repoRoot, 'packages/pyric-tools/src/deploy/index.ts'),
   ).href;
 
@@ -72,7 +72,7 @@ describe('rewriteSpecifier (mirror-package exemption)', () => {
     expect(rewriteSpecifier('firebase-admin/database', pyricAdminParent)).toBeNull();
     expect(rewriteSpecifier('firebase-admin/app', pyricAdminParent)).toBeNull();
     expect(rewriteSpecifier('firebase/app', pyricParent)).toBeNull();
-    expect(rewriteSpecifier('firebase-admin/firestore', pyricToolsParent)).toBeNull();
+    expect(rewriteSpecifier('firebase-admin/firestore', cliParent)).toBeNull();
   });
 
   it('rewrites from user modules, entry points, and non-file parents', () => {

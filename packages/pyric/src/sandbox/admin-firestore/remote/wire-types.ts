@@ -1,12 +1,12 @@
 /**
- * Loose wire shapes — structural mirrors of the `pyric-tools` worker
+ * Loose wire shapes — structural mirrors of the `@pyric/cli` worker
  * protocol. Spelled loosely (not imported from the protocol module)
- * because `pyric` cannot depend on `pyric-tools`; ops are kept
- * structurally identical to `pyric-tools/src/serve/worker/protocol.ts`.
+ * because `pyric` cannot depend on `@pyric/cli`; ops are kept
+ * structurally identical to `packages/pyric-tools/src/serve/worker/protocol.ts`.
  */
 
 /** Wire form of a doc/collection/group/query target. Mirrors
- *  `pyric-tools`' `TargetDescriptor` — plain JSON, spelled loosely here
+ *  `@pyric/cli`' `TargetDescriptor` — plain JSON, spelled loosely here
  *  because `pyric` cannot import the protocol module. */
 export type WireTarget =
   | { __ref: 'doc'; path: string }

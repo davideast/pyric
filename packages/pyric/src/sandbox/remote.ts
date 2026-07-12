@@ -2,7 +2,7 @@
  * Remote-sandbox brand + channel contract (remote sandbox, slice 1).
  *
  * A REMOTE sandbox is a Node-side handle onto the browser-hosted
- * SharedWorker sandbox, constructed by `pyric-tools`'s
+ * SharedWorker sandbox, constructed by `@pyric/cli`'s
  * `connectRemoteSandbox()`. It satisfies {@link Sandbox} structurally, but
  * its data plane lives in the browser worker — so consumers that keep
  * process-local state keyed off the `Sandbox` object (`pyric-admin`'s RTDB
@@ -12,15 +12,15 @@
  *
  * This module is the dependency seam that lets `pyric-admin` (which depends
  * only on `pyric` + `firebase-admin`) recognize a handle constructed by
- * `pyric-tools` (which depends on `pyric`):
+ * `@pyric/cli` (which depends on `pyric`):
  *
  *   - {@link REMOTE_SANDBOX} — a `Symbol.for` brand, so the stamp and the
  *     check agree across package boundaries and duplicated module graphs.
  *   - {@link RemoteSandboxChannel} — a STRUCTURALLY-typed minimal op/sub
- *     relay interface matching `pyric-tools/remote`'s channel shape. The
- *     concrete op/sub payload types live in `pyric-tools`' worker protocol;
+ *     relay interface matching `@pyric/cli/remote`'s channel shape. The
+ *     concrete op/sub payload types live in `@pyric/cli`' worker protocol;
  *     this contract deliberately types them loosely (`method` + open
- *     fields) so `pyric` carries no dependency on `pyric-tools`.
+ *     fields) so `pyric` carries no dependency on `@pyric/cli`.
  *
  * No runtime imports beyond this package's own types — the only runtime
  * export is the brand symbol and its guard.
@@ -38,10 +38,10 @@ export const REMOTE_SANDBOX = Symbol.for('pyric.remote.sandbox');
 /**
  * The minimal worker-relay channel a remote sandbox handle carries.
  *
- * Structural mirror of `pyric-tools/remote`'s `RemoteSandboxChannel`: one
+ * Structural mirror of `@pyric/cli/remote`'s `RemoteSandboxChannel`: one
  * method to dispatch any SharedWorker-protocol op, one to register a
  * snap-delivering subscription. Payloads are typed openly here (the real
- * discriminated unions live in `pyric-tools`' worker protocol); callers in
+ * discriminated unions live in `@pyric/cli`' worker protocol); callers in
  * `pyric-admin` spell the concrete op objects (`rtdb.set`, `auth.listUsers`,
  * …) and pin their own `actAs` lens — nothing is pinned by the channel.
  */
@@ -86,13 +86,13 @@ export interface RemoteSandbox extends Sandbox {
 }
 
 /**
- * Well-known global key under which `pyric-tools/register` installs the
+ * Well-known global key under which `@pyric/cli/register` installs the
  * remote-sandbox factory: `globalThis[REMOTE_SANDBOX_FACTORY]`.
  *
  * This is the AMBIENT-INIT seam (adoption experience, layer 3): when
  * `pyric-admin/app`'s bare `initializeApp()` sees `PYRIC_SANDBOX=remote[:url]`
  * it reads this global and calls the installed {@link RemoteSandboxFactory}
- * to obtain the branded handle — without importing `pyric-tools` (which is
+ * to obtain the branded handle — without importing `@pyric/cli` (which is
  * a devDependency of the app, not of `pyric-admin`). `Symbol.for` so the
  * installer and the reader agree even across duplicated copies of `pyric`.
  */
@@ -107,7 +107,7 @@ export interface RemoteSandboxFactoryOptions {
 }
 
 /**
- * The factory `pyric-tools/register` installs at
+ * The factory `@pyric/cli/register` installs at
  * `globalThis[`{@link REMOTE_SANDBOX_FACTORY}`]`. SYNCHRONOUS by contract:
  * `initializeApp()` is sync in firebase-admin, so the factory must return
  * the branded handle without awaiting (connection establishment may be

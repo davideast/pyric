@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /**
  * Prove the standalone binary scaffolds a project that installs + builds with
- * the still-unpublished `pyric` / `pyric-tools` — no registry 404. Runs the real
+ * the still-unpublished `pyric` / `@pyric/cli` — no registry 404. Runs the real
  * chain a user hits: `pyric init --template web` (vendor mode) -> `bun install`
  * -> `vite build`. Needs network for the published deps (firebase, vite, …);
- * `pyric`/`pyric-tools` come from the embedded tarballs.
+ * `pyric`/`@pyric/cli` come from the embedded tarballs.
  *
  *   bun scripts/compile.ts host && bun scripts/standalone-vendor-smoke.ts
  *
@@ -38,17 +38,17 @@ process.stdout.write(`standalone vendor smoke (in ${work}):\n`);
 
 const init = run(BIN, ['init', '--template', 'web', '--name', 'vendor-smoke']);
 check('pyric init (vendor mode)', init.code === 0 && /vendored/.test(init.out + init.err));
-check('vendor/ tarballs written', existsSync(join(work, 'vendor', 'pyric-tools.tgz')) && existsSync(join(work, 'vendor', 'pyric.tgz')));
+check('vendor/ tarballs written', existsSync(join(work, 'vendor', 'pyric-cli.tgz')) && existsSync(join(work, 'vendor', 'pyric.tgz')));
 const pkg = JSON.parse(readFileSync(join(work, 'package.json'), 'utf8')) as {
   devDependencies?: Record<string, string>;
   overrides?: Record<string, string>;
 };
-check('package.json uses file: deps', pkg.devDependencies?.['pyric-tools'] === 'file:vendor/pyric-tools.tgz');
+check('package.json uses file: deps', pkg.devDependencies?.['@pyric/cli'] === 'file:vendor/pyric-cli.tgz');
 check('package.json pins pyric override', pkg.overrides?.['pyric'] === 'file:vendor/pyric.tgz');
 
 const install = run('bun', ['install']);
 check('bun install (no registry 404)', install.code === 0, install.code === 0 ? '' : install.err.split('\n').slice(-3).join(' '));
-check('pyric resolved from tarball (no nested stub)', !existsSync(join(work, 'node_modules', 'pyric-tools', 'node_modules', 'pyric')));
+check('pyric resolved from tarball (no nested stub)', !existsSync(join(work, 'node_modules', '@pyric/cli', 'node_modules', 'pyric')));
 check('pyric/rules/node present', existsSync(join(work, 'node_modules', 'pyric', 'dist', 'rules', 'node.js')));
 
 const build = run('bun', ['run', 'build']);

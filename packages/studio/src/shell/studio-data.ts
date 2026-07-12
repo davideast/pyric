@@ -27,7 +27,7 @@ import {
   deleteDoc as inProcessDeleteDoc,
 } from 'pyric/firestore';
 import { sandbox as authSandbox, type CreateUserRequest } from 'pyric/auth';
-import { setRules as workerSetRules } from 'pyric-tools/serve/worker';
+import { setRules as workerSetRules } from '@pyric/cli/serve/worker';
 import type {
   EventProvenance,
   RequestEvent,

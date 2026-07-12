@@ -9,7 +9,7 @@
  * "first write raced the ruleset" class of bugs.
  *
  * This file is BUNDLED FOR THE BROWSER by `../bundler.ts` (esbuild) — it is
- * never imported by node-side pyric-tools code. Bundle splitting must keep it
+ * never imported by node-side @pyric/cli code. Bundle splitting must keep it
  * a single shared chunk: two copies would mean two sandboxes (P0 validation
  * constraint, design rationale section 9).
  */
@@ -51,7 +51,7 @@ import { buildVerifyFixture } from '../../verify/fixture.js';
  * NOT serve the worker bundle (`/__pyric/sdk/worker.js`) sets it before this
  * module evaluates so the page takes the in-page path instead of trying to load
  * a worker that 404s. `pyric dev` always serves the worker and never sets it;
- * the `pyric-tools/vite` plugin sets it until it serves the worker (M2).
+ * the `@pyric/cli/vite` plugin sets it until it serves the worker (M2).
  */
 export const useWorker =
   typeof SharedWorker !== 'undefined' &&

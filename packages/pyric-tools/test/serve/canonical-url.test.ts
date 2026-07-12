@@ -66,7 +66,7 @@ describe('canonical serve URL (default host)', () => {
     expect(new URL(pointer.mcpUrl).hostname).toBe(bannerHost);
 
     // The runner env (`PYRIC_SANDBOX=remote:<serve url>`) — the activator the
-    // child's `pyric-tools/register` reads.
+    // child's `@pyric/cli/register` reads.
     const env = buildChildEnv({}, { serveUrl: r.handle.url, registerUrl: 'file:///register.js' });
     const activated = env.PYRIC_SANDBOX!.replace(/^remote:/, '');
     expect(new URL(activated).hostname).toBe(bannerHost);

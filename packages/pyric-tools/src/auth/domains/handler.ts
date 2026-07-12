@@ -1,4 +1,4 @@
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '@pyric/cli/deploy';
 import type { ManageDomainsInput, ManageDomainsResult } from './spec.js';
 
 export class ManageDomainsHandler {

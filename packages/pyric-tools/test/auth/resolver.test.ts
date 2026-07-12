@@ -1,6 +1,6 @@
 import { expect, test, describe, afterEach } from "bun:test";
 import { getAuthTools } from "../../src/auth/resolver.js";
-import type { ProjectScope } from "pyric-tools/deploy";
+import type { ProjectScope } from "@pyric/cli/deploy";
 
 const SCOPE: ProjectScope = {
   projectId: "test-project",

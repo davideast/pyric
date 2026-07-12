@@ -8,7 +8,7 @@
  *
  * This seam exists so the package's own deep consumers (the sandbox
  * simulator, the test suites) and the sibling tooling packages
- * (`pyric-tools`) can reach the engine primitives — parser, linter,
+ * (`@pyric/cli`) can reach the engine primitives — parser, linter,
  * simulator handler, resolver, wrappers, RTDB machinery — without those
  * primitives leaking onto the curated public surface. Mirrors the
  * established `pyric/sandbox/internal` / `pyric/storage/internal` pattern.

@@ -25,7 +25,7 @@
  *
  *   - **Remote sandbox arm** — when the sandbox carries `pyric/sandbox`'s
  *     remote brand (a Node-side handle onto the browser-hosted
- *     SharedWorker sandbox from `pyric-tools`' `connectRemoteSandbox()`),
+ *     SharedWorker sandbox from `@pyric/cli`' `connectRemoteSandbox()`),
  *     user CRUD relays over the handle's worker channel instead of the
  *     in-memory store, so server-created users land in the ONE user pool
  *     the browser app + Studio share. See the "Remote sandbox arm"

@@ -12,7 +12,7 @@
  *     production `Storage`, so every method on `Storage` / `Bucket` /
  *     `File` (from `@google-cloud/storage`) is present unchanged.
  *
- *   - **Remote sandbox path** — a handle branded by `pyric-tools`'
+ *   - **Remote sandbox path** — a handle branded by `@pyric/cli`'
  *     `connectRemoteSandbox()`/`remoteSandbox()` relays every data
  *     operation over the bridge to the browser-hosted SharedWorker's
  *     object store (admin lens pinned — rules bypass). Single bucket;
@@ -432,10 +432,10 @@ const STORAGE_REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
 
 /**
  * Raw per-op byte cap for relayed storage payloads. MUST mirror
- * `pyric-tools`' `MAX_STORAGE_OP_BYTES` (serve/worker/protocol.ts) — the
+ * `@pyric/cli`' `MAX_STORAGE_OP_BYTES` (serve/worker/protocol.ts) — the
  * worker host enforces the same cap on its end. Inlined (like the RTDB
  * push-id generator) because `pyric-admin` deliberately does not depend on
- * `pyric-tools`.
+ * `@pyric/cli`.
  */
 const MAX_REMOTE_STORAGE_OP_BYTES = 8 * 1024 * 1024;
 

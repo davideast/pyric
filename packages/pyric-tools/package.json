@@ -1,5 +1,5 @@
 {
-  "name": "pyric-tools",
+  "name": "@pyric/cli",
   "version": "0.1.0-alpha.8",
   "license": "Apache-2.0",
   "homepage": "https://pyric.dev",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { AuthorizationCampaignReport } from "pyric-tools/assurance";
+import type { AuthorizationCampaignReport } from "@pyric/cli/assurance";
 import {
   projectAssuranceRows,
   summarizeStateDiff,

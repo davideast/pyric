@@ -5,15 +5,15 @@
  * WHY: the bridge relays agent tool-calls and remote worker-ops (the MCP
  * endpoint, `connectRemoteSandbox`) through ONE registered browser peer into
  * the SharedWorker. That peer was wired only in the served APP page
- * (`connectBridgePeer` in pyric-tools' `serve/entries/runtime.ts`) — so a user
+ * (`connectBridgePeer` in @pyric/cli' `serve/entries/runtime.ts`) — so a user
  * with ONLY Studio open (exactly what `pyric dev --ui` auto-opens) got
  * "no browser tab is connected" even though Studio talks to the very same
  * SharedWorker. Studio must register too.
  *
  * WIRING (reused, not duplicated): `connectBridge` (the reconnecting WS client
- * from `pyric-tools/bridge/client`) with the SAME `dispatcher`/`workerRelay`
+ * from `@pyric/cli/bridge/client`) with the SAME `dispatcher`/`workerRelay`
  * closures the app page uses — `callTool` / `relayWorkerOp` / `relayWorkerSub`
- * from `pyric-tools/serve/worker`, forwarding every frame over the worker
+ * from `@pyric/cli/serve/worker`, forwarding every frame over the worker
  * `MessagePort` the live plane already holds. Last-connection-wins peer
  * semantics make app page + Studio both being open safe: whichever page holds
  * the peer slot fronts the one shared SharedWorker sandbox identically.
@@ -32,13 +32,13 @@ import {
   type ConnectBridgeOptions,
   type ConnectedBridge,
   type ConnectedBridgeState,
-} from 'pyric-tools/bridge/client';
+} from '@pyric/cli/bridge/client';
 import {
   callTool,
   relayWorkerOp,
   relayWorkerSub,
   type ClientDb,
-} from 'pyric-tools/serve/worker';
+} from '@pyric/cli/serve/worker';
 
 /** The slice of the serve init payload this module reads. */
 interface InitPayloadLite {
@@ -65,7 +65,7 @@ export interface StudioBridgePeerOptions {
 /**
  * Build the `ConnectBridgeOptions` wiring for a Studio peer over `db` — the
  * SAME shape the served app page passes on its worker path (see
- * `connectBridgePeer` in pyric-tools' `entries/runtime.ts`): tool-calls
+ * `connectBridgePeer` in @pyric/cli' `entries/runtime.ts`): tool-calls
  * dispatch through the worker (`callTool`), and the generic worker relay
  * forwards ops/subscriptions over the worker port. Exported for tests.
  */

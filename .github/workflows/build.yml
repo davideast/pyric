@@ -4,7 +4,7 @@
 # (the same orchestrator developers use locally) so CI and local
 # build behavior can't drift.
 #
-# Workspace packages: pyric, pyric-admin, pyric-tools, @pyric/ui,
+# Workspace packages: pyric, pyric-admin, @pyric/cli, @pyric/ui,
 # and @pyric/studio.
 
 name: Build & Test
@@ -125,7 +125,7 @@ jobs:
         run: set -o pipefail; bun run compat:coverage | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Run tests
-        # `npm run test` cycles through pyric, pyric-admin, pyric-tools,
+        # `npm run test` cycles through pyric, pyric-admin, @pyric/cli,
         # and @pyric/ui.
         run: npm run test
 

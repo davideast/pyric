@@ -4,7 +4,7 @@
  * survives reloads. Then redirect back to the app.
  */
 import type { APIRoute } from 'astro';
-import { completeAuth } from 'pyric-tools/credentials';
+import { completeAuth } from '@pyric/cli/credentials';
 import { COOKIE, bffClient, callbackUri } from '~/lib/auth/bff-config';
 
 export const prerender = false;

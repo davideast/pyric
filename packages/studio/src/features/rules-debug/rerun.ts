@@ -236,7 +236,7 @@ function parentCollection(path: string): string {
 
 /**
  * The worker-client surface {@link rerunAsUser} needs. The studio app passes the
- * real `pyric-tools` worker client here; tests pass a fake. Kept as a narrow
+ * real `@pyric/cli` worker client here; tests pass a fake. Kept as a narrow
  * structural type so this module doesn't hard-depend on the worker client (which
  * pulls in the SharedWorker path): it depends only on the `setLens` + a doc-read
  * shape it already exposes.

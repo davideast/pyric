@@ -9,7 +9,7 @@ project shape and start ONLY one. Two servers means two ports and two separate s
 is the classic failure mode.
 
 1. **Detect the launcher.**
-   - **Vite app** (there is a `vite.config.*` that imports `pyricSandbox` from `pyric-tools/vite`):
+   - **Vite app** (there is a `vite.config.*` that imports `pyricSandbox` from `@pyric/cli/vite`):
      the app's own `vite dev` IS the bridge. Start the app, NOT a separate `pyric dev`. Confirm
      the config passes `pyricSandbox({ bridge: true })` (the MCP endpoint only mounts under `bridge`).
    - **Otherwise** (a `firebase.json` with no vite plugin, or no project yet): use `pyric dev --bridge`.

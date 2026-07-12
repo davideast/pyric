@@ -22,7 +22,7 @@
  *   - `storage`         worker-backed storage mirror
  *
  * The barrel is part of the worker's PUBLIC shape: `serve/worker/index.ts`
- * re-exports from here for the `pyric-tools/serve/worker` package subpath.
+ * re-exports from here for the `@pyric/cli/serve/worker` package subpath.
  */
 
 // Shared core: lens/issuer controls + the handle and snapshot types.

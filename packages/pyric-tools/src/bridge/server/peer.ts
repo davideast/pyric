@@ -21,7 +21,7 @@ import {
   PEER_REPLACED_CLOSE_REASON,
   type BridgeMessage,
 } from '../protocol.js';
-import { pyricToolsVersion } from '../../pkg-version.js';
+import { cliVersion } from '../../pkg-version.js';
 
 export function attachPeer(
   bridge: ReturnType<typeof createBridge>,
@@ -149,13 +149,13 @@ export function createConsumerSession(
         case 'attach': {
           // Idempotent re-attach: just re-ack. `serveVersion` is the
           // version-skew stamp (bridge/protocol.ts) — this process's own
-          // pyric-tools version, compared client-side at attach.
+          // @pyric/cli version, compared client-side at attach.
           send({
             type: 'attach-ack',
             protocol: 1,
             bridgeVersion: bridge.version,
             peerConnected: bridge.isSandboxConnected(),
-            serveVersion: pyricToolsVersion(),
+            serveVersion: cliVersion(),
           });
           return;
         }

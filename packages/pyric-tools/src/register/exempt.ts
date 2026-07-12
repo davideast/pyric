@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { mapFirebaseSpecifier } from './mapping.js';
 
 /** The packages whose own Firebase imports must stay Firebase. */
-const EXEMPT_PACKAGES: ReadonlySet<string> = new Set(['pyric', 'pyric-admin', 'pyric-tools']);
+const EXEMPT_PACKAGES: ReadonlySet<string> = new Set(['pyric', 'pyric-admin', '@pyric/cli']);
 
 /** dir → owning package name (null = none found up to the fs root).
  *  Resolution runs on every import in the child process — cache it. */

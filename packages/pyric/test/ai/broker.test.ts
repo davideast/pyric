@@ -638,7 +638,7 @@ describe('openai engine (mocked fetch)', () => {
 
   it('default fetch never runs with the engine as its receiver (browser Illegal invocation guard)', async () => {
     // Regression guard for the serve e2e finding (test/e2e/ai-demo.pw.ts in
-    // pyric-tools): `options.fetch ?? fetch` stored the global BARE, so
+    // @pyric/cli): `options.fetch ?? fetch` stored the global BARE, so
     // `this.fetchImpl(...)` invoked fetch with the engine as `this` — an
     // Illegal invocation in browsers and workers (Node tolerates it, which is
     // why only a real SharedWorker surfaced it). The default must be a

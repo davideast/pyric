@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from 'bun:test';
 import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '@pyric/cli/deploy';
 import type { TestCase } from '../../../src/rules/test/spec.js';
 
 const originalFetch = global.fetch;

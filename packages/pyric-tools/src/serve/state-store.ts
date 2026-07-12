@@ -96,8 +96,8 @@ export function createStateStore(projectDir: string): StateStore {
     const file = parsed as PyricStateFile;
     if (file.version !== STATE_FILE_VERSION) {
       throw new StateFileError(
-        `state file at ${path} has version ${String(file.version)}; this pyric-tools expects ` +
-          `${STATE_FILE_VERSION}. Delete it (or promote it with a matching pyric-tools) to continue.`,
+        `state file at ${path} has version ${String(file.version)}; this @pyric/cli expects ` +
+          `${STATE_FILE_VERSION}. Delete it (or promote it with a matching @pyric/cli) to continue.`,
       );
     }
     // Inner controller-blob version (pre-mortem #6): the page's

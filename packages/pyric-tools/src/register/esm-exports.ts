@@ -1,6 +1,6 @@
 /**
  * Minimal `exports`-field walker for the CJS→ESM seam in
- * `pyric-tools/register`.
+ * `@pyric/cli/register`.
  *
  * Why it exists: a rewritten CJS `require('firebase-admin/app')` resolves
  * `pyric-admin/app` under the `require` condition, but the pyric mirrors are

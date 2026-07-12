@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { ConfigureProviderHandler } from '../../../src/auth/provider/handler.js';
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '@pyric/cli/deploy';
 
 let capturedUrl = '';
 let capturedMethod = '';

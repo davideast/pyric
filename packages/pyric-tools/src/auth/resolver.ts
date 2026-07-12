@@ -10,7 +10,7 @@
  * inlines here as a thin Bearer-token fetch wrapper — that's all the
  * old `app.fetchIdentityToolkit` was.
  */
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '@pyric/cli/deploy';
 import type { AuthTools, AuthIR } from './types.js';
 import { AuthMapper } from './mapper.js';
 import { ConfigureProviderHandler } from './provider/handler.js';

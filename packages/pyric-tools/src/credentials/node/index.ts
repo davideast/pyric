@@ -1,7 +1,7 @@
 /**
- * Node-only credential surface (`pyric-tools/credentials/node`): the filesystem
+ * Node-only credential surface (`@pyric/cli/credentials/node`): the filesystem
  * adapters + the local-token resolver. Separate from the browser-safe
- * `pyric-tools/credentials` barrel because these touch the filesystem
+ * `@pyric/cli/credentials` barrel because these touch the filesystem
  * (`~/.pyric/credentials.json`, ADC). Server-side only.
  */
 export {

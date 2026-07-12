@@ -59,7 +59,7 @@
     "mdast-util-to-string": "^4.0.0",
     "publint": "^0.3.21",
     "pyric": "workspace:*",
-    "pyric-tools": "workspace:*",
+    "@pyric/cli": "workspace:*",
     "typescript": "^5.7.0",
     "zod": "^3.23.0"
   }

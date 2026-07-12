@@ -1,5 +1,5 @@
 /**
- * `pyric-tools/vite` — the firebase→pyric-sandbox swap as a Vite plugin.
+ * `@pyric/cli/vite` — the firebase→pyric-sandbox swap as a Vite plugin.
  *
  * The serve analog for SOURCE-driven apps: instead of `vite build && pyric dev
  * dist`, a team keeps `vite dev` (HMR, source maps) with the in-process sandbox
@@ -109,7 +109,7 @@ function bindingsFor(pyricRoot: string): Map<string, Set<string>> {
     const distDir = path.join(pyricRoot, 'dist');
     if (!existsSync(distDir)) {
       throw new Error(
-        `pyric-tools/vite: pyric is not built — run \`bun run build\` first ` +
+        `@pyric/cli/vite: pyric is not built — run \`bun run build\` first ` +
           `(expected pyric dist at ${distDir}).`,
       );
     }
@@ -168,7 +168,7 @@ export interface PyricSandboxOptions {
 /**
  * The dev-only Vite plugin. Add to `vite.config`:
  *
- *   import { pyricSandbox } from 'pyric-tools/vite';
+ *   import { pyricSandbox } from '@pyric/cli/vite';
  *   export default defineConfig({ plugins: [pyricSandbox()] });
  */
 export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
@@ -178,9 +178,9 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
   const entries = defaultSdkEntries(); // { app, auth, firestore, init } → abs paths
   const pyricRoot = pyricPackageRoot();
   const bindings = bindingsFor(pyricRoot); // memoized; throws an actionable error if pyric isn't built
-  // The pyric-TOOLS package root — covers the served entries AND their siblings
+  // The @pyric/cli package root — covers the served entries AND their siblings
   // (`worker/client.js`, the bridge client) that the entries statically import.
-  const pyricToolsRoot = packageRootOf(entries.init);
+  const cliRoot = packageRootOf(entries.init);
 
   // section 8 refinement: a firebase import is "pyric-internal" iff its importer lives
   // under the resolved pyric package root — keyed on the root, not a `/pyric/`
@@ -198,7 +198,7 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
     if (!importer) return false;
     if (isPyricImporter(importer)) return true;
     const f = importer.split('?')[0];
-    return f === pyricToolsRoot || f.startsWith(pyricToolsRoot + path.sep);
+    return f === cliRoot || f.startsWith(cliRoot + path.sep);
   };
   const stubFor = (spec: string): string => stubModuleSource(spec, bindings.get(spec) ?? new Set());
   const shimFor = (spec: string): string => NODE_BUILTIN_SHIMS[spec.replace(/^node:/, '')]!;
@@ -314,15 +314,15 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
     },
 
     configResolved(resolved) {
-      // AUGMENT (don't replace) the fs allow-list: pyric dist + the pyric-tools
+      // AUGMENT (don't replace) the fs allow-list: pyric dist + the @pyric/cli
       // tree live outside the app root, but setting `server.fs.allow` in config()
       // would clobber Vite's auto-added root/workspace entries and 403 the app's
-      // own source. Push the two PACKAGE ROOTS — pyric-tools' root (not just the
+      // own source. Push the two PACKAGE ROOTS — @pyric/cli' root (not just the
       // entries dir) is needed because the served init entry statically imports
       // siblings (`worker/client.js`, the bridge client) outside entries/.
       const allow = resolved.server?.fs?.allow;
       if (allow) {
-        for (const dir of [pyricRoot, pyricToolsRoot]) {
+        for (const dir of [pyricRoot, cliRoot]) {
           if (!allow.includes(dir)) allow.push(dir);
         }
       }
@@ -404,10 +404,10 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         try {
           parsed = JSON.parse(readFileSync(seedPath, 'utf8'));
         } catch (e) {
-          throw new Error(`pyric-tools/vite: failed to read seed ${seedPath}: ${e instanceof Error ? e.message : String(e)}`);
+          throw new Error(`@pyric/cli/vite: failed to read seed ${seedPath}: ${e instanceof Error ? e.message : String(e)}`);
         }
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-          throw new Error('pyric-tools/vite: seed must be a JSON object of "collection/doc" → fields');
+          throw new Error('@pyric/cli/vite: seed must be a JSON object of "collection/doc" → fields');
         }
         const obj = parsed as Record<string, unknown>;
         if (obj.version === STATE_FILE_VERSION && ('firestore' in obj || 'auth' in obj)) {
@@ -520,13 +520,13 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         if (!studioUiDir) {
           server.config.logger.warn(
             '[pyric] ui: built Studio app not found; /__pyric/ui/ will 404 ' +
-              '(run the full build, or reinstall pyric-tools).',
+              '(run the full build, or reinstall @pyric/cli).',
           );
         }
         if (!playgroundUiDir) {
           server.config.logger.warn(
             '[pyric] ui: built Playground app not found; /__pyric/playground/ will 404 ' +
-              '(run the full build, or reinstall pyric-tools).',
+              '(run the full build, or reinstall @pyric/cli).',
           );
         }
       }

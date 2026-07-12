@@ -45,7 +45,7 @@
  *   2  runtime error
  */
 
-import { startServer, type BridgeMode } from 'pyric-tools/bridge';
+import { startServer, type BridgeMode } from '@pyric/cli/bridge';
 import { parseArgs, type ParsedArgs } from './parse-args.js';
 import { runDeploy, runHostingChannelDeploy } from './deploy.js';
 import { runLoginCommand, runLogoutCommand, runWhoamiCommand } from './login.js';
@@ -64,7 +64,7 @@ import { runSnapshot } from './snapshot.js';
 import { runVerify } from './verify.js';
 import { runMcpProxy } from './mcp-proxy.js';
 import { pyricVersion } from '../serve/standalone-assets.js';
-import { pyricToolsVersion } from '../pkg-version.js';
+import { cliVersion } from '../pkg-version.js';
 import { FIREBASE_TESTED_AGAINST } from '../version/compat-target.js';
 
 // The standalone binary bakes the real `pyric` version onto the embedded-assets
@@ -108,12 +108,12 @@ COMMANDS
                              with your firestore.rules deployed. Also runs your own dev
                              command (\`-- <cmd>\`, else the package.json \`dev\` script) with
                              unchanged firebase-admin/firebase imports routed to the
-                             sandbox (PYRIC_SANDBOX + \`--import pyric-tools/register\`).
+                             sandbox (PYRIC_SANDBOX + \`--import @pyric/cli/register\`).
   init [dir]                 Scaffold a pyric project. --template=web (default; canonical
                              firebase/* app served by \`pyric dev\`) or node (script-style).
                              --name=NAME --force (overwrite scaffold files) --json (machine
                              output on stdout). Never prompts; rerunning is safe.
-  vendor [dir]               Retrofit: vendor pyric + pyric-tools into an existing
+  vendor [dir]               Retrofit: vendor pyric + @pyric/cli into an existing
                              project (lay file: tarballs into vendor/ + merge their
                              deps into package.json). Scaffolds nothing. Then run
                              bun install. Standalone binary only.
@@ -216,7 +216,7 @@ CORE FLAGS (dev)
                      browser store (Studio → Settings → Reset, or an
                      incognito window) for a full reset.
   -- <cmd>           Run <cmd> once the host is up, with PYRIC_SANDBOX set and
-                     NODE_OPTIONS extended with --import pyric-tools/register
+                     NODE_OPTIONS extended with --import @pyric/cli/register
                      so firebase-admin/firebase resolve to the sandbox. When
                      omitted, the package.json \`dev\` script runs (via the
                      detected package manager); no script → host-only.
@@ -264,7 +264,7 @@ CREDENTIALS
 
 function printVersion(): void {
   process.stdout.write(
-    `pyric-tools ${pyricToolsVersion()}\n` +
+    `@pyric/cli ${cliVersion()}\n` +
       `Firebase ${FIREBASE_TESTED_AGAINST} (conformance-tested against this release)\n`,
   );
 }

@@ -1,6 +1,6 @@
 /**
- * Wire protocol shared by `pyric-tools/bridge` (Node bridge) and
- * `pyric-tools/bridge` (in-browser sandbox connector).
+ * Wire protocol shared by `@pyric/cli/bridge` (Node bridge) and
+ * `@pyric/cli/bridge` (in-browser sandbox connector).
  *
  * The bridge process speaks MCP HTTP to external agents (Claude Code,
  * Cursor) on `/mcp` and WebSocket to the in-browser sandbox on
@@ -181,7 +181,7 @@ export interface AttachAckFromBridge {
   /** Whether a browser tab is currently registered as the sandbox peer. */
   peerConnected: boolean;
   /**
-   * The `pyric-tools` package version the serve/bridge process runs
+   * The `@pyric/cli` package version the serve/bridge process runs
    * (version-skew stamp). ADDITIVE + OPTIONAL: old servers omit it and
    * the client stays silent. When present and different from the
    * client's own version, the client warns once at attach and enriches

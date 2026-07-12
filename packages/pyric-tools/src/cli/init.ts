@@ -4,14 +4,14 @@
  *   pyric init [dir] [--name N] [--template web|node|static] [--force] [--json]
  *              [--deps vendor|npm] [--pyric-version X]
  *
- * `--deps` picks where `pyric` / `pyric-tools` resolve from. The standalone
+ * `--deps` picks where `pyric` / `@pyric/cli` resolve from. The standalone
  * binary defaults to `vendor`: it lays packed tarballs into `vendor/` and points
  * the deps at them (`file:vendor/*.tgz`), so `bun install` works with the
  * packages still unpublished. `--deps npm` writes registry ranges instead (pinned
  * to the binary's version, or `--pyric-version`) for once they're published.
  *
  * Templates live in `./init-templates.js`. `web` (default) scaffolds a Vite app
- * on the `pyric-tools/vite` plugin: `vite dev` runs canonical `firebase/*`
+ * on the `@pyric/cli/vite` plugin: `vite dev` runs canonical `firebase/*`
  * imports against the in-process sandbox, `vite build` ships the real `firebase`
  * package — one toolchain, the swap is environmental (dev vs build), never a
  * code edit. `static` is the serve-era no-bundler scaffold (`pyric dev`).
@@ -37,7 +37,7 @@ import {
   materializeVendorTarballs,
 } from '../serve/standalone-assets.js';
 
-/** Where the scaffold's `pyric` / `pyric-tools` deps come from.
+/** Where the scaffold's `pyric` / `@pyric/cli` deps come from.
  *  - `vendor`: file: refs to tarballs the standalone binary lays down in
  *    `vendor/` — installs offline, no registry. Default in the binary.
  *  - `npm`: registry refs (`^<version>` or `*`) — for once the packages are
@@ -57,14 +57,14 @@ export function resolveDepsMode(
   return isStandalone() && hasEmbeddedTarballs() ? 'vendor' : 'npm';
 }
 
-/** Return a copy of `t` with `pyric` / `pyric-tools` deps rewritten for `mode`.
+/** Return a copy of `t` with `pyric` / `@pyric/cli` deps rewritten for `mode`.
  *  Pure — caller does the tarball I/O and passes `vendorSpecs`. */
 export function applyDepsMode(
   t: ScaffoldTemplate,
   mode: DepsMode,
   opts: { vendorSpecs?: Record<string, string>; version?: string | null },
 ): ScaffoldTemplate {
-  const WORKSPACE_PKGS = ['pyric', 'pyric-tools'];
+  const WORKSPACE_PKGS = ['pyric', '@pyric/cli'];
   const rewrite = (section: Record<string, string>): Record<string, string> => {
     const next = { ...section };
     for (const pkg of WORKSPACE_PKGS) {
@@ -76,16 +76,16 @@ export function applyDepsMode(
             ? `^${opts.version}`
             : next[pkg]; // npm with no pin: keep the template's range (e.g. '*')
     }
-    // Vendor mode: `pyric-tools` needs `pyric` co-installed (its own dep on
+    // Vendor mode: `@pyric/cli` needs `pyric` co-installed (its own dep on
     // pyric is `*`, resolved from the root file: dep). The web/static templates
-    // only list `pyric-tools`, so add `pyric` alongside it.
-    if (mode === 'vendor' && 'pyric-tools' in next && !('pyric' in next) && opts.vendorSpecs?.pyric) {
+    // only list `@pyric/cli`, so add `pyric` alongside it.
+    if (mode === 'vendor' && '@pyric/cli' in next && !('pyric' in next) && opts.vendorSpecs?.pyric) {
       next.pyric = opts.vendorSpecs.pyric;
     }
     return next;
   };
   // Vendor mode pins `pyric` via overrides: a placeholder `pyric` IS published
-  // to npm at a higher version than the local 0.0.0, so pyric-tools' `pyric@*`
+  // to npm at a higher version than the local 0.0.0, so @pyric/cli' `pyric@*`
   // would otherwise resolve to that empty stub instead of the vendored tarball.
   const overrides =
     mode === 'vendor' && opts.vendorSpecs?.pyric ? { pyric: opts.vendorSpecs.pyric } : t.overrides;
@@ -218,7 +218,7 @@ function packageJsonFor(name: string, t: ScaffoldTemplate): string {
 export interface InitResult {
   template: 'web' | 'node' | 'static';
   dir: string;
-  /** Where pyric/pyric-tools deps resolve from: vendored tarballs or npm. */
+  /** Where pyric/@pyric/cli deps resolve from: vendored tarballs or npm. */
   depsMode: DepsMode;
   created: string[];
   merged: string[];
@@ -331,7 +331,7 @@ export async function runInit(parsed: ParsedArgs, deps: InitDeps = {}): Promise<
   };
 
   // ─── deps mode: vendor the embedded tarballs, or pin npm versions ───
-  // `effective` is the template with `pyric` / `pyric-tools` deps rewritten;
+  // `effective` is the template with `pyric` / `@pyric/cli` deps rewritten;
   // it (not `template`) drives package.json below. Everything else — files,
   // dirs, nextSteps — is identical across modes.
   let effective = template;
@@ -417,8 +417,8 @@ export async function runInit(parsed: ParsedArgs, deps: InitDeps = {}): Promise<
 
   report.write(
     depsMode === 'vendor'
-      ? '\n  deps: vendored pyric + pyric-tools into vendor/ — installs offline, no registry\n'
-      : `\n  deps: pyric + pyric-tools from npm${pinVersion ? ` (^${pinVersion})` : ''}\n`,
+      ? '\n  deps: vendored pyric + @pyric/cli into vendor/ — installs offline, no registry\n'
+      : `\n  deps: pyric + @pyric/cli from npm${pinVersion ? ` (^${pinVersion})` : ''}\n`,
   );
 
   report.write('\nNext steps:\n');
@@ -431,7 +431,7 @@ export async function runInit(parsed: ParsedArgs, deps: InitDeps = {}): Promise<
 // ─── pyric vendor: retrofit the vendored packages into any project ─────────
 
 /**
- * The deps-only "template" for `pyric vendor`: `pyric-tools` as a devDependency.
+ * The deps-only "template" for `pyric vendor`: `@pyric/cli` as a devDependency.
  * `applyDepsMode(..., 'vendor', { vendorSpecs })` rewrites it to a `file:` ref and
  * adds `pyric` + the `overrides.pyric` pin alongside it. No scripts, dirs, or
  * scaffold files — vendoring touches package.json deps only.
@@ -439,14 +439,14 @@ export async function runInit(parsed: ParsedArgs, deps: InitDeps = {}): Promise<
 export const VENDOR_TEMPLATE: ScaffoldTemplate = {
   scripts: {},
   dependencies: {},
-  devDependencies: { 'pyric-tools': '*' },
+  devDependencies: { '@pyric/cli': '*' },
   dirs: [],
   files: () => [],
   nextSteps: [],
 };
 
 /**
- * `pyric vendor [dir]` — lay the vendored `pyric` / `pyric-tools` tarballs into an
+ * `pyric vendor [dir]` — lay the vendored `pyric` / `@pyric/cli` tarballs into an
  * existing project and merge their `file:` deps into its package.json. The
  * retrofit counterpart to `init`: it scaffolds nothing, so any Firebase app can
  * adopt the sandbox without `init --template web`. Standalone-binary only (the
@@ -468,7 +468,7 @@ export async function runVendor(parsed: ParsedArgs, deps: InitDeps = {}): Promis
   if (!(isStandalone() && hasEmbeddedTarballs())) {
     err.write(
       'pyric vendor: needs the standalone binary (it carries the embedded pyric / ' +
-        'pyric-tools tarballs). A monorepo/npm checkout has nothing to vendor; depend ' +
+        '@pyric/cli tarballs). A monorepo/npm checkout has nothing to vendor; depend ' +
         'on the packages directly instead.\n',
     );
     return 1;
@@ -513,7 +513,7 @@ export async function runVendor(parsed: ParsedArgs, deps: InitDeps = {}): Promis
     return 2;
   }
 
-  report.write(`pyric vendor: vendored pyric + pyric-tools into ${join(dir, 'vendor')}\n`);
+  report.write(`pyric vendor: vendored pyric + @pyric/cli into ${join(dir, 'vendor')}\n`);
   for (const spec of Object.values(vendorSpecs)) {
     report.write(`  + ${spec.replace(/^file:/, '')}\n`);
   }

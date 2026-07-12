@@ -26,7 +26,7 @@
  *   bun run deploy
  *   DEPLOY_SA_PATH=/abs/path/sa.json bun run deploy
  */
-import { fromServiceAccount, functions, hosting } from 'pyric-tools/deploy';
+import { fromServiceAccount, functions, hosting } from '@pyric/cli/deploy';
 import { existsSync, writeFileSync, copyFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

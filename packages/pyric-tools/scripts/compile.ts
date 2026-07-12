@@ -5,7 +5,7 @@
  * `pyric dev` normally bundles its SDK shims with esbuild at runtime, reading
  * the on-disk `pyric` dist. Neither esbuild's native helper nor that dist exist
  * inside a compiled binary's `/$bunfs`. The bundles are deterministic, though
- * (a pure function of pyric-tools' wrapper entries + the bundled `pyric`
+ * (a pure function of @pyric/cli's wrapper entries + the bundled `pyric`
  * version), so we run the bundler ONCE here on the build host and embed the
  * output into the binary via a generated entry that sets
  * `globalThis.__PYRIC_EMBEDDED__` before handing off to the CLI. At runtime
@@ -137,10 +137,10 @@ process.stdout.write(
     `(pyric ${version}, worker ${workerVersion})\n`,
 );
 
-// ── 2b. Pack pyric + pyric-tools into installable tarballs ────────────
+// ── 2b. Pack pyric + @pyric/cli into installable tarballs ────────────
 // `pyric init --deps vendor` lays these into a scaffold so `bun install`
 // resolves the still-unpublished packages offline (no registry 404). `pyric`
-// packs clean (no workspace deps); `pyric-tools` depends on `pyric` via
+// packs clean (no workspace deps); `@pyric/cli` depends on `pyric` via
 // workspace:* — rewrite that to `*` so it resolves from the co-installed local
 // `pyric` tarball under npm/bun/pnpm alike (^0.0.0 doesn't resolve everywhere).
 const MONO_ROOT = resolve(PKG_ROOT, '..', '..');
@@ -160,26 +160,26 @@ function npmPack(pkgDir: string): string {
 }
 
 const pyricTgz = npmPack(PYRIC_DIR);
-// pyric-tools: temporarily rewrite its `pyric` dep, pack, restore.
-const toolsPkgJson = join(PKG_ROOT, 'package.json');
-const toolsPkgOrig = readFileSync(toolsPkgJson, 'utf8');
-let toolsTgz: string;
+// @pyric/cli: temporarily rewrite its `pyric` dep, pack, restore.
+const cliPkgJson = join(PKG_ROOT, 'package.json');
+const cliPkgOrig = readFileSync(cliPkgJson, 'utf8');
+let cliTgz: string;
 try {
-  const parsed = JSON.parse(toolsPkgOrig) as { dependencies?: Record<string, string> };
+  const parsed = JSON.parse(cliPkgOrig) as { dependencies?: Record<string, string> };
   if (parsed.dependencies?.pyric) parsed.dependencies.pyric = '*';
-  writeFileSync(toolsPkgJson, JSON.stringify(parsed, null, 2) + '\n');
-  toolsTgz = npmPack(PKG_ROOT);
+  writeFileSync(cliPkgJson, JSON.stringify(parsed, null, 2) + '\n');
+  cliTgz = npmPack(PKG_ROOT);
 } finally {
-  writeFileSync(toolsPkgJson, toolsPkgOrig); // restore exact bytes
+  writeFileSync(cliPkgJson, cliPkgOrig); // restore exact bytes
 }
 
 const tarballBlob: Record<string, string> = {
   'pyric.tgz': readFileSync(pyricTgz).toString('base64'),
-  'pyric-tools.tgz': readFileSync(toolsTgz).toString('base64'),
+  'pyric-cli.tgz': readFileSync(cliTgz).toString('base64'),
 };
 process.stdout.write(
   `  embedded tarballs: pyric.tgz (${(statSync(pyricTgz).size / 1e6).toFixed(1)} MB), ` +
-    `pyric-tools.tgz (${(statSync(toolsTgz).size / 1e6).toFixed(1)} MB)\n`,
+    `pyric-cli.tgz (${(statSync(cliTgz).size / 1e6).toFixed(1)} MB)\n`,
 );
 
 // ── 3. Generate the embedded modules + the compile entry ──────────────

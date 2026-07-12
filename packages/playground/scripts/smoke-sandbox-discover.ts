@@ -14,7 +14,7 @@
  */
 import { createSandboxCrawlerFirestore } from '../src/lib/sandbox/crawler-firestore.ts';
 import { trimDiscoverResult } from '../src/lib/tools/diagnostics/firestore-discover.ts';
-import { createFirestoreDiscoverTools } from 'pyric-tools/discover';
+import { createFirestoreDiscoverTools } from '@pyric/cli/discover';
 
 // `gameConfig` mimics the production failure mode: a config doc that
 // uses a map as a dictionary (a move table keyed by hundreds of

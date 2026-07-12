@@ -1,5 +1,5 @@
 /**
- * `pyric auth:*` subcommands — thin wrappers over `pyric-tools/auth`.
+ * `pyric auth:*` subcommands — thin wrappers over `@pyric/cli/auth`.
  *
  *   - `auth:configure-provider <provider> <enabled>` — toggle one of
  *     the Identity Toolkit providers (anonymous / email / phone /
@@ -7,7 +7,7 @@
  *   - `auth:manage-domains <add|remove|list> [domain]` — manage
  *     authorized domains for the project's auth config.
  *
- * Both call `getAuthTools(scope)` from `pyric-tools/auth`. ProjectScope
+ * Both call `getAuthTools(scope)` from `@pyric/cli/auth`. ProjectScope
  * is resolved from env (FIREBASE_SA_BASE64 / GOOGLE_APPLICATION_CREDENTIALS)
  * by the shared `resolveScope` helper.
  */

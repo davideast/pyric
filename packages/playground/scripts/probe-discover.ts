@@ -41,7 +41,7 @@
 import { readFileSync } from 'node:fs';
 import { createSign } from 'node:crypto';
 import { resolve } from 'node:path';
-import { createRestCrawlerFirestore, crawl } from 'pyric-tools/discover';
+import { createRestCrawlerFirestore, crawl } from '@pyric/cli/discover';
 
 /**
  * Mint a short-lived Firestore-scoped access token from a service-

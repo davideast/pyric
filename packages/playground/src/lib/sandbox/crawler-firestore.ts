@@ -25,7 +25,7 @@ import type {
   CrawlerDocumentRef,
   CrawlerFirestore,
   WireDocumentSnapshot,
-} from 'pyric-tools/discover';
+} from '@pyric/cli/discover';
 
 type Snapshot = Record<string, unknown>;
 

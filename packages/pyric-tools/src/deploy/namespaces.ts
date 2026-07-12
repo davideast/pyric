@@ -1,5 +1,5 @@
 /**
- * Named-object groupings at the pyric-tools/deploy root entry. Each
+ * Named-object groupings at the @pyric/cli/deploy root entry. Each
  * group bundles the primitives for one Firebase product (hosting,
  * functions, etc.) under a typed namespace.
  *

@@ -17,7 +17,7 @@ import { Reference } from 'pyric/rules/internal';
 import { KEEP } from 'pyric/sandbox/internal';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
 import { encodeValue } from 'pyric/sandbox/internal';
-import { wireValueToFieldType } from 'pyric-tools/discover';
+import { wireValueToFieldType } from '@pyric/cli/discover';
 
 const baseCtx = (
   overrides: Partial<{

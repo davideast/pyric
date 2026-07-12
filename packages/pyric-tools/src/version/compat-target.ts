@@ -1,12 +1,12 @@
 /**
  * Single source of truth for the Firebase version pyric is conformance-
  * tested against — the number `pyric --version` prints alongside
- * pyric-tools' own version, and the number `scripts/publish-alpha.sh`
+ * @pyric/cli' own version, and the number `scripts/publish-alpha.sh`
  * reads to derive the `fb<major>.<minor>` dist-tag it moves on a green
  * `compat:check` (see
  * packages/pyric/docs/explanation/versioning-and-compatibility.md).
  *
- * This is a pin, not pyric-tools' own version: bumping it starts a
+ * This is a pin, not @pyric/cli' own version: bumping it starts a
  * re-snapshot of the upstream surface, and no release claims the new
  * `fb` line until `compat:check` passes against it.
  *

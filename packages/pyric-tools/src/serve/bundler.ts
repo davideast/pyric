@@ -48,7 +48,7 @@ export const SDK_MODULES = [
 ] as const;
 
 /**
- * The wrapper entries shipped with pyric-tools, located relative to this
+ * The wrapper entries shipped with @pyric/cli, located relative to this
  * module: compiled `.js` siblings when running from dist (npx install), `.ts`
  * sources in the workspace (tests / dev). esbuild bundles either.
  */
@@ -74,7 +74,7 @@ export function defaultSdkEntries(): Record<string, string> {
 
 /**
  * Resolve the built Studio app dir (the plugin's `ui` option + the CLI's
- * `--ui`). Reached by file path so pyric-tools never imports `@pyric/studio`:
+ * `--ui`). Reached by file path so @pyric/cli never imports `@pyric/studio`:
  * the packaged location (`dist/serve/studio-ui`, copied at build) or, in the
  * monorepo, the sibling studio build. Null when neither exists. The standalone
  * binary embeds these same bytes instead (see `standalone-assets.ts`).
@@ -129,7 +129,7 @@ export function resolveDocsUiDir(): string | null {
 // ─── pyric dist discovery ─────────────────────────────────────────────
 
 /** Locate the installed pyric package root (works in the workspace and when
- *  pyric-tools is npm-installed — pyric is a direct dependency). */
+ *  @pyric/cli is npm-installed — pyric is a direct dependency). */
 export function pyricPackageRoot(): string {
   // Resolve a real exported subpath, then walk up to the package root.
   const entry = fileURLToPath(import.meta.resolve('pyric/firestore'));
@@ -266,7 +266,7 @@ function firebaseStubPlugin(bindings: Map<string, Set<string>>): esbuild.Plugin 
 /** Resolve `pyric/*` specifiers from THIS package's own dependency context
  *  (`import.meta.resolve`) rather than from the entry file's directory —
  *  entries may live in a temp dir or the user's project, neither of which
- *  has pyric in scope; pyric-tools always does (direct dependency). */
+ *  has pyric in scope; @pyric/cli always does (direct dependency). */
 function pyricResolvePlugin(): esbuild.Plugin {
   return {
     name: 'pyric-serve-resolve-pyric',

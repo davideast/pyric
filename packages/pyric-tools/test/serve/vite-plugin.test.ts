@@ -1,4 +1,4 @@
-/** `pyric-tools/vite` — the dev-only firebase→sandbox swap plugin. Unit-tests
+/** `@pyric/cli/vite` — the dev-only firebase→sandbox swap plugin. Unit-tests
  *  the resolver/load/config/html contract (calling the hooks directly), one
  *  resolution check through a real Vite pluginContainer (middlewareMode, binds no
  *  port), and the /__pyric runtime surface by driving the captured connect
@@ -177,7 +177,7 @@ describe('config — optimizer + fs', () => {
     expect(allow).toContain(pyricRoot); // pyric dist added
     // The regression the review caught: the init entry's SIBLING worker/client.js
     // (statically imported by runtime.ts) must fall under an allowed dir — NOT
-    // just entries/. Allowing the pyric-tools package root covers it.
+    // just entries/. Allowing the @pyric/cli package root covers it.
     const workerFile = path.join(path.dirname(path.dirname(entries.init)), 'worker', 'client.js');
     expect(allow.some((d) => workerFile.startsWith(d + path.sep))).toBe(true);
     expect(allow.some((d) => entries.init.startsWith(d + path.sep))).toBe(true);
@@ -601,7 +601,7 @@ describe('M3 — bridge fold (handler-based)', () => {
 // packages/studio/dist/app when run from src).
 //
 // Playground is different on purpose: source/dev tests must not discover
-// packages/playground/dist/client as a hidden fallback. Only packaged pyric-tools
+// packages/playground/dist/client as a hidden fallback. Only packaged @pyric/cli
 // serves embedded Playground bytes from dist/serve/playground-ui, which the
 // packaging gate verifies.
 // Skip the app-serving case (only) when the studio build is absent, with a clear

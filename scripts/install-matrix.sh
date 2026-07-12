@@ -37,7 +37,7 @@ while IFS= read -r tb; do
 done < <(node -e "
 const path = require('path');
 const manifest = require(path.join(process.cwd(), 'dist/packages/manifest.json'));
-const names = ['pyric', 'pyric-admin', 'pyric-tools', '@pyric/ui'];
+const names = ['pyric', 'pyric-admin', '@pyric/cli', '@pyric/ui'];
 for (const name of names) {
   const entry = manifest.packages.find((p) => p.name === name);
   if (!entry) {
@@ -66,7 +66,7 @@ const fs = require("fs");
 const path = require("path");
 const dir = process.env.CONSUMER_DIR;
 const [pyric, admin, tools, ui] = process.argv.slice(1).map((p) => "file:" + p);
-const pin = { "pyric": pyric, "pyric-admin": admin, "pyric-tools": tools, "@pyric/ui": ui };
+const pin = { "pyric": pyric, "pyric-admin": admin, "@pyric/cli": tools, "@pyric/ui": ui };
 const pkg = {
   name: "pyric-install-matrix-consumer", private: true, version: "1.0.0", type: "module",
   dependencies: { ...pin, react: "^19", "react-dom": "^19", firebase: "^12" },
@@ -99,7 +99,7 @@ esac
 #    manifests (drift-free — no hardcoded list to fall out of sync).
 cat > "$CONSUMER/__matrix-resolve.mjs" <<'NODECHECK'
 import { readFileSync } from 'node:fs';
-const PKGS = ['pyric', 'pyric-admin', 'pyric-tools', '@pyric/ui'];
+const PKGS = ['pyric', 'pyric-admin', '@pyric/cli', '@pyric/ui'];
 let failed = false, total = 0;
 for (const pkg of PKGS) {
   const manifest = JSON.parse(readFileSync(`node_modules/${pkg}/package.json`, 'utf8'));

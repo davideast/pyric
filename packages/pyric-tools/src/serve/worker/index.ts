@@ -13,9 +13,9 @@
  * and type-only `pyric/sandbox` (erased at build), so this entry stays free of
  * the ~10 MB rules/sandbox engine — safe to import from any browser app.
  *
- * Exposed by `pyric-tools`'s `./serve/worker` package export so Studio can
+ * Exposed by `@pyric/cli`'s `./serve/worker` package export so Studio can
  * `import { getFirestore, subscribeEvents, setLens, setPolicy } from
- * 'pyric-tools/serve/worker'` and reach the live SharedWorker backend.
+ * '@pyric/cli/serve/worker'` and reach the live SharedWorker backend.
  */
 
 export {

@@ -83,7 +83,7 @@ test('a Firestore write via the worker port is visible to a second, independent 
   page,
 }) => {
   // Drives the worker over the SAME wire protocol Studio's own live plane
-  // (`pyric-tools/serve/worker` client) uses — `admin.setDocument` /
+  // (`@pyric/cli/serve/worker` client) uses — `admin.setDocument` /
   // `admin.getDocument` are simple ack/value RPCs, so this exercises the real
   // "write is visible through the worker port" path without reaching into
   // Studio's shell/UI internals (out of scope for this change): open TWO

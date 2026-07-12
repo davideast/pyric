@@ -21,7 +21,7 @@
  *     doesn't surface that tool today.
  */
 import type { ToolHandler } from '@inbrowser/agent';
-import { createFirestoreDiscoverTools } from 'pyric-tools/discover';
+import { createFirestoreDiscoverTools } from '@pyric/cli/discover';
 import { trimDiscoverResult } from '../diagnostics/firestore-discover';
 import { createSandboxCrawlerFirestore } from '~/lib/sandbox/crawler-firestore';
 import { readFirestoreState } from '~/lib/sandbox/runtime';

@@ -1,5 +1,5 @@
 {
-  "_readme": "Exposure decisions for the tool parity audit (scripts/tool-parity.mjs). Every tool visible on any surface (MCP bridge / playground agent / pyric-tools registry) must be recorded here as 'gap' (absence is a defect to fix) or 'deliberate' (absence is design, with the reason). Unannotated tools fail `bun run tool:parity --check`. Seeded from docs/design/TOOL-SYSTEM.md's exposure matrix.",
+  "_readme": "Exposure decisions for the tool parity audit (scripts/tool-parity.mjs). Every tool visible on any surface (MCP bridge / playground agent / @pyric/cli registry) must be recorded here as 'gap' (absence is a defect to fix) or 'deliberate' (absence is design, with the reason). Unannotated tools fail `bun run tool:parity --check`. Seeded from docs/design/TOOL-SYSTEM.md's exposure matrix.",
   "tools": {
     "inspect_firestore_traffic": {
       "decision": "gap",
