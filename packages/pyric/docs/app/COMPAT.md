@@ -15,28 +15,28 @@
 
 ## `initializeApp(config, name?)` — the app registry
 
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 1 | Registers the default app under the name `'[DEFAULT]'`; `getApps()` has length 1 and `getApp()` (no arg) resolves the same instance | ✓ | oracle: `app-registry-initializeapp-default` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 2 | Registers a named app alongside the default; `getApp('secondary')` resolves it and `getApps()` has length 2 (default + named) | ✓ | oracle: `app-registry-initializeapp-named` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 3 | A same-name re-initialization with a DIFFERENT config throws `FirebaseError` code `app/duplicate-app`, with the app name embedded in the message | ✓ | oracle: `app-registry-initializeapp-duplicate-name` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 4 | A same-name re-initialization with EQUAL config is idempotent — no throw, returns the existing instance, `getApps()` stays length 1 (reference identity is the deep-equal-options analog for a `{ sandbox }` config) | ✓ | oracle: `app-registry-initializeapp-duplicate-config` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 5 | `getApp()` with no name resolves the default app instance; its name is `'[DEFAULT]'` | ✓ | oracle: `app-registry-getapp-default` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 6 | `getApp('secondary')` resolves the named app instance; its name is `'secondary'` | ✓ | oracle: `app-registry-getapp-named` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 7 | `getApp(name)` for a name that was never initialized throws `FirebaseError` code `app/no-app`, directing the caller to `initializeApp()` | ✓ | oracle: `app-registry-getapp-unknown-name` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 8 | `getApps()` returns an array containing every registered app by identity (the exact instances, not copies) | ✓ | oracle: `app-registry-getapps-contents` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 9 | `deleteApp(app)` returns a Promise, deregisters the app (so `getApps()` shrinks), a later `getApp(name)` throws `app/no-app`, and the name can be re-initialized afterwards | ✓ | oracle: `app-registry-deleteapp` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 10 | `deleteApp` on an already-deleted app throws `FirebaseError` code `app/app-deleted` | ✓ | oracle: `app-registry-deleteapp-double` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 11 | `SDK_VERSION` is the firebase client SDK semver string pyric mirrors — re-exported from `firebase/app`, so it IS the version the rig captured against (currently `12.13.0`) | ✓ | oracle: `app-registry-sdk-version` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 12 | `FirebaseError` is `firebase/app`'s own error class (re-exported): `instanceof Error`, `constructor.name` is `'FirebaseError'`, and it preserves `.code` and `.message` — so mirror throws match prod on `instanceof` and code | ✓ | oracle: `app-registry-firebaseerror-shape` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 13 | `onLog(cb)` / `setLogLevel(level)` are the firebase diagnostic-logger seam (re-exported functioning implementations, not inert tokens): registering a handler returns undefined, raising the threshold takes effect, and a malformed `registerVersion` emits a `warn` entry (type `@firebase/app`) to the handler | ✓ (re-export) | oracle: `app-registry-onlog-setloglevel` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 14 | `registerVersion(library, version)` registers a platform-logger version component (re-exported functioning implementation); a well-formed call returns undefined without throwing | ✓ (re-export) | oracle: `app-registry-registerversion` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
-| 15 | Not implemented — server-app (SSR) initialization is deferred: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet | — | deferred — see census deny-list (tier `deferred`) for the surface-coverage debt entry |
+| API | Category | Behavior | Status | Probe |
+|---|---|---|---|---|
+| initializeApp(config) |  | Registers the default app under the name `'[DEFAULT]'`; `getApps()` has length 1 and `getApp()` (no arg) resolves the same instance | ✓ | oracle: `app-registry-initializeapp-default` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| initializeApp(config, 'secondary') |  | Registers a named app alongside the default; `getApp('secondary')` resolves it and `getApps()` has length 2 (default + named) | ✓ | oracle: `app-registry-initializeapp-named` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| initializeApp(config) |  | A same-name re-initialization with a DIFFERENT config throws `FirebaseError` code `app/duplicate-app`, with the app name embedded in the message | ✓ | oracle: `app-registry-initializeapp-duplicate-name` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| initializeApp(config) |  | A same-name re-initialization with EQUAL config is idempotent — no throw, returns the existing instance, `getApps()` stays length 1 (reference identity is the deep-equal-options analog for a `{ sandbox }` config) | ✓ | oracle: `app-registry-initializeapp-duplicate-config` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| getApp() |  | `getApp()` with no name resolves the default app instance; its name is `'[DEFAULT]'` | ✓ | oracle: `app-registry-getapp-default` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| getApp('secondary') |  | `getApp('secondary')` resolves the named app instance; its name is `'secondary'` | ✓ | oracle: `app-registry-getapp-named` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| getApp(name) |  | `getApp(name)` for a name that was never initialized throws `FirebaseError` code `app/no-app`, directing the caller to `initializeApp()` | ✓ | oracle: `app-registry-getapp-unknown-name` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| getApps() |  | `getApps()` returns an array containing every registered app by identity (the exact instances, not copies) | ✓ | oracle: `app-registry-getapps-contents` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| deleteApp(app) |  | `deleteApp(app)` returns a Promise, deregisters the app (so `getApps()` shrinks), a later `getApp(name)` throws `app/no-app`, and the name can be re-initialized afterwards | ✓ | oracle: `app-registry-deleteapp` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| deleteApp(app) |  | `deleteApp` on an already-deleted app throws `FirebaseError` code `app/app-deleted` | ✓ | oracle: `app-registry-deleteapp-double` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| SDK_VERSION |  | `SDK_VERSION` is the firebase client SDK semver string pyric mirrors — re-exported from `firebase/app`, so it IS the version the rig captured against (currently `12.13.0`) | ✓ | oracle: `app-registry-sdk-version` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| FirebaseError |  | `FirebaseError` is `firebase/app`'s own error class (re-exported): `instanceof Error`, `constructor.name` is `'FirebaseError'`, and it preserves `.code` and `.message` — so mirror throws match prod on `instanceof` and code | ✓ | oracle: `app-registry-firebaseerror-shape` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| onLog / setLogLevel |  | `onLog(cb)` / `setLogLevel(level)` are the firebase diagnostic-logger seam (re-exported functioning implementations, not inert tokens): registering a handler returns undefined, raising the threshold takes effect, and a malformed `registerVersion` emits a `warn` entry (type `@firebase/app`) to the handler | ✓ (re-export) | oracle: `app-registry-onlog-setloglevel` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| registerVersion |  | `registerVersion(library, version)` registers a platform-logger version component (re-exported functioning implementation); a well-formed call returns undefined without throwing | ✓ (re-export) | oracle: `app-registry-registerversion` (firebase 12.13.0) + replay: `oracle-conformance.test.ts` |
+| initializeServerApp |  | Not implemented — server-app (SSR) initialization is deferred: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet | — | deferred — see census deny-list (tier `deferred`) for the surface-coverage debt entry |
 
 ## Not supported yet
 
 Tracked but not implemented yet. Each flips to ✓ as support lands.
 
-| # | Behavior |
+| API | Behavior |
 |---|---|
-| 15 | Not implemented — server-app (SSR) initialization is deferred: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet |
+| initializeServerApp | Not implemented — server-app (SSR) initialization is deferred: a FirebaseServerApp carries per-request auth/heartbeat state with no decided sandbox mirror pattern yet |

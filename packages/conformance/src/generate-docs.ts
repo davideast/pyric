@@ -112,8 +112,26 @@ function renderStatus(row: CompatibilityRow): string {
   return row.statusNote ? `${glyph} ${row.statusNote}` : glyph;
 }
 
+/**
+ * The row's display label splits into an API name (the row heading) and a short
+ * category sub-label. The `api` field carries them joined by ` — `; the part
+ * before is the name, the part after is the category. A row with no ` — ` has an
+ * empty category. When `api` is empty or is just the section string repeated, it
+ * carries no per-row information, so the row ref stands in as the name.
+ */
+function apiParts(row: CompatibilityRow): { name: string; category: string } {
+  const raw = row.api.trim();
+  if (raw === '' || raw.toLowerCase() === row.section.trim().toLowerCase()) {
+    return { name: row.rowRef, category: '' };
+  }
+  const at = raw.indexOf(' — ');
+  if (at === -1) return { name: raw, category: '' };
+  return { name: raw.slice(0, at).trim(), category: raw.slice(at + 3).trim() };
+}
+
 function renderRow(row: CompatibilityRow): string {
-  return `| ${escapeCell(row.rowRef)} | ${escapeCell(row.behavior)} | ${escapeCell(renderStatus(row))} | ${escapeCell(row.evidence)} |`;
+  const { name, category } = apiParts(row);
+  return `| ${escapeCell(name)} | ${escapeCell(category)} | ${escapeCell(row.behavior)} | ${escapeCell(renderStatus(row))} | ${escapeCell(row.evidence)} |`;
 }
 
 /**
@@ -135,10 +153,26 @@ export function scoredBlocks(surface: CompatibilitySurfaceRegistry): Compatibili
   });
 }
 
-/** Consolidated list of the rows a surface tracks but has not implemented yet
- *  (status `unsupported`, the `—` glyph), so a reader sees the gaps in one
- *  place instead of scanning the whole matrix. Rendered just above the
- *  deny-list. Empty string when nothing is pending. */
+/** The rows whose behavior is a pinned, documented difference from production
+ *  (status `diverged-documented`), gathered so a reader sees every known gap in
+ *  one place. Empty string when the surface has none. */
+function divergedSection(rows: CompatibilityRow[]): string {
+  if (rows.length === 0) return '';
+  return [
+    '## Documented differences',
+    '',
+    'Where the local engine and production Firebase differ today. Each difference is pinned and tracked.',
+    '',
+    '| API | Difference |',
+    '|---|---|',
+    ...rows.map((r) => `| ${escapeCell(apiParts(r).name)} | ${escapeCell(r.behavior)} |`),
+    '',
+  ].join('\n');
+}
+
+/** The rows a surface tracks but has not implemented yet (status `unsupported`,
+ *  the `—` glyph), so a reader sees the gaps in one place instead of scanning
+ *  the whole matrix. Empty string when nothing is pending. */
 function notSupportedSection(rows: CompatibilityRow[]): string {
   if (rows.length === 0) return '';
   return [
@@ -146,38 +180,68 @@ function notSupportedSection(rows: CompatibilityRow[]): string {
     '',
     'Tracked but not implemented yet. Each flips to ✓ as support lands.',
     '',
-    '| # | Behavior |',
+    '| API | Behavior |',
     '|---|---|',
-    ...rows.map((r) => `| ${escapeCell(r.rowRef)} | ${escapeCell(r.behavior)} |`),
+    ...rows.map((r) => `| ${escapeCell(apiParts(r).name)} | ${escapeCell(r.behavior)} |`),
     '',
   ].join('\n');
+}
+
+/** The rows a surface tracks but has not yet checked against production (status
+ *  `unverified`, the `?` glyph). Empty string when the surface has none. */
+function notVerifiedSection(rows: CompatibilityRow[]): string {
+  if (rows.length === 0) return '';
+  return [
+    '## Not verified yet',
+    '',
+    'Tracked but not yet checked against recorded production behavior.',
+    '',
+    '| API | Not yet verified |',
+    '|---|---|',
+    ...rows.map((r) => `| ${escapeCell(apiParts(r).name)} | ${escapeCell(r.behavior)} |`),
+    '',
+  ].join('\n');
+}
+
+/** The three consolidated status roundups in fixed order (documented
+ *  differences, then not-supported, then not-verified), each present only when
+ *  the surface has rows of that status. Rendered just above the deny-list. */
+function consolidatedSections(rows: CompatibilityRow[]): string {
+  return [
+    divergedSection(rows.filter((r) => r.status === 'diverged-documented')),
+    notSupportedSection(rows.filter((r) => r.status === 'unsupported')),
+    notVerifiedSection(rows.filter((r) => r.status === 'unverified')),
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 export function renderSurfaceMarkdown(surface: CompatibilitySurfaceRegistry): string {
   const parts: string[] = [GENERATED_HEADER, ''];
   const blocks = scoredBlocks(surface);
-  const pending = blocks.flatMap((b) => (b.kind === 'table' ? b.rows.filter((r) => r.status === 'unsupported') : []));
-  let pendingInjected = false;
+  const allRows = blocks.flatMap((b) => (b.kind === 'table' ? b.rows : []));
+  const consolidated = consolidatedSections(allRows);
+  let consolidatedInjected = false;
   for (const [index, block] of blocks.entries()) {
     if (block.kind === 'markdown') {
-      // Inject the consolidated "Not supported yet" list just above the first
-      // deny-list block (both answer "what can't I use", kept together).
-      if (!pendingInjected && pending.length > 0 && /deny-list/i.test(block.markdown)) {
-        parts.push(notSupportedSection(pending));
-        pendingInjected = true;
+      // Inject the consolidated status roundups just above the first deny-list
+      // block (both answer "what can't I use", kept together).
+      if (!consolidatedInjected && consolidated && /deny-list/i.test(block.markdown)) {
+        parts.push(consolidated);
+        consolidatedInjected = true;
       }
       parts.push(block.markdown);
       continue;
     }
     parts.push(block.prefix);
-    parts.push('| # | Behavior | Status | Probe |');
-    parts.push('|---|---|---|---|');
+    parts.push('| API | Category | Behavior | Status | Probe |');
+    parts.push('|---|---|---|---|---|');
     for (const row of block.rows) parts.push(renderRow(row));
     const next = blocks[index + 1];
     if (next?.kind === 'table' || (next?.kind === 'markdown' && !next.markdown.startsWith('\n'))) parts.push('');
   }
   // No deny-list block (some surfaces have none): append at the end.
-  if (!pendingInjected && pending.length > 0) parts.push('', notSupportedSection(pending));
+  if (!consolidatedInjected && consolidated) parts.push('', consolidated);
   return parts.join('\n').replace(/\s+$/, '') + '\n';
 }
 
@@ -193,8 +257,8 @@ export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry): 
     }
     const prefix = block.prefix;
     if (prefix) lines.push(...prefix.split('\n'));
-    lines.push('| # | Behavior | Status | Probe |');
-    lines.push('|---|---|---|---|');
+    lines.push('| API | Category | Behavior | Status | Probe |');
+    lines.push('|---|---|---|---|---|');
     for (const row of block.rows) {
       lines.push(renderRow(row));
       out.set(row.id, lines.length);

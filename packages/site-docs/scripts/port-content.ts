@@ -810,6 +810,8 @@ function transformCompatTables(body: string): string {
           const header = splitRow(line).map((h) => h.trim().toLowerCase());
           const col = (name: string) => header.findIndex((h) => h === name || h.startsWith(name));
           const iNum = col('#');
+          const iApi = col('api');
+          const iCat = col('category');
           const iBeh = col('behavior');
           const iSt = col('status');
           const iPr = col('probe');
@@ -852,23 +854,32 @@ function transformCompatTables(body: string): string {
               const glyph = status.slice(0, 1);
               const meta = STATUS_META[status] ?? STATUS_META[glyph];
               const qualifier = meta && status.length > 1 ? status.slice(1).trim() : '';
-              const num = iNum >= 0 ? (cells[iNum] ?? '').trim() : '';
               const probe = iPr >= 0 ? (cells[iPr] ?? '').trim() : '';
+              const apiName = iApi >= 0 ? (cells[iApi] ?? '').trim() : '';
+              const category = iCat >= 0 ? (cells[iCat] ?? '').trim() : '';
+              const num = iNum >= 0 ? (cells[iNum] ?? '').trim() : '';
               const extras = cells
                 .map((c, k) => ({ c, k }))
-                .filter(({ k }) => ![iNum, iBeh, iSt, iPr].includes(k))
+                .filter(({ k }) => ![iNum, iApi, iCat, iBeh, iSt, iPr].includes(k))
                 .map(({ c }) => c.trim())
                 .filter(Boolean);
-              // The scan line is dot + behavior, nothing else. Evidence
-              // (probe, qualifier, notes) hides behind a native
+              // The scan line stacks the API name (the heading) over a muted
+              // "category · behavior" sub-label, with the status dot to its
+              // left. Evidence (probe, qualifier, notes) hides behind a native
               // disclosure; rows without evidence render as plain rows.
               const dot = meta
                 ? `<span class="compat-dot" data-status="${meta.key}" role="img" aria-label="${meta.label}" title="${meta.label}"></span>`
                 : `<span class="compat-status">${mdInlineHtml(status)}</span>`;
-              const scanLine = [
-                `<span class="compat-num">${mdInlineHtml(num)}</span>`,
-                dot,
+              const heading = apiName || num;
+              const sub = [
+                category ? `<span class="compat-category">${mdInlineHtml(category)}</span>` : '',
                 `<span class="compat-behavior">${mdInlineHtml(cells[iBeh] ?? '')}</span>`,
+              ]
+                .filter(Boolean)
+                .join(' · ');
+              const scanLine = [
+                dot,
+                `<span class="compat-main"><code class="compat-api">${mdInlineHtml(heading)}</code><span class="compat-sub">${sub}</span></span>`,
               ].join('');
               const evidence = [
                 probe ? `<div class="compat-probe">${mdInlineHtml(probe)}</div>` : '',
