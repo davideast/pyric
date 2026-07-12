@@ -1130,7 +1130,7 @@
     {
       "id": "storage.coarse-rules",
       "service": "storage",
-      "status": "supported",
+      "status": "unsupported",
       "description": "Coarse read/write with auth, size, content type, metadata, and path matching.",
       "dependencies": [
         {
@@ -1235,11 +1235,13 @@
         {
           "kind": "construct",
           "id": "storage.binding.resource",
-          "verdict": "supported",
+          "verdict": "unsupported",
           "snapshot": "accepted",
           "probe": "implemented",
           "productionVerified": true,
-          "divergedBy": []
+          "divergedBy": [
+            "storage-rules#118"
+          ]
         },
         {
           "kind": "construct",
