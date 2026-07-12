@@ -75,15 +75,8 @@ import {
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import {
   ref as rtdbRef,
-  get as rtdbGet,
-  set as rtdbSet,
-  update as rtdbUpdate,
-  remove as rtdbRemove,
   onValue as rtdbOnValue,
-  serverTimestamp as rtdbServerTimestamp,
-  sandbox as rtdbSandbox,
   type DatabaseReference,
-  type DataSnapshot,
 } from 'pyric/database/modular';
 
 import type {
@@ -112,7 +105,7 @@ import {
 // of a separate in-page sandbox.
 import { buildSandboxDispatcher } from '../../bridge/client/dispatch.js';
 
-import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from './host-context.js';
+import { type HostCtx, type PortLike, post, ok, fail } from './host-context.js';
 import {
   authSubsFor,
   isAuthOp,
@@ -148,6 +141,7 @@ import { isFirestoreReadOp, handleFirestoreReadOp } from './host/firestore-reads
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './host/firestore-writes.js';
 import { isRulesOp, handleRulesOp } from './host/rules.js';
 import { isAdminFirestoreOp, handleAdminFirestoreOp } from './host/admin-firestore.js';
+import { isRtdbOp, handleRtdbOp, rtdbSnapToWire } from './host/rtdb.js';
 
 // Re-export so host.ts's public surface is unchanged after the decomposition.
 export { ensureAuth, portSession } from './host-auth.js';
@@ -207,20 +201,6 @@ export async function listBranchNames(idb?: PersistenceBackend): Promise<string[
 
 async function writeBranchRegistry(idb: PersistenceBackend, names: string[]): Promise<void> {
   await idb.putRecords(BRANCH_REGISTRY_KEY, new Map([['names', { value: names }]]));
-}
-
-// ─── Sentinel resolution ──────────────────────────────────────────────────
-
-function resolveRtdbSentinels(value: unknown): unknown {
-  if (value && typeof value === 'object') {
-    const marker = value as { __rtdbSentinel?: unknown };
-    if (marker.__rtdbSentinel === 'serverTimestamp') return rtdbServerTimestamp();
-    if (Array.isArray(value)) return value.map(resolveRtdbSentinels);
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) out[k] = resolveRtdbSentinels(v);
-    return out;
-  }
-  return value;
 }
 
 // ─── Op handlers ──────────────────────────────────────────────────────────
@@ -317,15 +297,6 @@ function toSettableMetadata(msg: {
   return settable;
 }
 
-function rtdbSnapToWire(snap: DataSnapshot): unknown {
-  return {
-    key: snap.key,
-    exists: snap.exists(),
-    value: snap.val(),
-    size: snap.size,
-  };
-}
-
 async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
   // Explicit lens (Studio admin / as / app-session) → lensDb; no lens → the
   // PORT'S SESSION (#754), so app ops run as whoever this tab signed in as.
@@ -344,71 +315,9 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
   if (isFirestoreWriteOp(msg.method)) return handleFirestoreWriteOp(ctx, port, msg, db);
   if (isRulesOp(msg.method)) return handleRulesOp(ctx, port, msg, db);
   if (isAdminFirestoreOp(msg.method)) return handleAdminFirestoreOp(ctx, port, msg);
+  if (isRtdbOp(msg.method)) return handleRtdbOp(ctx, port, msg);
 
   switch (msg.method) {
-    case 'rtdb.get': {
-      try {
-        const db = lensRtdb(ctx, msg.actAs, port);
-        ok(port, msg.id, rtdbSnapToWire(await rtdbGet(rtdbRef(db, msg.path))));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'rtdb.set': {
-      try {
-        const db = lensRtdb(ctx, msg.actAs, port);
-        const value = resolveRtdbSentinels(msg.value);
-        await rtdbSet(rtdbRef(db, msg.path), value as never);
-        await bestEffortFlush(ctx);
-        ok(port, msg.id, null);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'rtdb.update': {
-      try {
-        const db = lensRtdb(ctx, msg.actAs, port);
-        await rtdbUpdate(rtdbRef(db, msg.path), resolveRtdbSentinels(msg.values) as Record<string, unknown>);
-        await bestEffortFlush(ctx);
-        ok(port, msg.id, null);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'rtdb.remove': {
-      try {
-        const db = lensRtdb(ctx, msg.actAs, port);
-        await rtdbRemove(rtdbRef(db, msg.path));
-        await bestEffortFlush(ctx);
-        ok(port, msg.id, null);
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'rtdb.push': {
-      try {
-        const db = lensRtdb(ctx, msg.actAs, port);
-        const childPath = `${msg.path}/${msg.key}`;
-        if (msg.value !== undefined) {
-          await rtdbSet(
-            rtdbRef(db, childPath),
-            resolveRtdbSentinels(msg.value) as never,
-          );
-          await bestEffortFlush(ctx);
-        }
-        const normalizedPath = `/${childPath.split('/').filter(Boolean).join('/')}`;
-        ok(port, msg.id, { key: msg.key, path: normalizedPath });
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'rtdb.adminSnapshot': {
-      try {
-        ok(port, msg.id, rtdbSandbox.snapshotState(lensRtdb(ctx, { mode: 'admin' }, port)));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
     case 'getVersion': {
       // The build hash is injected by the bundler (esbuild `define`). `typeof`
       // guards the non-bundled path (tests import the compiled host directly,
