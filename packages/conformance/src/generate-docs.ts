@@ -216,9 +216,11 @@ function computeBehavior(spec: SurfaceScoreSpec, base: CoverageBaseline): Dimens
   const rawBreakdown = NONCONFORMING_ORDER.filter((s) => counts[s]).map((s) => `${counts[s]} ${s}`);
   const prettyBreakdown = BEHAVIOR_BREAKDOWN_ORDER.filter((s) => counts[s]).map((s) => nonconformingPhrase(s, counts[s]));
   const missing = spec.rowsMissingNote ? `; ${spec.rowsMissingNote}` : '';
+  // Lead with the percentage: it is the headline trust number, not the raw fraction.
+  const pct = total > 0 ? `${((conforms / total) * 100).toFixed(1)}%` : '—';
   return {
-    cell: `${conforms} / ${total}${rawBreakdown.length ? ` (${rawBreakdown.join(', ')})` : ''}`,
-    value: `${conforms} / ${total} rows conform${prettyBreakdown.length ? ` (${prettyBreakdown.join(', ')})` : ''}${missing}`,
+    cell: `${pct} (${conforms} / ${total})`,
+    value: `${pct} conform, ${conforms} of ${total} rows${prettyBreakdown.length ? ` (${prettyBreakdown.join(', ')})` : ''}${missing}`,
   };
 }
 

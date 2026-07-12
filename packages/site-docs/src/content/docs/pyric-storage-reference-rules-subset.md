@@ -92,9 +92,11 @@ For existing objects:
 - `resource.timeCreated` / `resource.updated`: the object's creation and last-update timestamps. The update-time field is `updated`; the language has no `resource.timeUpdated`.
 
 `duration.value(n, unit)` builds a duration, so a freshness window reads:
+
 ```
 allow delete: if request.time < resource.timeCreated + duration.value(1, 'h');
 ```
+
 Reading a field an object does not carry is an evaluation error, and an error **denies** — including through a negation, so `resource.name != 'x'` on an object with no name denies rather than allowing.
 
 ## Cross-service lookups

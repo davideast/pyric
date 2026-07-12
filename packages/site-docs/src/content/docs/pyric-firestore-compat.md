@@ -13,7 +13,7 @@ order: 8003
 |---|---|
 | Maturity | v1, conformance-held |
 | SDK surface coverage | 55.5% of total surface, 63.5% of intended surface |
-| Behavior conformance | 146 / 166 rows conform (20 documented divergences) |
+| Behavior conformance | 88.0% conform, 146 of 166 rows (20 documented divergences) |
 | Assurance capabilities | 1 supported, 5 unsupported (of 6) |
 | Live-prod oracle citations | 40 / 166 rows |
 

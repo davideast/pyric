@@ -6,7 +6,7 @@
 |---|---|
 | Maturity | Experimental |
 | SDK surface coverage | 64.8% of total surface, 79.5% of intended surface (modular SDK surface; the agent-tool surface is native) |
-| Behavior conformance | 224 / 258 rows conform (10 documented divergences, 13 unsupported, 11 unverified) |
+| Behavior conformance | 86.8% conform, 224 of 258 rows (10 documented divergences, 13 unsupported, 11 unverified) |
 | Assurance capabilities | 0 supported, 1 qualified, 4 unsupported (of 5) |
 | Live-prod oracle citations | 95 / 258 rows |
 
@@ -754,7 +754,7 @@ The sandbox implementation has landed (`packages/pyric/src/database/modular.ts` 
 
 ### Harness extension: `ensureOracleRtdbRules`
 
-`packages/conformance/src/run.ts` now deploys an RTDB rules namespace
+`scripts/oracle/run.ts` now deploys an RTDB rules namespace
 analogous to `ensureOracleRules` / `ensureOracleStorageRules`. The
 JSON shape:
 
