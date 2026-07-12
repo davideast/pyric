@@ -1,0 +1,15 @@
+{
+  "name": "app-registry-getapp-default",
+  "matrixRow": "app #5",
+  "rowIds": [
+    "app#5"
+  ],
+  "description": "firebase/app getApp() with no name resolves the default app registered by initializeApp() — the same instance, with name '[DEFAULT]'.",
+  "observedAt": "2026-07-12T01:20:59.103Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "threw": false,
+    "resolvesSameInstance": true,
+    "name": "[DEFAULT]"
+  }
+}

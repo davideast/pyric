@@ -10,9 +10,12 @@
  *      `onIdTokenChanged` registry ALSO fires on a forced ID-token
  *      refresh (matches prod — see oracle observation
  *      `auth-onidtokenchanged-force-refresh.json`).
- *   3. Mock-result registry — pre-staged `UserCredential`s consumed by
- *      `signInWithPopup` / `signInWithCredential`. Keyed by
- *      `providerId`; one slot per provider.
+ *   3. Auth-flow staging — the pre-staged `UserCredential` mock
+ *      registry (consumed by `signInWithPopup` /
+ *      `signInWithCredential`), the injected popup/redirect resolver,
+ *      and the pending redirect-result slot. Delegated to
+ *      {@link AuthFlowRegistry} (`sandbox-auth-flow.ts`); the backend
+ *      holds one `flow` field and the accessor methods forward to it.
  *   4. Token cache — current ID token string + IdTokenResult per uid.
  *      A fresh token is minted on each setCurrentUser transition into
  *      a non-null user (new session = new token) and on each
@@ -32,7 +35,10 @@
  * so calling it with the same identity twice is a no-op.
  */
 
-import { FirebaseError } from 'firebase/app';
+import { makeAuthError } from './auth-errors.js';
+import { AuthFlowRegistry } from './sandbox-auth-flow.js';
+import { sandboxTokenFor } from './sandbox-token.js';
+import { validateEmailFormat, validatePasswordStrength } from './sandbox-credential-validators.js';
 
 import type { AuthState, Sandbox } from 'pyric/sandbox';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
@@ -47,190 +53,36 @@ import {
   type UserCredential,
   type UserInfo,
 } from './types.js';
+import {
+  NO_PASSWORD_SENTINEL,
+  type AuthUserRecord,
+  type BeforeStateReg,
+  type CreateUserRequest,
+  type MintSessionRequest,
+  type MintedSession,
+  type Mutable,
+  type ProviderUserInfo,
+  type Registration,
+  type SeedUser,
+  type SignInIdentitySpec,
+  type StoredUser,
+  type UpdateUserRequest,
+} from './sandbox-backend-types.js';
 
-/** Strip `readonly` so a runtime-mutable `User`/`UserInfo` (fields are
- *  `readonly` at the type level but plain data at runtime) can be updated in
- *  place — used by `updateProfile` to reflect the change on held references. */
-type Mutable<T> = { -readonly [K in keyof T]: T[K] };
-
-/** Seed record for `sandbox.seedUsers`. */
-/** Stand-in password for exported provider-flow identities that never had
- *  one — keeps `exportUsers` → `seedUsers` round-trips lossless without
- *  widening the `SeedUser` shape. Not a secret: sandbox-only. */
-export const NO_PASSWORD_SENTINEL = '__pyric_no_password__';
-
-export interface SeedUser {
-  uid: string;
-  email: string;
-  password: string;
-  displayName?: string;
-  customClaims?: Record<string, unknown>;
-  /** Originating provider for this identity (e.g. `'google.com'`).
-   *  Defaults to `'password'` — the natural provider for a record
-   *  seeded with an email + password. A host seeding popup-flow
-   *  identities passes the real provider so `listIdentities` /
-   *  `IdTokenResult.signInProvider` label them correctly. */
-  providerId?: string;
-}
-
-/**
- * Request for {@link SandboxBackend.mintDetachedSession} — one variant
- * per client sign-in shape, plus `uid` for existing identities
- * (session restore, provider-bridge accept).
- */
-export type MintSessionRequest =
-  | { kind: 'anonymous' }
-  | { kind: 'password'; email: string; password: string }
-  | { kind: 'createPassword'; email: string; password: string }
-  | { kind: 'uid'; uid: string };
-
-/** A minted per-connection session: the `User` plus the {@link AuthState}
- *  its data contexts should carry (`sandbox.withAuth(state)`). */
-export interface MintedSession {
-  user: User;
-  state: NonNullable<AuthState>;
-}
-
-/**
- * A single listener registration. One per `subscribe()` call — the
- * same observer fn subscribed twice produces two records (matching
- * upstream's array-backed observer list, where duplicates are allowed
- * and removed one at a time by index).
- */
-interface Registration {
-  observer: AuthObserver;
-  /** Whether this registration has delivered at least once. Gates the
-   *  microtask initial-fire so a synchronous `fanOut` between subscribe
-   *  and the microtask (the mount-time `subscribe(); signIn()` race
-   *  prod can't exhibit) doesn't produce a duplicate same-value fire. */
-  hasFired: boolean;
-  /** Last value this registration delivered. Combined with `hasFired`,
-   *  lets the initial-fire microtask skip ONLY when this specific
-   *  registration already saw the current value synchronously. */
-  lastValue: User | null;
-}
-
-/**
- * A single `beforeAuthStateChanged` registration. `active: false` marks
- * an unregistered slot — swapped to a no-op in place (see
- * {@link SandboxBackend.beforeStateSubs}) rather than spliced, so an
- * unsubscribe from inside a running middleware pass doesn't shift the
- * indices the pass is still iterating.
- */
-interface BeforeStateReg {
-  callback: (user: User | null) => void | Promise<void>;
-  onAbort?: () => void;
-  active: boolean;
-}
-
-/** One linked provider on a stored user. Emulator-shaped (the
- *  Identity Toolkit `providerUserInfo` array) — an array rather than
- *  a single string so account linking can extend it later. */
-export interface ProviderUserInfo {
-  providerId: string;
-}
-
-/** "Add account" field set for {@link SandboxBackend.createSignInCredential}
- *  — mirrors the emulator's add-user form (`customAttributes` →
- *  `customClaims`). */
-export interface SignInIdentitySpec {
-  /** Defaults to `'<providerId>:<email>'`. */
-  uid?: string;
-  email: string;
-  displayName?: string;
-  customClaims?: Record<string, unknown>;
-}
-
-/** Internal record in the in-memory user DB. `email`/`password` are
- *  null for identities that never had them (anonymous users,
- *  popup-only identities recorded at sign-in time). */
-interface StoredUser {
-  uid: string;
-  email: string | null;
-  password: string | null;
-  displayName: string | null;
-  phoneNumber: string | null;
-  photoUrl: string | null;
-  customClaims: Record<string, unknown>;
-  isAnonymous: boolean;
-  /** Linked providers. Empty for anonymous users (matches the
-   *  emulator: anonymous accounts carry no providerUserInfo; their
-   *  provider surfaces as `sign_in_provider: 'anonymous'` on the
-   *  token instead). */
-  providerUserInfo: ProviderUserInfo[];
-  /** Disabled accounts reject every sign-in attempt with
-   *  `auth/user-disabled` (faithful to prod). */
-  disabled: boolean;
-  emailVerified: boolean;
-  /** ISO timestamp — when the record entered the user DB. */
-  createdAt: string;
-  /** ISO timestamp of the most recent sign-in, or null if this
-   *  identity never signed in. */
-  lastLoginAt: string | null;
-}
-
-/**
- * Public per-user record for the user-admin surface
- * (`sandbox.listUsers` & co.) — emulator-REST-shaped (Identity
- * Toolkit `accounts:lookup` field names, ISO timestamps).
- */
-export interface AuthUserRecord {
-  uid: string;
-  email: string | null;
-  displayName: string | null;
-  phoneNumber: string | null;
-  photoUrl: string | null;
-  customClaims: Record<string, unknown>;
-  providerUserInfo: ProviderUserInfo[];
-  isAnonymous: boolean;
-  disabled: boolean;
-  emailVerified: boolean;
-  /** ISO timestamp. */
-  createdAt: string;
-  /** ISO timestamp, or null if the identity never signed in. */
-  lastLoginAt: string | null;
-}
-
-/** `sandbox.createUser` request. Everything optional except that a
- *  `password` requires an `email` to be useful for sign-in. */
-export interface CreateUserRequest {
-  /** Defaults to a generated `user-<N>` uid. */
-  uid?: string;
-  email?: string;
-  password?: string;
-  displayName?: string;
-  phoneNumber?: string;
-  photoUrl?: string;
-  customClaims?: Record<string, unknown>;
-  disabled?: boolean;
-  emailVerified?: boolean;
-  /** Linked OAuth providers to create the user with (dedup by
-   *  providerId; multiple providers per user are supported). Same
-   *  rules as {@link UpdateUserRequest.providerUserInfo}: `password`
-   *  is credential-derived (send `password` to link it) and
-   *  `anonymous` is token-level — neither can be forged here. */
-  providerUserInfo?: ProviderUserInfo[];
-}
-
-/** `sandbox.updateUser` request — `undefined` fields are left
- *  untouched; `displayName: null` clears it. `customClaims` replaces
- *  the whole map (admin `setCustomUserClaims` semantics). */
-export interface UpdateUserRequest {
-  displayName?: string | null;
-  email?: string;
-  password?: string;
-  customClaims?: Record<string, unknown>;
-  disabled?: boolean;
-  emailVerified?: boolean;
-  /** REPLACES the user's linked OAuth providers (dedup by providerId;
-   *  multiple providers per user are supported — the record's
-   *  `providerUserInfo` is an array precisely for account linking).
-   *  The `password` entry is credential-derived and managed by the
-   *  backend: it survives the replacement while the user has a
-   *  password and cannot be linked through this field; `anonymous`
-   *  is a token-level provider, never a linked entry. */
-  providerUserInfo?: ProviderUserInfo[];
-}
+// Re-export the public backend types + the sentinel value from the
+// barrel so consumers importing them from './sandbox-backend.js' are
+// unchanged.
+export { NO_PASSWORD_SENTINEL } from './sandbox-backend-types.js';
+export type {
+  AuthUserRecord,
+  CreateUserRequest,
+  MintSessionRequest,
+  MintedSession,
+  ProviderUserInfo,
+  SeedUser,
+  SignInIdentitySpec,
+  UpdateUserRequest,
+} from './sandbox-backend-types.js';
 
 /**
  * Per-sandbox backend state. One instance per `getAuth(sandbox)` —
@@ -270,20 +122,14 @@ export class SandboxBackend {
   /** Monotonic uid counter for `createUser` calls without a uid. */
   private nextAdminUserId = 1;
 
-  /** Pre-staged sign-in results, keyed by providerId. The one-shot tier
-   *  of the popup/redirect resolver precedence (see `index.ts`
-   *  `signInWithPopup`): consumed when no resolver is injected, so
-   *  headless conformance fixtures stay deterministic. */
-  private readonly mockResults = new Map<string, UserCredential>();
-
-  /** Injected popup/redirect resolver — the analog of browser
-   *  `getAuth` wiring `browserPopupRedirectResolver`. Null until a host
-   *  (the playground) installs one via `sandbox.setAuthFlowResolver`. */
-  private resolver: AuthFlowResolver | null = null;
-
-  /** Pending `getRedirectResult` payload — set by `signInWithRedirect`,
-   *  returned-and-cleared by `getRedirectResult` (one-shot, matches prod). */
-  private redirectResult: UserCredential | null = null;
+  /** Popup / redirect / credential flow-staging machinery — the
+   *  one-shot mock registry, the injected resolver, and the pending
+   *  redirect-result slot. Kept in {@link AuthFlowRegistry} (see
+   *  `sandbox-auth-flow.ts`) because that state is independent of the
+   *  coupled auth state machine, and it is the seam the email-link /
+   *  linking / reauth climbs extend. The six accessor methods below
+   *  delegate here verbatim. */
+  private readonly flow = new AuthFlowRegistry();
 
   /** Monotonic uid counter for anonymous users. */
   private nextAnonymousId = 1;
@@ -1138,41 +984,33 @@ export class SandboxBackend {
     }
   }
 
-  // ─── Mock-result registry ───────────────────────────────────────────
+  // ─── Auth-flow registry (delegated to AuthFlowRegistry) ─────────────
+  // The popup/redirect/credential flow-staging seam. Behavior lives in
+  // `sandbox-auth-flow.ts`; these methods delegate so the backend's
+  // public surface is unchanged. See the AuthFlowRegistry header.
 
   setMockResult(providerId: string, result: UserCredential): void {
-    this.mockResults.set(providerId, result);
+    this.flow.setMockResult(providerId, result);
   }
 
   consumeMockResult(providerId: string): UserCredential | undefined {
-    // One-shot per stage — clear after read so the next call
-    // requires a fresh `mockSignInResult`. Matches `firebase/auth`'s
-    // "one popup per call" semantics.
-    const result = this.mockResults.get(providerId);
-    if (result) this.mockResults.delete(providerId);
-    return result;
+    return this.flow.consumeMockResult(providerId);
   }
 
-  // ─── Popup/redirect resolver + redirect-result slot ─────────────────
-
   setResolver(resolver: AuthFlowResolver | null): void {
-    this.resolver = resolver;
+    this.flow.setResolver(resolver);
   }
 
   getResolver(): AuthFlowResolver | null {
-    return this.resolver;
+    return this.flow.getResolver();
   }
 
-  /** Stash the credential a `signInWithRedirect` produced; `getRedirectResult`
-   *  returns-and-clears it. */
   setRedirectResult(result: UserCredential): void {
-    this.redirectResult = result;
+    this.flow.setRedirectResult(result);
   }
 
   takeRedirectResult(): UserCredential | null {
-    const r = this.redirectResult;
-    this.redirectResult = null;
-    return r;
+    return this.flow.takeRedirectResult();
   }
 
   /**
@@ -2092,82 +1930,7 @@ export class SandboxBackend {
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────
-
-/**
- * Opaque token string. Hash is a tiny deterministic digest over the
- * serialized claims map + a monotonic serial — enough that two
- * different claim maps for the same uid get different tokens AND
- * back-to-back refreshes for the same uid + claims also get
- * different tokens. NOT a cryptographic primitive. The
- * `sandbox-id-token-` prefix is grepable in logs.
- */
-function sandboxTokenFor(uid: string, claims: Record<string, unknown>, serial: number): string {
-  let hash = 5381;
-  const json = JSON.stringify(claims) + ':' + String(serial);
-  for (let i = 0; i < json.length; i++) {
-    hash = ((hash << 5) + hash + json.charCodeAt(i)) | 0;
-  }
-  const hex = (hash >>> 0).toString(16).padStart(8, '0');
-  return `sandbox-id-token-${uid}-${hex}`;
-}
-
-/**
- * Empirical match for prod's email-format rejection (matrix row #18).
- * Prod uses a permissive regex — local-part + `@` + domain-with-dot
- * is the practical bar. We mirror that shape: reject empty, reject
- * missing `@`, reject empty local-part or empty domain-part. Anything
- * else passes; consumer code that ships a more exotic-but-valid
- * address (quoted local-parts, IDN domains, etc.) should still
- * round-trip the same as prod.
- *
- * Throws `auth/invalid-email` with a message matching prod's shape so
- * consumer code that switches on `.code` sees the same error in
- * sandbox + prod. Oracle observation:
- * `scripts/oracle/observations/auth-row-18-invalid-email-error-code.json`.
- */
-function validateEmailFormat(email: string): void {
-  if (typeof email !== 'string' || email.length === 0) {
-    throw makeAuthError('auth/invalid-email', 'Error');
-  }
-  const atIdx = email.indexOf('@');
-  // No `@`, or `@` at start (empty local-part), or `@` at end (empty
-  // domain). Prod also rejects domains without a dot, but we stay
-  // permissive there — the empirical oracle observation only locks
-  // the `not-an-email` rejection.
-  if (atIdx <= 0 || atIdx === email.length - 1) {
-    throw makeAuthError('auth/invalid-email', 'Error');
-  }
-}
-
-/**
- * Empirical match for prod's password-strength rejection (matrix
- * row #19). Prod's observed message is "Password should be at least
- * 6 characters" with code `auth/weak-password`. Oracle observation:
- * `scripts/oracle/observations/auth-row-19-weak-password-error-code.json`.
- */
-function validatePasswordStrength(password: string): void {
-  if (typeof password !== 'string' || password.length < 6) {
-    throw makeAuthError(
-      'auth/weak-password',
-      'Password should be at least 6 characters',
-    );
-  }
-}
-
-/**
- * Build a real `FirebaseError` (the same class `firebase/auth` throws),
- * with the prod message wrapper `Firebase: <message> (<code>).`
- * (`clones/.../util/src/errors.ts:121` — `${serviceName}: ${message}
- * (${fullCode}).`, serviceName `Firebase`). So consumer code that does
- * `err instanceof FirebaseError` or matches on the wrapped message sees
- * the same shape sandbox vs prod (AUTH-GAP). `.code` is preserved.
- *
- * Oracle-pinned shapes this reproduces:
- *   - `Firebase: Error (auth/invalid-email).`
- *   - `Firebase: Password should be at least 6 characters (auth/weak-password).`
- */
-export function makeAuthError(code: string, message: string): FirebaseError {
-  return new FirebaseError(code, `Firebase: ${message} (${code}).`);
-}
+/** Re-exported from {@link ./auth-errors.ts} so consumers importing
+ *  `makeAuthError` from the `sandbox-backend` barrel keep working. */
+export { makeAuthError } from './auth-errors.js';
 

@@ -1,0 +1,15 @@
+{
+  "name": "app-registry-sdk-version",
+  "matrixRow": "app #11",
+  "rowIds": [
+    "app#11"
+  ],
+  "description": "firebase/app SDK_VERSION is a semver string (the installed firebase client SDK version). The environment-independent facts are its type and semver shape; the exact value is pinned by the observation envelope fbSdkVersion and the freshness guard.",
+  "observedAt": "2026-07-12T01:20:59.104Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "type": "string",
+    "isSemver": true,
+    "value": "12.13.0"
+  }
+}
