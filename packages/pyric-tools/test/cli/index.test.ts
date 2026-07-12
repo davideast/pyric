@@ -21,6 +21,18 @@ function runCli(args: string[]): { code: number; stdout: string; stderr: string 
   };
 }
 
+describe('retained pyric command surface', () => {
+  it('advertises every local-development workflow through the CLI entry', () => {
+    const { code, stdout, stderr } = runCli(['--help']);
+
+    expect(code).toBe(0);
+    expect(stderr).toBe('');
+    for (const command of ['init', 'dev', 'bridge', 'mcp', 'snapshot', 'verify', 'vendor']) {
+      expect(stdout).toMatch(new RegExp(`^\\s+(?:pyric )?${command}\\b`, 'm'));
+    }
+  });
+});
+
 describe('pyric dev command surface', () => {
   it('rejects the removed serve spelling instead of retaining an alias', () => {
     expect(runCli(['serve']).code).toBe(1);

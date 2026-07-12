@@ -86,6 +86,27 @@ async function captureRtdbFixture(): Promise<PyricVerifyFixture> {
   });
 }
 
+async function captureCombinedFixture(): Promise<PyricVerifyFixture> {
+  const sandbox = initializeSandbox();
+  const firestore = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+  firestore.setRules(ALICE_RULES);
+  await firestore.doc('notes/welcome').set({ title: 'welcome', priority: 1 });
+
+  const adminDatabase = getDatabase(sandbox);
+  rtdbSandbox.setRules(adminDatabase, RTDB_MEMBER_RULES);
+  rtdbSandbox.setData(adminDatabase, { '/members/r1/alice': true });
+  const database = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+  await set(ref(database, '/rooms/r1/messages/m1'), { author: 'alice', text: 'hello' });
+
+  return buildVerifyFixture({
+    sandbox,
+    description: 'one capture containing Firestore and Database requests',
+    firestoreRules: ALICE_RULES,
+    rtdbRules: RTDB_MEMBER_RULES,
+    rtdbState: rtdbSandbox.snapshotState(adminDatabase),
+  });
+}
+
 async function verifyIn(dir: string, argv: string[], deps?: VerifyCliDeps): Promise<number> {
   const prev = process.cwd();
   process.chdir(dir);
@@ -113,6 +134,26 @@ afterEach(() => {
 });
 
 describe('runVerify', () => {
+  it('verifies every supported service found in one captured session', async () => {
+    const dir = tmp();
+    writeFirebaseJson(dir, {
+      firestore: { rules: 'firestore.rules' },
+      database: { rules: 'database.rules.json' },
+    });
+    writeFileSync(join(dir, 'firestore.rules'), ALICE_RULES);
+    writeFileSync(join(dir, 'database.rules.json'), JSON.stringify(RTDB_MEMBER_RULES));
+    writeFileSync(join(dir, 'session.json'), JSON.stringify(await captureCombinedFixture()));
+
+    expect(await verifyIn(dir, ['session.json'])).toBe(0);
+
+    writeFileSync(join(dir, 'database.rules.json'), JSON.stringify(DENY_ALL_RTDB_RULES));
+    expect(await verifyIn(dir, ['session.json'])).toBe(1);
+
+    writeFileSync(join(dir, 'database.rules.json'), JSON.stringify(RTDB_MEMBER_RULES));
+    writeFileSync(join(dir, 'firestore.rules'), DENY_ALL_FIRESTORE_RULES);
+    expect(await verifyIn(dir, ['session.json'])).toBe(1);
+  });
+
   it('exit 0 when the captured Firestore session replays cleanly under firebase.json rules', async () => {
     const dir = tmp();
     writeFirebaseJson(dir, { firestore: { rules: 'firestore.rules' } });
