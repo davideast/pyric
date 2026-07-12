@@ -1,0 +1,1065 @@
+{
+  "engine": "firestore",
+  "version": "rules_version 2",
+  "sources": [
+    "Firebase Firestore Security Rules language reference (firebase.google.com/docs/reference/rules)",
+    "Firestore security rules structure + conditions guides",
+    "Repo ground truth: rules/grammar/FirestoreRules.ohm, rules/stdlib-modules.ts (STDLIB_MODULES), rules/simulator/evaluator.ts + wrappers/*.ts, rules/grammar/FirestoreValidator.ts (BUILTIN_FUNCTIONS)"
+  ],
+  "constructs": [
+    {
+      "id": "firestore.binding.request",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Request",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.request.auth",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Request#auth",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.request.auth.uid",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Request#auth",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.request.auth.token",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Request#auth",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.request.resource",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Request#resource",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.request.resource.data",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Resource#data",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.request.time",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Request#time",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.request.path",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Request#path",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.request.method",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Request#method",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.request.query",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Request#query",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.resource",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Resource",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.resource.data",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Resource#data",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.binding.resource.id",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Resource#id",
+      "status": "rejected",
+      "probeNote": "Error: firestore.rules line [5], column [22]. Property id is undefined on object."
+    },
+    {
+      "id": "firestore.binding.resource.__name__",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Resource#__name__",
+      "status": "rejected",
+      "probeNote": "Error: firestore.rules line [5], column [22]. Property __name__ is undefined on object."
+    },
+    {
+      "id": "firestore.binding.request.resource.id",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Resource#id",
+      "status": "rejected",
+      "note": "Discrepancy: request.resource.id is in the official language (and stdlib-modules.ts documents `request.resource.id: string`), but the simulator's handler builds request.resource as `{ data }` only (simulator/handler.ts) — it omits `.id`, so the evaluator errors ('No field id on map') on request.resource.id. resource.id (the existing doc) IS modeled; request.resource.id is not.",
+      "probeNote": "Error: firestore.rules line [5], column [22]. Property id is undefined on object."
+    },
+    {
+      "id": "firestore.binding.path-variable",
+      "kind": "binding",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#hierarchical_data",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.get",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore#function_get_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.exists",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore#function_exists_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.getAfter",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore#function_getAfter_",
+      "status": "rejected",
+      "probeNote": "Error: firestore.rules line [5], column [23]. Function not found error: Name: [getAfter]."
+    },
+    {
+      "id": "firestore.function.existsAfter",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore#function_existsAfter_",
+      "status": "rejected",
+      "note": "Discrepancy: the simulator's evaluator implements existsAfter() (simulator/evaluator.ts case 'existsAfter'), but the parser validator's BUILTIN_FUNCTIONS set (grammar/FirestoreValidator.ts) lists only get/exists/getAfter/debug — existsAfter is absent there, so the validator alone would not recognize it as a builtin.",
+      "probeNote": "Error: firestore.rules line [5], column [23]. Function not found error: Name: [existsAfter]."
+    },
+    {
+      "id": "firestore.function.debug",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules#function_debug_",
+      "status": "rejected",
+      "probeNote": "Error: firestore.rules line [5], column [22]. Function not found error: Name: [debug]."
+    },
+    {
+      "id": "firestore.function.math.abs",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_abs_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.math.ceil",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_ceil_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.math.floor",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_floor_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.math.round",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_round_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.math.sqrt",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_sqrt_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.math.pow",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_pow_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.math.isInfinite",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_isInfinite_",
+      "status": "rejected",
+      "probeNote": "Error: firestore.rules line [5], column [22]. Function not found error: Name: [math.isInfinite]."
+    },
+    {
+      "id": "firestore.function.math.isNaN",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.math#function_isNaN_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.timestamp.date",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.timestamp#function_date_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.timestamp.value",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.timestamp#function_value_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.duration.value",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.duration#function_value_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.duration.time",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.duration#function_time_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.duration.abs",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.duration#function_abs_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.latlng.value",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.latlng#function_value_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.hashing.md5",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.hashing#function_md5_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.hashing.sha256",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.hashing#function_sha256_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.hashing.crc32",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.hashing#function_crc32_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.hashing.crc32c",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.hashing#function_crc32c_",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.cast.string",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules#casting",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.cast.int",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules#casting",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.cast.float",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules#casting",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.function.cast.bool",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules#casting",
+      "status": "rejected",
+      "probeNote": "Error: firestore.rules line [5], column [22]. Function not found error: Name: [bool]."
+    },
+    {
+      "id": "firestore.function.cast.path",
+      "kind": "function",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules#casting",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.method.string.matches",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.String#function_matches_",
+      "status": "accepted",
+      "receiverType": "string"
+    },
+    {
+      "id": "firestore.method.string.lower",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.String#function_lower_",
+      "status": "accepted",
+      "receiverType": "string"
+    },
+    {
+      "id": "firestore.method.string.upper",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.String#function_upper_",
+      "status": "accepted",
+      "receiverType": "string"
+    },
+    {
+      "id": "firestore.method.string.trim",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.String#function_trim_",
+      "status": "accepted",
+      "receiverType": "string"
+    },
+    {
+      "id": "firestore.method.string.size",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.String#function_size_",
+      "status": "accepted",
+      "receiverType": "string"
+    },
+    {
+      "id": "firestore.method.string.split",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.String#function_split_",
+      "status": "accepted",
+      "receiverType": "string"
+    },
+    {
+      "id": "firestore.method.string.replace",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.String#function_replace_",
+      "status": "accepted",
+      "receiverType": "string"
+    },
+    {
+      "id": "firestore.method.string.toUtf8",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.String#function_toUtf8_",
+      "status": "accepted",
+      "receiverType": "string"
+    },
+    {
+      "id": "firestore.method.list.hasAll",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasAll_",
+      "status": "accepted",
+      "receiverType": "list"
+    },
+    {
+      "id": "firestore.method.list.hasAny",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasAny_",
+      "status": "accepted",
+      "receiverType": "list"
+    },
+    {
+      "id": "firestore.method.list.hasOnly",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasOnly_",
+      "status": "accepted",
+      "receiverType": "list"
+    },
+    {
+      "id": "firestore.method.list.size",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_size_",
+      "status": "accepted",
+      "receiverType": "list"
+    },
+    {
+      "id": "firestore.method.list.toSet",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_toSet_",
+      "status": "accepted",
+      "receiverType": "list"
+    },
+    {
+      "id": "firestore.method.list.concat",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_concat_",
+      "status": "accepted",
+      "receiverType": "list"
+    },
+    {
+      "id": "firestore.method.list.removeAll",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_removeAll_",
+      "status": "accepted",
+      "receiverType": "list"
+    },
+    {
+      "id": "firestore.method.list.join",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_join_",
+      "status": "accepted",
+      "receiverType": "list"
+    },
+    {
+      "id": "firestore.method.map.keys",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_keys_",
+      "status": "accepted",
+      "receiverType": "map"
+    },
+    {
+      "id": "firestore.method.map.values",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_values_",
+      "status": "accepted",
+      "receiverType": "map"
+    },
+    {
+      "id": "firestore.method.map.size",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_size_",
+      "status": "accepted",
+      "receiverType": "map"
+    },
+    {
+      "id": "firestore.method.map.get",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_get_",
+      "status": "accepted",
+      "receiverType": "map"
+    },
+    {
+      "id": "firestore.method.map.hasAll",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_hasAll_",
+      "status": "rejected",
+      "receiverType": "map",
+      "probeNote": "Error: firestore.rules line [5], column [22]. Function not found error: Name: [hasAll]."
+    },
+    {
+      "id": "firestore.method.map.hasAny",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_hasAny_",
+      "status": "rejected",
+      "receiverType": "map",
+      "probeNote": "Error: firestore.rules line [5], column [22]. Function not found error: Name: [hasAny]."
+    },
+    {
+      "id": "firestore.method.map.hasOnly",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_hasOnly_",
+      "status": "rejected",
+      "receiverType": "map",
+      "probeNote": "Error: firestore.rules line [5], column [22]. Function not found error: Name: [hasOnly]."
+    },
+    {
+      "id": "firestore.method.map.diff",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Map#function_diff_",
+      "status": "accepted",
+      "receiverType": "map"
+    },
+    {
+      "id": "firestore.method.mapdiff.addedKeys",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.MapDiff#function_addedKeys_",
+      "status": "accepted",
+      "receiverType": "mapdiff"
+    },
+    {
+      "id": "firestore.method.mapdiff.removedKeys",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.MapDiff#function_removedKeys_",
+      "status": "accepted",
+      "receiverType": "mapdiff"
+    },
+    {
+      "id": "firestore.method.mapdiff.changedKeys",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.MapDiff#function_changedKeys_",
+      "status": "accepted",
+      "receiverType": "mapdiff"
+    },
+    {
+      "id": "firestore.method.mapdiff.affectedKeys",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.MapDiff#function_affectedKeys_",
+      "status": "accepted",
+      "receiverType": "mapdiff"
+    },
+    {
+      "id": "firestore.method.mapdiff.unchangedKeys",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.MapDiff#function_unchangedKeys_",
+      "status": "accepted",
+      "receiverType": "mapdiff"
+    },
+    {
+      "id": "firestore.method.set.difference",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_difference_",
+      "status": "accepted",
+      "receiverType": "set"
+    },
+    {
+      "id": "firestore.method.set.union",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_union_",
+      "status": "accepted",
+      "receiverType": "set"
+    },
+    {
+      "id": "firestore.method.set.intersection",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_intersection_",
+      "status": "accepted",
+      "receiverType": "set"
+    },
+    {
+      "id": "firestore.method.set.hasAll",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasAll_",
+      "status": "accepted",
+      "receiverType": "set"
+    },
+    {
+      "id": "firestore.method.set.hasAny",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasAny_",
+      "status": "accepted",
+      "receiverType": "set"
+    },
+    {
+      "id": "firestore.method.set.hasOnly",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_hasOnly_",
+      "status": "accepted",
+      "receiverType": "set"
+    },
+    {
+      "id": "firestore.method.set.size",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.List#function_size_",
+      "status": "accepted",
+      "receiverType": "set"
+    },
+    {
+      "id": "firestore.method.bytes.size",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Bytes#function_size_",
+      "status": "accepted",
+      "receiverType": "bytes"
+    },
+    {
+      "id": "firestore.method.bytes.toBase64",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Bytes#function_toBase64_",
+      "status": "accepted",
+      "receiverType": "bytes"
+    },
+    {
+      "id": "firestore.method.bytes.toHexString",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Bytes#function_toHexString_",
+      "status": "accepted",
+      "receiverType": "bytes"
+    },
+    {
+      "id": "firestore.method.path.bind",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Path#function_bind_",
+      "status": "accepted",
+      "receiverType": "path"
+    },
+    {
+      "id": "firestore.method.timestamp.year",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_year_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.month",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_month_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.day",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_day_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.hours",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_hours_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.minutes",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_minutes_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.seconds",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_seconds_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.nanos",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_nanos_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.dayOfWeek",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_dayOfWeek_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.dayOfYear",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_dayOfYear_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.date",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_date_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.time",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_time_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.timestamp.toMillis",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Timestamp#function_toMillis_",
+      "status": "accepted",
+      "receiverType": "timestamp"
+    },
+    {
+      "id": "firestore.method.duration.seconds",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Duration#function_seconds_",
+      "status": "accepted",
+      "receiverType": "duration"
+    },
+    {
+      "id": "firestore.method.duration.nanos",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.Duration#function_nanos_",
+      "status": "accepted",
+      "receiverType": "duration"
+    },
+    {
+      "id": "firestore.method.latlng.latitude",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.LatLng#function_latitude_",
+      "status": "accepted",
+      "receiverType": "latlng"
+    },
+    {
+      "id": "firestore.method.latlng.longitude",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.LatLng#function_longitude_",
+      "status": "accepted",
+      "receiverType": "latlng"
+    },
+    {
+      "id": "firestore.method.latlng.distance",
+      "kind": "method",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules.LatLng#function_distance_",
+      "status": "accepted",
+      "receiverType": "latlng"
+    },
+    {
+      "id": "firestore.operator.eq",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.neq",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.lt",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.gt",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.lte",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.gte",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.add",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.sub",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.mul",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.div",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.mod",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.and",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.or",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.not",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.ternary",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.in",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.is",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.unary-minus",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.member",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.index",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.operator.slice",
+      "kind": "operator",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.allow-read",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#basic_read_write_rules",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.allow-write",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#basic_read_write_rules",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.allow-get",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#granular_operations",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.allow-list",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#granular_operations",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.allow-create",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#granular_operations",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.allow-update",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#granular_operations",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.allow-delete",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#granular_operations",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.match",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#match_paths",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.function",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions#functions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.let",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions#functions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.rules_version",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#rules_version",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.rule-kind.import",
+      "kind": "rule-kind",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#rules_version",
+      "status": "unprobeable",
+      "note": "Discrepancy: `import { fn } from 'module'` under `rules_version = '2+modules'` is a pyric resolver extension (rules/modules/resolver.ts), not stock Firebase rules — production Firestore only knows rules_version '1'/'2' and has no import statement.",
+      "probeNote": "the `import`/2+modules form requires module resolution (resolveModules) before simulation; the SimulateFirestoreRulesHandler evaluates already-resolved source only."
+    },
+    {
+      "id": "firestore.semantic.hierarchical-match-cascade",
+      "kind": "semantic",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#hierarchical_data",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.semantic.recursive-wildcard",
+      "kind": "semantic",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-structure#recursive_wildcards",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.semantic.error-absorption-and",
+      "kind": "semantic",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.semantic.error-absorption-or",
+      "kind": "semantic",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions",
+      "status": "accepted"
+    },
+    {
+      "id": "firestore.semantic.get-budget",
+      "kind": "semantic",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/firestore/security/rules-conditions#access_other_documents",
+      "status": "unprobeable",
+      "probeNote": "the get() budget (cap 10 per evaluation) is a resource-limit semantic, not expressible as a single-expression micro-scenario."
+    },
+    {
+      "id": "firestore.semantic.type-dispatch",
+      "kind": "semantic",
+      "engine": "firestore",
+      "reference": "https://firebase.google.com/docs/reference/rules/rules",
+      "status": "unprobeable",
+      "probeNote": "type-based method dispatch is a meta-semantic exercised by every method call; it has no standalone micro-scenario of its own."
+    }
+  ]
+}

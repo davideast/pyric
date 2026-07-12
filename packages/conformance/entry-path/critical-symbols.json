@@ -1,0 +1,71 @@
+{
+  "generatedAt": "2026-07-12T01:15:47.998Z",
+  "packages": {
+    "pyric/app": {
+      "symbols": [
+        "initializeApp"
+      ],
+      "programs": [
+        "auth",
+        "database",
+        "firestore",
+        "storage"
+      ]
+    },
+    "pyric/auth": {
+      "symbols": [
+        "browserSessionPersistence",
+        "createUserWithEmailAndPassword",
+        "getAuth",
+        "onAuthStateChanged",
+        "setPersistence"
+      ],
+      "programs": [
+        "auth"
+      ]
+    },
+    "pyric/database/modular": {
+      "symbols": [
+        "child",
+        "get",
+        "getDatabase",
+        "ref",
+        "set"
+      ],
+      "programs": [
+        "database"
+      ]
+    },
+    "pyric/firestore": {
+      "symbols": [
+        "addDoc",
+        "collection",
+        "getFirestore"
+      ],
+      "programs": [
+        "firestore"
+      ]
+    },
+    "pyric/sandbox": {
+      "symbols": [
+        "initializeSandbox"
+      ],
+      "programs": [
+        "auth",
+        "database",
+        "firestore",
+        "storage"
+      ]
+    },
+    "pyric/storage": {
+      "symbols": [
+        "getStorage",
+        "ref",
+        "uploadBytes"
+      ],
+      "programs": [
+        "storage"
+      ]
+    }
+  }
+}
