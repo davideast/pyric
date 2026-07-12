@@ -55,11 +55,11 @@ test users and test docs.
 
 ```sh
 export PYRIC_ORACLE_FIREBASE_CONFIG='{"apiKey":"…","authDomain":"…","projectId":"…","storageBucket":"…","appId":"…"}'
-bun run scripts/oracle/run.ts
+bun run packages/conformance/src/run.ts
 ```
 
 Each probe writes its observation to
-`scripts/oracle/observations/&lt;name&gt;.json`. Commit those JSON files
+`observations/&lt;surface&gt;/&lt;name&gt;.json`. Commit those JSON files
 alongside the matrix — they're the locked oracle. Re-running the
 harness updates them in place; the diff tells you whether cloud
 behavior has shifted since the last observation.
@@ -109,10 +109,10 @@ the observation; keep it small and explicit.
 
 ## Current coverage and gates
 
-The committed oracle now contains 127 observations across Auth,
-Firestore, RTDB, RTDB modular, and Storage. The compatibility ledger is
+The committed oracle now contains 197 observations across AI, Auth,
+Firestore, RTDB, RTDB modular, Storage, and Messaging. The compatibility ledger is
 loaded from the typed single-source registry in
-`scripts/compat/registry/*.ts`. The four `COMPAT.md` files are generated
+`packages/conformance/registry/*.ts`. The six `COMPAT.md` files are generated
 public docs, not inputs to the compatibility ledger.
 
 Useful commands:

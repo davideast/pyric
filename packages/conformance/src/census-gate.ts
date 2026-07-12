@@ -84,8 +84,8 @@ const staleOrRedundant = census.surfaces.filter((s) => s.staleDenials.length > 0
 if (process.argv.includes('--update')) {
   const baseline: Baseline = {
     _comment:
-      'Baseline of UNMAPPED upstream symbols tolerated by the CI gate (scripts/compat/census-gate.ts), keyed by census surface. The gate fails when a PR introduces a symbol NOT in this list for its surface. To pay down debt: mirror the symbol, or add a deny-list entry with a reason in scripts/compat/surface-denylist.ts, then remove it here. Regenerate with `bun run scripts/compat/census-gate.ts --update`.',
-    generatedFrom: 'bun run scripts/compat/surface-census.ts --json',
+      'Baseline of UNMAPPED upstream symbols tolerated by the CI gate (packages/conformance/src/census-gate.ts), keyed by census surface. The gate fails when a PR introduces a symbol NOT in this list for its surface. To pay down debt: mirror the symbol, or add a deny-list entry with a reason in packages/conformance/src/surface-denylist.ts, then remove it here. Regenerate with `bun run compat:census-gate --update`.',
+    generatedFrom: 'bun run compat:census',
     surfaces: toBaselineSurfaces(census),
   };
   writeFileSync(BASELINE_PATH, JSON.stringify(baseline, null, 2) + '\n');

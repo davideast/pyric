@@ -54,7 +54,8 @@ import {
   sandbox as rtdbSandbox,
 } from '../../src/database/index.js';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
+// rtdb-* (non-modular) observations live under the 'rtdb' surface subdirectory.
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb');
 
 /** Observations that cannot be replayed against the sandbox, with the reason. */
 const NOT_APPLICABLE: Record<string, string> = {

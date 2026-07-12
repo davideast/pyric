@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow, type Surface } from '../registry/index.ts';
@@ -11,6 +11,10 @@ export type { SurfaceDescriptor } from '../surfaces/types.ts';
 
 export interface Observation {
   file: string;
+  /** The surface subdirectory this observation was actually found under
+   *  (`observations/<surfaceDir>/<file>`) — compared against the
+   *  prefix-mapped expected surface by the directory-drift validator rule. */
+  surfaceDir: string;
   name: string;
   matrixRow: string;
   rowIds: string[];
@@ -44,25 +48,39 @@ export function repoRel(path: string): string {
   return relative(REPO_ROOT, path).replace(/\\/g, '/');
 }
 
+/** `observations/` is grouped one subdirectory per surface
+ *  (`observations/<surface>/<name>.json`) — this walks every immediate
+ *  subdirectory and returns `{ surfaceDir, file }` for each `.json` file
+ *  found, sorted by surfaceDir then file so load order stays deterministic. */
+function listObservationFiles(): { surfaceDir: string; file: string }[] {
+  const entries: { surfaceDir: string; file: string }[] = [];
+  for (const surfaceDir of readdirSync(OBS_DIR).sort()) {
+    const dirPath = join(OBS_DIR, surfaceDir);
+    if (!statSync(dirPath).isDirectory()) continue;
+    for (const file of readdirSync(dirPath).filter((f) => f.endsWith('.json')).sort()) {
+      entries.push({ surfaceDir, file });
+    }
+  }
+  return entries;
+}
+
 export function loadObservations(): Observation[] {
-  return readdirSync(OBS_DIR)
-    .filter((file) => file.endsWith('.json'))
-    .sort()
-    .map((file) => {
-      const raw = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as Record<string, unknown>;
-      const name = String(raw.name ?? file.replace(/\.json$/, ''));
-      const matrixRow = String(raw.matrixRow ?? '');
-      return {
-        file,
-        name,
-        matrixRow,
-        rowIds: Array.isArray(raw.rowIds) ? raw.rowIds.map(String) : [],
-        observedAt: typeof raw.observedAt === 'string' ? raw.observedAt : undefined,
-        fbSdkVersion: typeof raw.fbSdkVersion === 'string' ? raw.fbSdkVersion : undefined,
-        behavior: (raw.behavior && typeof raw.behavior === 'object' ? raw.behavior : {}) as Record<string, unknown>,
-        raw,
-      } satisfies Observation;
-    });
+  return listObservationFiles().map(({ surfaceDir, file }) => {
+    const raw = JSON.parse(readFileSync(join(OBS_DIR, surfaceDir, file), 'utf8')) as Record<string, unknown>;
+    const name = String(raw.name ?? file.replace(/\.json$/, ''));
+    const matrixRow = String(raw.matrixRow ?? '');
+    return {
+      file,
+      surfaceDir,
+      name,
+      matrixRow,
+      rowIds: Array.isArray(raw.rowIds) ? raw.rowIds.map(String) : [],
+      observedAt: typeof raw.observedAt === 'string' ? raw.observedAt : undefined,
+      fbSdkVersion: typeof raw.fbSdkVersion === 'string' ? raw.fbSdkVersion : undefined,
+      behavior: (raw.behavior && typeof raw.behavior === 'object' ? raw.behavior : {}) as Record<string, unknown>,
+      raw,
+    } satisfies Observation;
+  });
 }
 
 function generatedLocations(): Map<string, { file: string; line: number }> {

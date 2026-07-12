@@ -20,8 +20,18 @@ import { EMPIRICAL_DATA_CAP_BYTES, parseCondition } from './validate.js';
 
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 'conformance', 'observations');
 
+/** This suite cites BOTH the client receive plane (`messaging-web-*`, surface
+ *  'messaging') and the admin send plane (`messaging-send-*`, surface
+ *  'messaging-admin') — observations are grouped one subdirectory per surface,
+ *  so the loader resolves each name to its owning surface by prefix. */
+function observationSurface(name: string): string {
+  if (name.startsWith('messaging-send-')) return 'messaging-admin';
+  if (name.startsWith('messaging-web-')) return 'messaging';
+  throw new Error(`obs('${name}'): unrecognized messaging observation prefix`);
+}
+
 function obs(name: string): Record<string, any> {
-  return JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')).behavior;
+  return JSON.parse(readFileSync(join(OBS_DIR, observationSurface(name), `${name}.json`), 'utf8')).behavior;
 }
 
 /** The captured envelope subset the broker mirrors: `{ status, error }`. */

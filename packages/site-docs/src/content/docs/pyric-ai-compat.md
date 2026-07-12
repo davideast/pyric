@@ -5,7 +5,7 @@ group: "Compatibility"
 section: ""
 order: 8006
 ---
-<!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
+<!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 # `pyric/ai` compatibility matrix
 
@@ -50,7 +50,7 @@ compare text when the scripted engine was explicitly scripted to return it
 
 Probe references: `unit:<file>` means a passing Bun test in
 `packages/pyric/test/ai/<file>` (the climb lane). Captures live at
-`scripts/oracle/observations/ai-*.json`; a row that cites one replays the
+`packages/conformance/observations/ai/ai-*.json`; a row that cites one replays the
 capture's distilled facts in the named test.
 
 ---

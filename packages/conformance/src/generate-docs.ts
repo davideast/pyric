@@ -7,7 +7,7 @@ import { surfaceDescriptors } from '../surfaces/load.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..', '..', '..');
-export const GENERATED_HEADER = '<!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->';
+export const GENERATED_HEADER = '<!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->';
 
 /** Display glyphs for the typed status enum — rendering only, never parsed. */
 export const STATUS_GLYPHS: Record<CompatStatus, string> = {

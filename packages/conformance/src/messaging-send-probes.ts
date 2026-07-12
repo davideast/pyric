@@ -10,11 +10,11 @@
  *
  * The messaging surface has been admitted under CDD: each capture cites the
  * born-unverified `messaging-admin#*` rows it evidences (see
- * scripts/compat/registry/messaging.ts) via `rowIds`. Citation is not replay —
+ * ../registry/messaging.ts) via `rowIds`. Citation is not replay —
  * the rows stay `unverified` until the conformance suite replays them.
  *
  * Requires: PYRIC_MESSAGING_SA_BASE64.
- * Run: bun run scripts/oracle/messaging-send-probes.ts
+ * Run: bun run packages/conformance/src/messaging-send-probes.ts
  */
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -24,7 +24,8 @@ import { getMessaging } from 'firebase-admin/messaging';
 import type { ServiceAccount } from 'firebase-admin/app';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OBS_DIR = join(HERE, '..', 'observations');
+// messaging-send-* observations belong to the 'messaging-admin' surface.
+const OBS_DIR = join(HERE, '..', 'observations', 'messaging-admin');
 
 const b64 = process.env.PYRIC_MESSAGING_SA_BASE64;
 if (!b64) {

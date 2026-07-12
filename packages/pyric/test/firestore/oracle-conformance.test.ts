@@ -70,7 +70,8 @@ import {
   type QuerySnapshot,
 } from '../../src/firestore/index.js';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
+// firestore-* observations live under the 'firestore' surface subdirectory.
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'firestore');
 
 /** Observations that cannot be replayed against the sandbox, with the reason. */
 const NOT_APPLICABLE: Record<string, string> = {

@@ -1,12 +1,12 @@
 /**
  * Rig manifest loader.
  *
- * `scripts/oracle/rigs/` is the index: one authored `RigManifestRecord` per
+ * `rigs/` is the index: one authored `RigManifestRecord` per
  * file, named `<rig-id>.ts`. There is no hand-maintained barrel/list — this
  * loader reads the directory, dynamic-imports every rig file, derives each
  * rig's id from its filename, and returns the typed array. Adding a rig is
  * adding a file; removing one is deleting a file. This mirrors the
- * one-record-per-file convention `scripts/oracle/observations/` already uses,
+ * one-record-per-file convention `observations/` already uses,
  * so both directories stay conflict-free under parallel edits and browsable
  * as inventories.
  */
@@ -30,7 +30,7 @@ function isStringArray(value: unknown): value is string[] {
 /** Structural validation for one authored record. Returns problems found (empty = valid). A rig manifest is CI-enforced input, not best-effort, so a malformed file is a hard failure rather than a silently-skipped rig. */
 function recordProblems(file: string, value: unknown): string[] {
   const problems: string[] = [];
-  const fail = (message: string) => problems.push(`scripts/oracle/rigs/${file}: ${message}`);
+  const fail = (message: string) => problems.push(`rigs/${file}: ${message}`);
 
   if (typeof value !== 'object' || value === null) {
     fail("does not export a 'rig' record object");

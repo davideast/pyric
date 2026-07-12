@@ -2,11 +2,11 @@
 /**
  * Firestore rules oracle capture runner.
  *
- * Reads the conformance corpus (scripts/oracle/rules-corpus/firestore/) and,
+ * Reads the conformance corpus (rules-corpus/firestore/) and,
  * when credentialed, replays each pack against the PRODUCTION Firestore Rules
  * Test API via the same `TestFirestoreRulesHandler` the live parity harness
  * uses. One observation JSON is written per pack into
- * `scripts/oracle/observations/rules-firestore-<pack.id>.json`, using the
+ * `observations/firestore/rules-firestore-<pack.id>.json`, using the
  * standard Observation envelope. Production is the source of truth: the
  * captured `behavior` is a verdict table keyed by case description
  * (ALLOW / DENY), which the in-process replay suite then checks the sandbox
@@ -27,10 +27,10 @@
  *
  * Usage:
  *   # inert preview (no secret):
- *   bun run scripts/oracle/run-rules.ts
+ *   bun run packages/conformance/src/run-rules.ts
  *   # real capture (credentialed):
  *   PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \
- *     bun run scripts/oracle/run-rules.ts
+ *     bun run packages/conformance/src/run-rules.ts
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -44,7 +44,8 @@ import {
 } from '../rules-corpus/firestore/index.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OBS_DIR = join(HERE, '..', 'observations');
+// rules-firestore-* observations belong to the 'firestore' surface.
+const OBS_DIR = join(HERE, '..', 'observations', 'firestore');
 
 /** Resolved (installed) firebase version — the value the observation-version
  *  guard (check-observation-versions.ts) compares every observation against.
@@ -115,7 +116,7 @@ function printInertPlan(): void {
   console.log(`\n  Total: ${ALL_RULES_FIRESTORE_PACKS.length} packs, ${totalCases} cases.`);
   console.log('\n  To capture for real:');
   console.log('    PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \\');
-  console.log('      bun run scripts/oracle/run-rules.ts');
+  console.log('      bun run packages/conformance/src/run-rules.ts');
 }
 
 async function capture(): Promise<void> {
