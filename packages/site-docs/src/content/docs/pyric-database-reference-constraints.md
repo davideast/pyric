@@ -3,7 +3,7 @@ title: "API reference: RTDB rules constraints"
 navLabel: "API reference"
 group: "pyric / database"
 section: "Reference"
-order: 17004
+order: 16004
 ---
 # API reference: RTDB rules constraints
 
@@ -11,7 +11,7 @@ Typed builders that produce Realtime Database security-rule expressions, plus th
 
 Every builder returns an `Expr`, which is a plain string of RTDB rules language. The produced expressions below are pinned by spec tests, so they are safe to rely on byte for byte.
 
-Realtime Database support is experimental. The behaviors here are verified in-process; see the [compatibility matrix](../pyric-database-compat/) for what is pinned against production.
+Realtime Database support is experimental. The behaviors here are verified in-process; see the [conformance matrix](../pyric-database-compat/) for what is pinned against production.
 
 ## Combinators
 

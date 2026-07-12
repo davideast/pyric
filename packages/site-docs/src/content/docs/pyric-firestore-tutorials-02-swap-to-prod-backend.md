@@ -3,7 +3,7 @@ title: "Swap the demo to the prod backend"
 navLabel: "Swap to prod backend"
 group: "pyric / firestore"
 section: "Tutorials"
-order: 12003
+order: 11003
 ---
 # Swap the demo to the prod backend
 

@@ -123,8 +123,7 @@ export const GUIDE_GROUP_LABELS: ReadonlySet<string> = new Set([
   'Observe & shape',
   'Ship & test',
   'Work with an agent',
-  'Trust',
-  'Compatibility',
+  'Conformance',
 ]);
 
 export function isGuideGroup(label: string): boolean {

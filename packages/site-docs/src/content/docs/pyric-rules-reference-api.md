@@ -2,7 +2,7 @@
 title: "Public API"
 group: "pyric / rules"
 section: "Reference"
-order: 13010
+order: 12010
 ---
 # Public API
 

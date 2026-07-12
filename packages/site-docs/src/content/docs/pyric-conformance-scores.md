@@ -1,13 +1,13 @@
 ---
-title: "Conformance scores by surface"
+title: "Conformance"
 navLabel: "Conformance scores"
-group: "Compatibility"
+group: "Conformance"
 section: ""
-order: 8001
+order: 7001
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
-# Conformance scores by surface
+# Conformance
 
 <div class="compat-scoreboard">
 <a class="compat-score-row" href="../pyric-firestore-compat/">
@@ -82,3 +82,24 @@ order: 8001
 </div>
 
 Auth, Firestore, and Rules are held to recorded production behavior. Realtime Database and Storage are earlier and pinned to fewer production observations.
+
+## How the numbers are made
+
+The mirror is one to one. The call you write against Firebase is the call Pyric runs, character for character.
+
+```ts
+import { signInWithEmailAndPassword } from 'firebase/auth'; // production
+import { signInWithEmailAndPassword } from 'pyric/auth';    // development
+```
+
+So "does Pyric match?" becomes one question per behavior: did Pyric answer what production answered?
+
+A probe runs the call against a real Firebase project and records what came back.
+
+```json
+{ "name": "auth-wrong-password-error-code", "rowIds": ["auth#15"], "fbSdkVersion": "12.13.0", "behavior": { "code": "auth/wrong-password", "messageContains": { "wrongPassword": true, "invalidCredential": false } } }
+```
+
+Each recording is committed and replayed on every change by `compat:check`, and a build fails if the sandbox answers differently. Re-capturing a recording is the drift check. An unchanged file means production still behaves as pinned. A changed file means the behavior moved, and the git diff is the report.
+
+Put the claim under load yourself: run the app, break a rule, and compare the verdict against production in <a href="../ship-to-production/">ship to production</a>.

@@ -195,11 +195,14 @@ function renderRow(row: CompatibilityRow): string {
  */
 export function scoredBlocks(surface: CompatibilitySurfaceRegistry): CompatibilityDocBlock[] {
   const stat = statBlock(surface);
-  if (stat === null) return surface.blocks;
   return surface.blocks.map((block, index) => {
     if (index === 0 && block.kind === 'markdown') {
-      const h1 = block.markdown.trim();
-      return { ...block, markdown: `${h1}\n\n${stat}\n\n${STATUS_LEGEND}\n` };
+      // Each surface's authored H1 reads "… compatibility matrix"; the docs
+      // call every matrix a conformance matrix, so the generator owns the
+      // rename in one place rather than across the registry descriptors.
+      const h1 = block.markdown.trim().replace('compatibility matrix', 'conformance matrix');
+      const body = stat === null ? h1 : `${h1}\n\n${stat}\n\n${STATUS_LEGEND}`;
+      return { ...block, markdown: `${body}\n` };
     }
     return block;
   });
@@ -325,6 +328,37 @@ export function generatedRowLineNumbers(surface: CompatibilitySurfaceRegistry): 
 const SCOREBOARD_SURFACE_ORDER = ['firestore', 'auth', 'rtdb', 'storage', 'messaging', 'rules', 'ai', 'app'];
 
 /**
+ * How the scores are produced, appended under the scoreboard. Static prose
+ * (the mirror is one-to-one, an observation is production pinned to a file),
+ * so it lives as a constant rather than being computed. The closing link is a
+ * raw-HTML `<a href>` to the ported ship-to-production slug: the porter's
+ * markdown-link rewriter never touches raw HTML, so this final form survives
+ * the port exactly like the scoreboard's own row links.
+ */
+const SCOREBOARD_METHODOLOGY = [
+  '## How the numbers are made',
+  '',
+  'The mirror is one to one. The call you write against Firebase is the call Pyric runs, character for character.',
+  '',
+  '```ts',
+  "import { signInWithEmailAndPassword } from 'firebase/auth'; // production",
+  "import { signInWithEmailAndPassword } from 'pyric/auth';    // development",
+  '```',
+  '',
+  'So "does Pyric match?" becomes one question per behavior: did Pyric answer what production answered?',
+  '',
+  'A probe runs the call against a real Firebase project and records what came back.',
+  '',
+  '```json',
+  '{ "name": "auth-wrong-password-error-code", "rowIds": ["auth#15"], "fbSdkVersion": "12.13.0", "behavior": { "code": "auth/wrong-password", "messageContains": { "wrongPassword": true, "invalidCredential": false } } }',
+  '```',
+  '',
+  'Each recording is committed and replayed on every change by `compat:check`, and a build fails if the sandbox answers differently. Re-capturing a recording is the drift check. An unchanged file means production still behaves as pinned. A changed file means the behavior moved, and the git diff is the report.',
+  '',
+  'Put the claim under load yourself: run the app, break a rule, and compare the verdict against production in <a href="../ship-to-production/">ship to production</a>.',
+].join('\n');
+
+/**
  * The directory-relative href from the scoreboard to a surface's COMPAT page.
  * The port (port-content.ts `slugFor`) slugs each page as `pyric-<dir>-compat`
  * and rewrites intra-doc links to `../<slug>/`; the scoreboard authors that
@@ -349,7 +383,7 @@ export function renderScoreboardMarkdown(): string {
   const lines: string[] = [
     GENERATED_HEADER,
     '',
-    '# Conformance scores by surface',
+    '# Conformance',
     '',
     '<div class="compat-scoreboard">',
   ];
@@ -371,6 +405,8 @@ export function renderScoreboardMarkdown(): string {
     '</div>',
     '',
     'Auth, Firestore, and Rules are held to recorded production behavior. Realtime Database and Storage are earlier and pinned to fewer production observations.',
+    '',
+    SCOREBOARD_METHODOLOGY,
   );
 
   return lines.join('\n').replace(/\s+$/, '') + '\n';

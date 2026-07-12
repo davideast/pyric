@@ -3,7 +3,7 @@ title: "Use the Vite plugin (pyric-tools/vite)"
 navLabel: "Use the Vite plugin"
 group: "pyric-tools"
 section: "How-to"
-order: 9009
+order: 8009
 ---
 # Use the Vite plugin (`pyric-tools/vite`)
 

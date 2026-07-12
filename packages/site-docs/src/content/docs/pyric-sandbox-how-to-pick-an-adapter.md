@@ -3,7 +3,7 @@ title: "How to pick between pyric-admin and pyric/firestore"
 navLabel: "Pick an adapter"
 group: "pyric / sandbox"
 section: "How-to"
-order: 14005
+order: 13005
 ---
 # How to pick between `pyric-admin` and `pyric/firestore`
 

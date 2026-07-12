@@ -2,7 +2,7 @@
 title: "Error codes by operation"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 10016
+order: 9016
 ---
 # Error codes by operation
 

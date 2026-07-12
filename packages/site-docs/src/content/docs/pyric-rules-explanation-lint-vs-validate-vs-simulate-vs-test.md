@@ -3,7 +3,7 @@ title: "Lint vs validate vs simulate vs test"
 navLabel: "Lint vs validate vs test"
 group: "pyric / rules"
 section: "Explanation"
-order: 13021
+order: 12021
 ---
 # Lint vs validate vs simulate vs test
 

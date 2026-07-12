@@ -3,7 +3,7 @@ title: "How to verify your rules against a captured session"
 navLabel: "Verify rules against prod"
 group: "pyric-tools"
 section: "How-to"
-order: 9010
+order: 8010
 ---
 # How to verify your rules against a captured session
 

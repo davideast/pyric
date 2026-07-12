@@ -3,7 +3,7 @@ title: "<TrafficLog> · <TrafficRow> · <TrafficGroupRow>"
 navLabel: "TrafficLog components"
 group: "@pyric/ui"
 section: "Traffic"
-order: 24027
+order: 23027
 ---
 # `<TrafficLog>` · `<TrafficRow>` · `<TrafficGroupRow>`
 

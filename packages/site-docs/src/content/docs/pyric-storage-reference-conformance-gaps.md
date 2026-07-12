@@ -2,7 +2,7 @@
 title: "Storage rules evaluator conformance gaps"
 group: "pyric / storage"
 section: "Reference"
-order: 15007
+order: 14007
 ---
 # Storage rules evaluator conformance gaps
 

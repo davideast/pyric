@@ -2,7 +2,7 @@
 title: "functions namespace"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 10018
+order: 9018
 ---
 # `functions` namespace
 

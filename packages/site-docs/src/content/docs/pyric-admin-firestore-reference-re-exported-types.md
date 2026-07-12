@@ -2,7 +2,7 @@
 title: "Re-exported types"
 group: "pyric-admin / firestore"
 section: "Reference"
-order: 20010
+order: 19010
 ---
 # Re-exported types
 

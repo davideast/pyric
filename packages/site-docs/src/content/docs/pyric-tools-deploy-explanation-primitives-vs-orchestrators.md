@@ -3,7 +3,7 @@ title: "Primitives throw, orchestrators return"
 navLabel: "Primitives vs. orchestrators"
 group: "pyric-tools / deploy"
 section: "Explanation"
-order: 10024
+order: 9024
 ---
 # Primitives throw, orchestrators return
 

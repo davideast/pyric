@@ -3,7 +3,7 @@ title: "Auth users admin — useAuthUsers, <AuthUserList>, <AuthUserForm>"
 navLabel: "Auth users admin"
 group: "@pyric/ui"
 section: "Auth"
-order: 24030
+order: 23030
 ---
 # Auth users admin — `useAuthUsers`, `<AuthUserList>`, `<AuthUserForm>`
 

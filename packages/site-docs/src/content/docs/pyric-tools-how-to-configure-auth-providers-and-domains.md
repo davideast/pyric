@@ -3,7 +3,7 @@ title: "How to configure auth providers and authorised domains"
 navLabel: "Configure auth providers"
 group: "pyric-tools"
 section: "How-to"
-order: 9005
+order: 8005
 ---
 # How to configure auth providers and authorised domains
 

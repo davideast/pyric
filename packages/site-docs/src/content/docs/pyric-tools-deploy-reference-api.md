@@ -2,7 +2,7 @@
 title: "Public API"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 10014
+order: 9014
 ---
 # Public API
 

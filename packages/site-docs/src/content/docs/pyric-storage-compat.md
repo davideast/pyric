@@ -1,13 +1,13 @@
 ---
-title: "pyric/storage compatibility matrix"
+title: "pyric/storage conformance matrix"
 navLabel: "Storage"
-group: "Compatibility"
+group: "Conformance"
 section: ""
-order: 8006
+order: 7006
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
-# `pyric/storage` compatibility matrix
+# `pyric/storage` conformance matrix
 
 <div class="compat-stat">
 <p class="compat-stat-figure"><span class="compat-stat-pct">83%</span><span class="compat-stat-label">match production Firebase</span></p>

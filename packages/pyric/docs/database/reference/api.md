@@ -2,7 +2,7 @@
 
 Exact signatures of every public export, grouped by purpose. Sandbox-only behavior is called out per function.
 
-> **Experimental.** Realtime Database is not part of Pyric's v1-supported surface (that is auth, Firestore, and rules). The modular functions below are verified sandbox-side by unit probes, and the semantics marked with an oracle observation are pinned to recorded production behavior, but most rows are not yet captured against a live project. See the [compatibility matrix](../COMPAT.md) before depending on parity.
+> **Experimental.** Realtime Database is not part of Pyric's v1-supported surface (that is auth, Firestore, and rules). The modular functions below are verified sandbox-side by unit probes, and the semantics marked with an oracle observation are pinned to recorded production behavior, but most rows are not yet captured against a live project. See the [conformance matrix](../COMPAT.md) before depending on parity.
 
 The package has two surfaces that share one barrel:
 
@@ -579,7 +579,7 @@ Toolkit types:
 
 ## Boundaries
 
-- **The whole service is experimental.** Sandbox behavior is verified by unit probes; only the semantics with an oracle citation are pinned to recorded production behavior. See the [compatibility matrix](../COMPAT.md) for the row-by-row state.
+- **The whole service is experimental.** Sandbox behavior is verified by unit probes; only the semantics with an oracle citation are pinned to recorded production behavior. See the [conformance matrix](../COMPAT.md) for the row-by-row state.
 - `onChildMoved` on a sandbox query registers but never fires on reorder; production fires. Pinned divergence, held pending new oracle captures.
 - The sandbox does not enforce `.indexOn`. An `orderByValue()` query that throws `Index not defined` in production succeeds in the sandbox.
 - Priority is not modeled: `DataSnapshot.priority` is always `null` and `exportVal()` equals `val()`.
@@ -591,4 +591,4 @@ Toolkit types:
 - Passing a ref that was not produced by this package throws a `TypeError` from the routing layer.
 - The handler classes (`DataHandler`, `GenerateIRHandler`, `WriteRulesHandler`, `CrawlStructureHandler`, `SimulateHandler`) are exported for integration tests and are not a stable API.
 
-For the rules constraint DSL and deploy workflow, see [rules-tooling.md](./rules-tooling.md). For coverage against `firebase/database`'s full surface, see the [compatibility matrix](../COMPAT.md).
+For the rules constraint DSL and deploy workflow, see [rules-tooling.md](./rules-tooling.md). For coverage against `firebase/database`'s full surface, see the [conformance matrix](../COMPAT.md).

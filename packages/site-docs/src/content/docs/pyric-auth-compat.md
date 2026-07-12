@@ -1,13 +1,13 @@
 ---
-title: "pyric/auth compatibility matrix"
+title: "pyric/auth conformance matrix"
 navLabel: "Auth"
-group: "Compatibility"
+group: "Conformance"
 section: ""
-order: 8004
+order: 7004
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
-# `pyric/auth` compatibility matrix
+# `pyric/auth` conformance matrix
 
 <div class="compat-stat">
 <p class="compat-stat-figure"><span class="compat-stat-pct">83%</span><span class="compat-stat-label">match production Firebase</span></p>

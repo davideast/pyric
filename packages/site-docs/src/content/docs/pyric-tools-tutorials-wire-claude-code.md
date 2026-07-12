@@ -3,7 +3,7 @@ title: "Wire Claude Code to your pyric sandbox (manual MCP wiring)"
 navLabel: "Wire Claude Code"
 group: "pyric-tools"
 section: "Tutorials"
-order: 9003
+order: 8003
 ---
 # Wire Claude Code to your pyric sandbox (manual MCP wiring)
 

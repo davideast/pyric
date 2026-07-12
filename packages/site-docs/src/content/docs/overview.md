@@ -85,7 +85,7 @@ vite build          # ships real firebase/*
 pyric deploy rules  # push the ruleset you proved
 ```
 
-The rules arrive already exercised against the app's real behavior, and composite indexes come from the queries the app actually runs. "Behaves like Firebase" is tested, not asserted: probes record what production actually does, and CI replays every recording on every change. Firestore, Auth, and Rules hold that bar today. Realtime Database and Storage are experimental, and [how we know it matches Firebase](../how-we-know-it-matches-firebase/) says exactly what that costs you.
+The rules arrive already exercised against the app's real behavior, and composite indexes come from the queries the app actually runs. "Behaves like Firebase" is tested, not asserted: probes record what production actually does, and CI replays every recording on every change. Firestore, Auth, and Rules hold that bar today. Realtime Database and Storage are experimental, and [the conformance scores](../pyric-conformance-scores/) show exactly what that costs you.
 
 ## Where to go next
 

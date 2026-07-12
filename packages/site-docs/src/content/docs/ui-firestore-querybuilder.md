@@ -2,7 +2,7 @@
 title: "<QueryBuilder>"
 group: "@pyric/ui"
 section: "Firestore"
-order: 24014
+order: 23014
 ---
 # `<QueryBuilder>`
 

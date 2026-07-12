@@ -84,7 +84,7 @@ const DIATAXIS: SectionSpec[] = [
   { label: 'How-to', path: 'how-to' },
   { label: 'Reference', path: 'reference' },
   { label: 'Explanation', path: 'explanation' },
-  // COMPAT.md files are claimed by the Compatibility guide group below,
+  // COMPAT.md files are claimed by the Conformance guide group below,
   // not by the per-service reference trees.
 ];
 
@@ -214,11 +214,6 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
     dir: 'agent',
     files: ['set-up-an-agent.md', 'agent-mcp-tools.md', 'skills.md'],
   },
-  {
-    label: 'Trust',
-    dir: 'trust',
-    files: ['how-we-know-it-matches-firebase.md'],
-  },
 ];
 
 /** Guide files the port ignores (review scaffolding, not pages). */
@@ -309,7 +304,7 @@ const NAV_ALIASES: Record<string, string> = {
   'pyric-storage-tutorials-01-upload-and-download': 'Upload and download',
   'pyric-tools-deploy-how-to-deploy-realtime-database-rules': 'Deploy RTDB rules',
   'pyric-tools-deploy-how-to-provision-a-firestore-database': 'Provision a database',
-  'pyric-firestore-compat': 'Compatibility matrix',
+  'pyric-firestore-compat': 'Conformance matrix',
   'pyric-rules-explanation-lint-vs-validate-vs-simulate-vs-test': 'Lint vs validate vs test',
   'pyric-rules-how-to-inspect-rules-via-the-ast': 'Inspect rules via the AST',
   'pyric-sandbox-explanation-identity-is-a-context': 'Identity is a context',
@@ -322,17 +317,17 @@ const NAV_ALIASES: Record<string, string> = {
   'pyric-firestore-how-to-use-sandbox-ops': 'Use sandbox-only ops',
   'pyric-sandbox-how-to-seed-data-and-rules': 'Seed data and rules',
   'pyric-sandbox-reference-sandbox-and-context': 'Sandbox and context',
-  'pyric-storage-compat': 'Compatibility matrix',
-  'pyric-rules-compat': 'Compatibility matrix',
+  'pyric-storage-compat': 'Conformance matrix',
+  'pyric-rules-compat': 'Conformance matrix',
   'pyric-firestore-tutorials-02-swap-to-prod-backend': 'Swap to prod backend',
   'pyric-rules-tutorials-02-write-a-test-suite-for-your-rules': 'Write a rules test suite',
   'pyric-sandbox-how-to-switch-users': 'Switch users',
   'pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness':
     'Sandbox in a test harness',
-  'pyric-database-compat': 'Compatibility matrix',
+  'pyric-database-compat': 'Conformance matrix',
   'pyric-rules-how-to-resolve-module-imports': 'Resolve 2+modules imports',
-  'pyric-auth-compat': 'Compatibility matrix',
-  'pyric-ai-compat': 'Compatibility matrix',
+  'pyric-auth-compat': 'Conformance matrix',
+  'pyric-ai-compat': 'Conformance matrix',
   'pyric-sandbox-reference-snapshot-and-admin': 'Snapshot and admin reads',
   'pyric-tools-deploy-how-to-deploy-firestore-indexes': 'Deploy Firestore indexes',
   'pyric-tools-how-to-build-a-standalone-binary': 'Build a standalone binary',
@@ -422,13 +417,13 @@ const bySlug = new Map<string, Page>();
  * offset`. Adding a doc then renumbers at most the trailing pages of
  * its own group; adding a group renumbers nothing before it. GROUP_ORDER
  * must list every group label the port ever assigns (GUIDE_GROUPS, the
- * synthetic 'Compatibility' group, then GROUPS) in the exact order the
+ * synthetic 'Conformance' group, then GROUPS) in the exact order the
  * nav renders them — that order is what the rendered sidebar sequence
  * depends on, not the numeric order values.
  */
 const GROUP_ORDER: string[] = [
   ...GUIDE_GROUPS.map((g) => g.label),
-  'Compatibility',
+  'Conformance',
   ...GROUPS.map((g) => g.label),
 ];
 const GROUP_RANK_SPACING = 1000;
@@ -498,10 +493,10 @@ for (const group of GUIDE_GROUPS) {
   }
 }
 
-// The compatibility matrices, right after the guide: the per-service
-// conformance tables are the receipt behind the Trust pages and matter
-// to agents especially, so they stay itemized in the nav rather than
-// folding into the Reference shelf. Slugs are unchanged (slugFor).
+// The conformance matrices, right after the guide: the per-service
+// conformance tables are the receipt behind the conformance scores and
+// matter to agents especially, so they stay itemized in the nav rather
+// than folding into the Reference shelf. Slugs are unchanged (slugFor).
 const COMPAT_PAGES: { file: string; label: string }[] = [
   { file: 'conformance/SCORES.md', label: 'Conformance scores' },
   { file: 'app/COMPAT.md', label: 'App' },
@@ -522,9 +517,9 @@ for (const c of COMPAT_PAGES) {
   const page: Page = {
     src,
     slug,
-    group: 'Compatibility',
+    group: 'Conformance',
     section: '',
-    order: nextOrder('Compatibility'),
+    order: nextOrder('Conformance'),
     title: titleOf(src),
     navLabel: c.label,
   };
@@ -968,7 +963,7 @@ for (const page of pages) {
   const raw = readFileSync(page.src, 'utf8');
   const source = page.stripFm ? parseFrontmatter(raw).body : raw;
   let body = rewriteLinks(page, source);
-  if (page.group === 'Compatibility') body = transformCompatTables(body);
+  if (page.group === 'Conformance') body = transformCompatTables(body);
   const fm = [
     '---',
     `title: ${yamlQuote(page.title)}`,

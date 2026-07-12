@@ -7,7 +7,7 @@ status: draft
 
 # Store files
 
-> **Experimental.** Storage works and is documented, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. Read [how we know it matches Firebase](../trust/how-we-know-it-matches-firebase.md) before you rely on it.
+> **Experimental.** Storage works and is documented, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. Read [the conformance scores](../../../../packages/pyric/docs/conformance/SCORES.md) before you rely on it.
 
 Files land in your sandbox the way documents do: locally, with rules deciding what gets in.
 
@@ -105,4 +105,4 @@ Each of these fails loudly at the call site instead of drifting quietly.
 
 ## Where to go next
 
-If the data is structured rather than binary, [which data service should I use?](./which-data-service.md) sorts it out. And [how we know it matches Firebase](../trust/how-we-know-it-matches-firebase.md) says exactly what experimental costs you.
+If the data is structured rather than binary, [which data service should I use?](./which-data-service.md) sorts it out. And [the conformance scores](../../../../packages/pyric/docs/conformance/SCORES.md) show exactly what experimental costs you.

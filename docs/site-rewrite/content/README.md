@@ -38,8 +38,8 @@ Every page of the new docs, written to WRITING-BRIEF.md against HIERARCHY.md v3.
 | Set up an agent | `agent/set-up-an-agent.md` | new (per-client recipes) |
 | Agent MCP tools | `agent/agent-mcp-tools.md` | new (capability-taught) |
 | Skills | `agent/skills.md` | new (catalog) |
-| **TRUST** | | |
-| How we know it matches Firebase | `trust/how-we-know-it-matches-firebase.md` | new over conformance docs |
+| **CONFORMANCE** | | |
+| Conformance | `packages/pyric/docs/conformance/SCORES.md` (generated) | scoreboard plus how the numbers are made |
 | **REFERENCE** | (unchanged: existing per-package reference + COMPAT) | re-hung as-is |
 
 ## What re-hanging means

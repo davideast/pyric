@@ -1,6 +1,6 @@
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
-# `pyric` messaging compatibility matrix
+# `pyric` messaging conformance matrix
 
 <div class="compat-stat">
 <p class="compat-stat-figure"><span class="compat-stat-pct">100%</span><span class="compat-stat-label">match production Firebase</span></p>

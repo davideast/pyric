@@ -32,6 +32,11 @@
         "source": "/docs/whats-possible{,/**}",
         "destination": "/docs/rules-case-studies/",
         "type": 301
+      },
+      {
+        "source": "/docs/how-we-know-it-matches-firebase{,/**}",
+        "destination": "/docs/pyric-conformance-scores/",
+        "type": 301
       }
     ],
     "rewrites": [

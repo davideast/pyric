@@ -2,7 +2,7 @@
 title: "<SegmentedControl>"
 group: "@pyric/ui"
 section: "Primitives"
-order: 24006
+order: 23006
 ---
 # `<SegmentedControl>`
 

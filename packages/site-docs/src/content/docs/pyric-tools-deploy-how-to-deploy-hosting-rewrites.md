@@ -3,7 +3,7 @@ title: "How to deploy Hosting rewrites that route to Cloud Functions"
 navLabel: "Deploy Hosting rewrites"
 group: "pyric-tools / deploy"
 section: "How-to"
-order: 10008
+order: 9008
 ---
 # How to deploy Hosting rewrites that route to Cloud Functions
 

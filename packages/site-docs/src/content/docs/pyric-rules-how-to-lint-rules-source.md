@@ -3,7 +3,7 @@ title: "How to lint a rules source"
 navLabel: "Lint a rules source"
 group: "pyric / rules"
 section: "How-to"
-order: 13004
+order: 12004
 ---
 # How to lint a rules source
 

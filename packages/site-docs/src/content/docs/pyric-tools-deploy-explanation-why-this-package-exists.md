@@ -2,7 +2,7 @@
 title: "Why this package exists"
 group: "pyric-tools / deploy"
 section: "Explanation"
-order: 10027
+order: 9027
 ---
 # Why this package exists
 

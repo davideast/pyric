@@ -3,7 +3,7 @@ title: "How to register rules tools with an agent"
 navLabel: "Register rules tools"
 group: "pyric / rules"
 section: "How-to"
-order: 13006
+order: 12006
 ---
 # How to register rules tools with an agent
 

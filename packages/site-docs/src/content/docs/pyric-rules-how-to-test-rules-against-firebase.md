@@ -3,7 +3,7 @@ title: "How to test rules against the Firebase Rules Test API"
 navLabel: "Test rules against Firebase"
 group: "pyric / rules"
 section: "How-to"
-order: 13009
+order: 12009
 ---
 # How to test rules against the Firebase Rules Test API
 

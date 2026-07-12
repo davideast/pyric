@@ -2,7 +2,7 @@
 title: "firestore namespace"
 group: "pyric-tools / deploy"
 section: "Reference"
-order: 10017
+order: 9017
 ---
 # `firestore` namespace
 

@@ -2,7 +2,7 @@
 title: "Simulator vs Rules Test API"
 group: "pyric / rules"
 section: "Explanation"
-order: 13024
+order: 12024
 ---
 # Simulator vs Rules Test API
 

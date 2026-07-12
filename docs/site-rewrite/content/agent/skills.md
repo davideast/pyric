@@ -56,7 +56,7 @@ The skill runs `firestore_lint_rules`, builds an identity-by-operation access ma
 
 ## rtdb-security-rules
 
-Realtime Database rules cascade downward, so a permissive parent grants every descendant and a child cannot take it back. Realtime Database support in Pyric is experimental; [how we know it matches Firebase](../trust/how-we-know-it-matches-firebase.md) says what that costs you.
+Realtime Database rules cascade downward, so a permissive parent grants every descendant and a child cannot take it back. Realtime Database support in Pyric is experimental; [the conformance scores](../../../../packages/pyric/docs/conformance/SCORES.md) show what that costs you.
 
 ```
 Lock down database.rules.json so only a post's author can edit
@@ -67,7 +67,7 @@ The skill starts from a locked root, opens only the paths the prompt names, and 
 
 ## rtdb-data-model
 
-One JSON tree, where reading a path downloads everything below it, so structure is performance. Realtime Database support in Pyric is experimental; [how we know it matches Firebase](../trust/how-we-know-it-matches-firebase.md) says what that costs you.
+One JSON tree, where reading a path downloads everything below it, so structure is performance. Realtime Database support in Pyric is experimental; [the conformance scores](../../../../packages/pyric/docs/conformance/SCORES.md) show what that costs you.
 
 ```
 I have a chat app where each room shows its last 50 messages plus

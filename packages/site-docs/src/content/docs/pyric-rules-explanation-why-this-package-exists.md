@@ -2,7 +2,7 @@
 title: "Why this package exists"
 group: "pyric / rules"
 section: "Explanation"
-order: 13027
+order: 12027
 ---
 # Why this package exists
 

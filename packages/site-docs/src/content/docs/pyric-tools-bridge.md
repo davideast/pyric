@@ -2,7 +2,7 @@
 title: "pyric-tools/bridge"
 group: "pyric-tools"
 section: "Bridge"
-order: 9013
+order: 8013
 ---
 # `pyric-tools/bridge`
 

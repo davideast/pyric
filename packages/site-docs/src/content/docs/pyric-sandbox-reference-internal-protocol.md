@@ -3,7 +3,7 @@ title: "The /internal adapter protocol"
 navLabel: "The /internal protocol"
 group: "pyric / sandbox"
 section: "Reference"
-order: 14014
+order: 13014
 ---
 # The `/internal` adapter protocol
 
