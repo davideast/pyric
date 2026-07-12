@@ -4,10 +4,10 @@
     {
       "engine": "firestore",
       "totalConstructs": 140,
-      "exercisedConstructs": 128,
-      "verifiedConstructs": 128,
-      "exercisedCoverage": 0.9142857142857143,
-      "verifiedCoverage": 0.9142857142857143,
+      "exercisedConstructs": 129,
+      "verifiedConstructs": 129,
+      "exercisedCoverage": 0.9214285714285714,
+      "verifiedCoverage": 0.9214285714285714,
       "constructs": [
         {
           "id": "firestore.binding.request",
@@ -30,6 +30,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -54,6 +55,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -148,6 +150,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "time-math-and-casts",
             "undefined-field-access"
@@ -164,6 +167,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "time-math-and-casts",
             "undefined-field-access"
@@ -185,6 +189,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "time-math-and-casts",
             "undefined-field-access"
@@ -201,11 +206,14 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "time-math-and-casts",
             "undefined-field-access"
           ],
-          "verifiedByRows": []
+          "verifiedByRows": [
+            "firestore-rules#183"
+          ]
         },
         {
           "id": "firestore.binding.request.time",
@@ -223,11 +231,13 @@
           "kind": "binding",
           "exercisedBy": [
             "get-after-and-exists-after",
-            "globals-request-path-and-resource-id"
+            "globals-request-path-and-resource-id",
+            "resource-document-identity"
           ],
           "verifiedBy": [
             "get-after-and-exists-after",
-            "globals-request-path-and-resource-id"
+            "globals-request-path-and-resource-id",
+            "resource-document-identity"
           ],
           "verifiedByRows": []
         },
@@ -258,11 +268,13 @@
           "kind": "binding",
           "exercisedBy": [
             "globals-request-path-and-resource-id",
-            "required-fields-and-mapdiff"
+            "required-fields-and-mapdiff",
+            "resource-document-identity"
           ],
           "verifiedBy": [
             "globals-request-path-and-resource-id",
-            "required-fields-and-mapdiff"
+            "required-fields-and-mapdiff",
+            "resource-document-identity"
           ],
           "verifiedByRows": []
         },
@@ -270,41 +282,59 @@
           "id": "firestore.binding.resource.data",
           "kind": "binding",
           "exercisedBy": [
-            "required-fields-and-mapdiff"
+            "required-fields-and-mapdiff",
+            "resource-document-identity"
           ],
           "verifiedBy": [
-            "required-fields-and-mapdiff"
+            "required-fields-and-mapdiff",
+            "resource-document-identity"
           ],
-          "verifiedByRows": []
+          "verifiedByRows": [
+            "firestore-rules#183"
+          ]
         },
         {
           "id": "firestore.binding.resource.id",
           "kind": "binding",
           "exercisedBy": [
-            "globals-request-path-and-resource-id"
+            "globals-request-path-and-resource-id",
+            "resource-document-identity"
           ],
           "verifiedBy": [
-            "globals-request-path-and-resource-id"
+            "globals-request-path-and-resource-id",
+            "resource-document-identity"
           ],
-          "verifiedByRows": []
+          "verifiedByRows": [
+            "firestore-rules#183"
+          ]
         },
         {
           "id": "firestore.binding.resource.__name__",
           "kind": "binding",
           "exercisedBy": [
-            "globals-request-path-and-resource-id"
+            "globals-request-path-and-resource-id",
+            "resource-document-identity"
           ],
           "verifiedBy": [
-            "globals-request-path-and-resource-id"
+            "globals-request-path-and-resource-id",
+            "resource-document-identity"
           ],
-          "verifiedByRows": []
+          "verifiedByRows": [
+            "firestore-rules#183"
+          ]
         },
         {
           "id": "firestore.binding.request.resource.id",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": [],
-          "verifiedByRows": []
+          "exercisedBy": [
+            "resource-document-identity"
+          ],
+          "verifiedBy": [
+            "resource-document-identity"
+          ],
+          "verifiedByRows": [
+            "firestore-rules#183"
+          ]
         },
         {
           "id": "firestore.binding.path-variable",
@@ -328,6 +358,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -353,6 +384,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -1315,6 +1347,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "time-math-and-casts",
             "undefined-field-access"
@@ -1333,6 +1366,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "time-math-and-casts",
             "undefined-field-access"
@@ -1357,6 +1391,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "time-math-and-casts",
             "unsupported-feature-witness"
@@ -1376,6 +1411,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "time-math-and-casts",
             "unsupported-feature-witness"
@@ -1518,6 +1554,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "time-math-and-casts"
           ],
@@ -1539,6 +1576,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "time-math-and-casts"
           ],
@@ -1553,12 +1591,14 @@
             "error-absorption-and-or",
             "get-missing-doc",
             "int-float-and-division",
+            "resource-document-identity",
             "undefined-field-access"
           ],
           "verifiedBy": [
             "error-absorption-and-or",
             "get-missing-doc",
             "int-float-and-division",
+            "resource-document-identity",
             "undefined-field-access"
           ],
           "verifiedByRows": [
@@ -1572,6 +1612,7 @@
             "int-float-and-division",
             "path-constructor-and-bind",
             "prototype-chain-keys",
+            "resource-document-identity",
             "string-literals-and-regex",
             "undefined-field-access"
           ],
@@ -1579,6 +1620,7 @@
             "int-float-and-division",
             "path-constructor-and-bind",
             "prototype-chain-keys",
+            "resource-document-identity",
             "string-literals-and-regex",
             "undefined-field-access"
           ],
@@ -1615,13 +1657,15 @@
             "bytes-toutf8-and-hashing",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
-            "path-constructor-and-bind"
+            "path-constructor-and-bind",
+            "resource-document-identity"
           ],
           "verifiedBy": [
             "bytes-toutf8-and-hashing",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
-            "path-constructor-and-bind"
+            "path-constructor-and-bind",
+            "resource-document-identity"
           ],
           "verifiedByRows": []
         },
@@ -1660,6 +1704,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -1685,6 +1730,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -1749,10 +1795,12 @@
           "id": "firestore.rule-kind.allow-get",
           "kind": "rule-kind",
           "exercisedBy": [
-            "functions-verbs-and-recursive"
+            "functions-verbs-and-recursive",
+            "resource-document-identity"
           ],
           "verifiedBy": [
-            "functions-verbs-and-recursive"
+            "functions-verbs-and-recursive",
+            "resource-document-identity"
           ],
           "verifiedByRows": []
         },
@@ -1821,11 +1869,13 @@
           "kind": "rule-kind",
           "exercisedBy": [
             "functions-verbs-and-recursive",
-            "required-fields-and-mapdiff"
+            "required-fields-and-mapdiff",
+            "resource-document-identity"
           ],
           "verifiedBy": [
             "functions-verbs-and-recursive",
-            "required-fields-and-mapdiff"
+            "required-fields-and-mapdiff",
+            "resource-document-identity"
           ],
           "verifiedByRows": []
         },
@@ -1833,10 +1883,12 @@
           "id": "firestore.rule-kind.allow-delete",
           "kind": "rule-kind",
           "exercisedBy": [
-            "get-after-and-exists-after"
+            "get-after-and-exists-after",
+            "resource-document-identity"
           ],
           "verifiedBy": [
-            "get-after-and-exists-after"
+            "get-after-and-exists-after",
+            "resource-document-identity"
           ],
           "verifiedByRows": []
         },
@@ -1862,6 +1914,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -1887,6 +1940,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -1939,6 +1993,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -1964,6 +2019,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -2001,6 +2057,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -2026,6 +2083,7 @@
             "prototype-chain-keys",
             "range-slice-list-and-string",
             "required-fields-and-mapdiff",
+            "resource-document-identity",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
             "time-math-and-casts",
@@ -2090,8 +2148,8 @@
           "verifiedByRows": []
         }
       ],
-      "scenarioCount": 23,
-      "verifiedScenarioCount": 23,
+      "scenarioCount": 24,
+      "verifiedScenarioCount": 24,
       "unresolved": [
         {
           "scenario": "range-slice-list-and-string",
