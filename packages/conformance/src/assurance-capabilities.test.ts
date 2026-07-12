@@ -12,11 +12,13 @@ import {
   deriveAllCapabilities,
   deriveCapability,
   loadConformanceGraph,
+  pinningDependencies,
   renderArtifactJson,
   renderGeneratedTs,
   validationProblems,
   type ConformanceGraph,
 } from './assurance-capabilities.ts';
+import { capabilityReasons } from '../assurance-capabilities/generated.ts';
 import {
   capabilityRecordProblems,
   loadAssuranceCapabilityRecords,
@@ -196,7 +198,34 @@ describe('construct derivation', () => {
     const g = fakeGraph({ ...supported, divergedBy: new Map([['firestore.operator.eq', ['firestore-rules#166']]]) });
     const derived = deriveCapability(g, capability({ dependencies: dep }));
     expect(derived.status).toBe('unsupported');
-    expect(derived.reasons.join(' ')).toContain('firestore-rules#166');
+    expect(pinningDependencies(derived)).toEqual([
+      {
+        kind: 'construct',
+        id: 'firestore.operator.eq',
+        verdict: 'unsupported',
+        snapshot: 'accepted',
+        probe: 'implemented',
+        productionVerified: true,
+        divergedBy: ['firestore-rules#166'],
+      },
+    ]);
+  });
+
+  it('records production verification as a boolean, never the scenarios that produced it', () => {
+    const many = fakeGraph({
+      ...supported,
+      verifiedBy: new Map([['firestore.operator.eq', ['s1', 's2', 's3']]]),
+    });
+    const [dependency] = deriveCapability(many, capability({ dependencies: dep })).dependencies;
+    expect(dependency).toEqual({
+      kind: 'construct',
+      id: 'firestore.operator.eq',
+      verdict: 'supported',
+      snapshot: 'accepted',
+      probe: 'implemented',
+      productionVerified: true,
+      divergedBy: [],
+    });
   });
 });
 
@@ -279,7 +308,15 @@ describe('the shipped derivation', () => {
   });
 
   it('cites the graph evidence that pinned each status', () => {
-    for (const item of derived) expect(item.reasons.length).toBeGreaterThan(0);
+    for (const item of derived) expect(pinningDependencies(item).length).toBeGreaterThan(0);
+  });
+
+  it('renders an abstention reason on READ from the facts, for every capability a probe must abstain on', () => {
+    for (const item of ASSURANCE_ENGINE_CAPABILITIES.filter((c) => c.status !== 'supported')) {
+      const reasons = capabilityReasons(item);
+      expect(reasons.length).toBeGreaterThan(0);
+      for (const reason of reasons) expect(reason.length).toBeGreaterThan(0);
+    }
   });
 
   it('the committed artifact and generated module match the graph (no drift)', () => {
@@ -288,5 +325,74 @@ describe('the shipped derivation', () => {
       derived.map((c) => `${c.id}:${c.status}`),
     );
     expect(renderGeneratedTs(derived)).toContain('ASSURANCE_ENGINE_CAPABILITIES');
+  });
+});
+
+/**
+ * THE STANDING CONSTRAINT (see the generator header): a durable artifact carries
+ * facts about the thing it describes, never a whole-population aggregate.
+ *
+ * The artifacts once baked the corpus scenario COUNT into each construct's
+ * evidence sentence ("production-verified by 19 captured scenario(s)"). That
+ * count belongs to the corpus, so capturing ONE scenario anywhere rewrote dozens
+ * of capabilities that nothing had happened to: the diff lied about causality, a
+ * real `qualified -> supported` event drowned in the churn, and
+ * `compat:assurance:check` failed on branches that never touched assurance.
+ *
+ * The property these tests hold: the artifacts change IF AND ONLY IF a verdict
+ * changes. The perturbation below is the exact event that used to churn them.
+ */
+describe('churn invariance: the artifacts move only when a verdict moves', () => {
+  /** Every construct the corpus already verifies gains one more scenario, as if a
+   *  PR captured a scenario that happens to exercise it. Counts move; no verdict
+   *  can move, because `productionVerified` was already true for each of them. */
+  function withAnUnrelatedScenarioCaptured(graph: ConformanceGraph): ConformanceGraph {
+    const verifiedBy = new Map(graph.verifiedBy);
+    let perturbed = 0;
+    for (const [id, scenarios] of verifiedBy) {
+      if (scenarios.length === 0) continue;
+      verifiedBy.set(id, [...scenarios, 'synthetic-unrelated-scenario']);
+      perturbed++;
+    }
+    expect(perturbed).toBeGreaterThan(0);
+    return { ...graph, verifiedBy };
+  }
+
+  const before = deriveAllCapabilities(graph);
+  const after = deriveAllCapabilities(withAnUnrelatedScenarioCaptured(graph));
+
+  it('no verdict moves under the perturbation (it is a pure count change)', () => {
+    expect(after.map((c) => `${c.id}:${c.status}`)).toEqual(before.map((c) => `${c.id}:${c.status}`));
+    expect(after.flatMap((c) => c.dependencies.map((d) => `${c.id}/${d.id}:${d.verdict}`))).toEqual(
+      before.flatMap((c) => c.dependencies.map((d) => `${c.id}/${d.id}:${d.verdict}`)),
+    );
+  });
+
+  it('both artifacts are BYTE-IDENTICAL under the perturbation', () => {
+    expect(renderArtifactJson(buildArtifact(after))).toBe(renderArtifactJson(buildArtifact(before)));
+    expect(renderGeneratedTs(after)).toBe(renderGeneratedTs(before));
+  });
+
+  it('a verdict change DOES move the artifacts (the invariance is not vacuous)', () => {
+    // A construct some shipped capability actually depends on: break the simulator
+    // on it, and the artifacts must move.
+    const depended = before
+      .flatMap((c) => c.dependencies)
+      .find((d) => d.kind === 'construct' && d.verdict === 'supported');
+    expect(depended).toBeDefined();
+    const broken: ConformanceGraph = {
+      ...graph,
+      probeClass: new Map(graph.probeClass).set(depended!.id, 'error'),
+    };
+    expect(renderArtifactJson(buildArtifact(deriveAllCapabilities(broken)))).not.toBe(
+      renderArtifactJson(buildArtifact(before)),
+    );
+  });
+
+  it('no durable artifact carries a population aggregate', () => {
+    for (const text of [renderArtifactJson(buildArtifact(before)), renderGeneratedTs(before)]) {
+      expect(text).not.toContain('captured scenario(s)');
+      expect(text).not.toMatch(/production-verified by \d+/);
+    }
   });
 });
