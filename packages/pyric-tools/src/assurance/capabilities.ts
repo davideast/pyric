@@ -20,6 +20,7 @@ import {
 import { parseStorageRules } from "pyric/storage";
 import {
   ASSURANCE_ENGINE_CAPABILITIES,
+  capabilityReasons,
   type GeneratedAssuranceCapability,
 } from "./generated-capabilities.js";
 import type {
@@ -29,7 +30,7 @@ import type {
   LocalFirebaseTarget,
 } from "./types.js";
 
-export { ASSURANCE_ENGINE_CAPABILITIES };
+export { ASSURANCE_ENGINE_CAPABILITIES, capabilityReasons };
 export type { GeneratedAssuranceCapability };
 
 const CAPABILITY_BY_ID: ReadonlyMap<string, GeneratedAssuranceCapability> =
@@ -40,7 +41,7 @@ export function listAssuranceCapabilities(
 ): GeneratedAssuranceCapability[] {
   return ASSURANCE_ENGINE_CAPABILITIES.filter(
     (item) => !services || services.includes(item.service),
-  ).map((item) => ({ ...item, reasons: [...item.reasons] }));
+  ).map((item) => ({ ...item, dependencies: [...item.dependencies] }));
 }
 
 function requirement(
@@ -407,8 +408,9 @@ export function qualifyProbe(
       continue;
     }
     if (capability.status !== "supported") {
-      const cited = capability.reasons.length
-        ? ` The conformance graph derived this status from: ${capability.reasons.join(" ")}`
+      const reasons = capabilityReasons(capability);
+      const cited = reasons.length
+        ? ` The conformance graph derived this status from: ${reasons.join(" ")}`
         : "";
       requirements.push(
         requirement(

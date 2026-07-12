@@ -488,6 +488,31 @@ const EMITTED_RENDERER = [
   '}',
 ];
 
+/**
+ * The one definition of the capability-literal format. Emits each capability as
+ * an object literal carrying the structured `dependencies` FACTS (never a
+ * rendered sentence, never a count). Both generated copies — the conformance
+ * module and the self-contained pyric-tools module — render their literals here,
+ * so the two cannot drift.
+ */
+function renderCapabilityLiterals(capabilities: DerivedCapability[]): string[] {
+  const lines: string[] = [];
+  for (const capability of capabilities) {
+    lines.push('  {');
+    lines.push(`    id: ${JSON.stringify(capability.id)},`);
+    lines.push(`    service: ${JSON.stringify(capability.service)},`);
+    lines.push(`    status: ${JSON.stringify(capability.status)},`);
+    lines.push(`    description: ${JSON.stringify(capability.description)},`);
+    lines.push('    dependencies: [');
+    for (const dependency of capability.dependencies) {
+      lines.push(`      ${JSON.stringify(dependency)},`);
+    }
+    lines.push('    ],');
+    lines.push('  },');
+  }
+  return lines;
+}
+
 /** The generated TypeScript module: the same capabilities, inlined, in the shape
  *  the assurance runtime consumes (no filesystem, no JSON import). */
 export function renderGeneratedTs(capabilities: DerivedCapability[]): string {
@@ -560,6 +585,8 @@ export function renderGeneratedTs(capabilities: DerivedCapability[]): string {
     ...renderCapabilityLiterals(capabilities),
     '];',
     '',
+    ...EMITTED_RENDERER,
+    '',
   ];
   return lines.join('\n');
 }
@@ -588,40 +615,73 @@ export function renderRuntimeTs(capabilities: DerivedCapability[]): string {
     '//',
     '// A capability status is never authorable. It is derived from the graph, and',
     '// `bun run compat:assurance:check` fails if this file drifts from the graph.',
-    '// `reasons` carries the evidence a probe cites when it abstains (engine-gap).',
+    '//',
+    '// Each dependency carries the FACTS behind its verdict, never a sentence and',
+    '// never a count. A probe that abstains renders its reasons on read with',
+    '// `capabilityReasons(capability)`; the renderer is emitted below so this',
+    '// self-contained copy needs no import to produce the abstention prose.',
     '',
     "export type AssuranceCapabilityService = 'firestore' | 'rtdb' | 'storage' | 'auth';",
     "export type AssuranceCapabilityStatus = 'supported' | 'qualified' | 'unsupported';",
+    '',
+    'export type CapabilityVerdict = AssuranceCapabilityStatus;',
+    '',
+    'export interface GeneratedConstructDependency {',
+    "  kind: 'construct';",
+    '  /** The rules-language construct id. */',
+    '  id: string;',
+    '  verdict: CapabilityVerdict;',
+    '  /** The construct\'s status in the production language snapshot. */',
+    '  snapshot: string;',
+    '  /** What the local simulator\'s capability probe did with it. */',
+    "  probe: 'implemented' | 'unsupported' | 'error' | 'unprobeable' | 'absent';",
+    '  /** Whether any evidence path compares it against production. A BOOLEAN: how',
+    '   *  many scenarios do so is a fact about the corpus, not about this construct. */',
+    '  productionVerified: boolean;',
+    '  /** Rules-engine rows whose documented divergence names this construct. */',
+    '  divergedBy: string[];',
+    '}',
+    '',
+    'export interface GeneratedRegistryRowDependency {',
+    "  kind: 'registry-row';",
+    '  id: string;',
+    '  verdict: CapabilityVerdict;',
+    '  surface: string;',
+    '  status: string;',
+    '  rulesEngineSurface: boolean;',
+    '}',
+    '',
+    'export interface GeneratedUnbackedDependency {',
+    "  kind: 'unbacked';",
+    '  /** The behavior the capability needs. */',
+    '  id: string;',
+    '  verdict: CapabilityVerdict;',
+    '  /** Why the graph cannot back it. */',
+    '  reason: string;',
+    '}',
+    '',
+    'export type GeneratedCapabilityDependency =',
+    '  | GeneratedConstructDependency',
+    '  | GeneratedRegistryRowDependency',
+    '  | GeneratedUnbackedDependency;',
     '',
     'export interface GeneratedAssuranceCapability {',
     '  id: string;',
     '  service: AssuranceCapabilityService;',
     '  status: AssuranceCapabilityStatus;',
     '  description: string;',
-    '  /** The graph evidence that pinned the status: the dependencies whose verdict',
-    '   *  equals it. A probe that abstains reports these. */',
-    '  reasons: string[];',
+    '  /** Everything the status rests on. The ones that pinned it are the ones whose',
+    '   *  verdict equals the status; `capabilityReasons` selects and renders them. */',
+    '  dependencies: GeneratedCapabilityDependency[];',
     '}',
     '',
     'export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapability[] = [',
     ...renderCapabilityLiterals(capabilities),
     '];',
     '',
+    ...EMITTED_RENDERER,
+    '',
   ];
-  for (const capability of capabilities) {
-    lines.push('  {');
-    lines.push(`    id: ${JSON.stringify(capability.id)},`);
-    lines.push(`    service: ${JSON.stringify(capability.service)},`);
-    lines.push(`    status: ${JSON.stringify(capability.status)},`);
-    lines.push(`    description: ${JSON.stringify(capability.description)},`);
-    lines.push('    dependencies: [');
-    for (const dependency of capability.dependencies) {
-      lines.push(`      ${JSON.stringify(dependency)},`);
-    }
-    lines.push('    ],');
-    lines.push('  },');
-  }
-  lines.push('];', '', ...EMITTED_RENDERER, '');
   return lines.join('\n');
 }
 

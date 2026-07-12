@@ -7,6 +7,7 @@ export {
 } from "./attachment.js";
 export {
   ASSURANCE_ENGINE_CAPABILITIES,
+  capabilityReasons,
   listAssuranceCapabilities,
   qualifyProbe,
 } from "./capabilities.js";

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   ASSURANCE_ENGINE_CAPABILITIES,
   AssuranceInputError,
+  capabilityReasons,
   runAuthorizationCampaign,
   type AuthorizationCampaignSpec,
 } from "../../src/assurance/index.js";
@@ -242,7 +243,7 @@ describe("campaign classification integrity", () => {
       (item) => item.id === notSupported.id,
     );
     expect(requirement?.supported).toBe(false);
-    expect(requirement?.reason).toContain(notSupported.reasons[0]!);
+    expect(requirement?.reason).toContain(capabilityReasons(notSupported)[0]!);
   });
 
   it("rejects any target that does not explicitly forbid networking", async () => {

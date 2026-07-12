@@ -116,7 +116,8 @@ service cloud.firestore {
         // Statuses are DERIVED from the conformance graph, never authored.
         // `auth.password-anonymous-fixture` is `qualified` (not `supported`)
         // because registry row auth#7 documents an SDK-surface divergence, and
-        // the capability carries that reason as its evidence.
+        // the capability carries that dependency as its structured evidence
+        // (the abstention sentence is rendered on read via `capabilityReasons`).
         capabilities: expect.arrayContaining([
           expect.objectContaining({
             id: "firestore.crud",
@@ -125,8 +126,8 @@ service cloud.firestore {
           expect.objectContaining({
             id: "auth.password-anonymous-fixture",
             status: "qualified",
-            reasons: expect.arrayContaining([
-              expect.stringContaining("auth#7"),
+            dependencies: expect.arrayContaining([
+              expect.objectContaining({ id: "auth#7" }),
             ]),
           }),
         ]),

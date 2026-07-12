@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   ASSURANCE_ENGINE_CAPABILITIES,
+  capabilityReasons,
   qualifyProbe,
 } from "../../src/assurance/capabilities.js";
 import type {
@@ -259,7 +260,7 @@ service cloud.firestore {
     );
     if (!notSupported) throw new Error("expected a non-supported capability");
     // The graph must have said WHY; an abstention with no evidence is not one.
-    expect(notSupported.reasons.length).toBeGreaterThan(0);
+    expect(capabilityReasons(notSupported).length).toBeGreaterThan(0);
 
     const qualification = qualifyProbe(
       firestoreTarget(cleanRules),
@@ -276,7 +277,7 @@ service cloud.firestore {
     // The abstention message carries the capability's derived status AND the
     // graph evidence that pinned it — the probe cites the graph, not a hunch.
     expect(failed?.reason).toContain(notSupported.status);
-    expect(failed?.reason).toContain(notSupported.reasons[0]!);
+    expect(failed?.reason).toContain(capabilityReasons(notSupported)[0]!);
   });
 
   it("lets a probe proceed when its required capability is derived supported", () => {
