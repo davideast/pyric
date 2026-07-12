@@ -57,9 +57,27 @@ export const CONSTRUCT_KINDS: readonly ConstructKind[] = [
   'semantic',
 ] as const;
 
-/** Per-construct probe status. Step 1 seeds every construct `unprobed`; later
- *  phases (the credentialed acceptance probes, issue #185 step 5) advance it. */
-export type ConstructStatus = 'unprobed' | 'accepted' | 'rejected';
+/**
+ * Per-construct probe status. Step 1 seeds every construct `unprobed`.
+ * Step 5 (the credentialed production acceptance probe,
+ * `rules-language-acceptance.ts`) advances firestore/storage constructs to:
+ *   - `accepted`    — production's Rules Test API parsed/accepted a ruleset
+ *                     exercising the construct.
+ *   - `rejected`    — production rejected the ruleset (a parse/validation
+ *                     error naming this construct); see `probeNote` for the
+ *                     server's message. This is a finding: the snapshot
+ *                     claimed the construct was real language surface, and
+ *                     production disagrees.
+ *   - `unprobeable` — no ruleset-acceptance probe can be generated for the
+ *                     construct (the same semantic/meta constructs the
+ *                     capability probe already marks unprobeable — module
+ *                     resolution, resource-limit semantics, multi-node
+ *                     relationships). Not a finding; a documented limit of
+ *                     this probing method.
+ * RTDB constructs stay `unprobed` — there is no Test API for RTDB rules
+ * (issue #185 step 5 explicitly excludes the RTDB arm).
+ */
+export type ConstructStatus = 'unprobed' | 'accepted' | 'rejected' | 'unprobeable';
 
 /** One enumerated construct of a rules language. */
 export interface LanguageConstruct {
@@ -83,6 +101,14 @@ export interface LanguageConstruct {
    *  parser/evaluator disagree about the construct: describes the divergence.
    *  A populated `note` is a documented doc-vs-parser finding. */
   note?: string;
+  /** Present for `status: 'rejected'` (the production Rules Test API's own
+   *  rejection message, verbatim) and `status: 'unprobeable'` (why no
+   *  ruleset-acceptance probe could be generated for this construct).
+   *  Distinct from `note`: `note` records a doc-vs-parser divergence found by
+   *  static inspection; `probeNote` records what the LIVE production
+   *  acceptance probe (issue #185 step 5) observed. A construct can carry
+   *  both. */
+  probeNote?: string;
 }
 
 /** A whole-engine snapshot: the file shape of `<engine>.json`. */

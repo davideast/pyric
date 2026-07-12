@@ -53,7 +53,7 @@ export interface ConstructCapability {
 
 const fsSim = new SimulateFirestoreRulesHandler();
 
-const FS_RULESET = (expr: string, verb = 'read') => `rules_version = '2';
+export const FS_RULESET = (expr: string, verb = 'read') => `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /probe/{id} {
@@ -63,13 +63,16 @@ service cloud.firestore {
 }`;
 
 /** A firestore probe: an expression evaluated in a standard get, or a full
- *  ruleset + case, or an unprobeable marker. */
-type FsProbe =
+ *  ruleset + case, or an unprobeable marker. Exported (issue #185 step 5)
+ *  so the production acceptance probe (rules-language-acceptance.ts) reuses
+ *  the SAME per-construct micro-scenario generator the capability probe
+ *  uses against the local simulator — one generator, two backends. */
+export type FsProbe =
   | { expr: string; method?: TestCase['method']; withMocks?: TestCase['functionMocks'] }
   | { rules: string; cases: TestCase[] }
   | { unprobeable: string };
 
-const FS_BASE_CASE: Omit<TestCase, 'description'> = {
+export const FS_BASE_CASE: Omit<TestCase, 'description'> = {
   expectation: 'ALLOW',
   method: 'get',
   path: 'probe/x',
@@ -78,17 +81,26 @@ const FS_BASE_CASE: Omit<TestCase, 'description'> = {
   resource: { a: 1, b: 2, s: 'str' },
 };
 
+/**
+ * Resolve an {@link FsProbe} into the (rules, cases) pair a rules-test
+ * backend executes — local simulator or production Rules Test API alike.
+ * Exported (issue #185 step 5) so the production acceptance probe
+ * (rules-language-acceptance.ts) builds the EXACT same request the
+ * capability probe runs against the local simulator; only the backend
+ * differs.
+ */
+export function resolveFsProbe(probe: FsProbe): { rules: string; cases: TestCase[] } | { unprobeable: string } {
+  if ('unprobeable' in probe) return probe;
+  if ('rules' in probe) return { rules: probe.rules, cases: probe.cases };
+  const rules = FS_RULESET(probe.expr, probe.method === 'create' || probe.method === 'update' || probe.method === 'delete' ? 'write' : 'read');
+  const cases: TestCase[] = [{ description: 'probe', ...FS_BASE_CASE, method: probe.method ?? 'get', functionMocks: probe.withMocks }];
+  return { rules, cases };
+}
+
 function fsRun(probe: FsProbe): { classification: Classification; detail: string } {
-  if ('unprobeable' in probe) return { classification: 'unprobeable', detail: probe.unprobeable };
-  let rules: string;
-  let cases: TestCase[];
-  if ('rules' in probe) {
-    rules = probe.rules;
-    cases = probe.cases;
-  } else {
-    rules = FS_RULESET(probe.expr, probe.method === 'create' || probe.method === 'update' || probe.method === 'delete' ? 'write' : 'read');
-    cases = [{ description: 'probe', ...FS_BASE_CASE, method: probe.method ?? 'get', functionMocks: probe.withMocks }];
-  }
+  const resolved = resolveFsProbe(probe);
+  if ('unprobeable' in resolved) return { classification: 'unprobeable', detail: resolved.unprobeable };
+  const { rules, cases } = resolved;
   let res;
   try {
     res = fsSim.simulate(rules, cases);
@@ -233,7 +245,7 @@ const FS_EXPR: Record<string, FsProbe> = {
   'firestore.operator.slice': { expr: '[1, 2, 3][0:2].size() == 2' },
 };
 
-function fsProbeFor(c: LanguageConstruct): FsProbe {
+export function fsProbeFor(c: LanguageConstruct): FsProbe {
   if (c.id in FS_EXPR) return FS_EXPR[c.id];
   // Bindings — a tautology that forces the binding to resolve.
   if (c.kind === 'binding') {
@@ -317,7 +329,7 @@ service cloud.firestore {
 // STORAGE
 // ════════════════════════════════════════════════════════════════════
 
-const ST_RULESET = (expr: string, verb = 'read') => `rules_version = '2';
+export const ST_RULESET = (expr: string, verb = 'read') => `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /probe/{id} {
@@ -326,9 +338,11 @@ service firebase.storage {
   }
 }`;
 
-type StProbe = { expr: string; method?: EvaluationInput['request']['method'] } | { rules: string; input: EvaluationInput } | { unprobeable: string };
+/** Exported (issue #185 step 5) for the same one-generator-two-backends
+ *  reason as {@link FsProbe}. */
+export type StProbe = { expr: string; method?: EvaluationInput['request']['method'] } | { rules: string; input: EvaluationInput } | { unprobeable: string };
 
-const ST_INPUT: EvaluationInput = {
+export const ST_INPUT: EvaluationInput = {
   request: {
     auth: { uid: 'u', token: { admin: true } },
     method: 'read',
@@ -338,18 +352,24 @@ const ST_INPUT: EvaluationInput = {
   resource: { size: 10, contentType: 'text/plain', metadata: { owner: 'u' } },
 };
 
+/**
+ * Resolve an {@link StProbe} into the (rules, input) pair a rules-test
+ * backend executes. Exported (issue #185 step 5) for the same
+ * one-generator-two-backends reason as {@link resolveFsProbe}.
+ */
+export function resolveStProbe(probe: StProbe): { rules: string; input: EvaluationInput } | { unprobeable: string } {
+  if ('unprobeable' in probe) return probe;
+  if ('rules' in probe) return { rules: probe.rules, input: probe.input };
+  const verb = probe.method ?? 'read';
+  const rules = ST_RULESET(probe.expr, verb);
+  const input: EvaluationInput = { ...ST_INPUT, request: { ...ST_INPUT.request, method: verb } };
+  return { rules, input };
+}
+
 function stRun(probe: StProbe): { classification: Classification; detail: string } {
-  if ('unprobeable' in probe) return { classification: 'unprobeable', detail: probe.unprobeable };
-  let rules: string;
-  let input: EvaluationInput;
-  if ('rules' in probe) {
-    rules = probe.rules;
-    input = probe.input;
-  } else {
-    const verb = probe.method ?? 'read';
-    rules = ST_RULESET(probe.expr, verb);
-    input = { ...ST_INPUT, request: { ...ST_INPUT.request, method: verb } };
-  }
+  const resolved = resolveStProbe(probe);
+  if ('unprobeable' in resolved) return { classification: 'unprobeable', detail: resolved.unprobeable };
+  const { rules, input } = resolved;
   let parsed;
   try {
     parsed = parseStorageRules(rules);
@@ -395,7 +415,7 @@ const ST_EXPR: Record<string, StProbe> = {
   'storage.operator.index': { expr: "request.resource.metadata['owner'] == request.auth.uid" },
 };
 
-function stProbeFor(c: LanguageConstruct): StProbe {
+export function stProbeFor(c: LanguageConstruct): StProbe {
   if (c.id in ST_EXPR) return ST_EXPR[c.id];
   if (c.kind === 'binding') {
     const name = c.id.slice('storage.binding.'.length);

@@ -41,7 +41,38 @@ describe('rules-language snapshots + loader', () => {
         else expect(c.receiverType).toBeUndefined();
         expect(c.engine).toBe(engine);
         expect(c.reference.length).toBeGreaterThan(0);
-        expect(c.status).toBe('unprobed');
+      }
+    }
+  });
+
+  // ── Production acceptance probe status (issue #185 step 5) ──────────────
+  //
+  // firestore + storage are probed against the live Rules Test API
+  // (rules-language-acceptance.ts): every construct there has advanced past
+  // 'unprobed' to accepted/rejected/unprobeable. RTDB has no Test API and is
+  // explicitly out of scope for the credentialed probe, so it stays
+  // 'unprobed'.
+  it('firestore + storage constructs have all been probed (no longer unprobed)', () => {
+    for (const engine of ['firestore', 'storage'] as const) {
+      for (const c of loadSnapshot(engine).constructs) {
+        expect(['accepted', 'rejected', 'unprobeable']).toContain(c.status);
+      }
+    }
+  });
+
+  it('rtdb constructs stay unprobed (no Test API for RTDB rules; out of scope)', () => {
+    for (const c of loadSnapshot('rtdb').constructs) {
+      expect(c.status).toBe('unprobed');
+    }
+  });
+
+  it('every rejected or unprobeable construct carries a non-empty probeNote', () => {
+    for (const engine of RULES_ENGINES) {
+      for (const c of loadSnapshot(engine).constructs) {
+        if (c.status === 'rejected' || c.status === 'unprobeable') {
+          expect(typeof c.probeNote).toBe('string');
+          expect((c.probeNote ?? '').length).toBeGreaterThan(0);
+        }
       }
     }
   });
@@ -102,6 +133,38 @@ describe('rules-language snapshots + loader', () => {
     const snap = base();
     (snap.constructs[0] as { reference?: string }).reference = '';
     expect(validateSnapshotValue('firestore', snap).some((p) => p.includes('missing reference'))).toBe(true);
+  });
+
+  it('accepts the unprobeable status when paired with a probeNote', () => {
+    const snap = base();
+    (snap.constructs[0] as { status: string; probeNote?: string }).status = 'unprobeable';
+    (snap.constructs[0] as { status: string; probeNote?: string }).probeNote = 'no generator for this construct kind';
+    expect(validateSnapshotValue('firestore', snap)).toEqual([]);
+  });
+
+  it('rejects a rejected-status construct with no probeNote', () => {
+    const snap = base();
+    (snap.constructs[0] as { status: string }).status = 'rejected';
+    expect(
+      validateSnapshotValue('firestore', snap).some((p) => p.includes('requires a non-empty probeNote')),
+    ).toBe(true);
+  });
+
+  it('rejects an unprobeable-status construct with no probeNote', () => {
+    const snap = base();
+    (snap.constructs[0] as { status: string }).status = 'unprobeable';
+    expect(
+      validateSnapshotValue('firestore', snap).some((p) => p.includes('requires a non-empty probeNote')),
+    ).toBe(true);
+  });
+
+  it('rejects an empty-string probeNote', () => {
+    const snap = base();
+    (snap.constructs[0] as { status: string; probeNote?: string }).status = 'rejected';
+    (snap.constructs[0] as { status: string; probeNote?: string }).probeNote = '';
+    expect(
+      validateSnapshotValue('firestore', snap).some((p) => p.includes('probeNote present but empty')),
+    ).toBe(true);
   });
 });
 
