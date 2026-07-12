@@ -12,6 +12,7 @@ import {
   type ConfirmPolicy,
 } from '../../src/bridge/server/confirm-policy.js';
 import { SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
+import { ASSURANCE_TOOL_NAMES } from '../../src/assurance/tool-names.js';
 
 describe('DEFAULT_PROD_POLICIES table', () => {
   test('reads are never', () => {
@@ -22,6 +23,9 @@ describe('DEFAULT_PROD_POLICIES table', () => {
       'rtdb_get',
     ];
     for (const name of reads) {
+      expect(DEFAULT_PROD_POLICIES.get(name)).toBe('never');
+    }
+    for (const name of ASSURANCE_TOOL_NAMES) {
       expect(DEFAULT_PROD_POLICIES.get(name)).toBe('never');
     }
   });

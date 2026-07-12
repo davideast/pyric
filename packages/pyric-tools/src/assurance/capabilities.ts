@@ -1,17 +1,22 @@
 import { lint } from "pyric/rules";
-// Internal engine seam: the public `pyric/rules` API exposes lint/simulate but
-// no parsed AST, and the overlapping-match analysis below must walk the parsed
-// match tree (`MatchBlock`/`PathSegment`) to detect production OR composition.
+// Internal engine seams, both on the browser-safe `pyric/rules/internal` entry
+// (this runtime ships to the browser, so the Node-only `internal/rtdb` entry is
+// not reachable from here):
+//
+//   parseToASTOrError / MatchBlock / PathSegment — the public API exposes
+//   lint/simulate but no parsed AST, and the overlapping-match analysis below
+//   must walk the match tree to detect production OR composition.
+//
+//   parseRtdbExpression — a target carries COMPILED RTDB `{ rules }` JSON, and
+//   `rtdbRules(compiledJson).lint()` returns nothing (a compiled document has
+//   no IR to lint against). The per-expression parse check below therefore
+//   reaches the expression parser directly.
 import {
   parseToASTOrError,
+  parseRtdbExpression,
   type MatchBlock,
   type PathSegment,
 } from "pyric/rules/internal";
-// Internal engine seam: a target carries COMPILED RTDB `{ rules }` JSON, and
-// `rtdbRules(compiledJson).lint()` returns nothing (there is no IR to lint a
-// compiled document against). The per-expression parse check below therefore
-// reaches the RTDB expression parser directly.
-import { parseExpression as parseRtdbExpression } from "pyric/rules/internal/rtdb";
 import { parseStorageRules } from "pyric/storage";
 import {
   ASSURANCE_ENGINE_CAPABILITIES,

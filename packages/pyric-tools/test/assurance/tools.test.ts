@@ -113,6 +113,10 @@ service cloud.firestore {
         campaignId: "tool-profile-campaign",
         localOnly: true,
         services: ["firestore"],
+        // Statuses are DERIVED from the conformance graph, never authored.
+        // `auth.password-anonymous-fixture` is `qualified` (not `supported`)
+        // because registry row auth#7 documents an SDK-surface divergence, and
+        // the capability carries that reason as its evidence.
         capabilities: expect.arrayContaining([
           expect.objectContaining({
             id: "firestore.crud",
@@ -120,7 +124,10 @@ service cloud.firestore {
           }),
           expect.objectContaining({
             id: "auth.password-anonymous-fixture",
-            status: "supported",
+            status: "qualified",
+            reasons: expect.arrayContaining([
+              expect.stringContaining("auth#7"),
+            ]),
           }),
         ]),
       },

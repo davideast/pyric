@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  ASSURANCE_ENGINE_CAPABILITIES,
   AssuranceInputError,
   runAuthorizationCampaign,
   type AuthorizationCampaignSpec,
@@ -209,6 +210,39 @@ describe("campaign classification integrity", () => {
         supported: false,
       }),
     );
+  });
+
+  it("abstains — never reports no-counterexample — when a probe requires a capability the graph does not derive as supported", async () => {
+    // The probe below would otherwise EXECUTE and, against these permissive
+    // rules, come back clean. It must not: it declares a capability the
+    // conformance graph does not derive as `supported`, so the engine cannot
+    // treat its own verdict as evidence. Silence from a simulator that cannot
+    // see the behavior is not evidence of safety.
+    const notSupported = ASSURANCE_ENGINE_CAPABILITIES.find(
+      (capability) => capability.status !== "supported",
+    );
+    if (!notSupported) throw new Error("expected a non-supported capability");
+
+    const campaign = firestoreCampaign();
+    campaign.probes[0]!.requirements = [notSupported.id];
+
+    const report = await runAuthorizationCampaign(campaign);
+
+    expect(report.results[0]).toMatchObject({
+      classification: "engine-gap",
+      control: { decision: "UNSUPPORTED", events: [] },
+      mutation: { decision: "UNSUPPORTED", events: [] },
+      qualification: { supported: false },
+    });
+    expect(report.summary.engineGaps).toBe(1);
+    expect(report.summary.noCounterexamples).toBe(0);
+
+    // The abstention cites the graph's own evidence for the derived status.
+    const requirement = report.results[0]?.qualification.requirements.find(
+      (item) => item.id === notSupported.id,
+    );
+    expect(requirement?.supported).toBe(false);
+    expect(requirement?.reason).toContain(notSupported.reasons[0]!);
   });
 
   it("rejects any target that does not explicitly forbid networking", async () => {

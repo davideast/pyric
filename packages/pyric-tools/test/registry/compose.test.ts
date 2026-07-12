@@ -28,6 +28,8 @@ describe('composeMcpRegistry', () => {
     // documented as agent tools but missing from the prod registry).
     expect(registry.has('auth_get_config')).toBe(true);
     expect(registry.has('auth_configure_provider')).toBe(true);
+    expect(registry.has('firebase_assurance_start')).toBe(true);
+    expect(registry.has('firebase_assurance_run')).toBe(true);
     // No duplicate names — `register` throws on conflict (F6), so
     // a duplicate would have already failed assembly.
     const names = tools.map((t) => t.name);
@@ -41,6 +43,7 @@ describe('composeMcpRegistry', () => {
     // The lint tool (rules-tooling) should be absent from control-plane-only.
     expect(controlOnly.has('firestore_lint_rules')).toBe(false);
     expect(fullRegistry.has('firestore_lint_rules')).toBe(true);
+    expect(controlOnly.has('firebase_assurance_start')).toBe(false);
   });
 
   it('always includes the deploy primitives across every profile', async () => {
