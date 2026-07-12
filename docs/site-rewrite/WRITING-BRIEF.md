@@ -72,6 +72,10 @@ Every page that has an agent angle carries a short "And from an agent" section n
 Use: sandbox, backend, rules, verdict, denial, seed, snapshot, replay, ship, prove.
 Avoid: leverage, powerful, seamless, simply, easy, just (as minimizer), robust, blazing, magic, revolutionary. Avoid "emulator" except when explicitly contrasting, and never propose emulator workflows.
 
+## Avoid "your" (owner review)
+
+Do not lean on "your" as a possessive. It piles up ("your code, your machine, your data, your rules, your agent") into a coax-y register that documentation should not have. Name the thing plainly: "the `firebase/*` code," "the backend," "a coding agent," "the machine." "You" as a verb subject is fine ("an answer you can read"); it is the possessive that goes. One deliberate exception, pending owner confirmation: the identity line "Firebase that runs in your browser," where "your" is the load-bearing hook and is kept on purpose.
+
 ## Straightforward, not unserious (owner review)
 
 This is documentation. Write plainly. The reader is not meeting, greeting, or being welcomed by anything, and tools do not carry, babysit, or usher a workflow. No mascot register, no winking, no "you have already met X." Name the thing and say what it does: "`pyric dev` is one command of several" beats "you have already met `pyric dev`." When tempted to reach for a friendly verb, use the literal one. The YouTube-expert voice above is about showing the result first and knowing the material, not about being cute.
