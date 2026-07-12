@@ -1,7 +1,7 @@
 import type { RigManifestRecord } from './types.ts';
 
 /**
- * The FCM send-plane rig (`scripts/oracle/messaging-send-probes.ts`). Mints a
+ * The FCM send-plane rig (`packages/conformance/src/messaging-send-probes.ts`). Mints a
  * short-lived OAuth token from a provisioned service account and POSTs crafted
  * payloads to the production FCM v1 `messages:send` endpoint, capturing what
  * production accepts and the exact error envelopes it returns as
@@ -43,6 +43,6 @@ export const rig: RigManifestRecord = {
   freshness: {
     versionField: 'adminSdkVersion',
     policy:
-      'Checked by scripts/oracle/check-observation-versions.ts against the installed node_modules/firebase-admin/package.json version — send observations carry adminSdkVersion, not fbSdkVersion. The value records the transport the capture ran through; the server behavior itself is not SDK-pinned, so drift is caught by re-running and diffing.',
+      'Checked by packages/conformance/src/check-observation-versions.ts against the installed node_modules/firebase-admin/package.json version — send observations carry adminSdkVersion, not fbSdkVersion. The value records the transport the capture ran through; the server behavior itself is not SDK-pinned, so drift is caught by re-running and diffing.',
   },
 };

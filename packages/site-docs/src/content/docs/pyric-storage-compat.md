@@ -5,7 +5,7 @@ group: "Compatibility"
 section: ""
 order: 8004
 ---
-<!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
+<!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 # `pyric/storage` compatibility matrix
 
@@ -36,7 +36,7 @@ attributes failures).
 
 Probe references: `unit:<file>` means a Bun test under
 `packages/pyric/test/storage/<file>`. `oracle:<name>` cites an observation
-under `scripts/oracle/observations/<name>.json` captured by
+under `packages/conformance/observations/storage/<name>.json` captured by
 `scripts/oracle/run.ts` against a real Firebase project.
 
 Targets:
@@ -220,12 +220,12 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">36</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: round-trips uploaded bytes through <code>getDownloadURL</code> + fetch (byte-for-byte equality)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-upload-bytes-roundtrip.json</code> (against blockingfun, fb-js-sdk 12.13.0: 6-byte payload → uploadBytes → getDownloadURL → HTTPS fetch → <code>bytesMatch: true</code>, <code>urlIsHttps: true</code>, <code>bodyLen === payloadLen === 6</code>). Sandbox doesn't ship <code>getDownloadURL</code> (row #51 is <code>—</code>); the round-trip is observed prod-side only.</div>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-upload-bytes-roundtrip.json</code> (against blockingfun, fb-js-sdk 12.13.0: 6-byte payload → uploadBytes → getDownloadURL → HTTPS fetch → <code>bytesMatch: true</code>, <code>urlIsHttps: true</code>, <code>bodyLen === payloadLen === 6</code>). Sandbox doesn't ship <code>getDownloadURL</code> (row #51 is <code>—</code>); the round-trip is observed prod-side only.</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">37</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returned <code>metadata.contentType</code> matches what the caller hinted (when set)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> + oracle: <code>scripts/oracle/observations/storage-upload-then-getmetadata.json</code> (<code>contentType: 'application/octet-stream'</code> round-trip against blockingfun, fb-js-sdk 12.13.0; <code>contentTypeMatches: true</code>)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> + oracle: <code>packages/conformance/observations/storage/storage-upload-then-getmetadata.json</code> (<code>contentType: 'application/octet-stream'</code> round-trip against blockingfun, fb-js-sdk 12.13.0; <code>contentTypeMatches: true</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">38</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returned <code>metadata.generation</code> / <code>metageneration</code> are stringified counters (<code>'1'</code> after fresh upload)</span></summary>
@@ -246,7 +246,7 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">41</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Sandbox: <code>format='base64url'</code> (or any unknown format) rejected with <code>storage/invalid-format</code> naming the bad format. Prod: <code>base64url</code> is ACCEPTED (upload succeeds); a genuinely-unrecognized format throws <code>storage/unknown</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe">divergence, both halves oracle-locked by <code>scripts/oracle/observations/storage-uploadstring-unknown-format.json</code>: prod accepts <code>base64url</code> (<code>base64urlOk: true</code>) and throws <code>storage/unknown</code> for an unrecognized format — not <code>storage/invalid-format</code>. The v1 sandbox ships only <code>raw</code>/<code>base64</code>/<code>data_url</code> (matches <code>StringFormat</code>) and throws <code>storage/invalid-format</code> for anything else (ST-B3 replaced the old mis-parse-as-data_url behavior). Both sides pinned in <code>oracle-conformance.test.ts</code>; sandbox code path documented in <code>upload.ts</code>'s <code>decodeString</code>. Implementing base64url decoding is still one line in <code>decodeString</code>.</div></div>
+<div class="compat-evidence"><div class="compat-probe">divergence, both halves oracle-locked by <code>packages/conformance/observations/storage/storage-uploadstring-unknown-format.json</code>: prod accepts <code>base64url</code> (<code>base64urlOk: true</code>) and throws <code>storage/unknown</code> for an unrecognized format — not <code>storage/invalid-format</code>. The v1 sandbox ships only <code>raw</code>/<code>base64</code>/<code>data_url</code> (matches <code>StringFormat</code>) and throws <code>storage/invalid-format</code> for anything else (ST-B3 replaced the old mis-parse-as-data_url behavior). Both sides pinned in <code>oracle-conformance.test.ts</code>; sandbox code path documented in <code>upload.ts</code>'s <code>decodeString</code>. Implementing base64url decoding is still one line in <code>decodeString</code>.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">42</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>format='data_url'</code>: parses <code>data:&lt;mime&gt;;base64,&lt;payload&gt;</code>, infers <code>contentType</code> from prefix</span></summary>
@@ -266,7 +266,7 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">46</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: <code>uploadString(ref, value, 'base64')</code> round-trips via <code>getDownloadURL</code> + fetch</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-uploadstring-base64-roundtrip.json</code> (<code>'aGVsbG8='</code> → <code>'hello'</code> against blockingfun, fb-js-sdk 12.13.0; <code>textMatches: true</code>)</div>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-uploadstring-base64-roundtrip.json</code> (<code>'aGVsbG8='</code> → <code>'hello'</code> against blockingfun, fb-js-sdk 12.13.0; <code>textMatches: true</code>)</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
 </div>
@@ -314,7 +314,7 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">54</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>storage/object-not-found</code> when no object exists at the path</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws storage/object-not-found for missing paths") + oracle: <code>scripts/oracle/observations/storage-delete-then-get-throws.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload → delete → <code>getDownloadURL</code> on the deleted ref throws <code>FirebaseError</code> with <code>code: 'storage/object-not-found'</code>)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> ("throws storage/object-not-found for missing paths") + oracle: <code>packages/conformance/observations/storage/storage-delete-then-get-throws.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload → delete → <code>getDownloadURL</code> on the deleted ref throws <code>FirebaseError</code> with <code>code: 'storage/object-not-found'</code>)</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">55</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Throws when <code>blob.size &gt; maxDownloadSize</code> with <code>.code</code> exposed</span></summary>
@@ -369,7 +369,7 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">64</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Sandbox: no-op on missing path (does NOT throw)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">divergence: sandbox is no-op via <code>persistence.ts</code>'s <code>delete</code>. Prod's <code>deleteObject</code> on a missing path throws <code>storage/object-not-found</code>. Oracle-locked: <code>scripts/oracle/observations/storage-delete-missing-throws.json</code> (<code>code: 'storage/object-not-found'</code>, <code>name: 'FirebaseError'</code> against blockingfun, fb-js-sdk 12.13.0). Both sides pinned in <code>oracle-conformance.test.ts</code>; documented in <code>download.ts</code>.</div></div>
+<div class="compat-evidence"><div class="compat-probe">divergence: sandbox is no-op via <code>persistence.ts</code>'s <code>delete</code>. Prod's <code>deleteObject</code> on a missing path throws <code>storage/object-not-found</code>. Oracle-locked: <code>packages/conformance/observations/storage/storage-delete-missing-throws.json</code> (<code>code: 'storage/object-not-found'</code>, <code>name: 'FirebaseError'</code> against blockingfun, fb-js-sdk 12.13.0). Both sides pinned in <code>oracle-conformance.test.ts</code>; documented in <code>download.ts</code>.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">65</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>storage/invalid-root-operation</code> on the root reference</span></summary>
@@ -377,7 +377,7 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">66</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: a successful <code>deleteObject</code> followed by <code>getDownloadURL</code> on the same ref throws <code>storage/object-not-found</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-delete-then-get-throws.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload + delete succeed, then <code>getDownloadURL</code> throws <code>code: 'storage/object-not-found'</code>, message <code>"Firebase Storage: Object '…' does not exist."</code>, <code>isFirebaseError: true</code>)</div>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-delete-then-get-throws.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload + delete succeed, then <code>getDownloadURL</code> throws <code>code: 'storage/object-not-found'</code>, message <code>"Firebase Storage: Object '…' does not exist."</code>, <code>isFirebaseError: true</code>)</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
@@ -427,7 +427,7 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">77</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: items + prefixes shape matches sandbox after <code>N</code> uploads under a directory</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-listall-shape.json</code> (against blockingfun, fb-js-sdk 12.13.0: 3 direct children + 1 grandchild → <code>items</code> has all 3 direct children sorted, <code>prefixes</code> has the single sub-folder, <code>itemCount: 3</code>, <code>prefixCount: 1</code>, <code>threeDirectChildren: true</code>, <code>oneSubPrefix: true</code>)</div></div>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-listall-shape.json</code> (against blockingfun, fb-js-sdk 12.13.0: 3 direct children + 1 grandchild → <code>items</code> has all 3 direct children sorted, <code>prefixes</code> has the single sub-folder, <code>itemCount: 3</code>, <code>prefixCount: 1</code>, <code>threeDirectChildren: true</code>, <code>oneSubPrefix: true</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">77a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>listAll</code> enforces rules: <code>read</code> permission on the scanned prefix path governs list (Firebase: <code>read</code> covers download AND list), denied prefix → <code>storage/unauthorized</code></span></summary>
@@ -489,17 +489,17 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">89</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: <code>getMetadata</code> after <code>uploadBytes</code> returns <code>contentType</code> and <code>size</code> matching what was uploaded</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-upload-then-getmetadata.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload 128-byte payload with <code>contentType: 'application/octet-stream'</code>, getMetadata returns <code>metadataSize: 128</code>, <code>metadataContentType: 'application/octet-stream'</code>, <code>metadataBucket: 'blockingfun.firebasestorage.app'</code>, <code>metadataMetageneration: '1'</code>, <code>fullPathMatches: true</code>)</div>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-upload-then-getmetadata.json</code> (against blockingfun, fb-js-sdk 12.13.0: upload 128-byte payload with <code>contentType: 'application/octet-stream'</code>, getMetadata returns <code>metadataSize: 128</code>, <code>metadataContentType: 'application/octet-stream'</code>, <code>metadataBucket: 'blockingfun.firebasestorage.app'</code>, <code>metadataMetageneration: '1'</code>, <code>fullPathMatches: true</code>)</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">90</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: <code>updateMetadata({customMetadata: {...}})</code> round-trips through a follow-up <code>getMetadata</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>scripts/oracle/observations/storage-update-metadata-roundtrip.json</code> (against blockingfun, fb-js-sdk 12.13.0: post-update <code>getMetadata</code> returns the exact <code>customMetadata</code> object, <code>metageneration</code> bumps <code>'1'</code> → <code>'2'</code>, <code>customSurvived: true</code>, <code>metagenerationBumped: true</code>)</div>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-update-metadata-roundtrip.json</code> (against blockingfun, fb-js-sdk 12.13.0: post-update <code>getMetadata</code> returns the exact <code>customMetadata</code> object, <code>metageneration</code> bumps <code>'1'</code> → <code>'2'</code>, <code>customSurvived: true</code>, <code>metagenerationBumped: true</code>)</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">91</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>FullMetadata.md5Hash</code> populated on uploads</span></summary>
-<div class="compat-evidence"><div class="compat-probe">divergence: sandbox does NOT compute <code>md5Hash</code>. Oracle-locked: <code>scripts/oracle/observations/storage-upload-then-getmetadata.json</code> confirms prod sets <code>md5Hash</code> (<code>hasMd5Hash: true</code> after a vanilla <code>uploadBytes</code>). Both sides pinned in <code>oracle-conformance.test.ts</code>. Aligning the sandbox is a one-spot fix in <code>upload.ts</code>'s <code>buildStoredMetadata</code>.</div></div>
+<div class="compat-evidence"><div class="compat-probe">divergence: sandbox does NOT compute <code>md5Hash</code>. Oracle-locked: <code>packages/conformance/observations/storage/storage-upload-then-getmetadata.json</code> confirms prod sets <code>md5Hash</code> (<code>hasMd5Hash: true</code> after a vanilla <code>uploadBytes</code>). Both sides pinned in <code>oracle-conformance.test.ts</code>. Aligning the sandbox is a one-spot fix in <code>upload.ts</code>'s <code>buildStoredMetadata</code>.</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
 <summary class="compat-line"><span class="compat-num">92</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>FullMetadata.ref</code> lazy population (prod populates lazily)</span></summary>
@@ -585,7 +585,7 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">105</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Op-level enforcement: <code>uploadBytes</code> against a denied path throws <code>storage/unauthorized</code> on sandbox / <code>storage/unauthorized</code> on prod, <code>.code</code> exposed on both</span></summary>
-<div class="compat-evidence"><div class="compat-probe">ST-B1 fixed: sandbox now throws a <code>StorageError</code> (see <code>src/storage/errors.ts</code>) whose <code>.code === 'storage/unauthorized'</code> — matching prod's <code>FirebaseError.code</code>. Probe: <code>unit:error-codes.test.ts</code> ("unauthorized when rules deny the operation"). Residual divergence (documented, not a <code>.code</code> gap): the sandbox <code>StorageError.name</code> is <code>'StorageError'</code> (plain <code>Error</code> subclass, same shape as Firestore's <code>SandboxError</code>) where prod reports <code>name: 'FirebaseError'</code> / <code>isFirebaseError: true</code>, and the message wording differs (sandbox embeds the matched-rule reason chain). Oracle-locked: <code>scripts/oracle/observations/storage-rules-denied-error-code.json</code> (against blockingfun, fb-js-sdk 12.13.0: <code>code: 'storage/unauthorized'</code>, message <code>"Firebase Storage: User does not have permission to access '&lt;path&gt;'."</code>, <code>name: 'FirebaseError'</code>, <code>isFirebaseError: true</code>).</div></div>
+<div class="compat-evidence"><div class="compat-probe">ST-B1 fixed: sandbox now throws a <code>StorageError</code> (see <code>src/storage/errors.ts</code>) whose <code>.code === 'storage/unauthorized'</code> — matching prod's <code>FirebaseError.code</code>. Probe: <code>unit:error-codes.test.ts</code> ("unauthorized when rules deny the operation"). Residual divergence (documented, not a <code>.code</code> gap): the sandbox <code>StorageError.name</code> is <code>'StorageError'</code> (plain <code>Error</code> subclass, same shape as Firestore's <code>SandboxError</code>) where prod reports <code>name: 'FirebaseError'</code> / <code>isFirebaseError: true</code>, and the message wording differs (sandbox embeds the matched-rule reason chain). Oracle-locked: <code>packages/conformance/observations/storage/storage-rules-denied-error-code.json</code> (against blockingfun, fb-js-sdk 12.13.0: <code>code: 'storage/unauthorized'</code>, message <code>"Firebase Storage: User does not have permission to access '&lt;path&gt;'."</code>, <code>name: 'FirebaseError'</code>, <code>isFirebaseError: true</code>).</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">106</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getMetadata</code> against a denied path throws <code>storage/unauthorized</code></span></summary>
@@ -641,7 +641,7 @@ matrix has to cover:
 
 ## Rows locked by the empirical oracle harness
 
-Committed observations under `scripts/oracle/observations/`, captured
+Committed observations under `packages/conformance/observations/storage/`, captured
 against the `blockingfun` project on fb-js-sdk 12.13.0:
 
 - #36 `uploadBytes` → `getDownloadURL` → fetch round-trip — bytes

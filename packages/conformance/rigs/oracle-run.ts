@@ -1,11 +1,11 @@
 import type { RigManifestRecord } from './types.ts';
 
 /**
- * The primary Web SDK oracle (`scripts/oracle/run.ts`). Probes bare upstream
+ * The primary Web SDK oracle (`packages/conformance/src/run.ts`). Probes bare upstream
  * `firebase/auth`, `firebase/firestore`, `firebase/database`, and
  * `firebase/storage` against a dedicated real Firebase project and captures
  * production behavior as `auth-`, `firestore-`, `rtdb-`, `rtdb-modular-`, and
- * `storage-` observations. See `scripts/oracle/README.md` for the one-time
+ * `storage-` observations. See `packages/conformance/src/README.md` for the one-time
  * project setup this rig assumes.
  */
 export const rig: RigManifestRecord = {
@@ -30,7 +30,7 @@ export const rig: RigManifestRecord = {
     ],
     projectFeatures: [
       'Anonymous sign-in enabled (Authentication → Sign-in method → Anonymous).',
-      'Firestore rules scoped to the pyric_oracle namespace (see scripts/oracle/README.md for the exact rules snippet).',
+      'Firestore rules scoped to the pyric_oracle namespace (see packages/conformance/src/README.md for the exact rules snippet).',
       'RTDB instance provisioned with rules permitting anonymous access under /pyric_oracle/* — optional: RTDB probes self-skip with { skipped: true, reason: "no rtdb instance on project" } when the project has no instance.',
       'Storage bucket present — optional: the rules deploy is best-effort, and probes observe whatever rules already exist if the deploy fails.',
     ],
@@ -40,12 +40,12 @@ export const rig: RigManifestRecord = {
     writes:
       'Test docs/users/objects under the pyric_oracle namespace in the dedicated oracle Firebase project (Firestore, RTDB, Storage) plus anonymous Auth users.',
     cleanup:
-      'Each probe writes under a unique run-scoped sub-collection and deletes its own docs and anonymous user on the way out; a failed probe still attempts a best-effort purge. One documented leak: the auth-signout-idempotent probe deliberately ends signed out, so its anonymous user cannot be deleted from the client SDK afterward (see scripts/oracle/README.md).',
+      'Each probe writes under a unique run-scoped sub-collection and deletes its own docs and anonymous user on the way out; a failed probe still attempts a best-effort purge. One documented leak: the auth-signout-idempotent probe deliberately ends signed out, so its anonymous user cannot be deleted from the client SDK afterward (see packages/conformance/src/README.md).',
     unattendedSafe: true,
   },
   freshness: {
     versionField: 'fbSdkVersion',
     policy:
-      'Checked by scripts/oracle/check-observation-versions.ts against the installed node_modules/firebase/package.json version.',
+      'Checked by packages/conformance/src/check-observation-versions.ts against the installed node_modules/firebase/package.json version.',
   },
 };

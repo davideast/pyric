@@ -11,7 +11,7 @@
  * field-path segment.
  */
 import { describe, test, expect } from 'bun:test';
-import { projectAfterState } from 'pyric/rules';
+import { projectAfterState } from 'pyric/rules/internal';
 
 describe('projectAfterState — prototype-pollution guard', () => {
   test('update with a `__proto__.x` dot-path does NOT pollute Object.prototype', () => {

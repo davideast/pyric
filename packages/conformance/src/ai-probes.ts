@@ -25,14 +25,15 @@
  * map #92); registry rows land at admission (#100) and cite these captures.
  *
  * Requires: PYRIC_AI_FIREBASE_CONFIG (single-line JSON web app config).
- * Run: bun --env-file=<repo>/.env scripts/oracle/ai-probes.ts
+ * Run: bun --env-file=<repo>/.env packages/conformance/src/ai-probes.ts
  */
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OBS_DIR = join(HERE, '..', 'observations');
+// ai-* observations belong to the 'ai' surface.
+const OBS_DIR = join(HERE, '..', 'observations', 'ai');
 
 const rawConfig = process.env.PYRIC_AI_FIREBASE_CONFIG;
 if (!rawConfig) {

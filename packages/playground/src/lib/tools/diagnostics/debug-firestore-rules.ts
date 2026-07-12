@@ -35,12 +35,12 @@
  */
 import type { ToolHandler } from '@inbrowser/agent';
 import { getInternalEnv } from 'pyric/sandbox/internal';
-import { lintFirestoreRules } from 'pyric/rules';
+import { lintFirestoreRules } from 'pyric/rules/internal';
 import {
   SimulateFirestoreRulesHandler,
   type TestCase,
   type RuleEvaluation,
-} from 'pyric/rules';
+} from 'pyric/rules/internal';
 import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 import { useRuntimeStore, type TrafficEntry } from '~/lib/store/runtime';
 import type { RequestEvent } from 'pyric/sandbox';

@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { defineRtdbRules, deny } from 'pyric/rules/rtdb';
+import { defineRtdbRules, deny } from 'pyric/rules';
 import { hosting, functions, rtdb, type ProjectScope } from '../../src/deploy/index.js';
 
 const originalFetch = globalThis.fetch;

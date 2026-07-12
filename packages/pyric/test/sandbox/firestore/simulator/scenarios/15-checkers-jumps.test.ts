@@ -8,7 +8,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
-import { resolveModules } from 'pyric/rules/node';
+import { resolveModules } from 'pyric/rules/internal/node';
 
 // ═══ Build 4x4 config document programmatically ═══
 // Dark squares on a 4x4 board: (col+row) % 2 === 1

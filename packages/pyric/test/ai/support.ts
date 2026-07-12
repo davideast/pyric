@@ -5,13 +5,14 @@
  * lazily so a missing entry point (a stale build) surfaces as one explained
  * failure per row id rather than an unnamed hook failure. Assertions are real
  * and derived from the registry rows and the frozen ai-* observations under
- * scripts/oracle/observations; generated text values are never asserted unless
- * the scripted engine was explicitly scripted to return them.
+ * packages/conformance/observations/ai; generated text values are never
+ * asserted unless the scripted engine was explicitly scripted to return them.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
+// ai-* observations live under the 'ai' surface subdirectory.
+const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'ai');
 
 /** Load an observation's distilled `behavior` facts for replay assertions. */
 export function observedBehavior(name: string): Record<string, any> {

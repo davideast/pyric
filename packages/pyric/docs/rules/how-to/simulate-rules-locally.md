@@ -5,23 +5,23 @@ Evaluate Firestore rules in-process against a list of test cases, without deploy
 ## Run a suite
 
 ```ts
-import {
-  SimulateFirestoreRulesHandler,
-  type TestCase,
-} from 'pyric/rules';
+import { firestoreRules } from 'pyric/rules';
 
-const handler = new SimulateFirestoreRulesHandler();
-const result = handler.simulate(source, testCases);
+const ruleset = firestoreRules(source); // throws RulesCompileError if source doesn't parse
+
+const { passed, failed, unsupported, cases } = ruleset.simulate(testCases);
 ```
 
-If `result.success` is `false`, the source failed to parse and `result.error.code` is `'PARSE_FAILED'`. Otherwise `result.data` carries `{ passed, failed, unsupported, results }`.
+`firestoreRules(source)` throws `RulesCompileError` (carrying `.issues: RuleIssue[]`) if the source doesn't parse. Past that point, `simulate` never throws on a rule outcome: `cases` is a `CaseResult[]`, one entry per input case, each with `passed`, `unsupported`, `decision`, `trace`, and `notes`.
 
 ## Mock `get()` and `exists()`
 
-When a rule calls `get(/databases/$(db)/documents/users/$(uid))`, the simulator looks the result up in your test case's `functionMocks`. Provide them by document path:
+When a rule calls `get(/databases/$(db)/documents/users/$(uid))`, the simulator looks the result up in your case's `functionMocks`. Provide them by document path:
 
 ```ts
-const testCases: TestCase[] = [
+import type { FirestoreCase } from 'pyric/rules';
+
+const testCases: FirestoreCase[] = [
   {
     description: 'admin can read locked doc',
     expectation: 'ALLOW',
@@ -55,7 +55,7 @@ By default, `tc.data` IS the after-state, which is fine for shallow `create`. Fo
 },
 ```
 
-Without `writeMode`, `request.resource.data.archived` would read as `null`. With it, the simulator runs the same merge logic the admin SDK does. See [`TestCase` schema](../reference/test-case-schema.md#writemode) for all four modes.
+Without `writeMode`, `request.resource.data.archived` would read as `null`. With it, the simulator runs the same merge logic the admin SDK does. See [`FirestoreCase` schema](../reference/test-case-schema.md#writemode) for all four modes.
 
 ## Pin `request.time` for date-gated rules
 
@@ -73,7 +73,7 @@ Any rule that reads `request.time` will evaluate against wallclock unless you pi
 },
 ```
 
-Run `lintFirestoreRules(source, { testCases })` and look for `REQUEST_TIME_NOT_PINNED` to catch unpinned cases early.
+To catch unpinned cases early, run the engine-internal `lintFirestoreRules(source, { testCases })` from `pyric/rules/internal` and look for `REQUEST_TIME_NOT_PINNED`; the public `lint(source)` and `firestoreRules(source).lint()` don't take a `testCases` option. See [Pin `request.time` for deterministic tests](./pin-request-time.md).
 
 ## Populate `request.query` for `list`
 
@@ -90,44 +90,45 @@ Run `lintFirestoreRules(source, { testCases })` and look for `REQUEST_TIME_NOT_P
 },
 ```
 
-## Handle `UNSUPPORTED` results
+## Handle unsupported results
 
-`UNSUPPORTED` means the simulator hit a feature it does not yet implement, not that your rule is wrong. It is *not* counted as a failure. If you have unsupported cases and need a verdict for them, route those cases to the live Rules Test API:
+An unsupported result means the simulator hit a feature it does not yet implement, not that your rule is wrong. It is *not* counted as a failure: `unsupported` is tallied separately from `failed` in the summary, and `passed` stays `false` on that case's `CaseResult`. If you have unsupported cases and need a verdict for them, route those cases to the live Rules Test API:
 
 ```ts
-const unsupported = result.data.results
-  .filter((r) => r.state === 'UNSUPPORTED');
+const needsEscalation = cases.filter((c) => c.unsupported).map((c) => c.case);
 
-if (unsupported.length > 0) {
+if (needsEscalation.length > 0) {
   // Run these against the Rules Test API — see the test-rules-against-firebase guide.
 }
 ```
 
 See [Simulator vs Rules Test API](../explanation/simulator-vs-rules-test-api.md) for the full discussion.
 
-## Read the debug trace
+## Read the trace
 
-Each result carries `debugMessages`, useful when a case fails and you can't tell which rule decided:
+Each `CaseResult` carries a `trace` (per-rule evaluation entries) and `notes` (top-level diagnostic strings), useful when a case fails and you can't tell which rule decided. `explainCase` renders both into one human-readable string, the same renderer `assertCase` uses as its thrown error's message:
 
 ```ts
-for (const r of result.data.results) {
-  if (r.state !== 'PASSED') {
-    console.log(`[${r.state}] ${r.description}`);
-    for (const msg of r.debugMessages) console.log(`  · ${msg}`);
-  }
+import { explainCase } from 'pyric/rules';
+
+for (const c of cases) {
+  if (!c.passed) console.log(explainCase(c));
 }
 ```
 
 A typical trace:
 
 ```
-Rule #0 (read) → deny
-Rule #1 (write) → ALLOW
-Simulated: ALLOW
+FAIL: locked doc read
+  get locked/x (expected ALLOW, got DENY)
+  rules evaluated:
+    #0 (read) [locked/{id}] (line 4) -> DENY: request.auth.uid == 'admin'
 ```
+
+For a single case, `ruleset.explain(oneCase)` runs it and returns the same structured `Explanation` without needing to slice it out of a batch result.
 
 ## Where to look next
 
-- For the field-by-field schema of `TestCase`, see [`TestCase` schema](../reference/test-case-schema.md).
-- For the shape of `SimulationContext` (what your rule actually sees), see [Simulator context](../reference/simulator-context.md).
-- For why some features return `UNSUPPORTED`, see [Simulator vs Rules Test API](../explanation/simulator-vs-rules-test-api.md).
+- For the field-by-field schema of `FirestoreCase`, see [`FirestoreCase` schema](../reference/test-case-schema.md).
+- For the shape of `SimulationContext` (what your rule actually sees, engine-internal), see [Simulator context](../reference/simulator-context.md).
+- For why some features return unsupported, see [Simulator vs Rules Test API](../explanation/simulator-vs-rules-test-api.md).

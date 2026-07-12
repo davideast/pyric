@@ -1,12 +1,12 @@
 ---
-title: "TestCase schema"
+title: "FirestoreCase schema"
 group: "pyric / rules"
 section: "Reference"
 order: 13017
 ---
-# `TestCase` schema
+# `FirestoreCase` schema
 
-`TestCase` is the unit of work for both the local simulator (`SimulateFirestoreRulesHandler`) and the live Rules Test API client (`TestFirestoreRulesHandler`). The Zod schema is exported as `TestCaseSchema`; the inferred type is exported as `TestCase`.
+`FirestoreCase` is the unit of work for `firestoreRules(source).simulate(cases)` and `firestoreRules(source).explain(oneCase)`, both from `pyric/rules`. It's structurally identical to the engine-internal `TestCase` type (`pyric/rules/internal`), re-exported under the public name so callers never need to reach into the engine seam. A Zod schema for the same shape, `TestCaseSchema`, is available on `pyric/rules/internal` for callers that want runtime validation; it is not part of the public contract.
 
 ## Required fields
 
@@ -16,7 +16,7 @@ Human-readable label. Echoed back in each `TestResult.description` so failures p
 
 ### `expectation: 'ALLOW' | 'DENY'`
 
-What the rule should decide for this request. The case `PASSED` when the simulator's decision matches; `FAILED` when it differs; `UNSUPPORTED` when the local simulator abstained.
+What the rule should decide for this request. On the resulting `CaseResult`, `passed` is `true` when the simulator's `decision` matches; `false` when it differs; `unsupported` is `true` when the simulator abstained.
 
 ### `method: 'get' | 'list' | 'create' | 'update' | 'delete'`
 
@@ -68,7 +68,7 @@ Unset fields read as `null` from rules. If your rule reads `request.query.limit`
 
 ### `requestTime: string`
 
-ISO-8601 timestamp used as `request.time`. Defaults to the wallclock at simulation time. Pin this whenever your rule reads `request.time` to keep tests deterministic. The lint rule `REQUEST_TIME_NOT_PINNED` surfaces unpinned cases when you pass `testCases` to `lintFirestoreRules`.
+ISO-8601 timestamp used as `request.time`. Defaults to the wallclock at simulation time. Pin this whenever your rule reads `request.time` to keep tests deterministic. The lint rule `REQUEST_TIME_NOT_PINNED` surfaces unpinned cases, but only through the engine-internal `lintFirestoreRules(source, { testCases })` on `pyric/rules/internal`; the public `lint(source)` and `firestoreRules(source).lint()` don't take a `testCases` option. See [Pin `request.time` for deterministic tests](../pyric-rules-how-to-pin-request-time/).
 
 ### `writeMode`
 
@@ -90,25 +90,27 @@ type WriteMode =
 
 ## Server-timestamp sentinels in `data`
 
-When your write payload contains a server-timestamp sentinel (exactly `{ __type: 'serverTimestamp' }`), the simulator resolves every occurrence to the same `Timestamp` instance (matching `request.time`). Use the exported `SERVER_TIMESTAMP` constant for clarity:
+When your write payload contains a server-timestamp sentinel (exactly `{ __type: 'serverTimestamp' }`), the simulator resolves every occurrence to the same `Timestamp` instance (matching `request.time`). Use the `serverTimestamp()` value helper for clarity:
 ```ts
-import { SERVER_TIMESTAMP } from 'pyric/rules';
+import { serverTimestamp, type FirestoreCase } from 'pyric/rules';
 
-const tc: TestCase = {
+const tc: FirestoreCase = {
   description: 'create stamps createdAt = request.time',
   expectation: 'ALLOW',
   method: 'create',
   path: 'notes/n1',
   auth: { uid: 'alice' },
-  data: { ownerId: 'alice', createdAt: SERVER_TIMESTAMP },
+  data: { ownerId: 'alice', createdAt: serverTimestamp() },
   requestTime: '2026-04-15T12:00:00Z',
 };
 ```
 The single-instance invariant matters because `data.createdAt == request.time` succeeds via field-compare on the `Timestamp` wrapper.
 
 ## Validation
+
+`TestCaseSchema`, the Zod schema behind `FirestoreCase`, lives on `pyric/rules/internal` (an internal, unstable surface):
 ```ts
-import { TestCaseSchema } from 'pyric/rules';
+import { TestCaseSchema } from 'pyric/rules/internal';
 
 const parsed = TestCaseSchema.parse(input);  // throws on schema mismatch
 ```

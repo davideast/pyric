@@ -27,7 +27,7 @@
  * Both converters preserve unrelated values via {@link KEEP}.
  */
 import { KEEP, type ValueConverter } from '../value-resolver.js';
-import { Timestamp } from 'pyric/rules';
+import { Timestamp } from 'pyric/rules/internal';
 
 /**
  * Detect plain `{ __type: 'serverTimestamp' }` objects. Mirrors

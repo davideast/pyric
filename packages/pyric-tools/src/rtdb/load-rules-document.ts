@@ -1,6 +1,6 @@
 /**
  * Loads a user's RTDB constraints module (a file that calls
- * `defineRtdbRules(...)` from `pyric/rules/rtdb`) so the CLI and MCP
+ * `defineRtdbRules(...)` from `pyric/rules`) so the CLI and MCP
  * `generate` surfaces can turn it into static rules JSON without
  * reimplementing compilation — the loaded document's `.toJSON()` still
  * routes through `RtdbMapper.mapToRulesJSON`.
@@ -11,7 +11,7 @@
 
 import { pathToFileURL } from 'node:url';
 import { resolve as resolvePath } from 'node:path';
-import type { RtdbRulesDocument } from 'pyric/rules/rtdb';
+import type { RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
 import { isRtdbRulesDocument } from './rules-json.js';
 
 export interface LoadRtdbRulesDocumentOptions {

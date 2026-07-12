@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { MapDiff, FirestoreSet } from 'pyric/rules';
+import { MapDiff, FirestoreSet } from 'pyric/rules/internal';
 
 describe('FirestoreSet', () => {
   test('hasOnly — all items in list', () => {

@@ -5,7 +5,8 @@
  * Runs probes against bare **upstream** `firebase/auth` +
  * `firebase/firestore` (no `@pyric/*` shim) against a **real
  * Firebase project**. Each probe captures observable production
- * behavior into `scripts/oracle/observations/<name>.json` so the
+ * behavior into `observations/<surface>/<name>.json` (grouped by
+ * owning surface — auth, firestore, rtdb, rtdb-modular, storage) so the
  * matrices can cite "observed empirically against firebase-js-sdk
  * <version> on <date>" rather than guessing.
  *
@@ -126,6 +127,8 @@ import {
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { surfaceDescriptors } from '../surfaces/load.ts';
+import { soleLongestPrefixOwner } from './observation-surface.ts';
 import {
   cert as adminCert,
   initializeApp as adminInitializeApp,
@@ -838,9 +841,18 @@ interface Probe {
   observe(): Promise<Record<string, unknown>>;
 }
 
+const SURFACE_OWNERS = surfaceDescriptors.map((d) => ({ id: d.surface, observationPrefixes: d.observationPrefixes }));
+
+/** This rig (oracle-run) spans five surfaces (auth, firestore, rtdb,
+ *  rtdb-modular, storage) — every observation it writes must land in ITS
+ *  surface subdirectory, resolved by the same longest-prefix rule
+ *  surfaces/*.ts's observationPrefixes define everywhere else. */
 function writeObservation(obs: Observation): void {
-  mkdirSync(OBS_DIR, { recursive: true });
-  const file = join(OBS_DIR, `${obs.name}.json`);
+  const surface = soleLongestPrefixOwner(obs.name, SURFACE_OWNERS);
+  if (!surface) throw new Error(`observation '${obs.name}' does not match a known surface observation prefix`);
+  const dir = join(OBS_DIR, surface);
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `${obs.name}.json`);
   writeFileSync(file, JSON.stringify(obs, null, 2) + '\n');
 }
 
@@ -7457,7 +7469,7 @@ async function main(): Promise<void> {
   console.log(`[oracle] project: ${config.projectId}`);
   console.log(`[oracle] run id: ${RUN_ID}`);
 
-  // Optional CLI filter: `bun run scripts/oracle/run.ts foo bar` runs
+  // Optional CLI filter: `bun run packages/conformance/src/run.ts foo bar` runs
   // only probes whose name contains any of those substrings. Empty →
   // run them all. Lets you re-run a subset without churning every
   // observation file.
@@ -7499,7 +7511,7 @@ async function main(): Promise<void> {
   }
 
   await deleteApp(app);
-  console.log('[oracle] observations written to scripts/oracle/observations/');
+  console.log('[oracle] observations written to observations/<surface>/');
 }
 
 await main();

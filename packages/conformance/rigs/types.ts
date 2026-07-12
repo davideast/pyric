@@ -3,8 +3,8 @@
  *
  * A "rig" is a capture program: a script that probes either a real Firebase
  * project or an installed Firebase SDK and freezes what it observes as
- * `scripts/oracle/observations/<prefix>*.json` files. One authored
- * `RigManifestRecord` lives per file in `scripts/oracle/rigs/`, named
+ * `observations/<surface>/<prefix>*.json` files. One authored
+ * `RigManifestRecord` lives per file in `rigs/`, named
  * `<rig-id>.ts` — see `load.ts` for how the directory becomes the index.
  */
 
@@ -30,7 +30,7 @@ export interface RigEnvRequirement {
 }
 
 /**
- * The record authored in each `scripts/oracle/rigs/<id>.ts` file. `id` is
+ * The record authored in each `rigs/<id>.ts` file. `id` is
  * deliberately absent here — the loader derives it from the filename so the
  * rig's key exists in exactly one place (the filename itself).
  */
@@ -38,8 +38,8 @@ export interface RigManifestRecord {
   description: string;
   /** Repo-relative path to the rig's runnable script; must exist on disk. */
   script: string;
-  /** Exact filename prefixes (`scripts/oracle/observations/<prefix>*.json`) this
-   *  rig produces AND has at least one captured observation for. Every entry is
+  /** Exact filename prefixes (`observations/<surface>/<prefix>*.json`) this rig
+   *  produces AND has at least one captured observation for. Every entry is
    *  validated to match a real observation file. */
   observationPrefixes: string[];
   /** Prefixes this rig WILL produce once captured, but has NO observation for
@@ -83,8 +83,8 @@ export interface RigManifest extends RigManifestRecord {
 
 /**
  * One capture probe against the installed firebase-admin app registry. The
- * observation filename (`scripts/oracle/observations/<name>.json`) IS the
- * probe filename (`scripts/oracle/probes/<name>.ts`) minus its extension —
+ * observation filename (`observations/<surface>/<name>.json`) IS the
+ * probe filename (`probes/<surface>/<name>.ts`) minus its extension —
  * neither side carries a separate `name` field, so the two cannot drift apart.
  */
 export interface Probe {

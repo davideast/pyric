@@ -7,7 +7,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
-import { resolveModules } from 'pyric/rules/node';
+import { resolveModules } from 'pyric/rules/internal/node';
 
 function makeEnv(expr: string) {
   const SOURCE = `import { immutableFields } from 'lifecycle';

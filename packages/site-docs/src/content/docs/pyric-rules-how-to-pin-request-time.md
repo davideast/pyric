@@ -7,13 +7,15 @@ order: 13005
 ---
 # How to pin `request.time` for deterministic tests
 
-A rule that reads `request.time` evaluates against wallclock by default. That makes any date-gated test flaky: the same `TestCase` run twice can decide `ALLOW` once and `DENY` the next. Pin time and the verdict is reproducible.
+A rule that reads `request.time` evaluates against wallclock by default. That makes any date-gated test flaky: the same `FirestoreCase` run twice can decide `ALLOW` once and `DENY` the next. Pin time and the verdict is reproducible.
 
-## Set `requestTime` on every affected `TestCase`
+## Set `requestTime` on every affected `FirestoreCase`
 
 `requestTime` accepts an ISO-8601 string. The simulator parses it into a `Timestamp` and uses it for `request.time`:
 ```ts
-const testCases: TestCase[] = [
+import type { FirestoreCase } from 'pyric/rules';
+
+const testCases: FirestoreCase[] = [
   {
     description: 'inside the trial window',
     expectation: 'ALLOW',
@@ -34,13 +36,13 @@ const testCases: TestCase[] = [
   },
 ];
 ```
-The same ISO string is forwarded to the Firebase Rules Test API when you run via `TestFirestoreRulesHandler`, so the two evaluation paths stay in agreement.
+The same ISO string is forwarded to the Firebase Rules Test API when you run via the internal `TestFirestoreRulesHandler` (`pyric/rules/internal`), so the two evaluation paths stay in agreement.
 
 ## Find unpinned cases automatically
 
-Pass the test suite to the linter and look for `REQUEST_TIME_NOT_PINNED`:
+Pass the test suite to the linter and look for `REQUEST_TIME_NOT_PINNED`. The public `lint(source)` and `firestoreRules(source).lint()` don't take a `testCases` option, so this check runs through the engine-internal `lintFirestoreRules`:
 ```ts
-import { lintFirestoreRules } from 'pyric/rules';
+import { lintFirestoreRules } from 'pyric/rules/internal';
 
 const result = lintFirestoreRules(source, { testCases });
 const unpinned = result.warnings.filter((w) => w.rule === 'REQUEST_TIME_NOT_PINNED');

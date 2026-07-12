@@ -47,8 +47,10 @@ afterAll(() => {
   else process.env.PYRIC_CLIMB = PREV_CLIMB;
 });
 
-/** Repo-root observations directory (four levels up from this test file). */
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
+/** Repo-root observations directory (four levels up from this test file).
+ *  messaging-send-* observations live under the 'messaging-admin' surface
+ *  subdirectory. */
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'messaging-admin');
 
 /** Load the frozen `behavior` block of a committed observation by name. */
 function obs(name: string): Record<string, any> {

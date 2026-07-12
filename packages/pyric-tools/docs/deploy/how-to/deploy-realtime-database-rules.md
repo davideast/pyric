@@ -129,7 +129,8 @@ import {
   defineRtdbRules,
   deny,
   pathOwnerOnly,
-} from 'pyric/rules/rtdb';
+  rtdbRules,
+} from 'pyric/rules';
 import { fromServiceAccount, rtdb } from 'pyric-tools/deploy';
 
 const scope = await fromServiceAccount('./service-account.json');
@@ -147,8 +148,9 @@ const rules = defineRtdbRules({
   },
 });
 
-const check = rules.check();
-if (!check.ok) throw new Error(check.errors[0].message);
+const issues = rtdbRules(rules).lint();
+const firstError = issues.find((i) => i.severity === 'error');
+if (firstError) throw new Error(firstError.message);
 
 await rtdb.rules.deploy(scope, {
   rules,
@@ -156,7 +158,7 @@ await rtdb.rules.deploy(scope, {
 });
 ```
 
-For CLI workflows, write `rules.toJSON()` to the file referenced by
+For CLI workflows, write `rtdbRules(rules).toJSON()` to the file referenced by
 `firebase.json.database.rules`, then run `pyric deploy database`.
 
 ## Register the deploy tools with an agent

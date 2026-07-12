@@ -7,7 +7,7 @@ order: 17004
 ---
 # API reference: RTDB rules constraints
 
-Typed builders that produce Realtime Database security-rule expressions, plus the assembly layer that places them in a path tree and compiles the tree to Firebase rules JSON. Everything on this page is importable from `pyric/rules/rtdb/constraints`; the `pyric/rules/rtdb` facade re-exports all of it alongside the parser, linter, simulator, and tool factories. `pyric/rules/rtdb-constraints` is a legacy alias of the constraints path.
+Typed builders that produce Realtime Database security-rule expressions, plus the assembly layer that places them in a path tree and compiles the tree to Firebase rules JSON. Everything on this page is importable directly from `pyric/rules`, the public front door. The dedicated constraints-only subpaths that used to exist (`pyric/rules/rtdb/constraints`, `pyric/rules/rtdb-constraints`) no longer do; there is one place to import the DSL from now. The engine that compiles and simulates against it (the parser, linter, simulator, and tool factories) lives on the internal `pyric/rules/internal/rtdb` subpath instead.
 
 Every builder returns an `Expr`, which is a plain string of RTDB rules language. The produced expressions below are pinned by spec tests, so they are safe to rely on byte for byte.
 
@@ -104,18 +104,23 @@ function defineRtdbRules(definition: {
   paths: Record<string, PathDef> | ((ctx: RulesetContext) => void);
 }): RtdbRulesDocument;
 ```
-The document API, and the one to reach for first. The returned `RtdbRulesDocument`:
+The authoring entry, and the one to reach for first. The returned
+`RtdbRulesDocument` is an inert authored artifact: on the public surface it
+exposes no methods. Pass it to `rtdbRules()` for everything analytical:
 
-| Method | Returns | Notes |
+| Call | Returns | Notes |
 |---|---|---|
-| `toIR(databaseUrl?)` | `RtdbIR` | the parsed, validated intermediate form |
-| `toJSON()` | `{ rules: {...} }` | Firebase rules JSON; raw `'true'`/`'false'` become JSON booleans |
-| `check(databaseUrl?)` | `{ ok, errors, warnings, ir? }` | parser errors and lint warnings (for example `LOOSE_EQUALITY` for `==`), per node and rule; compile throws surface as one `COMPILE_ERROR` finding |
-| `simulate(input, opts?)` | `SimulateResult` | in-process verdict for one operation |
+| `rtdbRules(doc).lint()` | `RuleIssue[]` | parser errors and lint warnings (for example `LOOSE_EQUALITY` for `==`), per node and rule; a compile throw surfaces as one `COMPILE_ERROR` issue |
+| `rtdbRules(doc).simulate(cases)` | `{ passed, failed, unsupported, cases }` | in-process verdicts for a list of `RtdbCase`s |
+| `rtdbRules(doc).explain(oneCase)` | `RtdbExplanation` | the structured account of one case |
+| `rtdbRules(doc).toJSON()` | `{ rules: {...} }` | Firebase rules JSON; raw `'true'`/`'false'` become JSON booleans |
 
-`simulate` input conveniences: `auth: 'alice'` normalizes to `{ uid: 'alice', token: {} }`, and `data` is an alias for `mockData` (`mockData` wins when both are present).
+Case conveniences: `auth: 'alice'` normalizes to `{ uid: 'alice', token: {} }`.
 
-URL precedence: the method argument, then `definition.databaseUrl`, then `https://local-rtdb.firebaseio.com`.
+URL precedence when compiling: `definition.databaseUrl`, then
+`https://local-rtdb.firebaseio.com`. The method-bearing document interface
+(with `toIR`/`check`/`simulate` on the document itself) is internal, on
+`pyric/rules/internal/rtdb`.
 
 ### `ruleset(databaseUrl, input)`
 ```ts
@@ -144,7 +149,7 @@ Placement semantics worth knowing:
 - `children` keys are path suffixes (`'/comments/$commentId'`) concatenated onto the parent path.
 - An explicit `validate` wins over the schema-derived parent validate; the schema's per-field validates still apply.
 - `indexOn` on a path that ends in a `$wildcard` is hoisted to the parent container node (`'/posts/$postId'` places `.indexOn` on `posts`). On a non-wildcard path it is silently dropped, so put it on the wildcard path.
-- Every expression is parsed, validated, and linted at build time; findings attach to the IR and surface through `check()`.
+- Every expression is parsed, validated, and linted at build time; findings attach to the IR and surface through `rtdbRules(doc).lint()`.
 
 ## The two deploy tool pairs
 

@@ -12,7 +12,7 @@
  * allow/deny verdict, then RESTORES the prior ruleset and VERIFIES the restore
  * by reading the rules back and comparing (canonical JSON) to the pre-run
  * snapshot. One observation per pack is written into
- * `packages/conformance/observations/rules-rtdb-<pack.id>.json`.
+ * `packages/conformance/observations/rtdb/rules-rtdb-<pack.id>.json`.
  *
  * THE RESTORE INVARIANT IS THE GATE. deploy → capture → restore → read-back
  * verify runs as one guarded sequence: ANY failure mid-run (deploy, op loop, or
@@ -58,7 +58,8 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..', '..');
-const OBS_DIR = join(HERE, '..', 'observations');
+// rules-rtdb-* observations belong to the 'rtdb' surface subdirectory.
+const OBS_DIR = join(HERE, '..', 'observations', 'rtdb');
 
 interface FirebaseWebConfig {
   apiKey: string;

@@ -13,7 +13,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { documentReferenceConverter } from 'pyric/sandbox/internal';
-import { Reference } from 'pyric/rules';
+import { Reference } from 'pyric/rules/internal';
 import { KEEP } from 'pyric/sandbox/internal';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
 import { encodeValue } from 'pyric/sandbox/internal';

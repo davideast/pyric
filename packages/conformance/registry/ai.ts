@@ -1028,7 +1028,7 @@ compare text when the scripted engine was explicitly scripted to return it
 
 Probe references: \`unit:<file>\` means a passing Bun test in
 \`packages/pyric/test/ai/<file>\` (the climb lane). Captures live at
-\`scripts/oracle/observations/ai-*.json\`; a row that cites one replays the
+\`packages/conformance/observations/ai/ai-*.json\`; a row that cites one replays the
 capture's distilled facts in the named test.
 
 ---

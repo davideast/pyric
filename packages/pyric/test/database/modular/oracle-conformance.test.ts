@@ -83,7 +83,8 @@ import {
   type DataSnapshot,
 } from '../../../src/database/index.js';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 'conformance', 'observations');
+// rtdb-modular-* observations live under the 'rtdb-modular' surface subdirectory.
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb-modular');
 
 /** Observations that cannot be replayed against the sandbox, with the reason. */
 const NOT_APPLICABLE: Record<string, string> = {};

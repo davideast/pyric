@@ -60,16 +60,16 @@ This is what makes "the substrate is shared" workable. Both adapters bottom out 
 | `LocalEnvironment` (raw substrate) | `pyric/sandbox/internal` |
 | Admin-SDK-shaped Firestore API | `pyric-admin` |
 | Modular Web SDK-shaped Firestore API | `pyric/firestore` |
-| Rules parser, linter, simulator | `pyric/rules` |
+| Rules parser, linter, simulator | `pyric/rules/internal` |
 | Deploy primitives (rules, indexes, hosting, functions) | `pyric-tools/deploy` |
 
 The rule of thumb: anything *shape-agnostic* (the data, the rules, the lifecycle) lives in the substrate; anything *shape-specific* lives in an adapter.
 
 ## The runtime cycle
 
-`pyric/sandbox` imports the rules simulator from `pyric/rules`. `pyric/rules` imports `LocalEnvironment` (type-only) from `pyric/sandbox/internal`. This is a module cycle inside the package graph.
+`pyric/sandbox` imports the rules simulator from `pyric/rules/internal`. `pyric/rules` imports `LocalEnvironment` (type-only) from `pyric/sandbox/internal`. This is a module cycle inside the package graph.
 
-The cycle is benign: the import from `pyric/rules` into `pyric/sandbox` is value (the `SimulateFirestoreRulesHandler` class and a handful of wrappers); the import from `pyric/sandbox` back into `pyric/rules` is type-only (the `LocalEnvironment` interface for `createFirestoreSimulatorTools`'s `resolveSandbox` dep). Neither side is in the other's runtime call graph beyond what's documented.
+The cycle is benign: the import from `pyric/rules/internal` into `pyric/sandbox` is value (the `SimulateFirestoreRulesHandler` class and a handful of wrappers); the import from `pyric/sandbox` back into `pyric/rules` is type-only (the `LocalEnvironment` interface for the internal `createFirestoreSimulatorTools`'s `resolveSandbox` dep). Neither side is in the other's runtime call graph beyond what's documented.
 
 We accepted the cycle because the alternative, duplicating wrapper classes in both packages, would make `instanceof Timestamp` start lying depending on which copy was imported. The substrate consuming the simulator's wrapper types is the canonical path.
 

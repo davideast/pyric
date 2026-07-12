@@ -45,7 +45,8 @@ import {
   listAll,
 } from '../../src/storage/index.js';
 
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations');
+// storage-* observations live under the 'storage' surface subdirectory.
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'storage');
 
 /** Observations that cannot be replayed against the sandbox, with the reason. */
 const NOT_APPLICABLE: Record<string, string> = {};

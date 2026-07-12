@@ -9,7 +9,7 @@
  * needed for direct programmatic callers.
  */
 import type { IndexesConfigEntry } from 'pyric-tools/deploy';
-import { extractIndexes } from 'pyric/rules/extract';
+import { extractIndexes } from 'pyric/rules/internal/extract';
 
 export async function extractIndexesFromAppSource(
   appSource: string,

@@ -9,7 +9,7 @@ import {
   update,
   sandbox as rtdbSandbox,
 } from 'pyric/database';
-import { defineRtdbRules, allow, deny } from 'pyric/rules/rtdb';
+import { defineRtdbRules, allow, deny } from 'pyric/rules';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, getFirestore } from 'pyric/sandbox/admin-firestore';
 import { getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';

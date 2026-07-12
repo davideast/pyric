@@ -47,7 +47,7 @@ import {
   ref as storageRef,
   uploadBytes,
 } from 'pyric/storage';
-import { Timestamp, Bytes as RulesBytes, LatLng } from 'pyric/rules';
+import { Timestamp, Bytes as RulesBytes, LatLng } from 'pyric/rules/internal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 

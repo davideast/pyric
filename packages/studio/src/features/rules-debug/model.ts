@@ -18,7 +18,7 @@ import type {
   SandboxEvent,
   SandboxOperationEvent,
 } from 'pyric/sandbox';
-import type { EvaluatedRuleInfo, ExprTraceEntry } from 'pyric/rules';
+import type { EvaluatedRuleInfo, ExprTraceEntry } from 'pyric/rules/internal';
 
 type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent;
 

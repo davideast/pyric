@@ -1,6 +1,6 @@
 # AST
 
-The AST is the typed tree produced by `parseToAST` / `parseToASTOrError`. Every shape is exported from `pyric/rules`.
+The AST is the typed tree produced by `parseToAST` / `parseToASTOrError`. These functions and the shapes below are exported from `pyric/rules/internal`, an internal, unstable surface not covered by the public `pyric/rules` contract: it may change without notice. Most callers reach the AST through the public front door instead: `firestoreRules(source).toJSON()` returns the same `FirestoreRules` tree without touching the parser directly. This page documents the shape for callers (and tooling like [Inspect rules via the AST](../how-to/inspect-rules-via-the-ast.md)) that need to walk it directly.
 
 ## Root: `FirestoreRules`
 

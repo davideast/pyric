@@ -3,12 +3,12 @@
  * Storage rules oracle capture runner.
  *
  * Sibling of run-rules.ts for the `service firebase.storage` surface. Reads the
- * conformance corpus (scripts/oracle/rules-corpus/storage/) and, when
+ * conformance corpus (rules-corpus/storage/) and, when
  * credentialed, replays each pack against the PRODUCTION Rules Test API via
  * `TestStorageRulesHandler` (the SAME `projects.test` endpoint the Firestore
  * runner uses — live-confirmed to accept Storage rulesets). One observation
  * JSON is written per pack into
- * `scripts/oracle/observations/rules-storage-<pack.id>.json`. Production is the
+ * `observations/storage/rules-storage-<pack.id>.json`. Production is the
  * source of truth: the captured `behavior` is a verdict table keyed by case
  * description (ALLOW / DENY), which the in-process replay suite then checks the
  * storage evaluator against.
@@ -28,10 +28,10 @@
  *
  * Usage:
  *   # inert preview (no secret):
- *   bun run scripts/oracle/run-rules-storage.ts
+ *   bun run packages/conformance/src/run-rules-storage.ts
  *   # real capture (credentialed):
  *   PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \
- *     bun run scripts/oracle/run-rules-storage.ts
+ *     bun run packages/conformance/src/run-rules-storage.ts
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -45,7 +45,8 @@ import {
 } from '../rules-corpus/storage/index.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OBS_DIR = join(HERE, '..', 'observations');
+// rules-storage-* observations belong to the 'storage' surface.
+const OBS_DIR = join(HERE, '..', 'observations', 'storage');
 
 /** Resolved (installed) firebase version — the value the observation-version
  *  guard compares every observation against. */
@@ -108,7 +109,7 @@ function printInertPlan(): void {
   console.log(`\n  Total: ${ALL_RULES_STORAGE_PACKS.length} packs, ${totalCases} cases.`);
   console.log('\n  To capture for real:');
   console.log('    PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \\');
-  console.log('      bun run scripts/oracle/run-rules-storage.ts');
+  console.log('      bun run packages/conformance/src/run-rules-storage.ts');
 }
 
 async function capture(): Promise<void> {

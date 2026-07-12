@@ -32,7 +32,7 @@ import {
 } from '../../../src/sandbox/firestore/converters/bytes-geopoint.js';
 import { KEEP } from '../../../src/sandbox/firestore/value-resolver.js';
 import { LocalEnvironment } from '../../../src/sandbox/firestore/local-environment.js';
-import { Bytes as RulesBytes, LatLng } from 'pyric/rules';
+import { Bytes as RulesBytes, LatLng } from 'pyric/rules/internal';
 
 const baseCtx = (
   overrides: Partial<{

@@ -27,7 +27,7 @@ import {
   immutable,
   newDataVal,
   rootExists,
-} from 'pyric/rules/rtdb';
+} from 'pyric/rules';
 
 const isRoomMember = rootExists(['members', { $: '$roomId' }, { $: 'auth.uid' }]);
 
@@ -58,16 +58,18 @@ export const rules = defineRtdbRules({
 Save a small check script as `database.rules.check.ts`:
 
 ```ts
+import { rtdbRules } from 'pyric/rules';
 import { rules } from './database.rules.js';
 
-const check = rules.check();
+const ruleset = rtdbRules(rules);
+const issues = ruleset.lint();
 
-if (!check.ok) {
-  console.error(check.errors);
+if (issues.some((i) => i.severity === 'error')) {
+  console.error(issues);
   process.exit(1);
 }
 
-console.log(rules.toJSON());
+console.log(ruleset.toJSON());
 ```
 
 Run it:
@@ -76,18 +78,20 @@ Run it:
 bun database.rules.check.ts
 ```
 
-You will see a complete Firebase RTDB rules JSON object. The `check()` call
-also returns lint warnings, so you can decide whether to fail your own workflow
-on warnings.
+You will see a complete Firebase RTDB rules JSON object. The `lint()` call
+returns warnings alongside errors (one flat `RuleIssue[]`), so you can decide
+whether to fail your own workflow on warnings.
 
 ## Simulate a write
 
 Save one simulation as `database.rules.simulate.ts`:
 
 ```ts
+import { rtdbRules } from 'pyric/rules';
 import { rules } from './database.rules.js';
 
-const result = rules.simulate({
+const result = rtdbRules(rules).explain({
+  expectation: 'ALLOW',
   operation: 'write',
   path: '/rooms/r1/messages/m1',
   auth: 'alice',
@@ -120,7 +124,7 @@ different uid and run it again; the same rule document now denies the write.
 Write the compiled JSON with the Node helper:
 
 ```ts
-import { writeRtdbRulesFile } from 'pyric/rules/node';
+import { writeRtdbRulesFile } from 'pyric/rules/internal/node';
 import { rules } from './database.rules.js';
 
 await writeRtdbRulesFile(rules, 'database.rules.json');
@@ -132,7 +136,7 @@ or from the CLI, without writing a script at all:
 pyric database:rules:generate --config database.rules.ts --out database.rules.json
 ```
 
-Both routes compile through the same `rules.toJSON()` call. See
+Both routes run the same compilation `rtdbRules(rules).toJSON()` performs. See
 [RTDB rules tooling](../reference/rules-tooling.md#generating-databaserulesjson)
 for the full reference, including the `rtdb_generate_rules` MCP tool.
 

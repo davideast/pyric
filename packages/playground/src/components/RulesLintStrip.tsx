@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 
 import { useRulesLint } from '~/hooks/useRulesLint';
 import { useWorkspaceStore } from '~/lib/store/workspace';
-import type { LintWarning } from 'pyric/rules';
+import type { LintWarning } from 'pyric/rules/internal';
 
 const COLLAPSED_STORAGE_KEY = 'pyric.playground.rulesLintStrip.collapsed';
 

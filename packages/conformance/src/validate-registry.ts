@@ -12,6 +12,8 @@ import type { RigManifest } from '../rigs/types.ts';
 import { ALL_RULES_FIRESTORE_PACKS } from '../rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_PACKS } from '../rules-corpus/storage/index.ts';
 import { ALL_RULES_RTDB_PACKS } from '../rules-corpus/rtdb/index.ts';
+import { longestPrefixOwners, soleLongestPrefixOwner } from './observation-surface.ts';
+import { listProbeFiles, type ProbeFile } from '../probes/load.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -38,7 +40,7 @@ export interface ValidationInput {
   observations: Observation[];
   observationExceptions: Record<string, string>;
   checkMarkdown?: boolean;
-  /** Oracle rig manifests (scripts/oracle/rigs/*.ts, loaded via load.ts). Optional
+  /** Oracle rig manifests (rigs/*.ts, loaded via load.ts). Optional
    *  so existing tests that don't exercise rig-manifest wiring don't need to
    *  thread it through; the real compat:validate entry point always passes it. */
   rigManifests?: RigManifest[];
@@ -52,28 +54,11 @@ export interface ValidationInput {
   rulesStoragePackIds?: string[];
   /** RTDB rules corpus pack ids (rules-corpus/rtdb/*.ts). */
   rulesRtdbPackIds?: string[];
-}
-
-/** All (manifest, prefix) pairs whose prefix is a longest match for `filename`
- *  among every manifest's observationPrefixes. Longest-prefix match decides
- *  ownership (e.g. 'rtdb-modular-foo.json' matches both 'rtdb-' and
- *  'rtdb-modular-'; the longer one wins). More than one manifest id in the
- *  result means the match is ambiguous. */
-function longestPrefixOwners(filename: string, manifests: RigManifest[]): { manifestId: string; prefix: string }[] {
-  let maxLen = -1;
-  let matches: { manifestId: string; prefix: string }[] = [];
-  for (const manifest of manifests) {
-    for (const prefix of manifest.observationPrefixes) {
-      if (!filename.startsWith(prefix)) continue;
-      if (prefix.length > maxLen) {
-        maxLen = prefix.length;
-        matches = [{ manifestId: manifest.id, prefix }];
-      } else if (prefix.length === maxLen) {
-        matches.push({ manifestId: manifest.id, prefix });
-      }
-    }
-  }
-  return matches;
+  /** Probe files (probes/<surface>/<name>.ts, loaded via probes/load.ts).
+   *  Optional for the same reason as `rigManifests`; the real compat:validate
+   *  entry point always passes it, so the twin-path check below (a probe's
+   *  surface directory must match its paired observation's) is CI-enforced. */
+  probeFiles?: ProbeFile[];
 }
 
 export function validateCompatibilityRegistry(input: ValidationInput): string[] {
@@ -178,6 +163,17 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     // it too), so a drifted `name` field would silently desync the two.
     const expectedName = obs.file.replace(/\.json$/, '');
     if (obs.name !== expectedName) problems.push(`${obs.file}: internal name '${obs.name}' does not match filename ('${expectedName}')`);
+    // The observation must live in the surface subdirectory its own filename
+    // prefix maps to (longest-prefix match, same rule surfaces/*.ts's
+    // observationPrefixes define everywhere else) — a file parked under the
+    // wrong surface directory is a silent structural drift, fatal here.
+    const expectedSurface = soleLongestPrefixOwner(
+      obs.file,
+      input.descriptors.map((d) => ({ id: d.surface, observationPrefixes: d.observationPrefixes })),
+    );
+    if (expectedSurface && obs.surfaceDir !== expectedSurface) {
+      problems.push(`${obs.file}: lives under observations/${obs.surfaceDir}/ but its prefix maps to surface '${expectedSurface}' (observations/${expectedSurface}/)`);
+    }
     if (input.observationExceptions[obs.name]) continue;
     if (!referencedObservations.has(obs.name)) problems.push(`${obs.file}: observation is not referenced by a registry row`);
     if (obs.rowIds.length === 0) problems.push(`${obs.file}: observation has no rowIds`);
@@ -244,7 +240,7 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
         problems.push(`${obs.file}: does not match any rig manifest's observation prefix`);
         continue;
       }
-      const distinctManifests = new Set(owners.map((o) => o.manifestId));
+      const distinctManifests = new Set(owners.map((o) => o.ownerId));
       if (distinctManifests.size > 1) {
         problems.push(`${obs.file}: ambiguous longest-prefix match across rigs (${[...distinctManifests].join(', ')})`);
       }
@@ -295,6 +291,22 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     }
   }
 
+  // ── Probe <-> observation twin-path integrity ─────────────────────────────
+  // `probes/<surface>/<name>.ts` is the twin tree to `observations/<surface>/
+  // <name>.json`: where a probe exists, its surface subdirectory must match
+  // the directory of the observation it produces. A probe without a matching
+  // observation (not yet captured) is fine — only a DIRECTORY MISMATCH between
+  // the two trees is fatal here.
+  if (input.probeFiles) {
+    const observationDirByName = new Map(input.observations.map((obs) => [obs.name, obs.surfaceDir]));
+    for (const probe of input.probeFiles) {
+      const obsDir = observationDirByName.get(probe.name);
+      if (obsDir && obsDir !== probe.surfaceDir) {
+        problems.push(`probes/${probe.surfaceDir}/${probe.name}.ts: paired observation lives under observations/${obsDir}/, not observations/${probe.surfaceDir}/`);
+      }
+    }
+  }
+
   if (input.checkMarkdown) problems.push(...checkGeneratedMarkdown());
 
   return problems;
@@ -311,6 +323,7 @@ if (import.meta.main) {
     observationExceptions,
     checkMarkdown: true,
     rigManifests,
+    probeFiles: listProbeFiles(),
     rulesFirestorePackIds: ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id),
     rulesStoragePackIds: ALL_RULES_STORAGE_PACKS.map((pack) => pack.id),
     rulesRtdbPackIds: ALL_RULES_RTDB_PACKS.map((pack) => pack.id),

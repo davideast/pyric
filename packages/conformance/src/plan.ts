@@ -3,31 +3,34 @@
  * Oracle rig fleet planner.
  *
  * The mandatory plan-mode protocol for the oracle rigs in
- * scripts/oracle/rigs/: reads every rig manifest and reports, for each one,
+ * ../rigs/: reads every rig manifest and reports, for each one,
  * exactly what it needs and whether the CURRENT environment satisfies it —
  * without running anything. Zero network calls; zero secrets are ever
  * printed (only whether an env var is present, never its value).
  *
- * Usage: bun run scripts/oracle/plan.ts   (bun run oracle:plan)
+ * Usage: bun run packages/conformance/src/plan.ts   (bun run oracle:plan)
  * Exit code: always 0 — this is a report, not a gate.
  */
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
+import { loadObservations } from './ledger.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..');
-const OBS_DIR = join(HERE, '..', 'observations');
 
 /** Counts observation files per prefix using LONGEST-prefix match among this
  *  rig's own prefixes — 'rtdb-' and 'rtdb-modular-' both belong to the
  *  oracle-run rig, and a naive startsWith tally would double-count every
  *  'rtdb-modular-*' file under 'rtdb-' too. Each file is assigned to exactly
- *  one (its longest matching) prefix, mirroring the validator's rule. */
+ *  one (its longest matching) prefix, mirroring the validator's rule.
+ *  `loadObservations()` walks every surface subdirectory under
+ *  `observations/`, so this counts across the whole grouped tree, not just
+ *  one directory. */
 function observationCounts(prefixes: string[]): Map<string, number> {
-  const files = readdirSync(OBS_DIR).filter((f) => f.endsWith('.json'));
+  const files = loadObservations().map((obs) => obs.file);
   const sortedByLength = [...prefixes].sort((a, b) => b.length - a.length);
   const counts = new Map<string, number>(prefixes.map((prefix) => [prefix, 0]));
   for (const file of files) {
