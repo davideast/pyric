@@ -226,6 +226,19 @@ const probeSchema = {
     invariantId: { type: "string", minLength: 1 },
     control: operationSchema,
     mutation: mutationSchema,
+    requires: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { enum: ["construct", "registry-row"] },
+          id: { type: "string", minLength: 1 },
+        },
+        required: ["kind", "id"],
+      },
+    },
+    // Deprecated: capability ids, superseded by `requires`. Still accepted.
     requirements: { type: "array", items: { type: "string" } },
   },
   required: ["id", "actorId", "invariantId", "control", "mutation"],

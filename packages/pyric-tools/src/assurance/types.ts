@@ -152,12 +152,36 @@ export interface ProbeMutation {
   operation: FirebaseOperation;
 }
 
+/**
+ * A conformance-graph node a probe leans on: a rules-language construct or a
+ * compatibility-registry row, named by id. This is the authored half of the
+ * dependency shape the conformance package's capability records use — the
+ * probe declares WHAT it needs; the engine resolves the node's derived verdict
+ * against the graph at qualification time (a probe never carries a status).
+ */
+export type CapabilityDependency =
+  | { kind: 'construct'; id: string }
+  | { kind: 'registry-row'; id: string };
+
 export interface AssuranceProbe {
   id: string;
   actorId: string;
   invariantId: string;
   control: FirebaseOperation;
   mutation: ProbeMutation;
+  /**
+   * Graph nodes this probe's verdict depends on. Each is resolved live against
+   * the conformance graph statuses: a node the graph derives non-`supported`
+   * makes the engine abstain (engine-gap), and a node the graph does not model
+   * is a campaign authoring error (invalid-probe).
+   */
+  requires?: CapabilityDependency[];
+  /**
+   * @deprecated Capability ids, superseded by `requires`. A capability was a
+   * named bundle of graph nodes; a probe now names the nodes it needs directly.
+   * Still resolved (against the derived capability statuses) for one release so
+   * existing campaigns keep working.
+   */
   requirements?: string[];
 }
 

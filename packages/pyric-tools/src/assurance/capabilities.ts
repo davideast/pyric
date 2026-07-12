@@ -25,6 +25,7 @@ import {
 } from "./generated-capabilities.js";
 import type {
   AssuranceProbe,
+  CapabilityDependency,
   CapabilityRequirement,
   EngineQualification,
   LocalFirebaseTarget,
@@ -35,6 +36,66 @@ export type { GeneratedAssuranceCapability };
 
 const CAPABILITY_BY_ID: ReadonlyMap<string, GeneratedAssuranceCapability> =
   new Map(ASSURANCE_ENGINE_CAPABILITIES.map((item) => [item.id, item]));
+
+/**
+ * A probe's `requires` names graph nodes (constructs, registry rows) directly,
+ * and the engine resolves each against the node's DERIVED verdict. Those
+ * verdicts already exist in the generated capabilities: every capability
+ * dependency carries its own node verdict, graph-derived and identical
+ * wherever the node appears. Flattening them is the interim source of the
+ * per-node verdict map, until the generator emits a dedicated node-status
+ * snapshot (the fold's next step); the values are the same either way.
+ */
+const GRAPH_NODE_VERDICT: ReadonlyMap<string, "supported" | "qualified" | "unsupported"> =
+  (() => {
+    const map = new Map<string, "supported" | "qualified" | "unsupported">();
+    for (const capability of ASSURANCE_ENGINE_CAPABILITIES) {
+      for (const dependency of capability.dependencies) {
+        if (dependency.kind === "construct" || dependency.kind === "registry-row") {
+          map.set(dependency.id, dependency.verdict);
+        }
+      }
+    }
+    return map;
+  })();
+
+/**
+ * Resolve one `requires` node against the derived graph verdict, appending a
+ * requirement. A `supported` node passes; a `qualified`/`unsupported` node
+ * abstains (engine-gap); a node the graph does not model is an authoring error
+ * (invalid-probe). Mirrors the deprecated capability-id path below, one graph
+ * layer lower.
+ */
+function resolveRequiredNode(
+  dependency: CapabilityDependency,
+  requirements: CapabilityRequirement[],
+): EngineQualification["classification"] | undefined {
+  const verdict = GRAPH_NODE_VERDICT.get(dependency.id);
+  if (!verdict) {
+    requirements.push(
+      requirement(
+        dependency.id,
+        false,
+        `The probe requires ${dependency.kind} '${dependency.id}', which the conformance graph does not model.`,
+      ),
+    );
+    return "invalid-probe";
+  }
+  if (verdict !== "supported") {
+    requirements.push(
+      requirement(
+        dependency.id,
+        false,
+        `The ${dependency.kind} '${dependency.id}' is derived '${verdict}', not 'supported'; the engine abstains.`,
+      ),
+    );
+    return "engine-gap";
+  }
+  requirements.push(
+    requirement(dependency.id, true, `The ${dependency.kind} '${dependency.id}' is derived 'supported'.`),
+  );
+  return undefined;
+}
 
 export function listAssuranceCapabilities(
   services?: ReadonlyArray<GeneratedAssuranceCapability["service"]>,
@@ -430,6 +491,18 @@ export function qualifyProbe(
       ),
     );
   }
+
+  // The forward contract: a probe names graph nodes directly, resolved one
+  // layer below the capability bundle. `invalid-probe` outranks `engine-gap`
+  // for the qualification's single classification, matching the loop above.
+  for (const dependency of probe.requires ?? []) {
+    const nodeAbstention = resolveRequiredNode(dependency, requirements);
+    if (nodeAbstention === "invalid-probe") abstention = "invalid-probe";
+    else if (nodeAbstention === "engine-gap" && abstention !== "invalid-probe") {
+      abstention = "engine-gap";
+    }
+  }
+
   return {
     engine: "pyric-local-sandboxes",
     supported: requirements.every((item) => item.supported),

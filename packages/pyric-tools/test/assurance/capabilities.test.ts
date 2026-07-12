@@ -6,6 +6,7 @@ import {
 } from "../../src/assurance/capabilities.js";
 import type {
   AssuranceProbe,
+  CapabilityDependency,
   LocalFirebaseTarget,
 } from "../../src/assurance/types.js";
 
@@ -318,6 +319,64 @@ service cloud.firestore {
       probeRequiring(notSupported.id, "firestore.not-a-real-capability"),
     );
 
+    expect(qualification.classification).toBe("invalid-probe");
+  });
+});
+
+/**
+ * The forward contract: a probe names graph nodes (constructs, registry rows)
+ * directly via `requires`, resolved one layer below the capability bundle. Same
+ * rule: only a `supported` node proceeds, anything weaker abstains (engine-gap),
+ * and a node the graph does not model is invalid-probe. Subjects are picked OUT
+ * of the generated graph so the tests track it rather than naming a verdict.
+ */
+describe("qualifyProbe — requires resolves graph nodes against the graph", () => {
+  const cleanRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} { allow update: if true; }
+  }
+}`;
+  const nodeDeps = ASSURANCE_ENGINE_CAPABILITIES.flatMap((c) => c.dependencies).filter(
+    (d): d is Extract<(typeof d), { kind: "construct" | "registry-row" }> =>
+      d.kind === "construct" || d.kind === "registry-row",
+  );
+  const supportedNode = nodeDeps.find((d) => d.verdict === "supported");
+  const weakNode = nodeDeps.find((d) => d.verdict !== "supported");
+  const probeRequiring = (...requires: CapabilityDependency[]): AssuranceProbe => ({
+    ...firestoreProbe,
+    requires,
+  });
+
+  it("proceeds when every required node is derived supported", () => {
+    if (!supportedNode) throw new Error("expected a supported graph node");
+    const qualification = qualifyProbe(
+      firestoreTarget(cleanRules),
+      probeRequiring({ kind: supportedNode.kind, id: supportedNode.id }),
+    );
+    expect(qualification.supported).toBe(true);
+    expect(qualification.classification).toBeUndefined();
+  });
+
+  it("abstains engine-gap, citing the node's derived verdict, when a required node is not supported", () => {
+    if (!weakNode) throw new Error("expected a non-supported graph node");
+    const qualification = qualifyProbe(
+      firestoreTarget(cleanRules),
+      probeRequiring({ kind: weakNode.kind, id: weakNode.id }),
+    );
+    expect(qualification.supported).toBe(false);
+    expect(qualification.classification).toBe("engine-gap");
+    const failed = qualification.requirements.find((r) => r.id === weakNode.id);
+    expect(failed?.supported).toBe(false);
+    expect(failed?.reason).toContain(weakNode.verdict);
+  });
+
+  it("treats a node the graph does not model as invalid-probe, not an engine gap", () => {
+    const qualification = qualifyProbe(
+      firestoreTarget(cleanRules),
+      probeRequiring({ kind: "construct", id: "firestore.not-a-real-construct" }),
+    );
+    expect(qualification.supported).toBe(false);
     expect(qualification.classification).toBe("invalid-probe");
   });
 });
