@@ -26,7 +26,7 @@ Every page of the new docs, written to WRITING-BRIEF.md against HIERARCHY.md v3.
 | RTDB rules in TypeScript | `secure/rtdb-rules-in-typescript.md` | new (constraints DSL) |
 | The limits that actually bite | `secure/limits-that-bite.md` | new (from LINTER_SPEC + linter thresholds) |
 | Audit rules and data | `secure/audit-a-ruleset.md` | new (from the audit skills) |
-| What's possible | `secure/whats-possible.md` | new (the gallery) |
+| Case studies | `secure/rules-case-studies.md` | new (the gallery) |
 | **OBSERVE & SHAPE** | | |
 | See what's happening | `observe/see-whats-happening.md` | new landing over reused how-tos |
 | Shape your data | `observe/shape-your-data.md` | new landing over reused how-tos |
@@ -48,4 +48,4 @@ The deep existing pages (the rules how-tos, the sandbox how-tos, the deploy tree
 
 ## Review guide
 
-Read `overview.md` first; it is the voice contract in action. Then read one page per section to check the voice holds. The knowledge pages (`secure/rules-standard-library.md`, `secure/limits-that-bite.md`, `secure/rules-patterns.md`, `secure/whats-possible.md`) carry the most new claims; their facts trace to STDLIB.md, LINTER_SPEC.md, the chess log, and the firebase-agent-sdk skill references.
+Read `overview.md` first; it is the voice contract in action. Then read one page per section to check the voice holds. The knowledge pages (`secure/rules-standard-library.md`, `secure/limits-that-bite.md`, `secure/rules-patterns.md`, `secure/rules-case-studies.md`) carry the most new claims; their facts trace to STDLIB.md, LINTER_SPEC.md, the chess log, and the firebase-agent-sdk skill references.

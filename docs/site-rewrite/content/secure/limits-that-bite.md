@@ -147,4 +147,4 @@ One honest note. The Firebase emulator does not reproduce the cross-rule budget 
 
 ## Where to go next
 
-Lint and simulate together in [simulate and lint before you deploy](../secure/simulate-and-lint.md). To see rules engineered against these exact limits, read the [case studies](../secure/whats-possible.md).
+Lint and simulate together in [simulate and lint before you deploy](../secure/simulate-and-lint.md). To see rules engineered against these exact limits, read the [case studies](../secure/rules-case-studies.md).

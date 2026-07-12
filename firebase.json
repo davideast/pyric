@@ -27,6 +27,11 @@
         "source": "/docs/what-an-agent-can-do{,/**}",
         "destination": "/docs/agent-mcp-tools/",
         "type": 301
+      },
+      {
+        "source": "/docs/whats-possible{,/**}",
+        "destination": "/docs/rules-case-studies/",
+        "type": 301
       }
     ],
     "rewrites": [

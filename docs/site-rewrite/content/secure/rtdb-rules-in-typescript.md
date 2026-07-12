@@ -71,7 +71,7 @@ pyric deploy database
 
 ## Enforce turns and wins in a deployed game
 
-The tic-tac-toe [case study](../secure/whats-possible.md) is built from these same parts, deployed and playable:
+The tic-tac-toe [case study](../secure/rules-case-studies.md) is built from these same parts, deployed and playable:
 
 ```ts
 import {

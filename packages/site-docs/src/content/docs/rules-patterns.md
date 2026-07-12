@@ -107,4 +107,4 @@ The patterns with stable shapes ship as standard library modules an agent import
 
 ## Where to go next
 
-These techniques run up against real budgets, and the exact numbers are in [the measured limits](../limits-that-bite/). To see how far the techniques reach, read the [case studies](../whats-possible/).
+These techniques run up against real budgets, and the exact numbers are in [the measured limits](../limits-that-bite/). To see how far the techniques reach, read the [case studies](../rules-case-studies/).

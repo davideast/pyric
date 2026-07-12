@@ -196,7 +196,7 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
       'rtdb-rules-in-typescript.md',
       'limits-that-bite.md',
       'audit-a-ruleset.md',
-      'whats-possible.md',
+      'rules-case-studies.md',
     ],
   },
   {

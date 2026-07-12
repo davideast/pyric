@@ -111,7 +111,7 @@ That loop is the core. The wing deepens each step.
 - [Rules patterns](../secure/rules-patterns.md). The techniques the hard rules are built from.
 - [Rules compiler and evaluator limits](../secure/limits-that-bite.md). The production compiler's real limits, with numbers.
 - [Audit rules and data](../secure/audit-a-ruleset.md). An evidence-backed answer to who can access what.
-- [Case studies](../secure/whats-possible.md). Deployed rulesets that enforce chess, connect four, and tax math.
+- [Case studies](../secure/rules-case-studies.md). Deployed rulesets that enforce chess, connect four, and tax math.
 
 ## Verify a denial from an agent before it commits
 
