@@ -1,14 +1,14 @@
 /**
- * ─── Pack 5: prototype-chain-keys (RULES-B7) ──────────────────────────────
+ * ─── Scenario 5: prototype-chain-keys (RULES-B7) ──────────────────────────────
  * Production maps expose OWN keys only — `'toString' in data` is false
  * unless the document literally has a `toString` field, and
  * `data.constructor` is a missing-field error. Pre-fix the simulator's
  * `in` walked the JS prototype chain, so `'toString' in data` allowed and
  * `data.constructor` returned the Object constructor.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'RULES-B7',
   rationale: "`'toString' in map` must be false (own keys only) and `.constructor` access must error; JS prototype-chain leakage said true / returned Object.",
   rules: `rules_version = '2';

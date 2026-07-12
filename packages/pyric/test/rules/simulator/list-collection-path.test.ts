@@ -1,5 +1,5 @@
 /**
- * RULES-LIST parity pack — `list` on a COLLECTION path must evaluate the
+ * RULES-LIST parity scenario — `list` on a COLLECTION path must evaluate the
  * document-level match block (document wildcard hypothetical, `resource`
  * undefined), as the emulator does.
  *
@@ -32,7 +32,7 @@ const sim = () => new SimulateFirestoreRulesHandler();
 
 function decide(rules: string, tc: Omit<TestCase, 'description' | 'expectation'>) {
   const r = sim().simulate(rules, [
-    { description: 'pack', expectation: 'ALLOW', ...tc } as TestCase,
+    { description: 'scenario', expectation: 'ALLOW', ...tc } as TestCase,
   ]);
   expect(r.success).toBe(true);
   return r.data!.results![0]!;

@@ -1,13 +1,13 @@
 /**
- * ─── Pack 1: verbs-umbrella-granular ────────────────────────────────────────
+ * ─── Scenario 1: verbs-umbrella-granular ────────────────────────────────────────
  * The stale storage matrix (#96/#104) claims granular verbs are unsupported.
- * This pack proves the evaluator's read→{get,list} / write→{create,update,
+ * This scenario proves the evaluator's read→{get,list} / write→{create,update,
  * delete} expansion, granular single-verb grants, comma-separated verbs,
  * per-verb deny-by-default, and create-vs-update keyed on object existence.
  */
-import type { StoragePackRecord } from './types.ts';
+import type { StorageScenarioRecord } from './types.ts';
 
-export const pack: StoragePackRecord = {
+export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-VERBS',
   rationale:
     'Umbrella read/write expansion, granular verb grants, comma-separated verbs, per-verb default-deny, and create-vs-update on resource existence.',
@@ -59,8 +59,8 @@ service firebase.storage {
     // result), and denies, instead of evaluating `resource == null` as
     // documented. The evaluator models resource as null on create and
     // allows, matching the documented semantics. Left as `expectation:
-    // 'ALLOW'` — the pre-capture belief this pack was written from — per the
-    // Firestore stress-pack convention of not rewriting expectations after
+    // 'ALLOW'` — the pre-capture belief this scenario was written from — per the
+    // Firestore stress-scenario convention of not rewriting expectations after
     // a divergence is captured and pinned.
     { description: 'create allowed when object does not exist (resource == null)', expectation: 'ALLOW', method: 'create', path: 'existence/e.txt', resource: { size: 10, contentType: 'text/plain' }, existingResource: null },
     { description: 'update allowed when object exists (resource != null)', expectation: 'ALLOW', method: 'update', path: 'existence/e.txt', resource: { size: 20, contentType: 'text/plain' }, existingResource: { size: 10 } },

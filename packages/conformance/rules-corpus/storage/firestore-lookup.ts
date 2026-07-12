@@ -1,12 +1,12 @@
 /**
- * ─── Pack 6: firestore-lookup ───────────────────────────────────────────────
+ * ─── Scenario 6: firestore-lookup ───────────────────────────────────────────────
  * Cross-service firestore.get()/exists() with $(expr) path interpolation
  * (path param and request.auth.uid). Mocks use the QUALIFIED firestore.get /
  * firestore.exists names; exists() mock is a bool.
  */
-import type { StoragePackRecord } from './types.ts';
+import type { StorageScenarioRecord } from './types.ts';
 
-export const pack: StoragePackRecord = {
+export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-XSVC',
   rationale:
     'firestore.get()/exists() cross-service lookups with $(expr) interpolation, qualified function-mock names, and bool exists() results.',

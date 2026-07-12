@@ -1,18 +1,18 @@
 /**
- * ─── Pack 12: get-after-and-exists-after ──────────────────────────────────
+ * ─── Scenario 12: get-after-and-exists-after ──────────────────────────────────
  * Targets Item 7 — getAfter()/existsAfter() with projectAfterState. Pre-fix:
  * both threw UnsupportedError. The 0.D trap (top-level update REPLACES
  * nested map) only shows up in prod when the agent makes an `update` write
- * with a partial nested map; this pack pins the projection against prod
+ * with a partial nested map; this scenario pins the projection against prod
  * for create + delete (the writeMode-free defaults) so the basic surface
  * is locked in. The recursive merge / dot-path semantics are unit-tested
  * in projectAfterState (no prod equivalent: the prod Test API doesn't
  * expose writeMode either, but it computes the same projection internally
  * from the Test request shape).
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'Item 7',
   rationale: 'Sim must implement getAfter()/existsAfter(). Pre-fix: both threw UnsupportedError; rules using them silently denied.',
   rules: `rules_version = '2';

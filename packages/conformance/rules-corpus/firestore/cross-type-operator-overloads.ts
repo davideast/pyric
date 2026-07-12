@@ -1,18 +1,18 @@
 /**
- * ─── Pack 4: cross-type-operator-overloads ────────────────────────────────
+ * ─── Scenario 4: cross-type-operator-overloads ────────────────────────────────
  * Targets Item 2 of the rebuild plan — operator overloads in
  * `evaluateBinaryOp` for Timestamp/Duration cross-type arithmetic. Pre-fix
  * (before Item 1.2/1.3), the namespace constructors returned bare epoch-ms
  * Numbers, so `Timestamp + Duration` was silent numeric add and the
  * resulting "Timestamp" lost its type identity. Production evaluates the
- * type-preserving cases natively. This pack proves the simulator now
+ * type-preserving cases natively. This scenario proves the simulator now
  * matches across all four cross-type arithmetic forms plus `<` `>`
  * comparisons that depend on the wrappers' field-wise compareTo (not
  * numeric coercion).
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'Item 2',
   rationale: 'Wrapper binaryOp must produce typed results for Timestamp/Duration cross-type ops; numeric coercion would silently lose type identity and (post-Risk 2 guard) silently DENY.',
   rules: `rules_version = '2';

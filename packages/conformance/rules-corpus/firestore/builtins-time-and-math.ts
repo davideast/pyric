@@ -1,16 +1,16 @@
 /**
- * ─── Pack 1: builtins-time-and-math ────────────────────────────────────────
+ * ─── Scenario 1: builtins-time-and-math ────────────────────────────────────────
  * Targets FM3 (missing builtins). Rules only use built-in functions on
  * literal arguments (no request.time), so production should evaluate them
  * deterministically. The simulator's evaluator (evaluator.ts:256-273) has
  * no entries for math.* / timestamp.* / duration.* — they parse as method
  * calls on a namespace identifier that resolves to `undefined` and throws.
  * The throw is caught at handler.ts:126 and counted as deny, so every
- * ALLOW-expectation case in this pack should be reported as SIM_BUG.
+ * ALLOW-expectation case in this scenario should be reported as SIM_BUG.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'FM3',
   rationale: 'Simulator throws on math.*, timestamp.*, duration.* — agent rules using these silently deny in the simulator while production evaluates them.',
   rules: `rules_version = '2';

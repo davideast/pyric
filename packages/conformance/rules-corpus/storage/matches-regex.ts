@@ -1,11 +1,11 @@
 /**
- * ─── Pack 4: matches-regex ──────────────────────────────────────────────────
+ * ─── Scenario 4: matches-regex ──────────────────────────────────────────────────
  * string.matches() — whole-string anchoring (a partial match denies) and RE2
  * inexpressibility (a lookaround pattern production's RE2 rejects → deny).
  */
-import type { StoragePackRecord } from './types.ts';
+import type { StorageScenarioRecord } from './types.ts';
 
-export const pack: StoragePackRecord = {
+export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-MATCHES',
   rationale:
     'string.matches() whole-string anchoring: a partial match denies. (RE2-inexpressible patterns are rejected at ruleset compile time by production, so they are covered by evaluator unit tests, not oracle capture.)',

@@ -208,7 +208,7 @@ git add scripts/compat/coverage-baseline.json
 CI runs `compat:coverage` after the build step, publishes the table to the
 job summary, and fails the `build-and-test` job on any regression above.
 
-## Run the live rules parity packs
+## Run the live rules parity scenarios
 
 Requires the `PARITY_SA_BASE64` secret (a service account holding only
 `firebaserules.rulesets.test`), base64-encoded:
@@ -219,9 +219,9 @@ bun test packages/pyric/test/rules/parity
 ```
 
 This is a synchronous dual-run against Google's hosted Rules Test API (not
-the emulator — Pyric never uses the emulator). Note the stress packs
+the emulator — Pyric never uses the emulator). Note the stress scenarios
 currently *report* their `SIM_BUG` tallies rather than asserting on them;
-read the pack summaries, not just the exit code.
+read the scenario summaries, not just the exit code.
 
 ## Bump the firebase dependency
 

@@ -1,0 +1,395 @@
+{
+  "engine": "storage",
+  "version": "rules_version 2 (standalone subset)",
+  "sources": [
+    "Firebase Storage Security Rules language reference (firebase.google.com/docs/reference/security/storage)",
+    "Storage security rules conditions guide",
+    "Repo ground truth: src/storage/rules.ts (parseStorageRules + evaluateStorageRules, the standalone subset)"
+  ],
+  "constructs": [
+    {
+      "id": "storage.binding.request",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.request.auth",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request#auth",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.request.auth.uid",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request#auth",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.request.auth.token",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request#auth",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.request.resource",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request#resource",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.request.resource.size",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request#resource",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.request.resource.contentType",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request#resource",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.request.resource.metadata",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request#resource",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.request.time",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request#time",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.request.method",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.request.path",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/request",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.resource",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.resource.size",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#size",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.resource.contentType",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#contentType",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.resource.metadata",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#metadata",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.path-variable",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.binding.resource.name",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#name",
+      "status": "unprobed",
+      "note": "Discrepancy: resource.name is in the official Storage rules language, but the standalone evaluator's resource model (src/storage/rules.ts StorageResource) carries only size/contentType/metadata, so resource.name reads undefined."
+    },
+    {
+      "id": "storage.binding.resource.timeCreated",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#timeCreated",
+      "status": "unprobed",
+      "note": "Discrepancy: official field, out of scope in the standalone evaluator — the resource model has no server timestamps, so resource.timeCreated reads undefined (documented in src/storage/rules.ts header)."
+    },
+    {
+      "id": "storage.binding.resource.timeUpdated",
+      "kind": "binding",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/resource#updated",
+      "status": "unprobed",
+      "note": "Discrepancy: official field, out of scope in the standalone evaluator — resource.timeUpdated reads undefined (no server-timestamp model)."
+    },
+    {
+      "id": "storage.function.timestamp.date",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/timestamp#date",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.function.timestamp.value",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/timestamp#value",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.function.firestore.get",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions#firestore",
+      "status": "unprobed",
+      "note": "Discrepancy: firestore.get() is in the official Storage rules language, but the standalone evaluator only resolves it when the enforcement layer injects a FirestoreLookup; the pure/test evaluator denies-with-reason (cross-document lookups are out of the standalone subset)."
+    },
+    {
+      "id": "storage.function.firestore.exists",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions#firestore",
+      "status": "unprobed",
+      "note": "Discrepancy: firestore.exists() — same standalone limitation as firestore.get(); resolved only with an injected FirestoreLookup, otherwise denies-with-reason."
+    },
+    {
+      "id": "storage.method.string.matches",
+      "kind": "method",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/string#matches",
+      "status": "unprobed",
+      "receiverType": "string"
+    },
+    {
+      "id": "storage.operator.eq",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.neq",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.lt",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.gt",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.lte",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.gte",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.add",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.sub",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.mul",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.div",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.and",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.or",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.not",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.member",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.operator.index",
+      "kind": "operator",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.allow-read",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.allow-write",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.allow-get",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.allow-list",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.allow-create",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.allow-update",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.allow-delete",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.match",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.function",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.let",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.rule-kind.rules_version",
+      "kind": "rule-kind",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.semantic.read-umbrella",
+      "kind": "semantic",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.semantic.write-umbrella",
+      "kind": "semantic",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.semantic.recursive-wildcard",
+      "kind": "semantic",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    },
+    {
+      "id": "storage.semantic.deny-by-default",
+      "kind": "semantic",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/storage/security/rules-conditions",
+      "status": "unprobed"
+    }
+  ]
+}

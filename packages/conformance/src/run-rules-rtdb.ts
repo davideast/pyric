@@ -6,13 +6,13 @@
  * server-side rules test API (no `firebaserules projects.test` equivalent), so
  * production truth cannot be read from an endpoint. This runner captures it the
  * way the `rtdb-simulator-vs-prod-agreement` probe does: it DEPLOYS each corpus
- * pack's ruleset subtree to the dedicated oracle database under a unique
+ * scenario's ruleset subtree to the dedicated oracle database under a unique
  * run-scoped audit namespace (merged with, never replacing, the existing
  * rules), EXECUTES each op against the live service to record the production
  * allow/deny verdict, then RESTORES the prior ruleset and VERIFIES the restore
  * by reading the rules back and comparing (canonical JSON) to the pre-run
- * snapshot. One observation per pack is written into
- * `packages/conformance/observations/rtdb/rules-rtdb-<pack.id>.json`.
+ * snapshot. One observation per scenario is written into
+ * `packages/conformance/observations/rtdb/rules-rtdb-<scenario.id>.json`.
  *
  * THE RESTORE INVARIANT IS THE GATE. deploy → capture → restore → read-back
  * verify runs as one guarded sequence: ANY failure mid-run (deploy, op loop, or
@@ -32,7 +32,7 @@
  *
  * RUNNABLE-BUT-INERT WITHOUT CREDENTIALS:
  *   With PYRIC_ORACLE_FIREBASE_CONFIG absent, this runner makes NO network
- *   calls. It prints exactly what it WOULD capture (every pack, its case count,
+ *   calls. It prints exactly what it WOULD capture (every scenario, its case count,
  *   the observation file each lands in) plus the env vars it needs, then exits
  *   0. No observation files are fabricated.
  *
@@ -49,10 +49,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  ALL_RULES_RTDB_PACKS,
+  ALL_RULES_RTDB_SCENARIOS,
   RULES_RTDB_OBSERVATION_PREFIX,
   rtdbObservationName,
-  type RtdbPack,
+  type RtdbScenario,
   type RtdbTestCase,
 } from '../rules-corpus/rtdb/index.ts';
 
@@ -95,13 +95,13 @@ function resolvedFirebaseVersion(): string {
   return meta.version;
 }
 
-/** Absolute path an observation for `pack` writes to. */
-function observationPath(pack: RtdbPack): string {
-  return join(OBS_DIR, `${rtdbObservationName(pack)}.json`);
+/** Absolute path an observation for `scenario` writes to. */
+function observationPath(scenario: RtdbScenario): string {
+  return join(OBS_DIR, `${rtdbObservationName(scenario)}.json`);
 }
 
 function totalCases(): number {
-  return ALL_RULES_RTDB_PACKS.reduce((n, pack) => n + pack.cases.length, 0);
+  return ALL_RULES_RTDB_SCENARIOS.reduce((n, scenario) => n + scenario.cases.length, 0);
 }
 
 function printInertPlan(): void {
@@ -114,16 +114,16 @@ function printInertPlan(): void {
   console.log(`  Observation filename prefix:  ${RULES_RTDB_OBSERVATION_PREFIX}\n`);
   console.log('  Capture protocol: deploy → execute ops on live RTDB → restore → read-back verify (canonical-JSON compare).');
   console.log('                    RTDB has no server-side rules test API, so production truth is observed by deploying real rules.\n');
-  console.log(`  Would capture ${ALL_RULES_RTDB_PACKS.length} pack(s):`);
-  for (const pack of ALL_RULES_RTDB_PACKS) {
-    const pending = pack.cases.filter((c) => c.pendingCapture).length;
+  console.log(`  Would capture ${ALL_RULES_RTDB_SCENARIOS.length} scenario(s):`);
+  for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
+    const pending = scenario.cases.filter((c) => c.pendingCapture).length;
     const pendingNote = pending > 0 ? ` (${pending} pending-capture, excluded from replay)` : '';
     console.log(
-      `    - ${pack.id.padEnd(28)} [${pack.fm.padEnd(8)}] ` +
-        `${String(pack.cases.length).padStart(2)} cases${pendingNote} → ${rtdbObservationName(pack)}.json`,
+      `    - ${scenario.id.padEnd(28)} [${scenario.fm.padEnd(8)}] ` +
+        `${String(scenario.cases.length).padStart(2)} cases${pendingNote} → ${rtdbObservationName(scenario)}.json`,
     );
   }
-  console.log(`\n  Total: ${ALL_RULES_RTDB_PACKS.length} packs, ${totalCases()} cases.`);
+  console.log(`\n  Total: ${ALL_RULES_RTDB_SCENARIOS.length} scenarios, ${totalCases()} cases.`);
   console.log('\n  To capture for real:');
   console.log('    PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \\');
   console.log('      PYRIC_ORACLE_SA_PATH=ignored/service-account.json \\');
@@ -247,25 +247,25 @@ async function capture(): Promise<void> {
   const auth = getAuth(app);
   const rtdb = getDatabase(app);
 
-  const observations: { pack: RtdbPack; behavior: Record<string, 'ALLOW' | 'DENY'> }[] = [];
+  const observations: { scenario: RtdbScenario; behavior: Record<string, 'ALLOW' | 'DENY'> }[] = [];
   let restoreVerified = false;
 
   try {
-    // Deploy every pack's subtree under `<auditKey>/<pack.id>`, merged with the
+    // Deploy every scenario's subtree under `<auditKey>/<scenario.id>`, merged with the
     // existing rules so real rules are preserved.
     const auditSubtree: Record<string, unknown> = {};
-    for (const pack of ALL_RULES_RTDB_PACKS) {
-      auditSubtree[pack.id] = JSON.parse(pack.rules);
+    for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
+      auditSubtree[scenario.id] = JSON.parse(scenario.rules);
     }
     await writeRules({ ...beforeRules, [auditKey]: auditSubtree });
-    console.log(`[oracle:rules-rtdb] deployed ${ALL_RULES_RTDB_PACKS.length} pack subtree(s) under /${auditKey}. Waiting 8s to propagate.`);
+    console.log(`[oracle:rules-rtdb] deployed ${ALL_RULES_RTDB_SCENARIOS.length} scenario subtree(s) under /${auditKey}. Waiting 8s to propagate.`);
     await new Promise((r) => setTimeout(r, 8_000));
 
     await signInAnonymously(auth);
 
-    for (const pack of ALL_RULES_RTDB_PACKS) {
+    for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
       const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
-      for (const tc of pack.cases as RtdbTestCase[]) {
+      for (const tc of scenario.cases as RtdbTestCase[]) {
         // Match auth context to the case.
         if (tc.authPresent && !auth.currentUser) {
           await signInAnonymously(auth);
@@ -276,7 +276,7 @@ async function capture(): Promise<void> {
         const opPath = substituteUid(tc.opPath, liveUid);
         const newData = tc.newData !== undefined ? substituteUid(tc.newData, liveUid) : undefined;
         const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, liveUid) : undefined;
-        const fullPath = `/${auditKey}/${pack.id}${opPath}`;
+        const fullPath = `/${auditKey}/${scenario.id}${opPath}`;
 
         let allowed = false;
         try {
@@ -295,7 +295,7 @@ async function capture(): Promise<void> {
                   }),
                   databaseURL: config.databaseURL,
                 },
-                `oracle-rules-rtdb-seed-${runId}-${pack.id}-${tc.description.replace(/\s+/g, '_')}`,
+                `oracle-rules-rtdb-seed-${runId}-${scenario.id}-${tc.description.replace(/\s+/g, '_')}`,
               );
               try {
                 await getAdminDatabase(config.databaseURL, seedApp).ref(fullPath).set(mockData);
@@ -311,10 +311,10 @@ async function capture(): Promise<void> {
         }
         behavior[tc.description] = allowed ? 'ALLOW' : 'DENY';
       }
-      observations.push({ pack, behavior });
+      observations.push({ scenario, behavior });
       const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
       const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
-      console.log(`  ✓ ${pack.id.padEnd(28)} allow=${allows} deny=${denies}`);
+      console.log(`  ✓ ${scenario.id.padEnd(28)} allow=${allows} deny=${denies}`);
     }
 
     if (auth.currentUser) {
@@ -345,19 +345,19 @@ async function capture(): Promise<void> {
   }
 
   mkdirSync(OBS_DIR, { recursive: true });
-  for (const { pack, behavior } of observations) {
+  for (const { scenario, behavior } of observations) {
     const obs: Observation = {
-      name: rtdbObservationName(pack),
+      name: rtdbObservationName(scenario),
       matrixRow: '',
       rowIds: [],
-      description: `RTDB rules production verdicts for corpus pack "${pack.id}" (${pack.fm}). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ${pack.rationale}`,
+      description: `RTDB rules production verdicts for corpus scenario "${scenario.id}" (${scenario.fm}). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ${scenario.rationale}`,
       observedAt: new Date().toISOString(),
       fbSdkVersion,
       projectId: config.projectId,
       behavior,
     };
-    writeFileSync(observationPath(pack), JSON.stringify(obs, null, 2) + '\n');
-    console.log(`  → wrote ${rtdbObservationName(pack)}.json`);
+    writeFileSync(observationPath(scenario), JSON.stringify(obs, null, 2) + '\n');
+    console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
   }
 
   console.log('\n[oracle:rules-rtdb] capture complete.');
