@@ -7,9 +7,9 @@
  * `false` cannot override a truthy ancestor). Decomposed from ruleset
  * `r5-cascade-root-grant`; every recorded production verdict is ALLOW.
  */
-import type { RtdbPackRecord } from './types.ts';
+import type { RtdbScenarioRecord } from './types.ts';
 
-export const pack: RtdbPackRecord = {
+export const scenario: RtdbScenarioRecord = {
   fm: 'rtdb#71',
   rationale: 'root .read: true cascades to all descendants and a deeper .write: false cannot revoke an ancestor .write grant — production allows every op; the simulator must model grant-only cascade.',
   provenance: 'Decomposed from the rtdb-simulator-vs-prod-agreement observation, ruleset r5-cascade-root-grant. Expectations are the recorded production allow/deny verdicts.',

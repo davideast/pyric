@@ -7,9 +7,9 @@
  * production verdicts. The anonymous case denied in production with no matching
  * rule — the simulator likewise returns NO_MATCHING_RULE (treated as deny).
  */
-import type { RtdbPackRecord } from './types.ts';
+import type { RtdbScenarioRecord } from './types.ts';
 
-export const pack: RtdbPackRecord = {
+export const scenario: RtdbScenarioRecord = {
   fm: 'rtdb#71',
   rationale: 'nested $sessionId bound against auth.uid — production allows the matching session and denies mismatched/anonymous access; the simulator must bind the nested variable identically.',
   provenance: 'Decomposed from the rtdb-simulator-vs-prod-agreement observation, ruleset r7-pathvar-binding. Expectations are the recorded production allow/deny verdicts.',

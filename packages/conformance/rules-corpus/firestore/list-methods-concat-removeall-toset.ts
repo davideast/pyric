@@ -1,12 +1,12 @@
 /**
- * ─── Pack 8: list-methods-concat-removeall-toset ──────────────────────────
+ * ─── Scenario 8: list-methods-concat-removeall-toset ──────────────────────────
  * Targets Item 5.2 of the rebuild plan — List.concat / removeAll / toSet.
  * Pre-fix all three threw UnsupportedError. toSet bridges into Set.* (5.1)
  * — a few cases chain through to verify the produced Set is fully usable.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'Item 5.2',
   rationale: 'Sim must implement List.concat/removeAll/toSet; pre-fix all three threw UnsupportedError.',
   rules: `rules_version = '2';

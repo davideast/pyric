@@ -22,7 +22,7 @@ import { RulesValue, NO_OP, type NoOp } from './base.js';
  * Distance between two points on Earth, in meters, via the haversine
  * formula. Production uses WGS-84 ellipsoid math which differs from
  * haversine by up to ~0.5%. We accept that drift for Item 1 — the
- * parity pack covers exact-equality and same-point cases (where
+ * parity scenario covers exact-equality and same-point cases (where
  * haversine == ellipsoid == 0); long-distance precision parity is
  * deferred until a real-world rule surfaces a discrepancy in the
  * benchmark divergence log. If/when that happens, swap the

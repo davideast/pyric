@@ -1,12 +1,12 @@
 /**
- * ─── Pack 3: request-time-timestamp ─────────────────────────────────────────
+ * ─── Scenario 3: request-time-timestamp ─────────────────────────────────────────
  * request.time compared against the timestamp constructors timestamp.date()
  * (UTC midnight) and timestamp.value() (epoch millis). #96/#104 mark time
  * unsupported.
  */
-import type { StoragePackRecord } from './types.ts';
+import type { StorageScenarioRecord } from './types.ts';
 
-export const pack: StoragePackRecord = {
+export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-TIME',
   rationale:
     'request.time compared against timestamp.date(y,m,d) and timestamp.value(ms) — the time surface #96/#104 wrongly call unsupported.',

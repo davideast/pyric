@@ -13,9 +13,9 @@
  * the recorded PRODUCTION verdicts (DENY for missing-body), which the current
  * simulator now satisfies. Decomposed from ruleset `r4-validate-structure`.
  */
-import type { RtdbPackRecord } from './types.ts';
+import type { RtdbScenarioRecord } from './types.ts';
 
-export const pack: RtdbPackRecord = {
+export const scenario: RtdbScenarioRecord = {
   fm: 'rtdb#71',
   rationale: 'a failing child .validate must VETO an otherwise-permitted write — production denies the missing-body write; the simulator allows it, the one recorded divergence.',
   provenance: 'Decomposed from the rtdb-simulator-vs-prod-agreement observation, ruleset r4-validate-structure. Expectations are the recorded production allow/deny verdicts; the missing-body case is the observation\'s sole simulator-vs-prod divergence.',

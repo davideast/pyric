@@ -1,20 +1,20 @@
 /**
- * ─── Pack 2: string-literals-and-regex ────────────────────────────────────
+ * ─── Scenario 2: string-literals-and-regex ────────────────────────────────────
  * Targets Class B (matches-string-escape) — surfaced 2026-05-02 by
  * email_domain_validation × gemma4:26b. Models writing `.matches('...\\.com')`
  * expect production semantics: `\\` escapes to `\`, then `\.` is a literal-dot
  * regex pattern. Pre-fix the simulator did not process string escapes, so
  * `\\.` reached `new RegExp()` as `\\.` (literal backslash + any char) and
  * silently denied every email-domain check.
- * We restrict this pack to escape forms production *accepts* (`\\` and no
+ * We restrict this scenario to escape forms production *accepts* (`\\` and no
  * escape). The lone-backslash forms `\.` and `@acme\.com` are syntax errors
  * in production — those are tracked separately as Bug 2 in REBUILD_PLAN.md
  * (sim accepts unknown escapes that prod rejects); they cannot be exercised
- * here without making the entire pack throw at the prod call boundary.
+ * here without making the entire scenario throw at the prod call boundary.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'Class B',
   rationale: 'Pre-fix the simulator forwarded raw `\\\\.` to RegExp without unescaping; production-style `.matches(\'...\\\\.com\')` denied silently.',
   rules: `rules_version = '2';
