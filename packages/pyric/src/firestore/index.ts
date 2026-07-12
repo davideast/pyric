@@ -74,281 +74,60 @@ import * as fb from 'firebase/firestore';
 // routes to the existing direct-handle path (sandbox vs prod).
 import { APP_TARGET, type PyricApp } from 'pyric/app';
 
-// ─── Branding + routing ───────────────────────────────────────────────
+// ─── Split-module wiring ──────────────────────────────────────────────
+// Shared routing/branding state, the public type surface, and snapshot
+// rehydration live in sibling modules. This entry imports what its inline
+// operations need and re-exports the public types + brand; the per-family
+// operations move out behind the barrel in follow-up commits.
+import {
+  TARGET_SYMBOL,
+  targetOf,
+  isSandboxKind,
+  sandboxDb,
+  tag,
+  tagSandboxRef,
+  parentRebuild,
+  chainDocFor,
+  chainCollFor,
+  chainQueryFor,
+  converterOf,
+  underlyingOf,
+  buildSandboxShell,
+  asChainDoc,
+  asChainColl,
+  asFbDoc,
+  asFbColl,
+  asFbQuery,
+  sandboxLiveRebuild,
+  type Target,
+  type SandboxTarget,
+  type SandboxLiveTarget,
+  type ProdTarget,
+} from './state.js';
+import type {
+  Firestore,
+  DocumentReference,
+  CollectionReference,
+  Query,
+  DocumentSnapshot,
+  QueryDocumentSnapshot,
+  QuerySnapshot,
+  WriteBatch,
+  Transaction,
+  Unsubscribe,
+  FirestoreDataConverter,
+} from './types.js';
+import {
+  wrapSandboxDocSnap,
+  applyConverterToDocSnap,
+  tagSnapshotRefs,
+} from './snapshots.js';
 
-/**
- * Hidden property on every {@link Firestore} handle. Discriminates
- * between sandbox and prod backends so free functions can route
- * without consumer-visible API differences.
- */
-export const TARGET_SYMBOL: unique symbol = Symbol('pyric/firestore/target');
+export * from './types.js';
+export { TARGET_SYMBOL } from './state.js';
 
-type SandboxTarget = { kind: 'sandbox'; db: SandboxFirestore; sandbox: Sandbox };
-/**
- * Live-identity sandbox target — built by `getFirestore(sandbox)`.
- *
- * Unlike {@link SandboxTarget} (a frozen `SandboxContext` chosen at
- * `getFirestore(ctx)` time), this variant reads `sandbox.currentUser`
- * per operation via {@link getDb}. Every op constructs a fresh
- * `SandboxContext` from the sandbox's *current* `currentUser` and
- * obtains a chainable handle bound to that ctx.
- *
- * Wired into the modular surface so app code that uses both
- * `pyric/auth` and `pyric/firestore` against the same `Sandbox` sees
- * live auth-state changes: a `signInAnonymously` / `setUser` call on
- * the auth side mutates `sandbox.currentUser`, and the next Firestore
- * op evaluates rules under the new identity.
- *
- * `withAuth(null)` is anonymous; `withAuth(state)` is signed-in.
- */
-type SandboxLiveTarget = { kind: 'sandbox-live'; sandbox: Sandbox; getDb: () => SandboxFirestore };
-type ProdTarget = { kind: 'prod'; db: fb.Firestore };
-type Target = SandboxTarget | SandboxLiveTarget | ProdTarget;
 
-/** True for both sandbox variants — used at dispatch sites that share a
- *  branch (every sandbox op routes the same way once we've resolved the
- *  chainable handle). The prod branch is the complement. */
-function isSandboxKind(target: Target): target is SandboxTarget | SandboxLiveTarget {
-  return target.kind === 'sandbox' || target.kind === 'sandbox-live';
-}
 
-/**
- * Resolve a sandbox-flavored target to its chainable Firestore handle.
- *
- * `sandbox` targets carry a frozen handle from `getFirestore(ctx)` time;
- * `sandbox-live` targets build a fresh handle bound to the sandbox's
- * current `currentUser` at every call. Callers that issue multiple ops
- * in a row should cache the result into a local — every `getDb()` call
- * rebuilds the chainable, which is correct but wasteful when the auth
- * state hasn't moved between adjacent ops.
- */
-function sandboxDb(target: SandboxTarget | SandboxLiveTarget): SandboxFirestore {
-  return target.kind === 'sandbox' ? target.db : target.getDb();
-}
-
-/**
- * Map from refs / queries to their owning target. Populated by every
- * factory + chaining operation; consulted by every free function.
- *
- * WeakMap keys let entries GC alongside the refs that produced them.
- */
-const refToTarget = new WeakMap<object, Target>();
-
-function tag<T extends object>(obj: T, target: Target): T {
-  refToTarget.set(obj, target);
-  return obj;
-}
-
-/**
- * For `sandbox-live` refs/queries, record a closure that rebuilds the
- * chainable ref against a fresh `SandboxFirestore` handle. Used by
- * every dispatch site to re-resolve the ref under the sandbox's
- * *current* `currentUser` rather than the auth that was active when
- * the ref was first built.
- *
- * Necessary because `pyric-admin`'s chainable refs capture auth at
- * construction time — calling `chainRef.get()` on a held ref runs
- * under the auth from when the ref was built, not from when the op
- * fires. For sandbox-live, every op must construct a fresh chainable
- * ref bound to the current ctx before issuing the op.
- *
- * The closure form supports the full chain: `doc(coll, id)` rebuilds
- * via `rebuild(coll)(db).doc(id)`; `query(coll, where(...))` rebuilds
- * via `apply(constraints)` over the rebuilt source. Stored only for
- * sandbox-live refs — the `sandbox` (frozen-ctx) and `prod` paths
- * keep their existing held-ref semantics.
- */
-const sandboxLiveRebuild = new WeakMap<object, (db: SandboxFirestore) => object>();
-
-function tagLive<T extends object>(
-  obj: T,
-  target: SandboxLiveTarget,
-  rebuild: (db: SandboxFirestore) => object,
-): T {
-  refToTarget.set(obj, target);
-  sandboxLiveRebuild.set(obj, rebuild);
-  return obj;
-}
-
-/** Resolve the chainable doc ref to use for an op against `ref`. For
- *  `sandbox`, returns the held chainable; for `sandbox-live`, runs
- *  the recorded rebuild closure against a fresh handle. */
-function chainDocFor(
-  target: SandboxTarget | SandboxLiveTarget,
-  ref: object,
-): ChainDocRef {
-  const underlying = underlyingOf(ref);
-  if (target.kind === 'sandbox') return underlying as ChainDocRef;
-  const rebuild = sandboxLiveRebuild.get(underlying);
-  if (!rebuild) {
-    throw new TypeError(
-      'pyric/firestore: live ref missing rebuild closure — was it produced by a factory in this package?',
-    );
-  }
-  return rebuild(sandboxDb(target)) as ChainDocRef;
-}
-
-/** Same as {@link chainDocFor} but typed for collection refs. */
-function chainCollFor(
-  target: SandboxTarget | SandboxLiveTarget,
-  ref: object,
-): ChainCollRef {
-  const underlying = underlyingOf(ref);
-  if (target.kind === 'sandbox') return underlying as ChainCollRef;
-  const rebuild = sandboxLiveRebuild.get(underlying);
-  if (!rebuild) {
-    throw new TypeError(
-      'pyric/firestore: live collection ref missing rebuild closure.',
-    );
-  }
-  return rebuild(sandboxDb(target)) as ChainCollRef;
-}
-
-/** Same as {@link chainDocFor} but typed for queries. */
-function chainQueryFor(
-  target: SandboxTarget | SandboxLiveTarget,
-  q: object,
-): ChainQuery {
-  const underlying = underlyingOf(q);
-  if (target.kind === 'sandbox') return underlying as ChainQuery;
-  const rebuild = sandboxLiveRebuild.get(underlying);
-  if (!rebuild) {
-    throw new TypeError(
-      'pyric/firestore: live query missing rebuild closure.',
-    );
-  }
-  return rebuild(sandboxDb(target)) as ChainQuery;
-}
-
-/**
- * Tag a sandbox-flavored ref + (optionally) record its rebuild
- * closure. Routes to {@link tag} for frozen-ctx targets and
- * {@link tagLive} for live targets. Centralizes the per-factory
- * "record rebuild on live, plain tag on frozen" decision.
- */
-function tagSandboxRef<T extends object>(
-  obj: T,
-  target: SandboxTarget | SandboxLiveTarget,
-  rebuild: (db: SandboxFirestore) => object,
-): T {
-  if (target.kind === 'sandbox-live') {
-    return tagLive(obj, target, rebuild);
-  }
-  return tag(obj, target);
-}
-
-/** Resolve a sandbox-flavored parent's rebuild closure. For
- *  sandbox-live, the parent must have been tagged via
- *  {@link tagSandboxRef}; for sandbox, returns a no-op stand-in
- *  since the held chainable is the only ref the dispatch sites use.
- *
- *  Used by chaining factories (`doc(coll, …)`, `collection(doc, …)`,
- *  `query(coll, …)`) to derive a rebuild that reads the parent's
- *  rebuild and applies one more step. */
-function parentRebuild(parent: object): (db: SandboxFirestore) => object {
-  const underlying = underlyingOf(parent);
-  const fn = sandboxLiveRebuild.get(underlying);
-  if (fn) return fn;
-  // Frozen-ctx target. The chainable parent ref is bound to the same
-  // ctx for life; returning it as-is is correct because frozen-ctx
-  // chaining is what `pyric-admin`'s adapter already supports.
-  return () => underlying;
-}
-
-function targetOf(refOrDb: object): Target {
-  if (TARGET_SYMBOL in refOrDb) {
-    return (refOrDb as { [TARGET_SYMBOL]: Target })[TARGET_SYMBOL];
-  }
-  const t = refToTarget.get(refOrDb);
-  if (!t) {
-    throw new TypeError(
-      'pyric/firestore: unrecognized reference — was it produced by a factory in this package?',
-    );
-  }
-  return t;
-}
-
-// ─── Converter tracking (sandbox-target only) ─────────────────────────
-//
-// For prod targets, `firebase/firestore`'s native `withConverter` keeps
-// the converter on the fb ref itself — every read/write through fb's
-// own API surface applies it transparently. We just route those refs
-// through unchanged.
-//
-// For sandbox targets, the chainable refs don't know about converters.
-// We track a per-ref converter + a pointer to the underlying chain ref
-// in WeakMaps, and apply `toFirestore` / `fromFirestore` at each free-
-// function boundary. The original plain chain ref keeps its identity;
-// `withConverter` returns a NEW shell object so consumer code can
-// hold both typed and untyped views of the same path without
-// interference.
-
-/**
- * Pair of translators between the consumer's app model and the
- * underlying Firestore representation. Mirrors `firebase/firestore`'s
- * `FirestoreDataConverter` shape.
- *
- *   - `toFirestore(model)` runs on every write (`setDoc`, `addDoc`)
- *     through a converted ref. Returns the `DocumentData` to send.
- *   - `fromFirestore(snapshot)` runs on every read (`getDoc`,
- *     `getDocs`, snapshot listener callback) through a converted ref.
- *     Receives the raw snapshot, returns the typed model.
- */
-export interface FirestoreDataConverter<
-  AppModelType,
-  DbModelType extends DocumentData = DocumentData,
-> {
-  toFirestore(modelObject: AppModelType): DbModelType;
-  fromFirestore(snapshot: QueryDocumentSnapshot<DbModelType>): AppModelType;
-}
-
-const refToConverter = new WeakMap<object, FirestoreDataConverter<unknown> | null>();
-const refToUnderlying = new WeakMap<object, object>();
-
-function converterOf(obj: object): FirestoreDataConverter<unknown> | null | undefined {
-  return refToConverter.get(obj);
-}
-
-/** Resolve to the plain chain / fb ref. `withConverter` shells point
- *  at the underlying; everything else is its own underlying. */
-function underlyingOf<T extends object>(obj: T): object {
-  return refToUnderlying.get(obj) ?? obj;
-}
-
-/** Build a new sandbox shell that points at `underlying` and carries
- *  `converter`. Inherits routing + identity (id/path) from underlying.
- *
- *  Accepts both `SandboxTarget` and `SandboxLiveTarget`: the shell
- *  exists at the modular layer (above the chainable), so it only
- *  needs to record routing for `targetOf` and the underlying pointer
- *  for `underlyingOf`. The chain re-resolution (under current auth)
- *  happens at op time via {@link chainDocFor} / {@link chainCollFor}
- *  / {@link chainQueryFor} on the underlying. */
-function buildSandboxShell(
-  underlying: { id?: string; path?: string },
-  target: SandboxTarget | SandboxLiveTarget,
-  converter: FirestoreDataConverter<unknown>,
-): object {
-  const shell = {
-    id: underlying.id ?? '',
-    path: underlying.path ?? '',
-  };
-  refToConverter.set(shell, converter);
-  refToUnderlying.set(shell, underlying);
-  refToTarget.set(shell, target);
-  return shell;
-}
-
-// ─── Public Firestore handle ──────────────────────────────────────────
-
-/**
- * Opaque handle returned by {@link getFirestoreSandbox} or
- * {@link getFirestoreProd}. Carries the target via {@link TARGET_SYMBOL};
- * never inspected by consumer code.
- */
-export interface Firestore {
-  readonly [TARGET_SYMBOL]: Target;
-}
 
 /**
  * Construct a Firestore handle. Three overloads dispatch by the
@@ -576,71 +355,6 @@ function makeGetDb(sandbox: Sandbox): () => SandboxFirestore {
   };
 }
 
-// ─── Reference / query types ──────────────────────────────────────────
-//
-// Modular refs are the underlying chainable refs (sandbox) or the
-// Firebase modular refs (prod) at runtime — we tag them in
-// `refToTarget` to recover routing.
-//
-// At the type level, exposing a discriminated union per ref kind would
-// be uniformly nice but costs a lot in user-side ergonomics. Instead
-// the public types are structural intersections of the operations we
-// support; consumer code interacts with refs only through our free
-// functions, never property access, so the runtime heterogeneity is
-// invisible.
-
-/** A reference to a Firestore document. Backend-opaque. */
-export interface DocumentReference<_T = DocumentData> {
-  readonly id: string;
-  readonly path: string;
-}
-/** A reference to a Firestore collection. Backend-opaque. */
-export interface CollectionReference<_T = DocumentData> {
-  readonly id: string;
-  readonly path: string;
-}
-/** A Firestore query (a collection ref or one with where/orderBy/limit applied). */
-export interface Query<_T = DocumentData> {
-  readonly _isQuery?: true;
-}
-/** A point-in-time view of one document. */
-export interface DocumentSnapshot<T = DocumentData> {
-  readonly id: string;
-  readonly exists: boolean | (() => boolean);
-  data(): T | undefined;
-}
-/**
- * `QueryDocumentSnapshot` is a `DocumentSnapshot` known to exist —
- * `.data()` always returns the typed model, never `undefined`. Yielded
- * by `QuerySnapshot.docs` and passed to converter `fromFirestore`
- * callbacks. Mirrors the JS SDK's narrowing.
- */
-export interface QueryDocumentSnapshot<T = DocumentData> extends DocumentSnapshot<T> {
-  data(): T;
-}
-/** A point-in-time view of a query result. */
-export interface QuerySnapshot<T = DocumentData> {
-  readonly size: number;
-  readonly empty: boolean;
-  readonly docs: ReadonlyArray<QueryDocumentSnapshot<T>>;
-}
-export type WriteBatch = ChainWriteBatch | fb.WriteBatch;
-export type Transaction = ChainTransaction | fb.Transaction;
-export type Unsubscribe = () => void;
-
-export type {
-  AuthState,
-  Sandbox,
-  SandboxContext,
-  DocumentData,
-  FieldValueSentinel,
-  LintResult,
-  OrderDirection,
-  WhereFilterOp,
-  FirebaseApp,
-};
-
-export { SandboxError };
 
 // ─── Tier 1: scalar types + sentinels re-exported from firebase ──────
 //
@@ -1163,15 +877,6 @@ export function onSnapshotsInSync(
   );
 }
 
-// Shorthand: cast helpers used inside route arms. The runtime objects
-// match these shapes precisely; the casts let the routing keep its
-// single-typed public surface.
-function asChainDoc(r: object): ChainDocRef { return r as ChainDocRef; }
-function asChainColl(r: object): ChainCollRef { return r as ChainCollRef; }
-function asChainQuery(r: object): ChainQuery { return r as ChainQuery; }
-function asFbDoc(r: object): fb.DocumentReference { return r as fb.DocumentReference; }
-function asFbColl(r: object): fb.CollectionReference { return r as fb.CollectionReference; }
-function asFbQuery(r: object): fb.Query { return r as fb.Query; }
 
 // ─── Path constructors ────────────────────────────────────────────────
 
@@ -1300,132 +1005,6 @@ export function collection(parent: Firestore | DocumentReference, ...pathSegment
 
 // ─── Reads ────────────────────────────────────────────────────────────
 
-function isNumberArray(a: unknown): a is number[] {
-  return Array.isArray(a) && a.every((n) => typeof n === 'number');
-}
-
-/**
- * A vector read from the sandbox may arrive as a live `Vector` wrapper, a
- * prototype-stripped plain object (`{typeName:'vector', value}`), or the wire
- * sentinel (`{__type__:'__vector__', value}`). Duck-type all three; `instanceof`
- * alone misses the stripped form the read path hands back. Returns the
- * components, or null if `value` isn't a vector.
- */
-function vectorValuesOf(value: unknown): number[] | null {
-  if (value instanceof RulesVector) return Array.from(value.value);
-  if (value === null || typeof value !== 'object') return null;
-  const o = value as Record<string, unknown>;
-  if (o.typeName === 'vector' && isNumberArray(o.value)) return o.value;
-  if (o.__type__ === '__vector__' && isNumberArray(o.value)) return o.value;
-  return null;
-}
-
-/**
- * Final read-path translation for sandbox-target snapshots.
- *
- * The admin-compat read-path walker (in `pyric/sandbox`'s admin-compat
- * `snapshots.ts`) leaves `pyric/rules` wrappers (`Bytes`,
- * `LatLng`) as identity — it can't translate them to
- * `firebase/firestore`'s `Bytes` / `GeoPoint` because the admin-compat
- * layer doesn't depend on `firebase/firestore`.
- *
- * This package does, so we do the final hop here: walk the value tree
- * and convert any rules-wrapper instance into its `firebase/firestore`
- * counterpart so consumer code can rely on
- * `data.b instanceof fb.Bytes === true` and
- * `data.g instanceof fb.GeoPoint === true` against sandbox reads —
- * matching the prod-target invariant.
- *
- * Closes firestore COMPAT rows #109 (`Bytes`) and #110 (`GeoPoint`).
- * Vectors (#111, `VectorValue` / `vector()`) round-trip the same way as of
- * Phase 0-F; the formal COMPAT ✓ + oracle observation land with the
- * conformance phase (Phase 5b). Vector SEARCH (`findNearest`) is separate.
- */
-function finalizeSandboxValue(value: unknown): unknown {
-  if (value instanceof RulesBytes) {
-    return fb.Bytes.fromUint8Array(value.data);
-  }
-  if (value instanceof RulesLatLng) {
-    return new fb.GeoPoint(value.lat, value.lng);
-  }
-  const vectorValues = vectorValuesOf(value);
-  if (vectorValues) {
-    return fb.vector(vectorValues);
-  }
-  if (Array.isArray(value)) {
-    return value.map(finalizeSandboxValue);
-  }
-  // Only walk plain objects (`{...}` literals + `Object.create(null)`).
-  // Class instances we don't recognize pass through as identity so we
-  // don't accidentally destructure their private state (the same gap
-  // that motivated #109/#110 in the first place).
-  if (value !== null && typeof value === 'object') {
-    const proto = Object.getPrototypeOf(value);
-    if (proto === Object.prototype || proto === null) {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        out[k] = finalizeSandboxValue(v);
-      }
-      return out;
-    }
-  }
-  return value;
-}
-
-function finalizeSandboxData(data: DocumentData | undefined): DocumentData | undefined {
-  if (data === undefined) return undefined;
-  return finalizeSandboxValue(data) as DocumentData;
-}
-
-/**
- * Wrap a raw sandbox `DocumentSnapshot` so `.data()` runs the final
- * value translation (rules wrappers → `firebase/firestore` types).
- * Other surface (id / ref / exists) passes through unchanged so
- * `tagSnapshotRefs` still operates on the original snap object.
- */
-function wrapSandboxDocSnap<T>(snap: object): DocumentSnapshot<T> {
-  const s = snap as {
-    data: () => DocumentData | undefined;
-  };
-  const original = s.data.bind(snap);
-  Object.defineProperty(s, 'data', {
-    value: () => finalizeSandboxData(original()),
-    configurable: true,
-    writable: true,
-  });
-  return snap as DocumentSnapshot<T>;
-}
-
-/**
- * Wrap a plain sandbox `DocumentSnapshot` so `.data()` runs the
- * converter's `fromFirestore`. Identity / `exists` pass through.
- */
-function applyConverterToDocSnap<AppModel>(
-  snap: ChainDocSnap,
-  conv: FirestoreDataConverter<AppModel>,
-): DocumentSnapshot<AppModel> {
-  return {
-    id: snap.id,
-    exists: snap.exists,
-    data: () => {
-      // Sandbox snaps expose `exists` as a property (Admin shape).
-      const exists = typeof snap.exists === 'function'
-        ? (snap.exists as () => boolean)()
-        : snap.exists;
-      if (!exists) return undefined;
-      const raw = finalizeSandboxData(snap.data() as DocumentData) as DocumentData;
-      // fromFirestore receives a QueryDocumentSnapshot-narrowed view —
-      // doc is known to exist at this branch, so `data()` returns the
-      // raw value (never undefined).
-      const queryDocSnap: QueryDocumentSnapshot = {
-        id: snap.id,
-        exists: true,
-        data: () => raw,
-      };
-      return conv.fromFirestore(queryDocSnap);
-    },
-  };
-}
 
 export async function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promise<DocumentSnapshot<T>> {
   const target = targetOf(ref);
@@ -2307,118 +1886,6 @@ function wrapObserver(
   };
 }
 
-/**
- * Walk a snapshot and tag every ref-shaped field in `refToTarget`,
- * AND normalize `.exists` to method form so consumer code targeting
- * Firebase's modular SDK (`if (snap.exists())`) works uniformly.
- *
- * The chainable adapter exposes `exists` as a property (Admin SDK
- * shape — `if (snap.exists)`). Firebase's modular SDK exposes it as
- * a method (`if (snap.exists())`). Without this normalization, user
- * code written against the documented Firebase API crashes against
- * the sandbox with "snap.exists is not a function" — a parity bug
- * agents and developers all rediscover by hand.
- *
- * Both forms remain readable on the returned object — the function
- * branch in any "did the existing FirestoreTab handle both shapes"
- * code still works.
- *
- * Idempotent — tagging an already-tagged object is a no-op, and the
- * `exists` getter we install is a no-op when one already exists.
- */
-function tagSnapshotRefs(snap: unknown, target: Target): unknown {
-  if (!snap || typeof snap !== 'object') return snap;
-  const s = snap as {
-    ref?: { id?: string; path?: string };
-    docs?: Array<{ ref?: { id?: string; path?: string }; exists?: boolean | (() => boolean) }>;
-    exists?: boolean | (() => boolean);
-  };
-  if (s.ref) {
-    tag(s.ref as object, target);
-    wireSnapshotRefToUnderlying(s.ref, target);
-  }
-  normalizeExists(s);
-  if (Array.isArray(s.docs)) {
-    for (const doc of s.docs) {
-      if (doc?.ref) {
-        tag(doc.ref as object, target);
-        wireSnapshotRefToUnderlying(doc.ref, target);
-      }
-      if (doc) normalizeExists(doc);
-    }
-  }
-  return snap;
-}
-
-/**
- * Snapshot `.ref` objects from the sandbox carry only `{ id, path }`
- * — no `.onSnapshot`, `.get`, `.set`, etc. — so a follow-up
- * `onSnapshot(snap.ref)` would crash with "ref.onSnapshot is not a
- * function." Bind the snapshot ref to a full chainable doc ref via
- * `refToUnderlying`; `underlyingOf(snap.ref)` then returns the real
- * ref the chainable adapter exposes its op methods on. No-op for
- * prod (their refs are already operative) and for refs that already
- * have a registered underlying.
- */
-function wireSnapshotRefToUnderlying(
-  snapRef: { path?: string },
-  target: Target,
-): void {
-  if (!isSandboxKind(target)) return;
-  if (typeof snapRef.path !== 'string' || snapRef.path.length === 0) return;
-  if (refToUnderlying.has(snapRef as object)) return;
-  const path = snapRef.path;
-  try {
-    // Build a concrete chainable doc to back the snap-ref via
-    // `refToUnderlying`. For sandbox-live, also record a rebuild
-    // closure so subsequent ops on the snap ref re-resolve against
-    // the *current* `sandbox.currentUser` (rather than re-using the
-    // listener-time auth that was frozen into the chainable).
-    const full = sandboxDb(target).doc(path) as unknown as object;
-    refToUnderlying.set(snapRef as object, full);
-    if (target.kind === 'sandbox-live') {
-      sandboxLiveRebuild.set(
-        full,
-        (fresh) => fresh.doc(path) as unknown as object,
-      );
-    }
-  } catch {
-    // path → doc resolution can throw if the path is malformed
-    // (odd segment count, etc.). Best-effort — leave the snap ref
-    // pointing at itself; the next op call will surface a clear
-    // "ref.onSnapshot is not a function" instead of mangling state.
-  }
-}
-
-/**
- * If `obj.exists` is a boolean property, replace it with a function
- * that returns that value — so consumer code can do `snap.exists()`
- * uniformly across the sandbox + Firebase backends. Idempotent: if
- * `exists` is already a function, leave it alone.
- *
- * `configurable: true` so a later normalize (over a re-yielded
- * snapshot from the same listener) can re-install cleanly.
- */
-function normalizeExists(obj: {
-  exists?: boolean | (() => boolean);
-}): void {
-  const current = obj.exists;
-  if (typeof current === 'function') return;
-  const value = current === true;
-  try {
-    Object.defineProperty(obj, 'exists', {
-      value: () => value,
-      writable: true,
-      configurable: true,
-      enumerable: true,
-    });
-  } catch {
-    // Some snapshot impls might freeze the object. Best-effort —
-    // a frozen snap already provides the property reading the user
-    // can do `if (snap.exists)` against; the call-site failure is
-    // surfaced via the error boundary.
-  }
-}
 
 // ─── Transactions + batches ───────────────────────────────────────────
 
