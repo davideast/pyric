@@ -11,6 +11,7 @@ import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
 import { ALL_RULES_FIRESTORE_PACKS } from '../rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_PACKS } from '../rules-corpus/storage/index.ts';
+import { ALL_RULES_RTDB_PACKS } from '../rules-corpus/rtdb/index.ts';
 import { longestPrefixOwners, soleLongestPrefixOwner } from './observation-surface.ts';
 import { listProbeFiles, type ProbeFile } from '../probes/load.ts';
 
@@ -51,6 +52,8 @@ export interface ValidationInput {
   rulesFirestorePackIds?: string[];
   /** Storage rules corpus pack ids (rules-corpus/storage/*.ts). */
   rulesStoragePackIds?: string[];
+  /** RTDB rules corpus pack ids (rules-corpus/rtdb/*.ts). */
+  rulesRtdbPackIds?: string[];
   /** Probe files (probes/<surface>/<name>.ts, loaded via probes/load.ts).
    *  Optional for the same reason as `rigManifests`; the real compat:validate
    *  entry point always passes it, so the twin-path check below (a probe's
@@ -208,12 +211,25 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
         if (!descriptorPrefixes.has(prefix)) {
           problems.push(`rig '${manifest.id}': observation prefix '${prefix}' is not a recognized surface descriptor prefix (surfaces/*.ts)`);
         }
-        // Every declared prefix must actually produce something. No
-        // pendingPrefixes escape hatch exists today because every current
-        // prefix already has at least one observation — prefer failing over
-        // adding one preemptively.
+        // Every declared observation prefix must actually produce something.
+        // A prefix a rig WILL produce but hasn't captured yet belongs in
+        // `pendingPrefixes` (handled below), not here.
         if (!observationFiles.some((file) => file.startsWith(prefix))) {
           problems.push(`rig '${manifest.id}': observation prefix '${prefix}' matches no observation file`);
+        }
+      }
+      // Pending prefixes: staged machinery ahead of the first capture. Each
+      // must still be a recognized surface prefix, but — unlike a real
+      // observation prefix — must have NO observation yet. The moment a
+      // capture lands, this flips to a failure telling you to promote the
+      // prefix into `observationPrefixes`, so a captured file can never sit in
+      // a permanently-pending prefix and dodge the ownership/twin checks.
+      for (const prefix of manifest.pendingPrefixes ?? []) {
+        if (!descriptorPrefixes.has(prefix)) {
+          problems.push(`rig '${manifest.id}': pending prefix '${prefix}' is not a recognized surface descriptor prefix (surfaces/*.ts)`);
+        }
+        if (observationFiles.some((file) => file.startsWith(prefix))) {
+          problems.push(`rig '${manifest.id}': pending prefix '${prefix}' now matches a captured observation — promote it into observationPrefixes`);
         }
       }
     }
@@ -232,39 +248,46 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
   }
 
   // ── Rules corpus <-> observation filename-twin integrity ─────────────────
-  // Every captured `rules-firestore-<x>.json` / `rules-storage-<x>.json`
-  // observation must have a corpus pack file `<x>.ts` in the matching
-  // rules-corpus directory — an orphan observation (a capture whose pack was
-  // removed or renamed) is a silent-gap failure, fatal here. A pack WITHOUT
-  // an observation is fine (not yet captured); it still shows up in its
-  // capture runner's inert plan as capturable, since the runner iterates the
-  // same loaded corpus this check does. Pack ids must also be unique ACROSS
-  // both corpora, not just within each: observation names derive from them,
-  // so a collision would make ownership ambiguous.
-  if (input.rulesFirestorePackIds && input.rulesStoragePackIds) {
-    const RULES_FIRESTORE_PREFIX = 'rules-firestore-';
-    const RULES_STORAGE_PREFIX = 'rules-storage-';
-    const firestoreIds = new Set(input.rulesFirestorePackIds);
-    const storageIds = new Set(input.rulesStoragePackIds);
+  // Every captured `rules-firestore-<x>.json` / `rules-storage-<x>.json` /
+  // `rules-rtdb-<x>.json` observation must have a corpus pack file `<x>.ts` in
+  // the matching rules-corpus directory — an orphan observation (a capture
+  // whose pack was removed or renamed) is a silent-gap failure, fatal here. A
+  // pack WITHOUT an observation is fine (not yet captured); it still shows up
+  // in its capture runner's inert plan as capturable, since the runner
+  // iterates the same loaded corpus this check does. Pack ids must also be
+  // unique ACROSS all three corpora, not just within each: observation names
+  // derive from them, so a collision would make ownership ambiguous.
+  //
+  // Each engine's orphan check is gated on its own pack-id set being supplied
+  // (optional for tests that don't thread it); the real compat:validate entry
+  // point passes all three, so the checks are CI-enforced. Cross-corpus
+  // uniqueness is checked pairwise across whichever sets are present.
+  const corpora: { dir: string; prefix: string; ids: Set<string> }[] = [];
+  if (input.rulesFirestorePackIds) corpora.push({ dir: 'rules-corpus/firestore', prefix: 'rules-firestore-', ids: new Set(input.rulesFirestorePackIds) });
+  if (input.rulesStoragePackIds) corpora.push({ dir: 'rules-corpus/storage', prefix: 'rules-storage-', ids: new Set(input.rulesStoragePackIds) });
+  if (input.rulesRtdbPackIds) corpora.push({ dir: 'rules-corpus/rtdb', prefix: 'rules-rtdb-', ids: new Set(input.rulesRtdbPackIds) });
 
-    for (const id of firestoreIds) {
-      if (storageIds.has(id)) {
-        problems.push(`rules corpus: pack id '${id}' exists in BOTH rules-corpus/firestore/ and rules-corpus/storage/ — pack ids must be unique across both corpora`);
+  for (let a = 0; a < corpora.length; a++) {
+    for (let b = a + 1; b < corpora.length; b++) {
+      for (const id of corpora[a].ids) {
+        if (corpora[b].ids.has(id)) {
+          problems.push(`rules corpus: pack id '${id}' exists in BOTH ${corpora[a].dir}/ and ${corpora[b].dir}/ — pack ids must be unique across all rules corpora`);
+        }
       }
     }
+  }
 
-    for (const obs of input.observations) {
-      if (obs.file.startsWith(RULES_FIRESTORE_PREFIX)) {
-        const packId = obs.file.slice(RULES_FIRESTORE_PREFIX.length).replace(/\.json$/, '');
-        if (!firestoreIds.has(packId)) {
-          problems.push(`${obs.file}: no matching rules-corpus/firestore/${packId}.ts pack — orphan observation`);
-        }
-      } else if (obs.file.startsWith(RULES_STORAGE_PREFIX)) {
-        const packId = obs.file.slice(RULES_STORAGE_PREFIX.length).replace(/\.json$/, '');
-        if (!storageIds.has(packId)) {
-          problems.push(`${obs.file}: no matching rules-corpus/storage/${packId}.ts pack — orphan observation`);
-        }
-      }
+  // Prefixes are mutually non-overlapping ('rules-firestore-' vs 'rules-storage-'
+  // vs 'rules-rtdb-'), so the longest matching prefix uniquely identifies the
+  // owning corpus. Match longest-first so a hypothetical future nested prefix
+  // still resolves to one corpus.
+  const byLongestPrefix = [...corpora].sort((x, y) => y.prefix.length - x.prefix.length);
+  for (const obs of input.observations) {
+    const owner = byLongestPrefix.find((c) => obs.file.startsWith(c.prefix));
+    if (!owner) continue;
+    const packId = obs.file.slice(owner.prefix.length).replace(/\.json$/, '');
+    if (!owner.ids.has(packId)) {
+      problems.push(`${obs.file}: no matching ${owner.dir}/${packId}.ts pack — orphan observation`);
     }
   }
 
@@ -303,6 +326,7 @@ if (import.meta.main) {
     probeFiles: listProbeFiles(),
     rulesFirestorePackIds: ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id),
     rulesStoragePackIds: ALL_RULES_STORAGE_PACKS.map((pack) => pack.id),
+    rulesRtdbPackIds: ALL_RULES_RTDB_PACKS.map((pack) => pack.id),
   });
 
   const wantJson = process.argv.includes('--json');

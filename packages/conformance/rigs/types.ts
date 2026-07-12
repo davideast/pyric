@@ -38,8 +38,19 @@ export interface RigManifestRecord {
   description: string;
   /** Repo-relative path to the rig's runnable script; must exist on disk. */
   script: string;
-  /** Exact filename prefixes (`observations/<surface>/<prefix>*.json`) this rig produces. */
+  /** Exact filename prefixes (`observations/<surface>/<prefix>*.json`) this rig
+   *  produces AND has at least one captured observation for. Every entry is
+   *  validated to match a real observation file. */
   observationPrefixes: string[];
+  /** Prefixes this rig WILL produce once captured, but has NO observation for
+   *  yet — staged machinery ahead of the first capture (e.g. a rules oracle
+   *  whose credentialed run hasn't been performed). Validated to be a
+   *  recognized surface prefix and to have NO observation yet; the moment a
+   *  capture lands, validation fails until the prefix is promoted into
+   *  `observationPrefixes`. Omit when every prefix the rig produces already has
+   *  a capture. The union of `observationPrefixes` and `pendingPrefixes` must be
+   *  non-empty and the two must not overlap. */
+  pendingPrefixes?: string[];
   automation: RigAutomation;
   network: 'none' | 'firebase-production';
   requires: {
