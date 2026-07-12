@@ -91,27 +91,85 @@ export interface AssuranceCapabilityRecord {
  *  dependencies. */
 export type DependencyVerdict = AssuranceCapabilityStatus;
 
-/** One dependency, with the graph evidence that produced its verdict. */
-export interface DerivedDependency {
-  kind: CapabilityDependency['kind'];
-  /** Construct id, row id, or the unbacked behavior. */
+/** What the simulator's capability probe did with a construct. `absent` means the
+ *  probe report does not mention it at all. */
+export type ProbeClassification = 'implemented' | 'unsupported' | 'error' | 'unprobeable' | 'absent';
+
+/**
+ * The evidence for a construct dependency: the FACTS the verdict is computed
+ * from, each one a property of THIS construct.
+ *
+ * `productionVerified` is a BOOLEAN, never a count and never the scenario ids.
+ * How MANY corpus scenarios happen to exercise a construct is a property of the
+ * corpus, not of the construct: it moves whenever anyone captures a scenario
+ * anywhere, so freezing it here would rewrite this record for a change that did
+ * not touch this construct. The predicate is what the derivation reads, so the
+ * predicate is what the record carries. A human who wants the scenarios reads
+ * them from the coverage report at print time.
+ */
+export interface DerivedConstructDependency {
+  kind: 'construct';
   id: string;
   verdict: DependencyVerdict;
-  /** The graph facts behind the verdict, in the order the derivation read
-   *  them. */
-  evidence: string[];
+  /** The construct's status in its engine's language snapshot. */
+  snapshot: string;
+  /** The local simulator's capability-probe classification. */
+  probe: ProbeClassification;
+  /** The shared predicate (`production-verification.ts`): does at least one
+   *  evidence path compare this construct against production? */
+  productionVerified: boolean;
+  /** The rules-engine rows whose documented divergence covers this construct.
+   *  Authored, construct-scoped, and causal: a row lands in this list only by
+   *  naming the construct. */
+  divergedBy: string[];
 }
 
-/** One capability as the graph computes it: the authored record's `service` and
- *  `description`, a DERIVED `status`, and the full evidence chain. */
+/** The evidence for a registry-row dependency: the row's own adjudicated state. */
+export interface DerivedRegistryRowDependency {
+  kind: 'registry-row';
+  id: string;
+  verdict: DependencyVerdict;
+  /** The registry the row lives on, or `missing` if no registry declares it. */
+  surface: string;
+  /** The row's compatibility status, or `missing`. */
+  status: string;
+  /** Whether the surface IS a rules engine (decides what a `diverged-documented`
+   *  row contaminates: the verdict machinery, or only the probe's setup). */
+  rulesEngineSurface: boolean;
+}
+
+/** The evidence for an unbacked dependency: the authored declaration itself. The
+ *  graph models nothing here, so there is nothing to look up. */
+export interface DerivedUnbackedDependency {
+  kind: 'unbacked';
+  /** The behavior the capability needs. */
+  id: string;
+  verdict: DependencyVerdict;
+  /** Why the graph cannot back it. */
+  reason: string;
+}
+
+/** One dependency, with the graph facts that produced its verdict. */
+export type DerivedDependency =
+  | DerivedConstructDependency
+  | DerivedRegistryRowDependency
+  | DerivedUnbackedDependency;
+
+/**
+ * One capability as the graph computes it: the authored record's `service` and
+ * `description`, a DERIVED `status`, and the facts behind every dependency.
+ *
+ * There is no `reasons` field. A reason is a SENTENCE, and a sentence is a
+ * rendering of these facts — it belongs to whoever prints it, not to the
+ * artifact. The dependencies that pinned the status are exactly
+ * `dependencies.filter((d) => d.verdict === status)`; a reader derives that
+ * rather than reading a frozen copy of it.
+ */
 export interface DerivedCapability {
   id: string;
   service: AssuranceCapabilityService;
   status: AssuranceCapabilityStatus;
   description: string;
-  /** The dependencies that pinned the status (every dependency whose verdict
-   *  equals the capability's status), summarized for a report line. */
-  reasons: string[];
   dependencies: DerivedDependency[];
 }
 
