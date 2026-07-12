@@ -33,6 +33,7 @@
  */
 
 import { makeAuthError } from './auth-errors.js';
+import { AuthFlowRegistry } from './sandbox-auth-flow.js';
 import { sandboxTokenFor } from './sandbox-token.js';
 import { validateEmailFormat, validatePasswordStrength } from './sandbox-credential-validators.js';
 
@@ -118,20 +119,14 @@ export class SandboxBackend {
   /** Monotonic uid counter for `createUser` calls without a uid. */
   private nextAdminUserId = 1;
 
-  /** Pre-staged sign-in results, keyed by providerId. The one-shot tier
-   *  of the popup/redirect resolver precedence (see `index.ts`
-   *  `signInWithPopup`): consumed when no resolver is injected, so
-   *  headless conformance fixtures stay deterministic. */
-  private readonly mockResults = new Map<string, UserCredential>();
-
-  /** Injected popup/redirect resolver — the analog of browser
-   *  `getAuth` wiring `browserPopupRedirectResolver`. Null until a host
-   *  (the playground) installs one via `sandbox.setAuthFlowResolver`. */
-  private resolver: AuthFlowResolver | null = null;
-
-  /** Pending `getRedirectResult` payload — set by `signInWithRedirect`,
-   *  returned-and-cleared by `getRedirectResult` (one-shot, matches prod). */
-  private redirectResult: UserCredential | null = null;
+  /** Popup / redirect / credential flow-staging machinery — the
+   *  one-shot mock registry, the injected resolver, and the pending
+   *  redirect-result slot. Kept in {@link AuthFlowRegistry} (see
+   *  `sandbox-auth-flow.ts`) because that state is independent of the
+   *  coupled auth state machine, and it is the seam the email-link /
+   *  linking / reauth climbs extend. The six accessor methods below
+   *  delegate here verbatim. */
+  private readonly flow = new AuthFlowRegistry();
 
   /** Monotonic uid counter for anonymous users. */
   private nextAnonymousId = 1;
@@ -986,41 +981,33 @@ export class SandboxBackend {
     }
   }
 
-  // ─── Mock-result registry ───────────────────────────────────────────
+  // ─── Auth-flow registry (delegated to AuthFlowRegistry) ─────────────
+  // The popup/redirect/credential flow-staging seam. Behavior lives in
+  // `sandbox-auth-flow.ts`; these methods delegate so the backend's
+  // public surface is unchanged. See the AuthFlowRegistry header.
 
   setMockResult(providerId: string, result: UserCredential): void {
-    this.mockResults.set(providerId, result);
+    this.flow.setMockResult(providerId, result);
   }
 
   consumeMockResult(providerId: string): UserCredential | undefined {
-    // One-shot per stage — clear after read so the next call
-    // requires a fresh `mockSignInResult`. Matches `firebase/auth`'s
-    // "one popup per call" semantics.
-    const result = this.mockResults.get(providerId);
-    if (result) this.mockResults.delete(providerId);
-    return result;
+    return this.flow.consumeMockResult(providerId);
   }
 
-  // ─── Popup/redirect resolver + redirect-result slot ─────────────────
-
   setResolver(resolver: AuthFlowResolver | null): void {
-    this.resolver = resolver;
+    this.flow.setResolver(resolver);
   }
 
   getResolver(): AuthFlowResolver | null {
-    return this.resolver;
+    return this.flow.getResolver();
   }
 
-  /** Stash the credential a `signInWithRedirect` produced; `getRedirectResult`
-   *  returns-and-clears it. */
   setRedirectResult(result: UserCredential): void {
-    this.redirectResult = result;
+    this.flow.setRedirectResult(result);
   }
 
   takeRedirectResult(): UserCredential | null {
-    const r = this.redirectResult;
-    this.redirectResult = null;
-    return r;
+    return this.flow.takeRedirectResult();
   }
 
   /**
