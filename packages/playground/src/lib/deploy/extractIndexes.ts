@@ -8,7 +8,7 @@
  * the static AST pass is browser-safe, no tool-handler envelope
  * needed for direct programmatic callers.
  */
-import type { IndexesConfigEntry } from 'pyric-tools/deploy';
+import type { IndexesConfigEntry } from '@pyric/cli/deploy';
 import { extractIndexes } from 'pyric/rules/internal/extract';
 
 export async function extractIndexesFromAppSource(

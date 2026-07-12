@@ -10,8 +10,8 @@
  * **Node-only inside a browser-safe package**: the function itself
  * requires `node:fs/promises` + `node:crypto`. Those modules are
  * imported via dynamic `import()` inside the function body so the
- * top-level pyric-tools/deploy entry stays browser-bundle safe. A
- * browser host that imports `pyric-tools/deploy` but never calls
+ * top-level @pyric/cli/deploy entry stays browser-bundle safe. A
+ * browser host that imports `@pyric/cli/deploy` but never calls
  * `fromServiceAccount` will not have `node:*` modules in its
  * bundle graph.
  */
@@ -21,7 +21,7 @@ import { memoizeTtl } from './memoize-ttl.js';
 
 const GOOGLE_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 const SCOPE = [
-  // Broad scopes covering everything `pyric-tools/deploy` touches:
+  // Broad scopes covering everything `@pyric/cli/deploy` touches:
   // Firebase Hosting, Cloud Functions, Firestore Admin, Storage,
   // Identity Toolkit, Cloud Resource Manager.
   'https://www.googleapis.com/auth/firebase',

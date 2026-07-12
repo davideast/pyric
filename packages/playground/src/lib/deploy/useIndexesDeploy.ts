@@ -29,7 +29,7 @@ import {
   type IndexesConfigEntry,
   type IndexOperation,
   type ProjectScope,
-} from 'pyric-tools/deploy';
+} from '@pyric/cli/deploy';
 
 import { useAccessToken } from '~/lib/deploy/useAccessToken';
 import { useTargetProject } from '~/lib/deploy/useTargetProject';

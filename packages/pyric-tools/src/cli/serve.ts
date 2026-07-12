@@ -192,7 +192,7 @@ export async function startServe(opts: {
         `pyric dev: ${inlined[0]} bundles the REAL firebase SDK, so this dist cannot be ` +
           `sandboxed — its firebase/* calls would reach LIVE Google endpoints, not the ` +
           `pyric sandbox. Two ways forward:\n` +
-          `  (a) plain \`pyric dev\` runs the child dev-server flow (the pyric-tools/vite ` +
+          `  (a) plain \`pyric dev\` runs the child dev-server flow (the @pyric/cli/vite ` +
           `plugin swaps firebase/* live) — use \`bun run dev\`;\n` +
           `  (b) rebuild as a self-contained sandbox bundle and serve THAT: ` +
           `\`vite build --mode development\` (or pyricSandbox({ swapInBuild: true })) then ` +

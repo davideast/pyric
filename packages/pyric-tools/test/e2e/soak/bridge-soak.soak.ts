@@ -4,7 +4,7 @@
  * Every scenario runs the REAL stack end to end: a spawned
  * `pyric dev --ui --bridge --no-open --port 0 --json` serve, real Chromium
  * pages (app fixture + Pyric Studio) whose SharedWorker hosts the one
- * sandbox, and a real Node-side remote client (`pyric-tools/remote`) over
+ * sandbox, and a real Node-side remote client (`@pyric/cli/remote`) over
  * the bridge WS — the exact topology where five live-only bugs hid from
  * ~7k green headless tests (Studio-tab peer, origin split, first-run child
  * race, duplicate snapshots on re-registration, perpetual peer-slot
@@ -19,7 +19,7 @@
  */
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { pathToFileURL } from 'node:url';
-import { connectRemoteSandbox, type RemoteSandbox } from 'pyric-tools/remote';
+import { connectRemoteSandbox, type RemoteSandbox } from '@pyric/cli/remote';
 import {
   CLI_PATH,
   McpHttpClient,

@@ -1230,7 +1230,7 @@ describe('runInit', () => {
     expect(written.scripts.dev).toBe('bun --watch src/app.ts');
     expect(written.scripts['deploy:rules']).toBe('pyric deploy rules');
     expect(written.dependencies.pyric).toBe('*');
-    expect(written.dependencies['pyric-tools']).toBe('*');
+    expect(written.dependencies['@pyric/cli']).toBe('*');
     expect(written.devDependencies.typescript).toBe('^5.7.0');
 
     // User-facing report mentions the conflict on `start`.
@@ -1255,7 +1255,7 @@ describe('runInit', () => {
           bridge: 'pyric bridge',
           'deploy:rules': 'pyric deploy rules',
         },
-        dependencies: { pyric: '*', 'pyric-tools': '*' },
+        dependencies: { pyric: '*', '@pyric/cli': '*' },
         devDependencies: { '@types/bun': 'latest', typescript: '^5.7.0' },
       },
       null,

@@ -27,7 +27,7 @@
  * consumers are last-value-wins).
  *
  * NODE-ONLY: uses `ws` and `node:fs` — exported via a `node`-conditional
- * subpath (`pyric-tools/remote`), never bundled for the browser.
+ * subpath (`@pyric/cli/remote`), never bundled for the browser.
  */
 import { WebSocket } from 'ws';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
@@ -45,7 +45,7 @@ import type {
   WorkerSubPayload,
 } from '../bridge/protocol.js';
 import { isBridgeMessage, NO_SANDBOX_ERROR_MESSAGE } from '../bridge/protocol.js';
-import { pyricToolsVersion } from '../pkg-version.js';
+import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
 import { discoverServe } from '../serve/discovery.js';
 
@@ -277,7 +277,7 @@ export function createRemoteSandboxCore(
   /**
    * Version-skew guidance (integration-smoke fix). Set once when the
    * `attach-ack`'s `serveVersion` stamp is present AND differs from this
-   * client's own pyric-tools version: an old worker can accept a newer op
+   * client's own @pyric/cli version: an old worker can accept a newer op
    * frame and die mid-handling, which surfaces as a bare timeout — so the
    * mismatch warns ONCE on stderr at attach, and op-timeout errors append
    * the same guidance. Old servers omit the stamp → stays null → silent.
@@ -370,15 +370,15 @@ export function createRemoteSandboxCore(
     switch (msg.type) {
       case 'attach-ack': {
         // Version-skew stamp: warn ONCE when the serve process runs a
-        // different pyric-tools version (absent stamp = old server = silent).
+        // different @pyric/cli version (absent stamp = old server = silent).
         if (
           versionSkewGuidance === null &&
           typeof msg.serveVersion === 'string' &&
-          msg.serveVersion !== pyricToolsVersion()
+          msg.serveVersion !== cliVersion()
         ) {
           versionSkewGuidance =
             `pyric dev is running version ${msg.serveVersion}, this client is ` +
-            `${pyricToolsVersion()} — restart pyric dev and reload the browser tab.`;
+            `${cliVersion()} — restart pyric dev and reload the browser tab.`;
           process.stderr.write(`pyric: ${versionSkewGuidance}\n`);
         }
         if (msg.peerConnected) readyResolve();
@@ -858,7 +858,7 @@ export interface LazyRemoteSandbox extends RemoteSandbox {
 /**
  * Synchronous construction, lazy connection — the ambient-init seam.
  *
- * `pyric-tools/register` installs this behind the
+ * `@pyric/cli/register` installs this behind the
  * `Symbol.for('pyric.remote.sandboxFactory')` global so `pyric-admin`'s bare
  * `initializeApp()` can mint a full branded handle without awaiting anything.
  * The wire connection (discovery → WS attach) happens on the FIRST op (or

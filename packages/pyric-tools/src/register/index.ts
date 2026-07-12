@@ -1,7 +1,7 @@
 /**
- * `pyric-tools/register` — the Node substitution seam (adoption layer 2).
+ * `@pyric/cli/register` — the Node substitution seam (adoption layer 2).
  *
- * Loaded via `node --import pyric-tools/register` (which `pyric dev` injects
+ * Loaded via `node --import @pyric/cli/register` (which `pyric dev` injects
  * through NODE_OPTIONS), it makes the user's UNCHANGED `firebase-admin` /
  * `firebase` imports resolve to `pyric-admin` / `pyric`, every subpath 1:1,
  * and installs the sandbox-factory global that `pyric-admin`'s ambient
@@ -92,7 +92,7 @@ function activate(): void {
     moduleApi.registerHooks({
       resolve(specifier, context, nextResolve) {
         // The rewrite decision includes the mirror-package exemption:
-        // Firebase imports made FROM WITHIN pyric/pyric-admin/pyric-tools
+        // Firebase imports made FROM WITHIN pyric/pyric-admin/@pyric/cli
         // are their prod arms and must keep resolving to real Firebase
         // (see exempt.ts).
         const mapped = rewriteSpecifier(specifier, context.parentURL);
@@ -114,7 +114,7 @@ function activate(): void {
     });
   } else {
     process.stderr.write(
-      'pyric-tools/register: this Node version lacks module.registerHooks (needs >= 22.15) — ' +
+      '@pyric/cli/register: this Node version lacks module.registerHooks (needs >= 22.15) — ' +
         'falling back to module.register: ESM imports of firebase-admin/firebase are rewritten, ' +
         "but CJS require('firebase-admin') is NOT intercepted. Upgrade Node to >= 22.15 for full coverage.\n",
     );
@@ -127,7 +127,7 @@ function activate(): void {
     remoteSandbox(opts);
 
   process.stderr.write(
-    `pyric-tools/register: active — firebase-admin/firebase imports now resolve to the ` +
+    `@pyric/cli/register: active — firebase-admin/firebase imports now resolve to the ` +
       `pyric sandbox (PYRIC_SANDBOX=${process.env.PYRIC_SANDBOX}).\n`,
   );
 }
@@ -140,7 +140,7 @@ export let active = false;
 if (process.env.PYRIC_SANDBOX) {
   if (process.env.NODE_ENV === 'production' && process.env.PYRIC_SANDBOX_FORCE !== '1') {
     process.stderr.write(
-      'pyric-tools/register: refusing to activate under NODE_ENV=production — ' +
+      '@pyric/cli/register: refusing to activate under NODE_ENV=production — ' +
         'firebase-admin/firebase imports are NOT rewritten. ' +
         'Set PYRIC_SANDBOX_FORCE=1 to override (dev/CI only).\n',
     );

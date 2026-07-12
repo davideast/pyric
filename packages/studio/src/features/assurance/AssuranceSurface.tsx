@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AssuranceProbeResult } from "pyric-tools/assurance";
-import type { AssuranceVisualizationSnapshot } from "pyric-tools/assurance/browser";
+import type { AssuranceProbeResult } from "@pyric/cli/assurance";
+import type { AssuranceVisualizationSnapshot } from "@pyric/cli/assurance/browser";
 import { DenialDetail } from "../rules-debug/RulesDebug.js";
 import { currentPath, replacePath } from "../../shell/router.js";
 import {

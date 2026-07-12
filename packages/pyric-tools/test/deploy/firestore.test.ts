@@ -1,5 +1,5 @@
 /**
- * `pyric-tools/deploy` Firestore unit tests. Reshaped to take
+ * `@pyric/cli/deploy` Firestore unit tests. Reshaped to take
  * `ProjectScope` per F3.
  *
  * Network calls are stubbed via `fetch` mocks. Integration against

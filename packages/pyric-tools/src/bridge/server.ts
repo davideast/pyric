@@ -1,10 +1,10 @@
 /**
- * `pyric-tools/bridge` — Node-side entry.
+ * `@pyric/cli/bridge` — Node-side entry.
  *
  * Resolved by the `node` condition in `package.json`'s exports map.
  * Exports the bridge core (`createBridge`) and the standalone server
  * (`startServer`). The Vite integration is the `pyricSandbox({ bridge })`
- * plugin in `pyric-tools/vite` (the firebase→sandbox swap AND the bridge in
+ * plugin in `@pyric/cli/vite` (the firebase→sandbox swap AND the bridge in
  * one plugin), not a bridge-only plugin here.
  *
  * The browser-side `connectBridge` lives in `./client.ts` and is

@@ -87,7 +87,7 @@ async function bundleSdkAndWorker(): Promise<void> {
   );
   if (!existsSync(bundlerModule)) {
     throw new Error(
-      `build-site: ${bundlerModule} is missing — run \`bun run build\` first (pyric-tools must be built).`,
+      `build-site: ${bundlerModule} is missing — run \`bun run build\` first (@pyric/cli must be built).`,
     );
   }
   const { bundleSdk, bundleWorker, defaultSdkEntries } = await import(bundlerModule);
@@ -164,7 +164,7 @@ async function buildPlayground(): Promise<void> {
 
 // ─── Demo seed (__pyric/init.json) ────────────────────────────────────
 
-/** Mirrors `pyric-tools`' `InitPayload` (serve/namespace.ts) — the shape the
+/** Mirrors `@pyric/cli`' `InitPayload` (serve/namespace.ts) — the shape the
  *  SharedWorker's `fetchInitPayload()` expects at `/__pyric/init.json`. Only
  *  the fields the worker actually reads are populated; everything else is
  *  explicit `null`/`false` so the worker's no-serve degrade paths (no

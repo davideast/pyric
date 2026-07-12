@@ -80,7 +80,7 @@ if (!dryRun) {
 }
 
 // ── 3. notes ──────────────────────────────────────────────────────────
-const notes = `Self-contained \`pyric\` CLI built with \`bun build --compile\`: no Node, no npm. \`serve\` runs fully offline; \`pyric init\` vendors the unpublished \`pyric\`/\`pyric-tools\` so a scaffold installs without publishing.
+const notes = `Self-contained \`pyric\` CLI built with \`bun build --compile\`: no Node, no npm. \`serve\` runs fully offline; \`pyric init\` vendors the unpublished \`pyric\`/\`@pyric/cli\` so a scaffold installs without publishing.
 
 ### Download (macOS Apple Silicon)
 \`\`\`bash

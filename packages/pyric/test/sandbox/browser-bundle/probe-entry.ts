@@ -16,8 +16,8 @@ import {
 // Side-import so the bundle's node:* gate covers the hosting core
 // too. Reachable graph: core.ts → gzip.ts (CompressionStream) +
 // hash.ts (crypto.subtle). Both universal — should be zero node:*.
-// (Hosting moved to pyric-tools/deploy 2026-05-24; import path updated.)
-import { deployHostingFiles } from 'pyric-tools/deploy';
+// (Hosting moved to @pyric/cli/deploy 2026-05-24; import path updated.)
+import { deployHostingFiles } from '@pyric/cli/deploy';
 // Touch the symbol so tree-shaking can't drop it before the gate runs.
 void deployHostingFiles;
 

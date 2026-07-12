@@ -2,14 +2,14 @@
  * BFF auth config (server-side). The browser can't do Google's code exchange
  * (the client_secret is required and Google has no public client type), so the
  * exchange + the refresh token live here, on the Astro server. Reuses
- * pyric-tools' isomorphic credential core.
+ * @pyric/cli' isomorphic credential core.
  *
  * Activation is gated on `GIS_CLIENT_SECRET` (server-only env var, NOT PUBLIC_):
  * absent -> `bffClient()` returns null -> the endpoints 503 -> the browser falls
  * back to the existing GIS token client. Also register
  * `<origin>/api/auth/callback` as an authorized redirect URI on the OAuth client.
  */
-import { oauthClient, type OAuthClient } from 'pyric-tools/credentials';
+import { oauthClient, type OAuthClient } from '@pyric/cli/credentials';
 
 /** Same scopes the GIS client requested — the playground deploy needs cloud-platform. */
 export const BFF_SCOPES = [

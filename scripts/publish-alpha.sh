@@ -31,11 +31,11 @@ V="${1:?usage: bash scripts/publish-alpha.sh <version> (e.g. 0.1.0-alpha.9)}"
 
 bash scripts/pack-packages.sh
 
-for t in pyric pyric-admin pyric-tools pyric-ui; do
+for t in pyric pyric-admin pyric-cli pyric-ui; do
   npm publish "dist/packages/${t}-${V}.tgz" --tag alpha --access public
 done
 
-for p in pyric pyric-admin pyric-tools @pyric/ui; do
+for p in pyric pyric-admin @pyric/cli @pyric/ui; do
   npm dist-tag add "${p}@${V}" latest
 done
 
@@ -48,7 +48,7 @@ echo "━━━ compat:check (gates the fb dist-tag) ━━━"
 if bun run compat:check; then
   FB_TAG="$(bun run packages/conformance/src/print-fb-tag.ts)"
   echo "compat:check green — moving ${FB_TAG} -> ${V}"
-  for p in pyric pyric-admin pyric-tools @pyric/ui; do
+  for p in pyric pyric-admin @pyric/cli @pyric/ui; do
     npm dist-tag add "${p}@${V}" "${FB_TAG}"
   done
 else
@@ -56,6 +56,6 @@ else
   exit 1
 fi
 
-for p in pyric pyric-admin pyric-tools @pyric/ui; do
+for p in pyric pyric-admin @pyric/cli @pyric/ui; do
   echo "== ${p}"; npm dist-tag ls "${p}"
 done

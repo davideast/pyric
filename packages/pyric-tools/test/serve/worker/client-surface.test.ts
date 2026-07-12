@@ -2,7 +2,7 @@
  * Characterization guard for the worker CLIENT public surface.
  *
  * `serve/worker/client.ts` is re-exported by `serve/worker/index.ts`, which is
- * the `pyric-tools/serve/worker` package subpath export. Its export surface is
+ * the `@pyric/cli/serve/worker` package subpath export. Its export surface is
  * a published contract. This test freezes the runtime (value) export names so a
  * refactor of `client.ts` — for example splitting it into per-family modules
  * behind a barrel — cannot silently add or drop a symbol.

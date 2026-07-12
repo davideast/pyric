@@ -1,6 +1,6 @@
 /**
  * `ProjectScope`, `Outcome`, `AdminApiError` — the foundation
- * primitives every control-plane operation in `pyric-tools/deploy` (and
+ * primitives every control-plane operation in `@pyric/cli/deploy` (and
  * the factories built on top) shares.
  *
  * See the design rationale,

@@ -13,7 +13,7 @@
  * serve are the fix; this suite pins "the process stays alive" end to end.
  *
  * Named `*.soak.ts` so `bun test` never picks it up; runs via the root
- * `bun run test:soak` (requires the built pyric-tools dist + Chromium).
+ * `bun run test:soak` (requires the built @pyric/cli dist + Chromium).
  */
 import { test, expect, type Page } from '@playwright/test';
 import { chromium } from '@playwright/test';

@@ -35,7 +35,7 @@ import {
   type IndexOperation,
   type PreflightCheckResult,
   type ProjectScope,
-} from 'pyric-tools/deploy';
+} from '@pyric/cli/deploy';
 
 import { useWorkspaceStore } from '~/lib/store/workspace';
 

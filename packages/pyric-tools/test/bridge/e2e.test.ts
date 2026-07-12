@@ -167,7 +167,7 @@ async function callToolText(
 
 // ── Tests ────────────────────────────────────────────────────────
 
-describe('pyric-tools/bridge end-to-end MCP bridge', () => {
+describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
   test('starts with sandboxConnected=false', async () => {
     const res = await fetch(`http://127.0.0.1:${PORT}/health`);
     expect(res.status).toBe(200);

@@ -1,7 +1,7 @@
 /**
  * Scaffold templates for `pyric init` (engine in `./init.js`).
  *
- * `web` (the default) scaffolds a **Vite app** wired to the `pyric-tools/vite`
+ * `web` (the default) scaffolds a **Vite app** wired to the `@pyric/cli/vite`
  * plugin: `vite dev` runs the app's CANONICAL `firebase/*` imports against the
  * in-process sandbox; `vite build` ships the real `firebase` package. One
  * toolchain, no graduation cliff — the sandbox↔Firebase swap is environmental
@@ -370,7 +370,7 @@ Graduation is an env change, not a code edit:
    \`PYRIC_TARGET=firebase bun start\`
 `;
 
-// ─── web template (Vite + pyric-tools/vite) ───────────────────────────
+// ─── web template (Vite + @pyric/cli/vite) ───────────────────────────
 
 const VITE_INDEX_HTML = (name: string): string => `<!doctype html>
 <html>
@@ -405,7 +405,7 @@ const VITE_INDEX_HTML = (name: string): string => `<!doctype html>
 `;
 
 const VITE_MAIN_TS = `// Canonical firebase/* imports — UNCHANGED between dev and prod.
-// In \`vite dev\` the \`pyric-tools/vite\` plugin swaps these to an in-process
+// In \`vite dev\` the \`@pyric/cli/vite\` plugin swaps these to an in-process
 // sandbox (the config below is accepted but ignored). \`vite build\` ships the
 // real \`firebase\` package and uses the SAME config. Graduation is a build, not
 // a code edit.
@@ -489,7 +489,7 @@ onSnapshot(collection(db, 'posts'), (snap) => {
 `;
 
 const VITE_CONFIG = `import { defineConfig } from 'vite';
-import { pyricSandbox } from 'pyric-tools/vite';
+import { pyricSandbox } from '@pyric/cli/vite';
 
 // Under \`vite dev\` pyricSandbox() swaps firebase/* to the in-process pyric
 // sandbox and deploys + hot-reloads firestore.rules — no Firebase project,
@@ -574,7 +574,7 @@ A Firebase web app built with Vite. In development it runs entirely on pyric's
 in-process sandbox — no Firebase project, credentials, or emulators.
 
 - **Develop:** \`bun install && bun run dev\` — \`vite dev\` with the
-  \`pyric-tools/vite\` plugin swapping \`firebase/*\` to the sandbox: seeded data,
+  \`@pyric/cli/vite\` plugin swapping \`firebase/*\` to the sandbox: seeded data,
   your \`firestore.rules\` deployed + hot-reloaded, popup sign-in.
 - **Build for production:** \`bun run build\` — \`vite build\` ships the real
   \`firebase\` package. Fill \`.env\` from the Firebase console (see
@@ -596,7 +596,7 @@ later releases. For a pre-built / no-build app, use \`pyric init --template stat
 // ─── the registry ─────────────────────────────────────────────────────
 
 export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
-  // web (default) — a Vite app on the pyric-tools/vite plugin. `vite dev` runs
+  // web (default) — a Vite app on the @pyric/cli/vite plugin. `vite dev` runs
   // on the sandbox; `vite build` ships real firebase. One toolchain.
   web: {
     scripts: {
@@ -610,7 +610,7 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
     // The real firebase package ships day one so the production `vite build`
     // resolves the same canonical imports against it — no code edit at graduation.
     dependencies: { firebase: '^12.12.0' },
-    devDependencies: { 'pyric-tools': '*', vite: '^6.0.0', typescript: '^5.7.0' },
+    devDependencies: { '@pyric/cli': '*', vite: '^6.0.0', typescript: '^5.7.0' },
     dirs: ['src'],
     files: (name) => [
       { name: 'index.html', content: VITE_INDEX_HTML(name) },
@@ -638,7 +638,7 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
       bridge: 'pyric bridge',
       'deploy:rules': 'pyric deploy rules',
     },
-    dependencies: { pyric: '*', 'pyric-tools': '*' },
+    dependencies: { pyric: '*', '@pyric/cli': '*' },
     devDependencies: { '@types/bun': 'latest', typescript: '^5.7.0' },
     dirs: ['src'],
     files: (name) => [
@@ -664,7 +664,7 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
       'deploy:hosting': 'pyric deploy hosting',
     },
     dependencies: { firebase: '^12.12.0' },
-    devDependencies: { 'pyric-tools': '*' },
+    devDependencies: { '@pyric/cli': '*' },
     dirs: ['public'],
     files: (name) => [
       { name: 'public/index.html', content: WEB_INDEX_HTML(name) },

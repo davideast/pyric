@@ -103,7 +103,7 @@ export function createFirestoreRulesTools(
 
   if (deps.scope) {
     const scope = deps.scope;
-    // Note: `firestore_get_rules` is NOT added here. `pyric-tools/deploy`'s
+    // Note: `firestore_get_rules` is NOT added here. `@pyric/cli/deploy`'s
     // `createFirestoreDeployTools` already exposes a tool with that
     // name (returning raw rules source); composeMcpRegistry would
     // reject the duplicate. Browser callers that want the parsed

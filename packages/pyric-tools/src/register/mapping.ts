@@ -1,5 +1,5 @@
 /**
- * The specifier map behind `pyric-tools/register`: unmodified Firebase
+ * The specifier map behind `@pyric/cli/register`: unmodified Firebase
  * imports resolve to their pyric mirrors, 1:1 including every subpath
  * (`firebase-admin/app` → `pyric-admin/app`, `firebase/firestore` →
  * `pyric/firestore`, …).

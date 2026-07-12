@@ -18,7 +18,7 @@ import {
  *
  * WHY: the hooks default to the in-process `pyric/firestore` API, but Pyric
  * Studio's served mode drives the SAME ops over a SharedWorker via a PARALLEL
- * modular client (`pyric-tools/serve/worker`: its own `collection`/`getDocs`/...
+ * modular client (`@pyric/cli/serve/worker`: its own `collection`/`getDocs`/...
  * over a `MessagePort`, and a `ClientDb` that is not a `pyric/firestore`
  * `Firestore`). Statically importing the in-process fns hardwires the hooks to
  * the in-page sandbox; reading them from this context lets a consumer inject the

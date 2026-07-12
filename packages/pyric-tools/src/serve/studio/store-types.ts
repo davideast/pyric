@@ -1,7 +1,7 @@
 /**
  * Studio storage port shapes — server-side MIRROR of `@pyric/studio/ports`.
  *
- * `@pyric/studio` is a CONSUMER of pyric-tools' serve routes, not a dependency
+ * `@pyric/studio` is a CONSUMER of @pyric/cli' serve routes, not a dependency
  * of it; adding a `@pyric/studio` dep here would invert the layering (and risk
  * a cycle). So the disk impls in this directory type-check against these local
  * copies, which are structurally identical to the port interfaces. Keep them in

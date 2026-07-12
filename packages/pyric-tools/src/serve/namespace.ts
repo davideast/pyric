@@ -125,7 +125,7 @@ export interface NamespaceOptions {
    *  that `@pyric/studio`'s `local` mode talks to. */
   studio?: StudioRouteOptions;
   /** `--ui` (Pyric Studio): the dir of the built Studio app, served under
-   *  `/__pyric/ui/`. Resolved by file path in the CLI (pyric-tools never
+   *  `/__pyric/ui/`. Resolved by file path in the CLI (@pyric/cli never
    *  imports `@pyric/studio`). Absent when `--ui` is off or the build is
    *  missing. */
   studioUiDir?: string;

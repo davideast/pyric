@@ -5,7 +5,7 @@
  * pyric sandbox:
  *
  *   PYRIC_SANDBOX=remote:<serve url>          (the activator)
- *   NODE_OPTIONS += --import pyric-tools/register   (the substitution seam)
+ *   NODE_OPTIONS += --import @pyric/cli/register   (the substitution seam)
  *
  * Child-command precedence: explicit `pyric dev -- <cmd>` wins; else the
  * project package.json `dev` script (via the detected package manager); else
@@ -129,7 +129,7 @@ export function resolveDevChild(opts: {
 
 /**
  * The absolute `file:` URL of the register module, resolved from
- * pyric-tools' OWN installed location — `import.meta.resolve` walks this
+ * @pyric/cli' OWN installed location — `import.meta.resolve` walks this
  * package's `exports` (self-reference), so it lands on the right file no
  * matter how the user's node_modules are laid out (hoisted, pnpm-isolated,
  * vendored). Fallback: relative to this compiled file (dist/cli/ →
@@ -137,7 +137,7 @@ export function resolveDevChild(opts: {
  */
 export function registerModuleUrl(): string {
   try {
-    const url = import.meta.resolve('pyric-tools/register');
+    const url = import.meta.resolve('@pyric/cli/register');
     if (typeof url === 'string' && url.length > 0) return url;
   } catch {
     // fall through

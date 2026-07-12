@@ -1,5 +1,5 @@
 // Canonical firebase/* imports — UNCHANGED between dev and prod.
-// In `vite dev` the `pyric-tools/vite` plugin swaps these to an in-process
+// In `vite dev` the `@pyric/cli/vite` plugin swaps these to an in-process
 // sandbox (the config below is accepted but ignored). `vite build` ships the
 // real `firebase` package and uses the SAME config. Graduation is a build, not
 // a code edit.

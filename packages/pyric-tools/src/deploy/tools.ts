@@ -1,5 +1,5 @@
 /**
- * Tool factories for `pyric-tools/deploy` per F1.
+ * Tool factories for `@pyric/cli/deploy` per F1.
  *
  * Each factory wraps the namespaced primitives (firestore, hosting,
  * functions, storage) as `ToolHandler[]` consumable by

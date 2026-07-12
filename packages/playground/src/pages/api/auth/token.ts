@@ -5,7 +5,7 @@
  * GIS); 401 when not signed in; clears the cookie + 401 on an expired refresh.
  */
 import type { APIRoute } from 'astro';
-import { refreshAccess, AuthExpired } from 'pyric-tools/credentials';
+import { refreshAccess, AuthExpired } from '@pyric/cli/credentials';
 import { COOKIE, bffClient } from '~/lib/auth/bff-config';
 
 export const prerender = false;

@@ -28,11 +28,11 @@ import { useCallback, useState } from 'react';
 // but takes a `ProjectScope` (`projectId` + `resolveToken()`) so
 // callers don't have to wire token resolution themselves. Resolves
 // through `@pyric/deploy`'s barrel; no path alias needed.
-import { hosting, type ProjectScope } from 'pyric-tools/deploy';
+import { hosting, type ProjectScope } from '@pyric/cli/deploy';
 import type {
   DeployHostingResult,
   HostingErrorCode,
-} from 'pyric-tools/deploy';
+} from '@pyric/cli/deploy';
 
 import { useWorkspaceStore } from '~/lib/store/workspace';
 

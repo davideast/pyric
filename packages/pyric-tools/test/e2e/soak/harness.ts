@@ -99,7 +99,7 @@ export async function startSoakServe(
     // bundle cache key (serve/bundler.ts cacheKey) hashes the pyric version +
     // the serve/entries sources only — NOT the bridge client / worker client
     // sources the bundle also includes — so a warm ~/.pyric/serve-cache keeps
-    // serving a PRE-FIX in-page bridge client after pyric-tools-only changes
+    // serving a PRE-FIX in-page bridge client after @pyric/cli-only changes
     // (observed live: a stale client ignored the standby protocol and bounced
     // the peer slot once per replacement). The suite must test the code as
     // built, so it opts out of the cache.

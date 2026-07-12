@@ -89,7 +89,7 @@ export function getSandboxToolMetadata(): ToolMetadata[] {
 export function getRulesToolHandlers(scope?: unknown): ToolHandler[] {
   // Factory accepts { scope } per packages/pyric/src/rules/tools.ts.
   // The cast is because pyric/rules's ProjectScope type is re-exported
-  // from pyric-tools/deploy and we'd otherwise force a type-only import
+  // from @pyric/cli/deploy and we'd otherwise force a type-only import
   // here. Bridge level we don't need the type.
   // Includes simulate / lint / resolve_modules / stdlib_list /
   // stdlib_get + (when scope is supplied) extract + deploy gates —

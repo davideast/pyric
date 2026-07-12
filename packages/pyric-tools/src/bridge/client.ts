@@ -1,5 +1,5 @@
 /**
- * `pyric-tools/bridge` — browser-side entry.
+ * `@pyric/cli/bridge` — browser-side entry.
  *
  * Resolved by the `browser` condition in `package.json`'s exports map.
  * Exports `connectBridge`, which the host app calls to register its
@@ -10,7 +10,7 @@
  * The Node-side server entry lives in `./server.ts`. Wire format
  * shared by both lives in `./protocol.ts`.
  *
- * ALSO reachable as `pyric-tools/bridge/client` — an explicit, condition-free
+ * ALSO reachable as `@pyric/cli/bridge/client` — an explicit, condition-free
  * subpath for browser apps whose TYPE resolution doesn't apply the `browser`
  * condition (Pyric Studio's `moduleResolution: bundler` tsconfig resolves the
  * `./bridge` subpath's top-level `types` to the SERVER entry). Same file,

@@ -1,5 +1,5 @@
 /**
- * `pyric-tools/deploy` — Firebase control-plane primitives + tool
+ * `@pyric/cli/deploy` — Firebase control-plane primitives + tool
  * factories. Pure-fetch over OAuth access tokens; works in browser
  * and Node alike. Service-account flow via `fromServiceAccount`;
  * browser hosts wrap Firebase Auth's `getIdToken`.
@@ -40,7 +40,7 @@ export { withResolvedScope } from './with-resolved-scope.js';
 // `hosting` and `functions` are the scope-shaped groupings consumers
 // reach for. They wrap the existing portable primitives so every
 // operation takes a ProjectScope and resolves the token internally
-// per F4. The previous `pyric-tools/deploy/{hosting,functions}` sub-path
+// per F4. The previous `@pyric/cli/deploy/{hosting,functions}` sub-path
 // exports are removed.
 
 export { hosting, functions, firestore, rtdb, recipes } from './namespaces.js';

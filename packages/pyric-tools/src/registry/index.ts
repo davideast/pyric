@@ -1,5 +1,5 @@
 /**
- * Prod/admin tool-registry composition for pyric-tools. Composes the
+ * Prod/admin tool-registry composition for @pyric/cli. Composes the
  * per-domain factories (deploy / rules / firestore / discover / rtdb) into a
  * registry, and bootstraps the admin inputs from a service account.
  *

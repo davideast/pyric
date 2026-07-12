@@ -1,5 +1,5 @@
 /**
- * `pyric deploy [target]` — thin wrapper over `pyric-tools/deploy`'s
+ * `pyric deploy [target]` — thin wrapper over `@pyric/cli/deploy`'s
  * programmatic surface. Reads `firebase.json` for paths (rules /
  * indexes / hosting); resolves the project id from `--project` /
  * `PYRIC_PROJECT` / `.firebaserc`; resolves a service-account scope

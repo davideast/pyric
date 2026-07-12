@@ -40,7 +40,7 @@ import { getDoc, getDocs } from './reads.js';
 //
 // The sandbox has none of that structure. It IS the backend — writes
 // land directly in the sandbox's store, with no server round-trip to
-// wait on and no network link to drop. When the host (`pyric-tools
+// wait on and no network link to drop. When the host (`@pyric/cli
 // serve`, or a bare `initializeSandbox()` call with persistence
 // enabled) turns on IndexedDB persistence, EVERY sandbox write already
 // flushes to IndexedDB by default — an app never has to ask for it.

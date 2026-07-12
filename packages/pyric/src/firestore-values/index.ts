@@ -9,7 +9,7 @@
  *
  *   1. The sandbox persistence serializer (`sandbox/persistence/serialize.ts`)
  *      — server-side, already pulls the whole engine, doesn't care about size.
- *   2. The SharedWorker CLIENT (`pyric-tools/.../worker/client.ts` via
+ *   2. The SharedWorker CLIENT (`@pyric/cli/.../worker/client.ts` via
  *      `protocol.ts`) — runs in EVERY page that opens a serve session. It only
  *      needs to reconstruct Timestamp/Bytes/LatLng instances from the JSON
  *      markers the worker host wrote; it must NOT drag the rules engine,

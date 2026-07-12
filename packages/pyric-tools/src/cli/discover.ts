@@ -1,6 +1,6 @@
 /**
  * `pyric firestore:discover [collection?]` — thin wrapper over
- * `pyric-tools/discover`'s `crawl` against the project's Firestore.
+ * `@pyric/cli/discover`'s `crawl` against the project's Firestore.
  *
  * Uses the REST-backed `CrawlerFirestore` so this works from any Node
  * environment with a service-account token (no firebase-admin

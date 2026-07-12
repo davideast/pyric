@@ -1,7 +1,7 @@
 /** `pyric dev` end-to-end over HTTP (plan step 1.7) — a real fixture
  *  project served by `startServe`, asserted the way a browser would see it.
  *  (The in-browser 6/6 behavioral check is the scripted manual gate — see
- *  the step doc; no playwright dep in pyric-tools.) */
+ *  the step doc; no playwright dep in @pyric/cli.) */
 import { afterAll, describe, expect, it } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

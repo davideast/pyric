@@ -20,7 +20,7 @@ import type { SandboxEvent } from 'pyric/sandbox';
 import {
   getFirestore as workerGetFirestore,
   type ClientDb,
-} from 'pyric-tools/serve/worker';
+} from '@pyric/cli/serve/worker';
 
 /** Install a minimal SharedWorker shim whose port records postMessages but never
  *  replies, enough to exercise client construction + the live-plane shape

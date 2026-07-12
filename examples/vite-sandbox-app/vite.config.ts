@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import { pyricSandbox } from 'pyric-tools/vite';
+import { pyricSandbox } from '@pyric/cli/vite';
 
 // Under `vite dev` pyricSandbox() swaps firebase/* to the in-process pyric
 // sandbox and deploys + hot-reloads firestore.rules — no Firebase project,

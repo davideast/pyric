@@ -3,7 +3,7 @@
  * (remote sandbox, slice 1 / checkpoint 2).
  *
  * Extends checkpoint 1's headless harness (see
- * `pyric-tools/test/bridge/worker-relay.test.ts`): the REAL worker host
+ * `packages/pyric-tools/test/bridge/worker-relay.test.ts`): the REAL worker host
  * (`handleMessage` + fake `{ postMessage }` ports) behind the REAL bridge
  * core and consumer session, fronted by the EXACT branded handle
  * `connectRemoteSandbox()` returns (`createRemoteSandboxHandle`) — no
@@ -481,7 +481,7 @@ describe('remote dispatch — ambient init (bare initializeApp + no-arg handles)
   it('routes no-arg getDatabase()/getAuth() through the worker via the factory global', async () => {
     // Same headless stack, but the app comes from a BARE initializeApp():
     // PYRIC_SANDBOX activates, and the factory global (here: a fake
-    // installed the way `pyric-tools/register` would) mints the real
+    // installed the way `@pyric/cli/register` would) mints the real
     // branded remote handle.
     const bridge = createBridge({ mode: 'sandbox', version: 'test' });
     const ctx = makeWorkerCtx();

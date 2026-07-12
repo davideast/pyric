@@ -7,7 +7,7 @@
 # After ADR-001 cutover (Wave 9), packages are:
 #   pyric           — modular SDK adapters + sandbox + rules (umbrella)
 #   pyric-admin     — admin-shape adapters (umbrella)
-#   pyric-tools     — CLI + deploy + bridge + discover + auth-config
+#   @pyric/cli     — CLI + deploy + bridge + discover + auth-config
 #   @pyric/ui       — headless React components
 set -euo pipefail
 
@@ -59,11 +59,11 @@ build_pkg "pyric-admin"
 build_pkg "pyric-tools"
 build_pkg "ui"
 
-# ── Phase 3: Studio app (embedded into pyric-tools for `pyric dev --ui`) ──
+# ── Phase 3: Studio app (embedded into @pyric/cli for `pyric dev --ui`) ──
 # Built with base /__pyric/ui/ so its assets resolve under the CLI mount, then
-# copied into pyric-tools' dist (which ships via the package `files: ["dist"]`).
+# copied into @pyric/cli's dist (which ships via the package `files: ["dist"]`).
 # Runs after Phase 2: studio depends on `pyric` + `@pyric/ui`, and the copy
-# target lives inside the already-built pyric-tools dist.
+# target lives inside the already-built @pyric/cli dist.
 echo ""
 echo "━━━ Phase 3: Studio app ━━━"
 echo "▸ Building packages/studio (base /__pyric/ui/)"

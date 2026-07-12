@@ -228,7 +228,7 @@ describe('gating matrix: sandbox.mintSession (the served-worker per-port session
   // `sandbox.mintSession` is a SEPARATE entry point from the index.ts free
   // functions above — it's what the SharedWorker host actually calls for
   // `auth.signInAnonymously` / `auth.createUser` / `auth.signInEmail`
-  // (see pyric-tools/src/serve/worker/host-auth.ts). Full fidelity requires
+  // (see packages/pyric-tools/src/serve/worker/host-auth.ts). Full fidelity requires
   // gating it too, or the Studio "Sign-in providers" toggle would have zero
   // effect in served mode — the primary product surface.
   it('kind "anonymous": disabled → auth/operation-not-allowed', () => {

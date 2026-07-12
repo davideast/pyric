@@ -3,7 +3,7 @@
 # actual driver (Studio + SDK/worker bundles + playground static client +
 # demo seed + docs/llms.txt placeholders → dist/site/).
 #
-# Prereq: `bun run build` (root) must have already built pyric-tools' dist/ —
+# Prereq: `bun run build` (root) must have already built @pyric/cli's dist/ —
 # the SDK/worker bundler is imported directly from
 # packages/pyric-tools/dist/serve/bundler.js, not through a running server.
 set -euo pipefail

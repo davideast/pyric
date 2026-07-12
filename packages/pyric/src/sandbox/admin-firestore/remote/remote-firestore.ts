@@ -22,10 +22,10 @@
  * DEPENDENCY DIRECTION: this module lives in `pyric` and may only consume
  * the STRUCTURAL channel contract from `pyric/sandbox`'s remote seam
  * (`RemoteSandboxChannel` — one loose `op`, one loose `subscribe`). The
- * concrete worker-protocol unions live in `pyric-tools`, which `pyric`
+ * concrete worker-protocol unions live in `@pyric/cli`, which `pyric`
  * cannot import; ops are spelled loosely (`{ method: 'getDoc', path,
  * actAs }`) and kept structurally identical to
- * `pyric-tools/src/serve/worker/protocol.ts`.
+ * `packages/pyric-tools/src/serve/worker/protocol.ts`.
  *
  * IDENTITY: every op and every subscription pins an EXPLICIT `actAs` lens.
  * An ABSENT lens resolves worker-side to the browser tab's PORT SESSION —

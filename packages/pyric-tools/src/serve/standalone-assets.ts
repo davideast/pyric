@@ -4,8 +4,8 @@
  * In a `bun build --compile` binary, `pyric dev` cannot run its esbuild SDK
  * bundler: esbuild's native helper and the on-disk `pyric` dist it scans both
  * live outside the embedded `/$bunfs` filesystem. The bundle is deterministic,
- * though — a pure function of pyric-tools' wrapper entries and the `pyric`
- * version baked into pyric-tools — so the compile step (`scripts/compile.ts`)
+ * though — a pure function of @pyric/cli' wrapper entries and the `pyric`
+ * version baked into @pyric/cli — so the compile step (`scripts/compile.ts`)
  * runs the bundler ONCE on the build host and embeds the output (the SDK +
  * worker bundles and the Studio UI) into the binary via
  * `globalThis.__PYRIC_EMBEDDED__`. At runtime we materialize those bytes to a
@@ -39,7 +39,7 @@ export interface EmbeddedAssets {
    *  compiled binaries; missing means the Studio Docs tab 404s in standalone. */
   docs?: () => Promise<Record<string, string>>;
   /** Lazy: packed npm tarballs of the unpublished workspace packages
-   *  (`pyric.tgz`, `pyric-tools.tgz`) -> base64. Used by `pyric init` to vendor
+   *  (`pyric.tgz`, `pyric-cli.tgz`) -> base64. Used by `pyric init` to vendor
    *  them into a scaffolded project so `bun install` resolves them offline
    *  instead of 404-ing on the registry. Optional so a binary built before this
    *  existed degrades gracefully. */
@@ -69,7 +69,7 @@ export function embeddedWorkerVersion(): string {
   return embedded().workerVersion;
 }
 
-/** The `pyric`/`pyric-tools` version baked into this binary (for npm-mode pinning). */
+/** The `pyric`/`@pyric/cli` version baked into this binary (for npm-mode pinning). */
 export function embeddedVersion(): string {
   return embedded().version;
 }
@@ -90,11 +90,11 @@ export function hasEmbeddedTarballs(): boolean {
 }
 
 /**
- * Vendor the embedded `pyric` + `pyric-tools` tarballs into `<projectDir>/vendor/`
+ * Vendor the embedded `pyric` + `@pyric/cli` tarballs into `<projectDir>/vendor/`
  * and return the `package.json` dep spec for each (`file:vendor/<name>.tgz`). The
  * scaffold's `.gitignore` ignores `.pyric/`, so we use `vendor/` to keep the
  * tarballs committable — a clone then `bun install`s offline. Filenames are
- * stable (`pyric.tgz`, `pyric-tools.tgz`) regardless of version.
+ * stable (`pyric.tgz`, `pyric-cli.tgz`) regardless of version.
  */
 export async function materializeVendorTarballs(
   projectDir: string,
@@ -108,8 +108,7 @@ export async function materializeVendorTarballs(
   const specs: Record<string, string> = {};
   for (const [filename, b64] of Object.entries(await e.tarballs())) {
     writeFileSync(join(vendorDir, filename), Buffer.from(b64, 'base64'));
-    // `pyric.tgz` -> package name `pyric`; `pyric-tools.tgz` -> `pyric-tools`.
-    const pkg = filename.replace(/\.tgz$/, '');
+    const pkg = filename === 'pyric-cli.tgz' ? '@pyric/cli' : filename.replace(/\.tgz$/, '');
     specs[pkg] = `file:vendor/${filename}`;
   }
   return specs;
