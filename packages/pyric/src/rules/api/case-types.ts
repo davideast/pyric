@@ -6,7 +6,7 @@
  * path + resource/data; RTDB is operation + tree path + data/newData), and
  * collapsing them into one shape would force every field to be optional and
  * every reader to guess which half applies. They share the assertion
- * adapters (`eachCase` / `assertCase` / `explainCase`) and the unified
+ * adapter (`assertCase`, with `explainCase` as its renderer) and the unified
  * {@link RuleIssue}, nothing more.
  */
 

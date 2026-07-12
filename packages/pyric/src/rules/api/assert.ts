@@ -2,11 +2,12 @@
  * The assertion adapter layer — the bridge from the data-returning front
  * door to a throwing test runner.
  *
- * `simulate` never throws; a runner needs failures to throw. These adapters
- * are that seam, and the ONLY throwing verbs beyond the constructors:
- *   - `eachCase(rulesetOrSource, cases)` yields one runnable per case, ready
- *     to wire into `test(name, run)`.
+ * `simulate` never throws; a runner needs failures to throw. `assertCase`
+ * is that seam, and the ONLY throwing verb beyond the constructors:
  *   - `assertCase(result)` throws on a failed or abstained result.
+ *   - `assertCase(rulesetOrSource, oneCase)` simulates that single case and
+ *     throws on a miss — runner wiring is
+ *     `for (const c of cases) test(c.description, () => assertCase(ruleset, c))`.
  *   - `explainCase(result)` renders the single sanctioned trace string —
  *     used verbatim as the thrown error's message, so a runner surfaces the
  *     "why" for free.
@@ -23,17 +24,6 @@ import type {
   RtdbCase,
   RtdbCaseResult,
 } from './case-types.js';
-
-/** One runnable case produced by {@link eachCase}. Wire `run` straight into
- *  a test runner: `for (const c of eachCase(...)) test(c.name, c.run)`. */
-export interface RunnerCase<C> {
-  /** Human-readable name — the case description, or a path-derived fallback. */
-  name: string;
-  /** The originating case. */
-  case: C;
-  /** Simulate this one case and throw on failure/abstention. */
-  run(): void;
-}
 
 function isRtdbResult(r: CaseResult | RtdbCaseResult): r is RtdbCaseResult {
   return 'matchedRule' in r;
@@ -95,13 +85,9 @@ export function explainCase(result: CaseResult | RtdbCaseResult): string {
   return isRtdbResult(result) ? renderRtdb(result) : renderFirestore(result);
 }
 
-/**
- * Throw when a case result did not pass. A simulator abstention throws
- * {@link RulesUnsupportedError}; a genuine expectation mismatch throws
- * {@link RulesAssertionError}. Both carry the {@link explainCase} trace as
- * their message. Returns `void` on a passing result.
- */
-export function assertCase(result: CaseResult | RtdbCaseResult): void {
+// ─── assertCase ──────────────────────────────────────────────────────
+
+function assertResult(result: CaseResult | RtdbCaseResult): void {
   if (result.unsupported) {
     throw new RulesUnsupportedError(explainCase(result));
   }
@@ -110,40 +96,35 @@ export function assertCase(result: CaseResult | RtdbCaseResult): void {
   }
 }
 
-// ─── eachCase ────────────────────────────────────────────────────────
-
-function caseName(c: FirestoreCase | RtdbCase): string {
-  if (c.description) return c.description;
-  if ('method' in c) return `${c.method} ${c.path}`;
-  return `${c.operation} ${c.path}`;
-}
-
-export function eachCase(
-  rulesetOrSource: string | FirestoreRuleset,
-  cases: FirestoreCase[],
-): RunnerCase<FirestoreCase>[];
-export function eachCase(
-  ruleset: RtdbRuleset,
-  cases: RtdbCase[],
-): RunnerCase<RtdbCase>[];
-export function eachCase(
-  rulesetOrSource: string | FirestoreRuleset | RtdbRuleset,
-  cases: FirestoreCase[] | RtdbCase[],
-): RunnerCase<FirestoreCase>[] | RunnerCase<RtdbCase>[] {
+/**
+ * Throw when a case result did not pass. A simulator abstention throws
+ * {@link RulesUnsupportedError}; a genuine expectation mismatch throws
+ * {@link RulesAssertionError}. Both carry the {@link explainCase} trace as
+ * their message. Returns `void` on a passing result.
+ */
+export function assertCase(result: CaseResult | RtdbCaseResult): void;
+/**
+ * Simulate one case against a ruleset and throw on a miss — the runner
+ * form: `for (const c of cases) test(c.description, () => assertCase(ruleset, c))`.
+ */
+export function assertCase(ruleset: FirestoreRuleset, oneCase: FirestoreCase): void;
+export function assertCase(ruleset: RtdbRuleset, oneCase: RtdbCase): void;
+/** Convenience: compile Firestore source and assert one case against it. */
+export function assertCase(source: string, oneCase: FirestoreCase): void;
+export function assertCase(
+  first: CaseResult | RtdbCaseResult | FirestoreRuleset | RtdbRuleset | string,
+  oneCase?: FirestoreCase | RtdbCase,
+): void {
+  if (oneCase === undefined) {
+    assertResult(first as CaseResult | RtdbCaseResult);
+    return;
+  }
   const ruleset: FirestoreRuleset | RtdbRuleset =
-    typeof rulesetOrSource === 'string'
-      ? firestoreRules(rulesetOrSource)
-      : rulesetOrSource;
-
-  return (cases as Array<FirestoreCase | RtdbCase>).map((c) => ({
-    name: caseName(c),
-    case: c as never,
-    run(): void {
-      // `simulate` on either ruleset accepts a one-element array of the
-      // matching case type and returns one result; `assertCase` throws on
-      // failure/abstention.
-      const summary = (ruleset as FirestoreRuleset).simulate([c as FirestoreCase]);
-      assertCase(summary.cases[0]);
-    },
-  })) as RunnerCase<FirestoreCase>[] | RunnerCase<RtdbCase>[];
+    typeof first === 'string'
+      ? firestoreRules(first)
+      : (first as FirestoreRuleset | RtdbRuleset);
+  // `simulate` on either ruleset accepts a one-element array of the matching
+  // case type and returns one result.
+  const summary = (ruleset as FirestoreRuleset).simulate([oneCase as FirestoreCase]);
+  assertResult(summary.cases[0]);
 }

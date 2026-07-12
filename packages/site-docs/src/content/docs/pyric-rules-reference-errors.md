@@ -22,11 +22,11 @@ Carries the compile-blocking issues on `.issues` so a caller can surface them wi
 
 ### `RulesAssertionError`
 
-Thrown by `assertCase` (and a runner case's `run()`, from `eachCase`) when the simulated decision did not match the case's expectation. The message is the rendered `explainCase` trace, so a test runner surfaces the "why" without extra wiring.
+Thrown by `assertCase` when the simulated decision did not match the case's expectation. The message is the rendered `explainCase` trace, so a test runner surfaces the "why" without extra wiring.
 
 ### `RulesUnsupportedError`
 
-Thrown by `assertCase` (and a runner case's `run()`) when the simulator abstained: it hit a feature it doesn't implement, so neither a pass nor a genuine failure can be asserted. Distinct from `RulesAssertionError` so a runner can choose to skip rather than fail on a known simulator gap.
+Thrown by `assertCase` when the simulator abstained: it hit a feature it doesn't implement, so neither a pass nor a genuine failure can be asserted. Distinct from `RulesAssertionError` so a runner can choose to skip rather than fail on a known simulator gap.
 
 ## Internal engine errors (`pyric/rules/internal`)
 

@@ -27,6 +27,8 @@ Compiles Firestore rules source into a handle. Throws `RulesCompileError` (carry
 
 Builds a handle on a Realtime Database ruleset. Accepts an `RtdbRulesDefinition` (the `{ paths }` object), the value `defineRtdbRules(...)` returns, or compiled `{ rules }` JSON.
 
+The `RtdbRulesDocument` that `defineRtdbRules` returns is an inert authored artifact on the public surface: the type exposes no methods. `rtdbRules()` is the one analysis surface for it (`lint` / `simulate` / `explain` / `toJSON`).
+
 The definition and document inputs support the full surface. A compiled `{ rules }` JSON input can only round-trip through `toJSON`: there is no IR left to lint or simulate against, so `lint()` returns `[]` and `simulate()` reports every case as unsupported.
 
 `RtdbRuleset`:
@@ -42,27 +44,25 @@ The definition and document inputs support the full surface. A compiled `{ rules
 
 The AI-authoring front door. Accepts anything, including empty or unparseable source. Never throws. Returns every issue it can find, parse errors included, folded into one `RuleIssue[]` list.
 
-## Assertion adapters
+## Assertion adapter
 
-The only throwing verbs beyond the constructors. They bridge the data-returning front door to a throwing test runner.
-
-### `eachCase(rulesetOrSource: string | FirestoreRuleset, cases: FirestoreCase[]): RunnerCase<FirestoreCase>[]`
-### `eachCase(ruleset: RtdbRuleset, cases: RtdbCase[]): RunnerCase<RtdbCase>[]`
-
-Returns one runnable per case, ready to wire into a test runner: `for (const c of eachCase(...)) test(c.name, c.run)`.
-
-`RunnerCase<C>`:
-
-- `name: string`: the case description, or a path-derived fallback.
-- `case: C`: the originating case.
-- `run(): void`: simulates this one case and throws on failure or abstention.
-
-`run()` throws `RulesAssertionError` on a failed case (decision didn't match expectation) and `RulesUnsupportedError` on a simulator abstention.
+The only throwing verb beyond the constructors. It bridges the data-returning front door to a throwing test runner.
 
 ### `assertCase(result: CaseResult | RtdbCaseResult): void`
 
 Throws on a failed or abstained case result. `RulesUnsupportedError` for an abstention, `RulesAssertionError` for a genuine expectation mismatch. Returns `void` on a passing result.
 
+### `assertCase(ruleset: FirestoreRuleset, oneCase: FirestoreCase): void`
+### `assertCase(ruleset: RtdbRuleset, oneCase: RtdbCase): void`
+### `assertCase(source: string, oneCase: FirestoreCase): void`
+
+Simulates that single case and throws on a miss, with the same semantics as the result form: `RulesAssertionError` (message is the `explainCase` trace) when the decision didn't match the expectation, `RulesUnsupportedError` on a simulator abstention. The `source` form compiles Firestore source first (throwing `RulesCompileError` if it doesn't parse).
+
+Runner wiring:
+```ts
+const ruleset = firestoreRules(source);
+for (const c of cases) test(c.description, () => assertCase(ruleset, c));
+```
 ### `explainCase(result: CaseResult | RtdbCaseResult): string`
 
 The single sanctioned trace renderer. Used as the message of the errors `assertCase` throws, and available directly for logging a result without asserting.
@@ -72,8 +72,8 @@ The single sanctioned trace renderer. Used as the message of the errors `assertC
 The only three error classes the public surface throws.
 
 - `RulesCompileError`: thrown by `firestoreRules(source)` / `rtdbRules(...)` when the source doesn't compile. Carries `.issues: RuleIssue[]`.
-- `RulesAssertionError`: thrown by `assertCase` / a runner case's `run()` when the decision didn't match the expectation. Message is the `explainCase` trace.
-- `RulesUnsupportedError`: thrown by `assertCase` / a runner case's `run()` when the simulator abstained.
+- `RulesAssertionError`: thrown by `assertCase` when the decision didn't match the expectation. Message is the `explainCase` trace.
+- `RulesUnsupportedError`: thrown by `assertCase` when the simulator abstained.
 
 See [Errors](../pyric-rules-reference-errors/) for the full picture, including the internal-engine error types these are built from.
 

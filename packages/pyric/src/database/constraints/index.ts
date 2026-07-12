@@ -23,6 +23,7 @@ export type {
   RtdbRulesCheckResult,
   RtdbRulesDefinition,
   RtdbRulesDocument,
+  RtdbRulesDocumentInternal,
   RtdbRulesFinding,
   RtdbRulesFindingRule,
   RtdbRulesJson,

@@ -2,7 +2,7 @@
  * The public `pyric/rules` front door.
  *
  * Exercises both constructors, the tolerant free `lint`, the assertion
- * adapters, and the structured trace shapes — the whole curated surface a
+ * adapter, and the structured trace shapes — the whole curated surface a
  * consumer sees. Uses the owner's canonical two-case `notes/n1` scenario:
  * an owner-scoped notes collection where the owner may read and a stranger
  * may not.
@@ -12,11 +12,11 @@ import {
   firestoreRules,
   rtdbRules,
   lint,
-  eachCase,
   assertCase,
   explainCase,
   RulesCompileError,
   RulesAssertionError,
+  RulesUnsupportedError,
   serverTimestamp,
   timestamp,
   defineRtdbRules,
@@ -148,32 +148,55 @@ describe('tolerant lint(source)', () => {
   });
 });
 
-describe('assertion adapters (eachCase / assertCase / explainCase)', () => {
-  test('eachCase yields one runnable per case; run() passes for good cases', () => {
+describe('assertion adapter (assertCase / explainCase)', () => {
+  test('assertCase(ruleset, oneCase) passes silently for good cases — runner wiring', () => {
     const ruleset = firestoreRules(NOTES_RULES);
-    const runners = eachCase(ruleset, [N1_OWNER, N1_STRANGER]);
-    expect(runners).toHaveLength(2);
-    expect(runners[0].name).toBe(N1_OWNER.description);
-    for (const r of runners) expect(() => r.run()).not.toThrow();
+    for (const c of [N1_OWNER, N1_STRANGER]) {
+      expect(() => assertCase(ruleset, c)).not.toThrow();
+    }
   });
 
-  test('eachCase accepts a source string directly', () => {
-    const runners = eachCase(NOTES_RULES, [N1_OWNER]);
-    expect(() => runners[0].run()).not.toThrow();
+  test('assertCase(source, oneCase) accepts Firestore source directly', () => {
+    expect(() => assertCase(NOTES_RULES, N1_OWNER)).not.toThrow();
   });
 
-  test('run() throws RulesAssertionError with the explainCase trace on a miss', () => {
+  test('assertCase(ruleset, oneCase) throws RulesAssertionError with the explainCase trace on a miss', () => {
     const ruleset = firestoreRules(NOTES_RULES);
     const wrong: FirestoreCase = { ...N1_STRANGER, expectation: 'ALLOW' };
-    const [runner] = eachCase(ruleset, [wrong]);
     let thrown: unknown;
     try {
-      runner.run();
+      assertCase(ruleset, wrong);
     } catch (e) {
       thrown = e;
     }
     expect(thrown).toBeInstanceOf(RulesAssertionError);
     expect((thrown as Error).message).toContain('expected ALLOW, got DENY');
+    expect((thrown as Error).message).toContain('notes/n1');
+  });
+
+  test('assertCase throws RulesUnsupportedError on a simulator abstention', () => {
+    // foo.bar() is not a real rules namespace — the simulator abstains
+    // (UNSUPPORTED) rather than deciding, and the adapter surfaces that as
+    // its own error type so a runner can skip instead of fail.
+    const ruleset = firestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /docs/{id} {
+      allow read: if foo.bar();
+    }
+  }
+}`);
+    const abstain: FirestoreCase = {
+      description: 'unsupported namespace abstains',
+      expectation: 'ALLOW',
+      method: 'get',
+      path: 'docs/d1',
+      auth: { uid: 'alice' },
+    };
+    expect(() => assertCase(ruleset, abstain)).toThrow(RulesUnsupportedError);
+    // The result form throws the same way.
+    const result = ruleset.simulate([abstain]).cases[0];
+    expect(() => assertCase(result)).toThrow(RulesUnsupportedError);
   });
 
   test('assertCase(result) throws on a failed result and passes a good one', () => {
@@ -183,6 +206,22 @@ describe('assertion adapters (eachCase / assertCase / explainCase)', () => {
 
     const bad = ruleset.simulate([{ ...N1_STRANGER, expectation: 'ALLOW' }]).cases[0];
     expect(() => assertCase(bad)).toThrow(RulesAssertionError);
+  });
+
+  test('assertCase(rtdbRuleset, oneCase) covers the RTDB overload', () => {
+    const ruleset = rtdbRules({
+      paths: { '/notes/$noteId': { read: allow(), write: deny() } },
+    });
+    const readCase: RtdbCase = {
+      description: 'anyone reads a note',
+      expectation: 'ALLOW',
+      operation: 'read',
+      path: '/notes/n1',
+      auth: { uid: 'alice' },
+    };
+    expect(() => assertCase(ruleset, readCase)).not.toThrow();
+    const wrong: RtdbCase = { ...readCase, expectation: 'DENY' };
+    expect(() => assertCase(ruleset, wrong)).toThrow(RulesAssertionError);
   });
 
   test('explainCase renders a readable multi-line trace', () => {

@@ -35,7 +35,7 @@ type VerifyRulesInput = {
   storage?: string | { source: string };
 };
 ```
-`RtdbRulesDocument` values are compiled with `toJSON()` before replay.
+`RtdbRulesDocument` values are compiled to rules JSON before replay.
 ```ts
 type VerifyEngine = 'sandbox' | 'rulesTestApi';
 

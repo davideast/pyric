@@ -22,12 +22,23 @@ an alpha release two days after publish; there are no deprecated aliases.
   `toJSON()`. The constructor throws `RulesCompileError` (with `.issues`) on
   unparseable source; past that, `simulate` never throws on a rule outcome.
 - `rtdbRules(defOrDocOrJson)` — the same handle for Realtime Database rules,
-  accepting a definition, a compiled document, or compiled `{ rules }` JSON.
+  accepting a definition, an authored document, or compiled `{ rules }` JSON.
+  The `RtdbRulesDocument` that `defineRtdbRules` returns is inert on the
+  public surface: the type exposes no methods (no `check()`, `simulate()`,
+  `toJSON()`, or `toIR()` on the document itself). It is an authored artifact
+  you pass to `rtdbRules()`, which is the one analysis surface. The
+  method-bearing document interface remains available to engine consumers on
+  the internal seam.
 - `lint(source)` — a tolerant free function that accepts any source
   (including broken or empty), never throws, and returns every issue.
-- `eachCase` / `assertCase` / `explainCase` — the assertion adapters that
-  bridge to a throwing test runner. `run()` throws `RulesAssertionError` on a
-  failed case and `RulesUnsupportedError` on a simulator abstention;
+- `assertCase` / `explainCase` — the assertion adapter that bridges to a
+  throwing test runner, the one throwing verb beyond the constructors.
+  `assertCase(result)` asserts an already-simulated `CaseResult`;
+  `assertCase(ruleset, oneCase)` (and the `assertCase(source, oneCase)`
+  convenience for Firestore) simulates that single case and throws
+  `RulesAssertionError` on a failed case or `RulesUnsupportedError` on a
+  simulator abstention, with the `explainCase` trace as the message. Runner
+  wiring: `for (const c of cases) test(c.description, () => assertCase(ruleset, c))`.
   `explainCase` is the single sanctioned trace renderer.
 - `RuleIssue` — one unified diagnostic (`code`, `severity`, `message`,
   `path?`, `line?`, `fix?`, `origin`) replacing the former `LintWarning` /

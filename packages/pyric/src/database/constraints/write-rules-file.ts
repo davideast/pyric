@@ -18,14 +18,14 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
-import type { RtdbRulesDocument } from './document.js';
+import type { RtdbRulesDocumentInternal } from './document.js';
 
 /**
  * Write `doc.toJSON()` to `path` as pretty-printed JSON, creating parent
  * directories as needed. Returns the resolved absolute path written.
  */
 export async function writeRtdbRulesFile(
-  doc: RtdbRulesDocument,
+  doc: RtdbRulesDocumentInternal,
   path: string,
 ): Promise<string> {
   const resolved = resolvePath(path);

@@ -117,7 +117,7 @@ export type {
   PathDef,
   RtdbRulesCheckResult,
   RtdbRulesDefinition,
-  RtdbRulesDocument,
+  RtdbRulesDocumentInternal as RtdbRulesDocument,
   RtdbRulesFinding,
   RtdbRulesFindingRule,
   RtdbRulesJson,

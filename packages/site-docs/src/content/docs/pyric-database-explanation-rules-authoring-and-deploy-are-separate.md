@@ -20,7 +20,7 @@ discovers or accepts a database URL, obtains an access token, and writes rules
 through the Realtime Database rules endpoint.
 
 That split keeps the in-memory workflow usable in tests, code generation, agent
-planning, and browser-like hosts. A caller can inspect `rules.toJSON()` without
+planning, and browser-like hosts. A caller can inspect `rtdbRules(rules).toJSON()` without
 holding credentials, then choose the deploy path later:
 ```ts
 import { rtdb } from 'pyric-tools/deploy';

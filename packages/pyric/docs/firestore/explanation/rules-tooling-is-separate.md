@@ -15,7 +15,7 @@ By keeping rules tooling in `pyric/rules`, the swap-in surface stays bit-faithfu
 | `getDoc`, `setDoc`, `collection`, `query`, `onSnapshot`, ... | `pyric/firestore` |
 | `FieldValue`, `Timestamp`, sentinels | `pyric/firestore` (re-exported from `pyric-admin`) |
 | Sandbox-only ops (`sandbox.setRules`, `sandbox.seedDocuments`) | `pyric/firestore` (sandbox-only namespace) |
-| `firestoreRules`, `lint`, `eachCase`, `assertCase`, `explainCase` | `pyric/rules` (public front door) |
+| `firestoreRules`, `lint`, `assertCase`, `explainCase` | `pyric/rules` (public front door) |
 | `parseToAST`, `lintFirestoreRules`, `validateFirestoreRules` | `pyric/rules/internal` |
 | `SimulateFirestoreRulesHandler`, `TestFirestoreRulesHandler` | `pyric/rules/internal` |
 | Stdlib (`auth`, `validation`, ... modules) | resolved via `pyric/rules/internal/node` |

@@ -19,7 +19,7 @@ The surface is grouped around the things you can do with a rules source:
 - **Test** it against the live Firebase Rules Test API.
 - **Wrap** it in agent-tool factories for `@inbrowser/agent` registries.
 
-Parse, Lint, Validate, Simulate, and Test all sit behind the public front door: `firestoreRules`, `rtdbRules`, `lint`, `eachCase`, `assertCase`, and `explainCase`. The parser, linter, validator, simulator, modules resolver, and agent-tool factories are internal engine seams, exposed only under `pyric/rules/internal*` for callers that need them directly. They may change without notice.
+Parse, Lint, Validate, Simulate, and Test all sit behind the public front door: `firestoreRules`, `rtdbRules`, `lint`, `assertCase`, and `explainCase`. The parser, linter, validator, simulator, modules resolver, and agent-tool factories are internal engine seams, exposed only under `pyric/rules/internal*` for callers that need them directly. They may change without notice.
 
 ## Install
 ```bash

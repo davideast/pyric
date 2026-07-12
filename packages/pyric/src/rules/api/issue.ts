@@ -84,7 +84,7 @@ export function validationFindingToIssue(finding: ValidationFinding): RuleIssue 
   };
 }
 
-/** Map an RTDB check finding (from `RtdbRulesDocument.check()`) onto the
+/** Map an RTDB check finding (from the internal document `check()`) onto the
  *  unified issue. `severity` is decided by the caller (errors vs warnings
  *  live in separate arrays on the check result). */
 export function rtdbFindingToIssue(

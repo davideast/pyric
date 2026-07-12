@@ -17,6 +17,7 @@ import { defineRtdbRules } from '../../database/constraints/document.js';
 import type {
   RtdbRulesDefinition,
   RtdbRulesDocument,
+  RtdbRulesDocumentInternal,
   RtdbRulesJson,
 } from '../../database/constraints/document.js';
 import type { RuleIssue } from './issue.js';
@@ -44,7 +45,7 @@ type RtdbRulesInput =
   | RtdbRulesDocument
   | RtdbRulesJson;
 
-function isDocument(x: RtdbRulesInput): x is RtdbRulesDocument {
+function isDocument(x: RtdbRulesInput): x is RtdbRulesDocumentInternal {
   const o = x as Record<string, unknown>;
   return (
     typeof o.toJSON === 'function' &&
@@ -66,7 +67,7 @@ function isCompiledJson(x: RtdbRulesInput): x is RtdbRulesJson {
 
 /** A document-backed handle — the full-featured path. */
 class DocumentRtdbRuleset implements RtdbRuleset {
-  constructor(private readonly doc: RtdbRulesDocument) {}
+  constructor(private readonly doc: RtdbRulesDocumentInternal) {}
 
   lint(): RuleIssue[] {
     const check = this.doc.check();
@@ -193,5 +194,7 @@ class CompiledRtdbRuleset implements RtdbRuleset {
 export function rtdbRules(input: RtdbRulesInput): RtdbRuleset {
   if (isDocument(input)) return new DocumentRtdbRuleset(input);
   if (isCompiledJson(input)) return new CompiledRtdbRuleset(input);
-  return new DocumentRtdbRuleset(defineRtdbRules(input as RtdbRulesDefinition));
+  return new DocumentRtdbRuleset(
+    defineRtdbRules(input as RtdbRulesDefinition) as RtdbRulesDocumentInternal,
+  );
 }

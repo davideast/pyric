@@ -12,8 +12,9 @@
  * the handles never throw on a rule outcome — a denied or abstained case is
  * returned as data. `lint(source)` is the tolerant front door for AI
  * authoring: it accepts anything, never throws, and returns every issue as a
- * unified {@link RuleIssue}. The assertion adapters (`eachCase` /
- * `assertCase` / `explainCase`) are the seam to a throwing test runner.
+ * unified {@link RuleIssue}. The assertion adapter (`assertCase`, with
+ * `explainCase` as its trace renderer) is the seam to a throwing test
+ * runner: `for (const c of cases) test(c.description, () => assertCase(ruleset, c))`.
  *
  * The Realtime Database constraints DSL (`defineRtdbRules` + combinators) and
  * the value helpers (`serverTimestamp`, `timestamp`, …) are re-exported here
@@ -33,9 +34,8 @@ export type { RtdbRuleset } from './api/rtdb.js';
 // ─── Tolerant lint (the AI-authoring front door) ─────────────────────
 export { lint } from './api/lint.js';
 
-// ─── Assertion adapters (the only throwing verbs beyond constructors) ─
-export { eachCase, assertCase, explainCase } from './api/assert.js';
-export type { RunnerCase } from './api/assert.js';
+// ─── Assertion adapter (the only throwing verb beyond constructors) ──
+export { assertCase, explainCase } from './api/assert.js';
 
 // ─── Errors ──────────────────────────────────────────────────────────
 export {
