@@ -33,6 +33,8 @@
  */
 
 import { makeAuthError } from './auth-errors.js';
+import { sandboxTokenFor } from './sandbox-token.js';
+import { validateEmailFormat, validatePasswordStrength } from './sandbox-credential-validators.js';
 
 import type { AuthState, Sandbox } from 'pyric/sandbox';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
@@ -1935,69 +1937,6 @@ export class SandboxBackend {
       );
     }
     return stored;
-  }
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────
-
-/**
- * Opaque token string. Hash is a tiny deterministic digest over the
- * serialized claims map + a monotonic serial — enough that two
- * different claim maps for the same uid get different tokens AND
- * back-to-back refreshes for the same uid + claims also get
- * different tokens. NOT a cryptographic primitive. The
- * `sandbox-id-token-` prefix is grepable in logs.
- */
-function sandboxTokenFor(uid: string, claims: Record<string, unknown>, serial: number): string {
-  let hash = 5381;
-  const json = JSON.stringify(claims) + ':' + String(serial);
-  for (let i = 0; i < json.length; i++) {
-    hash = ((hash << 5) + hash + json.charCodeAt(i)) | 0;
-  }
-  const hex = (hash >>> 0).toString(16).padStart(8, '0');
-  return `sandbox-id-token-${uid}-${hex}`;
-}
-
-/**
- * Empirical match for prod's email-format rejection (matrix row #18).
- * Prod uses a permissive regex — local-part + `@` + domain-with-dot
- * is the practical bar. We mirror that shape: reject empty, reject
- * missing `@`, reject empty local-part or empty domain-part. Anything
- * else passes; consumer code that ships a more exotic-but-valid
- * address (quoted local-parts, IDN domains, etc.) should still
- * round-trip the same as prod.
- *
- * Throws `auth/invalid-email` with a message matching prod's shape so
- * consumer code that switches on `.code` sees the same error in
- * sandbox + prod. Oracle observation:
- * `scripts/oracle/observations/auth-row-18-invalid-email-error-code.json`.
- */
-function validateEmailFormat(email: string): void {
-  if (typeof email !== 'string' || email.length === 0) {
-    throw makeAuthError('auth/invalid-email', 'Error');
-  }
-  const atIdx = email.indexOf('@');
-  // No `@`, or `@` at start (empty local-part), or `@` at end (empty
-  // domain). Prod also rejects domains without a dot, but we stay
-  // permissive there — the empirical oracle observation only locks
-  // the `not-an-email` rejection.
-  if (atIdx <= 0 || atIdx === email.length - 1) {
-    throw makeAuthError('auth/invalid-email', 'Error');
-  }
-}
-
-/**
- * Empirical match for prod's password-strength rejection (matrix
- * row #19). Prod's observed message is "Password should be at least
- * 6 characters" with code `auth/weak-password`. Oracle observation:
- * `scripts/oracle/observations/auth-row-19-weak-password-error-code.json`.
- */
-function validatePasswordStrength(password: string): void {
-  if (typeof password !== 'string' || password.length < 6) {
-    throw makeAuthError(
-      'auth/weak-password',
-      'Password should be at least 6 characters',
-    );
   }
 }
 
