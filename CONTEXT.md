@@ -1,8 +1,26 @@
 # Pyric - Context Document
 
-Last updated: 2026-07-09. Ported from the previous
-`firebase-agent-sdk` context and refreshed against current `main` after the
-npm alpha launch.
+Last updated: 2026-07-12. Refreshed against `main` after a large conformance and
+structure effort (~30 merged PRs). The full operating manual for the conformance
+system lives in `packages/conformance` (its README is the map; a how-to covers
+what to run and how to find gaps by name).
+
+**Orientation, current `main`.** The conformance machinery is now a first-class
+package, `packages/conformance` (not `scripts/`). `pyric/rules` has a new,
+small public API (clean break). `pyric/app` mirrors the client app registry.
+New surfaces admitted since the last refresh: `messaging`, `ai`, and three
+native rules surfaces (`firestore-rules`, `storage-rules`, `rtdb-rules`).
+Several God-files were split into per-family modules (worker client + host,
+firestore entry, sandbox types, admin-firestore). `docs/code-conventions.md`
+now records the ratified conventions (one record per file, filename-as-key,
+computed aggregation, surface anatomy). Versioning: pyric keeps its own semver;
+Firebase compatibility ships as `fb<major>.<minor>` npm dist-tags (see
+`docs/`).
+
+Rules production-verified coverage as of this writing: firestore 128/140,
+storage 55/55, rtdb 18/55 (climbing). Mirror surface coverage runs from auth
+(lowest, ~38%) up; see `bun run compat:coverage` for the live table — always
+prefer running it over trusting a number written here.
 
 This is a Bun-managed monorepo for **Pyric: Firebase for agents**. `pyric`,
 `pyric-admin`, `pyric-tools`, and `@pyric/ui` published their first npm alpha
@@ -153,20 +171,43 @@ Exports:
 | `pyric/database` | Realtime Database surface and RTDB tooling. |
 | `pyric/database/modular` | Tree-shakable RTDB modular SDK shim. |
 | `pyric/storage` | Modular Storage mirror and storage admin-style tools. |
-| `pyric/rules` | Firestore rules parser/linter/validator/simulator/test/value tooling. |
+| `pyric/rules` | The rules public API (see below). |
 | `pyric/firestore-values` | Firestore value helpers/wrappers. |
-| `pyric/rules/node` | Node-only rules entry for filesystem-backed module resolution. |
-| `pyric/rules/extract` | Composite-index extraction entry. |
-| `pyric/rules/rtdb` | Realtime Database rules tooling entry. |
-| `pyric/rules/rtdb/constraints` | Canonical RTDB rule constraint helpers. |
-| `pyric/rules/rtdb-constraints` | Legacy/alias RTDB constraint helper path. |
 | `pyric/sandbox` | Sandbox lifecycle, events, persistence, replay, branches. |
 | `pyric/sandbox/internal` | Adapter-only internal protocol. |
 | `pyric/sandbox/admin-compat` | Chainable admin-Firestore-shaped sandbox wrapper. |
 | `pyric/sandbox/admin-firestore` | Internals backing the admin-compat layer. |
 
+The full exports set also includes `pyric/messaging`, `pyric/messaging/sw`,
+`pyric/ai`, `pyric/app`, and internal-only seams (`pyric/rules/internal*`,
+`pyric/storage/internal`, `pyric/sandbox/internal`). `pyric/messaging` and
+`pyric/ai` are conformance-held but pack-time stripped from published tarballs
+until graduation.
+
 Dependencies include `@inbrowser/agent@0.4.0`, `firebase`, `firebase-admin`,
 `ohm-js`, `zod`, hashing helpers, and `fake-indexeddb`.
+
+#### The `pyric/rules` public API
+
+`pyric/rules` was a large accidental surface (~135 exports across five
+subpaths); it is now a deliberate one, a **clean break** documented in
+`packages/pyric/CHANGELOG.md`. The public surface, on the one `pyric/rules`
+subpath:
+
+- `firestoreRules(source)` and `rtdbRules(defOrDocOrJson)` — constructors
+  returning safe-by-default handles: `.lint()`, `.simulate(cases)` (never throws
+  on a rule outcome), `.explain(case)`, `.toJSON()`.
+- `lint(source)` — a tolerant free function (the AI-authoring front door).
+- `assertCase(...)` / `explainCase(...)` — the assertion adapter (the only
+  throwing verbs).
+- The RTDB constraints DSL (`defineRtdbRules` plus the combinators),
+  re-exported unchanged; the DSL document is now inert data.
+
+Engine internals (parser, evaluator, IR, tool factories, the composite-index
+extractor with its TypeScript-compiler dependency) live behind
+`pyric/rules/internal*` seams, not on the public surface. The old
+`pyric/rules/{node,extract,rtdb,rtdb/constraints,rtdb-constraints}` subpaths are
+gone.
 
 ### `pyric-admin`
 
@@ -432,25 +473,91 @@ time (copy, not symlink, restored after), so the npm-facing README for those
 three packages is the repo root README rather than the in-repo package doc.
 `scripts/publish-alpha.sh <version>` drives the actual `npm publish` step.
 
-## Compatibility And Oracle Gates
+## The Conformance System
 
-Compatibility machinery lives under `scripts/compat` and generated docs under
-`packages/pyric/docs/*/COMPAT.md`.
+The conformance system is its own workspace package: `packages/conformance`
+(private, `@pyric/conformance`). It moved out of `scripts/compat` and
+`scripts/oracle` entirely; those directories are gone. Its tests run in the
+root test chain, so its integrity checks gate CI by construction.
 
-Current root scripts:
+Its layout follows one convention at every level: **one record per file, the
+filename is the join key, the directory is the index, aggregation is always
+computed.** Nothing is hand-aggregated.
 
-- `compat:generate`
-- `compat:report`
-- `compat:validate`
-- `compat:audit`
-- `compat:census`
-- `compat:oracle-versions`
-- `compat:oracle-check`
+```text
+packages/conformance/
+  surfaces/<surface>.ts        intent records; kind: 'mirror' | 'native'
+  registry/<surface>.ts        claims (rows) — the ONLY place a claim lives
+  observations/<surface>/<name>.json   ┐ twin trees: identical paths,
+  probes/<surface>/<name>.ts           ┘ different extensions
+  rules-corpus/<engine>/<scenario-id>.ts   declarative rules scenarios
+  rigs/<rig-id>.ts             capture-rig records (flat: rigs are mechanisms)
+  exceptions/<name>.ts         typed per-observation exceptions
+  rules-language/              per-engine construct snapshots + coverage reports
+  assurance-capabilities/      authored dependency records + GENERATED statuses
+  entry-path/                  quickstart programs (the cliff gate's corpus)
+  baselines/                   committed ratchets
+  src/                         machinery; capture apps under src/capture/
+```
 
-The compatibility registry now has especially deep RTDB content. The RTDB docs
-still use old package names such as `@pyric/rtdb` in prose, but the actual
-public package export is now under `pyric/database`, `pyric/database/modular`,
-`pyric/rules/rtdb`, and `pyric/rules/rtdb/constraints`.
+The evidence chain: an **oracle rig** probes production and freezes an
+**observation**; a **registry row** cites it as evidence; **generated COMPAT
+docs** render the rows; **gates** enforce that every link resolves. A probe file
+and the observation it produces are filename twins, so evidence can always be
+re-captured.
+
+### Surfaces
+
+`kind: 'mirror'` surfaces diff against an upstream `firebase/*` module (census).
+`kind: 'native'` surfaces are pyric's own — no upstream to diff, so they declare
+a `symbolSource` instead and publish no breadth percentage.
+
+Mirror: `app`, `auth`, `firestore`, `rtdb-modular`, `storage`, `messaging`,
+`messaging-admin`, `ai`. Native: `rtdb` (the agent-tools/host surface),
+`firestore-rules`, `storage-rules`, `rtdb-rules`.
+
+### Gates
+
+`bun run compat:check` is the aggregate, and it runs in CI. It chains:
+
+- `compat:validate` — registry/observation/rig referential integrity, both directions
+- `compat:census-gate` — a ratchet over unmapped upstream exports
+- `compat:generate --check` — the COMPAT docs match the registry
+- `compat:entry-path` — a **cliff** (not a ratchet): the quickstart programs must run
+- `compat:assurance:check` — the derived assurance capabilities are not stale
+- `compat:coverage` — the published numbers, guarded against regression
+
+Other commands: `compat:report` (inventory, high-risk unverified rows),
+`compat:audit` (the evidence ratchet), `oracle:plan` (the capture-rig fleet and
+what each needs to run), `compat:oracle-versions`, `compat:oracle-check`,
+`compat:climb`, `compat:assurance`, `compat:census`, `compat:lint-terms`.
+
+### Coverage axes
+
+Three, and they are never conflated:
+
+1. **Surface coverage** (mirrors only): mirrored exports over upstream exports.
+   `total` counts everything; `intended` subtracts only what is genuinely out of
+   scope. Work that is merely unbuilt stays in `intended` as honest debt.
+2. **Behavior conformance**: `conforms` rows over evaluated rows. This is the
+   fidelity of the implemented slice, never a completeness grade.
+3. **Rules-language coverage** (rules engines): *language coverage* (constructs
+   the simulator implements) and **production-verified coverage** (constructs
+   exercised by a scenario whose verdicts production itself supplied). The second
+   is the trust number: it cannot be authored, only earned by capture.
+
+Every gate is a **ratchet, not a threshold** — the build fails when a number gets
+worse, never for being low. The one exception is the entry-path cliff, because an
+initialization failure breaks every user immediately.
+
+### Assurance
+
+`packages/conformance/assurance-capabilities/` holds authored records declaring
+what each assurance capability *depends on*; the generator derives whether it
+`supported` / `qualified` / `unsupported` from the graph (snapshot status,
+capability probe, production-verified constructs, and divergence rows — a
+diverged row downgrades every capability that depends on the diverged behavior).
+A capability status is not authorable, and drift fails `compat:check`.
 
 ## CI And Setup
 
