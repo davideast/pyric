@@ -40,8 +40,24 @@ function recordProblems(file: string, value: unknown): string[] {
 
   if (typeof record.description !== 'string' || !record.description.trim()) fail("missing 'description'");
   if (typeof record.script !== 'string' || !record.script.trim()) fail("missing 'script'");
-  if (!isStringArray(record.observationPrefixes) || record.observationPrefixes.length === 0) {
-    fail("'observationPrefixes' must be a non-empty string array");
+  const observationPrefixesOk = isStringArray(record.observationPrefixes);
+  if (!observationPrefixesOk) {
+    fail("'observationPrefixes' must be a string array");
+  }
+  const pendingOk = record.pendingPrefixes === undefined || isStringArray(record.pendingPrefixes);
+  if (!pendingOk) {
+    fail("'pendingPrefixes' must be a string array when present");
+  }
+  if (observationPrefixesOk && pendingOk) {
+    const observationPrefixes = record.observationPrefixes as string[];
+    const pendingPrefixes = (record.pendingPrefixes as string[] | undefined) ?? [];
+    if (observationPrefixes.length + pendingPrefixes.length === 0) {
+      fail("a rig must declare at least one prefix across 'observationPrefixes' and 'pendingPrefixes'");
+    }
+    const overlap = observationPrefixes.filter((prefix) => pendingPrefixes.includes(prefix));
+    if (overlap.length > 0) {
+      fail(`prefix(es) [${overlap.join(', ')}] appear in BOTH 'observationPrefixes' and 'pendingPrefixes' — a prefix is either captured or pending, not both`);
+    }
   }
   if (typeof record.automation !== 'string' || !AUTOMATION_VALUES.has(record.automation as RigAutomation)) {
     fail(`invalid 'automation' (${JSON.stringify(record.automation)})`);
