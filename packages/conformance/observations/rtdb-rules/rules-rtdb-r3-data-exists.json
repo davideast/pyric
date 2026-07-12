@@ -1,0 +1,16 @@
+{
+  "name": "rules-rtdb-r3-data-exists",
+  "matrixRow": "rtdb-rules#3",
+  "rowIds": [
+    "rtdb-rules#3"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r3-data-exists\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ancestor .write cascade dominates a deeper !data.exists() rule \u2014 production allows the populated-path write, and the simulator must model the same cascade grant.",
+  "observedAt": "2026-07-12T02:54:57.994Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "write to empty path allowed (!data.exists)": "ALLOW",
+    "write to populated path denied (data.exists)": "ALLOW",
+    "read inherits ancestor (auth != null)": "ALLOW"
+  }
+}

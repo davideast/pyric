@@ -49,8 +49,9 @@ import {
   type RtdbTestCase,
 } from '../../../../packages/conformance/rules-corpus/rtdb/index.ts';
 
-// rules-rtdb-* observations live under the 'rtdb' surface subdirectory.
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb');
+// rules-rtdb-* observations live under the 'rtdb-rules' surface subdirectory
+// (surfaces/rtdb-rules.ts owns the prefix), NOT the SDK-plane 'rtdb' one.
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb-rules');
 
 /** A fixed replay uid substituted for the `<UID>` token in authed ops — the
  *  in-process analogue of the signed-in anonymous uid the agreement probe

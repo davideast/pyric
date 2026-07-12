@@ -1,0 +1,17 @@
+{
+  "name": "rules-rtdb-r1-auth-only",
+  "matrixRow": "rtdb-rules#1",
+  "rowIds": [
+    "rtdb-rules#1"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r1-auth-only\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). auth != null gate \u2014 production allows authed read/write and denies anonymous read/write; the simulator must agree.",
+  "observedAt": "2026-07-12T02:54:57.991Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "authed read allowed": "ALLOW",
+    "authed write allowed": "ALLOW",
+    "anon read denied": "DENY",
+    "anon write denied": "DENY"
+  }
+}
