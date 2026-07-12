@@ -51,8 +51,9 @@ service firebase.storage {
     { description: 'comma verbs grant delete', expectation: 'ALLOW', method: 'delete', path: 'pair/d.txt', existingResource: { size: 5 } },
     { description: 'comma verbs deny create (not listed)', expectation: 'DENY', method: 'create', path: 'pair/d.txt', resource: { size: 5, contentType: 'text/plain' } },
     // create-vs-update keyed on existence
-    // KNOWN DIVERGENCE (pinned in test/storage/rules-oracle-conformance.test.ts
-    // KNOWN_DIVERGENCES, issue #134): the capture disagrees with this
+    // KNOWN DIVERGENCE, CRITICAL (over-permissive: the evaluator ALLOWs where
+    // production DENIEs; pinned in test/storage/rules-oracle-conformance.test.ts
+    // KNOWN_DIVERGENCES, registry row storage-rules#118, issue #134): the capture disagrees with this
     // `expectation`. Production throws a "Null value error" referencing
     // `resource` on a create where no object exists yet (live-probed with
     // both an omitted resource field and an explicit null — identical

@@ -70,7 +70,14 @@ interface RulesObservation {
  * the moment either side's actual behavior changes, forcing a revisit.
  *
  * `rules-storage-verbs-umbrella-granular :: create allowed when object does
- * not exist (resource == null)`: live-probed against the production Rules
+ * not exist (resource == null)`: CRITICAL, the highest severity a divergence
+ * can carry. The evaluator ALLOWs where production DENIEs, which is the
+ * over-permissive direction (see docs/storage/reference/conformance-gaps.md
+ * for the direction rule: pyric-allows/production-denies is always the top
+ * tier, pyric-denies/production-allows is always the lower one). It is not an
+ * edge case: `allow create: if resource == null` is the canonical
+ * create-if-absent guard, and in production no such rule ever allows.
+ * Registry row `storage-rules#118`. Live-probed against the production Rules
  * Test API with BOTH an omitted `resource` field and an explicit
  * `resource: null` for a create where the object does not yet exist — both
  * shapes are the harness's correct wire encoding of "no existing object"
