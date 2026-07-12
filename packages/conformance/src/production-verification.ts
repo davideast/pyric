@@ -57,7 +57,7 @@
  *   rule that governs this path evaluated false" — no single captured verdict
  *   distinguishes the default from an ordinary denial, the way a cascade ALLOW
  *   distinguishes cascade from no-cascade. These two constructs carry
- *   `unattributable` in their snapshot entries, stay OUT of the coverage
+ *   an `excluded` record in their snapshot entries, stay OUT of the coverage
  *   denominator, and are not to be behaviorally credited by adding them to a
  *   row's scope. A cascade grant flips a verdict; a default denies where a
  *   denial was already the answer.

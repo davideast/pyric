@@ -53,31 +53,31 @@ function registry(rows: CompatibilityRow[]): CompatibilitySurfaceRegistry {
 
 describe('isProductionVerified', () => {
   it('credits a construct SYNTACTICALLY: a captured scenario exercises it', () => {
-    expect(isProductionVerified({ scenarios: ['r1-auth-only'], provingRows: [] })).toBe(true);
+    expect(isProductionVerified({ scenarios: ['r1-auth-only'], provingRows: [], divergingRows: [] })).toBe(true);
   });
 
   it('credits a construct BEHAVIORALLY: a conforming oracle-backed row scopes it', () => {
-    expect(isProductionVerified({ scenarios: [], provingRows: ['rtdb-rules#5'] })).toBe(true);
+    expect(isProductionVerified({ scenarios: [], provingRows: ['rtdb-rules#5'], divergingRows: [] })).toBe(true);
   });
 
   it('does NOT credit a construct nothing backs', () => {
-    expect(isProductionVerified({ scenarios: [], provingRows: [] })).toBe(false);
+    expect(isProductionVerified({ scenarios: [], provingRows: [], divergingRows: [] })).toBe(false);
   });
 
   it('cites the syntactic path when both are present (a scenario is the stronger evidence)', () => {
-    expect(describeProductionEvidence({ scenarios: ['a', 'b'], provingRows: ['x#1'] })).toBe(
+    expect(describeProductionEvidence({ scenarios: ['a', 'b'], provingRows: ['x#1'], divergingRows: [] })).toBe(
       'production-verified by 2 captured scenario(s)',
     );
   });
 
   it('names the proving rows when only the behavioral path backs it', () => {
-    expect(describeProductionEvidence({ scenarios: [], provingRows: ['x#1', 'x#2'] })).toBe(
+    expect(describeProductionEvidence({ scenarios: [], provingRows: ['x#1', 'x#2'], divergingRows: [] })).toBe(
       'production-verified by conforming oracle-backed rules-engine row x#1, x#2',
     );
   });
 
   it('says so plainly when nothing verifies it', () => {
-    expect(describeProductionEvidence({ scenarios: [], provingRows: [] })).toBe(
+    expect(describeProductionEvidence({ scenarios: [], provingRows: [], divergingRows: [] })).toBe(
       'no production-captured scenario and no conforming oracle-backed row verifies it',
     );
   });
@@ -101,6 +101,7 @@ describe('indexConstructScopes', () => {
       isProductionVerified({
         scenarios: [],
         provingRows: provingRows.get('rtdb.semantic.write-cascade') ?? [],
+        divergingRows: [],
       }),
     ).toBe(false);
   });
@@ -164,7 +165,7 @@ describe('the real graph', () => {
       expect(construct.verifiedBy).toEqual([]);
       expect(construct.verifiedByRows.length).toBeGreaterThan(0);
       expect(
-        isProductionVerified({ scenarios: construct.verifiedBy, provingRows: construct.verifiedByRows }),
+        isProductionVerified({ scenarios: construct.verifiedBy, provingRows: construct.verifiedByRows, divergingRows: construct.contaminatedBy }),
       ).toBe(true);
     }
   });
@@ -175,21 +176,22 @@ describe('the real graph', () => {
         .flatMap((e) => e.constructs)
         .find((c) => c.id === id)!;
       // Excluded from the denominator: no scenario's AST can carry it and no
-      // single captured verdict positively demonstrates it.
-      expect(construct.unattributable).toBeTruthy();
+      // single captured verdict positively demonstrates it. The exclusion is a
+      // reason CLASS the snapshot loader enforces, not free prose.
+      expect(construct.excluded?.class).toBe('no-ast-node');
       expect(construct.verifiedBy).toEqual([]);
       expect(provingRows.get('rtdb.semantic.deny-by-default')).toBeUndefined();
     }
     const rtdb = coverageReport.engines.find((e) => e.engine === 'rtdb')!;
-    expect(rtdb.constructs.filter((c) => !c.unattributable).length).toBe(rtdb.totalConstructs);
+    expect(rtdb.constructs.filter((c) => !c.excluded).length).toBe(rtdb.totalConstructs);
     expect(rtdb.constructs.some((c) => c.id === 'rtdb.semantic.deny-by-default')).toBe(true);
   });
 
   it('the coverage report and the derivation agree, construct for construct', () => {
     for (const engine of coverageReport.engines) {
       const verified = engine.constructs
-        .filter((c) => !c.unattributable)
-        .filter((c) => isProductionVerified({ scenarios: c.verifiedBy, provingRows: c.verifiedByRows }));
+        .filter((c) => !c.excluded)
+        .filter((c) => isProductionVerified({ scenarios: c.verifiedBy, provingRows: c.verifiedByRows, divergingRows: c.contaminatedBy }));
       expect(verified.length).toBe(engine.verifiedConstructs);
     }
   });

@@ -22,5 +22,6 @@
     "request.resource.id == id on update → DENY (identity absent in prod)": "DENY",
     "request.resource.id != 'zzz' on update → DENY (error survives negation)": "DENY",
     "request.resource.data.owner == 'alice' on update → ALLOW (control: incoming data is unaffected)": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:6f4cee8dd6cf37a6a923ab77be2c871829605ee49eca639ee3b30bbd2fdbfa11"
 }
