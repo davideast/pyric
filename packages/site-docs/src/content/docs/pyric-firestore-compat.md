@@ -651,32 +651,8 @@ order: 8003
 
 ## Offline / persistence / network family
 
-`enableIndexedDbPersistence`, `enableMultiTabIndexedDbPersistence`,
-`clearIndexedDbPersistence`, `enableNetwork`, `disableNetwork`, and
-`waitForPendingWrites` are now exported from `pyric/firestore`. Before
-this, none of the six existed on the modular surface at all — an app
-that called any of them at init (a common pattern) crashed on a
-missing named export before it ever ran a read or write.
+The backend runs locally, so there is no separate cache to enable and no network to toggle. Each function resolves by doing what it promises, or resolves as a documented no-op when there is nothing local for it to mean.
 
-**Honest-mirror rationale**: the sandbox IS the backend, running
-local-first with IndexedDB persistence on by default (the
-SharedWorker/`pyric dev` path calls `Sandbox.enablePersistence(...)`
-before any app code runs). There is no separate cache tier to opt
-into and no network to gate. Each function below does the one
-honest thing available in that model — resolve because the promised
-behavior is already true, or resolve as a documented no-op because
-there is nothing local for it to mean. None of them simulate a
-capability the sandbox doesn't have; in particular, `disableNetwork`
-does NOT queue writes for later replay — writes still commit
-immediately, because there's no real connection to lose.
-
-`terminate` is also now exported from `pyric/firestore` — a genuine
-teardown-forward (not a pure no-op) to `Sandbox.dispose()` on sandbox
-targets, and to `fb.terminate` on prod targets. See its own row below
-for the scope caveat (it tears down the whole `Sandbox`, not a
-Firestore-only slice).
-
-## Offline / persistence / network family (continued)
 
 <div class="compat-list">
 <details class="compat-row" data-status="diverged">
@@ -712,44 +688,8 @@ Firestore-only slice).
 
 ## Tier-1 cache-init + get-from-* family
 
-`initializeFirestore`, the six cache-factory tokens
-(`persistentLocalCache`, `memoryLocalCache`, `persistentSingleTabManager`,
-`persistentMultipleTabManager`, `memoryEagerGarbageCollector`,
-`memoryLruGarbageCollector`), `getDocFromServer` / `getDocsFromServer`,
-`getDocFromCache` / `getDocsFromCache`, `setLogLevel`, and
-`onSnapshotsInSync` are now exported from `pyric/firestore`. Before
-this, none of these existed on the modular surface — an app using the
-common explicit-init pattern
+The local store is always the fresh, authoritative source, so there is no cache to configure or to read separately from a server. These functions alias the normal read and init path, or resolve as documented no-ops.
 
-```ts
-const db = initializeFirestore(app, {
-  localCache: persistentLocalCache(persistentMultipleTabManager()),
-});
-```
-
-crashed at IMPORT (a missing named export) before it ever ran a read
-or write.
-
-**Honest-mirror rationale**: these are aliases and honest no-op
-config tokens, not new feature work. `initializeFirestore` delegates
-to `getFirestore` and returns the same handle; it accepts the
-`settings` argument but no-ops the cache/network settings, because
-persistence is already the sandbox default — there is no separate
-cache tier to configure into existence. The six cache-factory tokens
-return small tagged objects so identity/usage doesn't crash; they are
-inert for the same reason. `getDocFromServer` / `getDocFromCache` and
-their plural forms delegate to the same read path as `getDoc` /
-`getDocs` on sandbox targets — the sandbox store IS the authoritative,
-always-fresh source, so there is no cache/server split to honor; on
-prod targets they forward to the real split, preserving prod's real
-cache-miss-throws behavior. `setLogLevel` is an accepted no-op — the
-sandbox has no modular-SDK-style logger to wire a level into.
-`onSnapshotsInSync` fires its callback once the current
-snapshot-delivery microtask queue settles, the closest honest
-approximation of "every listener delivered" available without a true
-cross-listener sync signal.
-
-## Tier-1 cache-init + get-from-* family (continued)
 
 <div class="compat-list">
 <details class="compat-row" data-status="diverged">

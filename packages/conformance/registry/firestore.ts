@@ -2561,11 +2561,11 @@ export const firestoreRegistry = {
     },
     {
       kind: 'markdown',
-      markdown: "\n## Offline / persistence / network family\n\n`enableIndexedDbPersistence`, `enableMultiTabIndexedDbPersistence`,\n`clearIndexedDbPersistence`, `enableNetwork`, `disableNetwork`, and\n`waitForPendingWrites` are now exported from `pyric/firestore`. Before\nthis, none of the six existed on the modular surface at all — an app\nthat called any of them at init (a common pattern) crashed on a\nmissing named export before it ever ran a read or write.\n\n**Honest-mirror rationale**: the sandbox IS the backend, running\nlocal-first with IndexedDB persistence on by default (the\nSharedWorker/`pyric dev` path calls `Sandbox.enablePersistence(...)`\nbefore any app code runs). There is no separate cache tier to opt\ninto and no network to gate. Each function below does the one\nhonest thing available in that model — resolve because the promised\nbehavior is already true, or resolve as a documented no-op because\nthere is nothing local for it to mean. None of them simulate a\ncapability the sandbox doesn't have; in particular, `disableNetwork`\ndoes NOT queue writes for later replay — writes still commit\nimmediately, because there's no real connection to lose.\n\n`terminate` is also now exported from `pyric/firestore` — a genuine\nteardown-forward (not a pure no-op) to `Sandbox.dispose()` on sandbox\ntargets, and to `fb.terminate` on prod targets. See its own row below\nfor the scope caveat (it tears down the whole `Sandbox`, not a\nFirestore-only slice).\n",
+      markdown: "\n## Offline / persistence / network family\n\nThe backend runs locally, so there is no separate cache to enable and no network to toggle. Each function resolves by doing what it promises, or resolves as a documented no-op when there is nothing local for it to mean.\n",
     },
     {
       kind: 'table',
-      prefix: "## Offline / persistence / network family (continued)\n",
+      prefix: "",
       rows: [
         {
           "id": "firestore#140",
@@ -2684,11 +2684,11 @@ export const firestoreRegistry = {
     },
     {
       kind: 'markdown',
-      markdown: "\n## Tier-1 cache-init + get-from-* family\n\n`initializeFirestore`, the six cache-factory tokens\n(`persistentLocalCache`, `memoryLocalCache`, `persistentSingleTabManager`,\n`persistentMultipleTabManager`, `memoryEagerGarbageCollector`,\n`memoryLruGarbageCollector`), `getDocFromServer` / `getDocsFromServer`,\n`getDocFromCache` / `getDocsFromCache`, `setLogLevel`, and\n`onSnapshotsInSync` are now exported from `pyric/firestore`. Before\nthis, none of these existed on the modular surface — an app using the\ncommon explicit-init pattern\n\n```ts\nconst db = initializeFirestore(app, {\n  localCache: persistentLocalCache(persistentMultipleTabManager()),\n});\n```\n\ncrashed at IMPORT (a missing named export) before it ever ran a read\nor write.\n\n**Honest-mirror rationale**: these are aliases and honest no-op\nconfig tokens, not new feature work. `initializeFirestore` delegates\nto `getFirestore` and returns the same handle; it accepts the\n`settings` argument but no-ops the cache/network settings, because\npersistence is already the sandbox default — there is no separate\ncache tier to configure into existence. The six cache-factory tokens\nreturn small tagged objects so identity/usage doesn't crash; they are\ninert for the same reason. `getDocFromServer` / `getDocFromCache` and\ntheir plural forms delegate to the same read path as `getDoc` /\n`getDocs` on sandbox targets — the sandbox store IS the authoritative,\nalways-fresh source, so there is no cache/server split to honor; on\nprod targets they forward to the real split, preserving prod's real\ncache-miss-throws behavior. `setLogLevel` is an accepted no-op — the\nsandbox has no modular-SDK-style logger to wire a level into.\n`onSnapshotsInSync` fires its callback once the current\nsnapshot-delivery microtask queue settles, the closest honest\napproximation of \"every listener delivered\" available without a true\ncross-listener sync signal.\n",
+      markdown: "\n## Tier-1 cache-init + get-from-* family\n\nThe local store is always the fresh, authoritative source, so there is no cache to configure or to read separately from a server. These functions alias the normal read and init path, or resolve as documented no-ops.\n",
     },
     {
       kind: 'table',
-      prefix: "## Tier-1 cache-init + get-from-* family (continued)\n",
+      prefix: "",
       rows: [
         {
           "id": "firestore#145",
