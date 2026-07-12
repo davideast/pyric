@@ -1,4 +1,5 @@
 export type Surface =
+  | 'app'
   | 'ai'
   | 'auth'
   | 'firestore'

@@ -1,0 +1,15 @@
+{
+  "name": "app-registry-getapp-named",
+  "matrixRow": "app #6",
+  "rowIds": [
+    "app#6"
+  ],
+  "description": "firebase/app getApp('secondary') resolves the named app registered under that name — the same instance, with name 'secondary'.",
+  "observedAt": "2026-07-12T01:20:59.103Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "threw": false,
+    "resolvesSameInstance": true,
+    "name": "secondary"
+  }
+}

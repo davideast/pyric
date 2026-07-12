@@ -20,7 +20,11 @@ import {
 } from '../../src/messaging/index.js';
 
 function sandboxApp() {
-  return initializeApp({ sandbox: initializeSandbox() });
+  // Distinct independent apps need distinct names — a default-name reuse
+  // would collide (app/duplicate-app), exactly as firebase/app does. The
+  // random suffix stays unique across the messaging test files (one process,
+  // one shared app registry).
+  return initializeApp({ sandbox: initializeSandbox() }, `msg-${Math.random().toString(36).slice(2)}`);
 }
 
 /** A distinct simulated registration (identity is what token stability keys on). */

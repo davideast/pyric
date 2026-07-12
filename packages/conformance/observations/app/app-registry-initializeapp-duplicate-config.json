@@ -1,0 +1,15 @@
+{
+  "name": "app-registry-initializeapp-duplicate-config",
+  "matrixRow": "app #4",
+  "rowIds": [
+    "app#4"
+  ],
+  "description": "firebase/app initializeApp() a second time under the same name with EQUAL options is idempotent: it does not throw and returns the SAME app instance; getApps() stays length 1.",
+  "observedAt": "2026-07-12T01:20:59.104Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "threw": false,
+    "returnedSameInstance": true,
+    "getAppsLength": 1
+  }
+}

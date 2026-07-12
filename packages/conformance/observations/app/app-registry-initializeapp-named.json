@@ -1,0 +1,17 @@
+{
+  "name": "app-registry-initializeapp-named",
+  "matrixRow": "app #2",
+  "rowIds": [
+    "app#2"
+  ],
+  "description": "firebase/app initializeApp(options, 'secondary') registers a named app alongside the default: named.name is 'secondary', getApp('secondary') resolves the same instance, and getApps() has length 2 (default + named).",
+  "observedAt": "2026-07-12T01:20:59.104Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "threw": false,
+    "defaultName": "[DEFAULT]",
+    "namedName": "secondary",
+    "getAppsLength": 2,
+    "getAppByNameResolvesSame": true
+  }
+}

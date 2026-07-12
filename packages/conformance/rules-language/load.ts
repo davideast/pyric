@@ -32,7 +32,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const RULES_ENGINES: readonly RulesEngine[] = ['firestore', 'storage', 'rtdb'] as const;
 
 const KIND_SET = new Set<string>(CONSTRUCT_KINDS);
-const STATUS_SET = new Set(['unprobed', 'accepted', 'rejected']);
+const STATUS_SET = new Set(['unprobed', 'accepted', 'rejected', 'unprobeable']);
 
 /** Structural problems in one snapshot (empty = valid). */
 function snapshotProblems(engine: RulesEngine, snap: unknown): string[] {
@@ -91,6 +91,13 @@ function snapshotProblems(engine: RulesEngine, snap: unknown): string[] {
     }
     if (c.note !== undefined && (typeof c.note !== 'string' || c.note.length === 0)) {
       problems.push(`${at} (${c.id}): note present but empty`);
+    }
+    if (c.probeNote !== undefined && (typeof c.probeNote !== 'string' || c.probeNote.length === 0)) {
+      problems.push(`${at} (${c.id}): probeNote present but empty`);
+    }
+    if ((c.status === 'rejected' || c.status === 'unprobeable') &&
+        (typeof c.probeNote !== 'string' || c.probeNote.length === 0)) {
+      problems.push(`${at} (${c.id}): status "${c.status}" requires a non-empty probeNote`);
     }
   }
   return problems;

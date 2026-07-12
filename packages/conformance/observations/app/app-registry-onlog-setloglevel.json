@@ -1,0 +1,19 @@
+{
+  "name": "app-registry-onlog-setloglevel",
+  "matrixRow": "app #13",
+  "rowIds": [
+    "app#13"
+  ],
+  "description": "firebase/app onLog(cb) registers a global log handler (returning undefined) and setLogLevel('warn') raises the threshold; a subsequent malformed registerVersion() emits a warn entry through the SDK logger to the handler. Pins the observable register+emit contract: the entry carries a level, a type, a string message, and an args array. The probe clears its handler and restores the level afterwards.",
+  "observedAt": "2026-07-12T01:20:59.104Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "onLogReturn": "undefined",
+    "setLogLevelThrew": false,
+    "emittedCount": 1,
+    "emittedLevel": "warn",
+    "emittedType": "@firebase/app",
+    "emittedMessageIsString": true,
+    "emittedArgsIsArray": true
+  }
+}
