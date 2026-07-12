@@ -109,6 +109,17 @@ export interface LanguageConstruct {
    *  acceptance probe (issue #185 step 5) observed. A construct can carry
    *  both. */
   probeNote?: string;
+  /** Present when this construct can never be credited by the static AST
+   *  analyzer (rules-language-analyzer.ts, issue #185 step 2): it is a
+   *  genuine language semantic with no expression-level AST representation
+   *  to walk — ambient engine behavior (or a runtime/scenario-outcome fact),
+   *  not something a ruleset's source text "contains" at some walkable node.
+   *  Distinct from `note` (a doc-vs-parser divergence) and `probeNote` (a
+   *  live production acceptance-probe finding): this documents why the
+   *  analyzer's coverage report will show this construct with a permanently
+   *  empty `exercisedBy`/`verifiedBy` — a documented limit of the analysis
+   *  method, not an unaddressed gap. */
+  unattributable?: string;
 }
 
 /** A whole-engine snapshot: the file shape of `<engine>.json`. */
