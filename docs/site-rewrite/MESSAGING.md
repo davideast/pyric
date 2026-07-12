@@ -107,6 +107,13 @@ Then the five services in the compat dot language: Firestore, Auth, Rules solid;
 
 No counts. Counts drift and invite comparison-shopping; the dot plus the linked matrix is the receipt. "Experimental, honestly" is load-bearing: the honesty IS the differentiator, so it gets said where the weakness shows.
 
+**Update (2026-07-11, conformance scores landed):** the receipt is now provable per package and for rules, and that changes where the depth lives, not what the fold says. Above the fold this beat keeps the dots and one sentence; the scores are the below-the-fold "how does this actually work?" layer, one click down on the conformance page. Rules for using them anywhere:
+
+- The real, regenerable numbers: rules-language production-verified coverage firestore **91.4%**, storage **96.2%**, rtdb **32.7%** (verified ÷ attributable constructs, `coverage-report.json`); behavior rows per service from `coverage-baseline.json` (e.g. firestore 146 conform / 20 documented divergences); 16 assurance capabilities with derived statuses (2 supported, 2 qualified, 12 unsupported).
+- Never publish 96.8% / 98.0%. Those were commit-message narrative on a different denominator, never a persisted metric, and already stale.
+- A number never appears without its denominator in the same breath, and always as "generated, not asserted" (the artifact and regen command exist for scrutiny).
+- The no-counts rule above still governs the fold itself: dots up top, scores one level down. The dot legend line gains a truthful upgrade available if wanted: "Green is conformance-held. Hollow is experimental, and the scores say exactly how experimental."
+
 ### 6. What do I do now? (the doors)
 
 Two doors, named by outcome, not by document type:

@@ -7,7 +7,7 @@ status: draft
 
 # Write Realtime Database rules in TypeScript
 
-> Realtime Database support is experimental. [What that costs you](../trust/whats-experimental.md).
+> Realtime Database support is experimental. [How we know it matches Firebase](../trust/how-we-know-it-matches-firebase.md) explains the boundary.
 
 Realtime Database rules are strings inside a JSON tree. Pyric lets you write them as TypeScript instead: typed builders compose into expressions, the expressions assemble into a ruleset, and the ruleset checks itself, simulates requests, and compiles to the exact JSON Firebase deploys. A typo becomes a compile error instead of a production surprise.
 

@@ -16,15 +16,11 @@ The short answer: Firestore, unless your data is a small shared tree that many c
 | Model | documents and subcollections | one JSON tree |
 | Queries | combined filters, ordering, aggregations, cursors | path reads, one `orderBy` |
 | Built for | structured app data, almost every CRUD app | presence, live cursors, game state, counters |
-| Maturity in Pyric | v1, tested against recorded production behavior | [experimental](../whats-experimental/) |
+| Maturity in Pyric | [v1, tested against recorded production behavior](../pyric-firestore-compat/) | [experimental, not yet pinned to production](../pyric-database-compat/) |
 
-**Choose Firestore for query power and structured documents.** Documents and subcollections grow with your app's shape, and access rules attach naturally to paths and document data. Most apps land here.
+**Choose Firestore for query power and structured documents.** Subcollections grow with your app's shape, and access rules attach naturally to paths and document data. Most apps land here, and if either service would fit, pick Firestore: it carries the deeper conformance record.
 
-**Choose Realtime Database for low-latency tree sync.** The model is deliberately simpler, and that simplicity is the feature. It stops being a fit the moment you want multi-field queries, so [model the tree around your reads](../sync-realtime-data/) before committing.
-
-Maturity belongs in the decision too. If either service would fit, pick Firestore.
-
-They also combine. A common shape is Firestore for the documents your app is made of and RTDB for the ephemeral layer on top, presence and typing indicators, where a two-field tree beats a document write per keystroke.
+**Choose Realtime Database for low-latency tree sync,** presence, live cursors, game state, counters. It stops being a fit the moment you want multi-field queries, so [model the tree around your reads](../sync-realtime-data/) before committing. The two also combine: Firestore for the documents your app is made of, RTDB for the ephemeral layer on top, where a two-field tree beats a document write per keystroke.
 
 ## Where to go next
 

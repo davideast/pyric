@@ -22,76 +22,105 @@ service cloud.firestore {
   }
 }
 ```
-The rules language has no import statement. This file deploys anyway, and what lands on Firebase is stock `rules_version = '2'` with the two functions inlined at the top of the match tree. `isMyTurn` and `turnFlipped` are not snippets you pasted. They are functions from a tested module, pulled in by name.
+The rules language has no import statement. This file deploys anyway. `isMyTurn` and `turnFlipped` are not snippets you pasted from somewhere. They are functions from Pyric's rules standard library, fifteen modules of common and advanced security checks, each with tests, pulled in by name.
 
 ## An import system that compiles away
 
-Declare `rules_version = '2+modules'` instead of `'2'` and the import syntax becomes legal. When you lint, simulate, or deploy, the resolver:
+Declare `rules_version = '2+modules'` instead of `'2'` and the import syntax becomes legal. Imports resolve to flat names, so you call the function directly, never through a module prefix:
+```rules
+rules_version = '2+modules';
+import { hasClaim } from 'membership';
+import { statusIs } from 'transitions';
 
-- reads each import and pulls in the functions you named, plus anything they call
+// hasClaim(...), never membership.hasClaim(...)
+allow update: if hasClaim('moderator') && statusIs('status', 'pending');
+```
+When you lint, simulate, or deploy, the resolver:
+
+- pulls in the functions you named, plus anything they call
 - prefixes each module's private helpers with the module name, so two modules can never collide
 - orders dependencies before dependents and injects the result into your ruleset
 - rewrites the version back to `'2'`
 
-The output is byte-valid stock Firestore rules. Firebase never sees the module system.
+The output is stock Firestore rules. Firebase never sees the module system. And if an imported name collides with a function your file already defines, resolution fails loudly instead of shadowing anything.
 
-Two things to know once you are inside it:
+## Fifteen modules, common to advanced
 
-- Imports resolve to flat names. You call `hasRequired([...])`, never `validation.hasRequired(...)`.
-- If an imported function collides with one your file already defines, resolution fails loudly instead of shadowing anything.
-
-## Rate limits, atomic pairs, and state machines
-
-Fifteen modules ship with Pyric. A few exist specifically because the received wisdom says they can't.
-
-**Rules can rate-limit.** `timing.cooldownElapsed('lastMoveAt', 2)` allows an update only when the stored timestamp is more than two seconds old. On its own that is forgeable, because the client writes the timestamp and could write one from last week. So pair it with `isServerTimestamp('lastMoveAt')` from `lifecycle` on the same write, which forces the field to be the server's own clock:
+Any file can mix modules, so a game rule borrows from `counters` as naturally as from `state`:
 ```rules
-import { cooldownElapsed } from 'timing';
-import { isServerTimestamp } from 'lifecycle';
+import { isPlaying } from 'state';
+import { incrementedBy } from 'counters';
 
-// At most one move every 2 seconds
-allow update: if cooldownElapsed('lastMoveAt', 2)
-  && isServerTimestamp('lastMoveAt');
+allow update: if isPlaying() && incrementedBy('moveCount', 1);
 ```
-A missing or non-timestamp field errors, and an error denies. Verified against the production rules engine, not a simulation of it.
-
-**Rules can enforce integrity across a batch.** The `atomic` module uses the `get()`/`getAfter()` pair, where `getAfter()` reads another document as it will be after the current batch commits. `companionChangedBy(before, after, 'taskCount', 1)` allows a write only if a companion document's counter moved by exactly one in the same batch.
-
-A solo write denies by construction: outside a batch, `getAfter()` equals `get()`, so the delta is zero. `consumedFlag` handles single-use invites the same way, pre-batch false and post-batch true, so a replay of the consuming write denies.
-
-Live-verified against a real production database, rules deployed and batch commits issued as a signed-in user. One thing to remember: every write in a batch is evaluated, so the companion write needs its own allow rule.
-
-**Rules can be a state machine.** `transitions.validTransition('status', 'pending', 'paid')` names exactly which edge a write may traverse, and nothing else.
-
-**Membership can change safely with no backend.** `spaces` gates a subcollection through its parent document's members field, list-shaped or map-shaped, and fails closed when the field or the parent document is missing.
-
-`joining` covers the write side. `onlyAddedSelf('members', 'editor')` uses set equality on the map diff, so the write adds exactly the caller at exactly that role. Nobody else changed, nobody removed, no self-granted admin.
-
-Compose it with `lifecycle.onlyFieldsChanged(['members'])` and a join cannot touch anything else on the document. Production-verified, ten scenarios of ten.
-
-One gotcha worth taking from `membership` even if you never import it: custom claims live at `request.auth.token.admin`, not `request.auth.admin`. The second form reads null and quietly denies forever.
-
-## The everyday modules
-
-The rest of the shelf covers the common shapes.
-
 | Module | What it covers |
 |---|---|
-| `auth` | the two checks every app writes first |
-| `validation` | field shape and enum checks |
-| `lifecycle` | `onlyFieldsChanged`, the single most common update guard: users may edit these fields and nothing else |
+| `auth` | signed-in and ownership checks, the two every app writes first |
+| `validation` | field shape: required keys, allowed keys, string sizes, enums |
+| `lifecycle` | immutable fields, server timestamps, "these fields and nothing else" |
 | `content` | author-owned documents with draft visibility and soft delete |
-| `counters` | client-maintained numbers that may only change by known steps |
-| `lobby`, `turns`, `state`, `geometry` | the game set the case studies are built from |
+| `membership` | roles from custom claims or a members map |
+| `transitions` | state machines: exactly which edge a write may traverse |
+| `counters` | numbers that only move by known steps or stay in bounds |
+| `timing` | cooldowns: the stored timestamp must be older than the window |
+| `spaces` | parent-document membership gating for teams, rooms, projects |
+| `joining` | self-service join and leave with no privilege escalation |
+| `atomic` | cross-document integrity inside a single batch write |
+| `lobby` | create, join, cancel for host and guest session documents |
+| `turns` | turn order for two-player games |
+| `state` | status checks, move counting, participants unchanged |
+| `geometry` | movement validation against a config document you pass in |
 
-Every module ships with test fixtures that execute against the rules engine in CI, and each case must decide allow or deny as expected. The modules making the boldest claims, `timing`, `atomic`, `spaces`, `joining`, and `geometry`, are verified against production Firebase as well.
+Every module ships with an executable fixture file beside it, and `stdlib-cases.test.ts` runs each case through the real resolver and the rules simulator, asserting the exact verdict, allow or deny. A case the simulator cannot decide fails the suite outright. So the modules are simulator-tested with executable fixtures, not example code that happens to live in a repo.
 
-This page is a guide, not the catalog. The full module list, every signature with its gotchas, lives in the module manifest until the reference section lands.
+## The everyday pair: auth and validation
+
+Most rulesets start with the same two questions, who is writing and what are they writing. `auth` answers the first, `validation` the second:
+```rules
+rules_version = '2+modules';
+import { isAuthenticated, isOwner } from 'auth';
+import { hasRequired, hasOnly, validString, isOneOf } from 'validation';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /profiles/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId)
+        && hasRequired(['displayName', 'visibility'])
+        && hasOnly(['displayName', 'visibility', 'bio'])
+        && validString('displayName', 1, 50)
+        && isOneOf('visibility', ['public', 'private']);
+    }
+  }
+}
+```
+Read it back: only the owner writes, both required fields are present, nothing beyond the three allowed keys, the name is 1 to 50 characters, and visibility is one of two values. The details carry the hard-won parts. `validString` reads the field with bracket access, so a missing field fails the check instead of erroring, and `isOneOf` uses `in` on a list because `.includes()` does not exist in rules.
+
+## Let users join a team, and only as themselves
+
+The advanced end of the shelf: a map-shaped `members` field on a team document, where users join and leave on their own, with no backend granting access and no way to escalate:
+```rules
+rules_version = '2+modules';
+import { onlyAddedSelf, onlyRemovedSelf } from 'joining';
+import { onlyFieldsChanged } from 'lifecycle';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /teams/{teamId} {
+      allow update: if onlyFieldsChanged(['members'])
+        && (onlyAddedSelf('members', 'editor') || onlyRemovedSelf('members'));
+    }
+  }
+}
+```
+`onlyAddedSelf` diffs the members map and demands set equality: the write adds exactly the caller, at exactly `editor`, changes nobody, removes nobody. A join that also sneaks in a friend, edits an existing role, or self-assigns `admin` denies. Composed with `onlyFieldsChanged(['members'])`, the write cannot touch anything else on the document either.
+
+The fixtures assert each of those denials by name. That is the point of importing over pasting: the failure cases you would not have thought to test are already cases.
 
 ## And from an agent
 
-An agent does not memorize any of this. `firestore_rules_stdlib_get({ key: 'timing' })` returns a module's signatures, examples, and gotchas, and the resolver runs in-process, so the agent composes a ruleset from modules, lints it, and simulates verdicts before anything deploys. See [skills](../skills/).
+An agent writing rules does not memorize this catalog. It calls `firestore_rules_stdlib_list()` for the module keys, then `firestore_rules_stdlib_get({ key: 'joining' })` for that module's signatures, examples, and common-mistake notes, so the library doubles as context that teaches the agent the same habit this page teaches you. The playground enforces it too: an invented function name fails compile, an imported one resolves. See [skills](../skills/).
 
 ## Where to go next
 
-The modules are built from techniques you can use directly, in [rules patterns](../rules-patterns/). To prove a composed ruleset behaves before it ships, go to [simulate and lint before you deploy](../simulate-and-lint/).
+Every signature, with parameters and gotchas, is in the [module reference](../pyric-rules-reference-stdlib-modules/). The techniques the modules are built from are yours to use directly, in [rules patterns](../rules-patterns/).

@@ -8,7 +8,7 @@ description: "Store and watch a Realtime Database tree locally, model it around 
 
 # Sync realtime data
 
-> **Experimental.** Realtime Database works and is documented, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. Read [what's experimental](../whats-experimental/) before you rely on it.
+> **Experimental.** Realtime Database works and is documented, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. Read [how we know it matches Firebase](../how-we-know-it-matches-firebase/) before you rely on it.
 
 Realtime Database is one JSON tree that many clients watch at once. In Pyric it runs locally, rules enforced, with the modular calls you already know.
 

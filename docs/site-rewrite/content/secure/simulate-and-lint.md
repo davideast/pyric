@@ -56,7 +56,7 @@ const { warnings, metrics } = lintFirestoreRules(source);
 
 The linter checks two different kinds of failure.
 
-**The production limits.** The rules compiler enforces hard caps: a 256 KB source ceiling, a boolean chain depth of 98, 11 `let` bindings per function, `get()` call counts, and a runtime evaluation budget that fails as a silent `permission-denied` under load. The linter carries each cap as an exact threshold, measured by probing the production engine. The numbers live in [the limits that actually bite](../secure/limits-that-bite.md).
+**The production limits.** The rules compiler enforces hard caps: a 256 KB source ceiling, a boolean chain depth of 98, 11 `let` bindings per function, `get()` call counts, and a runtime evaluation budget that fails as a silent `permission-denied` under load. The linter carries each cap as an exact threshold, measured by probing the production engine. The numbers live in [the compiler and evaluator limits](../secure/limits-that-bite.md).
 
 **JS-in-rules mistakes.** The rules language looks like JavaScript, and that resemblance is a trap. Models fall into it constantly, and humans do too.
 
@@ -102,4 +102,4 @@ This is the loop that keeps an agent honest. It calls `firestore_lint_rules` on 
 
 ## Where to go next
 
-The exact numbers behind the limit checks are in [the limits that actually bite](../secure/limits-that-bite.md). To make simulation a habit rather than a one-off, [write a rules test suite](../secure/write-a-rules-test-suite.md).
+The exact numbers behind the limit checks are in [the compiler and evaluator limits](../secure/limits-that-bite.md). To make simulation a habit rather than a one-off, [write a rules test suite](../secure/write-a-rules-test-suite.md).

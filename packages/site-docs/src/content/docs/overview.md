@@ -1,5 +1,5 @@
 ---
-title: "Firebase that runs in your browser"
+title: "Pyric is Firebase, running locally"
 navLabel: "Overview"
 group: "Overview"
 section: ""
@@ -7,33 +7,74 @@ order: 1
 description: "Understand what Pyric is and what you get, in one short read."
 ---
 
-# Firebase that runs in your browser
+# Pyric is Firebase, running locally
 
-Pyric is Firestore, Auth, Realtime Database, Storage, and the Security Rules engine, implemented in TypeScript and running inside your app. In the browser, that means the page itself. The whole backend executes in the tab. In Node, it is the process your tests run in. Your code keeps its ordinary `firebase/*` imports. During development they resolve to Pyric. In production they resolve to Firebase. Nothing in your source changes.
+Your `firebase/*` code, unchanged, against a backend that runs on your machine. In development your imports resolve to Pyric. In production they resolve to Firebase. The install line is the whole relationship:
+```
+npm i pyric === npm i firebase
+```
+Same imports, same calls, same behavior, mirrored one to one. If you know `getDoc` and `onSnapshot`, you already know this library.
 
-That is the whole trick, and it starts with one command.
+Starting it costs one command and no account.
 ```bash
 npm i -g pyric-tools
 pyric dev
 ```
-No account. No cloud project. No emulator, no Java, no port to babysit. You have a full Firebase stack before your coffee is warm, and it behaves like the real one because that claim is tested, not assumed. Pyric runs probes against production Firebase, records what actually happens, and replays every recorded behavior against itself in CI. When it diverges from Firebase, that is a documented row or a bug, never a surprise.
+No cloud project. No emulator, no Java, no port to babysit. A working backend in the first minute.
 
-## Build the app, prove the rules, ship the same code
+## Every write stays on your machine
 
-You build your app. Sign users in with the auth calls you already know. Write documents, run queries, keep the UI live with snapshots. Write security rules and find out, before you deploy, exactly what they allow and deny, because every operation in Pyric produces a verdict you can read, and a denial tells you which rule said no and what data it saw.
+The backend runs inside your app's process. In the browser, that is the tab itself. In Node, it is the process your tests run in.
 
-Then you ship. The same code goes to production against real Firebase. Your rules leave development already exercised against your app's real behavior. Your composite indexes come from your actual queries instead of a hand-kept file. And before anything goes live, you can replay a captured session against the new rules and learn which operations would change verdict, before production learns it for you.
+So your data is local state, and you handle it like a file:
 
-## Your agent works the same backend
+- Seed it: `pyric dev --seed seed.json`
+- Keep it across restarts: `pyric dev --persist`
+- Promote lived state to a committable fixture: `pyric snapshot`
+- Start over: `pyric dev --fresh`
 
-The backend is local state with a tool surface, so a coding agent can work on it the way you do. Point Claude Code, Cursor, or any MCP client at the sandbox and the agent can seed data, run queries, simulate a rules verdict before writing, and check its own work. Nothing it does leaves your machine. Everything it does is inspectable, live, in the same event stream you watch.
+## Every operation returns a verdict
 
-## It focuses on the hard parts
+Your `firestore.rules` are enforced from the first request, in-process. Every operation gets an answer you can read, and a denial names the rule that said no:
+```
+[#7] request    deny   get    notes/n1  by bob    0.2ms  Rule #0 (read,write) deny
+```
+You stop deploying rules to find out what they mean. Lint them, simulate requests, turn the cases into a test suite, all without a network call.
 
-Firebase development has hard parts, and they are not the parts the manuals dwell on. Rules that pass locally and fail in production. A denial with no explanation. Query shapes that quietly demand indexes. Limits that are real but written down nowhere.
+## Your server code changes one line
 
-Pyric was built by working those parts until they gave, and what was learned is in the product. The rules linter carries the exact limits of the production compiler. The standard library ships rule modules verified against the real engine, including rate limiting and cross-document checks that most rulesets never attempt. The event stream exists because a bare `permission-denied` is not an answer. None of this asks for your trust. Run it, break a rule on purpose, and read the verdict.
+The mirror holds in Node too:
+```
+npm i pyric-admin === npm i firebase-admin
+```
+`initializeApp({ sandbox })` points a script at the sandbox. `initializeApp({ credential })` points it at production. Bare `initializeApp()` lets the environment decide, so the file can carry zero Pyric identifiers.
+
+## One CLI from first run to deploy
+
+You have already met `pyric dev`. The same CLI carries the rest of the loop:
+
+- `pyric init` scaffolds a web or Node app
+- `pyric rules:lint` and `pyric rules:simulate` check rules in CI
+- `pyric verify` replays a captured session against new rules and reports which verdicts change
+- `pyric deploy rules` (or `indexes`, or `hosting`) pushes to a real Firebase project
+
+## Your agent gets the same backend
+
+One flag exposes the whole backend to a coding agent over MCP:
+```bash
+pyric dev --bridge
+```
+The agent can seed data, run queries, and simulate a rules verdict before it writes, all in the same event stream you watch. Nothing leaves your machine. One page sets it up: [set up your agent](../set-up-your-agent/).
+
+## Ship the same code to real Firebase
+
+A production build resolves `firebase/*` to real Firebase with the same config. There is no graduation step.
+```bash
+vite build          # ships real firebase/*
+pyric deploy rules  # push the ruleset you proved
+```
+Your rules arrive already exercised against your app's real behavior, and your composite indexes come from your actual queries. "Behaves like Firebase" is tested, not asserted: probes record what production actually does, and CI replays every recording on every change. Firestore, Auth, and Rules hold that bar today. Realtime Database and Storage are experimental, and [how we know it matches Firebase](../how-we-know-it-matches-firebase/) says exactly what that costs you.
 
 ## Where to go next
 
-Start with [the quickstart](../start-building/). If you came here for rules, go straight to [prove your rules protect the app](../secure-it-with-rules/).
+Start with [the quickstart](../start-building/). If you came for rules, go straight to [prove a user can touch only their own data](../secure-it-with-rules/).

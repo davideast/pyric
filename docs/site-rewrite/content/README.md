@@ -38,10 +38,8 @@ Every page of the new docs, written to WRITING-BRIEF.md against HIERARCHY.md v3.
 | Set up your agent | `agent/set-up-your-agent.md` | new (per-client recipes) |
 | What your agent can do | `agent/what-your-agent-can-do.md` | new (capability-taught) |
 | Skills | `agent/skills.md` | new (catalog) |
-| Watch and review | `agent/watch-and-review.md` | new |
 | **TRUST** | | |
 | How we know it matches Firebase | `trust/how-we-know-it-matches-firebase.md` | new over conformance docs |
-| What's experimental | `trust/whats-experimental.md` | new |
 | **REFERENCE** | (unchanged: existing per-package reference + COMPAT) | re-hung as-is |
 
 ## What re-hanging means

@@ -81,4 +81,4 @@ The exact tool count drifts as consolidation continues, and consolidation is ong
 
 ## Where to go next
 
-The tools carry the moves. The procedures for the hard problems live in [skills](./skills.md). And everything the agent does lands in a stream you can read, in [watch and review](./watch-and-review.md).
+The tools carry the moves. The procedures for the hard problems live in [skills](./skills.md).

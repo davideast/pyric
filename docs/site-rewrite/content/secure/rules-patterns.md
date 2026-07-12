@@ -1,13 +1,15 @@
 ---
-title: The techniques hard rules are built from
+title: Firestore rules patterns, proven in production
 navLabel: Rules patterns
 outcome: Learn the five moves that turn "rules can't do that" into a ruleset that deploys.
 status: draft
 ---
 
-# The techniques hard rules are built from
+# Firestore rules patterns, proven in production
 
-The rules language cannot loop. It cannot build a map key out of strings. And it evaluates under budgets that are real but invisible. Every hard ruleset that exists anyway, chess included, is built from a small set of moves that work with those constraints instead of against them. Here they are, generalized from the game rules where they were proven against production.
+Firestore's Security Rules language cannot loop. It cannot build a map key by concatenating strings. And every request evaluates under an expression budget that is real, though the console never shows it to you.
+
+The five patterns below are how a ruleset gets past those constraints anyway. Each one comes from a real ruleset that had to survive them: a full chess implementation enforced entirely in rules, a checkers rewrite, a tax calculator where the rules check every line of the client's math against bracket data. Trade what the language can't do for what it can, and the ruleset that looked impossible compiles.
 
 ## Move the logic into a document
 
@@ -60,16 +62,20 @@ function pathClear() {
 
 ## Look up by type, don't branch by type
 
-**The problem.** Chess has twelve piece types that move differently. Twelve validation functions, each with its own branch lists, is more code than the compiler will accept.
+**The problem.** Chess has twelve piece types, one per piece per color, each moving differently. Twelve validation functions, each with its own branch list, is more branching than one rule should carry.
 
-**The move.** Read the type from pre-write state and make it the first key of the lookup. In `config().moves[piece][from][to]`, `piece` is `resource.data[moveFrom]`. One function covers every type.
+**The move.** Read the type from pre-write state, the board, not the request, and use it as the first key of the lookup:
 
-The load-bearing detail is which side of the write the type comes from:
+```rules
+function validMove() {
+  let mf = request.resource.data.moveFrom;
+  let mt = request.resource.data.moveTo;
+  let piece = resource.data[mf];
+  return mt in config().moves[piece][mf];
+}
+```
 
-- The client declares where the piece moves, in `request.resource.data`.
-- The rules read what piece sits there from `resource.data`, the existing board the client does not control.
-
-A client cannot claim a pawn moved like a queen, because the pawn's identity was never in its hands.
+One function replaces twelve. The client declares `moveFrom` and `moveTo` in `request.resource.data`. The rules read `piece` from `resource.data`, the board already sitting on the document. A client cannot claim a pawn moved like a queen, because the pawn's identity was never in its hands.
 
 ## Give every rule a unique first expression
 
@@ -87,9 +93,9 @@ allow update: if request.resource.data.moveType == 'capture'
   && isMyTurn() && validCapture(config()) && pathClear();
 ```
 
-A non-matching write now fails each foreign rule in one expression. Chess ships eleven distinct `moveType` values for exactly this reason. Pyric's linter flags the violation as SHARED_GATE when two rules in a match block open with the same gate expression.
+A non-matching write now fails each foreign rule in one expression. Chess ships nine distinct `moveType` values for exactly this reason. Pyric's linter flags the violation as SHARED_GATE when two rules in a match block open with the same gate expression.
 
-## Data over code, the pattern under the patterns
+## Three places to move the computation
 
 Every move above is one idea wearing different clothes. When the rules language cannot compute something, move the computation out, and make the rules verify instead.
 

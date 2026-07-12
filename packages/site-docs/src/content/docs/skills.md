@@ -39,4 +39,4 @@ The skills live in the Pyric repository under `.agents/skills/`, one folder per 
 
 ## Where to go next
 
-A skill is only as good as the tools it drives, so read [what your agent can do](../what-your-agent-can-do/) if you have not. Then run one and watch it work in [watch and review](../watch-and-review/).
+A skill is only as good as the tools it drives, so read [what your agent can do](../what-your-agent-can-do/) if you have not.

@@ -57,8 +57,8 @@ If you hit behavior that differs from production, check the service's matrix fir
 - A row means the difference is intentional, explained, and stable. Read the reason and decide whether it affects you.
 - No row means you found a bug, and reporting it comes with a built-in guarantee: the fix will be pinned by an observation, so it cannot regress silently.
 
-One honest boundary: this level of proof currently holds for Auth, Firestore, and Rules. Realtime Database and Storage work and are documented, but most of their behavior is not yet pinned to production observations. That difference has its own page: [What's experimental](./whats-experimental.md).
+One honest boundary: this level of proof currently holds for Auth, Firestore, and Rules. Realtime Database and Storage work and are documented, but most of their behavior is not yet pinned to production observations — see their matrices, linked above, for the exact boundary.
 
 ## Where to go next
 
-Read [What's experimental](./whats-experimental.md) for the exact boundary, or put the claim under load yourself: run the app, break a rule, and compare the verdict against production's.
+Read the [Realtime Database](../../../../packages/pyric/docs/database/COMPAT.md) and [Storage](../../../../packages/pyric/docs/storage/COMPAT.md) matrices for the exact boundary, or put the claim under load yourself: run the app, break a rule, and compare the verdict against production's.

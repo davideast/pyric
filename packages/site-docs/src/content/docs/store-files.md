@@ -8,7 +8,7 @@ description: "Upload, list, download, and delete files locally, with storage rul
 
 # Store files
 
-> **Experimental.** Storage works and is documented, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. Read [what's experimental](../whats-experimental/) before you rely on it.
+> **Experimental.** Storage works and is documented, but most of its behavior is not yet pinned to a recorded production observation the way Auth and Firestore are. Read [how we know it matches Firebase](../how-we-know-it-matches-firebase/) before you rely on it.
 
 Files land in your sandbox the way documents do: locally, with rules deciding what gets in.
 
@@ -98,4 +98,4 @@ Each of these fails loudly at the call site instead of drifting quietly.
 
 ## Where to go next
 
-If the data is structured rather than binary, [which data service should I use?](../which-data-service/) sorts it out. And [what's experimental](../whats-experimental/) says exactly what experimental costs you.
+If the data is structured rather than binary, [which data service should I use?](../which-data-service/) sorts it out. And [how we know it matches Firebase](../how-we-know-it-matches-firebase/) says exactly what experimental costs you.

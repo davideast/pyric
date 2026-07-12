@@ -88,8 +88,8 @@ That loop is the core. The wing deepens each step.
 - [Read a denial and understand it](../read-a-denial/). Every denial carries the rule, path, and data that produced it.
 - [The rules standard library](../rules-standard-library/). Tested rule modules, composed with an import the rules language does not have.
 - [Rules patterns](../rules-patterns/). The techniques the hard rules are built from.
-- [Rules limits, measured](../limits-that-bite/). The production compiler's real limits, with numbers.
-- [Audit your rules and data](../audit-your-rules/). Find the holes before someone else does.
+- [Rules compiler and evaluator limits](../limits-that-bite/). The production compiler's real limits, with numbers.
+- [Audit your rules and data](../audit-your-rules/). An evidence-backed answer to who can access what.
 - [Case studies](../whats-possible/). Deployed rulesets that enforce chess, connect four, and tax math.
 
 ## And from an agent

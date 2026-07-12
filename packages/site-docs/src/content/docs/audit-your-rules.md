@@ -1,5 +1,5 @@
 ---
-title: "Find the holes before someone else does"
+title: "Audit a ruleset"
 navLabel: "Audit your rules and data"
 group: "Secure & debug"
 section: ""
@@ -7,9 +7,9 @@ order: 3009
 description: "Get an evidence-backed answer to who can access what, with every serious finding proven by a simulation."
 ---
 
-# Find the holes before someone else does
+# Audit a ruleset
 
-Your rules are a security boundary on the public internet, and anyone who cares to probe them can. An audit answers three questions with evidence: who can do what, whether the expressions mean what they appear to mean, and where the rules, the data, and the auth configuration disagree.
+An audit answers three questions with evidence: who can do what, whether an expression means what it appears to mean, and where the rules, the data, and the auth configuration disagree.
 
 Pyric packages each audit as a skill, a procedure you or your agent runs against the real project. A finding does not make the report on a reading alone. It has to cite a simulation, a test, or a lint result that demonstrates it.
 
@@ -17,26 +17,66 @@ Pyric packages each audit as a skill, a procedure you or your agent runs against
 
 The `firestore-rules-audit` skill starts by building an access matrix: for every match block, identity by operation (get, list, create, update, delete), with no blank cells. Public writes, public reads on sensitive paths, and writes with no auth check fall out of the matrix immediately.
 
-Then it checks each expression against its operation context, because rules have semantic traps that parse fine:
+Then it checks each expression against its operation context, because some rules parse fine and mean the wrong thing:
+```rules
+// looks right, isn't: resource.data doesn't exist yet on create
+match /notes/{noteId} {
+  allow create: if request.auth.uid == resource.data.ownerId;
+}
+```
+Every create is denied, even the owner's own, because `resource.data` is null until the document exists. The fix reads the incoming write instead:
+```rules
+allow create: if request.auth.uid == request.resource.data.ownerId;
+```
+Two more traps the audit checks for by rule:
 
-- On a `create` there is no `resource.data` yet. A rule like `request.auth.uid == resource.data.ownerId` on create is broken, and the intended check needs `request.resource.data` plus a uid comparison.
-- Authorization must derive from what already exists. The writer controls `request.resource.data`, so authorization read from it is attacker-controlled by definition.
-- A `list` cannot lean on a single document's fields. Rules are not filters.
+- Authorization has to derive from what already exists, `resource.data`. The writer controls `request.resource.data`, so a check that reads its authorization from there is checking a value the client wrote in this same request, not a value that was already true.
+- A `list` cannot lean on a single document's fields. A list query has to be constrained so it can only return documents the rule already allows; rules are not filters.
 
 Then composition. Any matching allow grants access, so a recursive wildcard like `{doc=**}` can bypass every carefully scoped sibling rule, and the audit states each wildcard's reach explicitly. It also flags user-controlled writes with no validation, undefined function calls, and role fields writable by the user they empower, which is privilege escalation in one line.
 
-Critical findings are proven with `firestore_simulate_rules` runs that vary the auth context, and the report arrives severity-ranked with a fix per finding.
+Critical findings carry proof, not only a reading of the source:
+```ts
+import { firestoreRules, explainCase } from 'pyric/rules';
+
+const ruleset = firestoreRules(source);
+const [result] = ruleset.simulate([
+  {
+    description: 'stranger reads the admin panel',
+    expectation: 'DENY',
+    method: 'get',
+    path: 'admin/config',
+    auth: { uid: 'mallory' },
+  },
+]).cases;
+
+if (!result.passed) console.log(explainCase(result));
+```
+`FAIL: stranger reads the admin panel (expected DENY, got ALLOW)`. The same check from a terminal is `pyric rules:lint firestore.rules`, which catches the wildcard-plus-`if true` shape as `RECURSIVE_WILDCARD_OPEN` before a single case runs. From an agent it is `firestore_simulate_rules` and `firestore_lint_rules`, and the report arrives severity-ranked with a fix per finding.
 
 ## Audit your Realtime Database rules
 
-RTDB fails differently: access cascades downward. (Authoring those rules from typed constraints is its own page: [RTDB rules in TypeScript](../rtdb-rules-in-typescript/).) A `.read: true` near the root silently exposes every descendant, and a restrictive child cannot revoke what a permissive parent granted. The `rtdb-security-rules` skill walks every cascade from the root, so the effective access at each path is stated rather than assumed.
+RTDB fails differently: access cascades downward. (Authoring those rules from typed constraints is its own page: [RTDB rules in TypeScript](../rtdb-rules-in-typescript/).) A `.read: true` near the root silently exposes every descendant, and a restrictive child cannot revoke what a permissive parent granted.
+```json
+{
+  "rules": {
+    "orgs": {
+      ".read": true,
+      "$orgId": {
+        "secrets": { ".read": "auth != null" }
+      }
+    }
+  }
+}
+```
+The root `.read: true` already exposes `orgs/$orgId/secrets`; the narrower rule underneath it never runs. The `rtdb-security-rules` skill walks every cascade from the root, so the effective access at each path is stated rather than assumed.
 
-It also keeps the two semantics that trip people straight:
+It also keeps the two semantics that trip people up:
 
 - `.validate` runs only after `.write` allows, and it never rescues a `.write` that is too broad. Every open path needs both an access rule and a shape rule.
 - `data` is pre-write state and `newData` is post-write. Identity checks ("who is acting") belong on `data`. Result checks ("what must this become") belong on `newData`. In a multi-field write, mixing them up authorizes against values the writer is changing.
 
-Before anything ships, each path is simulated four ways: intended actor allowed, anonymous denied, cross-user denied, invalid shape denied.
+Before anything ships, each path is simulated four ways with `rtdb_simulate_access` (or `pyric database:rules:simulate --stdin` from a terminal): intended actor allowed, anonymous denied, cross-user denied, invalid shape denied.
 
 ## Audit the whole project
 

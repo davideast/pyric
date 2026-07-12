@@ -212,17 +212,12 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
   {
     label: 'Work with an agent',
     dir: 'agent',
-    files: [
-      'set-up-your-agent.md',
-      'what-your-agent-can-do.md',
-      'skills.md',
-      'watch-and-review.md',
-    ],
+    files: ['set-up-your-agent.md', 'what-your-agent-can-do.md', 'skills.md'],
   },
   {
     label: 'Trust',
     dir: 'trust',
-    files: ['how-we-know-it-matches-firebase.md', 'whats-experimental.md'],
+    files: ['how-we-know-it-matches-firebase.md'],
   },
 ];
 
