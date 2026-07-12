@@ -11,9 +11,13 @@ export const surface: SurfaceDescriptorRecord = {
   kind: 'native',
   registry: 'rtdb',
   symbolSource: 'pyric/database',
-  observationPrefixes: ['rtdb-'],
+  // `rules-rtdb-` observations are deploy-observe-restore rules captures (RTDB
+  // has no server-side rules test API). Until rtdb-rules is admitted as its own
+  // native surface (its oracle chain is still landing), the rtdb surface owns
+  // the prefix and its rules rows live in registry/rtdb.ts.
+  observationPrefixes: ['rtdb-', 'rules-rtdb-'],
   coverage: true,
   scopeNote:
     'native (no upstream): the agent-tools / host surface, measured against its own public API. Deferred: onDisconnect (no live socket in an in-memory sandbox today), legacy priority ordering.',
-  captureRigs: ['oracle-run'],
+  captureRigs: ['oracle-run', 'rtdb-rules'],
 };
