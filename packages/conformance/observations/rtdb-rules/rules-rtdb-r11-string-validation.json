@@ -1,0 +1,31 @@
+{
+  "name": "rules-rtdb-r11-string-validation",
+  "matrixRow": "rtdb-rules#11",
+  "rowIds": [
+    "rtdb-rules#11"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r11-string-validation\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). string validation rules gate handles, slugs and filenames in real rulesets, and `replace` is replace-ALL in production but first-only under a naive JavaScript implementation — the simulator must match production on every method, and on that substitution in particular.",
+  "observedAt": "2026-07-12T03:35:03.039Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "handle with required prefix allowed": "ALLOW",
+    "handle without required prefix denied": "DENY",
+    "tag containing the separator allowed": "ALLOW",
+    "tag without the separator denied": "DENY",
+    "filename with required suffix allowed": "ALLOW",
+    "filename without required suffix denied": "DENY",
+    "slug matching the regex literal allowed": "ALLOW",
+    "slug violating the regex literal denied": "DENY",
+    "length inside bounds allowed": "ALLOW",
+    "length below lower bound denied": "DENY",
+    "length above upper bound denied": "DENY",
+    "uppercase input folds to the expected lowercase": "ALLOW",
+    "different input does not fold to the expected lowercase": "DENY",
+    "lowercase input folds to the expected uppercase": "ALLOW",
+    "different input does not fold to the expected uppercase": "DENY",
+    "single-occurrence replace reaches the target": "ALLOW",
+    "replace substitutes every occurrence not just the first": "ALLOW",
+    "auth-gated read allowed": "ALLOW"
+  }
+}

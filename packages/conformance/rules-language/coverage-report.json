@@ -2697,31 +2697,43 @@
     {
       "engine": "rtdb",
       "totalConstructs": 55,
-      "exercisedConstructs": 18,
-      "verifiedConstructs": 18,
-      "exercisedCoverage": 0.32727272727272727,
-      "verifiedCoverage": 0.32727272727272727,
+      "exercisedConstructs": 52,
+      "verifiedConstructs": 52,
+      "exercisedCoverage": 0.9454545454545454,
+      "verifiedCoverage": 0.9454545454545454,
       "constructs": [
         {
           "id": "rtdb.binding.auth",
           "kind": "binding",
           "exercisedBy": [
             "r1-auth-only",
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
             "r2-own-uid",
             "r3-data-exists",
             "r4-validate-structure",
             "r5-cascade-root-grant",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ],
           "verifiedBy": [
             "r1-auth-only",
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
             "r2-own-uid",
             "r3-data-exists",
             "r4-validate-structure",
             "r5-cascade-root-grant",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ]
         },
         {
@@ -2741,42 +2753,66 @@
         {
           "id": "rtdb.binding.auth.token",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r12-server-time-and-token"
+          ],
+          "verifiedBy": [
+            "r12-server-time-and-token"
+          ]
         },
         {
           "id": "rtdb.binding.data",
           "kind": "binding",
           "exercisedBy": [
-            "r3-data-exists"
+            "r3-data-exists",
+            "r9-quota-arithmetic"
           ],
           "verifiedBy": [
-            "r3-data-exists"
+            "r3-data-exists",
+            "r9-quota-arithmetic"
           ]
         },
         {
           "id": "rtdb.binding.newData",
           "kind": "binding",
           "exercisedBy": [
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
             "r4-validate-structure",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ],
           "verifiedBy": [
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
             "r4-validate-structure",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ]
         },
         {
           "id": "rtdb.binding.root",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r14-root-lookup"
+          ],
+          "verifiedBy": [
+            "r14-root-lookup"
+          ]
         },
         {
           "id": "rtdb.binding.now",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r12-server-time-and-token"
+          ],
+          "verifiedBy": [
+            "r12-server-time-and-token"
+          ]
         },
         {
           "id": "rtdb.binding.path-variable",
@@ -2794,33 +2830,49 @@
           "id": "rtdb.method.snapshot.val",
           "kind": "method",
           "exercisedBy": [
-            "r8-combined-check"
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ],
           "verifiedBy": [
-            "r8-combined-check"
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ]
         },
         {
           "id": "rtdb.method.snapshot.child",
           "kind": "method",
           "exercisedBy": [
+            "r14-root-lookup",
             "r8-combined-check"
           ],
           "verifiedBy": [
+            "r14-root-lookup",
             "r8-combined-check"
           ]
         },
         {
           "id": "rtdb.method.snapshot.parent",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r10-snapshot-type-guards"
+          ],
+          "verifiedBy": [
+            "r10-snapshot-type-guards"
+          ]
         },
         {
           "id": "rtdb.method.snapshot.hasChild",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r10-snapshot-type-guards"
+          ],
+          "verifiedBy": [
+            "r10-snapshot-type-guards"
+          ]
         },
         {
           "id": "rtdb.method.snapshot.hasChildren",
@@ -2838,201 +2890,343 @@
           "id": "rtdb.method.snapshot.exists",
           "kind": "method",
           "exercisedBy": [
+            "r14-root-lookup",
             "r3-data-exists"
           ],
           "verifiedBy": [
+            "r14-root-lookup",
             "r3-data-exists"
           ]
         },
         {
           "id": "rtdb.method.snapshot.getPriority",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r13-priority-and-index-directive"
+          ],
+          "verifiedBy": [
+            "r13-priority-and-index-directive"
+          ]
         },
         {
           "id": "rtdb.method.snapshot.isNumber",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r10-snapshot-type-guards",
+            "r12-server-time-and-token",
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r10-snapshot-type-guards",
+            "r12-server-time-and-token",
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.method.snapshot.isString",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r10-snapshot-type-guards",
+            "r11-string-validation"
+          ],
+          "verifiedBy": [
+            "r10-snapshot-type-guards",
+            "r11-string-validation"
+          ]
         },
         {
           "id": "rtdb.method.snapshot.isBoolean",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r10-snapshot-type-guards"
+          ],
+          "verifiedBy": [
+            "r10-snapshot-type-guards"
+          ]
         },
         {
           "id": "rtdb.method.string.contains",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation"
+          ],
+          "verifiedBy": [
+            "r11-string-validation"
+          ]
         },
         {
           "id": "rtdb.method.string.beginsWith",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation"
+          ],
+          "verifiedBy": [
+            "r11-string-validation"
+          ]
         },
         {
           "id": "rtdb.method.string.endsWith",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation"
+          ],
+          "verifiedBy": [
+            "r11-string-validation"
+          ]
         },
         {
           "id": "rtdb.method.string.matches",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation"
+          ],
+          "verifiedBy": [
+            "r11-string-validation"
+          ]
         },
         {
           "id": "rtdb.method.string.replace",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation"
+          ],
+          "verifiedBy": [
+            "r11-string-validation"
+          ]
         },
         {
           "id": "rtdb.method.string.toLowerCase",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation"
+          ],
+          "verifiedBy": [
+            "r11-string-validation"
+          ]
         },
         {
           "id": "rtdb.method.string.toUpperCase",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation"
+          ],
+          "verifiedBy": [
+            "r11-string-validation"
+          ]
         },
         {
           "id": "rtdb.method.string.length",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation"
+          ],
+          "verifiedBy": [
+            "r11-string-validation"
+          ]
         },
         {
           "id": "rtdb.operator.strictEq",
           "kind": "operator",
           "exercisedBy": [
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
             "r2-own-uid",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ],
           "verifiedBy": [
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
             "r2-own-uid",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ]
         },
         {
           "id": "rtdb.operator.strictNeq",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r13-priority-and-index-directive",
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r13-priority-and-index-directive",
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.looseEq",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.looseNeq",
           "kind": "operator",
           "exercisedBy": [
             "r1-auth-only",
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
             "r3-data-exists",
             "r4-validate-structure",
             "r5-cascade-root-grant",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ],
           "verifiedBy": [
             "r1-auth-only",
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
             "r3-data-exists",
             "r4-validate-structure",
             "r5-cascade-root-grant",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ]
         },
         {
           "id": "rtdb.operator.lt",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.gt",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.lte",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.gte",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation",
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r11-string-validation",
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.add",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.sub",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.mul",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.div",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.mod",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.and",
           "kind": "operator",
           "exercisedBy": [
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ],
           "verifiedBy": [
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ]
         },
         {
           "id": "rtdb.operator.or",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.not",
@@ -3047,24 +3241,36 @@
         {
           "id": "rtdb.operator.neg",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.ternary",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r9-quota-arithmetic"
+          ],
+          "verifiedBy": [
+            "r9-quota-arithmetic"
+          ]
         },
         {
           "id": "rtdb.operator.member",
           "kind": "operator",
           "exercisedBy": [
+            "r11-string-validation",
+            "r12-server-time-and-token",
             "r2-own-uid",
             "r7-pathvar-binding",
             "r8-combined-check"
           ],
           "verifiedBy": [
+            "r11-string-validation",
+            "r12-server-time-and-token",
             "r2-own-uid",
             "r7-pathvar-binding",
             "r8-combined-check"
@@ -3073,31 +3279,47 @@
         {
           "id": "rtdb.operator.index",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r12-server-time-and-token"
+          ],
+          "verifiedBy": [
+            "r12-server-time-and-token"
+          ]
         },
         {
           "id": "rtdb.rule-kind.read",
           "kind": "rule-kind",
           "exercisedBy": [
             "r1-auth-only",
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
             "r2-own-uid",
             "r3-data-exists",
             "r4-validate-structure",
             "r5-cascade-root-grant",
             "r6-deny-everything",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ],
           "verifiedBy": [
             "r1-auth-only",
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
             "r2-own-uid",
             "r3-data-exists",
             "r4-validate-structure",
             "r5-cascade-root-grant",
             "r6-deny-everything",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ]
         },
         {
@@ -3105,49 +3327,79 @@
           "kind": "rule-kind",
           "exercisedBy": [
             "r1-auth-only",
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
             "r2-own-uid",
             "r3-data-exists",
             "r4-validate-structure",
             "r5-cascade-root-grant",
             "r6-deny-everything",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ],
           "verifiedBy": [
             "r1-auth-only",
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
             "r2-own-uid",
             "r3-data-exists",
             "r4-validate-structure",
             "r5-cascade-root-grant",
             "r6-deny-everything",
             "r7-pathvar-binding",
-            "r8-combined-check"
+            "r8-combined-check",
+            "r9-quota-arithmetic"
           ]
         },
         {
           "id": "rtdb.rule-kind.validate",
           "kind": "rule-kind",
           "exercisedBy": [
-            "r4-validate-structure"
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
+            "r4-validate-structure",
+            "r9-quota-arithmetic"
           ],
           "verifiedBy": [
-            "r4-validate-structure"
+            "r10-snapshot-type-guards",
+            "r11-string-validation",
+            "r12-server-time-and-token",
+            "r13-priority-and-index-directive",
+            "r14-root-lookup",
+            "r4-validate-structure",
+            "r9-quota-arithmetic"
           ]
         },
         {
           "id": "rtdb.rule-kind.indexOn",
           "kind": "rule-kind",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r13-priority-and-index-directive"
+          ],
+          "verifiedBy": [
+            "r13-priority-and-index-directive"
+          ]
         },
         {
           "id": "rtdb.rule-kind.location-wildcard",
           "kind": "rule-kind",
           "exercisedBy": [
+            "r13-priority-and-index-directive",
             "r2-own-uid",
             "r7-pathvar-binding"
           ],
           "verifiedBy": [
+            "r13-priority-and-index-directive",
             "r2-own-uid",
             "r7-pathvar-binding"
           ]
@@ -3180,12 +3432,16 @@
         {
           "id": "rtdb.semantic.regex-literal",
           "kind": "semantic",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "r11-string-validation"
+          ],
+          "verifiedBy": [
+            "r11-string-validation"
+          ]
         }
       ],
-      "scenarioCount": 8,
-      "verifiedScenarioCount": 8,
+      "scenarioCount": 14,
+      "verifiedScenarioCount": 14,
       "unresolved": []
     }
   ]

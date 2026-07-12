@@ -4,8 +4,8 @@
   "rowIds": [
     "rtdb-rules#4"
   ],
-  "description": "RTDB rules production verdicts for corpus scenario \"r4-validate-structure\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a failing child .validate must VETO an otherwise-permitted write \u2014 production denies the missing-body write; the simulator allows it, the one recorded divergence.",
-  "observedAt": "2026-07-12T02:54:57.994Z",
+  "description": "RTDB rules production verdicts for corpus scenario \"r4-validate-structure\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a failing child .validate must VETO an otherwise-permitted write — production denies the missing-body write; the simulator allows it, the one recorded divergence.",
+  "observedAt": "2026-07-12T03:35:03.044Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "behavior": {

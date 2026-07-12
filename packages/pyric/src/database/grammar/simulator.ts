@@ -141,12 +141,27 @@ class RtdbString {
     return this.value.endsWith(suffix);
   }
 
+  /** Production's String.replace substitutes EVERY occurrence of the substring;
+   *  JavaScript's `String.prototype.replace` given a STRING pattern substitutes
+   *  only the first, so delegating to it straight silently diverged. Confirmed by
+   *  the r11-string-validation capture: production ALLOWS the write whose rule is
+   *  `newData.val().replace('_', '-') === 'a-b-c'` for the value `a_b_c`, which
+   *  only holds under replace-all. */
   replace(from: string | RegExp, to: string): string {
-    return this.value.replace(from, to);
+    if (from instanceof RegExp) {
+      const flags = from.flags.includes('g') ? from.flags : `${from.flags}g`;
+      return this.value.replace(new RegExp(from.source, flags), to);
+    }
+    if (from === '') return this.value;
+    return this.value.split(from).join(to);
   }
 
   toLowerCase(): string {
     return this.value.toLowerCase();
+  }
+
+  toUpperCase(): string {
+    return this.value.toUpperCase();
   }
 
   get length(): number {
@@ -229,6 +244,7 @@ evalSemantics.addOperation<unknown>('eval', {
         case 'endsWith': return str.endsWith(String(argValues[0]));
         case 'replace': return str.replace(argValues[0] as string | RegExp, String(argValues[1]));
         case 'toLowerCase': return str.toLowerCase();
+        case 'toUpperCase': return str.toUpperCase();
         default: throw new Error(`Unknown string method: ${method}`);
       }
     }

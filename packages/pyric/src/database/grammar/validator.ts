@@ -14,7 +14,7 @@ const DATASNAPSHOT_METHODS = new Set([
 
 const STRING_METHODS = new Set([
   'matches', 'contains', 'beginsWith', 'endsWith', 'replace', 'toLowerCase',
-  'length',
+  'toUpperCase', 'length',
 ]);
 
 const ALL_KNOWN_METHODS = new Set([...DATASNAPSHOT_METHODS, ...STRING_METHODS]);

@@ -4,8 +4,8 @@
   "rowIds": [
     "rtdb-rules#3"
   ],
-  "description": "RTDB rules production verdicts for corpus scenario \"r3-data-exists\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ancestor .write cascade dominates a deeper !data.exists() rule \u2014 production allows the populated-path write, and the simulator must model the same cascade grant.",
-  "observedAt": "2026-07-12T02:54:57.994Z",
+  "description": "RTDB rules production verdicts for corpus scenario \"r3-data-exists\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). ancestor .write cascade dominates a deeper !data.exists() rule — production allows the populated-path write, and the simulator must model the same cascade grant.",
+  "observedAt": "2026-07-12T03:35:03.043Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "genkit-idx",
   "behavior": {

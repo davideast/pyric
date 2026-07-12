@@ -1,0 +1,20 @@
+{
+  "name": "rules-rtdb-r12-server-time-and-token",
+  "matrixRow": "rtdb-rules#12",
+  "rowIds": [
+    "rtdb-rules#12"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r12-server-time-and-token\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). rules routinely gate writes on the server clock and on the sign-in provider carried in the ID token, and the token is also the only receiver production accepts the `[]` subscript on — the simulator must resolve `now`, the dotted claim path, and the indexed claim path the same way production does.",
+  "observedAt": "2026-07-12T03:35:03.040Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "past timestamp is at or before now": "ALLOW",
+    "far-future timestamp is after now": "DENY",
+    "anonymous provider claim allows the dotted token path": "ALLOW",
+    "anonymous provider claim allows the subscripted token path": "ALLOW",
+    "anonymous provider claim does not satisfy a password gate": "DENY",
+    "signed-out request has no token claim to read": "DENY",
+    "auth-gated read allowed": "ALLOW"
+  }
+}
