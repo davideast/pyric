@@ -49,6 +49,7 @@ import 'fake-indexeddb/auto';
 import { loadEntryPathPrograms } from '../entry-path/load.ts';
 import { expectedFailures } from '../entry-path/expected-failures.ts';
 import type { ExpectedFailureRecord } from '../entry-path/types.ts';
+import { getApps, deleteApp } from 'pyric/app';
 
 export type ProgramVerdict = 'green' | 'red-known' | 'red' | 'stale-expected-failure';
 
@@ -84,6 +85,12 @@ export async function runEntryPathGate(): Promise<EntryPathReport> {
 
   const results: EntryPathProgramResult[] = [];
   for (const program of programs) {
+    // Program isolation: each quickstart program assumes a fresh process and
+    // initializes the [DEFAULT] app. Faithful duplicate-app semantics (the app
+    // surface climb) make a second default-name initializeApp throw, so the
+    // harness clears the registry between programs — using the mirrored
+    // getApps/deleteApp themselves. Programs stay pure quickstart shape.
+    await Promise.all(getApps().map((app) => deleteApp(app)));
     const expectedFailure = expectedByProgram.get(program.name);
     try {
       await program.run();

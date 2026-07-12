@@ -1,0 +1,17 @@
+{
+  "name": "app-registry-deleteapp",
+  "matrixRow": "app #9",
+  "rowIds": [
+    "app#9"
+  ],
+  "description": "firebase/app deleteApp(app) returns a Promise, deregisters the app so getApps() shrinks, and a subsequent getApp(name) throws app/no-app. The name can be re-initialized afterwards.",
+  "observedAt": "2026-07-12T01:20:59.103Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "deleteReturnsPromise": true,
+    "getAppsAfterDelete": 0,
+    "getAppAfterDeleteThrew": true,
+    "getAppAfterDeleteCode": "app/no-app",
+    "reinitAfterDeleteThrew": false
+  }
+}

@@ -3,7 +3,7 @@ title: "@pyric/rtdb compatibility matrix"
 navLabel: "Realtime Database"
 group: "Compatibility"
 section: ""
-order: 8003
+order: 8004
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 

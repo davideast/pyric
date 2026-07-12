@@ -616,11 +616,17 @@ function lensRtdb(ctx: HostCtx, actAs: AuthLens | undefined, port: PortLike): Da
 
 // ─── Op handlers ──────────────────────────────────────────────────────────
 
+/** Monotonic app-name source so each host ctx registers a uniquely-named
+ *  pyric/app app (the client registry rejects duplicate names). */
+let hostAppSeq = 0;
+
 /** The shared Storage handle, lazily created (Pyric Studio data browse): one per
  *  worker, over an app bound to the shared sandbox. The high-level
  *  `pyric/storage` ops enforce rules, so the host reads through them. */
 function ensureStorage(ctx: HostCtx): FirebaseStorage {
-  return (ctx.storage ??= getStorage(initializeApp({ sandbox: ctx.sandbox })));
+  // A unique app name per host ctx: pyric/app now mirrors firebase's registry,
+  // where a default-name re-init across ctxs would collide (app/duplicate-app).
+  return (ctx.storage ??= getStorage(initializeApp({ sandbox: ctx.sandbox }, `pyric-host-${hostAppSeq++}`)));
 }
 
 /**

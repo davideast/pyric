@@ -265,9 +265,13 @@ export async function applySeed(
   await seedStorage(handles.storage);
 }
 
+let seedAppSeq = 0;
+
 export async function createSeededSandbox(): Promise<SeededHandles> {
   const sandbox = initializeSandbox();
-  const app = initializeApp({ sandbox });
+  // Unique app name: pyric/app mirrors firebase's registry (a repeated default
+  // name throws app/duplicate-app), so each seeded sandbox gets its own.
+  const app = initializeApp({ sandbox }, `pyric-seed-${seedAppSeq++}`);
 
   const adminFirestore = getAdminFirestore(sandbox);
   const firestore = getFirestore(sandbox);

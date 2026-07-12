@@ -1,0 +1,14 @@
+{
+  "name": "app-registry-registerversion",
+  "matrixRow": "app #14",
+  "rowIds": [
+    "app#14"
+  ],
+  "description": "firebase/app registerVersion(library, version) accepts a well-formed library/version pair without throwing and returns undefined (its observable effect is registering a platform-logger version component; the return contract is what a mirror can assert).",
+  "observedAt": "2026-07-12T01:20:59.104Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "threw": false,
+    "returnedUndefined": true
+  }
+}
