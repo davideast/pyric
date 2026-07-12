@@ -241,6 +241,22 @@
 | 180 | Real classes, not markers. `EmailAuthProvider.credential(email, password)` returns an `EmailAuthCredential` that CARRIES THE SECRET — which is what makes `linkWithCredential`, `reauthenticateWithCredential`, and `signInWithCredential` decidable in the sandbox with no resolver and no mock (the backend already stores and verifies passwords). `credentialWithLink` carries the link instead, and `signInMethod` discriminates (`'password'` vs `'emailLink'`). The backing secret is non-enumerable, so a spread or `Object.keys` walk does not pick it up; `toJSON()` DOES carry it, matching upstream (whose `fromJSON` needs it to round-trip). `OAuthCredential` carries the IdP tokens, which the sandbox cannot verify — those flows keep going through the resolver seam. | ✓ | `unit:sandbox-linking-reauth.test.ts` — pins the secret-carrying behavior, the enumerable/toJSON split (so nobody 'hardens' it into a divergence later), and that a real email credential now signs in via `signInWithCredential` instead of throwing the sandbox-only `auth/no-mock-configured` it used to. |
 | 181 | Provider marker classes. `TwitterAuthProvider.credential(token, secret)` takes a token AND a secret — Twitter is the one OAuth 1.0a provider in the set, where the OAuth 2.0 providers take a single access token. `SAMLAuthProvider`'s constructor ENFORCES the `saml.` providerId prefix (throwing `auth/argument-error` otherwise), because that id is what routes an assertion to the right configured IdP and a typo there would silently target nothing. SAML has no client-constructible credential, so the class has no `credential()` factory. | ✓ | `unit:types.test.ts` — construction, PROVIDER_ID values, and the SAML prefix guard. |
 | 182 | One entry PER LINKED PROVIDER, read from the identity's stored record. Previously the sandbox synthesized a single `{providerId: 'password'}` entry for EVERY non-anonymous user, so a Google popup sign-in reported its provider as `'password'` and a linked account could never show more than one. Consumer code branches on this array (that is what it is for — 'is this account linked to Google?'), so the synthesized version was actively misleading. Empty for anonymous users; after `unlink` of the last provider it is genuinely empty (it does not resurrect the removed provider). | ✓ | Was a BUG until this climb, and worth naming as one: the array was fabricated, not read. Now fixed and locked. `unit:sandbox-linking-reauth.test.ts` now pins that a Google link surfaces `google.com` in `providerData`, that `unlink` shrinks it, and that unlinking the last provider leaves it empty rather than falling back to a synthesized `'password'` entry. |
+
+## Intentionally not implemented
+
+These exist in `firebase/auth` but Pyric does not implement them.
+
+| Name | Reason |
+|---|---|
+| `fetchSignInMethodsForEmail` | Deprecated upstream; production returns an empty list under email-enumeration protection. See row #175. |
+| `multiFactor(user)` / MFA / phone / reCAPTCHA APIs | Not modeled yet. |
+| `updatePhoneNumber` | Phone family, not modeled yet. |
+| `setLanguageCode` (Auth method) | i18n surface not modeled. (`useDeviceLanguage` is an accepted no-op.) |
+| `User.toJSON()` | Serialization the sandbox does not model. |
+| `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox. |
+| Positional `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Pass the `{ next, error, complete }` observer object instead. |
+
+
 ## Not supported yet
 
 Tracked but not implemented yet. Each flips to ✓ as support lands.
@@ -253,18 +269,3 @@ Tracked but not implemented yet. Each flips to ✓ as support lands.
 | 61 | `user.reload()` / `user.delete()` / `user.toJSON()` / `user.refreshToken` / `user.tenantId` |
 | 62 | `updateProfile(user, {displayName, photoURL})` |
 | 175 | NOT MIRRORED — the one genuinely out-of-scope symbol in the auth surface. Deprecated upstream as a SECURITY RETRACTION: the shipped `@firebase/auth` declaration states the API 'returns an empty list when Email Enumeration Protection is enabled, irrespective of the number of authentication methods available for the given email', and that 'migrating off of this method is recommended as a security best-practice'. Enumeration protection is on by default, so against a modern project the production function always returns `[]`. |
-
-
-## Deny-list (intentionally not shimmed)
-
-These exist in `firebase/auth` but the sandbox does not mirror them.
-
-| Name | Reason |
-|---|---|
-| `fetchSignInMethodsForEmail` | Deprecated upstream; production returns an empty list under email-enumeration protection. See row #175. |
-| `multiFactor(user)` / MFA / phone / reCAPTCHA APIs | Not modeled yet. |
-| `updatePhoneNumber` | Phone family, not modeled yet. |
-| `setLanguageCode` (Auth method) | i18n surface not modeled. (`useDeviceLanguage` is an accepted no-op.) |
-| `User.toJSON()` | Serialization the sandbox does not model. |
-| `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox. |
-| Positional `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Pass the `{ next, error, complete }` observer object instead. |

@@ -641,6 +641,22 @@ order: 8004
 <div class="compat-evidence"><div class="compat-probe">Was a BUG until this climb, and worth naming as one: the array was fabricated, not read. Now fixed and locked. <code>unit:sandbox-linking-reauth.test.ts</code> now pins that a Google link surfaces <code>google.com</code> in <code>providerData</code>, that <code>unlink</code> shrinks it, and that unlinking the last provider leaves it empty rather than falling back to a synthesized <code>'password'</code> entry.</div></div>
 </details>
 </div>
+
+## Intentionally not implemented
+
+These exist in `firebase/auth` but Pyric does not implement them.
+
+| Name | Reason |
+|---|---|
+| `fetchSignInMethodsForEmail` | Deprecated upstream; production returns an empty list under email-enumeration protection. See row #175. |
+| `multiFactor(user)` / MFA / phone / reCAPTCHA APIs | Not modeled yet. |
+| `updatePhoneNumber` | Phone family, not modeled yet. |
+| `setLanguageCode` (Auth method) | i18n surface not modeled. (`useDeviceLanguage` is an accepted no-op.) |
+| `User.toJSON()` | Serialization the sandbox does not model. |
+| `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox. |
+| Positional `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Pass the `{ next, error, complete }` observer object instead. |
+
+
 ## Not supported yet
 
 Tracked but not implemented yet. Each flips to ✓ as support lands.
@@ -653,18 +669,3 @@ Tracked but not implemented yet. Each flips to ✓ as support lands.
 | 61 | `user.reload()` / `user.delete()` / `user.toJSON()` / `user.refreshToken` / `user.tenantId` |
 | 62 | `updateProfile(user, {displayName, photoURL})` |
 | 175 | NOT MIRRORED — the one genuinely out-of-scope symbol in the auth surface. Deprecated upstream as a SECURITY RETRACTION: the shipped `@firebase/auth` declaration states the API 'returns an empty list when Email Enumeration Protection is enabled, irrespective of the number of authentication methods available for the given email', and that 'migrating off of this method is recommended as a security best-practice'. Enumeration protection is on by default, so against a modern project the production function always returns `[]`. |
-
-
-## Deny-list (intentionally not shimmed)
-
-These exist in `firebase/auth` but the sandbox does not mirror them.
-
-| Name | Reason |
-|---|---|
-| `fetchSignInMethodsForEmail` | Deprecated upstream; production returns an empty list under email-enumeration protection. See row #175. |
-| `multiFactor(user)` / MFA / phone / reCAPTCHA APIs | Not modeled yet. |
-| `updatePhoneNumber` | Phone family, not modeled yet. |
-| `setLanguageCode` (Auth method) | i18n surface not modeled. (`useDeviceLanguage` is an accepted no-op.) |
-| `User.toJSON()` | Serialization the sandbox does not model. |
-| `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox. |
-| Positional `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Pass the `{ next, error, complete }` observer object instead. |

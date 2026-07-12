@@ -2908,7 +2908,7 @@ export const firestoreRegistry = {
     },
     {
       kind: 'table',
-      prefix: "## Rules engine (via `sandbox.setRules`)\n\nRules-engine behavior is technically `pyric-admin`'s `LocalEnvironment`,\nbut it's the most-tested surface for divergence — `request.auth`,\ncross-doc reads via `get()`, data validation. These rows pin the\nshape consumer code depends on.\n",
+      prefix: "## Security Rules\n\nFirestore's Security Rules are implemented through the `pyric/rules` package. These rows pin the rule-evaluation behavior consumer code depends on.\n",
       rows: [
         {
           "id": "firestore#127",
@@ -3206,7 +3206,7 @@ export const firestoreRegistry = {
         },
       ],
     },
-    { kind: 'markdown', markdown: "\n## Deny-list (intentionally not shimmed)\n\nThese exist in `firebase/firestore` but the sandbox does not shim them.\n\n| Name | Reason |\n|---|---|\n| `CACHE_SIZE_UNLIMITED` / `PersistentCacheIndexManager` / `getPersistentCacheIndexManager` / `deleteAllPersistentCacheIndexes` / `enablePersistentCacheIndexAutoCreation` / `disablePersistentCacheIndexAutoCreation` / `setIndexConfiguration` | Index-tuning / GC-policy admin surface; no sandbox equivalent. |\n| `terminate` | `Sandbox.dispose()` covers teardown at the host level. |\n| `loadBundle` / `namedQuery` | Bundle-loading depends on server-side packaging not modeled in the sandbox. |\n" },
+    { kind: 'markdown', markdown: "\n## Intentionally not implemented\n\nThese exist in `firebase/firestore` but Pyric does not implement them.\n\n| Name | Reason |\n|---|---|\n| `CACHE_SIZE_UNLIMITED` / `PersistentCacheIndexManager` / `getPersistentCacheIndexManager` / `deleteAllPersistentCacheIndexes` / `enablePersistentCacheIndexAutoCreation` / `disablePersistentCacheIndexAutoCreation` / `setIndexConfiguration` | Index-tuning / GC-policy admin surface; no sandbox equivalent. |\n| `terminate` | `Sandbox.dispose()` covers teardown at the host level. |\n| `loadBundle` / `namedQuery` | Bundle-loading depends on server-side packaging not modeled in the sandbox. |\n" },
   ],
 } satisfies CompatibilitySurfaceRegistry;
 

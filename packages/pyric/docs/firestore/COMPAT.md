@@ -279,12 +279,9 @@ The local store is always the fresh, authoritative source, so there is no cache 
 | 125 | All `sandbox.*` methods throw `SandboxError('failed-precondition')` on prod-target handles | ✓ | `unit:sandbox-target.test.ts` |
 | 126 | All `sandbox.*` methods work on a sandbox-live handle (route through `sandboxDb`) | ✓ | `unit:sandbox-live-identity.test.ts` ("sandboxOps.setRules + seedDocuments + snapshotState work on a live handle") |
 
-## Rules engine (via `sandbox.setRules`)
+## Security Rules
 
-Rules-engine behavior is technically `pyric-admin`'s `LocalEnvironment`,
-but it's the most-tested surface for divergence — `request.auth`,
-cross-doc reads via `get()`, data validation. These rows pin the
-shape consumer code depends on.
+Firestore's Security Rules are implemented through the `pyric/rules` package. These rows pin the rule-evaluation behavior consumer code depends on.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
@@ -305,9 +302,9 @@ shape consumer code depends on.
 | 139 | Query-proof EVALUATION — the rules-side decision ("rules are not filters"): given a `list` rule + query constraints, decide provable-or-reject (a doc-dependent rule like `resource.data.visibility == 'public'` is provable ONLY with a matching `where('visibility','==','public')`; otherwise the whole query is rejected) (RULES-B11 rules-side) | ✓ | `unit:rules/simulator/query-proof.test.ts` |
 | 139a | Query-proof ENFORCEMENT wiring — `silentReadCollection` + `readQueryCandidates` call `evaluateQueryProof` (via `sandbox/firestore/list-query-proof.ts`) instead of the per-doc silent-omission filter; structured `where`/`limit`/`orderBy` constraints are threaded from `QueryImpl.structuredConstraints()` through both the one-shot (`getDocs`/aggregate) and listener (`SnapshotTarget` applier `.structured`) paths, and `request.query.{limit,offset,orderBy}` is populated on list test cases (RULES-B11 cross-file) | ✓ | `unit:firestore/query-proof-enforcement.test.ts` (both paths; verified failing pre-fix); prover scope caveat: row 24c |
 
-## Deny-list (intentionally not shimmed)
+## Intentionally not implemented
 
-These exist in `firebase/firestore` but the sandbox does not shim them.
+These exist in `firebase/firestore` but Pyric does not implement them.
 
 | Name | Reason |
 |---|---|

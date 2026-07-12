@@ -748,12 +748,9 @@ The local store is always the fresh, authoritative source, so there is no cache 
 </details>
 </div>
 
-## Rules engine (via `sandbox.setRules`)
+## Security Rules
 
-Rules-engine behavior is technically `pyric-admin`'s `LocalEnvironment`,
-but it's the most-tested surface for divergence — `request.auth`,
-cross-doc reads via `get()`, data validation. These rows pin the
-shape consumer code depends on.
+Firestore's Security Rules are implemented through the `pyric/rules` package. These rows pin the rule-evaluation behavior consumer code depends on.
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
@@ -822,9 +819,9 @@ shape consumer code depends on.
 </details>
 </div>
 
-## Deny-list (intentionally not shimmed)
+## Intentionally not implemented
 
-These exist in `firebase/firestore` but the sandbox does not shim them.
+These exist in `firebase/firestore` but Pyric does not implement them.
 
 | Name | Reason |
 |---|---|

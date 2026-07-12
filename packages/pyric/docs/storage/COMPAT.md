@@ -200,6 +200,22 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 | 110 | `getStorageService` on a prod-target handle throws `Error: …sandbox-only` | ✓ | `unit:prod-target.test.ts` ("throws — service is sandbox-only") |
 | 111 | `targetOf(storage)` returns the discriminated `Target` (sandbox / prod) | ✓ | `unit:service.test.ts` |
 | 117 | `connectStorageEmulator(storage, host, port)` is a no-op on sandbox targets — pyric replaces the Firebase emulator, so the sandbox IS already the local emulator. Forwards to `firebase/storage`'s real `connectStorageEmulator` on prod targets | ⚠ pyric replaces the Firebase emulator; connectStorageEmulator is a no-op | `unit:connect-storage-emulator.test.ts` ("is a no-op on a sandbox handle — does not throw") |
+
+## Intentionally not implemented
+
+These exist in `firebase/storage` but Pyric does not implement them.
+
+| Name | Reason |
+|---|---|
+| `getDownloadURL` | No browser-renderable URL in the IndexedDB sandbox. |
+| `uploadBytesResumable` + `UploadTask` (pause/resume/cancel, state_changed observer) | The one-shot `uploadBytes` path is what is modeled. |
+| `getStream` | Node-stream variant not modeled in the browser-shaped scope. |
+| `list(ref, { maxResults, pageToken })` paginated form | `listAll` covers the current scope; pagination not modeled yet. |
+| Cloud Functions Storage triggers (`onFinalize`, `onArchive`, …) | Server-side surface, not the Web SDK. |
+| Image transformation URLs (Firebase Image extension) | Extension surface, not core Storage. |
+| `StorageObserver` advanced shapes (progress milestones, error subclasses) | Tied to `UploadTask`; not modeled. |
+
+
 ## Not supported yet
 
 Tracked but not implemented yet. Each flips to ✓ as support lands.
@@ -217,18 +233,3 @@ Tracked but not implemented yet. Each flips to ✓ as support lands.
 | 78 | Exported by `firebase/storage`; accepts `{ maxResults, pageToken }`, returns a `ListResult` with `nextPageToken` set when more pages remain |
 | 92 | `FullMetadata.ref` lazy population (prod populates lazily) |
 | 93 | Exported by `firebase/storage`; reroutes a `FirebaseStorage` handle to a local emulator |
-
-
-## Deny-list (intentionally not shimmed)
-
-These exist in `firebase/storage` but the sandbox does not shim them.
-
-| Name | Reason |
-|---|---|
-| `getDownloadURL` | No browser-renderable URL in the IndexedDB sandbox. |
-| `uploadBytesResumable` + `UploadTask` (pause/resume/cancel, state_changed observer) | The one-shot `uploadBytes` path is what is modeled. |
-| `getStream` | Node-stream variant not modeled in the browser-shaped scope. |
-| `list(ref, { maxResults, pageToken })` paginated form | `listAll` covers the current scope; pagination not modeled yet. |
-| Cloud Functions Storage triggers (`onFinalize`, `onArchive`, …) | Server-side surface, not the Web SDK. |
-| Image transformation URLs (Firebase Image extension) | Extension surface, not core Storage. |
-| `StorageObserver` advanced shapes (progress milestones, error subclasses) | Tied to `UploadTask`; not modeled. |
