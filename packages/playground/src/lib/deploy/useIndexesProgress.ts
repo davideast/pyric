@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { firestore, type ProjectScope } from 'pyric-tools/deploy';
+import { firestore, type ProjectScope } from '@pyric/cli/deploy';
 
 import { useAccessToken } from './useAccessToken';
 import {

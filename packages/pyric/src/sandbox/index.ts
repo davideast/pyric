@@ -51,7 +51,7 @@ export { SandboxContextImpl } from './sandbox-context.js';
 
 // Remote sandbox (slice 1) — the brand + minimal channel contract that
 // lets `pyric-admin` recognize a Node-side handle onto the browser-hosted
-// worker sandbox (constructed by `pyric-tools`' `connectRemoteSandbox`)
+// worker sandbox (constructed by `@pyric/cli`' `connectRemoteSandbox`)
 // and route its RTDB/Auth ops over the wire instead of into local state.
 export { REMOTE_SANDBOX, REMOTE_SANDBOX_FACTORY, isRemoteSandbox } from './remote.js';
 export type {

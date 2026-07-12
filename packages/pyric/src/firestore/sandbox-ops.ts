@@ -62,7 +62,7 @@ export const sandbox = {
     if (!isSandboxKind(target)) {
       throw new SandboxError(
         'failed-precondition',
-        'sandbox.setRules is sandbox-only; use firestore.rules.deploy from pyric-tools/deploy for prod targets.',
+        'sandbox.setRules is sandbox-only; use firestore.rules.deploy from @pyric/cli/deploy for prod targets.',
       );
     }
     return sandboxDb(target).setRules(rules);

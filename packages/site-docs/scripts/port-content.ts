@@ -136,7 +136,8 @@ const GROUPS: GroupSpec[] = [
 ];
 
 function docsRoot(pkg: string): string {
-  return join(repoRoot, 'packages', pkg, 'docs');
+  const packageDir = pkg === 'pyric-tools' ? 'cli' : pkg;
+  return join(repoRoot, 'packages', packageDir, 'docs');
 }
 
 /* ── The guide: the outcome-first rewrite (docs/site-rewrite/content) ─ */

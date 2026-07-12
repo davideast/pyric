@@ -3,7 +3,7 @@
  * the user to Google's consent screen. The callback completes the exchange.
  */
 import type { APIRoute } from 'astro';
-import { startAuth } from 'pyric-tools/credentials';
+import { startAuth } from '@pyric/cli/credentials';
 import { BFF_SCOPES, COOKIE, bffClient, callbackUri } from '~/lib/auth/bff-config';
 
 export const prerender = false;

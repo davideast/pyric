@@ -45,9 +45,9 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// The REAL pyric dev worker bundle path (imported from pyric-tools SOURCE so
+// The REAL pyric dev worker bundle path (imported from @pyric/cli SOURCE so
 // the freshly-edited worker host — messaging ops included — is what bundles).
-import { bundleWorker } from '../../../../../packages/pyric-tools/src/serve/bundler.ts';
+import { bundleWorker } from '../../../../../packages/cli/src/serve/bundler.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..', '..', '..');
@@ -67,7 +67,7 @@ async function loadChromium() {
   const candidates = [
     'playwright',
     join(REPO, 'packages/playground/node_modules/playwright/index.mjs'),
-    join(REPO, 'packages/pyric-tools/node_modules/playwright/index.mjs'),
+    join(REPO, 'packages/cli/node_modules/playwright/index.mjs'),
   ];
   for (const c of candidates) {
     try {

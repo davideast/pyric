@@ -7,7 +7,7 @@
  *
  * WHAT IT WRAPS
  * -------------
- * `pyric-tools/serve/worker` (the browser-safe worker CLIENT, leaf, engine-free)
+ * `@pyric/cli/serve/worker` (the browser-safe worker CLIENT, leaf, engine-free)
  * mirrors `pyric/firestore` + `pyric/auth` over the worker `MessagePort` and now
  * ALSO exposes:
  *   - `subscribeEvents`/`eventHistory`: the unified `onEvent`/`history()` stream,
@@ -83,7 +83,7 @@ import {
   startAfter as workerStartAfter,
   type ClientDb,
   type PolicyRequest,
-} from 'pyric-tools/serve/worker';
+} from '@pyric/cli/serve/worker';
 
 /**
  * The per-op auth lens Studio drives. Mirrors `pyric/sandbox`'s `AuthLens` /
@@ -283,7 +283,7 @@ export function connectWorkerLive(
   // client constructs (data viewers, typeahead index, seed actions) so the
   // traffic stream can attribute — and filter — Studio-driven ops. The
   // served app runs its own bundle instance and stays untagged; bridge
-  // relays forward verbatim (see pyric-tools serve/worker client).
+  // relays forward verbatim (see @pyric/cli serve/worker client).
   setOpIssuer('studio');
   let db: ClientDb;
   try {

@@ -2,7 +2,7 @@
  * Handlers wrapping the pure-fetch `api.ts` provisioning functions
  * with a structured outcome shape. They take a `ProjectScope`
  * (`{ projectId, resolveToken }`) — the same credential value the
- * `pyric-tools/deploy` factories accept — so the storage tools share the
+ * `@pyric/cli/deploy` factories accept — so the storage tools share the
  * resolver contract with the rest of the control plane.
  *
  * Note on permissions: `resolveToken()` typically yields a Firebase

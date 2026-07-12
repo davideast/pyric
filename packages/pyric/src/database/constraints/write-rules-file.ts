@@ -12,7 +12,7 @@
  * Uses the SYNC `node:fs` / `node:path` specifiers (not `node:fs/promises`)
  * to match the module resolver's existing Node-builtin usage — `pyric/rules`
  * is statically reachable from Studio's browser bundle (a known wart, see
- * `modules/resolver.ts` and `pyric-tools/vite`'s `NODE_BUILTIN_SHIMS`), and
+ * `modules/resolver.ts` and `@pyric/cli/vite`'s `NODE_BUILTIN_SHIMS`), and
  * those shims only cover the bare `fs`/`path`/`url` specifiers.
  */
 

@@ -25,7 +25,7 @@ import {
   type PreflightCheckResult,
   type PreflightOptions,
   type ProjectScope,
-} from 'pyric-tools/deploy';
+} from '@pyric/cli/deploy';
 
 import { useAccessToken } from './useAccessToken';
 import { useTargetProject } from './useTargetProject';

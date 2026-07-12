@@ -25,12 +25,12 @@ NPM_CACHE="${TMPDIR:-/tmp}/npm-cache-pyric-packaging-test"
 # Publishable packages, in dependency order (dependencies first).
 # - pyric is foundational (everyone else workspace:* it)
 # - pyric-admin depends on pyric
-# - pyric-tools depends on pyric
+# - @pyric/cli depends on pyric
 # - @pyric/ui peer-depends on pyric
 PACKAGES=(
   "packages/pyric"         # pyric
   "packages/pyric-admin"   # pyric-admin
-  "packages/pyric-tools"   # pyric-tools (bin: pyric)
+  "packages/cli"   # @pyric/cli (bin: pyric)
   "packages/ui"            # @pyric/ui
 )
 
@@ -56,7 +56,7 @@ exported_subpaths() {
 
 PYRIC_SUBPATHS=( $(exported_subpaths packages/pyric) )
 PYRIC_ADMIN_SUBPATHS=( $(exported_subpaths packages/pyric-admin) )
-PYRIC_TOOLS_SUBPATHS=( $(exported_subpaths packages/pyric-tools) )
+PYRIC_CLI_SUBPATHS=( $(exported_subpaths packages/cli) )
 PYRIC_UI_SUBPATHS=( $(exported_subpaths packages/ui) )
 
 # Tracks the backgrounded `pyric dev` (Phase 5.5) so a failure mid-smoke
@@ -137,7 +137,7 @@ pack_one() {
 }
 TARBALL_PYRIC=$(pack_one packages/pyric)
 TARBALL_PYRIC_ADMIN=$(pack_one packages/pyric-admin)
-TARBALL_PYRIC_TOOLS=$(pack_one packages/pyric-tools)
+TARBALL_PYRIC_CLI=$(pack_one packages/cli)
 TARBALL_UI=$(pack_one packages/ui)
 
 # ─── Phase 2.5: publish file-set + runtime-asset presence ──────────────
@@ -181,42 +181,42 @@ assert_tar_has() {
 }
 packset_check packages/pyric pyric
 packset_check packages/pyric-admin pyric-admin
-packset_check packages/pyric-tools pyric-tools
+packset_check packages/cli @pyric/cli
 packset_check packages/ui @pyric/ui
 # Load-bearing runtime assets — pass import() but break at first use if dropped.
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/grammar/FirestoreRules\.ohm$' "pyric ships the Firestore rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/database/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/modules/stdlib/.*\.rules$' "pyric ships the rules stdlib modules (.rules)"
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/cli/index\.js$' "pyric-tools ships the pyric CLI bin"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli ships the pyric CLI bin"
 # The Vite plugin's `ui` option + `pyric dev --ui` resolve the Studio app from
 # dist/serve/studio-ui (build-embedded). The plugin's firebase swap resolves the
 # entries from dist/serve/entries. Both are `files:["dist"]`-whitelisted assets that
 # import fine but 404 / break the swap for installed users if the build drops them.
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/studio-ui/index\.html$' "pyric-tools ships the Studio app shell (vite plugin ui + dev --ui)"
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/playground-ui/index\.html$' "pyric-tools ships the embedded Playground app shell (Studio Playground tab)"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/studio-ui/index\.html$' "@pyric/cli ships the Studio app shell (vite plugin ui + dev --ui)"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/playground-ui/index\.html$' "@pyric/cli ships the embedded Playground app shell (Studio Playground tab)"
 # index.html hard-references hashed assets/*.{js,css}; without them the served app
 # renders a blank root that 404s its own bundle. The index.html fallback only fires
 # for extension-less paths, so a dropped assets/ dir would pass an index-only check.
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/studio-ui/assets/.*\.js$' "pyric-tools ships the Studio app JS bundle"
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/studio-ui/assets/.*\.css$' "pyric-tools ships the Studio app CSS bundle"
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/playground-ui/_astro/.*\.js$' "pyric-tools ships the embedded Playground JS bundle"
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/playground-ui/_astro/.*\.css$' "pyric-tools ships the embedded Playground CSS bundle"
-if ! grep -R "Shared sandbox" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1 ||
-   ! grep -R "Isolated session" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1 ||
-   ! grep -R "sandboxMode" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1; then
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/studio-ui/assets/.*\.js$' "@pyric/cli ships the Studio app JS bundle"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/studio-ui/assets/.*\.css$' "@pyric/cli ships the Studio app CSS bundle"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/playground-ui/_astro/.*\.js$' "@pyric/cli ships the embedded Playground JS bundle"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/playground-ui/_astro/.*\.css$' "@pyric/cli ships the embedded Playground CSS bundle"
+if ! grep -R "Shared sandbox" packages/cli/dist/serve/playground-ui/_astro >/dev/null 2>&1 ||
+   ! grep -R "Isolated session" packages/cli/dist/serve/playground-ui/_astro >/dev/null 2>&1 ||
+   ! grep -R "sandboxMode" packages/cli/dist/serve/playground-ui/_astro >/dev/null 2>&1; then
   echo "  ✗ stale embedded Playground bundle: missing per-session sandbox mode code" >&2
   echo "    Run: PLAYGROUND_BASE=/__pyric/playground/ bun run --cwd packages/playground build" >&2
-  echo "         cp -R packages/playground/dist/client/. packages/pyric-tools/dist/serve/playground-ui/" >&2
+  echo "         cp -R packages/playground/dist/client/. packages/cli/dist/serve/playground-ui/" >&2
   exit 1
 fi
 # All swap/boot entries are load-bearing: defaultSdkEntries() throws at plugin
 # construction if any is missing. Guard each, not just firestore.
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/app\.js$' "pyric-tools ships the firebase/app swap entry"
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/auth\.js$' "pyric-tools ships the firebase/auth swap entry"
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/firestore\.js$' "pyric-tools ships the firebase/firestore swap entry"
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/database\.js$' "pyric-tools ships the firebase/database swap entry"
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/storage\.js$' "pyric-tools ships the firebase/storage swap entry"
-assert_tar_has "$TARBALL_PYRIC_TOOLS" 'package/dist/serve/entries/init\.js$' "pyric-tools ships the sandbox boot entry"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/app\.js$' "@pyric/cli ships the firebase/app swap entry"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/auth\.js$' "@pyric/cli ships the firebase/auth swap entry"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/firestore\.js$' "@pyric/cli ships the firebase/firestore swap entry"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/database\.js$' "@pyric/cli ships the firebase/database swap entry"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/storage\.js$' "@pyric/cli ships the firebase/storage swap entry"
+assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/init\.js$' "@pyric/cli ships the sandbox boot entry"
 
 # ─── Phase 3: install all tarballs into a fresh consumer project ──────
 echo ""
@@ -233,7 +233,7 @@ cat > package.json <<JSON
   "dependencies": {
     "pyric": "file:${TARBALL_PYRIC}",
     "pyric-admin": "file:${TARBALL_PYRIC_ADMIN}",
-    "pyric-tools": "file:${TARBALL_PYRIC_TOOLS}",
+    "@pyric/cli": "file:${TARBALL_PYRIC_CLI}",
     "@pyric/ui": "file:${TARBALL_UI}",
     "firebase": "^12.12.0",
     "firebase-admin": "^13.0.0",
@@ -265,7 +265,7 @@ const subpaths = readFileSync('__subpaths.txt', 'utf8').split('\n').filter(Boole
 // Side-effect-only subpaths (register loaders for `node --import`): importing
 // them IS the contract; they intentionally export zero symbols. Import failure
 // still fails the gate.
-const SIDE_EFFECT_ONLY = new Set(['pyric-tools/register']);
+const SIDE_EFFECT_ONLY = new Set(['@pyric/cli/register']);
 let failed = false;
 for (const subpath of subpaths) {
   try {
@@ -297,8 +297,8 @@ run_subpath_check "${PYRIC_SUBPATHS[@]}"
 echo "▸ pyric-admin subpaths"
 run_subpath_check "${PYRIC_ADMIN_SUBPATHS[@]}"
 
-echo "▸ pyric-tools subpaths"
-run_subpath_check "${PYRIC_TOOLS_SUBPATHS[@]}"
+echo "▸ @pyric/cli subpaths"
+run_subpath_check "${PYRIC_CLI_SUBPATHS[@]}"
 
 echo "▸ @pyric/ui subpaths"
 run_subpath_check "${PYRIC_UI_SUBPATHS[@]}"
@@ -316,19 +316,19 @@ const ok = (m) => console.log('  ✓ ' + m);
 const bad = (m) => { console.error('  ✗ ' + m); failed = true; };
 
 // The Vite plugin entry exposes the swap+bridge plugin factory.
-const vite = await import('pyric-tools/vite');
-if (typeof vite.pyricSandbox === 'function') ok('pyric-tools/vite exports pyricSandbox()');
-else bad('pyric-tools/vite is MISSING pyricSandbox (named export gone/renamed)');
+const vite = await import('@pyric/cli/vite');
+if (typeof vite.pyricSandbox === 'function') ok('@pyric/cli/vite exports pyricSandbox()');
+else bad('@pyric/cli/vite is MISSING pyricSandbox (named export gone/renamed)');
 
 // The bridge Node entry must NOT re-expose the retired standalone Vite plugin —
 // the Vite integration is `pyricSandbox({ bridge })`, not a bridge-only plugin.
-const bridge = await import('pyric-tools/bridge');
-if (!('vitePlugin' in bridge)) ok('pyric-tools/bridge does NOT export vitePlugin (retired in M3)');
-else bad('pyric-tools/bridge STILL exports vitePlugin (the M3 retire regressed)');
+const bridge = await import('@pyric/cli/bridge');
+if (!('vitePlugin' in bridge)) ok('@pyric/cli/bridge does NOT export vitePlugin (retired in M3)');
+else bad('@pyric/cli/bridge STILL exports vitePlugin (the M3 retire regressed)');
 // The bridge server surface consumers do rely on stays put.
 for (const sym of ['createBridge', 'startServer']) {
-  if (typeof bridge[sym] === 'function') ok('pyric-tools/bridge exports ' + sym + '()');
-  else bad('pyric-tools/bridge is MISSING ' + sym);
+  if (typeof bridge[sym] === 'function') ok('@pyric/cli/bridge exports ' + sym + '()');
+  else bad('@pyric/cli/bridge is MISSING ' + sym);
 }
 
 if (failed) process.exit(1);
@@ -410,7 +410,7 @@ check_bin_help "pyric"
 # (served by `vite dev`, `hosting.public` → `dist` which doesn't exist until a
 # build), so it isn't what `pyric dev` consumes. The `static` template is the
 # serve-era no-bundler scaffold (a ready `public/` dir) — exactly the path this
-# smoke exercises. (The Vite-plugin path is covered by pyric-tools' own tests.)
+# smoke exercises. (The Vite-plugin path is covered by @pyric/cli' own tests.)
 echo ""
 echo "━━━ Phase 5.5: serve smoke ━━━"
 PYRIC_BIN="$WORK/consumer/node_modules/.bin/pyric"
@@ -455,7 +455,7 @@ wait "$SERVE_PID" 2>/dev/null || true
 SERVE_PID=""
 
 # `pyric rules:lint` from the installed bin — exercises the rules grammar asset
-# (FirestoreRules.ohm) through the published pyric-tools CLI, not just serve.
+# (FirestoreRules.ohm) through the published @pyric/cli CLI, not just serve.
 cat > "$SMOKE/firestore.rules" <<'RULES'
 rules_version = '2';
 service cloud.firestore {

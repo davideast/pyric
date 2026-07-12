@@ -28,7 +28,7 @@
  * the secret is absent.
  */
 import { describe, test, beforeAll, afterAll } from 'bun:test';
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '@pyric/cli/deploy';
 import {
   type Scenario,
   type CaseRow,

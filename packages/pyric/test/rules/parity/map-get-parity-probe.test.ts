@@ -23,7 +23,7 @@
  * holds only `firebaserules.rulesets.test`. Skips cleanly when absent.
  */
 import { describe, test, beforeAll, expect } from 'bun:test';
-import type { ProjectScope } from 'pyric-tools/deploy';
+import type { ProjectScope } from '@pyric/cli/deploy';
 import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
 import type { TestCase } from '../../../src/rules/test/spec.js';
 import { hasParitySecret, parityScope } from './harness.js';

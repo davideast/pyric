@@ -21,7 +21,7 @@ import {
   createRestCrawlerFirestore,
   createFirestoreDiscoverTools,
   type DiscoverPathsToolResult,
-} from 'pyric-tools/discover';
+} from '@pyric/cli/discover';
 import type { ToolContext, ToolHandler, ToolResult } from '@inbrowser/agent';
 
 /**

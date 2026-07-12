@@ -18,7 +18,7 @@
  *   bun scripts/fn-logs.ts --since=1h     # last hour
  *   bun scripts/fn-logs.ts --since=45m
  */
-import { fromServiceAccount } from 'pyric-tools/deploy';
+import { fromServiceAccount } from '@pyric/cli/deploy';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

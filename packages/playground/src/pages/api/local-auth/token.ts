@@ -14,7 +14,7 @@
  * network) — the same exposure as an in-browser GIS token, but durable.
  */
 import type { APIRoute } from 'astro';
-import { resolveLocalAccessToken } from 'pyric-tools/credentials/node';
+import { resolveLocalAccessToken } from '@pyric/cli/credentials/node';
 
 export const prerender = false;
 

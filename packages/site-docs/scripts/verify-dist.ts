@@ -88,7 +88,8 @@ function* walkMd(dir: string): Generator<string> {
 }
 const slugSet = new Set(sources.map((s) => s.slug));
 for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {
-  const docsRoot = join(repoRoot, 'packages', pkg, 'docs');
+  const packageDir = pkg === 'pyric-tools' ? 'cli' : pkg;
+  const docsRoot = join(repoRoot, 'packages', packageDir, 'docs');
   let count = 0;
   let missing = 0;
   for (const file of walkMd(docsRoot)) {

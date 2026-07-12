@@ -1,4 +1,4 @@
-import * as WorkerRuntime from 'pyric-tools/serve/worker';
+import * as WorkerRuntime from '@pyric/cli/serve/worker';
 import { readPlaygroundSandboxMode, type PlaygroundSandboxMode } from '~/lib/studio-embed';
 import {
   getRunner,

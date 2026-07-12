@@ -1,7 +1,7 @@
 import type {
   AssuranceProbeResult,
   AuthorizationCampaignReport,
-} from "pyric-tools/assurance";
+} from "@pyric/cli/assurance";
 import type { Denial } from "../rules-debug/model.js";
 
 export interface AssuranceMatrixRow {

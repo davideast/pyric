@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   subscribeAssuranceVisualizations,
   type AssuranceVisualizationSnapshot,
-} from "pyric-tools/assurance/browser";
+} from "@pyric/cli/assurance/browser";
 import { currentPath } from "../../shell/router.js";
 import { ASSURANCE_DEMO_CAMPAIGN } from "./demo.js";
 

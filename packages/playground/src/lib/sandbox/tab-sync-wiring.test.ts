@@ -1,7 +1,7 @@
 /**
  * Unit tests for `wireAuthTabSync` — the playground's cross-tab auth bridge.
  *
- * Ported from `packages/pyric-tools/test/serve/tab-sync-wiring.test.ts`
+ * Ported from `packages/cli/test/serve/tab-sync-wiring.test.ts`
  * (the serve reference). All external dependencies (BroadcastChannel, Auth,
  * authOps, onAuthStateChanged, signOut) are injected as stubs so this runs
  * in Bun's test environment without a real browser or sandbox.

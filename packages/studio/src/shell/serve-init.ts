@@ -15,7 +15,7 @@
 import { useSyncExternalStore } from 'react';
 
 /** The slice of the serve init payload Studio surfaces read. Mirrors
- *  `pyric-tools`' `InitPayload` (kept structural; no runtime import). */
+ *  `@pyric/cli`' `InitPayload` (kept structural; no runtime import). */
 export interface ServeInitPayload {
   rules?: string | null;
   rulesHash?: string | null;

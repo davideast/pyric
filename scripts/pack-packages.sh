@@ -39,7 +39,7 @@ fi
 PACKAGES=(
   "packages/pyric"
   "packages/pyric-admin"
-  "packages/pyric-tools"
+  "packages/cli"
   "packages/ui"
 )
 
@@ -67,7 +67,7 @@ echo "━━━ Phase 2: pack ━━━"
 # README.md in the source tree as the in-repo doc. COPY, never symlink —
 # `npm pack` does not follow symlinks. The original is restored even on
 # failure (RETURN trap), so the working tree stays clean.
-ROOT_README_PACKAGES=("pyric" "pyric-admin" "pyric-tools")
+ROOT_README_PACKAGES=("pyric" "pyric-admin" "@pyric/cli")
 
 uses_root_readme() {
   local name="$1"

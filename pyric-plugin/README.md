@@ -28,7 +28,7 @@ claude --plugin-dir ./pyric-plugin
 ```
 
 `pyric` must be available on the project's PATH (the `pyric init` web
-template adds `pyric-tools` as a devDep, so `npx pyric …` resolves it).
+template adds `@pyric/cli` as a dev dependency, so `npx pyric …` resolves it).
 
 ## How it connects (no manual steps)
 
@@ -45,4 +45,4 @@ re-open the page.
 ## Status
 
 Pre-release. The MCP proxy + start skill are functional and tested in
-`packages/pyric-tools`.
+`packages/cli`.

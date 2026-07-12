@@ -1,8 +1,8 @@
 /**
  * Cross-tab auth synchronization for the playground workspace sandbox.
  *
- * Mirrors `packages/pyric-tools/src/serve/entries/tab-sync-wiring.ts` —
- * that file is an internal of `pyric-tools` and CANNOT be imported here
+ * Mirrors `packages/cli/src/serve/entries/tab-sync-wiring.ts` —
+ * that file is an internal of `@pyric/cli` and CANNOT be imported here
  * (the playground is a consumer, not a peer). The logic is identical;
  * only the default channel name differs (`pyric:playground:auth-sync:*`
  * vs. `pyric:serve:auth-sync`).
