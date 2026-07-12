@@ -1,16 +1,23 @@
 /**
  * Types for the assurance-capability records and the derived artifact.
  *
- * An assurance capability is a claim about what the local rules simulator can
- * DECIDE — the unit an adversarial assurance probe consults before it treats a
- * verdict as evidence. A probe whose capability is not `supported` must abstain
- * (report an engine gap) rather than report a security conclusion.
+ * An assurance capability is a named, described claim about what the local rules
+ * simulator can DECIDE — a slice of the engine's coverage, grouping the graph
+ * nodes it rests on under one human-readable heading. It is the CATALOG the
+ * assurance runtime hands an agent through `listAssuranceCapabilities`: the
+ * agent-facing answer to "what can assurance verify?".
  *
- * The records in this directory are AUTHORED: a human declares WHAT a
- * capability depends on. They carry no status. The status is DERIVED from the
- * conformance graph by `src/assurance-capabilities.ts` — the graph decides
- * WHETHER the claim holds. A record cannot assert `supported`; there is no
- * field to assert it in.
+ * A probe does NOT cite a capability. It names the graph nodes (constructs,
+ * registry rows) its verdict depends on directly, and the engine resolves each
+ * node's derived verdict; the capability catalog and a probe's node resolution
+ * read the same graph-derived verdicts. So these records carry a description and
+ * a node grouping for the catalog, not a dependency list a probe consults.
+ *
+ * The records in this directory are AUTHORED: a human declares a capability's
+ * description and the graph nodes it groups. They carry no status. The status is
+ * DERIVED from the conformance graph by `src/assurance-capabilities.ts` — the
+ * graph decides WHETHER each grouped node holds, and the capability's status
+ * rolls those up. A record cannot assert `supported`; there is no field for it.
  *
  * One record per file, named `<capability-id>.ts` (e.g. `firestore.crud.ts`),
  * exporting `capability`. The filename IS the id — the record carries no id

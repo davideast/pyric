@@ -176,13 +176,6 @@ export interface AssuranceProbe {
    * is a campaign authoring error (invalid-probe).
    */
   requires?: CapabilityDependency[];
-  /**
-   * @deprecated Capability ids, superseded by `requires`. A capability was a
-   * named bundle of graph nodes; a probe now names the nodes it needs directly.
-   * Still resolved (against the derived capability statuses) for one release so
-   * existing campaigns keep working.
-   */
-  requirements?: string[];
 }
 
 export interface AssuranceObservation {

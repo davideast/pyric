@@ -238,8 +238,6 @@ const probeSchema = {
         required: ["kind", "id"],
       },
     },
-    // Deprecated: capability ids, superseded by `requires`. Still accepted.
-    requirements: { type: "array", items: { type: "string" } },
   },
   required: ["id", "actorId", "invariantId", "control", "mutation"],
 };

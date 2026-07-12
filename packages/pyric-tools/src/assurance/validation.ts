@@ -293,12 +293,19 @@ export function assertProbe(probe: unknown): asserts probe is AssuranceProbe {
     `probe '${probe.id}' mutation operation`,
   );
   if (
-    probe.requirements !== undefined &&
-    (!Array.isArray(probe.requirements) ||
-      !probe.requirements.every((item) => typeof item === "string"))
+    probe.requires !== undefined &&
+    (!Array.isArray(probe.requires) ||
+      !probe.requires.every(
+        (item) =>
+          item !== null &&
+          typeof item === "object" &&
+          (item.kind === "construct" || item.kind === "registry-row") &&
+          typeof item.id === "string" &&
+          item.id.length > 0,
+      ))
   ) {
     throw new AssuranceInputError(
-      `probe '${probe.id}' requirements must be an array of strings.`,
+      `probe '${probe.id}' requires must be an array of { kind: 'construct' | 'registry-row', id } nodes.`,
     );
   }
   if (probe.control.service !== probe.mutation.operation.service) {

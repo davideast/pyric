@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import {
   ASSURANCE_ENGINE_CAPABILITIES,
   AssuranceInputError,
-  capabilityReasons,
   runAuthorizationCampaign,
   type AuthorizationCampaignSpec,
 } from "../../src/assurance/index.js";
@@ -213,19 +212,25 @@ describe("campaign classification integrity", () => {
     );
   });
 
-  it("abstains — never reports no-counterexample — when a probe requires a capability the graph does not derive as supported", async () => {
+  it("abstains — never reports no-counterexample — when a probe requires a graph node the graph does not derive as supported", async () => {
     // The probe below would otherwise EXECUTE and, against these permissive
-    // rules, come back clean. It must not: it declares a capability the
+    // rules, come back clean. It must not: it requires a graph node the
     // conformance graph does not derive as `supported`, so the engine cannot
     // treat its own verdict as evidence. Silence from a simulator that cannot
     // see the behavior is not evidence of safety.
-    const notSupported = ASSURANCE_ENGINE_CAPABILITIES.find(
-      (capability) => capability.status !== "supported",
+    const weakNode = ASSURANCE_ENGINE_CAPABILITIES.flatMap(
+      (capability) => capability.dependencies,
+    ).find(
+      (dependency) =>
+        (dependency.kind === "construct" || dependency.kind === "registry-row") &&
+        dependency.verdict !== "supported",
     );
-    if (!notSupported) throw new Error("expected a non-supported capability");
+    if (!weakNode || (weakNode.kind !== "construct" && weakNode.kind !== "registry-row")) {
+      throw new Error("expected a non-supported graph node");
+    }
 
     const campaign = firestoreCampaign();
-    campaign.probes[0]!.requirements = [notSupported.id];
+    campaign.probes[0]!.requires = [{ kind: weakNode.kind, id: weakNode.id }];
 
     const report = await runAuthorizationCampaign(campaign);
 
@@ -238,12 +243,12 @@ describe("campaign classification integrity", () => {
     expect(report.summary.engineGaps).toBe(1);
     expect(report.summary.noCounterexamples).toBe(0);
 
-    // The abstention cites the graph's own evidence for the derived status.
+    // The abstention cites the node's derived verdict.
     const requirement = report.results[0]?.qualification.requirements.find(
-      (item) => item.id === notSupported.id,
+      (item) => item.id === weakNode.id,
     );
     expect(requirement?.supported).toBe(false);
-    expect(requirement?.reason).toContain(capabilityReasons(notSupported)[0]!);
+    expect(requirement?.reason).toContain(weakNode.verdict);
   });
 
   it("rejects any target that does not explicitly forbid networking", async () => {
