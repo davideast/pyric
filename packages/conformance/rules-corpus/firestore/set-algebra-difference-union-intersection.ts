@@ -1,14 +1,14 @@
 /**
- * ─── Pack 7: set-algebra-difference-union-intersection ────────────────────
+ * ─── Scenario 7: set-algebra-difference-union-intersection ────────────────────
  * Targets Item 5.1 of the rebuild plan — Set.difference / union /
  * intersection. Pre-fix the simulator only implemented hasOnly/hasAll/
  * hasAny/size on FirestoreSet; the three set-algebra methods threw
  * UnsupportedError. Sets are constructed via Map.keys() (the only
- * public constructor) — pack chains through there.
+ * public constructor) — scenario chains through there.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'Item 5.1',
   rationale: 'Sim must implement Set.difference/union/intersection; pre-fix all three threw UnsupportedError on FirestoreSet.',
   rules: `rules_version = '2';

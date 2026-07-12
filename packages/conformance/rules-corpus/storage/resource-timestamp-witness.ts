@@ -1,5 +1,5 @@
 /**
- * ─── Pack 7: resource-timestamp-witness (KNOWN GAP) ─────────────────────────
+ * ─── Scenario 7: resource-timestamp-witness (KNOWN GAP) ─────────────────────────
  * The evaluator's resource model carries only size/contentType/metadata, so
  * resource.timeCreated / resource.updated read `undefined` and any comparison
  * DENIES in-process, while production evaluates a real server timestamp. These
@@ -7,12 +7,12 @@
  * suite to RECORD but NOT ASSERT the evaluator verdict (mirroring how the
  * Firestore replay skips its simulator's UNSUPPORTED abstentions). The
  * `expectation` is production's expected verdict, and stays UNVERIFIED until
- * capture confirms it — at which point this pack is the evidence the field is
+ * capture confirms it — at which point this scenario is the evidence the field is
  * still unsupported in the evaluator.
  */
-import type { StoragePackRecord } from './types.ts';
+import type { StorageScenarioRecord } from './types.ts';
 
-export const pack: StoragePackRecord = {
+export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-RES-TS',
   rationale:
     'Witness: resource.timeCreated / resource.updated are production Storage fields the evaluator does not model (reads undefined → deny) — records the known gap.',

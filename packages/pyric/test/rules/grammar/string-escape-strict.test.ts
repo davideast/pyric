@@ -60,7 +60,7 @@ describe('string escapes — accepted (production-valid)', () => {
   });
 
   test('regression: `.matches(\'.*@acme\\\\.com\')` still parses', () => {
-    // The matches-string-escape pack source. Source `\\.` → value `\.`.
+    // The matches-string-escape scenario source. Source `\\.` → value `\.`.
     const r = parseToASTOrError(rules(
       "request.auth.token.email.matches('.*@acme\\\\.com')",
     ));

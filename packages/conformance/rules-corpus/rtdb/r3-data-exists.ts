@@ -9,9 +9,9 @@
  * via the ancestor grant). `mockData` seeds the pre-existing value for the
  * populated case.
  */
-import type { RtdbPackRecord } from './types.ts';
+import type { RtdbScenarioRecord } from './types.ts';
 
-export const pack: RtdbPackRecord = {
+export const scenario: RtdbScenarioRecord = {
   fm: 'rtdb#71',
   rationale: 'ancestor .write cascade dominates a deeper !data.exists() rule — production allows the populated-path write, and the simulator must model the same cascade grant.',
   provenance: 'Decomposed from the rtdb-simulator-vs-prod-agreement observation, ruleset r3-data-exists. Expectations are the recorded production allow/deny verdicts.',

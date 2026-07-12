@@ -1,14 +1,14 @@
 /**
- * ─── Pack 2: functions-let-scope ────────────────────────────────────────────
+ * ─── Scenario 2: functions-let-scope ────────────────────────────────────────────
  * #96/#104 also claim user-defined functions are unsupported. This proves
  * `let` bindings, functions calling functions, and match-block-scoped helper
  * functions (lexical scoping). Same-name shadowing and undefined-function
  * calls are deliberately omitted: production rejects those at compile, so they
  * cannot be captured as a clean verdict (they live in the evaluator unit tests).
  */
-import type { StoragePackRecord } from './types.ts';
+import type { StorageScenarioRecord } from './types.ts';
 
-export const pack: StoragePackRecord = {
+export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-FUNC',
   rationale:
     'User-defined functions with let bindings, functions calling functions, and a match-block-scoped helper — the evaluator surface #96/#104 wrongly call unsupported.',

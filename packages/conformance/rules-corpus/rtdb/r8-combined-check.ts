@@ -11,9 +11,9 @@
  * verdicts. A worked example that rule placement relative to the written path
  * decides the outcome — the simulator must project `newData` at the same node.
  */
-import type { RtdbPackRecord } from './types.ts';
+import type { RtdbScenarioRecord } from './types.ts';
 
-export const pack: RtdbPackRecord = {
+export const scenario: RtdbScenarioRecord = {
   fm: 'rtdb#71',
   rationale: 'a root-level .write predicate reading newData.child(\'owner\') sees {item:{...}} for a write one level deeper, so hasChildren([\'owner\']) is false — production denies all writes; the simulator must project newData at the rule node identically.',
   provenance: 'Decomposed from the rtdb-simulator-vs-prod-agreement observation, ruleset r8-combined-check. Expectations are the recorded production allow/deny verdicts.',

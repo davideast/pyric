@@ -6,8 +6,8 @@
  * RTDB has NO server-side rules test API, so its production truth is captured by
  * DEPLOYING real rulesets, running ops against the live database, observing
  * allow/deny, and restoring — the `rtdb-simulator-vs-prod-agreement` oracle
- * probe. The `rules-corpus/rtdb/` packs are a decomposition of that probe (one
- * ruleset per pack), and every case's `expectation` IS the production verdict
+ * probe. The `rules-corpus/rtdb/` scenarios are a decomposition of that probe (one
+ * ruleset per scenario), and every case's `expectation` IS the production verdict
  * that probe froze. This suite runs the SAME (ruleset, op) tuples through the
  * in-process `SimulateHandler` and asserts the simulator's allow/deny matches
  * the recorded production verdict — verdict for verdict.
@@ -42,10 +42,10 @@ import { RtdbMapper } from '../../src/database/mapper.js';
 import { SimulateHandler } from '../../src/database/simulation/handler.js';
 import type { SimulationInput } from '../../src/database/simulation/spec.js';
 import {
-  ALL_RULES_RTDB_PACKS,
+  ALL_RULES_RTDB_SCENARIOS,
   RULES_RTDB_OBSERVATION_PREFIX,
   rtdbObservationName,
-  type RtdbPack,
+  type RtdbScenario,
   type RtdbTestCase,
 } from '../../../../packages/conformance/rules-corpus/rtdb/index.ts';
 
@@ -94,17 +94,17 @@ function buildSimMock(simPath: string, mockData: unknown): Record<string, unknow
 }
 
 /** The simulator's allow/deny for one case, reconstructing the agreement
- *  probe's simulator input: the pack subtree mounted under the pack id beneath
+ *  probe's simulator input: the scenario subtree mounted under the scenario id beneath
  *  a deny-all root, the op path prefixed with the mount key, and the same auth
  *  context. A simulator error (NO_MATCHING_RULE etc.) reads as DENY, as the
  *  probe did. */
-function simulatorVerdict(pack: RtdbPack, tc: RtdbTestCase): 'ALLOW' | 'DENY' {
-  const subtree = JSON.parse(pack.rules) as Record<string, unknown>;
+function simulatorVerdict(scenario: RtdbScenario, tc: RtdbTestCase): 'ALLOW' | 'DENY' {
+  const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
   const simRulesJson = {
     rules: {
       '.read': false,
       '.write': false,
-      [pack.id]: subtree,
+      [scenario.id]: subtree,
     },
   };
   const ir = RtdbMapper.mapToIR(simRulesJson, null, DATABASE_URL);
@@ -114,7 +114,7 @@ function simulatorVerdict(pack: RtdbPack, tc: RtdbTestCase): 'ALLOW' | 'DENY' {
   const opPath = substituteUid(tc.opPath, uid);
   const newData = tc.newData !== undefined ? substituteUid(tc.newData, uid) : undefined;
   const mockData = tc.mockData !== undefined ? substituteUid(tc.mockData, uid) : undefined;
-  const simPath = `/${pack.id}${opPath}`;
+  const simPath = `/${scenario.id}${opPath}`;
 
   const input: SimulationInput = {
     operation: tc.operation,
@@ -146,7 +146,7 @@ function simulatorVerdict(pack: RtdbPack, tc: RtdbTestCase): 'ALLOW' | 'DENY' {
  * "enumerate simulator-vs-prod divergences" test until it is triaged and either
  * fixed or pinned here with both sides and a reason.
  *
- * Keyed by `${packId} :: ${caseDescription}`.
+ * Keyed by `${scenarioId} :: ${caseDescription}`.
  */
 const KNOWN_DIVERGENCES: Record<
   string,
@@ -158,8 +158,8 @@ interface RulesObservation {
   behavior: Record<string, unknown>;
 }
 
-const PACK_BY_OBSERVATION = new Map<string, RtdbPack>(
-  ALL_RULES_RTDB_PACKS.map((pack) => [rtdbObservationName(pack), pack]),
+const SCENARIO_BY_OBSERVATION = new Map<string, RtdbScenario>(
+  ALL_RULES_RTDB_SCENARIOS.map((scenario) => [rtdbObservationName(scenario), scenario]),
 );
 
 function loadObservation(file: string): RulesObservation {
@@ -177,25 +177,25 @@ function capturedObservationFiles(): string[] {
 }
 
 describe('oracle conformance (rules-rtdb)', () => {
-  // Corpus sanity: every pack's subtree must map to IR. Runs regardless of
+  // Corpus sanity: every scenario's subtree must map to IR. Runs regardless of
   // captures, so a malformed ruleset is caught here, not only at capture.
-  it('every rtdb corpus pack maps to IR', () => {
-    for (const pack of ALL_RULES_RTDB_PACKS) {
-      const subtree = JSON.parse(pack.rules) as Record<string, unknown>;
+  it('every rtdb corpus scenario maps to IR', () => {
+    for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
+      const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
       expect(
-        () => RtdbMapper.mapToIR({ rules: { '.read': false, '.write': false, [pack.id]: subtree } }, null, DATABASE_URL),
-        `pack "${pack.id}" must map to IR`,
+        () => RtdbMapper.mapToIR({ rules: { '.read': false, '.write': false, [scenario.id]: subtree } }, null, DATABASE_URL),
+        `scenario "${scenario.id}" must map to IR`,
       ).not.toThrow();
     }
   });
 
   // ── verdict-for-verdict replay against the prod-derived corpus expectations ──
-  for (const pack of ALL_RULES_RTDB_PACKS) {
-    it(`${rtdbObservationName(pack)}: simulator matches frozen production verdicts`, () => {
-      for (const tc of pack.cases) {
+  for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
+    it(`${rtdbObservationName(scenario)}: simulator matches frozen production verdicts`, () => {
+      for (const tc of scenario.cases) {
         if (tc.pendingCapture) continue; // recorded but not assertable yet
-        const key = `${pack.id} :: ${tc.description}`;
-        const sim = simulatorVerdict(pack, tc);
+        const key = `${scenario.id} :: ${tc.description}`;
+        const sim = simulatorVerdict(scenario, tc);
         const known = KNOWN_DIVERGENCES[key];
         if (known) {
           // Pinned divergence: assert BOTH sides so the pin fails loudly the
@@ -212,11 +212,11 @@ describe('oracle conformance (rules-rtdb)', () => {
   // ── enumerate divergences prominently (findings, not hidden skips) ──────────
   it('enumerate simulator-vs-prod divergences (findings)', () => {
     const found: string[] = [];
-    for (const pack of ALL_RULES_RTDB_PACKS) {
-      for (const tc of pack.cases) {
+    for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
+      for (const tc of scenario.cases) {
         if (tc.pendingCapture) continue;
-        const key = `${pack.id} :: ${tc.description}`;
-        const sim = simulatorVerdict(pack, tc);
+        const key = `${scenario.id} :: ${tc.description}`;
+        const sim = simulatorVerdict(scenario, tc);
         if (sim !== tc.expectation) found.push(`${key} — prod ${tc.expectation}, sim ${sim}`);
       }
     }
@@ -236,15 +236,15 @@ describe('oracle conformance (rules-rtdb)', () => {
   // ── captured-observation cross-check (live the moment captures exist) ───────
   // A fresh rules-rtdb-<id>.json capture re-confirms production truth. Assert
   // the corpus expectation equals the captured verdict for every case, and that
-  // no captured observation is left without a corpus pack.
+  // no captured observation is left without a corpus scenario.
   const files = capturedObservationFiles();
   for (const file of files) {
     const obs = loadObservation(file);
-    const pack = PACK_BY_OBSERVATION.get(obs.name);
+    const scenario = SCENARIO_BY_OBSERVATION.get(obs.name);
     it(`${obs.name}: corpus expectations match captured production verdicts`, () => {
-      expect(pack, `observation "${obs.name}" has no matching corpus pack — coverage gap`).toBeDefined();
-      if (!pack) return;
-      const expByDesc = new Map(pack.cases.map((c) => [c.description, c.expectation]));
+      expect(scenario, `observation "${obs.name}" has no matching corpus scenario — coverage gap`).toBeDefined();
+      if (!scenario) return;
+      const expByDesc = new Map(scenario.cases.map((c) => [c.description, c.expectation]));
       for (const [caseKey, capturedVerdict] of Object.entries(obs.behavior)) {
         const corpusExpectation = expByDesc.get(caseKey);
         expect(corpusExpectation, `${obs.name} :: ${caseKey} — captured case has no corpus twin`).toBeDefined();
@@ -253,10 +253,10 @@ describe('oracle conformance (rules-rtdb)', () => {
     });
   }
 
-  it('every captured rules-rtdb observation maps to a corpus pack', () => {
+  it('every captured rules-rtdb observation maps to a corpus scenario', () => {
     const uncovered = capturedObservationFiles()
       .map((f) => f.replace(/\.json$/, ''))
-      .filter((name) => !PACK_BY_OBSERVATION.has(name));
+      .filter((name) => !SCENARIO_BY_OBSERVATION.has(name));
     expect(uncovered).toEqual([]);
   });
 });

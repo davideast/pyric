@@ -1,14 +1,14 @@
 /**
- * ─── Pack 6: get-missing-doc (RULES-B8) ───────────────────────────────────
+ * ─── Scenario 6: get-missing-doc (RULES-B8) ───────────────────────────────────
  * Production: get() of a non-existent document is a runtime error (→ deny),
  * NOT a silent null; and the resource a successful get() returns carries
  * `id` and `__name__` alongside `data`. Pre-fix the simulator returned null
  * for missing docs and a bare `{data}` for present ones. In the Rules Test
  * API "missing" = not provided via functionMocks; "present" = mocked.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'RULES-B8',
   rationale: 'get() of a missing doc must deny via error (null made `== null` probes ALLOW); get() resource must expose id/__name__.',
   rules: `rules_version = '2';

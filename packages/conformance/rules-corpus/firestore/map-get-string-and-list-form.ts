@@ -1,17 +1,17 @@
 /**
- * ─── Pack 5: map-get-string-and-list-form ─────────────────────────────────
+ * ─── Scenario 5: map-get-string-and-list-form ─────────────────────────────────
  * Targets Item 3 of the rebuild plan — `Map.get(key, default)`, including
  * list-form for nested traversal. Pre-fix the simulator threw
  * UnsupportedError on `m.get(...)`, so every ALLOW case was a SIM_BUG via
  * silent DENY. Production behavior was locked in by the 0.H parity probe:
  * production *always* returns `default` on any walk failure (missing key,
  * missing intermediate, non-map intermediate). It never returns null from
- * a walk failure. This pack mirrors all 8 probe scenarios as a parity
+ * a walk failure. This scenario mirrors all 8 probe scenarios as a parity
  * check against prod, plus a DENY witness for a present-key compare.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'Item 3',
   rationale: 'Sim must implement Map.get(key, default) including list-form nested traversal; pre-fix it threw UnsupportedError.',
   rules: `rules_version = '2';

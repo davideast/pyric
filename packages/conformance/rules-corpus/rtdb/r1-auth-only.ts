@@ -5,9 +5,9 @@
  * `r1-auth-only` of the frozen agreement observation; expectations are the
  * production verdicts that observation recorded.
  */
-import type { RtdbPackRecord } from './types.ts';
+import type { RtdbScenarioRecord } from './types.ts';
 
-export const pack: RtdbPackRecord = {
+export const scenario: RtdbScenarioRecord = {
   fm: 'rtdb#71',
   rationale: 'auth != null gate — production allows authed read/write and denies anonymous read/write; the simulator must agree.',
   provenance: 'Decomposed from the rtdb-simulator-vs-prod-agreement observation, ruleset r1-auth-only. Expectations are the recorded production allow/deny verdicts.',

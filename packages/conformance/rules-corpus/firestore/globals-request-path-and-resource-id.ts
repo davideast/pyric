@@ -1,14 +1,14 @@
 /**
- * ─── Pack 11: globals-request-path-and-resource-id ────────────────────────
+ * ─── Scenario 11: globals-request-path-and-resource-id ────────────────────────
  * Targets Item 6 — populates request.path / request.query / resource.id /
  * resource.__name__. Pre-fix: all four were undefined; rules touching them
  * silently denied. Each case asserts a wrapper invariant against prod so
  * any divergence (e.g. prod uses a different path canonical form) shows up
  * as SIM_BUG in the divergence accountant.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'Item 6',
   rationale: 'Sim must populate request.path (Path), request.query (Map), resource.id (String), resource.__name__ (Path). Pre-fix: all undefined; rules using them silently denied.',
   rules: `rules_version = '2';

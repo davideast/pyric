@@ -1,55 +1,55 @@
 /**
  * Firestore rules conformance corpus — public entry point.
  *
- * `./` (this directory) is the index: one authored `PackRecord` per file,
- * named `<pack-id>.ts` (see `./load.ts`). There is no hand-maintained
- * aggregate — `ALL_RULES_FIRESTORE_PACKS`, `STRESS_PACKS`, and
- * `FIX_CLASS_PACKS` are all computed from the loaded directory. Adding a
- * pack is adding a file. Consumers:
- *   - packages/pyric/test/rules/parity/parity-stress.test.ts     (STRESS_PACKS, live Rules-Test-API parity)
- *   - packages/pyric/test/rules/parity/round-fix-classes.test.ts (FIX_CLASS_PACKS, live Rules-Test-API parity)
- *   - packages/conformance/src/run-rules.ts                      (ALL_RULES_FIRESTORE_PACKS, production capture runner)
- *   - packages/pyric/test/rules/oracle-conformance.test.ts       (ALL_RULES_FIRESTORE_PACKS, in-process replay)
+ * `./` (this directory) is the index: one authored `ScenarioRecord` per file,
+ * named `<scenario-id>.ts` (see `./load.ts`). There is no hand-maintained
+ * aggregate — `ALL_RULES_FIRESTORE_SCENARIOS`, `STRESS_SCENARIOS`, and
+ * `FIX_CLASS_SCENARIOS` are all computed from the loaded directory. Adding a
+ * scenario is adding a file. Consumers:
+ *   - packages/pyric/test/rules/parity/parity-stress.test.ts     (STRESS_SCENARIOS, live Rules-Test-API parity)
+ *   - packages/pyric/test/rules/parity/round-fix-classes.test.ts (FIX_CLASS_SCENARIOS, live Rules-Test-API parity)
+ *   - packages/conformance/src/run-rules.ts                      (ALL_RULES_FIRESTORE_SCENARIOS, production capture runner)
+ *   - packages/pyric/test/rules/oracle-conformance.test.ts       (ALL_RULES_FIRESTORE_SCENARIOS, in-process replay)
  *
- * The observation filename for a pack is `rules-firestore-<pack.id>.json`
- * (see `observationName`). Keep pack ids stable — they are the join key
+ * The observation filename for a scenario is `rules-firestore-<scenario.id>.json`
+ * (see `observationName`). Keep scenario ids stable — they are the join key
  * between the corpus, the captured observations, and the replay suite.
  */
-import { loadedFirestorePacks } from './load.ts';
-import type { Pack } from './types.ts';
+import { loadedFirestoreScenarios } from './load.ts';
+import type { Scenario } from './types.ts';
 
-export type { Pack, PackGroup } from './types.ts';
+export type { Scenario, ScenarioGroup } from './types.ts';
 
 /** The observation filename prefix for every Firestore rules capture. */
 export const RULES_FIRESTORE_OBSERVATION_PREFIX = 'rules-firestore-';
 
-/** Every Firestore rules pack in the corpus, sorted by id. `group` (loader-
+/** Every Firestore rules scenario in the corpus, sorted by id. `group` (loader-
  *  only classification) is stripped here so every consumer of this array
- *  sees exactly the historical `Pack` shape. */
-export const ALL_RULES_FIRESTORE_PACKS: Pack[] = loadedFirestorePacks.map(({ group: _group, ...pack }) => pack);
+ *  sees exactly the historical `Scenario` shape. */
+export const ALL_RULES_FIRESTORE_SCENARIOS: Scenario[] = loadedFirestoreScenarios.map(({ group: _group, ...scenario }) => scenario);
 
-/** The resurrected pre-cutover stress packs (formerly stress-packs.ts),
+/** The resurrected pre-cutover stress scenarios (formerly stress-scenarios.ts),
  *  for the live parity suite (parity-stress.test.ts). */
-export const STRESS_PACKS: Pack[] = loadedFirestorePacks
+export const STRESS_SCENARIOS: Scenario[] = loadedFirestoreScenarios
   .filter((p) => p.group === 'stress')
-  .map(({ group: _group, ...pack }) => pack);
+  .map(({ group: _group, ...scenario }) => scenario);
 
-/** The round-1/2 fix-class packs (formerly fix-class-packs.ts), for the
+/** The round-1/2 fix-class scenarios (formerly fix-class-scenarios.ts), for the
  *  live parity suite (round-fix-classes.test.ts). */
-export const FIX_CLASS_PACKS: Pack[] = loadedFirestorePacks
+export const FIX_CLASS_SCENARIOS: Scenario[] = loadedFirestoreScenarios
   .filter((p) => p.group === 'fix-class')
-  .map(({ group: _group, ...pack }) => pack);
+  .map(({ group: _group, ...scenario }) => scenario);
 
-/** The observation stem (no extension) a given pack captures into. */
-export function observationName(pack: Pack): string {
-  return `${RULES_FIRESTORE_OBSERVATION_PREFIX}${pack.id}`;
+/** The observation stem (no extension) a given scenario captures into. */
+export function observationName(scenario: Scenario): string {
+  return `${RULES_FIRESTORE_OBSERVATION_PREFIX}${scenario.id}`;
 }
 
 /**
  * Stable per-case key for the observation verdict table. Case descriptions are
- * unique within a pack; using the description keeps the observation human
+ * unique within a scenario; using the description keeps the observation human
  * diffable while remaining reproducible from the corpus at replay time.
  */
-export function caseKey(pack: Pack, index: number): string {
-  return pack.cases[index].description;
+export function caseKey(scenario: Scenario, index: number): string {
+  return scenario.cases[index].description;
 }
