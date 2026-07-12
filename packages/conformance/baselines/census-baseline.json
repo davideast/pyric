@@ -1,6 +1,6 @@
 {
-  "_comment": "Baseline of UNMAPPED upstream symbols tolerated by the CI gate (scripts/compat/census-gate.ts), keyed by census surface. The gate fails when a PR introduces a symbol NOT in this list for its surface. To pay down debt: mirror the symbol, or add a deny-list entry with a reason in scripts/compat/surface-denylist.ts, then remove it here. Regenerate with `bun run scripts/compat/census-gate.ts --update`.",
-  "generatedFrom": "bun run scripts/compat/surface-census.ts --json",
+  "_comment": "Baseline of UNMAPPED upstream symbols tolerated by the CI gate (packages/conformance/src/census-gate.ts), keyed by census surface. The gate fails when a PR introduces a symbol NOT in this list for its surface. To pay down debt: mirror the symbol, or add a deny-list entry with a reason in packages/conformance/src/surface-denylist.ts, then remove it here. Regenerate with `bun run compat:census-gate --update`.",
+  "generatedFrom": "bun run compat:census",
   "surfaces": {
     "app": [
       "FirebaseError",
@@ -13,6 +13,7 @@
       "registerVersion",
       "setLogLevel"
     ],
+    "ai": [],
     "auth": [
       "AuthCredential",
       "AuthErrorCodes",
@@ -73,6 +74,8 @@
     "storage": [
       "StorageErrorCode",
       "StringFormat"
-    ]
+    ],
+    "messaging": [],
+    "messaging-sw": []
   }
 }
