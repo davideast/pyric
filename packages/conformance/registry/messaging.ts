@@ -698,26 +698,7 @@ const adminErrorRows: CompatibilityRow[] = [
   }),
 ];
 
-const INTRO = [
-  '# `pyric` messaging compatibility matrix',
-  '',
-  '## Status legend',
-  '',
-  '| Status | Meaning |',
-  '|---|---|',
-  '| ✓ | **Conforming** — sandbox matches prod, locked by a passing probe |',
-  '| ⚠ | **Diverged (documented)** — intentional difference with a written reason |',
-  '| ✗ | **Bug** — should match prod but doesn\'t; failing probe pins it |',
-  '| — | **Unsupported** — not implemented (deliberately or pending) |',
-  '| ? | **Unverified** — a target with a derived failing test, not a guarantee |',
-  '',
-  'Probe references: `oracle:<name>` cites an observation under',
-  '`packages/conformance/observations/<name>.json`. Under CDD a citation records that',
-  'production was consulted; it does not certify the sandbox matches — that waits',
-  'on the conformance suite replaying it.',
-  '',
-  '---',
-].join('\n');
+const INTRO = '# `pyric` messaging compatibility matrix';
 
 const rows: CompatibilityRow[] = [
   ...clientRows,

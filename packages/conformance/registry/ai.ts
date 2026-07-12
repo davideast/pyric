@@ -986,23 +986,6 @@ const prodRows: CompatibilityRow[] = [
 // Doc assembly -------------------------------------------------------------
 
 const header = `# \`pyric/ai\` compatibility matrix
-
-## Status legend
-
-| Status | Meaning |
-|---|---|
-| ✓ | **Conforming**: sandbox matches prod, locked by a passing probe |
-| ⚠ | **Diverged (documented)**: intentional difference with a written reason |
-| ✗ | **Bug**: should match prod but doesn't; failing probe pins it |
-| — | **Unsupported**: not implemented yet (deliberately or pending) |
-| ? | **Unverified**: claim not yet locked by a passing probe |
-
-Probe references: \`unit:<file>\` means a passing Bun test in
-\`packages/pyric/test/ai/<file>\` (the climb lane). Captures live at
-\`packages/conformance/observations/ai/ai-*.json\`; a row that cites one replays the
-capture's distilled facts in the named test.
-
----
 `;
 
 function table(title: string, rows: CompatibilityRow[]): CompatibilityDocBlock {

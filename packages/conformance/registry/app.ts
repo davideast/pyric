@@ -20,7 +20,7 @@ export const appRegistry = {
     {
       kind: 'markdown',
       markdown:
-        "# `pyric/app` compatibility matrix\n\n## Status legend\n\n| Status | Meaning |\n|---|---|\n| ✓ | **Conforming** — the mirror matches prod, locked by a passing replay |\n| ⚠ | **Diverged (documented)** — intentional difference with a written reason |\n| ✗ | **Bug** — should match prod but doesn't; failing probe pins it |\n| — | **Unsupported** — not implemented (deliberately or deferred) |\n| ? | **Unverified** — claim from docs not yet observed prod-side |\n\n---\n",
+        "# `pyric/app` compatibility matrix\n",
     },
     {
       kind: 'table',
