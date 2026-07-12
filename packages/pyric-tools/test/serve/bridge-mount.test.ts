@@ -91,6 +91,8 @@ describe('pyric dev --bridge', () => {
     const names = ((list.json as { result: { tools: Array<{ name: string }> } }).result.tools).map((t) => t.name);
     expect(names.length).toBeGreaterThan(0);
     expect(names.some((n) => n.includes('inspect'))).toBe(true); // sandbox_inspect forwarded
+    expect(names).toContain('firebase_assurance_attach');
+    expect(names).toContain('firebase_assurance_run');
   });
 
   it('accepts a WS sandbox peer on the serve origin', async () => {

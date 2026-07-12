@@ -44,6 +44,8 @@ describe('tool-parity extraction against the real codebase', () => {
       'firestore_lint_rules',
       'firestore_rules_stdlib_list',
       'firestore_test_rules',
+      'firebase_assurance_attach',
+      'firebase_assurance_verify',
     ]) {
       expect(mcp.has(name)).toBe(true);
     }
@@ -96,6 +98,8 @@ describe('tool-parity extraction against the real codebase', () => {
       'firestore_discover_paths',
       'rtdb_simulate_access',
       'rtdb_validated_write',
+      'firebase_assurance_start',
+      'firebase_assurance_export',
     ]) {
       expect(registry.has(name)).toBe(true);
     }

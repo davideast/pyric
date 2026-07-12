@@ -47,7 +47,7 @@ export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // ─── extraction primitives ────────────────────────────────────────────
 
-const NAME_RE = /^\s*name:\s*'([a-z][a-z0-9_]{2,})'/gm;
+const NAME_RE = /^\s*name:\s*["']([a-z][a-z0-9_]{2,})["']/gm;
 
 function read(rel) {
   return readFileSync(join(REPO_ROOT, rel), 'utf8');
@@ -115,6 +115,7 @@ const MCP_CONTRIBUTIONS = [
   { file: `${PYRIC}/rules/simulator-tools-impl.ts`, factory: 'createFirestoreSimulatorTools', gate: 'forwarded' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'forwarded' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools', gate: 'forwarded' },
+  { file: `${TOOLS}/assurance/tools.ts`, factory: 'createAssuranceTools', gate: 'forwarded, local-only' },
   // getRulesToolHandlers → createFirestoreRulesTools, which spreads the
   // stdlib factory and adds firestore_test_rules only when a scope is
   // supplied (the default sandbox bridge supplies none).
@@ -140,6 +141,7 @@ const REGISTRY_CONTRIBUTIONS = [
   { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'not control-plane-only' },
   { file: `${TOOLS}/auth/tools.ts`, factory: 'createAuthAdminTools', gate: 'not control-plane-only' },
   { file: `${TOOLS}/verify/tools.ts`, factory: 'createVerifyTools', gate: 'not control-plane-only' },
+  { file: `${TOOLS}/assurance/tools.ts`, factory: 'createAssuranceTools', gate: 'not control-plane-only, local-only' },
   { file: `${PYRIC}/rules/indexes/extractTool.ts`, factory: 'createFirestoreExtractTool', gate: 'full profile' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'adminDeps' },
   { file: `${TOOLS}/discover/tools.ts`, factory: 'createFirestoreDiscoverTools', gate: 'adminDeps' },

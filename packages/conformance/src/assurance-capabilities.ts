@@ -179,6 +179,18 @@ const CAPABILITY_DIR = join(HERE, '..', 'assurance-capabilities');
 const LANGUAGE_DIR = join(HERE, '..', 'rules-language');
 export const ARTIFACT_PATH = join(CAPABILITY_DIR, 'capabilities.json');
 export const GENERATED_TS_PATH = join(CAPABILITY_DIR, 'generated.ts');
+/** The assurance runtime's copy. `pyric-tools` does not depend on this private
+ *  package, so the generator writes the capabilities into it directly. Checked
+ *  alongside the other outputs: drift here fails CI too. */
+export const RUNTIME_TS_PATH = join(
+  HERE,
+  '..',
+  '..',
+  'pyric-tools',
+  'src',
+  'assurance',
+  'generated-capabilities.ts',
+);
 
 const STATUS_ORDER: Record<AssuranceCapabilityStatus, number> = {
   unsupported: 0,
@@ -476,6 +488,31 @@ const EMITTED_RENDERER = [
   '}',
 ];
 
+/**
+ * The one definition of the capability-literal format. Emits each capability as
+ * an object literal carrying the structured `dependencies` FACTS (never a
+ * rendered sentence, never a count). Both generated copies — the conformance
+ * module and the self-contained pyric-tools module — render their literals here,
+ * so the two cannot drift.
+ */
+function renderCapabilityLiterals(capabilities: DerivedCapability[]): string[] {
+  const lines: string[] = [];
+  for (const capability of capabilities) {
+    lines.push('  {');
+    lines.push(`    id: ${JSON.stringify(capability.id)},`);
+    lines.push(`    service: ${JSON.stringify(capability.service)},`);
+    lines.push(`    status: ${JSON.stringify(capability.status)},`);
+    lines.push(`    description: ${JSON.stringify(capability.description)},`);
+    lines.push('    dependencies: [');
+    for (const dependency of capability.dependencies) {
+      lines.push(`      ${JSON.stringify(dependency)},`);
+    }
+    lines.push('    ],');
+    lines.push('  },');
+  }
+  return lines;
+}
+
 /** The generated TypeScript module: the same capabilities, inlined, in the shape
  *  the assurance runtime consumes (no filesystem, no JSON import). */
 export function renderGeneratedTs(capabilities: DerivedCapability[]): string {
@@ -545,21 +582,106 @@ export function renderGeneratedTs(capabilities: DerivedCapability[]): string {
     '}',
     '',
     'export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapability[] = [',
+    ...renderCapabilityLiterals(capabilities),
+    '];',
+    '',
+    ...EMITTED_RENDERER,
+    '',
   ];
-  for (const capability of capabilities) {
-    lines.push('  {');
-    lines.push(`    id: ${JSON.stringify(capability.id)},`);
-    lines.push(`    service: ${JSON.stringify(capability.service)},`);
-    lines.push(`    status: ${JSON.stringify(capability.status)},`);
-    lines.push(`    description: ${JSON.stringify(capability.description)},`);
-    lines.push('    dependencies: [');
-    for (const dependency of capability.dependencies) {
-      lines.push(`      ${JSON.stringify(dependency)},`);
-    }
-    lines.push('    ],');
-    lines.push('  },');
-  }
-  lines.push('];', '', ...EMITTED_RENDERER, '');
+  return lines.join('\n');
+}
+
+/**
+ * The same capabilities, emitted a second time into the assurance runtime
+ * (`pyric-tools`).
+ *
+ * The dependency runs one way — `pyric-tools` does not depend on this private
+ * conformance package — so the runtime cannot import the module above. Instead
+ * the generator writes a self-contained copy it CAN import: no imports at all,
+ * the service and status unions inlined. Both outputs are checked by
+ * `--check`, so a status that drifts in either one fails CI. The runtime's
+ * capability statuses therefore remain underivable by hand: there is no file a
+ * human may edit to assert one.
+ */
+export function renderRuntimeTs(capabilities: DerivedCapability[]): string {
+  const lines = [
+    '// GENERATED FILE. Do not edit by hand; run bun run compat:assurance.',
+    '//',
+    '// The assurance engine\'s capabilities, DERIVED from the conformance graph by',
+    '// packages/conformance/src/assurance-capabilities.ts (see that file\'s header for',
+    '// the derivation rules). This is the assurance runtime\'s copy: the conformance',
+    '// package is private and is NOT a dependency of pyric-tools, so the generator',
+    '// emits this self-contained module here rather than have the runtime import it.',
+    '//',
+    '// A capability status is never authorable. It is derived from the graph, and',
+    '// `bun run compat:assurance:check` fails if this file drifts from the graph.',
+    '//',
+    '// Each dependency carries the FACTS behind its verdict, never a sentence and',
+    '// never a count. A probe that abstains renders its reasons on read with',
+    '// `capabilityReasons(capability)`; the renderer is emitted below so this',
+    '// self-contained copy needs no import to produce the abstention prose.',
+    '',
+    "export type AssuranceCapabilityService = 'firestore' | 'rtdb' | 'storage' | 'auth';",
+    "export type AssuranceCapabilityStatus = 'supported' | 'qualified' | 'unsupported';",
+    '',
+    'export type CapabilityVerdict = AssuranceCapabilityStatus;',
+    '',
+    'export interface GeneratedConstructDependency {',
+    "  kind: 'construct';",
+    '  /** The rules-language construct id. */',
+    '  id: string;',
+    '  verdict: CapabilityVerdict;',
+    '  /** The construct\'s status in the production language snapshot. */',
+    '  snapshot: string;',
+    '  /** What the local simulator\'s capability probe did with it. */',
+    "  probe: 'implemented' | 'unsupported' | 'error' | 'unprobeable' | 'absent';",
+    '  /** Whether any evidence path compares it against production. A BOOLEAN: how',
+    '   *  many scenarios do so is a fact about the corpus, not about this construct. */',
+    '  productionVerified: boolean;',
+    '  /** Rules-engine rows whose documented divergence names this construct. */',
+    '  divergedBy: string[];',
+    '}',
+    '',
+    'export interface GeneratedRegistryRowDependency {',
+    "  kind: 'registry-row';",
+    '  id: string;',
+    '  verdict: CapabilityVerdict;',
+    '  surface: string;',
+    '  status: string;',
+    '  rulesEngineSurface: boolean;',
+    '}',
+    '',
+    'export interface GeneratedUnbackedDependency {',
+    "  kind: 'unbacked';",
+    '  /** The behavior the capability needs. */',
+    '  id: string;',
+    '  verdict: CapabilityVerdict;',
+    '  /** Why the graph cannot back it. */',
+    '  reason: string;',
+    '}',
+    '',
+    'export type GeneratedCapabilityDependency =',
+    '  | GeneratedConstructDependency',
+    '  | GeneratedRegistryRowDependency',
+    '  | GeneratedUnbackedDependency;',
+    '',
+    'export interface GeneratedAssuranceCapability {',
+    '  id: string;',
+    '  service: AssuranceCapabilityService;',
+    '  status: AssuranceCapabilityStatus;',
+    '  description: string;',
+    '  /** Everything the status rests on. The ones that pinned it are the ones whose',
+    '   *  verdict equals the status; `capabilityReasons` selects and renders them. */',
+    '  dependencies: GeneratedCapabilityDependency[];',
+    '}',
+    '',
+    'export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapability[] = [',
+    ...renderCapabilityLiterals(capabilities),
+    '];',
+    '',
+    ...EMITTED_RENDERER,
+    '',
+  ];
   return lines.join('\n');
 }
 
@@ -621,12 +743,14 @@ function main(): void {
   const capabilities = deriveAllCapabilities(graph);
   const artifactJson = renderArtifactJson(buildArtifact(capabilities));
   const generatedTs = renderGeneratedTs(capabilities);
+  const runtimeTs = renderRuntimeTs(capabilities);
 
   if (args.has('--check')) {
     const drift: string[] = [];
     for (const [path, expected] of [
       [ARTIFACT_PATH, artifactJson],
       [GENERATED_TS_PATH, generatedTs],
+      [RUNTIME_TS_PATH, runtimeTs],
     ] as const) {
       let actual = '';
       try {
@@ -650,7 +774,8 @@ function main(): void {
   if (args.has('--write')) {
     writeFileSync(ARTIFACT_PATH, artifactJson);
     writeFileSync(GENERATED_TS_PATH, generatedTs);
-    console.log(`Wrote ${ARTIFACT_PATH}\nWrote ${GENERATED_TS_PATH}`);
+    writeFileSync(RUNTIME_TS_PATH, runtimeTs);
+    console.log(`Wrote ${ARTIFACT_PATH}\nWrote ${GENERATED_TS_PATH}\nWrote ${RUNTIME_TS_PATH}`);
     return;
   }
 

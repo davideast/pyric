@@ -1,0 +1,512 @@
+import { lint } from "pyric/rules";
+// Internal engine seams, both on the browser-safe `pyric/rules/internal` entry
+// (this runtime ships to the browser, so the Node-only `internal/rtdb` entry is
+// not reachable from here):
+//
+//   parseToASTOrError / MatchBlock / PathSegment — the public API exposes
+//   lint/simulate but no parsed AST, and the overlapping-match analysis below
+//   must walk the match tree to detect production OR composition.
+//
+//   parseRtdbExpression — a target carries COMPILED RTDB `{ rules }` JSON, and
+//   `rtdbRules(compiledJson).lint()` returns nothing (a compiled document has
+//   no IR to lint against). The per-expression parse check below therefore
+//   reaches the expression parser directly.
+import {
+  parseToASTOrError,
+  parseRtdbExpression,
+  type MatchBlock,
+  type PathSegment,
+} from "pyric/rules/internal";
+import { parseStorageRules } from "pyric/storage";
+import {
+  ASSURANCE_ENGINE_CAPABILITIES,
+  capabilityReasons,
+  type GeneratedAssuranceCapability,
+} from "./generated-capabilities.js";
+import type {
+  AssuranceProbe,
+  CapabilityDependency,
+  CapabilityRequirement,
+  EngineQualification,
+  LocalFirebaseTarget,
+} from "./types.js";
+
+export { ASSURANCE_ENGINE_CAPABILITIES, capabilityReasons };
+export type { GeneratedAssuranceCapability };
+
+const CAPABILITY_BY_ID: ReadonlyMap<string, GeneratedAssuranceCapability> =
+  new Map(ASSURANCE_ENGINE_CAPABILITIES.map((item) => [item.id, item]));
+
+/**
+ * A probe's `requires` names graph nodes (constructs, registry rows) directly,
+ * and the engine resolves each against the node's DERIVED verdict. Those
+ * verdicts already exist in the generated capabilities: every capability
+ * dependency carries its own node verdict, graph-derived and identical
+ * wherever the node appears. Flattening them is the interim source of the
+ * per-node verdict map, until the generator emits a dedicated node-status
+ * snapshot (the fold's next step); the values are the same either way.
+ */
+const GRAPH_NODE_VERDICT: ReadonlyMap<string, "supported" | "qualified" | "unsupported"> =
+  (() => {
+    const map = new Map<string, "supported" | "qualified" | "unsupported">();
+    for (const capability of ASSURANCE_ENGINE_CAPABILITIES) {
+      for (const dependency of capability.dependencies) {
+        if (dependency.kind === "construct" || dependency.kind === "registry-row") {
+          map.set(dependency.id, dependency.verdict);
+        }
+      }
+    }
+    return map;
+  })();
+
+/**
+ * Resolve one `requires` node against the derived graph verdict, appending a
+ * requirement. A `supported` node passes; a `qualified`/`unsupported` node
+ * abstains (engine-gap); a node the graph does not model is an authoring error
+ * (invalid-probe). Mirrors the deprecated capability-id path below, one graph
+ * layer lower.
+ */
+function resolveRequiredNode(
+  dependency: CapabilityDependency,
+  requirements: CapabilityRequirement[],
+): EngineQualification["classification"] | undefined {
+  const verdict = GRAPH_NODE_VERDICT.get(dependency.id);
+  if (!verdict) {
+    requirements.push(
+      requirement(
+        dependency.id,
+        false,
+        `The probe requires ${dependency.kind} '${dependency.id}', which the conformance graph does not model.`,
+      ),
+    );
+    return "invalid-probe";
+  }
+  if (verdict !== "supported") {
+    requirements.push(
+      requirement(
+        dependency.id,
+        false,
+        `The ${dependency.kind} '${dependency.id}' is derived '${verdict}', not 'supported'; the engine abstains.`,
+      ),
+    );
+    return "engine-gap";
+  }
+  requirements.push(
+    requirement(dependency.id, true, `The ${dependency.kind} '${dependency.id}' is derived 'supported'.`),
+  );
+  return undefined;
+}
+
+export function listAssuranceCapabilities(
+  services?: ReadonlyArray<GeneratedAssuranceCapability["service"]>,
+): GeneratedAssuranceCapability[] {
+  return ASSURANCE_ENGINE_CAPABILITIES.filter(
+    (item) => !services || services.includes(item.service),
+  ).map((item) => ({ ...item, dependencies: [...item.dependencies] }));
+}
+
+function requirement(
+  id: string,
+  supported: boolean,
+  reason: string,
+): CapabilityRequirement {
+  return { id, supported, reason };
+}
+
+interface FirestoreMatchPattern {
+  segments: PathSegment[];
+  operations: Set<string>;
+}
+
+function collectFirestoreMatchPatterns(
+  block: MatchBlock,
+  prefix: PathSegment[] = [],
+): FirestoreMatchPattern[] {
+  const segments = [...prefix, ...block.path.segments];
+  const current = block.allows.length
+    ? [
+        {
+          segments,
+          operations: new Set(
+            block.allows.flatMap((allow) => allow.operations),
+          ),
+        },
+      ]
+    : [];
+  return [
+    ...current,
+    ...block.children.flatMap((child) =>
+      collectFirestoreMatchPatterns(child, segments),
+    ),
+  ];
+}
+
+function patternMatchesPath(pattern: PathSegment[], path: string[]): boolean {
+  const visit = (patternIndex: number, pathIndex: number): boolean => {
+    if (patternIndex === pattern.length) return pathIndex === path.length;
+    const segment = pattern[patternIndex]!;
+    if (segment.type === "recursive") {
+      if (patternIndex === pattern.length - 1) return true;
+      for (let next = pathIndex; next <= path.length; next++) {
+        if (visit(patternIndex + 1, next)) return true;
+      }
+      return false;
+    }
+    if (pathIndex === path.length) return false;
+    if (segment.type === "literal" && segment.value !== path[pathIndex])
+      return false;
+    return visit(patternIndex + 1, pathIndex + 1);
+  };
+  return visit(0, 0);
+}
+
+function firestoreOperationNames(method: string): string[] {
+  if (method === "get") return ["get", "read"];
+  if (method === "list") return ["list", "read"];
+  if (method === "create") return ["create", "write"];
+  if (method === "delete") return ["delete", "write"];
+  return ["update", "write"];
+}
+
+function hasOverlappingFirestoreMatch(
+  root: MatchBlock,
+  operation: AssuranceProbe["control"],
+): boolean {
+  if (operation.service !== "firestore") return false;
+  const path = operation.path.split("/").filter(Boolean);
+  if (operation.method === "list") path.push("__hypothetical_doc__");
+  const operationNames = firestoreOperationNames(operation.method);
+  return (
+    root.children
+      .flatMap((child) => collectFirestoreMatchPatterns(child))
+      .filter((pattern) => patternMatchesPath(pattern.segments, path))
+      .filter((pattern) =>
+        operationNames.some((name) => pattern.operations.has(name)),
+      ).length > 1
+  );
+}
+
+interface RtdbRuleSource {
+  path: string;
+  source: string;
+  kind: ".read" | ".write" | ".validate";
+  segments: string[];
+}
+
+function collectRtdbRuleSources(
+  value: unknown,
+  path = "rules",
+  segments: string[] = [],
+): RtdbRuleSource[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const sources: RtdbRuleSource[] = [];
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const childPath = `${path}/${key}`;
+    if (key === ".read" || key === ".write" || key === ".validate") {
+      if (typeof child === "string" || typeof child === "boolean") {
+        sources.push({
+          path: childPath,
+          source: String(child),
+          kind: key,
+          segments,
+        });
+      } else {
+        sources.push({ path: childPath, source: "", kind: key, segments });
+      }
+      continue;
+    }
+    sources.push(
+      ...collectRtdbRuleSources(child, childPath, [...segments, key]),
+    );
+  }
+  return sources;
+}
+
+function compatibleRtdbPrefix(
+  ruleSegments: string[],
+  operationSegments: string[],
+  length: number,
+): boolean {
+  for (let index = 0; index < length; index++) {
+    const ruleSegment = ruleSegments[index]!;
+    const operationSegment = operationSegments[index]!;
+    if (!ruleSegment.startsWith("$") && ruleSegment !== operationSegment) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function rtdbRuleAppliesToOperation(
+  rule: RtdbRuleSource,
+  operation: AssuranceProbe["control"],
+): boolean {
+  if (operation.service !== "rtdb") return false;
+  const segments = operation.path.split("/").filter(Boolean);
+  const isRead = operation.method === "get";
+  if (rule.kind === ".read") {
+    return (
+      isRead &&
+      rule.segments.length <= segments.length &&
+      compatibleRtdbPrefix(rule.segments, segments, rule.segments.length)
+    );
+  }
+  if (rule.kind === ".write") {
+    return (
+      !isRead &&
+      rule.segments.length <= segments.length &&
+      compatibleRtdbPrefix(rule.segments, segments, rule.segments.length)
+    );
+  }
+  if (isRead) return false;
+
+  const overlapLength = Math.min(rule.segments.length, segments.length);
+  return compatibleRtdbPrefix(rule.segments, segments, overlapLength);
+}
+
+function firestoreRequirements(
+  target: LocalFirebaseTarget,
+  probe: AssuranceProbe,
+): CapabilityRequirement[] {
+  const rules = target.rules.firestore;
+  const requirements = [
+    requirement(
+      "firestore.rules-present",
+      typeof rules === "string" && rules.trim().length > 0,
+      "Firestore probes require an explicit rules source.",
+    ),
+  ];
+  if (!rules) return requirements;
+
+  // Parse gate via the public tolerant front door: a parse blocker surfaces as
+  // a `RuleIssue` with `origin === "parse"`.
+  const parseIssue = lint(rules).find((issue) => issue.origin === "parse");
+  requirements.push(
+    requirement(
+      "firestore.rules-parse",
+      !parseIssue,
+      parseIssue
+        ? `The Firestore rules source did not parse: ${parseIssue.message}`
+        : "The Firestore rules source parsed successfully.",
+    ),
+  );
+  if (parseIssue) return requirements;
+
+  // The AST walk needs the parsed match tree (no public accessor exists).
+  const parsed = parseToASTOrError(rules);
+  if (!parsed.ok) return requirements;
+
+  const operations = [probe.control, probe.mutation.operation];
+  const overlapping = operations.some((operation) =>
+    hasOverlappingFirestoreMatch(parsed.ast.service.match, operation),
+  );
+  requirements.push(
+    requirement(
+      "firestore.match-resolution",
+      !overlapping,
+      overlapping
+        ? "This probe matches multiple allow-bearing blocks; the current sandbox resolves only the first block instead of production OR composition."
+        : "Each operation resolves to at most one applicable allow-bearing match block.",
+    ),
+  );
+
+  for (const operation of operations) {
+    if (operation.service !== "firestore" || operation.method !== "list")
+      continue;
+    const equalityOnly = (operation.query?.where ?? []).every(
+      (item) => item.op === "==",
+    );
+    requirements.push(
+      requirement(
+        "firestore.query-proof-equality",
+        equalityOnly,
+        equalityOnly
+          ? "The query uses the supported equality-proof subset."
+          : "Inequality, membership, and disjunctive query proof is conservative in the current simulator.",
+      ),
+    );
+  }
+  return requirements;
+}
+
+function rtdbRequirements(
+  target: LocalFirebaseTarget,
+  probe: AssuranceProbe,
+): CapabilityRequirement[] {
+  const rules = target.rules.rtdb;
+  const operations = [probe.control, probe.mutation.operation];
+  const ruleSources = rules
+    ? collectRtdbRuleSources(rules.rules).filter((rule) =>
+        operations.some((operation) =>
+          rtdbRuleAppliesToOperation(rule, operation),
+        ),
+      )
+    : [];
+  const serialized = ruleSources.map((item) => item.source).join("\n");
+  const invalidExpressions = ruleSources
+    .filter((item) => !item.source || !parseRtdbExpression(item.source).valid)
+    .map((item) => item.path);
+  const queryDependent = /\bquery\b/.test(serialized);
+  const requirements = [
+    requirement(
+      "rtdb.rules-present",
+      !!rules,
+      "RTDB probes require an explicit rules JSON document.",
+    ),
+    requirement(
+      "rtdb.rules-parse",
+      invalidExpressions.length === 0,
+      invalidExpressions.length === 0
+        ? "All RTDB expressions relevant to the probed paths parsed successfully."
+        : `RTDB rule expressions did not parse at: ${invalidExpressions.join(", ")}.`,
+    ),
+    requirement(
+      "rtdb.query-rules",
+      !queryDependent,
+      queryDependent
+        ? "The current RTDB evaluator does not expose query constraints to rule expressions."
+        : "The rules used by this probe do not authorize from query constraints.",
+    ),
+    requirement(
+      "rtdb.rule-location-data",
+      !/\b(?:data|newData)\b/.test(serialized),
+      /\b(?:data|newData)\b/.test(serialized)
+        ? "The current evaluator cannot prove ancestor rule-location data/newData merged-tree semantics."
+        : "The rules used by this probe do not depend on data/newData.",
+    ),
+  ];
+
+  for (const operation of operations) {
+    if (operation.service !== "rtdb" || operation.method !== "update") continue;
+    const keys =
+      operation.data &&
+      typeof operation.data === "object" &&
+      !Array.isArray(operation.data)
+        ? Object.keys(operation.data as Record<string, unknown>)
+        : [];
+    requirements.push(
+      requirement(
+        "rtdb.atomic-multipath",
+        keys.length <= 1,
+        keys.length <= 1
+          ? "The update changes at most one child."
+          : "The current local backend checks multi-child updates per leaf instead of one projected future tree.",
+      ),
+    );
+  }
+  return requirements;
+}
+
+function storageRequirements(
+  target: LocalFirebaseTarget,
+): CapabilityRequirement[] {
+  const rules = target.rules.storage;
+  const requirements = [
+    requirement(
+      "storage.rules-present",
+      typeof rules === "string" && rules.trim().length > 0,
+      "Storage probes require an explicit rules source.",
+    ),
+    requirement(
+      "storage.indexeddb",
+      typeof globalThis.indexedDB !== "undefined",
+      typeof globalThis.indexedDB !== "undefined"
+        ? "IndexedDB is available for the local Storage sandbox."
+        : "The local Storage sandbox requires IndexedDB.",
+    ),
+  ];
+  if (!rules) return requirements;
+  try {
+    parseStorageRules(rules);
+    requirements.push(
+      requirement(
+        "storage.rules-subset",
+        true,
+        "The rules parse within the local coarse read/write evaluator subset.",
+      ),
+    );
+  } catch (error) {
+    requirements.push(
+      requirement(
+        "storage.rules-subset",
+        false,
+        `The Storage rules require unsupported local semantics: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
+  }
+  return requirements;
+}
+
+export function qualifyProbe(
+  target: LocalFirebaseTarget,
+  probe: AssuranceProbe,
+): EngineQualification {
+  const service = probe.control.service;
+  const requirements =
+    service === "firestore"
+      ? firestoreRequirements(target, probe)
+      : service === "rtdb"
+        ? rtdbRequirements(target, probe)
+        : storageRequirements(target);
+
+  // Resolve each declared capability against the DERIVED graph statuses. Only a
+  // `supported` capability lets the probe proceed. A `qualified` or
+  // `unsupported` capability forces the engine to abstain (engine-gap), citing
+  // the graph reasons the generated capability carries. A capability id the
+  // engine does not define is a campaign authoring error (invalid-probe).
+  let abstention: EngineQualification["classification"];
+  for (const id of probe.requirements ?? []) {
+    const capability = CAPABILITY_BY_ID.get(id);
+    if (!capability) {
+      requirements.push(
+        requirement(
+          id,
+          false,
+          `The campaign declared capability '${id}', which the assurance engine does not define.`,
+        ),
+      );
+      abstention = "invalid-probe";
+      continue;
+    }
+    if (capability.status !== "supported") {
+      const reasons = capabilityReasons(capability);
+      const cited = reasons.length
+        ? ` The conformance graph derived this status from: ${reasons.join(" ")}`
+        : "";
+      requirements.push(
+        requirement(
+          id,
+          false,
+          `Capability '${id}' is derived '${capability.status}', not 'supported'; the engine abstains.${cited}`,
+        ),
+      );
+      if (abstention !== "invalid-probe") abstention = "engine-gap";
+      continue;
+    }
+    requirements.push(
+      requirement(
+        id,
+        true,
+        `Capability '${id}' is derived 'supported'.`,
+      ),
+    );
+  }
+
+  // The forward contract: a probe names graph nodes directly, resolved one
+  // layer below the capability bundle. `invalid-probe` outranks `engine-gap`
+  // for the qualification's single classification, matching the loop above.
+  for (const dependency of probe.requires ?? []) {
+    const nodeAbstention = resolveRequiredNode(dependency, requirements);
+    if (nodeAbstention === "invalid-probe") abstention = "invalid-probe";
+    else if (nodeAbstention === "engine-gap" && abstention !== "invalid-probe") {
+      abstention = "engine-gap";
+    }
+  }
+
+  return {
+    engine: "pyric-local-sandboxes",
+    supported: requirements.every((item) => item.supported),
+    requirements,
+    ...(abstention ? { classification: abstention } : {}),
+  };
+}

@@ -32,6 +32,8 @@ describe('sandbox tool parity (advertised == executable)', () => {
       'firestore_delete_document',
       'firestore_query_where',
       'sandbox_inspect',
+      'firebase_assurance_attach',
+      'firebase_assurance_run',
     ]) {
       expect(names.has(t)).toBe(true);
     }

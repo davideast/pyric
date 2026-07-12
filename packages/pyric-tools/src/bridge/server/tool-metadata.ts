@@ -19,6 +19,7 @@ import {
   createFirestoreRulesTools,
 } from 'pyric/rules/internal/node';
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
+import { createAssuranceTools } from '../../assurance/index.js';
 
 export interface ToolMetadata {
   name: string;
@@ -70,6 +71,9 @@ export function getSandboxToolMetadata(): ToolMetadata[] {
     ...createFirestoreInspectTools({
       resolveDb: stubResolver as never,
     }),
+    // Local authorization campaigns execute in the connected SharedWorker.
+    // This keeps attachment and visualization on the app's sandbox authority.
+    ...createAssuranceTools(),
   ];
   return handlers.map(toMetadata);
 }

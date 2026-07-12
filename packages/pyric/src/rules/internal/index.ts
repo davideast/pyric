@@ -234,3 +234,13 @@ export * from '../generators/expressions.js';
 // front door re-exports the (browser-safe) RTDB constraints DSL directly
 // from `../../database/constraints`; node consumers that need the engine
 // import from `pyric/rules/internal/rtdb`.
+//
+// The expression PARSER is the exception, and it belongs here rather than on
+// `./rtdb`: it is a pure ohm-js leaf (grammar + AST, no host, no HTTP client),
+// and a browser consumer needs it. The assurance runtime, which ships to the
+// browser, must decide whether the expressions in a COMPILED rules document
+// parse — and `rtdbRules(compiledJson).lint()` cannot tell it, because a
+// compiled document carries no IR to lint. Routing that one question through
+// `./rtdb` would drag the Node HTTP chain into the browser bundle.
+export { parseExpression as parseRtdbExpression } from '../../database/grammar/RtdbExprParser.js';
+export type { ParsedExpression as ParsedRtdbExpression } from '../../database/types.js';

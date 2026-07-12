@@ -14,6 +14,7 @@
 import { describe, expect, test } from 'bun:test';
 import { startServer } from '../../src/bridge/server.js';
 import { SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
+import { ASSURANCE_TOOL_NAMES } from '../../src/assurance/tool-names.js';
 import {
   createAutoApproveHandler,
   createDenyAllHandler,
@@ -344,6 +345,8 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       'firestore_query_where',
       // inspect
       'sandbox_inspect',
+      // local-only authorization assurance
+      ...ASSURANCE_TOOL_NAMES,
     ]);
   });
 });

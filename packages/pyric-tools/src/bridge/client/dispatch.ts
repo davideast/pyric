@@ -2,7 +2,7 @@
  * Browser-side tool dispatcher. Consumes the SAME tool factories the
  * bridge advertises over MCP (`getSandboxToolMetadata`), so the set the
  * bridge LISTS and the set the page EXECUTES are identical. There is one
- * source of truth: the three factories in `buildSandboxHandlers`.
+ * source of truth: the factories in `buildSandboxHandlers`.
  *
  * History of the trap this guards against: earlier this file delegated
  * to ONLY `createFirestoreSimulatorTools`, while `getSandboxToolMetadata`
@@ -25,11 +25,46 @@ import {
 } from 'pyric/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { Sandbox } from 'pyric/sandbox';
+import { ASSURANCE_TOOL_NAMES } from '../../assurance/tool-names.js';
 
 export interface DispatchResult {
   ok: boolean;
   summary: string;
   data?: unknown;
+}
+
+/**
+ * The assurance family, loaded on first call. The runtime pulls in the local
+ * sandboxes for every service, so it stays out of the dispatcher's load path
+ * until a campaign tool is actually invoked. The store is created once per
+ * sandbox so a campaign built by one call is visible to the next.
+ */
+function createLazyAssuranceHandlers(sandbox: Sandbox) {
+  let handlersPromise:
+    | Promise<Map<string, import('@inbrowser/agent').ToolHandler>>
+    | undefined;
+  const handlers = () => {
+    handlersPromise ??= import('../../assurance/index.js').then((runtime) => {
+      const store = new runtime.AssuranceCampaignStore();
+      return new Map(
+        runtime
+          .createAssuranceTools({
+            store,
+            attachmentProvider: runtime.createSandboxAttachmentProvider(sandbox),
+          })
+          .map((handler) => [handler.name, handler]),
+      );
+    });
+    return handlersPromise;
+  };
+  return ASSURANCE_TOOL_NAMES.map((name) => ({
+    name,
+    async execute(args: Record<string, unknown>, context: unknown) {
+      const handler = (await handlers()).get(name);
+      if (!handler) throw new UnknownToolError(name);
+      return handler.execute(args, context as never);
+    },
+  }));
 }
 
 /**
@@ -55,6 +90,7 @@ function buildSandboxHandlers(sandbox: Sandbox) {
     ...createFirestoreSimulatorTools({ resolveSandbox: () => env }),
     ...createFirestoreDataTools({ resolveDb }),
     ...createFirestoreInspectTools({ resolveDb }),
+    ...createLazyAssuranceHandlers(sandbox),
   ];
 }
 
@@ -88,21 +124,30 @@ export function buildSandboxDispatcher(
  * Convenience: build a dispatcher and immediately invoke it. Same shape
  * `connectBridge` expects as its `dispatcher` option.
  *
- * Equivalent to `buildSandboxDispatcher(sandbox)(name, args)` but caches
- * nothing — prefer `buildSandboxDispatcher` for hot-path use to avoid
- * re-creating the handler array on every call.
+ * Dispatchers are cached per sandbox so stateful campaign calls reuse the same
+ * assurance store across separate bridge requests.
  */
+const sandboxDispatchers = new WeakMap<
+  Sandbox,
+  ReturnType<typeof buildSandboxDispatcher>
+>();
+
 export async function dispatchSandboxTool(
   sandbox: Sandbox,
   name: string,
   args: Record<string, unknown>,
 ): Promise<DispatchResult> {
-  return buildSandboxDispatcher(sandbox)(name, args);
+  let dispatcher = sandboxDispatchers.get(sandbox);
+  if (!dispatcher) {
+    dispatcher = buildSandboxDispatcher(sandbox);
+    sandboxDispatchers.set(sandbox, dispatcher);
+  }
+  return dispatcher(name, args);
 }
 
 /**
  * Tool names this dispatcher recognises, derived at load time from the
- * SAME three factories — so it equals what the page executes AND what the
+ * SAME factories — so it equals what the page executes AND what the
  * bridge advertises. `connectBridge` sends this as the `hello.tools`
  * payload so the bridge advertises exactly the executable set.
  */
@@ -114,6 +159,7 @@ export const SANDBOX_TOOL_NAMES: string[] = (() => {
     ...createFirestoreSimulatorTools({ resolveSandbox: stub as never }),
     ...createFirestoreDataTools({ resolveDb: stub as never }),
     ...createFirestoreInspectTools({ resolveDb: stub as never }),
+    ...ASSURANCE_TOOL_NAMES.map((name) => ({ name })),
   ].map((h) => h.name);
 })();
 

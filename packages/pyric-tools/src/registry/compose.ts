@@ -30,6 +30,7 @@ import {
 import { createFirestoreDiscoverTools } from '../discover/index.js';
 import { createAuthAdminTools } from '../auth/index.js';
 import { createVerifyTools } from '../verify/index.js';
+import { createAssuranceTools } from '../assurance/index.js';
 import { createRtdbDataTools } from 'pyric/database';
 import { createRtdbRulesTools, type RtdbHost } from 'pyric/rules/internal/rtdb';
 
@@ -144,6 +145,9 @@ export async function composeMcpRegistry(
     ...(profile !== 'control-plane-only'
       ? [createVerifyTools({ scope })]
       : []),
+    // Explicit local targets only; every assurance campaign enforces
+    // network:'forbid' independently of the registry profile.
+    ...(profile !== 'control-plane-only' ? [createAssuranceTools()] : []),
     // Admin SDK + RTDB tools — only when `adminDeps` is supplied and
     // we're not in a profile that explicitly excludes Node-only paths.
     // `extract` is pure static analysis so it lands regardless of
