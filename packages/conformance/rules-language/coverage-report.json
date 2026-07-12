@@ -2643,9 +2643,9 @@
       "engine": "rtdb",
       "totalConstructs": 56,
       "exercisedConstructs": 18,
-      "verifiedConstructs": 0,
+      "verifiedConstructs": 18,
       "exercisedCoverage": 0.32142857142857145,
-      "verifiedCoverage": 0,
+      "verifiedCoverage": 0.32142857142857145,
       "constructs": [
         {
           "id": "rtdb.binding.auth",
@@ -2659,7 +2659,15 @@
             "r7-pathvar-binding",
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r1-auth-only",
+            "r2-own-uid",
+            "r3-data-exists",
+            "r4-validate-structure",
+            "r5-cascade-root-grant",
+            "r7-pathvar-binding",
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.binding.auth.uid",
@@ -2669,7 +2677,11 @@
             "r7-pathvar-binding",
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r2-own-uid",
+            "r7-pathvar-binding",
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.binding.auth.token",
@@ -2683,7 +2695,9 @@
           "exercisedBy": [
             "r3-data-exists"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r3-data-exists"
+          ]
         },
         {
           "id": "rtdb.binding.newData",
@@ -2692,7 +2706,10 @@
             "r4-validate-structure",
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r4-validate-structure",
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.binding.root",
@@ -2713,7 +2730,10 @@
             "r2-own-uid",
             "r7-pathvar-binding"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r2-own-uid",
+            "r7-pathvar-binding"
+          ]
         },
         {
           "id": "rtdb.method.snapshot.val",
@@ -2721,7 +2741,9 @@
           "exercisedBy": [
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.method.snapshot.child",
@@ -2729,7 +2751,9 @@
           "exercisedBy": [
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.method.snapshot.parent",
@@ -2750,7 +2774,10 @@
             "r4-validate-structure",
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r4-validate-structure",
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.method.snapshot.exists",
@@ -2758,7 +2785,9 @@
           "exercisedBy": [
             "r3-data-exists"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r3-data-exists"
+          ]
         },
         {
           "id": "rtdb.method.snapshot.getPriority",
@@ -2840,7 +2869,11 @@
             "r7-pathvar-binding",
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r2-own-uid",
+            "r7-pathvar-binding",
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.operator.strictNeq",
@@ -2865,7 +2898,14 @@
             "r7-pathvar-binding",
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r1-auth-only",
+            "r3-data-exists",
+            "r4-validate-structure",
+            "r5-cascade-root-grant",
+            "r7-pathvar-binding",
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.operator.lt",
@@ -2928,7 +2968,10 @@
             "r7-pathvar-binding",
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r7-pathvar-binding",
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.operator.or",
@@ -2942,7 +2985,9 @@
           "exercisedBy": [
             "r3-data-exists"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r3-data-exists"
+          ]
         },
         {
           "id": "rtdb.operator.neg",
@@ -2964,7 +3009,11 @@
             "r7-pathvar-binding",
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r2-own-uid",
+            "r7-pathvar-binding",
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.operator.index",
@@ -2985,7 +3034,16 @@
             "r7-pathvar-binding",
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r1-auth-only",
+            "r2-own-uid",
+            "r3-data-exists",
+            "r4-validate-structure",
+            "r5-cascade-root-grant",
+            "r6-deny-everything",
+            "r7-pathvar-binding",
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.rule-kind.write",
@@ -3000,7 +3058,16 @@
             "r7-pathvar-binding",
             "r8-combined-check"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r1-auth-only",
+            "r2-own-uid",
+            "r3-data-exists",
+            "r4-validate-structure",
+            "r5-cascade-root-grant",
+            "r6-deny-everything",
+            "r7-pathvar-binding",
+            "r8-combined-check"
+          ]
         },
         {
           "id": "rtdb.rule-kind.validate",
@@ -3008,7 +3075,9 @@
           "exercisedBy": [
             "r4-validate-structure"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r4-validate-structure"
+          ]
         },
         {
           "id": "rtdb.rule-kind.indexOn",
@@ -3023,7 +3092,10 @@
             "r2-own-uid",
             "r7-pathvar-binding"
           ],
-          "verifiedBy": []
+          "verifiedBy": [
+            "r2-own-uid",
+            "r7-pathvar-binding"
+          ]
         },
         {
           "id": "rtdb.semantic.read-cascade",
@@ -3057,7 +3129,7 @@
         }
       ],
       "scenarioCount": 8,
-      "verifiedScenarioCount": 0,
+      "verifiedScenarioCount": 8,
       "unresolved": []
     }
   ]

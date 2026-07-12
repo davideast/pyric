@@ -1,0 +1,16 @@
+{
+  "name": "rules-rtdb-r6-deny-everything",
+  "matrixRow": "rtdb-rules#6",
+  "rowIds": [
+    "rtdb-rules#6"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r6-deny-everything\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). literal .read/.write: false denies every op \u2014 production denies authed and anonymous read/write; the simulator must deny all.",
+  "observedAt": "2026-07-12T02:54:57.994Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "authed read denied": "DENY",
+    "authed write denied": "DENY",
+    "anon read denied": "DENY"
+  }
+}

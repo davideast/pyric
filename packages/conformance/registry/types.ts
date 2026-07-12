@@ -15,6 +15,7 @@ export type Surface =
   // on the `rtdb`/`rtdb-modular` -> `rtdb` registry precedent.
   | 'firestore-rules'
   | 'storage-rules'
+  | 'rtdb-rules'
   | 'rules';
 
 /**

@@ -4,34 +4,43 @@
 
 Rules is a NATIVE conformance surface: there is no `firebase/rules` module to
 mirror, so this contract is NOT measured against an upstream SDK. It is measured
-two ways. The claimable API is the public export set of `pyric/rules` (and the
-Storage rules exports on `pyric/storage`); the fidelity is the in-process rules
-simulators replayed verdict-for-verdict against the production Firestore and
-Storage **Rules Test API** engines. There is no export-breadth percentage here
-(no upstream denominator); completeness is measured against the surface's own
-public API.
+two ways. The claimable API is the public export set of `pyric/rules` (plus the
+Storage rules exports on `pyric/storage` and the RTDB rules simulator on
+`pyric/database`); the fidelity is the in-process rules simulators replayed
+verdict-for-verdict against production. There is no export-breadth percentage
+here (no upstream denominator); completeness is measured against the surface's
+own public API.
 
-The two engines share this one document because `pyric/rules` is one package
+The three engines share this one document because `pyric/rules` is one package
 front door: its engine-agnostic exports (`lint`, `eachCase`, `assertCase`,
 `explainCase`, the value helpers) cannot be partitioned across per-engine
-registries. Firestore rules and Storage rules each carry their own engine table
-below, partitioned by observation prefix (`rules-firestore-` / `rules-storage-`).
+registries. Firestore rules, Storage rules, and RTDB rules each carry their own
+engine table below, partitioned by observation prefix (`rules-firestore-` /
+`rules-storage-` / `rules-rtdb-`).
+
+**How production truth is obtained differs by engine.** Firestore and Storage
+have a server-side **Rules Test API**, so their verdicts are read from an
+endpoint. RTDB has NO such API: its verdicts are captured by DEPLOYING each
+corpus ruleset to a dedicated oracle database, executing the ops against the
+live service, recording allow/deny, then restoring the prior ruleset and
+deleting the run's data — both verified by read-back. The rows are equally
+oracle-backed; only the acquisition path differs.
 
 ## Status legend
 
 | Status | Meaning |
 |---|---|
-| ✓ | **Conforming** — the simulator matches the production Rules Test API verdict, locked by a replayed observation |
+| ✓ | **Conforming** — the simulator matches the production verdict, locked by a replayed observation |
 | ⚠ | **Diverged (documented)** — a known simulator divergence from production with a written reason |
 | ✗ | **Bug** — should match production but doesn't; a failing replay pins it |
 | — | **Unsupported** — not modeled yet (deliberately or pending) |
 | ? | **Unverified** — a claim we haven't yet observed against the production engine |
 
-Oracle references: `oracle:rules-firestore-<scenario>` / `oracle:rules-storage-<scenario>` cite
-an observation captured by `packages/conformance/src/run-rules.ts` /
-`run-rules-storage.ts` against the production Rules Test API and replayed by the
-rules oracle-conformance suites. The corpus lives at
-`packages/conformance/rules-corpus/{firestore,storage}/`.
+Oracle references: `oracle:rules-firestore-<scenario>` / `oracle:rules-storage-<scenario>` /
+`oracle:rules-rtdb-<scenario>` cite an observation captured by
+`packages/conformance/src/run-rules.ts` / `run-rules-storage.ts` /
+`run-rules-rtdb.ts` and replayed by the rules oracle-conformance suites. The
+corpus lives at `packages/conformance/rules-corpus/{firestore,storage,rtdb}/`.
 
 ---
 
@@ -84,3 +93,16 @@ rules oracle-conformance suites. The corpus lives at
 | 115 | Cross-service `firestore.get()` / `firestore.exists()` lookups from a Storage ruleset, with `$(expr)` path interpolation and qualified function-mock names | ✓ | NEW ROW, 2026-07-10: production capture proves the evaluator resolves cross-service Firestore lookups from Storage rules, including interpolated document paths and both the map-returning `get()` and bool-returning `exists()` forms. `oracle:rules-storage-firestore-lookup` matches production verdict-for-verdict on all 4 cases. |
 | 116 | `resource.timeCreated` / `resource.updated` — server-populated object timestamps | ⚠ | NEW ROW, 2026-07-10: witness capture confirms the evaluator's resource model carries only size/contentType/metadata, so `resource.timeCreated`/`resource.updated` read `undefined` and any comparison denies in-process, while production evaluates a real server timestamp. `oracle:rules-storage-resource-timestamp-witness` records production's DENY verdict on both cases; the evaluator's DENY happens to match here because both operands are non-comparable rather than because the field is modeled — the underlying field is still unsupported. |
 | 117 | `request.resource.size` arithmetic bounds (`+`/`-`/`*`/`/`, `>=`/`<=`), request/existing content-type and custom `metadata` checks, `request.method`/`request.path`, a `request.auth.token` custom-claim branch, granular `allow list`, and a recursive `{allPaths=**}` public read tree | ✓ | NEW ROW, 2026-07-12: production capture proves the evaluator matches the production Storage Rules Test API verdict-for-verdict on all 8 cases (owner-scoped size-bounded upload, immutable-content-type update, list grant, public recursive read). `oracle:rules-storage-metadata-verbs-and-arithmetic` — replayed by `packages/pyric/test/storage/rules-oracle-conformance.test.ts`. |
+
+## RTDB rules engine — production simulator conformance (rules-rtdb corpus)
+
+| # | Behavior | Status | Probe |
+|---|---|---|---|
+| 1 | `auth != null` gate on `.read`/`.write` — authed ops allow, signed-out ops deny | ✓ | `oracle:rules-rtdb-r1-auth-only` — production verdicts captured by deploy-observe-restore against the live oracle database (RTDB has no server-side rules test API), replayed verdict-for-verdict against the in-process simulator by `packages/pyric/test/database/rules-conformance.test.ts`; all 4 cases match production. |
+| 2 | `$uid` path-variable ownership (`$uid === auth.uid`) — the owner path allows, a foreign uid and an anonymous request deny | ✓ | `oracle:rules-rtdb-r2-own-uid` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict against the in-process simulator; all 5 cases match production, so the simulator binds the path variable against `auth.uid` exactly as production does. |
+| 3 | Write-rule CASCADE — a truthy ancestor `.write` grants the write regardless of a deeper `!data.exists()` rule, so the populated-path write ALLOWS | ✓ | `oracle:rules-rtdb-r3-data-exists` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict. Production ALLOWS the write to the populated path even though the child rule is `!data.exists()`: the ancestor `.write: auth != null` already granted it, and RTDB never consults a deeper rule to revoke a grant. All 3 cases match; the simulator models the same cascade. |
+| 4 | `.validate` VETO — a failing child `.validate` denies a write the `.write` rule would otherwise permit (validate does not cascade and cannot be overridden) | ✓ | `oracle:rules-rtdb-r4-validate-structure` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; both cases match production. This row was the corpus's one historical simulator-vs-production divergence: at the 2026-05-18 agreement capture the simulator ALLOWED the missing-body write because it did not veto on the child `.validate`. The simulator now denies it, and this fresh capture re-confirms production's DENY, so the divergence is RESOLVED and needs no pin. |
+| 5 | Cascade is GRANT-ONLY — a root `.read: true` grants every descendant read (authed and anonymous), and a deeper `.write: false` cannot revoke a truthy ancestor `.write` grant | ✓ | `oracle:rules-rtdb-r5-cascade-root-grant` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 4 cases ALLOW in production, including the write to a node whose own `.write` is literal `false`. The simulator reproduces grant-only cascade rather than treating the deeper `false` as a veto. |
+| 6 | Literal `.read`/`.write: false` — the deny-all baseline denies every op, authed or anonymous, read or write | ✓ | `oracle:rules-rtdb-r6-deny-everything` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 3 cases DENY in production and in the simulator. |
+| 7 | Nested path variable in an expression (`$sessionId === auth.uid`) — the matching session allows, a mismatched session denies, and an unmatched anonymous op denies with no matching rule | ✓ | `oracle:rules-rtdb-r7-pathvar-binding` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 4 cases match. The simulator binds the nested variable identically and returns NO_MATCHING_RULE (read as deny) where production denies for want of a rule. |
+| 8 | `newData` is projected at the RULE node, not the written path — a root `.write` reading `newData.hasChildren(['owner'])` sees `{item:{...}}` for a write one level deeper, so the predicate is false and the write DENIES | ✓ | `oracle:rules-rtdb-r8-combined-check` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict. Production DENIES all three writes, including the "matching owner" case whose `owner` field lives under `/item` rather than at the rule node; only the auth-gated read allows. All 4 cases match, so the simulator projects `newData` at the same node production does — rule placement relative to the written path decides the outcome. |

@@ -1,0 +1,17 @@
+{
+  "name": "rules-rtdb-r8-combined-check",
+  "matrixRow": "rtdb-rules#8",
+  "rowIds": [
+    "rtdb-rules#8"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r8-combined-check\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a root-level .write predicate reading newData.child('owner') sees {item:{...}} for a write one level deeper, so hasChildren(['owner']) is false \u2014 production denies all writes; the simulator must project newData at the rule node identically.",
+  "observedAt": "2026-07-12T02:54:57.995Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "matching owner field allowed": "DENY",
+    "wrong owner denied": "DENY",
+    "missing owner field denied": "DENY",
+    "auth-only read allowed": "ALLOW"
+  }
+}

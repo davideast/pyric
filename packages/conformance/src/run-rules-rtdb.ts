@@ -12,13 +12,20 @@
  * allow/deny verdict, then RESTORES the prior ruleset and VERIFIES the restore
  * by reading the rules back and comparing (canonical JSON) to the pre-run
  * snapshot. One observation per scenario is written into
- * `packages/conformance/observations/rtdb/rules-rtdb-<scenario.id>.json`.
+ * `packages/conformance/observations/rtdb-rules/rules-rtdb-<scenario.id>.json`.
  *
- * THE RESTORE INVARIANT IS THE GATE. deploy → capture → restore → read-back
- * verify runs as one guarded sequence: ANY failure mid-run (deploy, op loop, or
- * read-back mismatch) aborts loudly AND attempts a restore before exit. The run
- * only reports success once the read-back byte-compare confirms the database's
- * rules are exactly what they were before the run.
+ * TWO INVARIANTS ARE THE GATE, and the run is clean only if BOTH read back
+ * verified:
+ *   RULES RESTORED — the pre-run ruleset is rewritten and read back, canonical-
+ *     JSON identical to the pre-run snapshot.
+ *   DATA REMOVED — the corpus ops write synthetic data beneath the run-scoped
+ *     namespace `/pyric_oracle_rulesrtdb_<runId>`, so the runner deletes that
+ *     namespace and proves it gone with a shallow read of the root.
+ * deploy → capture → restore + cleanup → read-back verify runs as one guarded
+ * sequence: ANY failure mid-run (deploy, op loop, or either read-back) aborts
+ * loudly AND still attempts both the restore and the data cleanup before exit.
+ * Observations are written only once both invariants verify — a run that cannot
+ * prove it left the database as it found it is not a clean capture.
  *
  * CREDENTIAL CONTRACT (mirrors the moved oracle run's RTDB rules deploy):
  *   PYRIC_ORACLE_FIREBASE_CONFIG — Web SDK config JSON (must carry databaseURL
@@ -58,8 +65,9 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..', '..');
-// rules-rtdb-* observations belong to the 'rtdb' surface subdirectory.
-const OBS_DIR = join(HERE, '..', 'observations', 'rtdb');
+// rules-rtdb-* observations belong to the 'rtdb-rules' surface subdirectory
+// (surfaces/rtdb-rules.ts owns the prefix), NOT the SDK-plane 'rtdb' one.
+const OBS_DIR = join(HERE, '..', 'observations', 'rtdb-rules');
 
 interface FirebaseWebConfig {
   apiKey: string;
@@ -112,8 +120,10 @@ function printInertPlan(): void {
   console.log('                                   defaults to ignored/service-account.json)\n');
   console.log(`  Observation output directory: ${OBS_DIR}`);
   console.log(`  Observation filename prefix:  ${RULES_RTDB_OBSERVATION_PREFIX}\n`);
-  console.log('  Capture protocol: deploy → execute ops on live RTDB → restore → read-back verify (canonical-JSON compare).');
-  console.log('                    RTDB has no server-side rules test API, so production truth is observed by deploying real rules.\n');
+  console.log('  Capture protocol: deploy → execute ops on live RTDB → restore rules + delete run data → read-back verify both.');
+  console.log('                    RTDB has no server-side rules test API, so production truth is observed by deploying real rules.');
+  console.log('                    Clean run = rules canonical-JSON identical to the pre-run snapshot AND the run-scoped data');
+  console.log('                    namespace absent from a shallow root read.\n');
   console.log(`  Would capture ${ALL_RULES_RTDB_SCENARIOS.length} scenario(s):`);
   for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
     const pending = scenario.cases.filter((c) => c.pendingCapture).length;
@@ -169,6 +179,38 @@ function canonicalize(value: unknown): string {
     return v;
   };
   return JSON.stringify(sortKeys(value));
+}
+
+/**
+ * The database operations run-data cleanup needs, narrowed to two calls so the
+ * cleanup contract can be tested against a fake without credentials or network.
+ */
+export interface RunDataStore {
+  /** Delete everything beneath the run-scoped namespace (admin, rules-bypassing). */
+  deleteNamespace(auditKey: string): Promise<void>;
+  /** Root-level keys via a shallow read — the deletion's independent witness. */
+  shallowRootKeys(): Promise<string[]>;
+}
+
+/**
+ * DATA CLEANUP INVARIANT: the corpus ops write synthetic data beneath
+ * `/<auditKey>`, and a run that restores the rules but leaves that data behind
+ * has not cleaned up after itself. So the runner deletes the namespace and then
+ * PROVES the deletion the same way it proves the rules restore — by reading
+ * back. A shallow read of the root must no longer list `auditKey`; a delete that
+ * "succeeded" but left the key visible is a failed cleanup, not a clean run.
+ *
+ * Throws on a failed deletion or a failed read-back so the caller can refuse to
+ * treat the run as clean.
+ */
+export async function verifyRunDataCleanup(store: RunDataStore, auditKey: string): Promise<void> {
+  await store.deleteNamespace(auditKey);
+  const rootKeys = await store.shallowRootKeys();
+  if (rootKeys.includes(auditKey)) {
+    throw new Error(
+      `data cleanup NOT verified — shallow read of the database root still lists the run-scoped namespace '${auditKey}' after deletion.`,
+    );
+  }
 }
 
 /** Recursively substitute the `<UID>` token, mirroring the agreement probe. */
@@ -235,6 +277,25 @@ async function capture(): Promise<void> {
     if (!res.ok) throw new Error(`write rules failed: ${res.status} ${await res.text()}`);
   }
 
+  // The run-data store, over the REST API with the admin token — it bypasses
+  // rules, so cleanup works regardless of whether the restored rules would let
+  // the anonymous client delete its own writes (they would not).
+  const auth_ = encodeURIComponent(rtdbAdminToken);
+  const store: RunDataStore = {
+    async deleteNamespace(auditKey: string): Promise<void> {
+      const res = await fetch(`${config.databaseURL}/${auditKey}.json?access_token=${auth_}&print=silent`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error(`delete run data failed: ${res.status} ${await res.text()}`);
+    },
+    async shallowRootKeys(): Promise<string[]> {
+      const res = await fetch(`${config.databaseURL}/.json?shallow=true&access_token=${auth_}`);
+      if (!res.ok) throw new Error(`shallow root read failed: ${res.status} ${await res.text()}`);
+      const body = (await res.json()) as Record<string, unknown> | null;
+      return body ? Object.keys(body) : [];
+    },
+  };
+
   // Snapshot the pre-run rules — the restore target and read-back compare basis.
   const beforeRules = await readRules();
   const beforeCanonical = canonicalize(beforeRules);
@@ -249,6 +310,7 @@ async function capture(): Promise<void> {
 
   const observations: { scenario: RtdbScenario; behavior: Record<string, 'ALLOW' | 'DENY'> }[] = [];
   let restoreVerified = false;
+  let dataCleanupVerified = false;
 
   try {
     // Deploy every scenario's subtree under `<auditKey>/<scenario.id>`, merged with the
@@ -334,14 +396,27 @@ async function capture(): Promise<void> {
     } catch (e) {
       console.error(`[oracle:rules-rtdb] RESTORE FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }
+    // Data cleanup + read-back verify ALWAYS runs too. Restoring the rules but
+    // leaving the corpus ops' synthetic data behind is not a clean run: the
+    // run-scoped namespace must be gone, proven by a shallow read.
+    try {
+      await verifyRunDataCleanup(store, auditKey);
+      dataCleanupVerified = true;
+      console.log(`[oracle:rules-rtdb] data cleanup verified — /${auditKey} deleted and absent from a shallow root read.`);
+    } catch (e) {
+      console.error(`[oracle:rules-rtdb] DATA CLEANUP FAILED: ${e instanceof Error ? e.message : String(e)}`);
+    }
     try { await deleteApp(app); } catch { /* ignored */ }
   }
 
-  // Only write observations once the restore invariant held. A run that could
-  // not prove it left the database as it found it must not be treated as a
-  // clean capture.
+  // Only write observations once BOTH invariants held. A run that could not
+  // prove it left the database as it found it — same rules, no residual data —
+  // must not be treated as a clean capture.
   if (!restoreVerified) {
     throw new Error('restore invariant NOT verified — refusing to write observations. Inspect the database rules manually.');
+  }
+  if (!dataCleanupVerified) {
+    throw new Error(`data cleanup invariant NOT verified — refusing to write observations. Delete /${auditKey} manually.`);
   }
 
   mkdirSync(OBS_DIR, { recursive: true });
@@ -360,11 +435,10 @@ async function capture(): Promise<void> {
     console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
   }
 
-  console.log('\n[oracle:rules-rtdb] capture complete.');
-  console.log('[oracle:rules-rtdb] NEXT: promote the rules-rtdb- prefix from pendingPrefixes to');
-  console.log('               observationPrefixes on rig rtdb-rules, wire each observation into the');
-  console.log('               compat registry (a matrix row citing it, or an observationExceptions');
-  console.log('               entry), then run `bun run compat:validate`.');
+  console.log('\n[oracle:rules-rtdb] capture complete — rules restored and run data removed, both read-back verified.');
+  console.log('[oracle:rules-rtdb] NEXT: the runner writes rowIds: [] on every capture, so re-wire each');
+  console.log('               observation into the compat registry — set its rowIds to the rtdb-rules');
+  console.log('               row(s) citing it (registry/rules.ts) — then run `bun run compat:validate`.');
 }
 
 if (import.meta.main) {
