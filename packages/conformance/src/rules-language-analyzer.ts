@@ -16,7 +16,21 @@
  * unknown type, ambiguous across string/list/map/set/bytes) are NOT credited
  * to any construct — they are surfaced as `unresolved` diagnostics instead.
  * Under-counting is honest; over-counting would inflate the trust number the
- * issue is built to protect.
+ * issue is built to protect. The same bar applies to `duration.seconds`/
+ * `duration.nanos` vs `timestamp.seconds`/`timestamp.nanos` (same method
+ * names, disambiguated only by proving the receiver's type — a namespace
+ * constructor, a `request.time`-rooted access, or sound Timestamp/Duration
+ * arithmetic — never by guessing) and to the `&&`/`||` error-absorption
+ * semantics (credited only from a genuine AST signature: a risky operand
+ * FIRST, paired with the absorbing boolean literal SECOND — see `fsIsRisky`).
+ *
+ * Some snapshot constructs are not merely hard to attribute today but
+ * PERMANENTLY unattributable by this method: a pure meta-semantic with no
+ * expression-level AST representation (e.g. `storage.semantic.deny-by-default`,
+ * `rtdb.semantic.deny-by-default` — ambient engine behavior, not something a
+ * ruleset's source text contains). Those constructs carry `unattributable` in
+ * their snapshot entry and are excluded from the coverage denominator rather
+ * than left looking like an ordinary, someday-closeable gap.
  *
  * Also exposes the computed coverage-report writer (run as a script) that walks
  * every corpus scenario and emits rules-language/coverage-report.json.
@@ -77,6 +91,21 @@ const FS_METHOD_RETURNS: Record<string, string> = {
   bind: 'path',
 };
 
+/** Return type of a NAMESPACE function call (`duration.value(...)`,
+ *  `timestamp.date(...)`, …), keyed by `[namespace][functionName]`. This is
+ *  what lets a chained call like `duration.time(1, 0, 0, 0).seconds()` (or a
+ *  timestamp difference, see the `binaryOp` case below) type its outer
+ *  `.seconds()`/`.nanos()` receiver as `duration` rather than falling back to
+ *  the ambiguous `timestamp`-or-`duration` ANY-candidate case, which stays
+ *  unresolved by design. Only the namespaces/functions that can produce a
+ *  `duration` or `timestamp` value are listed — `math`/`hashing` are out of
+ *  scope for this receiver-type distinction. */
+const FS_NAMESPACE_RETURNS: Record<string, Record<string, string>> = {
+  duration: { value: 'duration', time: 'duration', abs: 'duration' },
+  timestamp: { value: 'timestamp', date: 'timestamp' },
+  latlng: { value: 'latlng' },
+};
+
 /** Snapshot-derived method-name → candidate receiver types, for the
  *  unique-name fallback and ambiguity reporting. Built lazily. */
 let _fsMethodIndex: Map<string, string[]> | null = null;
@@ -115,6 +144,14 @@ function fsInferType(e: Expression): string | null {
       return null;
     }
     case 'methodCall':
+      // A namespace CONSTRUCTOR call (`duration.value(...)`, `timestamp.date(...)`)
+      // types by [namespace][function] — this is what makes a receiver like
+      // `duration.time(1, 0, 0, 0)` provably a duration rather than unknown.
+      // Anything else is a CHAINED call on some other receiver, typed (if at
+      // all) by its own return-type table.
+      if (e.object.type === 'identifier' && FS_NAMESPACES.has(e.object.name)) {
+        return FS_NAMESPACE_RETURNS[e.object.name]?.[e.method] ?? null;
+      }
       return FS_METHOD_RETURNS[e.method] ?? null;
     case 'functionCall':
       if (e.name === 'get' || e.name === 'getAfter') return 'map';
@@ -122,9 +159,97 @@ function fsInferType(e: Expression): string | null {
       return null;
     case 'ternary':
       return fsInferType(e.consequent) ?? fsInferType(e.alternate);
+    case 'binaryOp': {
+      // Timestamp/Duration cross-type arithmetic (rules.Timestamp /
+      // rules.Duration operator overloads): this is what lets a timestamp
+      // DIFFERENCE like `(request.time - timestamp.value(0))` type as a
+      // duration receiver for a following `.seconds()`/`.nanos()` call. Both
+      // operands must themselves be PROVABLY typed (e.g. `request.time`, or
+      // another namespace constructor) — an operand of unknown type (an
+      // arbitrary `resource.data.foo` field, say) makes the whole
+      // subtraction's type unknown too, same as any other unresolved case.
+      // Only the operand-type combinations the language actually defines are
+      // typed; anything else (e.g. plain numeric arithmetic) stays
+      // unresolved rather than guessed.
+      if (e.op !== '+' && e.op !== '-') return null;
+      const lt = fsInferType(e.left);
+      const rt = fsInferType(e.right);
+      if (e.op === '-') {
+        if (lt === 'timestamp' && rt === 'timestamp') return 'duration';
+        if (lt === 'timestamp' && rt === 'duration') return 'timestamp';
+        if (lt === 'duration' && rt === 'duration') return 'duration';
+        return null;
+      }
+      // e.op === '+'
+      if (lt === 'timestamp' && rt === 'duration') return 'timestamp';
+      if (lt === 'duration' && rt === 'timestamp') return 'timestamp';
+      if (lt === 'duration' && rt === 'duration') return 'duration';
+      return null;
+    }
     default:
       return null;
   }
+}
+
+/**
+ * Structural (not runtime) test for whether an expression subtree CAN error
+ * at evaluation: an arbitrary-key access into a map-typed value (`data.foo`,
+ * `get(...).data.foo` — CEL map indexing by `.` throws on a missing key,
+ * unlike a JS-style undefined), or a `get`/`getAfter` call itself (which
+ * throws outright when the target document does not exist). This is the
+ * signature the `&&`/`||` error-absorption semantic needs an operand to
+ * carry: the special (non-JS) rule only has observable effect when the
+ * operand that COULD throw is paired with a boolean literal that resolves
+ * the whole expression regardless.
+ *
+ * Deliberately does NOT recurse into a nested `&&`/`||`: that subexpression
+ * resolves to its own boolean (or its own, separately-credited, absorption)
+ * before it ever reaches this operator, so whether IT contains a risky access
+ * several levels down says nothing about whether THIS operator's absorption
+ * rule is what's in play.
+ */
+function fsIsRisky(e: Expression): boolean {
+  switch (e.type) {
+    case 'literal':
+    case 'identifier':
+      return false;
+    case 'memberAccess':
+      return fsInferType(e.object) === 'map' || fsIsRisky(e.object);
+    case 'methodCall':
+      return fsIsRisky(e.object) || e.args.some(fsIsRisky);
+    case 'bracketAccess':
+      return fsIsRisky(e.object) || fsIsRisky(e.index);
+    case 'sliceAccess':
+      return fsIsRisky(e.object) || fsIsRisky(e.start) || fsIsRisky(e.end);
+    case 'binaryOp':
+      if (e.op === '&&' || e.op === '||') return false;
+      return fsIsRisky(e.left) || fsIsRisky(e.right);
+    case 'unaryOp':
+      return fsIsRisky(e.operand);
+    case 'ternary':
+      return fsIsRisky(e.condition) || fsIsRisky(e.consequent) || fsIsRisky(e.alternate);
+    case 'inExpr':
+      return fsIsRisky(e.element) || fsIsRisky(e.collection);
+    case 'isExpr':
+      return fsIsRisky(e.value);
+    case 'listLiteral':
+      return e.elements.some(fsIsRisky);
+    case 'mapLiteral':
+      return e.entries.some(({ key, value }) => fsIsRisky(key) || fsIsRisky(value));
+    case 'pathLiteral':
+      return e.segments.some((seg) => typeof seg !== 'string' && fsIsRisky(seg));
+    case 'functionCall':
+      if (e.name === 'get' || e.name === 'getAfter') return true;
+      return e.args.some(fsIsRisky);
+    default:
+      return false;
+  }
+}
+
+/** True for the literal boolean `value` (used to spot the absorbing operand:
+ *  `false` for `&&`, `true` for `||`). */
+function fsIsBoolLiteral(e: Expression, value: boolean): boolean {
+  return e.type === 'literal' && typeof e.value === 'boolean' && e.value === value;
 }
 
 function fsWalkExpr(e: Expression, out: AnalyzeResult): void {
@@ -174,6 +299,23 @@ function fsWalkExpr(e: Expression, out: AnalyzeResult): void {
     case 'binaryOp': {
       const op = FS_BINOP[e.op];
       if (op) add(`firestore.operator.${op}`);
+      // Error-absorption: CEL's &&/|| are commutative error-absorbing
+      // operators (`error && false` → false, `error || true` → true), NOT
+      // JS-style left-to-right short-circuit. The only AST shape that PROVES
+      // this special (non-short-circuit) rule is in play — as opposed to
+      // ordinary short-circuit, which needs no special semantic — is the
+      // risky operand appearing FIRST (left), where plain left-to-right
+      // evaluation would otherwise propagate its error, paired with the
+      // absorbing literal on the right. (`false && risky` / `true || risky`
+      // are the JS-compatible direction: ordinary short-circuit already
+      // explains those without invoking absorption, so they are not
+      // credited here.)
+      if (e.op === '&&' && fsIsRisky(e.left) && fsIsBoolLiteral(e.right, false)) {
+        add('firestore.semantic.error-absorption-and');
+      }
+      if (e.op === '||' && fsIsRisky(e.left) && fsIsBoolLiteral(e.right, true)) {
+        add('firestore.semantic.error-absorption-or');
+      }
       fsWalkExpr(e.left, out);
       fsWalkExpr(e.right, out);
       return;
@@ -648,6 +790,15 @@ export interface ConstructCoverage {
   exercisedBy: string[];
   /** The subset whose observation twin exists (production-verified). */
   verifiedBy: string[];
+  /** Mirrors the snapshot's `unattributable` (see rules-language/types.ts):
+   *  present iff this construct can never be credited by static AST
+   *  analysis. Such constructs are carried in `constructs` for the full
+   *  audit trail but EXCLUDED from `totalConstructs` and the two coverage
+   *  ratios below — counting a permanently-uncreditable construct in the
+   *  denominator would put a ceiling on the trust number for a reason
+   *  unrelated to real coverage gaps. An empty `exercisedBy`/`verifiedBy`
+   *  here is expected forever, not a pending gap. */
+  unattributable?: string;
 }
 
 export interface EngineCoverage {
@@ -679,7 +830,13 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
     const { scenarios, twinIds } = await loadScenarios(engine);
     const cov = new Map<string, ConstructCoverage>();
     for (const c of snapshot.constructs) {
-      cov.set(c.id, { id: c.id, kind: c.kind, exercisedBy: [], verifiedBy: [] });
+      cov.set(c.id, {
+        id: c.id,
+        kind: c.kind,
+        exercisedBy: [],
+        verifiedBy: [],
+        ...(c.unattributable ? { unattributable: c.unattributable } : {}),
+      });
     }
     const unresolved: EngineCoverage['unresolved'] = [];
     for (const scenario of scenarios) {
@@ -700,9 +857,15 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
       for (const u of result.unresolved) unresolved.push({ scenario: scenario.id, ...u });
     }
     const constructs = [...cov.values()];
-    const exercisedConstructs = constructs.filter((c) => c.exercisedBy.length > 0).length;
-    const verifiedConstructs = constructs.filter((c) => c.verifiedBy.length > 0).length;
-    const total = constructs.length;
+    // Permanently-unattributable constructs (see ConstructCoverage.unattributable)
+    // are carried in `constructs` for the audit trail but excluded from the
+    // denominator: they can never be credited by static AST analysis, so
+    // counting them against the total would put an un-earnable ceiling on the
+    // coverage ratios for a reason unrelated to real gaps.
+    const attributable = constructs.filter((c) => !c.unattributable);
+    const exercisedConstructs = attributable.filter((c) => c.exercisedBy.length > 0).length;
+    const verifiedConstructs = attributable.filter((c) => c.verifiedBy.length > 0).length;
+    const total = attributable.length;
     engines.push({
       engine,
       totalConstructs: total,
@@ -718,7 +881,7 @@ export async function computeCoverageReport(): Promise<CoverageReport> {
   }
   return {
     generatedNote:
-      'DRAFT (issue #185 step 2). Verified coverage = snapshot constructs exercised by >=1 corpus scenario that has an observation twin / total snapshot constructs. Regenerated by rules-language-analyzer.ts. Not yet wired into the ratchet (step 4).',
+      'DRAFT (issue #185 step 2). Verified coverage = snapshot constructs exercised by >=1 corpus scenario that has an observation twin / total ATTRIBUTABLE snapshot constructs. A construct carrying `unattributable` (a pure meta-semantic with no AST representation, e.g. storage/rtdb deny-by-default) is listed under its engine\'s `constructs` for the audit trail but excluded from totalConstructs/exercisedConstructs/verifiedConstructs and both ratios — it can never be credited by static AST analysis, so counting it against the total would put an un-earnable ceiling on the number for a reason unrelated to real coverage gaps. Regenerated by rules-language-analyzer.ts. Not yet wired into the ratchet (step 4).',
     engines,
   };
 }

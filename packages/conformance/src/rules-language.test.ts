@@ -259,3 +259,137 @@ service firebase.storage {
     }
   });
 });
+
+describe('rules-language analyzer: duration/timestamp receiver-type inference', () => {
+  const rules = (expr: string) => `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /x/{id} {
+      allow create: if ${expr};
+    }
+  }
+}`;
+
+  it('credits duration.seconds/nanos when the receiver is a namespace duration constructor', () => {
+    const res = analyzeFirestore(
+      rules("duration.time(1, 0, 0, 0).seconds() >= 0 && duration.value(5, 's').nanos() >= 0"),
+    );
+    expect(res.ids).toContain('firestore.method.duration.seconds');
+    expect(res.ids).toContain('firestore.method.duration.nanos');
+    expect(res.ids).not.toContain('firestore.method.timestamp.seconds');
+    expect(res.ids).not.toContain('firestore.method.timestamp.nanos');
+    expect(res.unresolved).toEqual([]);
+  });
+
+  it('credits timestamp.seconds/nanos when the receiver is request.time', () => {
+    const res = analyzeFirestore(rules('request.time.seconds() >= 0 && request.time.nanos() >= 0'));
+    expect(res.ids).toContain('firestore.method.timestamp.seconds');
+    expect(res.ids).toContain('firestore.method.timestamp.nanos');
+    expect(res.ids).not.toContain('firestore.method.duration.seconds');
+    expect(res.ids).not.toContain('firestore.method.duration.nanos');
+    expect(res.unresolved).toEqual([]);
+  });
+
+  it('credits duration.seconds when the receiver is a timestamp-minus-timestamp difference', () => {
+    const res = analyzeFirestore(rules('(request.time - timestamp.value(0)).seconds() >= 0'));
+    expect(res.ids).toContain('firestore.method.duration.seconds');
+    expect(res.ids).not.toContain('firestore.method.timestamp.seconds');
+    expect(res.unresolved).toEqual([]);
+  });
+
+  it('credits timestamp.seconds when the receiver is a timestamp-minus-duration (still a timestamp)', () => {
+    const res = analyzeFirestore(rules("(request.time - duration.value(5, 's')).seconds() >= 0"));
+    expect(res.ids).toContain('firestore.method.timestamp.seconds');
+    expect(res.ids).not.toContain('firestore.method.duration.seconds');
+  });
+
+  it('does NOT credit either receiver when the type is indeterminate — stays unresolved', () => {
+    // `request.resource.data.customField` is an arbitrary map field: its type
+    // cannot be known statically, so `.seconds()` is genuinely ambiguous
+    // between the timestamp and duration receiver methods of the same name.
+    // Under-crediting here is the honest outcome.
+    const res = analyzeFirestore(rules('request.resource.data.customField.seconds() >= 0'));
+    expect(res.ids).not.toContain('firestore.method.timestamp.seconds');
+    expect(res.ids).not.toContain('firestore.method.duration.seconds');
+    expect(res.unresolved.some((u) => u.what === 'method:seconds')).toBe(true);
+  });
+});
+
+describe('rules-language analyzer: &&/|| error-absorption attribution', () => {
+  const rules = (expr: string) => `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /x/{id} {
+      allow create: if ${expr};
+    }
+  }
+}`;
+
+  it('credits error-absorption-or for `risky || true` (the non-short-circuit direction)', () => {
+    const res = analyzeFirestore(rules("request.resource.data.missing > 0 || true"));
+    expect(res.ids).toContain('firestore.semantic.error-absorption-or');
+  });
+
+  it('does NOT credit error-absorption-or for `true || risky` (ordinary short-circuit, no special semantic needed)', () => {
+    const res = analyzeFirestore(rules('true || request.resource.data.missing > 0'));
+    expect(res.ids).not.toContain('firestore.semantic.error-absorption-or');
+  });
+
+  it('does NOT credit error-absorption-or for `risky || false` (the error genuinely propagates)', () => {
+    const res = analyzeFirestore(rules('request.resource.data.missing > 0 || false'));
+    expect(res.ids).not.toContain('firestore.semantic.error-absorption-or');
+  });
+
+  it('credits error-absorption-and for `risky && false` (the non-short-circuit direction)', () => {
+    const res = analyzeFirestore(rules('request.resource.data.missing > 0 && false'));
+    expect(res.ids).toContain('firestore.semantic.error-absorption-and');
+  });
+
+  it('does NOT credit error-absorption-and for `false && risky` (ordinary short-circuit, no special semantic needed)', () => {
+    const res = analyzeFirestore(rules('false && request.resource.data.missing > 0'));
+    expect(res.ids).not.toContain('firestore.semantic.error-absorption-and');
+  });
+
+  it('does NOT credit error-absorption-and for `risky && true` (the error genuinely propagates)', () => {
+    const res = analyzeFirestore(rules('request.resource.data.missing > 0 && true'));
+    expect(res.ids).not.toContain('firestore.semantic.error-absorption-and');
+  });
+
+  it('does NOT credit absorption for a plain boolean &&/|| with no risky operand', () => {
+    const res = analyzeFirestore(rules("request.auth != null && request.auth.uid == 'x'"));
+    expect(res.ids).not.toContain('firestore.semantic.error-absorption-and');
+    expect(res.ids).not.toContain('firestore.semantic.error-absorption-or');
+  });
+});
+
+describe('rules-language: unattributable meta-semantics are excluded from the coverage denominator', () => {
+  it('storage.semantic.deny-by-default and rtdb.semantic.deny-by-default carry a non-empty unattributable note', () => {
+    const storageEntry = loadSnapshot('storage').constructs.find((c) => c.id === 'storage.semantic.deny-by-default');
+    const rtdbEntry = loadSnapshot('rtdb').constructs.find((c) => c.id === 'rtdb.semantic.deny-by-default');
+    expect(typeof storageEntry?.unattributable).toBe('string');
+    expect((storageEntry?.unattributable ?? '').length).toBeGreaterThan(0);
+    expect(typeof rtdbEntry?.unattributable).toBe('string');
+    expect((rtdbEntry?.unattributable ?? '').length).toBeGreaterThan(0);
+  });
+
+  it('rejects an empty-string unattributable note', () => {
+    const snap = {
+      engine: 'firestore' as const,
+      version: 'v',
+      sources: ['s'],
+      constructs: [
+        {
+          id: 'firestore.operator.eq',
+          kind: 'operator',
+          engine: 'firestore',
+          reference: 'r',
+          status: 'unprobed',
+          unattributable: '',
+        },
+      ],
+    };
+    expect(
+      validateSnapshotValue('firestore', snap).some((p) => p.includes('unattributable present but empty')),
+    ).toBe(true);
+  });
+});

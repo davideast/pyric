@@ -95,6 +95,9 @@ function snapshotProblems(engine: RulesEngine, snap: unknown): string[] {
     if (c.probeNote !== undefined && (typeof c.probeNote !== 'string' || c.probeNote.length === 0)) {
       problems.push(`${at} (${c.id}): probeNote present but empty`);
     }
+    if (c.unattributable !== undefined && (typeof c.unattributable !== 'string' || c.unattributable.length === 0)) {
+      problems.push(`${at} (${c.id}): unattributable present but empty`);
+    }
     if ((c.status === 'rejected' || c.status === 'unprobeable') &&
         (typeof c.probeNote !== 'string' || c.probeNote.length === 0)) {
       problems.push(`${at} (${c.id}): status "${c.status}" requires a non-empty probeNote`);
