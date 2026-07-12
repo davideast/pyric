@@ -3,7 +3,10 @@ Write this for a reviewer, not for a log. Delete these instructions when you pos
 
 THE SHAPE:
 
-1. OPEN WITH THE CODE. A hero example, first thing, no preamble. Real imports, real
+1. ONE LINE, THEN THE CODE. Start with a single sentence naming what the PR adds or
+   changes and what it is ("Adds `pyric-tools/assurance`, a library that ..."), then
+   the hero example immediately. The line orients; the code teaches. Do not open cold
+   on a code block, and do not pad the line into a paragraph. Real imports, real
    values, runnable, from the consumer's seat. If the change is a behavior fix, show
    what the consumer writes and what they get. If it is an API, show the API being
    used. A reviewer should understand what changed before reading a single sentence
