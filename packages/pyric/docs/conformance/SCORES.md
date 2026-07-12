@@ -78,16 +78,22 @@ Auth, Firestore, and Rules are held to recorded production behavior. Realtime Da
 
 ## How does pyric know it works like Firebase?
 
-"Behaves like Firebase" is a claim anyone can print. Pyric earns it by making the claim falsifiable: every green row on these pages traces to a recording of real production, and a test that fails the build the moment the recording and the sandbox disagree.
+If Pyric is a mirror of Firebase, how does it know it actually behaves like Firebase? You can read the documentation and you can mirror the TypeScript API, but documentation describes intent and types describe shape. Neither is production behavior. The only source of truth for what Firebase does is Firebase itself, so the only honest way to mirror it is to capture that behavior and hold yourself to it. That is what it means to conform.
 
-The mirror starts one to one. The call you write against Firebase is the call Pyric runs, character for character.
+It starts one to one. The call you write against Firebase is the call Pyric runs, character for character.
 
 ```ts
 import { signInWithEmailAndPassword } from 'firebase/auth'; // production
 import { signInWithEmailAndPassword } from 'pyric/auth';    // development
 ```
 
-So "does Pyric match?" reduces to one question asked once per behavior: did Pyric answer what production answered? To answer it, a probe runs the real call against a real Firebase project and records exactly what came back. That recording is an oracle observation, committed to the repository:
+## The conformance system
+
+Pyric ships an entire conformance system, [`pyric/conformance`](https://github.com/davideast/pyric/tree/main/packages/conformance). It probes a real production Firebase project, captures what it observes, and treats those captures together with Firebase's official TypeScript exports as the specification it must conform to. A handful of parts do the work, and the life of a single behavior runs through all of them.
+
+### The oracle
+
+The oracle is where production behavior enters the system. A [probe](https://github.com/davideast/pyric/tree/main/packages/conformance/probes) signs into a real Firebase project, makes a real call, and records exactly what comes back: the value, the error code, the shape of the response, down to the SDK version that produced it. That recording is committed to the repository as an observation, so it is not a claim about Firebase, it is a captured fact from Firebase, frozen in a file anyone can open:
 
 ```json
 {
@@ -101,9 +107,23 @@ So "does Pyric match?" reduces to one question asked once per behavior: did Pyri
 }
 ```
 
-That one file ([auth-wrong-password-error-code.json](https://github.com/davideast/pyric/blob/main/packages/conformance/observations/auth/auth-wrong-password-error-code.json)) pins what a wrong password throws, and it locks row `auth#15` on the Auth matrix. Every verified behavior has its own, under [observations/](https://github.com/davideast/pyric/tree/main/packages/conformance/observations). The [registry](https://github.com/davideast/pyric/tree/main/packages/conformance/registry) maps each recording to a numbered row, and `compat:check` replays every recording against the sandbox on each change. If the sandbox answers differently than production did, the build fails before the change lands. Recapturing a recording is the drift check: an unchanged file means production still behaves as pinned; a changed file means the behavior moved, and the git diff is the report.
+This one file, [`auth-wrong-password-error-code.json`](https://github.com/davideast/pyric/blob/main/packages/conformance/observations/auth/auth-wrong-password-error-code.json), pins what a wrong password throws. It names the rows it is responsible for, so that captured fact becomes the sole authority for row `auth#15` on the Auth matrix. Every verified behavior has an observation like it, and they all live in the open under [observations/](https://github.com/davideast/pyric/tree/main/packages/conformance/observations).
 
-Security Rules work the same way from the other direction. A [corpus](https://github.com/davideast/pyric/tree/main/packages/conformance/rules-corpus) of rulesets and requests is evaluated against Google's own Rules Test API, and the sandbox simulator has to reach the same verdict, case for case. The [probes](https://github.com/davideast/pyric/tree/main/packages/conformance/probes) that capture production and the [runner](https://github.com/davideast/pyric/blob/main/packages/conformance/src/run.ts) that replays it are all in the open.
+### The corpus
+
+Security Rules cannot be captured by recording a call, because a ruleset is a program and the question is not what it returns but whether it allows or denies a request. So the oracle for rules is a corpus: a growing body of rulesets paired with requests, each one evaluated against Google's own Rules Test API to get production's verdict. The sandbox rule simulator then has to reach the same allow or deny for every case in the [corpus](https://github.com/davideast/pyric/tree/main/packages/conformance/rules-corpus). Firestore and Storage expose a hosted Test API to ask directly; Realtime Database exposes none, so its rules are captured the hard way, by deploying each ruleset to a throwaway database, observing the live verdict, and restoring the database afterward.
+
+### The registry
+
+Captures on their own are just files. The registry is what turns them into a specification. It is the row universe: one numbered entry per behavior, each carrying the capture that pins it, the status it currently holds, and the reason for that status. The [registry](https://github.com/davideast/pyric/tree/main/packages/conformance/registry) is the contract these matrices render. A conforming row points at a passing replay; a documented difference states both what production does and what Pyric does and why; a not-yet-verified row is one the system knows about but no capture has pinned. Nothing lands on the board by accident, and nothing that matters is quietly left off it.
+
+### The replay
+
+A specification is only worth its enforcement. On every change, `compat:check` replays every committed capture against the sandbox and compares verdict for verdict. If the sandbox answers differently than the recording, the build fails before the change can land, so a regression cannot merge without either fixing the code or consciously re-pinning the row in the open. Re-capturing an observation is the same check pointed the other way: run the [probes](https://github.com/davideast/pyric/blob/main/packages/conformance/src/run.ts) again, and an unchanged file means production still behaves as recorded, while a changed file means Firebase itself moved, and the git diff is the incident report.
+
+### The census
+
+Captures answer whether Pyric behaves like Firebase, but there is a second question hiding behind the first: does Pyric even expose what Firebase exposes? A perfect match on ten behaviors means little if Firebase ships a hundred. The [census](https://github.com/davideast/pyric/blob/main/packages/conformance/src/surface-census.ts) answers it by reading Firebase's official TypeScript exports for each module and checking, symbol by symbol, that Pyric mirrors them. This is the second specification the system holds itself to: the oracle pins behavior, and the census pins surface against the real public API, so coverage is measured against what Firebase actually ships rather than a list Pyric drew up for itself.
 
 ### What this does not prove
 
