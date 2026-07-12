@@ -72,7 +72,7 @@ One flag exposes the whole backend to a coding agent over MCP:
 pyric dev --bridge
 ```
 
-The agent can seed data, run queries, and simulate a rules verdict before it writes, all in the same event stream Studio shows. Nothing leaves the machine. One page sets it up: [set up an agent](./agent/set-up-your-agent.md).
+The agent can seed data, run queries, and simulate a rules verdict before it writes, all in the same event stream Studio shows. Nothing leaves the machine. One page sets it up: [set up an agent](./agent/set-up-an-agent.md).
 
 ## Ship the same code to real Firebase
 

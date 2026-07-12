@@ -67,7 +67,7 @@ One flag gives your agent the same backend:
 ```bash
 pyric dev --bridge
 ```
-`--bridge` mounts an MCP endpoint on the dev server, and any MCP client (Claude Code, Cursor, Codex) can seed data, run queries, and check rules verdicts against the exact sandbox your tabs are using. [Set up your agent](../set-up-your-agent/) walks through each client.
+`--bridge` mounts an MCP endpoint on the dev server, and any MCP client (Claude Code, Cursor, Codex) can seed data, run queries, and check rules verdicts against the exact sandbox your tabs are using. [Set up an agent](../set-up-an-agent/) walks through each client.
 
 ## Where to go next
 

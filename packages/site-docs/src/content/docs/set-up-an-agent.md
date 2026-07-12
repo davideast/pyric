@@ -1,6 +1,6 @@
 ---
 title: "Point your agent at the sandbox"
-navLabel: "Set up your agent"
+navLabel: "Set up an agent"
 group: "Work with an agent"
 section: ""
 order: 6001
@@ -77,4 +77,4 @@ Do not start a second `pyric dev` next to it. Two servers means two sandboxes, a
 
 ## Where to go next
 
-No project yet? [Start building](../start-building/) gets you a backend in one command first. Then see what the connection buys you in [what your agent can do](../what-your-agent-can-do/).
+No project yet? [Start building](../start-building/) gets you a backend in one command first. Then see what the connection buys you in [what an agent can do](../what-an-agent-can-do/).

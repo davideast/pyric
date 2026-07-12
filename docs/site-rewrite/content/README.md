@@ -25,7 +25,7 @@ Every page of the new docs, written to WRITING-BRIEF.md against HIERARCHY.md v3.
 | Rules patterns | `secure/rules-patterns.md` | new (ported from firebase-agent-sdk skills) |
 | RTDB rules in TypeScript | `secure/rtdb-rules-in-typescript.md` | new (constraints DSL) |
 | The limits that actually bite | `secure/limits-that-bite.md` | new (from LINTER_SPEC + linter thresholds) |
-| Audit your rules and data | `secure/audit-your-rules.md` | new (from the audit skills) |
+| Audit rules and data | `secure/audit-a-ruleset.md` | new (from the audit skills) |
 | What's possible | `secure/whats-possible.md` | new (the gallery) |
 | **OBSERVE & SHAPE** | | |
 | See what's happening | `observe/see-whats-happening.md` | new landing over reused how-tos |
@@ -35,8 +35,8 @@ Every page of the new docs, written to WRITING-BRIEF.md against HIERARCHY.md v3.
 | Set up the project | `ship/set-up-the-project.md` | new (control-plane enablement) |
 | Test in Node | `ship/test-in-node.md` | new over reused harness tutorial |
 | **WORK WITH AN AGENT** | | |
-| Set up your agent | `agent/set-up-your-agent.md` | new (per-client recipes) |
-| What your agent can do | `agent/what-your-agent-can-do.md` | new (capability-taught) |
+| Set up an agent | `agent/set-up-an-agent.md` | new (per-client recipes) |
+| What an agent can do | `agent/what-an-agent-can-do.md` | new (capability-taught) |
 | Skills | `agent/skills.md` | new (catalog) |
 | **TRUST** | | |
 | How we know it matches Firebase | `trust/how-we-know-it-matches-firebase.md` | new over conformance docs |

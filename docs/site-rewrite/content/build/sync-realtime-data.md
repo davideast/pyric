@@ -74,7 +74,7 @@ A wrong type, a misspelled key, or a write your rules would deny is reported bef
 
 ## And from an agent
 
-The `rtdb-data-model` skill designs the tree the way this page describes, starting from an inventory of reads. On an existing database, `rtdb_crawl_structure` maps the actual shape first, and `rtdb_validated_write` guards every write the agent makes. Install the skill from the [catalog](../agent/skills.md), and see [set up your agent](../agent/set-up-your-agent.md) for the wiring.
+The `rtdb-data-model` skill designs the tree the way this page describes, starting from an inventory of reads. On an existing database, `rtdb_crawl_structure` maps the actual shape first, and `rtdb_validated_write` guards every write the agent makes. Install the skill from the [catalog](../agent/skills.md), and see [set up an agent](../agent/set-up-an-agent.md) for the wiring.
 
 ## Where to go next
 

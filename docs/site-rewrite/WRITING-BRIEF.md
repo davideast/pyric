@@ -31,11 +31,19 @@ We never claim to be better than the official docs, smarter than the reader, or 
 
 Vary sentence length deliberately. Short sentences land points. Medium sentences carry the work. And occasionally, when the reader has been given a rest and the moment is right, a long sentence builds and rolls and delivers something that matters. Read every paragraph aloud in your head. If it drones, break it.
 
-## Titles and nav labels (owner review, first pass)
+## Headings name the functionality (owner review, second pass)
 
-- Concrete over clever, always. A title must say what the page is about on sight. "How the swap works" not "What just happened". "Rules limits" not "The limits that actually bite". "Case studies" not "What's possible".
-- Never let a nav item echo its group label ("Get started > Start building" reads as a stutter; "Quickstart" does not).
-- Playful phrasing is not worth a vague label. If a reader (or an agent scanning the nav) cannot predict the content from the label, rename it.
+A heading is a label on a section of documentation, not a line of copy aimed at the reader. It names what the section documents, plainly, so a person landing on it cold, out of any conversation, knows what it covers. The test: read the heading with nothing above it. If it only makes sense as the continuation of a sentence, or as a pitch, it fails.
+
+Five things a heading must not do:
+
+- **Speak to the reader.** No "you", no "your". "The rules standard library", not "Build your rules from tested parts". The heading describes the thing, it does not address the person.
+- **Promise the future.** No "never", "always", "again", "forever". "Read a denial", not "Never debug a bare permission-denied again". We cannot enforce "never", and claiming it is arrogant and false the first time a reader hits one in production.
+- **Start mid-sentence.** A heading is not the back half of a thought. "Simulate and lint rules before deploying", not "Catch the error before Firebase's opaque 400", which assumes a conversation already in progress.
+- **Pitch or opine.** No "tested parts", "the hard things", "rules you trust". Name the feature; let the reader decide it is good. "Write a rules test suite", not "Rules you trust because they are tested".
+- **Go vague-relational.** Still banned from the first pass: "What you do with it", "Where your agent fits", "Why it holds up", "The catalog", "Where the wing goes deeper". If the heading would fit on any product's page, it says nothing about this one.
+
+The bar is the boring accurate name over the memorable one. "Store and query data", "Sign users in and manage them", "How the swap works", "Firestore rules compiler and evaluator limits" are correct: each names its subject and stands alone. Prefer the noun phrase that names the feature or the plain imperative that names the task. Never let a nav item echo its group label ("Get started > Start building" stutters; "Quickstart" does not).
 
 ## Never against Firebase (owner review, first pass)
 
@@ -47,11 +55,11 @@ Walls of text are a defect. On a guide page, every H2 section should reach an ex
 
 ## Structure conventions
 
-- H1 is the outcome in the reader's words, not a feature name.
+- H1 names what the page documents, plainly, and stands alone (see "Headings name the functionality"). It may be a task ("Store and query data") or a subject ("The Firestore rules standard library"), never a pitch or a second-person line.
 - The first paragraph states the result the reader gets. No preamble, no "In this guide."
 - Show a working example early. Code before concepts wherever possible.
 - Code blocks are real and runnable against the current surface (check INVENTORY.md). Never pseudo-code presented as real.
-- Headings continue the narrative ("Watch the denial explain itself"), never label taxonomy ("Denial inspection"). Banned outright (owner review): vague relational labels that describe the section's role instead of its content. "What you do with it", "Where your agent fits", "Why it holds up", "The catalog", "The rest of the wing". If the heading would fit on any product's page, it says nothing about this one.
+- Section headings follow the same law as titles (see "Headings name the functionality"): name what the section covers, plainly and standing alone. Not narrative flourishes ("Watch the denial explain itself"), not pitches, not vague relational labels.
 - Keep pages short. One tangible win per page. Link deeper instead of piling on.
 - End with where to go next, one or two links, chosen, not a link farm.
 

@@ -195,7 +195,7 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
       'rules-patterns.md',
       'rtdb-rules-in-typescript.md',
       'limits-that-bite.md',
-      'audit-your-rules.md',
+      'audit-a-ruleset.md',
       'whats-possible.md',
     ],
   },
@@ -212,7 +212,7 @@ const GUIDE_GROUPS: GuideGroupSpec[] = [
   {
     label: 'Work with an agent',
     dir: 'agent',
-    files: ['set-up-your-agent.md', 'what-your-agent-can-do.md', 'skills.md'],
+    files: ['set-up-an-agent.md', 'what-an-agent-can-do.md', 'skills.md'],
   },
   {
     label: 'Trust',

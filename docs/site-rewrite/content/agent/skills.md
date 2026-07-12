@@ -52,7 +52,7 @@ Audit the rules in firestore.rules and show me who can read
 and write each collection.
 ```
 
-The skill runs `firestore_lint_rules`, builds an identity-by-operation access matrix with no blank cells, and checks each expression against its operation context (a `create` has no `resource.data` yet; a `list` can't lean on one document's fields). Every critical or high finding is proven with `firestore_simulate_rules` before it makes the report. Serves [audit your rules](../secure/audit-your-rules.md).
+The skill runs `firestore_lint_rules`, builds an identity-by-operation access matrix with no blank cells, and checks each expression against its operation context (a `create` has no `resource.data` yet; a `list` can't lean on one document's fields). Every critical or high finding is proven with `firestore_simulate_rules` before it makes the report. Serves [audit rules](../secure/audit-a-ruleset.md).
 
 ## rtdb-security-rules
 
@@ -63,7 +63,7 @@ Lock down database.rules.json so only a post's author can edit
 or delete it, and any signed-in user can read.
 ```
 
-The skill starts from a locked root, opens only the paths the prompt names, and pairs each with a `.validate` shape check. Before anything ships, it simulates four case families per path with `rtdb_simulate_access` (intended actor, anonymous, cross-user, invalid shape) and deploys with `rtdb_deploy_rules`. Serves [audit your rules](../secure/audit-your-rules.md).
+The skill starts from a locked root, opens only the paths the prompt names, and pairs each with a `.validate` shape check. Before anything ships, it simulates four case families per path with `rtdb_simulate_access` (intended actor, anonymous, cross-user, invalid shape) and deploys with `rtdb_deploy_rules`. Serves [audit rules](../secure/audit-a-ruleset.md).
 
 ## rtdb-data-model
 
@@ -85,8 +85,8 @@ Audit the whole project, Firestore, RTDB, and Auth, and tell me
 where the rules and the real data disagree.
 ```
 
-The skill collects rules with `firestore_get_rules` and `rtdb_get_rules`, maps real data shape with `firestore_discover_paths` and `rtdb_crawl_structure`, and checks `auth_get_config` against every `request.auth` assumption the rules make. The output is a severity-ranked report, and remediation is proposed in it, never applied without asking. Serves [audit your rules](../secure/audit-your-rules.md).
+The skill collects rules with `firestore_get_rules` and `rtdb_get_rules`, maps real data shape with `firestore_discover_paths` and `rtdb_crawl_structure`, and checks `auth_get_config` against every `request.auth` assumption the rules make. The output is a severity-ranked report, and remediation is proposed in it, never applied without asking. Serves [audit rules](../secure/audit-a-ruleset.md).
 
 ## Where to go next
 
-A skill is only as good as the tools it drives, so read [what your agent can do](./what-your-agent-can-do.md) if you have not.
+A skill is only as good as the tools it drives, so read [what an agent can do](./what-an-agent-can-do.md) if you have not.

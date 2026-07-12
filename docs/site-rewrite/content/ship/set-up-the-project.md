@@ -92,7 +92,7 @@ When your credential lacks permission to enable an API, the preflight surfaces t
 
 ## And from an agent
 
-The same operations ship as agent tools: the deploy factories, the auth configuration tools, and the Storage control plane. Given a service account, an agent can take a bare project to configured infrastructure and report each step's outcome. See [Set up your agent](../agent/set-up-your-agent.md).
+The same operations ship as agent tools: the deploy factories, the auth configuration tools, and the Storage control plane. Given a service account, an agent can take a bare project to configured infrastructure and report each step's outcome. See [Set up an agent](../agent/set-up-an-agent.md).
 
 ## Where to go next
 

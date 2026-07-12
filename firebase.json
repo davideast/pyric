@@ -7,6 +7,23 @@
       "**/.*",
       "**/node_modules/**"
     ],
+    "redirects": [
+      {
+        "source": "/docs/set-up-your-agent{,/**}",
+        "destination": "/docs/set-up-an-agent/",
+        "type": 301
+      },
+      {
+        "source": "/docs/audit-your-rules{,/**}",
+        "destination": "/docs/audit-a-ruleset/",
+        "type": 301
+      },
+      {
+        "source": "/docs/what-your-agent-can-do{,/**}",
+        "destination": "/docs/what-an-agent-can-do/",
+        "type": 301
+      }
+    ],
     "rewrites": [
       {
         "source": "/docs/**",
