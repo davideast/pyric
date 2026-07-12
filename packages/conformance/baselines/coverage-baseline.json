@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-12T00:37:49.077Z",
+  "generatedAt": "2026-07-12T01:20:23.409Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -860,5 +860,11 @@
     "firestore#97",
     "firestore#98"
   ],
-  "orphanObservations": []
+  "orphanObservations": [],
+  "entryPathVerdicts": {
+    "auth": "green",
+    "database": "green",
+    "firestore": "green",
+    "storage": "green"
+  }
 }
