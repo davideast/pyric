@@ -3,68 +3,81 @@
 Private workspace package (not published to npm). It holds the compatibility
 registry, the per-surface descriptors, the oracle capture rigs and their frozen
 observations, and the gates and reports that turn them into the published compat
-coverage number. Consumed only by the root `package.json` `compat:*` / `oracle:plan`
-scripts and by CI (`.github/workflows/build.yml`).
+coverage number. This package is the project's trust proof: every "matches prod"
+claim in the mirror traces back to a file in this tree. Consumed only by the
+root `package.json` `compat:*` / `oracle:plan` scripts and by CI
+(`.github/workflows/build.yml`).
 
 ## Layout
 
-The convention is one record per file, the filename is the key (and exists
-nowhere else), the directory is the index, and aggregation is computed by a
-loader — never a hand-maintained barrel.
-
 ```
 packages/conformance/
-  src/            runnable code: gates, reports, runners, loaders that are not
-                  co-located with a data directory (coverage, report,
-                  generate-docs, ledger, census-gate, lint-terminology,
-                  validate-registry, climb, surface-census, surface-denylist,
-                  print-fb-tag, the oracle capture runners, and the package tests)
-  registry/       one CompatibilitySurfaceRegistry record per COMPAT.md doc
-                  (ai, auth, firestore, rtdb, storage, messaging) + index.ts
-                  (registriesByKey / surfaceRegistries / allCompatibilityRows)
-  surfaces/       one SurfaceDescriptorRecord per surface (ai, auth, firestore,
-                  rtdb, rtdb-modular, storage, messaging, messaging-admin);
-                  load.ts derives the key from the filename and resolves the
-                  registry; census-only.ts holds the export-census surfaces with
-                  no COMPAT matrix (app, messaging-sw)
-  exceptions/     one <observation-name>.md per excepted observation; the file
-                  body is the reason; load.ts builds the record
-  observations/   frozen prod-behavior captures (one .json per observation)
-  rigs/           one RigManifestRecord per capture rig + load.ts
-  probes/         individual capture probes (admin app-registry) + helpers
-  rules-corpus/   Firestore/Storage Rules conformance corpus
-  messaging-web/  the FCM web receive-plane capture harness
-  baselines/      committed ratchet baselines (coverage, census, audit)
+  surfaces/          one SurfaceDescriptorRecord per compatibility surface (ai,
+                     auth, firestore, rtdb, rtdb-modular, storage, messaging,
+                     messaging-admin). Filename is the key. The record names the
+                     registry it hosts rows in, the observation filename
+                     prefixes it owns, and the capture rigs that produce them.
+  registry/          one CompatibilitySurfaceRegistry per COMPAT.md doc (ai,
+                     auth, firestore, rtdb, storage, messaging) plus index.ts.
+                     Every compatibility row lives here; this is the single
+                     source the COMPAT.md docs generate from.
+  observations/      frozen prod-behavior captures, one subdirectory per
+                     surface (observations/<surface>/<name>.json). Filename is
+                     the key: the name never changes once a registry row cites
+                     it. The directory an observation lives in must equal its
+                     filename's longest-prefix surface match; compat:validate
+                     enforces this as a fatal check.
+  probes/            in-repo capture probes, twinned with observations one
+                     surface directory at a time (probes/<surface>/<name>.ts
+                     pairs with observations/<surface>/<name>.json). Not every
+                     observation has a probe; where one exists, its surface
+                     directory must match its observation's.
+  rules-corpus/      Firestore/Storage Rules conformance corpus, one pack
+                     record per file under rules-corpus/<engine>/<pack-id>.ts.
+                     Pack ids are unique across both engines; a captured
+                     rules-firestore-/rules-storage- observation without a
+                     matching pack is an orphan, fatal in compat:validate.
+  exceptions/        one <observation-name>.ts per excepted observation,
+                     exporting a typed ObservationException ({ reason, until?
+                     }). Filename is the key: an observation with no citing
+                     registry row is only allowed to exist if a file here
+                     names it.
+  rigs/              one RigManifestRecord per capture rig, deliberately FLAT
+                     (rigs/<rig-id>.ts, not rigs/<surface>/<rig-id>.ts). A rig
+                     is a capture mechanism, not a service: oracle-run alone
+                     spans five surfaces (auth, firestore, rtdb, rtdb-modular,
+                     storage), so nesting rigs under a surface would force an
+                     arbitrary primary-surface choice for no benefit. Rig
+                     support code that isn't a manifest record (the
+                     messaging-web browser harness) lives under src/rigs/.
+  baselines/         committed ratchet baselines (coverage, census, audit).
+                     Each is regenerated by its own gate's --update flag, never
+                     hand-edited.
+  src/               all machinery: gates, reports, runners, loaders, and the
+                     package's own tests. Nothing here is a per-item record;
+                     everything in the directories above is. Rig support apps
+                     that need more than one file live under src/rigs/<rig-id>/
+                     (src/rigs/messaging-web/ is the one today).
 ```
 
-Only code that moved into `src/` had its paths recomputed; the data directories
-keep the depth they had under `scripts/`, so their internal relative paths and
-their references into `packages/pyric` are unchanged.
+## How a claim gets proven
 
-## Surface descriptors
-
-Each `surfaces/<key>.ts` exports one `SurfaceDescriptorRecord` — the single
-source of truth for one compatibility surface. The record carries no `surface`
-field: the filename is the key, and `surfaces/load.ts` injects it. Fields:
-
-- `order` — ordinal for stable output ordering (coverage table, report list).
-- `registry` — key string resolved to the registry object (`rtdb-modular` → `rtdb`,
-  `messaging-admin` → `messaging`).
-- `censusSurface`, `upstream`, `mirrors` — the export-census mirror pair.
-- `observationPrefixes` — the observation filename prefixes this surface owns
-  (auth owns `auth-` and `admin-app-`; firestore `firestore-` and `rules-firestore-`;
-  storage `storage-` and `rules-storage-`).
-- `coverage` — whether the surface is published in `compat:coverage`.
-- `scopeNote` — the one-line coverage scope statement.
-- `conformanceSuite`, `captureRigs`, `climb` — suite path, capturing rig ids, CDD marker.
-
-The consumers derive everything from the loaded descriptors: `surface-census.ts`
-builds its mirror pairs (descriptors deduped by census surface, plus the two
-census-only surfaces), `coverage.ts` derives `SERVICES` / `CENSUS_SURFACE_FOR` /
-`SCOPE_NOTES`, `report.ts` and `ledger.ts` iterate them, `generate-docs.ts`
-reads the climb marker, and `validate-registry.ts` validates their integrity
-(registry resolves, prefixes unique across surfaces, capture-rig ids exist,
-suite paths exist).
+A COMPAT.md row is not evidence by itself; it is a pointer into this tree.
+Start from a surface: `surfaces/auth.ts` names the `auth` registry and the
+`auth-` / `admin-app-` observation prefixes it owns. `registry/auth.ts` hosts
+the actual row (`auth#21`, say), which cites an observation name in its
+`oracleObservations` or `conformanceChecks`. That name resolves to a file under
+`observations/auth/<name>.json`, the frozen production behavior the row claims
+to match. Two things can reproduce that capture: a probe at
+`probes/auth/<name>.ts` (the twin file, if one exists), or a rules-corpus pack
+at `rules-corpus/<engine>/<pack-id>.ts` for a rules-firestore-/rules-storage-
+observation. Either is replayed by a capture rig, `rigs/<rig-id>.ts`, whose
+`script` field points at the runnable code under `src/` (or `src/rigs/<rig-id>/`
+for a rig with its own support app) that produced the observation in the first
+place. `compat:validate` walks every one of these links in both directions:
+row to observation, observation to row, observation to surface directory,
+probe to observation, rules-corpus pack to observation. A broken link anywhere
+in that chain fails the gate.
 
 ## Running
 
