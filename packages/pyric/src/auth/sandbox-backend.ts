@@ -10,9 +10,12 @@
  *      `onIdTokenChanged` registry ALSO fires on a forced ID-token
  *      refresh (matches prod — see oracle observation
  *      `auth-onidtokenchanged-force-refresh.json`).
- *   3. Mock-result registry — pre-staged `UserCredential`s consumed by
- *      `signInWithPopup` / `signInWithCredential`. Keyed by
- *      `providerId`; one slot per provider.
+ *   3. Auth-flow staging — the pre-staged `UserCredential` mock
+ *      registry (consumed by `signInWithPopup` /
+ *      `signInWithCredential`), the injected popup/redirect resolver,
+ *      and the pending redirect-result slot. Delegated to
+ *      {@link AuthFlowRegistry} (`sandbox-auth-flow.ts`); the backend
+ *      holds one `flow` field and the accessor methods forward to it.
  *   4. Token cache — current ID token string + IdTokenResult per uid.
  *      A fresh token is minted on each setCurrentUser transition into
  *      a non-null user (new session = new token) and on each
