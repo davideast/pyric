@@ -115,11 +115,36 @@
  *
  * OUTPUT
  *
- *   `assurance-capabilities/capabilities.json` — the artifact, with the full
- *   evidence chain per dependency.
+ *   `assurance-capabilities/capabilities.json` — the artifact, with the facts
+ *   behind every dependency's verdict.
  *   `assurance-capabilities/generated.ts` — the same capabilities as a typed,
  *   inlined const (`ASSURANCE_ENGINE_CAPABILITIES`), the shape the assurance
- *   runtime consumes with no filesystem access.
+ *   runtime consumes with no filesystem access, plus the read-time renderer
+ *   (`capabilityReasons`) that turns those facts into sentences.
+ *
+ * ── THE STANDING CONSTRAINT: DERIVED FACTS, NEVER DERIVED PROSE ─────────────
+ *
+ * A generated record may carry ONLY facts whose value is determined by the thing
+ * the record is about. Never a count, a total, a percentage, a rank, or any
+ * other whole-population aggregate — and never a prose sentence containing one.
+ *
+ * WHY (this artifact learned it the hard way): each construct's evidence used to
+ * read "production-verified by 19 captured scenario(s)". That 19 is a fact about
+ * the CORPUS, not about the construct. Capture one scenario anywhere and dozens
+ * of unrelated capability records rewrite: the diff then lies about causality (a
+ * reviewer sees `firestore.operator.and` move and asks what happened to AND —
+ * nothing did), a genuine `qualified -> supported` event drowns in the noise, and
+ * `compat:assurance:check` fails on branches that never touched assurance, which
+ * turns regeneration into a reflex and lets a stale artifact through unexamined.
+ * A derived artifact that encodes a global fact churns globally.
+ *
+ * THE RULE, mechanically: a record's bytes may change only when a verdict in it
+ * changes. If you want to add a field, ask what else could move it. "Someone
+ * captured an unrelated scenario" is a NO. `assurance-capabilities.test.ts`
+ * holds this line: it perturbs the corpus counts without changing any verdict and
+ * asserts both artifacts are byte-identical. A count belongs in the printed
+ * report (`bun run compat:assurance`), which reads the corpus fresh and may say
+ * whatever a human finds useful — stdout is not a durable artifact.
  *
  * USAGE
  *
@@ -143,7 +168,9 @@ import type {
   AssuranceCapabilityArtifact,
   AssuranceCapabilityStatus,
   DerivedCapability,
+  DerivedConstructDependency,
   DerivedDependency,
+  DerivedRegistryRowDependency,
   DependencyVerdict,
 } from '../assurance-capabilities/types.ts';
 
@@ -287,15 +314,18 @@ export function validationProblems(graph: ConformanceGraph, records: LoadedCapab
   return problems;
 }
 
-function deriveConstruct(graph: ConformanceGraph, id: string): DerivedDependency {
+/**
+ * The facts about one construct. Each field is a property of THIS construct: its
+ * snapshot status, what the probe did with it, whether production verified it,
+ * and which divergences name it. Nothing here can move because of a change
+ * elsewhere in the corpus — see the standing constraint in this file's header.
+ */
+function deriveConstruct(graph: ConformanceGraph, id: string): DerivedConstructDependency {
   const snapshot = graph.snapshotStatus.get(id) ?? 'missing';
-  const probe = graph.probeClass.get(id);
-  const verified = graph.verifiedBy.get(id) ?? [];
-  const diverged = graph.divergedBy.get(id) ?? [];
-  const evidence: string[] = [];
+  const probe = graph.probeClass.get(id) ?? 'absent';
+  const divergedBy = graph.divergedBy.get(id) ?? [];
   const verdicts: DependencyVerdict[] = [];
 
-  evidence.push(`snapshot status "${snapshot}"`);
   if (snapshot === 'rejected') {
     verdicts.push('unsupported');
   } else if (snapshot === 'unprobed' || snapshot === 'unprobeable') {
@@ -304,8 +334,7 @@ function deriveConstruct(graph: ConformanceGraph, id: string): DerivedDependency
     verdicts.push('supported');
   }
 
-  evidence.push(`capability probe "${probe ?? 'absent'}"`);
-  if (probe === 'unsupported' || probe === 'error' || probe === undefined) {
+  if (probe === 'unsupported' || probe === 'error' || probe === 'absent') {
     verdicts.push('unsupported');
   } else if (probe === 'unprobeable') {
     verdicts.push('qualified');
@@ -314,40 +343,46 @@ function deriveConstruct(graph: ConformanceGraph, id: string): DerivedDependency
   }
 
   // The SHARED predicate (production-verification.ts): the same question the
-  // coverage report's `verifiedConstructs` numerator asks, answered once.
-  const productionEvidence = { scenarios: verified, provingRows: graph.oracleProvedBy.get(id) ?? [] };
-  evidence.push(describeProductionEvidence(productionEvidence));
-  verdicts.push(isProductionVerified(productionEvidence) ? 'supported' : 'qualified');
+  // coverage report's `verifiedConstructs` numerator asks, answered once. The
+  // artifact records the ANSWER (a boolean), never the evidence population that
+  // produced it.
+  const productionVerified = isProductionVerified({
+    scenarios: graph.verifiedBy.get(id) ?? [],
+    provingRows: graph.oracleProvedBy.get(id) ?? [],
+  });
+  verdicts.push(productionVerified ? 'supported' : 'qualified');
 
-  if (diverged.length > 0) {
-    evidence.push(`covered by rules-engine divergence ${diverged.join(', ')}`);
-    verdicts.push('unsupported');
-  }
+  if (divergedBy.length > 0) verdicts.push('unsupported');
 
-  return { kind: 'construct', id, verdict: weakest(verdicts), evidence };
+  return { kind: 'construct', id, verdict: weakest(verdicts), snapshot, probe, productionVerified, divergedBy };
 }
 
-function deriveRow(graph: ConformanceGraph, id: string): DerivedDependency {
+function deriveRow(graph: ConformanceGraph, id: string): DerivedRegistryRowDependency {
   const row = graph.rows.get(id);
-  if (!row) return { kind: 'registry-row', id, verdict: 'unsupported', evidence: ['row not found in any registry'] };
-  const engineRow = RULES_ENGINE_SURFACES.has(row.surface);
-  const evidence = [`registry row ${row.id} (${row.surface}) status "${row.status}"`];
+  if (!row) {
+    return {
+      kind: 'registry-row',
+      id,
+      verdict: 'unsupported',
+      surface: 'missing',
+      status: 'missing',
+      rulesEngineSurface: false,
+    };
+  }
+  const rulesEngineSurface = RULES_ENGINE_SURFACES.has(row.surface);
   let verdict: DependencyVerdict;
   if (row.status === 'bug' || row.status === 'unsupported') {
     verdict = 'unsupported';
   } else if (row.status === 'diverged-documented') {
-    verdict = engineRow ? 'unsupported' : 'qualified';
-    evidence.push(
-      engineRow
-        ? 'divergence is in the rules engine itself: the verdict machinery is known wrong here'
-        : 'divergence is in an SDK surface: the verdict machinery is sound, the probe setup is not production-identical',
-    );
+    // A divergence in the verdict machinery itself is disqualifying; a divergence
+    // in an SDK surface only qualifies the probe's setup.
+    verdict = rulesEngineSurface ? 'unsupported' : 'qualified';
   } else if (row.status === 'unverified') {
     verdict = 'qualified';
   } else {
     verdict = 'supported';
   }
-  return { kind: 'registry-row', id, verdict, evidence };
+  return { kind: 'registry-row', id, verdict, surface: row.surface, status: row.status, rulesEngineSurface };
 }
 
 /** Derive one capability from the graph. */
@@ -355,25 +390,21 @@ export function deriveCapability(graph: ConformanceGraph, record: LoadedCapabili
   const dependencies: DerivedDependency[] = record.dependencies.map((dep) => {
     if (dep.kind === 'construct') return deriveConstruct(graph, dep.id);
     if (dep.kind === 'registry-row') return deriveRow(graph, dep.id);
-    return {
-      kind: 'unbacked',
-      id: dep.behavior,
-      verdict: 'unsupported',
-      evidence: [`the conformance graph does not model this behavior: ${dep.reason}`],
-    };
+    return { kind: 'unbacked', id: dep.behavior, verdict: 'unsupported', reason: dep.reason };
   });
 
   const status = weakest(dependencies.map((dep) => dep.verdict));
-  const reasons = dependencies
-    .filter((dep) => dep.verdict === status)
-    .map((dep) => `${dep.id}: ${dep.evidence.join('; ')}`);
+  return { id: record.id, service: record.service, status, description: record.description, dependencies };
+}
 
-  return { id: record.id, service: record.service, status, description: record.description, reasons, dependencies };
+/** The dependencies that pinned a capability's status: derived on read, never
+ *  frozen (a frozen copy is a second thing to keep in sync). */
+export function pinningDependencies(capability: DerivedCapability): DerivedDependency[] {
+  return capability.dependencies.filter((dep) => dep.verdict === capability.status);
 }
 
 /** Derive every capability. Throws on any validation problem. */
-export function deriveAllCapabilities(): DerivedCapability[] {
-  const graph = loadConformanceGraph();
+export function deriveAllCapabilities(graph: ConformanceGraph = loadConformanceGraph()): DerivedCapability[] {
   const records = loadAssuranceCapabilityRecords();
   const problems = validationProblems(graph, records);
   if (problems.length > 0) {
@@ -383,7 +414,7 @@ export function deriveAllCapabilities(): DerivedCapability[] {
 }
 
 const GENERATED_NOTE =
-  'GENERATED from the conformance graph by packages/conformance/src/assurance-capabilities.ts. Do not edit by hand; run bun run compat:assurance. Each capability declares its dependencies in packages/conformance/assurance-capabilities/<id>.ts; the status here is DERIVED, never asserted. A capability that is not "supported" means an assurance probe depending on it must abstain (engine-gap), not report a security conclusion.';
+  'GENERATED from the conformance graph by packages/conformance/src/assurance-capabilities.ts. Do not edit by hand; run bun run compat:assurance. Each capability declares its dependencies in packages/conformance/assurance-capabilities/<id>.ts; the status here is DERIVED, never asserted. A capability that is not "supported" means an assurance probe depending on it must abstain (engine-gap), not report a security conclusion. Every dependency carries the FACTS behind its verdict and no count, total, or other whole-population aggregate: an aggregate would move this file whenever anything anywhere in the corpus moved, so these records change only when a verdict changes. Sentences (with counts, if a human wants them) are rendered on read: bun run compat:assurance.';
 
 export function buildArtifact(capabilities: DerivedCapability[]): AssuranceCapabilityArtifact {
   return {
@@ -404,22 +435,58 @@ export function renderArtifactJson(artifact: AssuranceCapabilityArtifact): strin
   return `${JSON.stringify(artifact, null, 2)}\n`;
 }
 
-/** The capability object literals, shared by both generated TypeScript modules. */
-function renderCapabilityLiterals(capabilities: DerivedCapability[]): string[] {
-  const lines: string[] = [];
-  for (const capability of capabilities) {
-    lines.push('  {');
-    lines.push(`    id: ${JSON.stringify(capability.id)},`);
-    lines.push(`    service: ${JSON.stringify(capability.service)},`);
-    lines.push(`    status: ${JSON.stringify(capability.status)},`);
-    lines.push(`    description: ${JSON.stringify(capability.description)},`);
-    lines.push('    reasons: [');
-    for (const reason of capability.reasons) lines.push(`      ${JSON.stringify(reason)},`);
-    lines.push('    ],');
-    lines.push('  },');
-  }
-  return lines;
-}
+/**
+ * The read-time renderer, emitted INTO each generated module.
+ *
+ * It is emitted rather than imported because the consumer that needs it most —
+ * the assurance runtime in `pyric-tools` — cannot import from this package
+ * (`conformance` is private and is not one of its dependencies). Emitting it
+ * keeps one definition (this constant) and gives every generated copy the same
+ * wording, whatever package it lands in. It depends on nothing but the record's
+ * own fields, so it is paste-able into a self-contained copy unchanged.
+ *
+ * This is where the sentences live now. The artifact carries facts; a reader who
+ * wants prose calls `capabilityReasons` at read time.
+ */
+const EMITTED_RENDERER = [
+  '/** One dependency, as a sentence. The facts are the record; this is a view of',
+  ' *  them, built on read. */',
+  'export function describeCapabilityDependency(dependency: GeneratedCapabilityDependency): string {',
+  '  if (dependency.kind === "construct") {',
+  '    const facts = [',
+  '      `snapshot status "${dependency.snapshot}"`,',
+  '      `capability probe "${dependency.probe}"`,',
+  '      dependency.productionVerified',
+  '        ? "production-verified against captured production behavior"',
+  '        : "no production-captured scenario and no conforming oracle-backed row verifies it",',
+  '    ];',
+  '    if (dependency.divergedBy.length > 0) {',
+  '      facts.push(`covered by rules-engine divergence ${dependency.divergedBy.join(", ")}`);',
+  '    }',
+  '    return `${dependency.id}: ${facts.join("; ")}`;',
+  '  }',
+  '  if (dependency.kind === "registry-row") {',
+  '    const facts = [`registry row ${dependency.id} (${dependency.surface}) status "${dependency.status}"`];',
+  '    if (dependency.status === "diverged-documented") {',
+  '      facts.push(',
+  '        dependency.rulesEngineSurface',
+  '          ? "divergence is in the rules engine itself: the verdict machinery is known wrong here"',
+  '          : "divergence is in an SDK surface: the verdict machinery is sound, the probe setup is not production-identical",',
+  '      );',
+  '    }',
+  '    return `${dependency.id}: ${facts.join("; ")}`;',
+  '  }',
+  '  return `${dependency.id}: the conformance graph does not model this behavior: ${dependency.reason}`;',
+  '}',
+  '',
+  '/** The reasons a probe cites when it abstains: the dependencies whose verdict',
+  ' *  pinned the capability\'s status, each rendered as a sentence. */',
+  'export function capabilityReasons(capability: GeneratedAssuranceCapability): string[] {',
+  '  return capability.dependencies',
+  '    .filter((dependency) => dependency.verdict === capability.status)',
+  '    .map(describeCapabilityDependency);',
+  '}',
+];
 
 /** The generated TypeScript module: the same capabilities, inlined, in the shape
  *  the assurance runtime consumes (no filesystem, no JSON import). */
@@ -430,18 +497,63 @@ export function renderGeneratedTs(capabilities: DerivedCapability[]): string {
     '// The assurance engine\'s capabilities, DERIVED from the conformance graph by',
     '// packages/conformance/src/assurance-capabilities.ts (see that file\'s header for',
     '// the derivation rules). The assurance runtime consumes this module directly:',
-    '// each record is structurally an AssuranceEngineCapability, and `reasons` carries',
-    '// the graph evidence a probe cites when it abstains.',
+    '// each record is structurally an AssuranceEngineCapability.',
+    '//',
+    '// Each dependency carries the FACTS behind its verdict, never a sentence and',
+    '// never a count: a count is a property of the corpus, so freezing one here would',
+    '// rewrite unrelated records every time anyone captured a scenario. A probe that',
+    '// abstains renders its reasons on read with `capabilityReasons(capability)`.',
     "import type { AssuranceCapabilityService, AssuranceCapabilityStatus } from './types.ts';",
+    '',
+    'export type CapabilityVerdict = AssuranceCapabilityStatus;',
+    '',
+    'export interface GeneratedConstructDependency {',
+    "  kind: 'construct';",
+    '  /** The rules-language construct id. */',
+    '  id: string;',
+    '  verdict: CapabilityVerdict;',
+    '  /** The construct\'s status in the production language snapshot. */',
+    '  snapshot: string;',
+    '  /** What the local simulator\'s capability probe did with it. */',
+    "  probe: 'implemented' | 'unsupported' | 'error' | 'unprobeable' | 'absent';",
+    '  /** Whether any evidence path compares it against production. A BOOLEAN: how',
+    '   *  many scenarios do so is a fact about the corpus, not about this construct. */',
+    '  productionVerified: boolean;',
+    '  /** Rules-engine rows whose documented divergence names this construct. */',
+    '  divergedBy: string[];',
+    '}',
+    '',
+    'export interface GeneratedRegistryRowDependency {',
+    "  kind: 'registry-row';",
+    '  id: string;',
+    '  verdict: CapabilityVerdict;',
+    '  surface: string;',
+    '  status: string;',
+    '  rulesEngineSurface: boolean;',
+    '}',
+    '',
+    'export interface GeneratedUnbackedDependency {',
+    "  kind: 'unbacked';",
+    '  /** The behavior the capability needs. */',
+    '  id: string;',
+    '  verdict: CapabilityVerdict;',
+    '  /** Why the graph cannot back it. */',
+    '  reason: string;',
+    '}',
+    '',
+    'export type GeneratedCapabilityDependency =',
+    '  | GeneratedConstructDependency',
+    '  | GeneratedRegistryRowDependency',
+    '  | GeneratedUnbackedDependency;',
     '',
     'export interface GeneratedAssuranceCapability {',
     '  id: string;',
     '  service: AssuranceCapabilityService;',
     '  status: AssuranceCapabilityStatus;',
     '  description: string;',
-    '  /** The graph evidence that pinned the status: the dependencies whose verdict',
-    '   *  equals it. A probe that abstains reports these. */',
-    '  reasons: string[];',
+    '  /** Everything the status rests on. The ones that pinned it are the ones whose',
+    '   *  verdict equals the status; `capabilityReasons` selects and renders them. */',
+    '  dependencies: GeneratedCapabilityDependency[];',
     '}',
     '',
     'export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapability[] = [',
@@ -496,19 +608,79 @@ export function renderRuntimeTs(capabilities: DerivedCapability[]): string {
     '];',
     '',
   ];
+  for (const capability of capabilities) {
+    lines.push('  {');
+    lines.push(`    id: ${JSON.stringify(capability.id)},`);
+    lines.push(`    service: ${JSON.stringify(capability.service)},`);
+    lines.push(`    status: ${JSON.stringify(capability.status)},`);
+    lines.push(`    description: ${JSON.stringify(capability.description)},`);
+    lines.push('    dependencies: [');
+    for (const dependency of capability.dependencies) {
+      lines.push(`      ${JSON.stringify(dependency)},`);
+    }
+    lines.push('    ],');
+    lines.push('  },');
+  }
+  lines.push('];', '', ...EMITTED_RENDERER, '');
   return lines.join('\n');
 }
 
-function renderTable(capabilities: DerivedCapability[]): string {
+/**
+ * The printed report. This is READ TIME: the graph is open, so the sentences may
+ * cite anything a human finds useful — including the scenario COUNT that must
+ * never be frozen into an artifact. Nothing downstream parses stdout.
+ */
+function renderTable(graph: ConformanceGraph, capabilities: DerivedCapability[]): string {
   const width = Math.max(...capabilities.map((c) => c.id.length));
   return capabilities
-    .map((c) => `${c.id.padEnd(width)}  ${c.status.padEnd(11)}  ${c.reasons[0] ?? ''}`)
+    .map((capability) => {
+      const reason = pinningDependencies(capability).map((dep) => describeForReport(graph, dep))[0] ?? '';
+      return `${capability.id.padEnd(width)}  ${capability.status.padEnd(11)}  ${reason}`;
+    })
     .join('\n');
+}
+
+/**
+ * A dependency as a sentence for the REPORT. The generated module carries its own
+ * renderer (`EMITTED_RENDERER`) for consumers that only have the record; this one
+ * exists separately because it can still see the graph, and it says more with it:
+ * the construct's production evidence is spelled out (how many scenarios, which
+ * rows) rather than collapsed to the boolean the artifact carries. That extra
+ * detail is exactly what may not be frozen, which is why it lives only here.
+ */
+function describeForReport(graph: ConformanceGraph, dependency: DerivedDependency): string {
+  if (dependency.kind === 'unbacked') {
+    return `${dependency.id}: the conformance graph does not model this behavior: ${dependency.reason}`;
+  }
+  if (dependency.kind === 'registry-row') {
+    const facts = [`registry row ${dependency.id} (${dependency.surface}) status "${dependency.status}"`];
+    if (dependency.status === 'diverged-documented') {
+      facts.push(
+        dependency.rulesEngineSurface
+          ? 'divergence is in the rules engine itself: the verdict machinery is known wrong here'
+          : 'divergence is in an SDK surface: the verdict machinery is sound, the probe setup is not production-identical',
+      );
+    }
+    return `${dependency.id}: ${facts.join('; ')}`;
+  }
+  const facts = [
+    `snapshot status "${dependency.snapshot}"`,
+    `capability probe "${dependency.probe}"`,
+    describeProductionEvidence({
+      scenarios: graph.verifiedBy.get(dependency.id) ?? [],
+      provingRows: graph.oracleProvedBy.get(dependency.id) ?? [],
+    }),
+  ];
+  if (dependency.divergedBy.length > 0) {
+    facts.push(`covered by rules-engine divergence ${dependency.divergedBy.join(', ')}`);
+  }
+  return `${dependency.id}: ${facts.join('; ')}`;
 }
 
 function main(): void {
   const args = new Set(process.argv.slice(2));
-  const capabilities = deriveAllCapabilities();
+  const graph = loadConformanceGraph();
+  const capabilities = deriveAllCapabilities(graph);
   const artifactJson = renderArtifactJson(buildArtifact(capabilities));
   const generatedTs = renderGeneratedTs(capabilities);
   const runtimeTs = renderRuntimeTs(capabilities);
@@ -547,7 +719,7 @@ function main(): void {
     return;
   }
 
-  console.log(renderTable(capabilities));
+  console.log(renderTable(graph, capabilities));
 }
 
 if (import.meta.main) main();

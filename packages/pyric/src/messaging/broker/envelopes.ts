@@ -2,7 +2,7 @@
  * Captured FCM v1 error envelopes — the send plane's rejection contract.
  *
  * Every constructor here reproduces a committed oracle observation
- * byte-for-byte (`scripts/oracle/observations/messaging-send-*.json`),
+ * byte-for-byte (`packages/conformance/observations/messaging-admin/messaging-send-*.json`),
  * INCLUDING the per-case ordering of the `details` array. Detail order
  * differs across cases in production and "is not a contract"
  * (`messaging-send-no-target-error-envelope.json` description) — but the

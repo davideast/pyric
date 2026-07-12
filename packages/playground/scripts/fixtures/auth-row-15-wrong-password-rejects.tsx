@@ -4,7 +4,7 @@
  * Single claim: `signInWithEmailAndPassword` rejects with
  * `code: 'auth/wrong-password'` when the password doesn't match.
  * Oracle-confirmed against firebase-js-sdk 12.13.0:
- * scripts/oracle/observations/auth-wrong-password-error-code.json.
+ * packages/conformance/observations/auth/auth-wrong-password-error-code.json.
  */
 import { useEffect, useState } from "react";
 import {

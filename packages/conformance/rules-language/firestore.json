@@ -97,7 +97,7 @@
       "engine": "firestore",
       "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Resource#id",
       "status": "rejected",
-      "probeNote": "Error: firestore.rules line [5], column [22]. Property id is undefined on object."
+      "probeNote": "Error: firestore.rules line [5], column [22]. Property id is undefined on object. Absent on an EXISTING document too — production derives no identity from the request path. The error PROPAGATES: `resource.id != 'zzz'` DENIES (it does not become true), and only a determining `||` operand absorbs it (RULES-B12, firestore-rules#183)."
     },
     {
       "id": "firestore.binding.resource.__name__",
@@ -105,7 +105,7 @@
       "engine": "firestore",
       "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Resource#__name__",
       "status": "rejected",
-      "probeNote": "Error: firestore.rules line [5], column [22]. Property __name__ is undefined on object."
+      "probeNote": "Error: firestore.rules line [5], column [22]. Property __name__ is undefined on object. Absent on an EXISTING document too — production derives no identity from the request path. The error propagates through negation and absorbs to DENY (RULES-B12, firestore-rules#183)."
     },
     {
       "id": "firestore.binding.request.resource.id",
@@ -113,7 +113,7 @@
       "engine": "firestore",
       "reference": "https://firebase.google.com/docs/reference/rules/rules.firestore.Resource#id",
       "status": "rejected",
-      "note": "Discrepancy: request.resource.id is in the official language (and stdlib-modules.ts documents `request.resource.id: string`), but the simulator's handler builds request.resource as `{ data }` only (simulator/handler.ts) — it omits `.id`, so the evaluator errors ('No field id on map') on request.resource.id. resource.id (the existing doc) IS modeled; request.resource.id is not.",
+      "note": "request.resource.id is in the official language, but production's Rules Test API does not populate it: request.resource is built from the supplied payload alone, so `.id` is an absent property and reading it errors → DENY. The simulator matches — its handler builds request.resource as `{ data }` only (simulator/handler.ts), so the evaluator's absent-key error yields production's verdict. The same now holds for the existing document: `resource` carries `data` ONLY, no synthesized `id`/`__name__` (RULES-B12, firestore-rules#183).",
       "probeNote": "Error: firestore.rules line [5], column [22]. Property id is undefined on object."
     },
     {

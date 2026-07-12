@@ -1,5 +1,5 @@
 /**
- * Oracle conformance — wires `scripts/oracle/observations/firestore-*.json`
+ * Oracle conformance — wires `packages/conformance/observations/firestore/firestore-*.json`
  * into the test suite so the captured real-Firebase-Firestore behavior is
  * MACHINE-CHECKED against the sandbox shim, not just cited in comments
  * (mirrors `test/auth/oracle-conformance.test.ts` and

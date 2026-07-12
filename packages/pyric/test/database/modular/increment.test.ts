@@ -4,7 +4,7 @@
  * `increment(delta)` atomically adds `delta` to the current field value,
  * starting from 0 when absent. COMPAT + oracle already CLAIM increment
  * works; the export was missing. Aligns to oracle
- * `scripts/oracle/observations/rtdb-modular-increment-from-missing.json`
+ * `packages/conformance/observations/rtdb-modular/rtdb-modular-increment-from-missing.json`
  * (`startsFromZero: true`, `accumulates: true`, afterFirst:5, second:8,
  * negative:6) + upstream `api/ServerValue.ts:38-44`.
  */

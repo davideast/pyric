@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * CI gate over scripts/compat/surface-census.ts.
+ * CI gate over packages/conformance/src/surface-census.ts.
  *
  * The census produces, per mirror pair (firebase/<x> → pyric/<x>), the set of
  * upstream exports that are neither re-exported by the mirror nor explained
@@ -18,11 +18,11 @@
  * on either, so this gate simply surfaces the same failure with no ratchet:
  * a deny-list entry that denies a symbol no longer upstream, or a symbol
  * that IS mirrored, is decay in the conformance graph itself and must be
- * fixed in scripts/compat/surface-denylist.ts, not tolerated.
+ * fixed in packages/conformance/src/surface-denylist.ts, not tolerated.
  *
  * Usage:
- *   bun run scripts/compat/census-gate.ts            # enforce (CI)
- *   bun run scripts/compat/census-gate.ts --update    # rewrite baseline to current unmapped set
+ *   bun run packages/conformance/src/census-gate.ts            # enforce (CI)
+ *   bun run packages/conformance/src/census-gate.ts --update    # rewrite baseline to current unmapped set
  *
  * Exit codes: 0 clean (unmapped subset of baseline, no stale/redundant
  * denials), 1 a NEW unmapped symbol appeared, or any stale/redundant denial
@@ -56,7 +56,7 @@ function runCensus(): CensusJson {
   // stale/redundant deny-list entry — that's the expected steady state for
   // this gate to evaluate against the baseline, not a gate failure in
   // itself, so tolerate a non-zero exit and just read stdout (same pattern
-  // as scripts/compat/coverage.ts's runCensus()).
+  // as packages/conformance/src/coverage.ts's runCensus()).
   try {
     const out = execFileSync('bun', ['run', CENSUS_SCRIPT, '--json'], { encoding: 'utf8', cwd: REPO_ROOT });
     return JSON.parse(out) as CensusJson;
@@ -102,7 +102,7 @@ if (staleOrRedundant.length > 0) {
     if (s.staleDenials.length > 0) console.error(`  - ${s.surface}: stale (not upstream) — ${s.staleDenials.join(', ')}`);
     if (s.redundantDenials.length > 0) console.error(`  - ${s.surface}: redundant (mirrored) — ${s.redundantDenials.join(', ')}`);
   }
-  console.error(`\nRemove these entries from scripts/compat/surface-denylist.ts.`);
+  console.error(`\nRemove these entries from packages/conformance/src/surface-denylist.ts.`);
 }
 
 const baseline: Baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));

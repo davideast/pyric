@@ -5,7 +5,7 @@
  * from here:
  *   - the live parity harness (packages/pyric/test/rules/parity/harness.ts,
  *     which re-exports `Scenario` so its existing importers keep working), and
- *   - the capture runner (scripts/oracle/run-rules.ts) + the replay suite
+ *   - the capture runner (packages/conformance/src/run-rules.ts) + the replay suite
  *     (packages/pyric/test/rules/oracle-conformance.test.ts).
  *
  * A `Scenario` is a self-contained rules-conformance unit: one ruleset plus the

@@ -13,7 +13,7 @@
 //      `claude/...`, and similar tool-flavored references. The registry
 //      documents behavior, not which tool produced a commit.
 //
-// Run: `bun run scripts/compat/lint-terminology.ts`
+// Run: `bun run packages/conformance/src/lint-terminology.ts`
 // Wired as `compat:lint-terms` in package.json and run in CI.
 
 import { readdirSync, readFileSync } from 'node:fs';

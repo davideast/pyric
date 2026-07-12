@@ -1,7 +1,7 @@
 /**
  * `pyric/ai` const/type enum pairs — value sets copied VERBATIM from the
  * installed `@firebase/ai@2.12.0` runtime bundle (the census universe; see
- * docs/conformance/ai/surface-inventory.md). Each name is exported both as a
+ * packages/conformance/docs/ai/surface-inventory.md). Each name is exported both as a
  * const object and a type, matching the upstream `const X = {...} as const;
  * type X = (typeof X)[keyof typeof X]` pattern.
  */

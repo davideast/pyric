@@ -126,7 +126,7 @@ export interface User {
    * Sandbox: returns the cached opaque token; with
    * `forceRefresh: true` mints a fresh token, caches it, and fires
    * `onIdTokenChanged` listeners (matches prod — oracle:
-   * `scripts/oracle/observations/auth-getidtoken-force-refresh.json`
+   * `packages/conformance/observations/auth/auth-getidtoken-force-refresh.json`
    * and `…/auth-onidtokenchanged-force-refresh.json`).
    * Prod: delegates to `firebase/auth`'s `User.getIdToken(forceRefresh)`.
    */

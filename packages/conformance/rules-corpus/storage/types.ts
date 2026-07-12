@@ -3,7 +3,7 @@
  *
  * Mirrors the Firestore corpus (../firestore/types.ts). The `StorageScenario`
  * shape is the SINGLE source consumed by:
- *   - the capture runner (scripts/oracle/run-rules-storage.ts), and
+ *   - the capture runner (packages/conformance/src/run-rules-storage.ts), and
  *   - the replay suite (packages/pyric/test/storage/rules-oracle-conformance.test.ts).
  *
  * A scenario is a self-contained conformance unit: one `service firebase.storage`

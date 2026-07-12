@@ -17,7 +17,7 @@ The single readable contract for "what `pyric` will guarantee vs the production
 Firebase Cloud Messaging surface" — the client (`firebase/messaging`) and
 service-worker (`firebase/messaging/sw`) receive planes, and the admin
 (`firebase-admin/messaging`) send plane. The signed row universe is
-`docs/conformance/messaging/surface-inventory.md` (wayfinder #44).
+`packages/conformance/docs/messaging/surface-inventory.md` (wayfinder #44).
 
 ## Status legend
 

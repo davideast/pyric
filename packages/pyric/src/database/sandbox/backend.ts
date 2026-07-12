@@ -101,7 +101,7 @@ export interface ValueListener {
 /**
  * Child-event listener — fires per-child rather than per-subtree.
  * Locked by oracle observations under
- * `scripts/oracle/observations/rtdb-modular-onchild*.json`:
+ * `packages/conformance/observations/rtdb-modular/rtdb-modular-onchild*.json`:
  *
  *   - `child_added`: replays existing children on subscribe (one fire
  *     per existing key, in insertion / orderByKey order), then fires
@@ -1247,7 +1247,7 @@ export class RtdbBackend {
    * Subscribe to a child event at `path`.
    *
    * Semantics (locked by oracle observations under
-   * `scripts/oracle/observations/rtdb-modular-onchild*.json`):
+   * `packages/conformance/observations/rtdb-modular/rtdb-modular-onchild*.json`):
    *
    *   - `child_added`: replays every existing direct child of `path` on
    *     subscribe (one fire per existing key, in current key-iteration

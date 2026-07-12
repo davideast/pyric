@@ -2,7 +2,7 @@
 
 The oracle-conformance suite (`packages/pyric/test/rules/oracle-conformance.test.ts`)
 replays captured production Rules-Test-API verdicts
-(`scripts/oracle/observations/rules-firestore-*.json`) against the local
+(`packages/conformance/observations/firestore-rules/rules-firestore-*.json`) against the local
 simulator (`SimulateFirestoreRulesHandler`, the engine internal that backs
 the public `firestoreRules(source).simulate(cases)`). As of this writing, 18
 observation files are captured. 12 replay clean — the simulator's decision

@@ -6,7 +6,7 @@
  * `numChildren()` method. This is a DISPUTED-semantics fix: the prior
  * sandbox shipped `numChildren()` and lacked `size`, contradicting its
  * own oracle. Aligned to prod truth per
- * `scripts/oracle/observations/rtdb-modular-get-snapshot-shape.json`
+ * `packages/conformance/observations/rtdb-modular/rtdb-modular-get-snapshot-shape.json`
  * (`hasSize: true, hasNumChildren: false, hasForEach: true`) + upstream
  * `api/Reference_impl.ts:288-447`.
  */

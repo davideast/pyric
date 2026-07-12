@@ -38,7 +38,7 @@
  * `intended` in coverage.ts. They count as coverage debt.
  *
  * Reasons are grounded, not invented. Where a registry doc already carries a
- * deny-list table (`scripts/compat/registry/{auth,firestore,storage}.ts`, in
+ * deny-list table (`packages/conformance/registry/{auth,firestore,storage}.ts`, in
  * the "## Deny-list (intentionally NOT shimmed)" markdown blocks) the reason
  * quotes / paraphrases that table.
  *
@@ -137,7 +137,7 @@ const authDenials: DenyEntry[] = [
 
 // ── firebase/ai → pyric/ai ────────────────────────────────────────────────
 // Grounded in the surface inventory's draft denylist table
-// (docs/conformance/ai/surface-inventory.md, "## Draft denylist"): the 17
+// (packages/conformance/docs/ai/surface-inventory.md, "## Draft denylist"): the 17
 // denied runtime value exports of the installed @firebase/ai@2.12.0, in four
 // groups (Imagen, Live API, server-side templates, hybrid/on-device).
 //
