@@ -16,6 +16,7 @@ Admin-shape Cloud Storage with swappable backends. `getStorage(app)` mirrors `fi
 Storage support is experimental, on this surface and on `pyric/storage`. The object API works and is tested; most behavior is not yet pinned to a recorded production observation.
 
 Deferred surfaces (streams, resumable uploads, IAM, ACLs, copy/move) throw a clear "not implemented" error on the sandbox arms, never bad data. The prod arm keeps every one of them.
+
 ```ts
 import { initializeApp } from 'pyric-admin/app';
 import { getStorage } from 'pyric-admin/storage';
@@ -31,6 +32,7 @@ const [exists] = await file.exists(); // [true]
 const [bytes] = await file.download();
 console.log(bytes.toString());
 ```
+
 ## Where to go next
 
 - [API reference](../pyric-admin-storage-reference-api/) for the full `Bucket` and `File` surface, per arm, including the byte cap and the deferred list.

@@ -21,6 +21,7 @@ You will build rules for room messages:
 ## Create the rules document
 
 Create `database.rules.ts`:
+
 ```ts
 import { z } from 'zod';
 import {
@@ -58,9 +59,11 @@ export const rules = defineRtdbRules({
   },
 });
 ```
+
 ## Check the document
 
 Save a small check script as `database.rules.check.ts`:
+
 ```ts
 import { rtdbRules } from 'pyric/rules';
 import { rules } from './database.rules.js';
@@ -75,10 +78,13 @@ if (issues.some((i) => i.severity === 'error')) {
 
 console.log(ruleset.toJSON());
 ```
+
 Run it:
+
 ```bash
 bun database.rules.check.ts
 ```
+
 You will see a complete Firebase RTDB rules JSON object. The `lint()` call
 returns warnings alongside errors (one flat `RuleIssue[]`), so you can decide
 whether to fail your own workflow on warnings.
@@ -86,6 +92,7 @@ whether to fail your own workflow on warnings.
 ## Simulate a write
 
 Save one simulation as `database.rules.simulate.ts`:
+
 ```ts
 import { rtdbRules } from 'pyric/rules';
 import { rules } from './database.rules.js';
@@ -109,26 +116,33 @@ const result = rtdbRules(rules).explain({
 
 console.log(result);
 ```
+
 Run it:
+
 ```bash
 bun database.rules.simulate.ts
 ```
+
 The result is allowed. Change `auth` to `'bob'` or change `newData.author` to a
 different uid and run it again; the same rule document now denies the write.
 
 ## Generate JSON for deployment
 
 Write the compiled JSON with the Node helper:
+
 ```ts
 import { writeRtdbRulesFile } from 'pyric/rules/internal/node';
 import { rules } from './database.rules.js';
 
 await writeRtdbRulesFile(rules, 'database.rules.json');
 ```
+
 or from the CLI, without writing a script at all:
+
 ```sh
 pyric database:rules:generate --config database.rules.ts --out database.rules.json
 ```
+
 Both routes run the same compilation `rtdbRules(rules).toJSON()` performs. See
 [RTDB rules tooling](../pyric-database-reference-rules-tooling/#generating-databaserulesjson)
 for the full reference, including the `rtdb_generate_rules` MCP tool.
@@ -141,6 +155,7 @@ generated the JSON expected by Firebase Realtime Database.
 After running `pyric dev` and exercising the app, the latest session is saved
 to `.pyric/last-session.json`. You can verify that capture against the in-memory
 rules document before generating JSON:
+
 ```ts
 import { verifyFixture } from 'pyric-tools/verify';
 import { rules } from './database.rules.js';
@@ -155,7 +170,9 @@ if (!result.ok) {
   process.exit(1);
 }
 ```
+
 For the CLI path, use the JSON file from the previous step:
+
 ```bash
 pyric verify --service rtdb --rules rtdb=database.rules.json
 ```

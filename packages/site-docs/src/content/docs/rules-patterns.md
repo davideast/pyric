@@ -18,6 +18,7 @@ The five patterns below are how a ruleset gets past those constraints anyway. Ea
 **The problem.** Validating a transition like "a knight on b1 may reach a3 or c3" looks like it needs one hand-written OR branch per legal pair. For checkers that was 49 branches per direction per piece type. For chess, thousands.
 
 **The move.** Store the legal transitions as data in a config document. Rules read it once with `get()` and validate with nested dynamic access:
+
 ```rules
 function config() {
   return get(/databases/$(database)/documents/gameConfig/checkers).data;
@@ -30,6 +31,7 @@ function validGeometry() {
   return config().moves[piece][mf][mt] == true;
 }
 ```
+
 Three expressions replace hundreds of branches. It works because of three engine facts:
 
 - Dynamic map access is legal when the key is a stored field value. Computed strings are not.
@@ -45,6 +47,7 @@ One operational note: the config document must exist before the rules go live. I
 **The problem.** Some transitions are valid only when everything between two points is clear. A rook moving a1 to e1 requires b1, c1, and d1 empty. Hardcoded, every from-to pair needs its own emptiness checks.
 
 **The move.** Store the between-cells in the config document, where `paths[from][to]` holds a length and the cell names, then check them with short-circuit OR:
+
 ```rules
 function pathClear() {
   let mf = request.resource.data.moveFrom;
@@ -56,6 +59,7 @@ function pathClear() {
       // ...continue to c5 for the longest path on an 8x8 board
 }
 ```
+
 `path.len < 2` is true for short paths, so the check skips cells the path does not have. The discovery that makes this expressible at all: a value retrieved from `get()` can be used as a dynamic key into `resource.data`. That one fact was probed and confirmed against production, and it is what sliding pieces stand on.
 
 ## Look up by type, don't branch by type
@@ -63,6 +67,7 @@ function pathClear() {
 **The problem.** Chess has twelve piece types, one per piece per color, each moving differently. Twelve validation functions, each with its own branch list, is more branching than one rule should carry.
 
 **The move.** Read the type from pre-write state, the board, not the request, and use it as the first key of the lookup:
+
 ```rules
 function validMove() {
   let mf = request.resource.data.moveFrom;
@@ -71,6 +76,7 @@ function validMove() {
   return mt in config().moves[piece][mf];
 }
 ```
+
 One function replaces twelve. The client declares `moveFrom` and `moveTo` in `request.resource.data`. The rules read `piece` from `resource.data`, the board already sitting on the document. A client cannot claim a pawn moved like a queen, because the pawn's identity was never in its hands.
 
 ## Give every rule a unique first expression
@@ -80,6 +86,7 @@ One function replaces twelve. The client declares `moveFrom` and `moveTo` in `re
 This was discovered the hard way, debugging chess: pawn moves denied while every rule tested fine in isolation, and reordering the rules changed which category failed.
 
 **The move.** Open every allow rule with a cheap discriminator that is unique to it:
+
 ```rules
 allow update: if request.resource.data.moveType == 'pawn_forward'
   && isMyTurn() && validPawnForward(config());
@@ -87,6 +94,7 @@ allow update: if request.resource.data.moveType == 'pawn_forward'
 allow update: if request.resource.data.moveType == 'capture'
   && isMyTurn() && validCapture(config()) && pathClear();
 ```
+
 A non-matching write now fails each foreign rule in one expression. Chess ships nine distinct `moveType` values for exactly this reason. Pyric's linter flags the violation as SHARED_GATE when two rules in a match block open with the same gate expression.
 
 ## Three places to move the computation

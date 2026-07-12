@@ -10,6 +10,7 @@ order: 24030
 Emulator-style user administration for a sandbox `Auth` handle: a live
 users table, an add/edit form with emulator-grade validation, and
 confirm-gated destructive actions.
+
 ```ts
 import {
   useAuthUsers,
@@ -21,11 +22,13 @@ import {
   ClearUsersWithConfirm,
 } from '@pyric/ui/auth';
 ```
+
 Sandbox-only (drives `sandbox.listUsers` / `subscribeUsers` / CRUD, which
 throw `failed-precondition` on prod-backed handles — the hook surfaces
 that via `error`).
 
 ## Example
+
 ```tsx
 import { getAuth } from 'pyric/auth';
 import { ConfirmProvider } from '@pyric/ui/primitives';
@@ -77,6 +80,7 @@ function AuthTab({ sandbox }) {
   );
 }
 ```
+
 ## `useAuthUsers(auth)`
 
 | Returns | Type | Description |
@@ -134,6 +138,7 @@ invalid, or pristine in edit mode.
 Every field is wrapped in `label[data-pyric-field-label="<name>"]`
 containing a visible `span[data-pyric-label-text]` and (for email/password)
 the field's error alert — so a labeled grid layout is pure CSS:
+
 ```css
 [data-pyric-ui='auth-user-form'] [data-pyric-field-label] {
   display: grid;
@@ -144,8 +149,10 @@ the field's error alert — so a labeled grid layout is pure CSS:
   display: none;
 }
 ```
+
 For layout beyond CSS reach (two-column grids with mixed groupings, custom
 label/error placement), use the `renderField` slot:
+
 ```tsx
 <AuthUserForm
   onSubmit={save}
@@ -162,6 +169,7 @@ label/error placement), use the `renderField` slot:
   }
 />
 ```
+
 ## Destructive actions
 
 `<DeleteUserWithConfirm user onDelete>` and

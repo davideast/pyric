@@ -12,6 +12,7 @@ This guide shows you how to react to failures from `pyric-tools/deploy`. Two err
 ## Primitives: catch `AdminApiError`
 
 Primitives map one REST call to one TypeScript function. They throw on any non-2xx:
+
 ```ts
 import { AdminApiError, firestore } from 'pyric-tools/deploy';
 
@@ -30,11 +31,13 @@ try {
   }
 }
 ```
+
 `e.body` is the upstream response body, capped at 8 KiB. For 400s from the rules API, that's where the parser error message lives.
 
 ## Orchestrators: branch on `outcome.code`
 
 Orchestrators bucket failures into structured codes. The `Outcome` shape is uniform across operations:
+
 ```ts
 import { firestore } from 'pyric-tools/deploy';
 
@@ -57,11 +60,13 @@ if (outcome.ok) {
   }
 }
 ```
+
 Each orchestrator widens the union with its own coded values (see [Error codes by operation](../pyric-tools-deploy-reference-error-codes/)). The two universal codes (`'permission-denied'` and `'unknown'`) always appear.
 
 ## Handle `partial` from batch orchestrators
 
 `firestore.indexes.deployAll` aborts the batch on 403 and returns `partial` with what did succeed:
+
 ```ts
 const outcome = await firestore.indexes.deployAll(scope, config);
 
@@ -73,11 +78,13 @@ if (!outcome.ok && outcome.partial) {
   }
 }
 ```
+
 Use `partial` to either retry only the failed entries or give the user a useful "12 of 30 succeeded" report.
 
 ## Translate exceptions to outcomes in your own code
 
 `withResolvedScope` is the standard wrapper primitives use internally. Reach for it when building your own orchestrator-shaped function on top of the primitives:
+
 ```ts
 import { withResolvedScope, firestore } from 'pyric-tools/deploy';
 
@@ -89,6 +96,7 @@ async function deployMyRules(scope: ProjectScope, source: string) {
   });
 }
 ```
+
 The result is an `Outcome<{ source: string }, 'not-found'>`: `AdminApiError` is bucketed automatically based on HTTP status.
 
 ## Don't conflate transport with auth

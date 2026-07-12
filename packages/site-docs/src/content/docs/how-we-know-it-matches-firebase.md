@@ -14,15 +14,18 @@ Every "behaves like Firebase" claim on this site traces to a recording of produc
 ## The call is identical, only the import moves
 
 The mirror is one to one. The call you write against Firebase is the call Pyric runs, character for character.
+
 ```ts
 import { signInWithEmailAndPassword } from 'firebase/auth'; // production
 import { signInWithEmailAndPassword } from 'pyric/auth';    // development
 ```
+
 Same arguments, same return shape, same errors. So "does Pyric match?" becomes one question asked per behavior: does Pyric answer what production answered?
 
 ## An observation is production, pinned
 
 A probe runs the call against a real Firebase project and records what came back. Here is the recording that pins what a wrong password throws:
+
 ```json
 {
   "name": "auth-wrong-password-error-code",
@@ -34,6 +37,7 @@ A probe runs the call against a real Firebase project and records what came back
   }
 }
 ```
+
 Each recording is committed, and `compat:check` replays every one against the sandbox on every change: validate, census, entry-path, generate-docs, assurance, coverage. Entry-path conformance gates one canonical init program per service end to end. If the sandbox answers differently than the recording, the build fails before the change lands.
 
 Re-capturing a recording is the drift check. An unchanged file means production still behaves as pinned. A changed file means the behavior moved, and the git diff is the report.

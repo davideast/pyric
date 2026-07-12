@@ -13,11 +13,13 @@ order: 13013
 ### `RulesCompileError`
 
 Thrown by `firestoreRules(source)` / `rtdbRules(...)` when the source doesn't compile.
+
 ```ts
 class RulesCompileError extends Error {
   readonly issues: RuleIssue[];
 }
 ```
+
 Carries the compile-blocking issues on `.issues` so a caller can surface them without re-parsing.
 
 ### `RulesAssertionError`
@@ -37,6 +39,7 @@ These are not part of the public contract. They belong to the parser, evaluator,
 #### `ParseError`
 
 Returned internally by `parseToASTOrError` and embedded in the internal `LintResult.parseError`. Not thrown. On the public surface this shows up as a `RuleIssue` with `origin: 'parse'` (from `lint()`) or inside `RulesCompileError.issues` (from `firestoreRules()`).
+
 ```ts
 interface ParseError {
   line: number;        // 1-based
@@ -47,11 +50,13 @@ interface ParseError {
   message: string;     // ohm's human-readable message with a caret
 }
 ```
+
 Use `line` / `column` for editor diagnostics, `message` for terminal output, `expected` / `actual` for custom UIs.
 
 #### `ParseResult`
 
 Returned by `parseExpression` and `parseRulesFile`:
+
 ```ts
 interface ParseResult {
   valid: boolean;
@@ -59,6 +64,7 @@ interface ParseResult {
   parseError?: ParseError;
 }
 ```
+
 `errors` is the legacy surface; `parseError` is the structured form.
 
 ### Evaluator errors
@@ -80,12 +86,14 @@ The simulator hit a feature it does not yet implement: an unknown built-in funct
 #### `ExpressionWalkError`
 
 Thrown by `resolveExpressionsInData` when an `$expr` wrapper has the wrong shape (extra keys, non-string value, etc.). Carries `code: 'invalid-argument'` and a dotted `path` to the offending leaf.
+
 ```ts
 class ExpressionWalkError extends Error {
   readonly code: 'invalid-argument';
   readonly path: string;   // e.g. 'users.0.balance'
 }
 ```
+
 #### `ExpressionLexError` and `ExpressionParseError`
 
 Thrown by `tokenize` / `parse` in the sentinel expression DSL. Carry a `Position` so the caller can report `line:column` against the original `$expr` source.
@@ -93,11 +101,13 @@ Thrown by `tokenize` / `parse` in the sentinel expression DSL. Carry a `Position
 ### Handler results
 
 The handlers (`SimulateFirestoreRulesHandler`, `TestFirestoreRulesHandler`, the modules resolver) never throw for expected failure modes. They return `Outcome`-shaped objects:
+
 ```ts
 type Result<T> =
   | { success: true; data: T }
   | { success: false; error: { code: string; message: string; recoverable?: boolean } };
 ```
+
 #### Simulator `error.code` values
 
 - `PARSE_FAILED`: the source did not parse.

@@ -18,16 +18,20 @@ Pyric packages each audit as a skill, a procedure you or your agent runs against
 The `firestore-rules-audit` skill starts by building an access matrix: for every match block, identity by operation (get, list, create, update, delete), with no blank cells. Public writes, public reads on sensitive paths, and writes with no auth check fall out of the matrix immediately.
 
 Then it checks each expression against its operation context, because some rules parse fine and mean the wrong thing:
+
 ```rules
 // looks right, isn't: resource.data doesn't exist yet on create
 match /notes/{noteId} {
   allow create: if request.auth.uid == resource.data.ownerId;
 }
 ```
+
 Every create is denied, even the owner's own, because `resource.data` is null until the document exists. The fix reads the incoming write instead:
+
 ```rules
 allow create: if request.auth.uid == request.resource.data.ownerId;
 ```
+
 Two more traps the audit checks for by rule:
 
 - Authorization has to derive from what already exists, `resource.data`. The writer controls `request.resource.data`, so a check that reads its authorization from there is checking a value the client wrote in this same request, not a value that was already true.
@@ -36,6 +40,7 @@ Two more traps the audit checks for by rule:
 Then composition. Any matching allow grants access, so a recursive wildcard like `{doc=**}` can bypass every carefully scoped sibling rule, and the audit states each wildcard's reach explicitly. It also flags user-controlled writes with no validation, undefined function calls, and role fields writable by the user they empower, which is privilege escalation in one line.
 
 Critical findings carry proof, not only a reading of the source:
+
 ```ts
 import { firestoreRules, explainCase } from 'pyric/rules';
 
@@ -52,11 +57,13 @@ const [result] = ruleset.simulate([
 
 if (!result.passed) console.log(explainCase(result));
 ```
+
 `FAIL: stranger reads the admin panel (expected DENY, got ALLOW)`. The same check from a terminal is `pyric rules:lint firestore.rules`, which catches the wildcard-plus-`if true` shape as `RECURSIVE_WILDCARD_OPEN` before a single case runs. From an agent it is `firestore_simulate_rules` and `firestore_lint_rules`, and the report arrives severity-ranked with a fix per finding.
 
 ## Audit Realtime Database rules
 
 RTDB fails differently: access cascades downward. (Authoring those rules from typed constraints is its own page: [RTDB rules in TypeScript](../rtdb-rules-in-typescript/).) A `.read: true` near the root silently exposes every descendant, and a restrictive child cannot revoke what a permissive parent granted.
+
 ```json
 {
   "rules": {
@@ -69,6 +76,7 @@ RTDB fails differently: access cascades downward. (Authoring those rules from ty
   }
 }
 ```
+
 The root `.read: true` already exposes `orgs/$orgId/secrets`; the narrower rule underneath it never runs. The `rtdb-security-rules` skill walks every cascade from the root, so the effective access at each path is stated rather than assumed.
 
 It also keeps the two semantics that trip people up:

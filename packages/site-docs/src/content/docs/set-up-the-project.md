@@ -16,10 +16,12 @@ Every step probes before it mutates, so rerunning is safe, and every step return
 These commands change a real project. There is no dry run. Pass `--project` when you want to be certain which one.
 
 ## Enable the sign-in providers
+
 ```bash
 pyric auth:configure-provider anonymous true --project my-app
 pyric auth:configure-provider email true --project my-app
 ```
+
 `anonymous`, `email`, `phone`, and `google` are supported. Two have honest edges:
 
 - Enabling `phone` succeeds, but SMS delivery needs a billing account, and the result carries a warning saying so.
@@ -28,14 +30,17 @@ pyric auth:configure-provider email true --project my-app
 ## Authorize the sign-in domains
 
 Firebase Auth keeps an allowlist of domains for OAuth redirects. Deploy to a new hosting domain without adding it, and Google sign-in fails on the new site. That failure is one command:
+
 ```bash
 pyric auth:manage-domains add app.example.com --project my-app
 ```
+
 `list` shows the current allowlist and `remove` prunes it. Adding a domain that is already present succeeds unchanged, and removing `localhost` warns you, since dropping it breaks local development.
 
 ## Create a hosting site
 
 A project's default site exists from the start, but additional named sites must be created explicitly, and deploying to a site that doesn't exist returns a bare 404. The deploy API makes it an ensure:
+
 ```ts
 import { fromServiceAccount, hosting } from 'pyric-tools/deploy';
 
@@ -43,18 +48,22 @@ const scope = await fromServiceAccount('./service-account.json');
 const result = await hosting.sites.ensure(scope, { siteId: 'my-app-staging' });
 // result.kind: 'created' | 'existed'
 ```
+
 ## Provision a Firestore database
+
 ```ts
 import { firestore } from 'pyric-tools/deploy';
 
 const outcome = await firestore.databases.provision(scope);
 // outcome.status: 'created' | 'already-exists'
 ```
+
 The probe runs first; an existing database short-circuits with no writes. A newly created one takes about thirty seconds for its data plane to come online, so poll the returned operation before issuing writes that must land.
 
 ## Provision Storage, end to end
 
 Storage enablement is a five-step sequence. Pyric runs the whole thing:
+
 ```ts
 import { provisionStorage, defaultPlaygroundCors } from 'pyric/storage';
 
@@ -63,6 +72,7 @@ const result = await provisionStorage(accessToken, 'my-app', {
   cors: defaultPlaygroundCors('https://my-app.web.app'),
 });
 ```
+
 Five steps, each skipped when already done:
 
 1. **Enable the Storage service**, then wait a few seconds for propagation, because immediate calls still return `SERVICE_DISABLED`.

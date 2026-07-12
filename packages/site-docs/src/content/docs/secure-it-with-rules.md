@@ -18,6 +18,7 @@ Here is the loop.
 ## Write the rule
 
 A notes collection. Anyone signed in can read. Only the owner can write.
+
 ```rules
 rules_version = '2';
 service cloud.firestore {
@@ -29,9 +30,11 @@ service cloud.firestore {
   }
 }
 ```
+
 ## Load the rule and seed the data
 
 Boot a sandbox, hand it the rules, and seed a document to run against. No deploy, no network, no Firebase project. The backend runs in-process.
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore, sandbox as sandboxOps } from 'pyric/firestore';
@@ -44,22 +47,26 @@ sandboxOps.seedDocuments(setup, {
   'notes/n1': { ownerId: 'alice', title: 'old' },
 });
 ```
+
 `setRules` returns the lint of the ruleset. `seedDocuments` loads state directly, bypassing rules, so the request you test next runs against a document that already exists.
 
 ## Run a request as each user
 
 Every operation carries the rules verdict. Derive a handle per identity with `withAuth`, then run the real Firestore call.
+
 ```ts
 import { doc, updateDoc } from 'pyric/firestore';
 
 const alice = getFirestore(backend.withAuth({ uid: 'alice' }));
 await updateDoc(doc(alice, 'notes/n1'), { title: 'new' }); // allowed
 ```
+
 Alice owns the note, so the write commits. Now run the same write as someone who does not.
 
 ## Read the denial
 
 A denied operation throws `SandboxError` with `code: 'permission-denied'`, and it carries a `denialContext` production strips server-side.
+
 ```ts
 import { SandboxError } from 'pyric/sandbox';
 
@@ -73,11 +80,14 @@ try {
   }
 }
 ```
+
 The `reasons` are the trace of the decision, rule by rule:
+
 ```
 [ 'Rule #1 (write) → deny', 'Simulated: DENY' ]
 update notes/n1
 ```
+
 `denialContext` also carries the `auth` that was active, the `request.resourceData` the caller tried to write, and the `resource` the rule read. It is the full eval-time picture of why the rule said no.
 
 This is not only a test-time thing. While `pyric dev` runs, your `firestore.rules` is loaded into the sandbox and hot-reloaded on save, and every operation your app performs carries this same verdict. See [read a denial and understand it](../read-a-denial/).
@@ -85,9 +95,11 @@ This is not only a test-time thing. While `pyric dev` runs, your `firestore.rule
 ## Deploy
 
 When the answers hold, ship the same file to production:
+
 ```bash
 pyric deploy rules --project my-app
 ```
+
 The deploy refuses a ruleset with error-severity lint findings, so the mistakes that produce opaque production failures get stopped at the door.
 
 ## The rest of the rules wing

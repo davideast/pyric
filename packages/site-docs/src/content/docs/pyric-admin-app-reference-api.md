@@ -14,12 +14,14 @@ Exact signatures of every public export. This subpath owns the app registry and 
 ## Initialization
 
 ### `initializeApp(config?, name?)`
+
 ```ts
 function initializeApp(
   config?: { sandbox: Sandbox } | AppOptions,
   name?: string, // default '[DEFAULT]'
 ): PyricAdminApp;
 ```
+
 Initialize an app and register it under `name`, mirroring `firebase-admin/app.initializeApp`. The `config` argument selects one of three arms:
 
 **Production arm: `initializeApp({ credential, ... })`.** Any `firebase-admin/app` `AppOptions` object. Delegates to `firebase-admin/app.initializeApp` and wraps the resulting `App` in a `ProdAdminApp`. Every service subpath resolves this handle to the genuine firebase-admin service.
@@ -49,21 +51,27 @@ Ambient resolution happens only on the bare call. Any explicit config (`{ sandbo
 | prod options after prod options | delegated to firebase-admin itself: deep-equal options return the same app; a `credential` or `httpAgent` re-init throws `app/invalid-app-options`; different options throw `app/duplicate-app` |
 
 ### `getApp(name?)`
+
 ```ts
 function getApp(name?: string): PyricAdminApp; // default '[DEFAULT]'
 ```
+
 Return the registered app for `name`. Throws `app/no-app` with firebase-admin's exact message text on a miss, and `app/invalid-app-name` for a non-string or empty name.
 
 ### `getApps()`
+
 ```ts
 function getApps(): PyricAdminApp[];
 ```
+
 A copy of the list of all registered apps.
 
 ### `deleteApp(app)`
+
 ```ts
 function deleteApp(app: PyricAdminApp): Promise<void>;
 ```
+
 Remove `app` from the registry. Prod-backed apps also delete the underlying firebase-admin app, freeing its slot so the name can be re-initialized. Sandbox-backed apps only deregister; the `Sandbox` handle's lifetime belongs to its creator. Throws `app/invalid-argument` for a value that is not a branded app, and `app/no-app` if the app is not registered.
 
 ---
@@ -71,10 +79,12 @@ Remove `app` from the registry. Prod-backed apps also delete the underlying fire
 ## Arm guards
 
 ### `isSandboxAdminApp(app)` / `isProdAdminApp(app)`
+
 ```ts
 function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp;
 function isProdAdminApp(app: PyricAdminApp): app is ProdAdminApp;
 ```
+
 Type guards over the brand symbol. Use these instead of structural sniffing when code needs to branch on the backend.
 
 ---
@@ -94,10 +104,12 @@ App-lifecycle errors reuse `firebase-admin/app`'s own exported `FirebaseAppError
 The ambient guard errors (production refusal, missing factory, unrecognized `PYRIC_SANDBOX` value) are plain `Error`s with remediation text, not `FirebaseAppError`s.
 
 ### `PyricAdminAppError`
+
 ```ts
 const PyricAdminAppError: new (code: string, message: string) => Error & { readonly code: string };
 type PyricAdminAppError = InstanceType<typeof PyricAdminAppError>;
 ```
+
 Deprecated alias kept for pre-merge call sites. It IS `FirebaseAppError`; catch that instead.
 
 ---
@@ -105,6 +117,7 @@ Deprecated alias kept for pre-merge call sites. It IS `FirebaseAppError`; catch 
 ## Types and constants
 
 ### `PyricAdminApp`
+
 ```ts
 type PyricAdminApp = SandboxAdminApp | ProdAdminApp;
 
@@ -120,28 +133,37 @@ interface ProdAdminApp {
   readonly name: string;
 }
 ```
+
 The branded handle every service subpath dispatches on. `name` mirrors firebase-admin's `App.name`.
 
 ### `ADMIN_APP_TARGET`
+
 ```ts
 const ADMIN_APP_TARGET: unique symbol; // Symbol.for('pyric.admin.app.target')
 ```
+
 The brand symbol. Registered under `Symbol.for` so it matches across module instances.
 
 ### `PyricAdminAppTarget`
+
 ```ts
 type PyricAdminAppTarget = 'sandbox' | 'prod';
 ```
+
 ### `DEFAULT_APP_NAME`
+
 ```ts
 const DEFAULT_APP_NAME = '[DEFAULT]';
 ```
+
 firebase-admin's default app name.
 
 ### `InitializeAdminAppConfig`
+
 ```ts
 type InitializeAdminAppConfig = { sandbox: Sandbox } | AppOptions;
 ```
+
 The accepted `config` shapes for `initializeApp`.
 
 ---

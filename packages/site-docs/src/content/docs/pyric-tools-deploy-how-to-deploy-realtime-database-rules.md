@@ -13,6 +13,7 @@ the Pyric CLI or through `pyric-tools/deploy`.
 ## Prepare the rules file
 
 Put the complete RTDB rules JSON in a file such as `database.rules.json`:
+
 ```json
 {
   "rules": {
@@ -25,7 +26,9 @@ Put the complete RTDB rules JSON in a file such as `database.rules.json`:
   }
 }
 ```
+
 Add the file to `firebase.json`:
+
 ```json
 {
   "database": {
@@ -33,8 +36,10 @@ Add the file to `firebase.json`:
   }
 }
 ```
+
 If the project has more than one RTDB instance, or instance discovery is not
 available to the credential, include the URL:
+
 ```json
 {
   "database": {
@@ -43,17 +48,23 @@ available to the credential, include the URL:
   }
 }
 ```
+
 ## Check the rules locally
 
 Run the linter:
+
 ```bash
 pyric database:rules:lint database.rules.json
 ```
+
 Run validation:
+
 ```bash
 pyric database:rules:validate database.rules.json
 ```
+
 To run a specific local simulation, pipe a request through stdin:
+
 ```bash
 printf '%s\n' '{
   "rulesPath": "database.rules.json",
@@ -63,24 +74,31 @@ printf '%s\n' '{
   "mockData": {}
 }' | pyric database:rules:simulate --stdin
 ```
+
 ## Deploy from the CLI
 
 Deploy with the URL from `firebase.json.database.url`:
+
 ```bash
 pyric deploy database --project demo-project
 ```
+
 To override the URL for one deploy:
+
 ```bash
 pyric deploy database \
   --project demo-project \
   --database-url https://demo-default-rtdb.firebaseio.com
 ```
+
 In CI, set `FIREBASE_DATABASE_URL` instead of adding the URL to
 `firebase.json`:
+
 ```bash
 FIREBASE_DATABASE_URL=https://demo-default-rtdb.firebaseio.com \
   pyric deploy database --project demo-project
 ```
+
 When no URL is supplied, Pyric attempts to discover the single default RTDB
 instance for the project. If discovery finds multiple candidates, pass an
 explicit URL.
@@ -88,6 +106,7 @@ explicit URL.
 ## Deploy from code
 
 Use the `rtdb.rules` namespace when you are writing your own deploy flow:
+
 ```ts
 import { fromServiceAccount, rtdb } from 'pyric-tools/deploy';
 
@@ -108,7 +127,9 @@ await rtdb.rules.deploy(scope, {
   databaseUrl: 'https://demo-default-rtdb.firebaseio.com',
 });
 ```
+
 If you author rules with `defineRtdbRules()`, pass the document directly:
+
 ```ts
 import { z } from 'zod';
 import {
@@ -143,6 +164,7 @@ await rtdb.rules.deploy(scope, {
   databaseUrl: 'https://demo-default-rtdb.firebaseio.com',
 });
 ```
+
 For CLI workflows, write `rtdbRules(rules).toJSON()` to the file referenced by
 `firebase.json.database.rules`, then run `pyric deploy database`.
 
@@ -150,6 +172,7 @@ For CLI workflows, write `rtdbRules(rules).toJSON()` to the file referenced by
 
 When the caller uses `@inbrowser/agent`, register the RTDB deploy factory next
 to the other deploy factories:
+
 ```ts
 import { createToolRegistry } from '@inbrowser/agent';
 import {
@@ -165,6 +188,7 @@ for (const tool of createFirestoreDeployTools(deps)) registry.register(tool);
 for (const tool of createRtdbDeployTools(deps)) registry.register(tool);
 for (const tool of createHostingDeployTools(deps)) registry.register(tool);
 ```
+
 The RTDB deploy factory exposes `rtdb_get_rules` and `rtdb_deploy_rules`.
 
 ## Where to look next

@@ -10,6 +10,7 @@ description: "Run real auth flows against a local user database, seed test users
 # Sign users in
 
 The auth code you would write against Firebase works as-is under `pyric dev`, and the users it creates live in your sandbox. Auth is v1 in Pyric: the surface is tested against recorded production behavior, so what signs in here signs in there.
+
 ```ts
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 
@@ -21,19 +22,24 @@ onAuthStateChanged(auth, (user) => {
 
 await signInAnonymously(auth);
 ```
+
 Email and password work the way you expect, creation and sign-in as separate flows:
+
 ```ts
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 
 await createUserWithEmailAndPassword(auth, 'alice@example.com', 'correct-horse');
 await signInWithEmailAndPassword(auth, 'alice@example.com', 'correct-horse');
 ```
+
 And the Google flow:
+
 ```ts
 import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 await signInWithPopup(auth, new GoogleAuthProvider());
 ```
+
 Under `pyric dev`, that call opens an account picker instead of a Google window. Pick an existing sandbox identity or create one on the spot, with a display name and custom claims if you want them.
 
 No OAuth app, no consent screen, and the identity flows into your rules like any other. `signInWithRedirect` and `getRedirectResult` follow the same path.
@@ -41,6 +47,7 @@ No OAuth app, no consent screen, and the identity flows into your rules like any
 ## Manage users in the sandbox
 
 The user database is local state, so you can load it. In a test harness or seed script, `seedUsers` bulk-loads identities, claims included:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getAuth, signInWithEmailAndPassword, sandbox as authSandbox } from 'pyric/auth';
@@ -55,11 +62,14 @@ authSandbox.seedUsers(auth, [
 
 await signInWithEmailAndPassword(auth, 'admin@example.com', 'pw');
 ```
+
 To flip between identities without a sign-in flow, `setUser` forces the current user directly (it takes a full user object) and notifies `onAuthStateChanged` subscribers like a real sign-in. Pass `null` to sign out:
+
 ```ts
 authSandbox.setUser(auth, aliceUser);
 authSandbox.setUser(auth, null);
 ```
+
 Keep the `sandbox` namespace out of app source. The real `firebase/auth` has no equivalent, so it belongs in your harness and seed code, where switching users mid-test is the point. In the running app, the account picker and `pyric snapshot` cover the same ground: lived users can be promoted to a committable fixture and re-seeded on boot.
 
 ## Design an identity model
@@ -77,6 +87,7 @@ One caution that pays for itself: users must never be able to grant themselves a
 ## How identity reaches the rules
 
 Every operation in the sandbox carries `request.auth`, exactly as production rules see it:
+
 ```rules
 match /posts/{postId} {
   allow update, delete: if request.auth != null
@@ -84,6 +95,7 @@ match /posts/{postId} {
         || request.auth.token.role == 'admin');
 }
 ```
+
 - `request.auth` is `null` when nobody is signed in.
 - `request.auth.uid` is the owner check.
 - `request.auth.token.*` carries the custom claims, and the claims you pass to `seedUsers` flow through end to end, so a rules test with an admin claim exercises the same path production will.

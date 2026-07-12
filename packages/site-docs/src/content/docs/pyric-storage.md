@@ -16,12 +16,15 @@ Built for the agent-session-archive use case. The scope is bounded; the architec
 This package implements a deliberate subset of Firebase Storage. See [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) before adopting in production-style code.
 
 ## Install
+
 ```bash
 bun add pyric/storage pyric/sandbox
 # or
 npm install pyric/storage pyric/sandbox
 ```
+
 ## A 30-second example
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getStorageSandbox, ref, uploadBytes, getBlob } from 'pyric/storage';
@@ -38,6 +41,7 @@ await uploadBytes(
 const blob = await getBlob(ref(storage, 'sessions/gen-123'));
 console.log(await blob.text());
 ```
+
 ## Control-plane surface
 
 Beyond the data-plane adapter, the package exports a control-plane surface for provisioning and managing real Cloud Storage buckets: `provisionStorage`, `getStorageServiceState`, `enableStorageService`, bucket listing, CORS management (`getBucketCors` / `setBucketCors`), and `deployStorageRules`. Alongside those sits `createStorageAdminTools`, a `ToolHandler[]` factory for an `@inbrowser/agent` registry. It also ships a local Storage rules engine (`parseStorageRules` / `evaluateStorageRules`).

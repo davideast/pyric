@@ -19,6 +19,7 @@ Bring a fresh sandbox up to a known state (rules deployed, documents in place) b
 Most consumers use the adapter path. The `/internal` path is for higher-level tooling (the playground, the agent runtime) that wants to load a whole snapshot atomically.
 
 ## Adapter-driven seed
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric-admin';
@@ -46,9 +47,11 @@ await adminDb.collection('notes').doc('n1').set({
   title: 'first note',
 });
 ```
+
 This path is the most natural for tests because every operation goes through the same SDK surface your production code uses. If your rules deny `admin`-authed writes too, fall back to `/internal`.
 
 ## `/internal` seed for tooling
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
@@ -76,6 +79,7 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
   throw new Error('rules failed to lint');
 }
 ```
+
 `seed` returns the `LintResult` from `pyric/rules`. Check it before treating the seed as successful. A ruleset with errors leaves the sandbox in default-deny.
 
 `/internal` is documented as adapter-only. Tooling that uses it accepts that the surface may change between minor versions.
@@ -85,20 +89,25 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
 Two patterns work. Choose by how much your tests share state.
 
 ### Seed once at module top
+
 ```ts
 const sandbox = initializeSandbox();
 seed(sandbox);  // your helper
 
 beforeEach(() => sandbox.reset());
 ```
+
 After `reset`, the sandbox is empty. Re-seed if the next test depends on the initial state. A helper makes that cheap:
+
 ```ts
 beforeEach(() => {
   sandbox.reset();
   seed(sandbox);
 });
 ```
+
 ### Build per test
+
 ```ts
 let sandbox: Sandbox;
 
@@ -107,6 +116,7 @@ beforeEach(() => {
   seed(sandbox);
 });
 ```
+
 Heavier (rebuilds the environment per test) but isolates state changes more strictly. Use when tests are touching listeners or when seed cost is negligible.
 
 ## Order matters

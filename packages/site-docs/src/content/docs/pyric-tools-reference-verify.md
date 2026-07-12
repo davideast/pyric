@@ -10,6 +10,7 @@ order: 9012
 same fixture format and replay behavior as `pyric verify`.
 
 ## `verifyFixture(fixture, options)`
+
 ```ts
 import { verifyFixture } from 'pyric-tools/verify';
 
@@ -26,8 +27,10 @@ const result = await verifyFixture(fixture, {
   },
 });
 ```
+
 `fixture` must use schema `pyric.verify.fixture.v1`. The fixture has one
 ordered `events` timeline and per-service blocks under `services`.
+
 ```ts
 type VerifyRulesInput = {
   firestore?: string | { source: string };
@@ -35,7 +38,9 @@ type VerifyRulesInput = {
   storage?: string | { source: string };
 };
 ```
+
 `RtdbRulesDocument` values are compiled to rules JSON before replay.
+
 ```ts
 type VerifyEngine = 'sandbox' | 'rulesTestApi';
 
@@ -54,10 +59,12 @@ type VerifyFixtureOptions = {
   };
 };
 ```
+
 `engines` defaults to `['sandbox']`. `rulesTestApi` is Firestore-only in this
 release. Selecting it for RTDB returns an input error.
 
 ## Result shape
+
 ```ts
 type VerifyResult = {
   ok: boolean;
@@ -75,10 +82,12 @@ type VerifyServiceResult = {
   engines?: Partial<Record<VerifyEngine, VerifyEngineResult>>;
 };
 ```
+
 Failing divergence kinds are `now-denied`, `now-allowed`, `state-drift`,
 `unsupported`, and `engine-drift`. `expected-drift` is informational.
 
 ## `deriveRulesTestCases(fixture, options)`
+
 ```ts
 import { deriveRulesTestCases } from 'pyric-tools/verify';
 
@@ -87,18 +96,21 @@ const cases = deriveRulesTestCases(fixture, {
   mockReads: 'strict',
 });
 ```
+
 This compiles captured Firestore request events into Firebase Rules Test API
 `TestCase[]` values. Listener re-evaluations and admin/setup requests are
 excluded. Unsupported derivation entries fail verification when the
 `rulesTestApi` engine is selected.
 
 ## Fixture helpers
+
 ```ts
 import {
   buildVerifyFixture,
   parseVerifyFixture,
 } from 'pyric-tools/verify';
 ```
+
 `buildVerifyFixture()` is used by `pyric dev` capture. Most users read the
 captured JSON from `.pyric/last-session.json`; custom harnesses can use the
 builder to emit the same schema.

@@ -13,17 +13,20 @@ This page describes every symbol re-exported from `pyric-tools/deploy`. Symbols 
 ### `interface ProjectScope`
 
 Project-level credentials threaded through every control-plane call.
+
 ```ts
 interface ProjectScope {
   readonly projectId: string;
   resolveToken(): Promise<string>;
 }
 ```
+
 See [`ProjectScope`, `Outcome`, `AdminApiError`](../pyric-tools-deploy-reference-scope-and-outcome/).
 
 ### `type Outcome<TData, TErrCode>`
 
 Result shape used by orchestrators:
+
 ```ts
 type Outcome<TData, TErrCode extends string = never> =
   | { ok: true; data: TData }
@@ -34,15 +37,18 @@ type Outcome<TData, TErrCode extends string = never> =
       partial?: unknown;
     };
 ```
+
 ### `class AdminApiError extends Error`
 
 Thrown by primitives on non-2xx responses.
+
 ```ts
 class AdminApiError extends Error {
   readonly status: number;   // HTTP status from upstream
   readonly body: string;     // capped at 8 KiB
 }
 ```
+
 ### `fromServiceAccount(saJsonOrPath: string): Promise<ProjectScope>`
 
 Build a `ProjectScope` from a service-account JSON. Accepts:
@@ -63,6 +69,7 @@ TTL memoiser for resolver functions. Two overloads:
 See [Token caching and `memoizeTtl`](../pyric-tools-deploy-explanation-token-caching/).
 
 ### `MemoizeTtlOptions`
+
 ```ts
 interface MemoizeTtlOptions {
   ttlMs?: number;
@@ -70,6 +77,7 @@ interface MemoizeTtlOptions {
   resolverTimeoutMs?: number;  // default 30_000
 }
 ```
+
 ### `withResolvedScope(scope, fn): Promise<Outcome<TData, 'not-found'>>`
 
 Standard wrapper for the resolver + try/catch shape primitives use. Buckets `AdminApiError` by HTTP status:

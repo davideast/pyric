@@ -15,6 +15,7 @@ In Pyric a rules test is a small fixture, a test case, and a whole suite runs in
 ## The fixtures
 
 A test case describes one hypothetical request and the verdict you expect. The public type is `FirestoreCase`:
+
 ```ts
 import { firestoreRules, assertCase, type FirestoreCase } from 'pyric/rules';
 
@@ -51,24 +52,29 @@ const cases: FirestoreCase[] = [
   },
 ];
 ```
+
 The fields map straight onto what the rule sees. `resource` is the existing document, `data` is the proposed write, `auth.uid` becomes `request.auth.uid`, and `auth.token` becomes `request.auth.token` for rules that check custom claims.
 
 ## Run the suite in the test runner
 
 Compile the source once, then let each case become a test. `assertCase` throws on a miss, and its message is the trace, so a failing test tells you which rule decided:
+
 ```ts
 const ruleset = firestoreRules(source);
 for (const c of cases) {
   test(c.description, () => assertCase(ruleset, c));
 }
 ```
+
 A passing case returns `void`. A mismatch throws `RulesAssertionError`. A case that hits a feature the simulator does not implement throws `RulesUnsupportedError`, so an abstention never masquerades as a pass.
 
 Prefer a summary over per-case tests? Run every case at once and read the counts:
+
 ```ts
 const summary = firestoreRules(source).simulate(cases);
 console.log(`${summary.passed} passed · ${summary.failed} failed · ${summary.unsupported} unsupported`);
 ```
+
 `simulate` returns a `SimulationSummary`: the three counts plus a `cases` array of results. A result whose `passed` is `false` disagreed with your `expectation`. One whose `unsupported` is `true` abstained, and is not counted as a failure.
 
 Two fixture fields worth knowing before your suite grows:
@@ -79,6 +85,7 @@ Two fixture fields worth knowing before your suite grows:
 ## Gate CI on it
 
 The suite is a script, so CI is one exit code away. `explainCase` renders any result as a readable trace, so a failure prints its own reason:
+
 ```ts
 import { explainCase } from 'pyric/rules';
 
@@ -90,6 +97,7 @@ if (summary.failed > 0) {
   process.exit(1);
 }
 ```
+
 Sub-millisecond per case once the rules are parsed. There is no reason not to run this on every push.
 
 You can also run a scripted suite from the command line. `pyric rules:simulate --stdin` reads a JSON `{ source, testCases }` request and prints each verdict, which keeps rules out of your test-runner setup when you want a standalone check.
@@ -97,9 +105,11 @@ You can also run a scripted suite from the command line. `pyric rules:simulate -
 ## Escalate to Google's Rules Test API
 
 The hosted Rules Test API evaluates cases on Google's servers, in the same engine production uses, without deploying anything. It is Firestore-only and needs a real project and credentials. Reach it through `pyric verify`: replay a captured session against both engines and it reports any divergence.
+
 ```bash
 pyric verify journeys/checkout.json --engine both --project demo-app
 ```
+
 `--engine sandbox` (the default) runs the local simulator, `--engine rules-test-api` runs Google's, and `--engine both` runs each and diffs the verdicts. The practical pattern is local-first: run the sandbox on every push, and reserve the hosted engine for the cases the simulator marked `unsupported`.
 
 The simulator itself is held to that engine's answers by a parity corpus that runs in CI, so for most suites the local verdicts are the same verdicts, sooner.

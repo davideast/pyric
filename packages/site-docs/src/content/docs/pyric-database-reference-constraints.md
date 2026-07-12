@@ -98,12 +98,14 @@ Supported Zod types: `string`, `number`, `boolean`, `enum`, `literal` (string, n
 ## Assembly
 
 ### `defineRtdbRules(definition)`
+
 ```ts
 function defineRtdbRules(definition: {
   databaseUrl?: string;
   paths: Record<string, PathDef> | ((ctx: RulesetContext) => void);
 }): RtdbRulesDocument;
 ```
+
 The authoring entry, and the one to reach for first. The returned
 `RtdbRulesDocument` is an inert authored artifact: on the public surface it
 exposes no methods. Pass it to `rtdbRules()` for everything analytical:
@@ -123,15 +125,18 @@ URL precedence when compiling: `definition.databaseUrl`, then
 `pyric/rules/internal/rtdb`.
 
 ### `ruleset(databaseUrl, input)`
+
 ```ts
 function ruleset(
   databaseUrl: string,
   input: Record<string, PathDef> | ((ctx: RulesetContext) => void),
 ): RtdbIR;
 ```
+
 The raw IR builder underneath `defineRtdbRules`. Same inputs, no document wrapper.
 
 ### `PathDef`
+
 ```ts
 interface PathDef {
   read?: Expr;
@@ -143,6 +148,7 @@ interface PathDef {
   children?: Record<string, PathDef>;
 }
 ```
+
 Placement semantics worth knowing:
 
 - Path keys are literal strings with `$wildcards` as segments (`'/games/$gameId'`); every `$segment` becomes a path variable in scope for expression validation.

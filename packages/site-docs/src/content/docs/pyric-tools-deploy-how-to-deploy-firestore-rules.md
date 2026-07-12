@@ -12,12 +12,15 @@ This guide shows you how to deploy a Firestore rules source through `pyric-tools
 ## Replace the whole ruleset
 
 When you want to deploy a complete `firestore.rules` file as-is:
+
 ```ts
 import { firestore } from 'pyric-tools/deploy';
 
 await firestore.rules.deploy(scope, source);
 ```
+
 The primitive throws `AdminApiError` on any non-2xx. Wrap it in try/catch if you want to branch on status:
+
 ```ts
 import { AdminApiError, firestore } from 'pyric-tools/deploy';
 
@@ -33,11 +36,13 @@ try {
   }
 }
 ```
+
 The two-step server flow (create ruleset, PATCH release) is hidden behind the single call.
 
 ## Add a rule snippet idempotently
 
 When you want a particular rule snippet to exist in the deployed ruleset, whether by merging into an existing one or writing a fresh template if no rules exist yet:
+
 ```ts
 import { firestore, recipes } from 'pyric-tools/deploy';
 
@@ -49,6 +54,7 @@ if (outcome.ok) {
   console.error(`[${outcome.code}] ${outcome.message}`);
 }
 ```
+
 `ensure` covers three cases:
 
 | Status | What happened |
@@ -60,6 +66,7 @@ if (outcome.ok) {
 ## Write your own recipe
 
 A recipe is a `{ marker, snippet, freshTemplate }` triple:
+
 ```ts
 import { firestore } from 'pyric-tools/deploy';
 
@@ -83,11 +90,13 @@ service cloud.firestore {
 
 await firestore.rules.ensure(scope, myRecipe);
 ```
+
 The `marker` should be a substring unique to your snippet. `ensure` uses it to detect whether the rule is already present.
 
 ## Check without deploying
 
 To decide UI state ("Configure" vs "Configured") without making any changes:
+
 ```ts
 const result = await firestore.rules.check(scope, 'match /audit_log/');
 
@@ -98,11 +107,14 @@ switch (result.state) {
   case 'check-failed':     console.error(result.message); break;
 }
 ```
+
 ## Fetch the current source
+
 ```ts
 const current = await firestore.rules.fetch(scope);
 console.log(current ?? '(no ruleset deployed)');
 ```
+
 Returns `null` for greenfield projects.
 
 ## Where to look next

@@ -7,11 +7,13 @@ order: 10023
 # Tool factories
 
 Four factories wrap the namespaces as `@inbrowser/agent` `ToolHandler[]`. Each takes a `ProjectScopedDeps` shape and returns the handlers for its domain.
+
 ```ts
 interface ProjectScopedDeps {
   scope: ProjectScope;
 }
 ```
+
 Every handler closes over `scope` at factory time and reads `signal` from `ctx` per call. Handlers check `ctx.signal.aborted` before starting work.
 
 ## `createFirestoreDeployTools(deps): ToolHandler[]`
@@ -59,6 +61,7 @@ One handler.
 ## `DeployToolData`
 
 Type-level map from tool name to the `data` shape its `execute` returns. Use it to narrow without spelunking through the namespace primitives:
+
 ```ts
 import {
   createFirestoreDeployTools,
@@ -72,11 +75,13 @@ const out = await handler.execute(args, ctx);
 const data = out.data as DeployToolData['firestore_deploy_indexes'];
 // data is now typed as DeployIndexesOutcome
 ```
+
 A future revision may parameterise each handler as `ToolHandler<Args, Data>` directly. For now the map keeps each factory's return type usable as a single `ToolHandler[]` (registry-friendly) while still surfacing the data contract per tool.
 
 ## `ToolResult` shape
 
 Every handler's `execute` returns:
+
 ```ts
 {
   ok: boolean;
@@ -84,6 +89,7 @@ Every handler's `execute` returns:
   data?: unknown;        // narrow with DeployToolData[name]
 }
 ```
+
 The `ok` flag reflects the underlying outcome's success: `Outcome.ok` for orchestrators, "no exception thrown" for primitives. The `summary` is suitable for agent-visible logs; `data` is the structured payload.
 
 ## Cancellation
@@ -91,6 +97,7 @@ The `ok` flag reflects the underlying outcome's success: `Outcome.ok` for orches
 Per pre-mortem M8, every handler checks `ctx.signal.aborted` before starting work. This prevents a deploy from *starting* when the agent has already cancelled. It does not abort a deploy already in flight. The underlying namespace primitives don't currently plumb `AbortSignal` through their fetch calls. Wave B (the `firebase-admin` → REST rewrite) is the natural place to thread signals end-to-end.
 
 ## Registering with a registry
+
 ```ts
 import { createToolRegistry } from '@inbrowser/agent';
 import {
@@ -107,4 +114,5 @@ for (const h of createRtdbDeployTools(deps)) registry.register(h);
 for (const h of createHostingDeployTools(deps)) registry.register(h);
 for (const h of createFunctionsDeployTools(deps)) registry.register(h);
 ```
+
 See [Register deploy tools with an agent](../pyric-tools-deploy-how-to-register-tools-with-an-agent/) for the full agent wiring.

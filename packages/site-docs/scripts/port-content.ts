@@ -741,7 +741,7 @@ function rewriteLinks(page: Page, body: string): string {
         },
       );
     })
-    .join('');
+    .join('\n');
 }
 
 /* ── Compatibility row lists ───────────────────────────────────────── */
@@ -894,7 +894,7 @@ function transformCompatTables(body: string): string {
       }
       return out.join('\n');
     })
-    .join('');
+    .join('\n');
 }
 
 /* ── Emit ──────────────────────────────────────────────────────────── */

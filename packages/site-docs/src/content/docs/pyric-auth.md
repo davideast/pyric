@@ -15,14 +15,17 @@ Modular Web SDK Auth adapter for the Pyric sandbox. Mirrors `firebase/auth`'s tr
 Same call sites, two different backends. Swap by changing what you pass to `getAuth`.
 
 ## Install
+
 ```bash
 bun add pyric/auth pyric/sandbox firebase
 ```
+
 `firebase` is required because the prod backend dispatches to it. Bundlers tree-shake away the prod path when only the sandbox backend is reached.
 
 ## A 30-second example
 
 Sandbox backend:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, sandbox as authSandbox } from 'pyric/auth';
@@ -41,7 +44,9 @@ onAuthStateChanged(auth, (user) => {
 await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 console.log(auth.currentUser?.uid); // 'alice'
 ```
+
 Prod backend, the same code with a different `getAuth` argument:
+
 ```ts
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword } from 'pyric/auth';
@@ -51,6 +56,7 @@ const auth = getAuth(app);
 
 await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw');
 ```
+
 ## What's in v0
 
 The deliberately-minimal surface covers everything an `appSource` likely needs:

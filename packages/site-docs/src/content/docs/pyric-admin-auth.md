@@ -14,6 +14,7 @@ Admin-shape Auth with swappable backends. `getAuth(app)` mirrors `firebase-admin
 - **Remote sandbox app**: user CRUD relays over the worker channel to the browser-hosted sandbox, so server-created users land in the one user pool the browser app, Studio, and agents share. Adds `updateUser` and `listUsers` on top of the local subset.
 
 Everything the sandbox arms don't model throws an explicit "not implemented" error with the method name, never bad data.
+
 ```ts
 import { initializeApp } from 'pyric-admin/app';
 import { getAuth } from 'pyric-admin/auth';
@@ -27,6 +28,7 @@ const token = await auth.createCustomToken(user.uid, { role: 'admin' });
 const decoded = await auth.verifyIdToken(token);
 console.log(decoded.uid, decoded.role); // 'alice' 'admin'
 ```
+
 One honest note up front: sandbox tokens are deterministic strings, not real JWTs. They round-trip through the same sandbox backend and nothing else. The [API reference](../pyric-admin-auth-reference-api/) documents the exact format.
 
 ## Where to go next

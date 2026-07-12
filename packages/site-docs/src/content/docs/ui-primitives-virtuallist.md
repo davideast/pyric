@@ -7,10 +7,13 @@ order: 24008
 # `<VirtualList>`
 
 Thin wrapper around [`@tanstack/react-virtual`](https://tanstack.com/virtual). Renders a scrollable container with absolutely-positioned rows; only the rows in view (plus `overscan` neighbors) mount to the DOM.
+
 ```ts
 import { VirtualList } from '@pyric/ui/primitives';
 ```
+
 ## Example
+
 ```tsx
 <VirtualList<Row>
   items={rows}
@@ -24,6 +27,7 @@ import { VirtualList } from '@pyric/ui/primitives';
   )}
 />
 ```
+
 ## Props
 
 | Prop | Type | Required | Description |
@@ -37,12 +41,14 @@ import { VirtualList } from '@pyric/ui/primitives';
 | `className` | `string` | no | Forwarded to the scroll container. |
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="virtual-list"]      /* scroll container */
 [data-pyric-virtual-inner]          /* total-height spacer */
 [data-pyric-virtual-row]            /* each rendered row */
 [data-pyric-virtual-row][data-index="42"]  /* specific row */
 ```
+
 ## Notes
 
 - **Height must be constrained.** The scroll container fills its parent via `height` (default `100%`). If the parent's height is unbounded, nothing scrolls and the virtualizer renders everything — defeating the point. Either set `height` explicitly or constrain via CSS.

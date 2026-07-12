@@ -7,6 +7,7 @@ order: 15010
 # `StorageOptions`
 
 The options bag for `getStorageSandbox(target, options?)`.
+
 ```ts
 interface StorageOptions {
   bucket?: string;
@@ -14,6 +15,7 @@ interface StorageOptions {
   rules?: string;
 }
 ```
+
 ## `bucket`
 
 The bucket identifier recorded in `metadata.bucket` on upload. v1 has a single implicit bucket: passing different values doesn't isolate data, but it round-trips through metadata.
@@ -25,16 +27,19 @@ When real multi-bucket support lands, this option will partition data. For the v
 ## `dbName`
 
 The IndexedDB database name. Production callers use the default (`pyric-storage`). Tests pass a per-case unique name so state doesn't leak between runs:
+
 ```ts
 const storage = getStorageSandbox(sandbox.withAuth(null), {
   dbName: `test-${crypto.randomUUID()}`,
 });
 ```
+
 Only takes effect on the **first** `getStorageSandbox` call per `Sandbox`. Subsequent calls return the cached handle bound to the original `dbName`. To change the IndexedDB name, build a new sandbox.
 
 ## `rules`
 
 Storage rules source, parsed eagerly at config time. Malformed sources throw a `SyntaxError` from the parser before the handle is returned. Fail fast.
+
 ```ts
 const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
   rules: `service firebase.storage {
@@ -48,6 +53,7 @@ const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }), {
   }`,
 });
 ```
+
 Only takes effect on the **first** call per `Sandbox`. Subsequent calls return the cached handle with the original rules. To change rules, build a new sandbox.
 
 If `rules` is omitted, the storage handle accepts every operation (anonymous and authenticated alike). Useful for non-rule-related tests but explicitly insecure. Set rules whenever the test is about access control.
@@ -63,9 +69,11 @@ See [Storage rules subset](../pyric-storage-reference-rules-subset/) for the sup
 ## Prod variant
 
 `getStorageProd` takes a much smaller options bag:
+
 ```ts
 interface ProdStorageOptions {
   bucket?: string;
 }
 ```
+
 `dbName` doesn't apply (no IndexedDB on prod). `rules` doesn't apply (rules are deployed via `firebase deploy --only storage:rules`, not configured per-handle).

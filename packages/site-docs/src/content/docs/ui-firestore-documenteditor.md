@@ -7,10 +7,13 @@ order: 24011
 # `<DocumentEditor>`
 
 Compound component over `useDocumentEditor`. The hook owns a reducer-backed normalized field tree; the component renders the tree with per-type Edit widgets and add/remove affordances.
+
 ```ts
 import { DocumentEditor, type UseDocumentEditorResult } from '@pyric/ui/firestore';
 ```
+
 ## Save-button gating pattern
+
 ```tsx
 function MyEditor({ snap }: { snap: DocumentSnapshot }) {
   const [editor, setEditor] = useState<UseDocumentEditorResult | null>(null);
@@ -32,6 +35,7 @@ function MyEditor({ snap }: { snap: DocumentSnapshot }) {
   );
 }
 ```
+
 ## `<DocumentEditor.Root>` props
 
 | Prop | Type | Description |
@@ -53,6 +57,7 @@ No props. Must render inside a `<DocumentEditor.Root>`.
 ## Direct hook access
 
 Sometimes the default `<DocumentEditor.Fields>` layout isn't what you want — e.g., you need a custom field order, or only edit a subset. Drop down to the hook:
+
 ```tsx
 import { useDocumentEditor } from '@pyric/ui/firestore/hooks';
 
@@ -62,7 +67,9 @@ function CustomEditor() {
   return <pre>{JSON.stringify(editor.tree, null, 2)}</pre>;
 }
 ```
+
 Inside a `<DocumentEditor.Root>`, `useDocumentEditorContext()` gives you the same hook return value:
+
 ```tsx
 import { DocumentEditor, useDocumentEditorContext } from '@pyric/ui/firestore';
 
@@ -71,6 +78,7 @@ function Inner() {
   return <span>{editor.errorCount} errors</span>;
 }
 ```
+
 ## Field types supported
 
 `string`, `number`, `boolean`, `null`, `timestamp`, `geopoint`, `reference`, `bytes`, `map`, `array`. See [`DocumentPreview.md`](../ui-firestore-documentpreview/) for the read-mode rendering of each; edit-mode widgets:
@@ -89,6 +97,7 @@ function Inner() {
 | `array` | recursive; nested arrays rejected at the reducer |
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="document-editor"]
 [data-pyric-ui="document-editor"][data-pyric-is-valid]
@@ -106,6 +115,7 @@ function Inner() {
 [data-pyric-map-children]
 [data-pyric-array-children]
 ```
+
 ## Notes
 
 - **`initial` is captured once.** The hook builds the tree on first mount and ignores later changes to the prop. If the underlying document changes externally, remount the editor (`<DocumentEditor.Root key={ref.path}>`) or call `editor.reset()` after updating your local state.

@@ -13,14 +13,18 @@ Ship `pyric` as a single self-contained executable: no Node, no npm, no
 ## Build
 
 From the repo root:
+
 ```bash
 bun run compile:standalone        # clean build + all four cross-targets
 ```
+
 or, iterating inside the package (assumes `bun run build` already ran):
+
 ```bash
 bun run --cwd packages/pyric-tools compile        # all four targets
 bun run --cwd packages/pyric-tools compile host   # just this machine (fast)
 ```
+
 Binaries land in `packages/pyric-tools/dist-bin/`:
 
 | File | Platform |
@@ -35,9 +39,11 @@ Binaries land in `packages/pyric-tools/dist-bin/`:
 ~100 MB binaries are release artifacts, never published to npm or committed.
 
 Verify a build:
+
 ```bash
 bun run --cwd packages/pyric-tools smoke:standalone
 ```
+
 ## How `dev` works in the binary
 
 Every command runs from the binary, including `dev` (the headline one).
@@ -62,10 +68,12 @@ from npm would 404 on `bun install`. The binary fixes this by **vendoring**: the
 compile step also `npm pack`s both packages and embeds the tarballs, and
 `pyric init` (in the standalone binary) writes them into `vendor/` and points the
 project's deps at them:
+
 ```jsonc
 "devDependencies": { "pyric-tools": "file:vendor/pyric-tools.tgz", "pyric": "file:vendor/pyric.tgz", … },
 "overrides": { "pyric": "file:vendor/pyric.tgz" }
 ```
+
 `bun install` then resolves `pyric`/`pyric-tools` from `vendor/` and everything
 else (`firebase`, `vite`, `@inbrowser/agent`, `esbuild`) from npm. The
 `overrides` pin is load-bearing: a **placeholder `pyric` is published to npm at a
@@ -79,18 +87,22 @@ a clone installs offline too.
 
 Once the packages are published (or against a private registry), scaffold with
 registry deps instead:
+
 ```bash
 pyric init --template web --deps npm                 # ^<binary version>
 pyric init --template web --deps npm --pyric-version 0.1.0
 ```
+
 Default is `vendor` in the standalone binary, `npm` otherwise (e.g. `npx pyric`
 from the monorepo). `PYRIC_INIT_DEPS=npm` sets the default; `--deps` overrides it.
 
 Smoke the whole chain (`init → bun install → vite build`, offline for
 pyric/pyric-tools) against a compiled binary:
+
 ```bash
 bun run --cwd packages/pyric-tools smoke:vendor
 ```
+
 ## Contract
 
 ## Contract

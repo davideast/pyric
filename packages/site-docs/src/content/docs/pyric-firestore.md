@@ -15,16 +15,19 @@ Modular Web SDK Firestore adapter for the Pyric sandbox. Mirrors `firebase/fires
 Same call sites, two different backends. Swap by changing what you pass to `getFirestore`.
 
 ## Install
+
 ```bash
 bun add pyric/firestore pyric/sandbox firebase
 # or
 npm install pyric/firestore pyric/sandbox firebase
 ```
+
 `firebase` is required because the prod backend dispatches to it. Bundlers tree-shake away the prod path when only the sandbox backend is reached.
 
 ## A 30-second example
 
 Sandbox backend:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore, doc, setDoc, getDoc } from 'pyric/firestore';
@@ -36,9 +39,11 @@ await setDoc(doc(db, 'notes', 'n1'), { title: 'hello' });
 const snap = await getDoc(doc(db, 'notes', 'n1'));
 console.log(snap.exists, snap.data());
 ```
+
 > On the sandbox backend `snap.exists` is a boolean property; on the prod backend it is a method (`snap.exists()`), matching `firebase/firestore`. Code that must run unchanged on both backends should normalise with `typeof snap.exists === 'function' ? snap.exists() : snap.exists`.
 
 Prod backend, the same code with a different `getFirestore` argument:
+
 ```ts
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, getDoc } from 'pyric/firestore';
@@ -49,6 +54,7 @@ const db = getFirestore(app);
 await setDoc(doc(db, 'notes', 'n1'), { title: 'hello' });
 const snap = await getDoc(doc(db, 'notes', 'n1'));
 ```
+
 Every Firestore call between `getFirestore(...)` and the next swap is identical across backends.
 
 The package mirrors the full modular surface: reads and writes, composite filters (`or`/`and`), `collectionGroup`, aggregates (`count`/`sum`/`average`), cursor pagination, `onSnapshot`, `runTransaction`/`writeBatch`, `withConverter`, and the sentinel set (`serverTimestamp`, `increment`, `arrayUnion`, …).

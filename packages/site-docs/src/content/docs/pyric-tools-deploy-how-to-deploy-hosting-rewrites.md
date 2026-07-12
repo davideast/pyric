@@ -19,6 +19,7 @@ The reliable sequence is:
 2. Deploy Hosting with rewrites that point at it.
 
 ## Deploy a site with rewrites
+
 ```ts
 import { hosting } from 'pyric-tools/deploy';
 
@@ -41,11 +42,13 @@ if (result.success) {
   console.error(`[${result.error.code}] ${result.error.message}`);
 }
 ```
+
 `config` is the firebase.json hosting block: rewrites shown here; redirects, headers, `cleanUrls`, `trailingSlash`, `appAssociation`, and `i18n` ride along the same way (see [firebase.json hosting config](../pyric-tools-deploy-reference-hosting-config/)). `localDir` walks the directory and uploads everything not matched by the `ignore` globs (defaults: `firebase.json`, `**/.*`, `**/node_modules/**`). Server-side dedup via content hashes means re-deploys that haven't changed content upload nothing. `data.uploadedCount` will be less than `data.fileCount`.
 
 ## From a browser host
 
 Browsers can't walk the filesystem. Pass `files` instead, pre-walked:
+
 ```ts
 import { hosting, type WalkedFile } from 'pyric-tools/deploy';
 
@@ -60,15 +63,18 @@ const result = await hosting.deployFiles(scope, {
   config: { rewrites: [{ source: '/api/**', function: { functionId: 'api' } }] },
 });
 ```
+
 `bytes` is a `Uint8Array`: read from a `File`, fetch, or any other browser source. `path` is the public URL path (leading `/`).
 
 ## Ensure the site exists first
 
 For greenfield projects:
+
 ```ts
 await hosting.sites.ensure(scope, { siteId: 'my-site' });
 await hosting.deployFiles(scope, { siteId: 'my-site', /* ... */ });
 ```
+
 `ensure` is idempotent: it returns success whether the site already exists or had to be created.
 
 ## Handle rewrite-target failures

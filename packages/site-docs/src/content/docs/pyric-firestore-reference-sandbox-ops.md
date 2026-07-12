@@ -7,12 +7,15 @@ order: 12013
 # Sandbox-only operations
 
 Three operations live under the `sandbox` namespace export and only work against sandbox-backed `Firestore` handles. Calling them on a prod-backed handle throws `SandboxError('failed-precondition')`.
+
 ```ts
 import { sandbox } from 'pyric/firestore';
 ```
+
 ## `sandbox.setRules(db, rules): LintResult`
 
 Replace the active ruleset in the sandbox's `LocalEnvironment`.
+
 ```ts
 sandbox.setRules(db, `rules_version = '2';
 service cloud.firestore {
@@ -23,6 +26,7 @@ service cloud.firestore {
   }
 }`);
 ```
+
 Returns the `LintResult` from `pyric/rules`. Source with parse-level errors is not swapped; check the warnings.
 
 After a successful swap, every active snapshot listener re-evaluates under the new rules. See [Listener re-evaluation on `deployRules`](../pyric-sandbox-explanation-listener-re-evaluation/).
@@ -32,12 +36,14 @@ On prod, import `firestore` from `pyric-tools/deploy` and call `firestore.rules.
 ## `sandbox.seedDocuments(db, documents): LintResult`
 
 Bulk-load documents into the sandbox state, bypassing rules.
+
 ```ts
 sandbox.seedDocuments(db, {
   'notes/n1': { ownerId: 'alice', title: 'first' },
   'notes/n2': { ownerId: 'bob', title: 'second' },
 });
 ```
+
 The active ruleset is preserved. Return value is the lint of the existing rules for shape consistency with `setRules`.
 
 On prod, populate data via writes. There's no bulk-seed API.
@@ -45,10 +51,12 @@ On prod, populate data via writes. There's no bulk-seed API.
 ## `sandbox.snapshotState(db): Record<string, DocumentData>`
 
 Capture every stored document as a `{ [path]: data }` map. Reads the live state independent of rules.
+
 ```ts
 const state = sandbox.snapshotState(db);
 console.log(state['notes/n1']);  // { ownerId: 'alice', title: 'first' }
 ```
+
 The returned object is a structural clone. Mutating it does not affect the sandbox.
 
 On prod, this surface doesn't exist. There's no efficient "dump every doc" API in Firebase's data plane.
@@ -62,11 +70,13 @@ The three operations could have been top-level exports (`setSandboxRules`, `seed
 - Future sandbox-only additions slot in without further import-list churn.
 
 The local-variable collision (you might already have `const sandbox = initializeSandbox()`) is annoying but rare in practice. When it happens, alias on import:
+
 ```ts
 import { sandbox as sandboxOps } from 'pyric/firestore';
 const sandbox = initializeSandbox();
 sandboxOps.setRules(db, RULES);
 ```
+
 ## Why `setRules` lives here, not on the handle
 
 The `pyric-admin` handle exposes `setRules` directly: `db.setRules(...)`. `pyric/firestore`'s handle is opaque (the only public property is `TARGET_SYMBOL`), so the same shape would mean adding a method. We didn't because:

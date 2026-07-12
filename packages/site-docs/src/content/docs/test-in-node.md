@@ -14,6 +14,7 @@ The backend that runs in your browser tab runs in a Node process the same way. T
 ## A test harness against the sandbox
 
 One sandbox at module scope, contexts derived once, reset in `beforeEach`. This is Bun's runner; the structure is identical with Vitest or Jest.
+
 ```ts
 import { describe, it, beforeEach, expect } from 'bun:test';
 import { initializeSandbox, SandboxError } from 'pyric/sandbox';
@@ -58,6 +59,7 @@ describe('notes rules', () => {
   });
 });
 ```
+
 Notice the division of labor. Writes go through user contexts, so the rules are what's under test. Assertions go through `sandbox.admin.getDocument`, which bypasses rules, so a test can confirm the state without depending on a read rule.
 
 The denial test asserts three layers: the throw, the error code, and that the state did not change.
@@ -65,12 +67,14 @@ The denial test asserts three layers: the throw, the error code, and that the st
 ## The admin shape, one line from production
 
 Server code written against `firebase-admin` runs on the sandbox with a single changed line:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { initializeApp } from 'pyric-admin/app';
 
 const app = initializeApp({ sandbox: initializeSandbox() });
 ```
+
 Or with zero changed lines. A bare `initializeApp()` lets the environment decide: with `PYRIC_SANDBOX=remote` set, the app routes to the sandbox, and with it unset you get exactly `firebase-admin`'s behavior. Your source carries no Pyric identifiers at all.
 
 `pyric dev` sets that variable for the dev command it runs, and a guard refuses sandbox routing when `NODE_ENV` is `production`, so the swap cannot follow you to a real deployment.
@@ -88,9 +92,11 @@ It is a relay, so it has edges worth knowing:
 ## Verification is a test too
 
 Your captured dev sessions double as a suite:
+
 ```bash
 pyric verify journeys/
 ```
+
 It replays every fixture in the directory against candidate rules and exits non-zero on a real divergence, which slots straight into CI next to your unit tests. See [Ship to production](../ship-to-production/).
 
 ## Where to go next

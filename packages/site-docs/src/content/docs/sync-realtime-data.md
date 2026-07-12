@@ -15,6 +15,7 @@ Realtime Database is one JSON tree that many clients watch at once. In Pyric it 
 ## Store and read
 
 Under `pyric dev`, your `firebase/database` imports resolve to the sandbox:
+
 ```ts
 import { getDatabase, ref, set, get, onValue } from 'firebase/database';
 
@@ -29,7 +30,9 @@ onValue(ref(db, 'status'), (snap) => {
   renderPresence(snap.val());
 });
 ```
+
 `push` appends with chronologically sortable IDs, `update` patches, `remove` deletes. One boundary to know: the Vite plugin does not swap `firebase/database` yet, so this path runs under `pyric dev`. In Node, import the same functions from `pyric/database` and hand `getDatabase` a sandbox:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getDatabase, ref, set } from 'pyric/database';
@@ -37,6 +40,7 @@ import { getDatabase, ref, set } from 'pyric/database';
 const sandbox = initializeSandbox();
 const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
 ```
+
 ## Model the tree around the reads
 
 Every RTDB path is an endpoint, and reading a path downloads everything below it. So structure follows the reads, not the entities. The defaults that hold up:
@@ -47,6 +51,7 @@ Every RTDB path is an endpoint, and reading a path downloads everything below it
 - **Push IDs for anything append-only.** Sequential numeric keys collide under concurrent writers; push IDs never do.
 
 Duplicated data stays consistent through fan-out: one `update` at the root with full paths as keys commits atomically.
+
 ```ts
 import { update } from 'firebase/database';
 
@@ -55,6 +60,7 @@ await update(ref(db), {
   'postSummaries/p1/title': 'New title',
 });
 ```
+
 Either both paths change or neither does. Queries take one `orderBy`, so multi-field filters want a precomputed composite key (`"lang_level": "en_5"`) rather than a clever query.
 
 ## Guard writes before they land

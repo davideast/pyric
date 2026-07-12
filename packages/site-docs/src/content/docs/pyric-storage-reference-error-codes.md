@@ -39,6 +39,7 @@ The operation was cancelled before completing. Currently sandbox doesn't generat
 A function argument failed validation. Common cases: empty path, malformed string format in `uploadString`, non-string `contentType`.
 
 ## Branching
+
 ```ts
 import { FirebaseError } from 'firebase/app';
 
@@ -62,6 +63,7 @@ try {
   }
 }
 ```
+
 Both backends throw `FirebaseError` for shape-consistency with the upstream `firebase/storage`. The sandbox's rule-denial errors are translated to `FirebaseError` with `storage/unauthorized` (or `storage/unauthenticated`) so consumers can write one catch.
 
 ## What's different between backends

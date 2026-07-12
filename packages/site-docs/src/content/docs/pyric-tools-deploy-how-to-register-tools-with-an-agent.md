@@ -10,6 +10,7 @@ order: 10013
 This guide shows you how to expose `pyric-tools/deploy`'s primitives as `@inbrowser/agent` tool handlers, so an LLM-driven agent can deploy rules, indexes, and functions through structured tool calls.
 
 ## Wire all three factories
+
 ```ts
 import {
   createFirestoreDeployTools,
@@ -29,9 +30,11 @@ for (const h of createFunctionsDeployTools(deps)) registry.register(h);
 
 const dispatch = createDispatch(registry);
 ```
+
 That gives the agent ten tools total: seven for Firestore, two for Hosting, one for Functions.
 
 ## Dispatch a call
+
 ```ts
 const result = await dispatch.execute(
   {
@@ -46,9 +49,11 @@ console.log(result.ok);        // boolean
 console.log(result.summary);   // one-line agent-facing message
 console.log(result.data);      // structured outcome (narrow with DeployToolData)
 ```
+
 ## Narrow `data` per tool
 
 Use the `DeployToolData` map to recover the concrete outcome type:
+
 ```ts
 import type { DeployToolData } from 'pyric-tools/deploy';
 
@@ -59,11 +64,13 @@ if (result.ok) {
   }
 }
 ```
+
 The double-`ok` (one from `ToolResult`, one from `Outcome`) reflects the two layers: did the handler run cleanly, and did the underlying operation succeed.
 
 ## Scope only the tools the agent should have
 
 Each factory is independent. Give the agent only the surfaces it needs. A read-only agent might get only `firestore_get_rules` and `firestore_get_index_status`:
+
 ```ts
 const all = createFirestoreDeployTools(deps);
 const readonly = all.filter((h) =>
@@ -71,7 +78,9 @@ const readonly = all.filter((h) =>
 );
 for (const h of readonly) registry.register(h);
 ```
+
 Or use `.map` before `.register` to decorate the descriptions:
+
 ```ts
 const decorated = createFirestoreDeployTools(deps).map((h) => ({
   ...h,
@@ -79,6 +88,7 @@ const decorated = createFirestoreDeployTools(deps).map((h) => ({
 }));
 for (const h of decorated) registry.register(h);
 ```
+
 ## Cancellation
 
 Every handler checks `ctx.signal.aborted` before starting work. This prevents a deploy from *starting* when the agent has already cancelled. It doesn't abort a deploy already in flight. The underlying primitives don't yet plumb `AbortSignal` through their fetch calls.

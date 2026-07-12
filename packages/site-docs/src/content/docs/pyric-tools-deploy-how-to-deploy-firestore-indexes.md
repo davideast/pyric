@@ -10,6 +10,7 @@ order: 10006
 This guide shows you how to deploy a `firestore.indexes.json`-shaped config and how to wait for the resulting builds.
 
 ## Deploy a batch
+
 ```ts
 import { firestore, type IndexesConfig } from 'pyric-tools/deploy';
 
@@ -36,7 +37,9 @@ if (outcome.ok) {
   if (outcome.partial) console.error('Partial results:', outcome.partial);
 }
 ```
+
 Per-entry status lives in `outcome.perIndex`:
+
 ```ts
 for (const entry of outcome.perIndex) {
   console.log(
@@ -44,6 +47,7 @@ for (const entry of outcome.perIndex) {
   );
 }
 ```
+
 ## Validate before deploying
 
 `deployAll` validates the config shape before issuing any HTTP calls. Common issues:
@@ -63,6 +67,7 @@ For non-403 per-index failures, the batch continues. Final result is `{ ok: fals
 ## Deploy a single index
 
 For one-off cases:
+
 ```ts
 const op = await firestore.indexes.create(scope, {
   collectionGroup: 'users',
@@ -72,11 +77,13 @@ const op = await firestore.indexes.create(scope, {
 
 console.log('Started operation:', op.name);
 ```
+
 This is the primitive: it throws `AdminApiError` on non-2xx instead of returning an outcome.
 
 ## Wait for a build to finish
 
 Index builds are long-running operations. Poll with `getStatus`:
+
 ```ts
 const status = await firestore.indexes.getStatus(scope, op.name);
 
@@ -86,6 +93,7 @@ if (status.ok) {
   console.error(`[${status.code}] ${status.message}`);
 }
 ```
+
 Build times depend on collection size: small collections take seconds, large ones can take hours. Poll on a backoff loop, or surface the operation name to the user and let them check the Firebase Console.
 
 ## Required IAM

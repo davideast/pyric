@@ -14,6 +14,7 @@ Point an existing codebase at the sandbox by importing `pyric/firestore` where i
 The minimum change is two import edits.
 
 ### Before
+
 ```ts
 import { initializeApp } from 'firebase/app';
 import {
@@ -27,7 +28,9 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 ```
+
 ### After
+
 ```ts
 import { initializeApp } from 'firebase/app';   // unchanged
 import {
@@ -41,6 +44,7 @@ import {
   onSnapshot,
 } from 'pyric/firestore';
 ```
+
 The function names and signatures match. Application code calling these functions does not change.
 
 ## What is identical
@@ -77,6 +81,7 @@ Sandbox listeners re-evaluate when rules change (via `sandbox.setRules`). Prod l
 Two strategies for codebases that want both surfaces at once.
 
 ### Strategy 1: aliased import
+
 ```ts
 import * as upstream from 'firebase/firestore';
 import { getFirestore, doc, setDoc } from 'pyric/firestore';
@@ -84,6 +89,7 @@ import { getFirestore, doc, setDoc } from 'pyric/firestore';
 const upstreamDb = upstream.getFirestore(app);  // unchanged upstream code path
 const wrapped = getFirestore(app);              // new path through pyric/firestore
 ```
+
 ### Strategy 2: module-level swap
 
 Swap one file at a time. Each file imports exclusively from one source. Less mixing, less risk of confusion.

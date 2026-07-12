@@ -10,6 +10,7 @@ order: 13008
 Evaluate Firestore rules in-process against a list of test cases, without deploying or contacting Google's servers.
 
 ## Run a suite
+
 ```ts
 import { firestoreRules } from 'pyric/rules';
 
@@ -17,11 +18,13 @@ const ruleset = firestoreRules(source); // throws RulesCompileError if source do
 
 const { passed, failed, unsupported, cases } = ruleset.simulate(testCases);
 ```
+
 `firestoreRules(source)` throws `RulesCompileError` (carrying `.issues: RuleIssue[]`) if the source doesn't parse. Past that point, `simulate` never throws on a rule outcome: `cases` is a `CaseResult[]`, one entry per input case, each with `passed`, `unsupported`, `decision`, `trace`, and `notes`.
 
 ## Mock `get()` and `exists()`
 
 When a rule calls `get(/databases/$(db)/documents/users/$(uid))`, the simulator looks the result up in your case's `functionMocks`. Provide them by document path:
+
 ```ts
 import type { FirestoreCase } from 'pyric/rules';
 
@@ -39,11 +42,13 @@ const testCases: FirestoreCase[] = [
   },
 ];
 ```
+
 For `get`, supply the document's data. For `exists`, supply a boolean. Paths are relative; the simulator handles the `/databases/(default)/documents/` prefix internally.
 
 ## Set `writeMode` for accurate update semantics
 
 By default, `tc.data` IS the after-state, which is fine for shallow `create`. For `update` or `set({ merge: true })`, set `writeMode` so the simulator projects the post-write document correctly:
+
 ```ts
 {
   description: 'patch a single field',
@@ -56,11 +61,13 @@ By default, `tc.data` IS the after-state, which is fine for shallow `create`. Fo
   writeMode: { kind: 'update' },  // ← merges data into resource
 },
 ```
+
 Without `writeMode`, `request.resource.data.archived` would read as `null`. With it, the simulator runs the same merge logic the admin SDK does. See [`FirestoreCase` schema](../pyric-rules-reference-test-case-schema/#writemode) for all four modes.
 
 ## Pin `request.time` for date-gated rules
 
 Any rule that reads `request.time` will evaluate against wallclock unless you pin it:
+
 ```ts
 {
   description: 'within trial window',
@@ -72,11 +79,13 @@ Any rule that reads `request.time` will evaluate against wallclock unless you pi
   requestTime: '2026-04-15T12:00:00Z',  // ← ISO-8601
 },
 ```
+
 To catch unpinned cases early, run the engine-internal `lintFirestoreRules(source, { testCases })` from `pyric/rules/internal` and look for `REQUEST_TIME_NOT_PINNED`; the public `lint(source)` and `firestoreRules(source).lint()` don't take a `testCases` option. See [Pin `request.time` for deterministic tests](../pyric-rules-how-to-pin-request-time/).
 
 ## Populate `request.query` for `list`
 
 `list` rules can read `request.query.limit / .offset / .orderBy`. Without `query` those fields read `null` and `request.query.limit < 100` becomes `null < 100 → false → DENY`. Set what your rule reads:
+
 ```ts
 {
   description: 'paged list under cap',
@@ -87,9 +96,11 @@ To catch unpinned cases early, run the engine-internal `lintFirestoreRules(sourc
   query: { limit: 25 },
 },
 ```
+
 ## Handle unsupported results
 
 An unsupported result means the simulator hit a feature it does not yet implement, not that your rule is wrong. It is *not* counted as a failure: `unsupported` is tallied separately from `failed` in the summary, and `passed` stays `false` on that case's `CaseResult`. If you have unsupported cases and need a verdict for them, route those cases to the live Rules Test API:
+
 ```ts
 const needsEscalation = cases.filter((c) => c.unsupported).map((c) => c.case);
 
@@ -97,11 +108,13 @@ if (needsEscalation.length > 0) {
   // Run these against the Rules Test API — see the test-rules-against-firebase guide.
 }
 ```
+
 See [Simulator vs Rules Test API](../pyric-rules-explanation-simulator-vs-rules-test-api/) for the full discussion.
 
 ## Read the trace
 
 Each `CaseResult` carries a `trace` (per-rule evaluation entries) and `notes` (top-level diagnostic strings), useful when a case fails and you can't tell which rule decided. `explainCase` renders both into one human-readable string, the same renderer `assertCase` uses as its thrown error's message:
+
 ```ts
 import { explainCase } from 'pyric/rules';
 
@@ -109,13 +122,16 @@ for (const c of cases) {
   if (!c.passed) console.log(explainCase(c));
 }
 ```
+
 A typical trace:
+
 ```
 FAIL: locked doc read
   get locked/x (expected ALLOW, got DENY)
   rules evaluated:
     #0 (read) [locked/{id}] (line 4) -> DENY: request.auth.uid == 'admin'
 ```
+
 For a single case, `ruleset.explain(oneCase)` runs it and returns the same structured `Explanation` without needing to slice it out of a batch result.
 
 ## Where to look next

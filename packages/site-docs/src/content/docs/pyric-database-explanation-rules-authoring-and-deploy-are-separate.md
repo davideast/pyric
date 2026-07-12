@@ -22,6 +22,7 @@ through the Realtime Database rules endpoint.
 That split keeps the in-memory workflow usable in tests, code generation, agent
 planning, and browser-like hosts. A caller can inspect `rtdbRules(rules).toJSON()` without
 holding credentials, then choose the deploy path later:
+
 ```ts
 import { rtdb } from 'pyric-tools/deploy';
 
@@ -30,6 +31,7 @@ await rtdb.rules.deploy(scope, {
   databaseUrl: 'https://demo-default-rtdb.firebaseio.com',
 });
 ```
+
 Agent tools keep the same boundary. MCP and registry tools accept JSON-shaped
 arguments, so `rtdb_deploy_rules` continues to take `rulesJson`. In-process
 TypeScript callers may pass the document object directly because the deploy

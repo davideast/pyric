@@ -7,10 +7,13 @@ order: 24018
 # `<ObjectInspector>`
 
 Headless inspector for one storage object: metadata fields + a **content-type-driven preview**. Previews come from a registry — `image/*` (blob-URL `<img>`) and `text/* + application/json` (text panel, 256KB cap, JSON pretty-printed) ship built in; consumers extend by prepending their own matchers. Bytes load lazily and only when the matched preview asks; blob URLs are revoked on path change/unmount.
+
 ```ts
 import { ObjectInspector, defaultStoragePreviews } from '@pyric/ui/storage';
 ```
+
 ## Example
+
 ```tsx
 function Inspector({ storage, selectedPath }) {
   return (
@@ -32,6 +35,7 @@ function Inspector({ storage, selectedPath }) {
   );
 }
 ```
+
 ## Props
 
 | Prop | Type | Description |
@@ -54,6 +58,7 @@ function Inspector({ storage, selectedPath }) {
 | `render` | `(ctx: { metadata, blob, blobUrl }) => ReactNode` | The preview body. |
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="object-inspector"]                 /* root; stamps data-size */
 [data-pyric-ui="object-inspector"][data-pyric-idle]
@@ -71,6 +76,7 @@ function Inspector({ storage, selectedPath }) {
 [data-pyric-preview-image]                         /* the built-in <img> */
 [data-pyric-preview-text]                          /* the built-in <pre> */
 ```
+
 ## Notes
 
 - **No `getDownloadURL` anywhere** — previews go `getBlob` →

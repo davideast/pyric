@@ -31,10 +31,12 @@ target project before they will do anything.
      JSON file (the standard Google ADC convention).
 
    If neither is set, the command fails before making any request:
+
    ```
    pyric: no service-account credentials found. Set FIREBASE_SA_BASE64
    (base64-encoded JSON) or GOOGLE_APPLICATION_CREDENTIALS (path to JSON file).
    ```
+
 2. **A target project.** The project id is resolved in this order:
 
    1. the `--project <id>` flag,
@@ -49,26 +51,34 @@ The service account must have permission to edit the project's Identity Toolkit
 config; a `403` surfaces as a `PERMISSION_DENIED` error in the command output.
 
 ## Enable or disable a provider
+
 ```sh
 pyric auth:configure-provider <anonymous|email|phone|google> <true|false>
 ```
+
 The first argument is the provider, the second is whether to enable (`true`) or
 disable (`false`) it. Both are required, and the provider must be exactly one of
 the four supported ids: `anonymous`, `email`, `phone`, or `google`.
 
 To turn on anonymous sign-in:
+
 ```sh
 pyric auth:configure-provider anonymous true --project my-app
 ```
+
 To turn on email/password sign-in (Identity Toolkit enables it with a password
 requirement):
+
 ```sh
 pyric auth:configure-provider email true --project my-app
 ```
+
 To disable a provider, pass `false`:
+
 ```sh
 pyric auth:configure-provider phone false --project my-app
 ```
+
 The command prints the result as JSON and exits `0` on success, `2` on a failed
 operation, and `1` on bad arguments or an unresolved scope.
 
@@ -91,31 +101,39 @@ Authorised domains are the allowlist Firebase Auth uses for OAuth redirects. If
 you deploy to a new hosting domain and forget to authorise it, Google sign-in
 and other redirect-based providers will fail. Use this command to inspect and
 edit that list.
+
 ```sh
 pyric auth:manage-domains <add|remove|list> [domain]
 ```
+
 The action is required and must be `add`, `remove`, or `list`. The `domain`
 argument is required for `add` and `remove`, and ignored for `list`.
 
 ### List the current domains
+
 ```sh
 pyric auth:manage-domains list --project my-app
 ```
+
 This reads the project's auth config and prints the current `authorizedDomains`
 array. It makes no changes.
 
 ### Add a domain
+
 ```sh
 pyric auth:manage-domains add app.example.com --project my-app
 ```
+
 Adds the domain to the allowlist and writes the updated list back. If the domain
 is already present, the command succeeds and returns the unchanged list (it is
 idempotent).
 
 ### Remove a domain
+
 ```sh
 pyric auth:manage-domains remove old.example.com --project my-app
 ```
+
 Removes the domain and writes the updated list back. If the domain isn't in the
 list, the command succeeds with the list unchanged. Removing `localhost`
 succeeds but returns a `warning`, since dropping it can break local development.

@@ -16,12 +16,15 @@ The package is organised around three things:
 - **Tool factories**: `createHostingDeployTools`, `createFunctionsDeployTools`, `createFirestoreDeployTools`, `createRtdbDeployTools`. Each returns a `ToolHandler[]` ready to feed an `@inbrowser/agent` registry.
 
 ## Install
+
 ```bash
 bun add pyric-tools
 # or
 npm install pyric-tools
 ```
+
 ## A 30-second example
+
 ```ts
 import { fromServiceAccount, firestore } from 'pyric-tools/deploy';
 
@@ -30,6 +33,7 @@ const scope = await fromServiceAccount('./service-account.json');
 const current = await firestore.rules.fetch(scope);
 console.log(current);  // string with the deployed Firestore rules, or null
 ```
+
 ## Where to go next
 
 Documentation is organised under [`docs/`](../pyric-tools-deploy/) following the [Diataxis](https://diataxis.fr/) framework:

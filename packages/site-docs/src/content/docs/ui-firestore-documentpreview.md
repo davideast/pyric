@@ -7,10 +7,13 @@ order: 24013
 # `<DocumentPreview>`
 
 Read-only renderer for a Firestore document. Iterates top-level fields in lexicographic order; dispatches each value through the field-editor registry on its inferred type.
+
 ```ts
 import { DocumentPreview } from '@pyric/ui/firestore';
 ```
+
 ## Example
+
 ```tsx
 import { useFirestoreDoc } from '@pyric/ui/firestore';
 
@@ -27,6 +30,7 @@ function UserPreview({ ref }) {
   );
 }
 ```
+
 ## Props
 
 | Prop | Type | Required | Description |
@@ -61,6 +65,7 @@ The root emits `data-size="narrow" \| "medium" \| "wide"` (breakpoints: 480 / 76
 ## Customizing per-type rendering
 
 Pass a partial `fieldEditors` registry to override one type. The override merges into the defaults, so unspecified types keep the built-in renderer.
+
 ```tsx
 import {
   defaultFieldEditors,
@@ -77,6 +82,7 @@ const customString: FieldEditorContract<string> = {
   fieldEditors={{ string: customString }}
 />
 ```
+
 ## See also
 
 - [`<DocumentEditor>`](../ui-firestore-documenteditor/) — the editable counterpart.

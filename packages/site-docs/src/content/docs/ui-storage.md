@@ -13,6 +13,7 @@ pre-evaluates rules so denied actions warn BEFORE the click). Same one-handle
 contract as the Firestore half: every hook takes a `FirebaseStorage` handle
 (`pyric/storage` sandbox or prod), so the same components work against the
 in-browser sandbox and a real bucket.
+
 ```ts
 import {
   // read path
@@ -35,7 +36,9 @@ import {
 } from '@pyric/ui/storage';
 // hooks-only entry: '@pyric/ui/storage/hooks'
 ```
+
 ## The wiring (one screen)
+
 ```tsx
 function StorageAdmin({ storage }) {
   const nav = usePathState();
@@ -79,6 +82,7 @@ function StorageAdmin({ storage }) {
   );
 }
 ```
+
 ## Components
 
 - [ObjectBrowser](../ui-storage-objectbrowser/) — the folder/object row list;

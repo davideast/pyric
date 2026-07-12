@@ -45,11 +45,13 @@ These belong to a different audience than the data-plane consumers. A web app ra
 ## What the sandbox-only namespace bridges
 
 `pyric/firestore`'s `sandbox.setRules(db, rules)` *does* deploy rules, but only to a sandbox-backed handle's underlying `LocalEnvironment`. The implementation under the hood:
+
 ```ts
 sandbox.setRules(db, source) → pyric-admin's handle.setRules(source)
                                → LocalEnvironment.deployRules(source)
                                → lintFirestoreRules(source) (engine-internal, from pyric/rules/internal)
 ```
+
 The lint result returned to the consumer comes from the rules-tooling package's internal engine. The data-plane package depends on the rules-tooling package transitively, but doesn't re-export it.
 
 ## When the cycle matters

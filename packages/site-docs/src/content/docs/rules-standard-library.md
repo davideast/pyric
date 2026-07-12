@@ -10,6 +10,7 @@ description: "Compose security rules from tested modules, with an import system 
 # The Firestore rules standard library
 
 This is a Firestore rules file:
+
 ```rules
 rules_version = '2+modules';
 import { isMyTurn, turnFlipped } from 'turns';
@@ -22,11 +23,13 @@ service cloud.firestore {
   }
 }
 ```
+
 The rules language has no import statement. This file deploys anyway. `isMyTurn` and `turnFlipped` are not snippets you pasted from somewhere. They are functions from Pyric's rules standard library, fifteen modules of common and advanced security checks, each with tests, pulled in by name.
 
 ## An import system that compiles away
 
 Declare `rules_version = '2+modules'` instead of `'2'` and the import syntax becomes legal. Imports resolve to flat names, so you call the function directly, never through a module prefix:
+
 ```rules
 rules_version = '2+modules';
 import { hasClaim } from 'membership';
@@ -35,6 +38,7 @@ import { statusIs } from 'transitions';
 // hasClaim(...), never membership.hasClaim(...)
 allow update: if hasClaim('moderator') && statusIs('status', 'pending');
 ```
+
 When you lint, simulate, or deploy, the resolver:
 
 - pulls in the functions you named, plus anything they call
@@ -47,12 +51,14 @@ The output is stock Firestore rules. Firebase never sees the module system. And 
 ## Fifteen modules, common to advanced
 
 Any file can mix modules, so a game rule borrows from `counters` as naturally as from `state`:
+
 ```rules
 import { isPlaying } from 'state';
 import { incrementedBy } from 'counters';
 
 allow update: if isPlaying() && incrementedBy('moveCount', 1);
 ```
+
 | Module | What it covers |
 |---|---|
 | `auth` | signed-in and ownership checks, the two every app writes first |
@@ -76,6 +82,7 @@ Every module ships with an executable fixture file beside it, and `stdlib-cases.
 ## The everyday pair: auth and validation
 
 Most rulesets start with the same two questions, who is writing and what are they writing. `auth` answers the first, `validation` the second:
+
 ```rules
 rules_version = '2+modules';
 import { isAuthenticated, isOwner } from 'auth';
@@ -94,11 +101,13 @@ service cloud.firestore {
   }
 }
 ```
+
 Read it back: only the owner writes, both required fields are present, nothing beyond the three allowed keys, the name is 1 to 50 characters, and visibility is one of two values. The details carry the hard-won parts. `validString` reads the field with bracket access, so a missing field fails the check instead of erroring, and `isOneOf` uses `in` on a list because `.includes()` does not exist in rules.
 
 ## Let users join a team, and only as themselves
 
 The advanced end of the shelf: a map-shaped `members` field on a team document, where users join and leave on their own, with no backend granting access and no way to escalate:
+
 ```rules
 rules_version = '2+modules';
 import { onlyAddedSelf, onlyRemovedSelf } from 'joining';
@@ -113,6 +122,7 @@ service cloud.firestore {
   }
 }
 ```
+
 `onlyAddedSelf` diffs the members map and demands set equality: the write adds exactly the caller, at exactly `editor`, changes nobody, removes nobody. A join that also sneaks in a friend, edits an existing role, or self-assigns `admin` denies. Composed with `onlyFieldsChanged(['members'])`, the write cannot touch anything else on the document either.
 
 The fixtures assert each of those denials by name. That is the point of importing over pasting: the failure cases you would not have thought to test are already cases.

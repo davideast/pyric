@@ -24,14 +24,17 @@ You need:
 - Node 20+ or Bun 1.x.
 
 ## Step 1: Set up a working folder
+
 ```bash
 mkdir deploy-tutorial && cd deploy-tutorial
 bun init -y
 bun add pyric-tools
 ```
+
 ## Step 2: Write the function source
 
 Create a `functions/` subdirectory and add `functions/package.json`:
+
 ```json
 {
   "name": "tutorial-functions",
@@ -42,12 +45,15 @@ Create a `functions/` subdirectory and add `functions/package.json`:
   "dependencies": {}
 }
 ```
+
 Add `functions/index.js`:
+
 ```js
 export function hello(req, res) {
   res.json({ message: 'Hello from pyric-tools/deploy', when: new Date().toISOString() });
 }
 ```
+
 Two files. That's the whole function. The bundler will zip it, the Cloud Build buildpack will install dependencies (there are none), and Cloud Functions will run `hello` on HTTP requests.
 
 ## Step 3: Deploy it
@@ -55,6 +61,7 @@ Two files. That's the whole function. The bundler will zip it, the Cloud Build b
 Save your service-account JSON as `service-account.json` next to your `package.json` (or set it through an env var; `fromServiceAccount` accepts both).
 
 Create `deploy.ts`:
+
 ```ts
 import { fromServiceAccount, functions } from 'pyric-tools/deploy';
 
@@ -82,19 +89,26 @@ if (result.success) {
   console.error(`[${result.error.code}] ${result.error.message}`);
 }
 ```
+
 Run it:
+
 ```bash
 bun run deploy.ts
 ```
+
 The first deploy takes a few minutes: the bundler zips the directory, the upload uses a Cloud Build signed URL, and the function build itself takes ~30 to 90 seconds. When it completes you will see:
+
 ```
 Project: your-project-id
 Deployed hello → https://hello-<hash>-uc.a.run.app (public: true)
 ```
+
 That URL is the function's Cloud Run endpoint. Open it in a browser:
+
 ```json
 { "message": "Hello from pyric-tools/deploy", "when": "2026-05-12T20:00:00.000Z" }
 ```
+
 The function is live.
 
 ## Step 4: Re-deploy
@@ -104,9 +118,11 @@ Edit `functions/index.js` and change the message. Re-run `bun run deploy.ts`. Th
 ## Step 5: Watch a failure
 
 Edit `deploy.ts` and change `entryPoint: 'hello'` to `entryPoint: 'missing'`. Run again:
+
 ```
 [OPERATION_FAILED] Function deployment operation failed: ...
 ```
+
 The deploy was issued, the source uploaded, Cloud Build ran, and then the function failed to load because the export doesn't exist. The error code `OPERATION_FAILED` signals "the operation completed with an error" (as opposed to `CREATE_FAILED`, which would mean the create call itself returned non-2xx).
 
 `result.error.functionIndex` tells you which function in the array failed. In a multi-function deploy, earlier functions may already be live. The array isn't transactional.

@@ -12,6 +12,7 @@ order: 12017
 ## The shape we wanted
 
 Firebase users write code like:
+
 ```ts
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 
@@ -19,6 +20,7 @@ const db = getFirestore(app);
 await setDoc(doc(db, 'notes/n1'), { title: 'hello' });
 const snap = await getDoc(doc(db, 'notes/n1'));
 ```
+
 We wanted that exact code to work against the sandbox for tests. Two requirements fell out:
 
 1. **Same import path.** Test code imports from `pyric/firestore` or `firebase/firestore`, not from a test-only package.
@@ -29,12 +31,15 @@ The result is the swap-in contract: `import { ... } from 'pyric/firestore'` beha
 ## The dispatch model
 
 Internally, `Firestore` is an opaque handle carrying a `Target` discriminator:
+
 ```ts
 type Target = SandboxTarget | ProdTarget;
 type SandboxTarget = { kind: 'sandbox'; db: ChainableFirestore };
 type ProdTarget = { kind: 'prod'; db: fb.Firestore };
 ```
+
 Every function in the package starts with `const target = targetOf(db)`, then branches:
+
 ```ts
 export async function setDoc(ref, data, opts?) {
   const target = targetOf(ref.parent /* or whatever */);
@@ -44,6 +49,7 @@ export async function setDoc(ref, data, opts?) {
   return fb.setDoc(toFbRef(ref), data, opts);        // → firebase/firestore
 }
 ```
+
 The dispatch is shape-uniform across reads, writes, queries, listeners, transactions, and aggregations.
 
 ## Why not a proxy

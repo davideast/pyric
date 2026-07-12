@@ -10,6 +10,7 @@ order: 15004
 `pyric/storage` has two entry points: `getStorageSandbox(target, options?)` and `getStorageProd(app, options?)`. Pick by where you need the data to land.
 
 ## Sandbox
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getStorageSandbox, ref, uploadBytes } from 'pyric/storage';
@@ -19,9 +20,11 @@ const storage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }));
 
 await uploadBytes(ref(storage, 'sessions/n1'), bytes);
 ```
+
 Backed by IndexedDB. Sub-millisecond per op. Browser-safe. Lifetime tied to the sandbox.
 
 ## Prod
+
 ```ts
 import { initializeApp } from 'firebase/app';
 import { getStorageProd, ref, uploadBytes } from 'pyric/storage';
@@ -31,6 +34,7 @@ const storage = getStorageProd(app);
 
 await uploadBytes(ref(storage, 'sessions/n1'), bytes);
 ```
+
 Backed by `firebase/storage`. Network-bound. Operations against real Cloud Storage.
 
 ## What's identical
@@ -60,6 +64,7 @@ The dispatch is hidden inside each function. Same call sites; the backend choice
 - **Storage triggers**, image transformations, Firebase Extensions. Out of scope.
 
 ## Both at once
+
 ```ts
 const sandbox = initializeSandbox();
 const sandboxStorage = getStorageSandbox(sandbox.withAuth({ uid: 'alice' }));
@@ -70,15 +75,18 @@ const prodStorage = getStorageProd(app);
 await uploadBytes(ref(sandboxStorage, 'sessions/n1'), bytes);
 await uploadBytes(ref(prodStorage, 'sessions/n1'), bytes);
 ```
+
 Two backends, two handles, one process. Sometimes useful for replication-style tests.
 
 ## Use it in code written against `firebase/storage`
 
 To use `pyric/storage` in a project whose code imports `firebase/storage`, the rename targets the entry point only:
+
 ```diff
 - import { getStorage, ref, uploadBytes } from 'firebase/storage';
 + import { getStorageProd as getStorage, ref, uploadBytes } from 'pyric/storage';
 ```
+
 Application code that calls `getStorage(app)` keeps working. Tests can import `getStorageSandbox` separately.
 
 Note that not every `firebase/storage` symbol is re-exported. See [Implementation scope and deferred features](../pyric-storage-explanation-implementation-scope/) for what's missing.

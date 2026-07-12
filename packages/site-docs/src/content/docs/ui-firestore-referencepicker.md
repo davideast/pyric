@@ -7,10 +7,13 @@ order: 24015
 # `<ReferencePicker>`
 
 Pick a `DocumentReference` by typing a path OR by browsing the tree. Improvement over firebase-tools-ui's plain text input.
+
 ```ts
 import { ReferencePicker } from '@pyric/ui/firestore';
 ```
+
 ## Example
+
 ```tsx
 <ReferencePicker
   firestore={fs}
@@ -23,6 +26,7 @@ import { ReferencePicker } from '@pyric/ui/firestore';
   }}
 />
 ```
+
 ## Props
 
 | Prop | Type | Required | Description |
@@ -49,6 +53,7 @@ Either way, the text input updates to reflect the committed path so the two path
 - **Back** — pops the navigation history. Disabled at root.
 
 ## Direct hook access
+
 ```tsx
 import { useReferencePicker } from '@pyric/ui/firestore/hooks';
 
@@ -60,9 +65,11 @@ const picker = useReferencePicker({ firestore, listCollections });
 //   drillBack, clear,
 // }
 ```
+
 Use the hook directly for custom layouts (popover trigger inside another component, etc).
 
 ## Styling hooks
+
 ```
 [data-pyric-ui="reference-picker"]
 [data-pyric-reference-path-label]
@@ -84,6 +91,7 @@ Use the hook directly for custom layouts (popover trigger inside another compone
 [data-pyric-browse-pick]
 [data-pyric-browse-drill]
 ```
+
 ## Notes
 
 - **Path validation** uses `doc(firestore, path)` wrapped in try/catch. Empty paths are valid (no commit available). Paths with an odd number of segments fail with `"Must point to a document (even segment count)"`.

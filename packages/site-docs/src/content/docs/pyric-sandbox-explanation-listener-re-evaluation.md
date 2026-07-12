@@ -60,6 +60,7 @@ The distinction:
 The re-evaluation loop walks every active listener. A callback may add or remove listeners during the loop (React StrictMode does this routinely; HMR likewise). Iterating the map directly while it mutates is a bug.
 
 The loop snapshots the listener IDs first, then checks `snapshotListeners.has(id)` per iteration:
+
 ```ts
 const records = Array.from(this.snapshotListeners.values());
 for (const record of records) {
@@ -67,6 +68,7 @@ for (const record of records) {
   // ... re-evaluate
 }
 ```
+
 The same pattern appears in write-driven listener notification. The mutating-during-iteration risk is the same in both cases; the fix is the same.
 
 ## The "once-per-stream" error contract

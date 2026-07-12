@@ -7,12 +7,15 @@ order: 10020
 # `hosting` namespace
 
 Firebase Hosting deploy primitives. Every method takes a `ProjectScope` as its first argument and resolves the token internally per-dispatch.
+
 ```ts
 import { hosting } from 'pyric-tools/deploy';
 ```
+
 ## `hosting.deployFiles(scope, options)`
 
 Deploy a directory of files to a Hosting site.
+
 ```ts
 async function deployFiles(
   scope: ProjectScope,
@@ -29,6 +32,7 @@ interface DeployHostingScopedOptions {
   channelTtl?: string;        // protobuf Duration ('604800s'); create only
 }
 ```
+
 `ignore` takes firebase.json hosting `ignore` globs; omitted, it
 applies the firebase-tools scaffold defaults (`firebase.json`,
 `**/.*`, `**/node_modules/**`). See
@@ -40,6 +44,7 @@ You must supply exactly one of `localDir` (Node-only) or `files` (browser-friend
 The full pipeline is: create version → populate file manifest → upload missing files → finalize → release. The result aggregates the whole pipeline; a non-recoverable failure at any step aborts the rest.
 
 ### `DeployHostingResult`
+
 ```ts
 type DeployHostingResult =
   | { success: true; data: DeployHostingSuccess }
@@ -58,9 +63,11 @@ interface DeployHostingSuccess {
   configWarnings?: string[];  // non-fatal config notes (unknown keys, …)
 }
 ```
+
 When `channelId` is set the deploy releases onto that preview channel instead of live. See [Deploy to a preview channel](../pyric-tools-deploy-how-to-deploy-to-a-preview-channel/) for the channel lifecycle.
 
 ### `DeployHostingError`
+
 ```ts
 interface DeployHostingError {
   code: HostingErrorCode;
@@ -81,33 +88,39 @@ type HostingErrorCode =
   | 'CHANNEL_FAILED'
   | 'NETWORK_ERROR';
 ```
+
 `REWRITE_TARGET_NOT_FOUND` is distinct from `FINALIZE_FAILED` so callers can distinguish "I deployed before the function existed" from generic finalize failures. Hosting validates rewrite targets at finalize time only.
 
 ## `hosting.sites.create(scope, input)`
 
 Create a new Hosting site within the project.
+
 ```ts
 async function create(
   scope: ProjectScope,
   input: Omit<CreateHostingSiteInput, 'projectId' | 'accessToken'>,
 ): Promise<CreateSiteResult>;
 ```
+
 The site id must be globally unique within the project's region. Collisions return a non-recoverable error.
 
 ## `hosting.sites.ensure(scope, input)`
 
 Idempotent variant of `create`. Returns success when the site already exists, creates it otherwise.
+
 ```ts
 async function ensure(
   scope: ProjectScope,
   input: Omit<CreateHostingSiteInput, 'projectId' | 'accessToken'>,
 ): Promise<EnsureSiteResult>;
 ```
+
 Use this when you want the deploy to work the first time and every subsequent time without conditional logic.
 
 ## `HostingJsonConfig`
 
 The `config` option is the firebase.json hosting block, unmodified:
+
 ```ts
 interface HostingJsonConfig {
   rewrites?: HostingRewriteJson[];   // destination | function (string or object) | run
@@ -119,6 +132,7 @@ interface HostingJsonConfig {
   i18n?: { root: string };
 }
 ```
+
 Each rewrite names exactly one pattern (`source`/`glob`, a Hosting
 glob, or `regex`) and one target: a static `destination`, a
 `function` (legacy string or `{ functionId, region? }` object), or a

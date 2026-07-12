@@ -12,6 +12,7 @@ This guide shows you how to build a `ProjectScope` in a browser host using the c
 ## The shape
 
 `ProjectScope` is `{ projectId, resolveToken }`. Wire it by hand:
+
 ```ts
 import type { ProjectScope } from 'pyric-tools/deploy';
 import { getAuth } from 'firebase/auth';
@@ -23,11 +24,13 @@ const scope: ProjectScope = {
   resolveToken: () => auth.currentUser!.getIdToken(),
 };
 ```
+
 `getIdToken()` caches and refreshes internally, so you don't need `memoizeTtl` on top.
 
 ## Add a wait-for-sign-in guard
 
 `auth.currentUser` is `null` until the auth state has resolved. Wrap the resolver:
+
 ```ts
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -50,6 +53,7 @@ const scope: ProjectScope = {
   },
 };
 ```
+
 This pattern means primitives called immediately after page load will block on auth instead of throwing.
 
 ## What works and what doesn't from a browser

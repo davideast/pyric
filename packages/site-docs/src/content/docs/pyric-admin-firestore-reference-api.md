@@ -16,9 +16,11 @@ One arm difference to know before anything else: unlike `pyric-admin/{auth,datab
 ## Entry points
 
 ### `getFirestore(target?)`
+
 ```ts
 function getFirestore(target?: SandboxContext | PyricAdminApp): SandboxFirestore;
 ```
+
 Resolve the rules-applied Firestore handle. Three input shapes:
 
 - **`getFirestore(ctx)`** with a `SandboxContext`: the load-bearing form. Operations run under the context's captured identity. Anonymous is `sandbox.withAuth(null)`, written explicitly, so every call site states identity. Idempotent: repeat calls with the same context return the same handle (cached in a `WeakMap`).
@@ -32,10 +34,12 @@ Resolve the rules-applied Firestore handle. Three input shapes:
 **Errors.** Operations, and every object they return, re-throw failures as `SandboxError` with structured `denialContext` on permission denials. See [error translation](../pyric-admin-firestore-explanation-error-translation/).
 
 ### `getAdminFirestore(target)`
+
 ```ts
 function getAdminFirestore(ctx: SandboxContext): SandboxFirestore;
 function getAdminFirestore(sandbox: Sandbox): SandboxFirestore;
 ```
+
 Resolve a **rules-bypassing** handle: same chainable `SandboxFirestore` surface, but every operation it issues (reads, writes, queries, batches, transactions) skips security-rule evaluation and is treated as allow. A bare `Sandbox` is accepted because the bypass is identity-agnostic; no rule reads `request.auth` on this path.
 
 Storage preconditions still apply (a `create` on an existing doc still fails `already-exists`, matching real Firestore admin behavior), and the same `request`/`write` events fire and listeners wake, so bypass writes show up live and on the traffic log stamped as admin-bypass.
@@ -45,11 +49,13 @@ On a remote sandbox, the bypass rides the worker's `{ mode: 'admin' }` lens, the
 Use it for "edit anything as admin" surfaces. For rules-applied impersonation, use `getFirestore(sandbox.withAuth({ uid }))` instead.
 
 ### `onSnapshot(refOrQuery, ...)`
+
 ```ts
 function onSnapshot(reference: DocumentReference, observer: SnapshotObserver<DocumentSnapshot>): Unsubscribe;
 function onSnapshot(reference: Query | CollectionReference, observer: SnapshotObserver<QuerySnapshot>): Unsubscribe;
 // plus (options, observer), (onNext, onError?), and (options, onNext, onError?) forms of each
 ```
+
 Web-SDK-shaped streaming reads. Four overload groups per target kind mirror `firebase/firestore`'s `onSnapshot`, so call sites copied from production typecheck unchanged. Full overload list and rationale: [`onSnapshot` overloads](../pyric-admin-firestore-reference-onsnapshot/).
 
 Behavior notes verified against source:
@@ -62,9 +68,11 @@ Behavior notes verified against source:
 - The chainable form (`db.collection('x').where(...).onSnapshot(cb)`) works at runtime on both arms but is no longer typed; the free function is the typed surface.
 
 ### `FOLLOWS_CURRENT_USER`
+
 ```ts
 const FOLLOWS_CURRENT_USER: unique symbol;
 ```
+
 Internal wiring, exported for one consumer: the modular `pyric/firestore` layer stamps this symbol onto the options object it forwards to mark a listener as live (identity follows `sandbox.currentUser`) rather than frozen. `onSnapshot` here reads and strips it. Direct callers never need it; absent means frozen, the safe default. On a remote sandbox, a live-marked listener throws (`SandboxError` code `unimplemented`): remote listeners are frozen to the identity of the context that created the ref.
 
 ---
@@ -72,10 +80,12 @@ Internal wiring, exported for one consumer: the modular `pyric/firestore` layer 
 ## The chainable surface
 
 `SandboxFirestore` extends the production-shaped `Firestore`, so admin-style code chains the way it does against `firebase-admin/firestore`:
+
 ```ts
 await db.collection('notes').doc('n1').set({ title: 'hello' });
 const snap = await db.collection('notes').where('done', '==', false).get();
 ```
+
 The shapes, as implemented by the compat layer:
 
 - `db.collection(path)`, `db.doc(path)`, `db.collectionGroup(collectionId)`, `db.batch()`, `db.runTransaction(fn, opts?)`.
@@ -90,11 +100,13 @@ Detailed per-method behavior: [`SandboxFirestore` surface](../pyric-admin-firest
 ### Sandbox-only methods on the handle
 
 `SandboxFirestore` adds three methods with no production analog, named in sandbox vocabulary so they cannot be confused with deployment:
+
 ```ts
 setRules(rules: string): LintResult;
 seed(options?: { documents?: Record<string, DocumentData> }): LintResult;
 snapshot(): Record<string, DocumentData>;
 ```
+
 `setRules` swaps the active ruleset (parse errors leave the old rules in place), `seed` replaces stored documents while preserving rules, `snapshot` captures every document as a path-keyed map. Full contract: [`SandboxFirestore` surface](../pyric-admin-firestore-reference-sandbox-firestore/).
 
 ---
@@ -102,6 +114,7 @@ snapshot(): Record<string, DocumentData>;
 ## Values
 
 ### `FieldValue`
+
 ```ts
 class FieldValue {
   static serverTimestamp(): FieldValueSentinel;
@@ -111,9 +124,11 @@ class FieldValue {
   static delete(): FieldValueSentinel;
 }
 ```
+
 The admin-SDK static-method shape. Each call returns a `FieldValueSentinel` marker the write path resolves.
 
 ### `Timestamp`
+
 ```ts
 class Timestamp {
   constructor(seconds: number, nanoseconds: number);
@@ -125,9 +140,11 @@ class Timestamp {
   isEqual(other: Timestamp): boolean;
 }
 ```
+
 Admin-SDK shape (`seconds` plus `nanoseconds`).
 
 ### `SandboxError`
+
 ```ts
 class SandboxError extends Error {
   readonly code: SandboxErrorCode;
@@ -135,6 +152,7 @@ class SandboxError extends Error {
   readonly remediation?: string;
 }
 ```
+
 The typed error family from `pyric/sandbox`, re-exported so consumers can `catch (e) { if (e instanceof SandboxError) ... }` with one import path. `denialContext` is populated on `permission-denied` and carries the rule, the request, and the resource state that produced the verdict. See [Translate denials](../pyric-admin-firestore-how-to-translate-denials/).
 
 ---

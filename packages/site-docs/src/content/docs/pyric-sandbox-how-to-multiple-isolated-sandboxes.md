@@ -12,6 +12,7 @@ Keep multiple sandboxes alive at once, for fleet tests, multi-tenant simulations
 ## Sandboxes are fully isolated
 
 Two `initializeSandbox()` calls produce two independent sandboxes. No shared state, no shared listeners, no shared event log. Run them in parallel without coordination:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric-admin';
@@ -31,9 +32,11 @@ console.log(sbA.admin.getDocument('notes/a1'));  // { from: 'sandbox A' }
 console.log(sbB.admin.getDocument('notes/b1'));  // { from: 'sandbox B' }
 console.log(sbA.admin.getDocument('notes/b1'));  // null — different sandbox
 ```
+
 ## Fleet test pattern
 
 For N parallel scenarios:
+
 ```ts
 async function runScenario(scenarioName: string) {
   const sandbox = initializeSandbox();
@@ -43,6 +46,7 @@ async function runScenario(scenarioName: string) {
 
 await Promise.all(scenarios.map(runScenario));
 ```
+
 Each scenario gets its own sandbox. `dispose` at the end is defensive. Once the variable goes out of scope, the garbage collector will reclaim the sandbox anyway. `dispose` matters when listeners are involved, because subscribers might keep the sandbox reachable longer than you intended.
 
 ## Cost considerations
@@ -58,6 +62,7 @@ For thousands of sandboxes, profile before assuming linearity. For tens or hundr
 ## Sharing rules across sandboxes
 
 `SandboxConfig` is reserved for future bulk-config options. Today, each sandbox sets rules independently. To share a ruleset across many:
+
 ```ts
 const RULES = `rules_version = '2'; …`;
 
@@ -70,6 +75,7 @@ function makeSeeded() {
 
 const sandboxes = Array.from({ length: 10 }, makeSeeded);
 ```
+
 The rules text is shared (by reference); the underlying state is per-sandbox.
 
 ## Vitest / Bun test parallelism

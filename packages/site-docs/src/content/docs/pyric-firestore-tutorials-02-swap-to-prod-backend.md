@@ -14,21 +14,26 @@ This tutorial assumes you have a Firebase project with Firestore enabled and a c
 ## Before you start
 
 In the project folder from Tutorial 1:
+
 ```bash
 bun add firebase
 ```
+
 `firebase` is the upstream Web SDK. `pyric/firestore`'s prod backend dispatches through it.
 
 ## Step 1: The one-line change
 
 Replace this:
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 
 const sandbox = initializeSandbox();
 const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
 ```
+
 With this:
+
 ```ts
 import { initializeApp } from 'firebase/app';
 
@@ -38,23 +43,28 @@ const app = initializeApp({
 });
 const db = getFirestore(app);
 ```
+
 That's the swap. Everything else in `demo.ts` (`setDoc`, `getDoc`, `query`, `onSnapshot`, the writes, the reads, the listener) stays unchanged.
 
 ## Step 2: What won't work anymore
 
 Three calls will fail:
+
 ```ts
 sandboxOps.setRules(db, ...);     // throws 'failed-precondition'
 sandboxOps.seedDocuments(db, ...); // throws 'failed-precondition'
 sandboxOps.snapshotState(db);     // throws 'failed-precondition'
 ```
+
 The sandbox namespace operations are sandbox-only by design. On prod, deploy rules through `pyric-tools/deploy`:
+
 ```ts
 import { fromServiceAccount, firestore } from 'pyric-tools/deploy';
 
 const scope = await fromServiceAccount('./service-account.json');
 await firestore.rules.deploy(scope, `rules_version = '2'; ...`);
 ```
+
 Seed data via writes, the same as any other production code. For dumping state there's no efficient API on the prod side, but you can iterate collections via `getDocs`.
 
 ## Step 3: Make sure rules are deployed
@@ -62,14 +72,17 @@ Seed data via writes, the same as any other production code. For dumping state t
 The sandbox-shaped tutorial deployed rules inline. On prod, you need rules deployed *before* you run the code, or every write will deny. Two options:
 
 ### Deploy via the Firebase CLI
+
 ```bash
 firebase deploy --only firestore:rules
 ```
+
 The CLI reads your local `firestore.rules` and pushes it.
 
 ### Deploy programmatically
 
 If you're running the demo as part of a larger script:
+
 ```ts
 import { fromServiceAccount, firestore } from 'pyric-tools/deploy';
 
@@ -84,9 +97,11 @@ service cloud.firestore {
   }
 }`);
 ```
+
 ## Step 4: Auth
 
 The sandbox version used `sandbox.withAuth({ uid: 'alice' })` to act as Alice. On prod, the user identity comes from Firebase Auth:
+
 ```ts
 import { getAuth, signInAnonymously } from 'firebase/auth';
 
@@ -94,14 +109,17 @@ const auth = getAuth(app);
 await signInAnonymously(auth);
 // Now `auth.currentUser.uid` is the user identity rules will see.
 ```
+
 For server-side scripts, sign in with a custom token or run as a service account. The details depend on your project's auth setup.
 
 ## Step 5: Run it
 
 With rules deployed and a user signed in:
+
 ```bash
 bun run demo.ts
 ```
+
 The same writes, the same reads, the same listener. The output will be similar, with two key differences:
 
 - Operations take tens to hundreds of milliseconds instead of sub-millisecond.

@@ -9,6 +9,7 @@ order: 12011
 The single factory dispatches by the shape of its argument.
 
 ## Sandbox backend
+
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
@@ -16,11 +17,13 @@ import { getFirestore } from 'pyric/firestore';
 const sandbox = initializeSandbox();
 const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
 ```
+
 Pass a `SandboxContext` to get a sandbox-backed `Firestore`. The handle dispatches every operation through `pyric-admin`'s chainable adapter onto `pyric/sandbox`'s `LocalEnvironment`.
 
 The sandbox-only operations (`sandbox.setRules`, `sandbox.seedDocuments`, `sandbox.snapshotState`) work on this handle.
 
 ## Prod backend
+
 ```ts
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'pyric/firestore';
@@ -31,6 +34,7 @@ const app = initializeApp({
 });
 const db = getFirestore(app);
 ```
+
 Pass a `FirebaseApp` to get a prod-backed `Firestore`. The handle delegates every operation to `firebase/firestore`.
 
 The sandbox-only operations throw `SandboxError('failed-precondition')` on this handle: there's no `LocalEnvironment` to set rules against.
@@ -51,22 +55,26 @@ We considered exporting two factories: `getFirestoreSandbox(ctx)` and `getFirest
 ## Type-level dispatch
 
 The two overloads narrow correctly:
+
 ```ts
 function f(target: SandboxContext | FirebaseApp): Firestore {
   return getFirestore(target);   // resolves to overload 1 or 2 by inference
 }
 ```
+
 TypeScript picks the right overload from the argument's type. The runtime check is independent: even if a caller cast through `any`, the runtime branch still routes correctly.
 
 ## What's identical across backends
 
 Once you have a `Firestore`, every other function in the package works identically:
+
 ```ts
 const db = getFirestore(target);  // sandbox or prod — doesn't matter from here
 
 await setDoc(doc(db, 'notes', 'n1'), { title: 'hello' });
 const snap = await getDoc(doc(db, 'notes', 'n1'));
 ```
+
 The same `setDoc` call routes to the simulator's `set` on sandbox and to Firebase's `setDoc` on prod. Differences are confined to:
 
 - Sandbox-only operations (`sandbox.*`): throw on prod.

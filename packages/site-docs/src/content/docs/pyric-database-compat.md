@@ -1591,7 +1591,9 @@ The sandbox implementation has landed (`packages/pyric/src/database/modular.ts` 
 
 `packages/conformance/src/run.ts` now deploys an RTDB rules namespace
 analogous to `ensureOracleRules` / `ensureOracleStorageRules`. The
-JSON shape:```json
+JSON shape:
+
+```json
 {
   "rules": {
     ".read": false,
@@ -1603,7 +1605,9 @@ JSON shape:```json
     }
   }
 }
-```The harness mints a separate OAuth token scoped to
+```
+
+The harness mints a separate OAuth token scoped to
 `https://www.googleapis.com/auth/firebase.database` (the broader
 `firebase` scope used by Firestore + Storage + Management APIs is
 NOT accepted by the per-database rules endpoint) and `PUT`s to
@@ -1622,7 +1626,9 @@ The simulator-vs-prod agreement audit (`packages/conformance/observations/rtdb/r
 
 ### Divergence 1 — `.validate` rules not evaluated during writes
 
-**Rule:**```json
+**Rule:**
+
+```json
 {
   ".read": "auth != null",
   ".write": "auth != null",
@@ -1630,7 +1636,9 @@ The simulator-vs-prod agreement audit (`packages/conformance/observations/rtdb/r
     ".validate": "newData.hasChildren(['title', 'body'])"
   }
 }
-```**Op:** `write` at `/r4-validate-structure/entry` with `newData: { title: 't' }` (intentionally missing `body`), `auth.uid` present.
+```
+
+**Op:** `write` at `/r4-validate-structure/entry` with `newData: { title: 't' }` (intentionally missing `body`), `auth.uid` present.
 
 **Live RTDB:** `PERMISSION_DENIED` — the `.validate` rule rejects the write because `newData.hasChildren(['title', 'body'])` is false.
 

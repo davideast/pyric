@@ -13,11 +13,13 @@ Two surfaces evaluate rules against test cases. Underneath, they share a case sh
 The public front door only fronts one of the two: `firestoreRules(source).simulate(cases)` runs the local simulator, takes `FirestoreCase[]`, and returns a `SimulationSummary` (`{ passed, failed, unsupported, cases: CaseResult[] }`) that never carries a thrown-error branch, since a parse failure already threw `RulesCompileError` at construction.
 
 The Rules Test API has no public front door yet. Both engines still share their case and result vocabulary one level down, on `pyric/rules/internal`: `TestFirestoreRulesHandler.execute` (the Rules Test API client) and the internal `SimulateFirestoreRulesHandler.simulate` both take a rules source and a list of `TestCase` objects (the same shape as the public `FirestoreCase`), and both return a `TestFirestoreRulesResult`:
+
 ```ts
 type TestFirestoreRulesResult =
   | { success: true; data: { passed; failed; unsupported; results } }
   | { success: false; error: { code; message; recoverable } };
 ```
+
 Each `TestResult` in `results` carries `description`, `expectation`, `state`, and `debugMessages`. The `state` is `'PASSED' | 'FAILED' | 'UNSUPPORTED'`.
 
 The shared internal shape is a feature. You can swap one internal handler for the other, or route the same test suite to both, without rewriting any test-case code. See [How to test rules against the Firebase Rules Test API](../pyric-rules-how-to-test-rules-against-firebase/) for the escalation pattern built on the public `simulate` plus the internal test-API client.
@@ -71,6 +73,7 @@ When the simulator and the API disagree, we treat the API as authoritative and f
 - You're investigating a production discrepancy.
 
 The fastest agent loops use simulator-first with `UNSUPPORTED` escalation:
+
 ```ts
 const local = firestoreRules(source).simulate(testCases);
 const escalate = local.cases.filter((c) => c.unsupported).map((c) => c.case);
@@ -79,4 +82,5 @@ if (escalate.length > 0) {
   // merge remote.data.results back into local.cases by matching case
 }
 ```
+
 Local-first keeps the inner loop in sub-millisecond territory; the API is only paid when the simulator genuinely can't decide.

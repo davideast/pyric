@@ -30,12 +30,14 @@ End-to-end coverage: see `packages/pyric/test/storage/session-archive.test.ts`.
 ### `getDownloadURL`
 
 The v1 scope has no browser-renderable URL scheme for sandbox-stored blobs. If you need one, use `getBlob` and `URL.createObjectURL`:
+
 ```ts
 const blob = await getBlob(ref(storage, 'sessions/n1'));
 const url = URL.createObjectURL(blob);
 // ... use url ...
 URL.revokeObjectURL(url);  // free the memory when done
 ```
+
 On the prod backend, the upstream `firebase/storage` package's `getDownloadURL` is available directly through its own import path.
 
 ### Paginated `list`

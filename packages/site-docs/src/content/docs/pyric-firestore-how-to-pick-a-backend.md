@@ -10,6 +10,7 @@ order: 12005
 Choose between the sandbox and prod backends at init time, and switch between them without changing the rest of your code.
 
 ## The choice happens once
+
 ```ts
 import { getFirestore } from 'pyric/firestore';
 
@@ -23,11 +24,13 @@ import { initializeApp } from 'firebase/app';
 const app = initializeApp({ /* config */ });
 const dbProd = getFirestore(app);
 ```
+
 Every other Firestore call in the package works against either handle without modification. The only divergence is the `sandbox.*` namespace and a handful of metadata fields.
 
 ## Run-time dispatch
 
 For projects that want to switch backends based on environment:
+
 ```ts
 function makeDb() {
   if (process.env.PYRIC_BACKEND === 'sandbox') {
@@ -40,11 +43,13 @@ function makeDb() {
 
 const db = makeDb();
 ```
+
 The same code paths run against both backends. Tests run against sandbox, production runs against prod, no code changes between them.
 
 ## Compile-time dispatch
 
 For projects that want different bundles per environment, use a top-level conditional and let your bundler tree-shake:
+
 ```ts
 // In a setup module that's only imported by tests.
 import { initializeSandbox } from 'pyric/sandbox';
@@ -54,7 +59,9 @@ export function makeTestDb() {
   const sandbox = initializeSandbox();
   return getFirestore(sandbox.withAuth({ uid: 'test-user' }));
 }
-``````ts
+```
+
+```ts
 // In a setup module that's only imported by production.
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'pyric/firestore';
@@ -64,6 +71,7 @@ export function makeProdDb() {
   return getFirestore(app);
 }
 ```
+
 Each module imports only what it needs. The bundler keeps `firebase` out of the test bundle and `pyric/sandbox` out of the production bundle.
 
 ## What changes between backends
@@ -82,6 +90,7 @@ For most application code, none of these matter. For code that *depends* on cach
 ## Both at once
 
 A single process can use both:
+
 ```ts
 const sandbox = initializeSandbox();
 const app = initializeApp({ /* config */ });
@@ -95,6 +104,7 @@ await Promise.all([
   setDoc(doc(prodDb, 'notes/n1'), { source: 'cloud' }),
 ]);
 ```
+
 Sometimes useful for replication-style tests or for staging tools that compare sandbox state against production.
 
 ## What's not supported

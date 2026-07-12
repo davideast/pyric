@@ -123,6 +123,7 @@ missing candidate rules exits `2`. Firestore auto-id aliases, time drift, and
 sentinel drift are informational and do not fail.
 
 Examples:
+
 ```sh
 pyric verify
 pyric verify journeys/ --rules firestore=firestore.rules
@@ -131,6 +132,7 @@ pyric verify journeys/checkout.json --engine both --project demo-app
 pyric verify --service rtdb --rules rtdb=database.rules.json
 pyric verify --rules firestore=firestore.rules --rules rtdb=database.rules.json
 ```
+
 See [verify against a captured session](../pyric-tools-how-to-verify-against-a-captured-session/).
 
 ### `pyric verify cases [fixture] [flags]`
@@ -142,9 +144,11 @@ verification.
 |---|---|---|
 | `--service firestore` | `firestore` | The service to derive cases for. Only Firestore is supported. |
 | `--out <path>` | stdout | Write the derived case JSON to a file. |
+
 ```sh
 pyric verify cases journeys/checkout.json --service firestore --out journeys/checkout.cases.json
 ```
+
 ### `pyric mcp-proxy`
 
 Stdio MCP server that relays to a running `pyric dev --bridge`, discovering the

@@ -20,9 +20,11 @@ The three arms:
 ## Initialization
 
 ### `getStorage(app?)`
+
 ```ts
 function getStorage(app?: StorageApp): Storage;
 ```
+
 Get the `Storage` service for the given app, or for the `'[DEFAULT]'` app when called with no argument (throws `app/no-app` when nothing is initialized). Dispatch reads the brand symbol: prod delegates to `firebase-admin/storage`; a remote-branded sandbox gets the relay backend; a local sandbox gets the in-memory backend. Throws `TypeError` for an unbranded value.
 
 ---
@@ -30,17 +32,21 @@ Get the `Storage` service for the given app, or for the `'[DEFAULT]'` app when c
 ## `Storage` and `Bucket`
 
 ### `storage.bucket(name?)`
+
 ```ts
 bucket(name?: string): Bucket;
 ```
+
 - Local: returns a handle for `name`, creating the bucket map on first use. Omitted `name` resolves to the default bucket `'pyric-default'` (the same default `pyric/storage` uses). Buckets are genuinely isolated from each other.
 - Remote: the worker's object store is single-bucket. `bucket()` and `bucket('pyric-default')` work; any other name throws immediately rather than silently merging buckets. This is the sharpest local/remote divergence, and it is loud on purpose.
 - Prod: whatever `firebase-admin/storage`'s `bucket()` resolves from app config.
 
 ### `bucket.file(path)`
+
 ```ts
 file(path: string): File;
 ```
+
 All arms. Returns a `File` handle; the file may or may not exist.
 
 ---
@@ -48,40 +54,52 @@ All arms. Returns a `File` handle; the file may or may not exist.
 ## `File`: the object data plane
 
 ### `file.save(data, options?)`
+
 ```ts
 save(data: Buffer | string | Uint8Array, options?: SaveOptions): Promise<void>;
 ```
+
 Arms: local, remote. Persists `data` at the file's path, replacing any existing content (no append semantics). Strings are UTF-8 encoded; buffers are copied on ingest so callers can reuse their input. `options.metadata` and `options.contentType` are stored alongside the bytes and round-trip.
 
 - `options.resumable: true` throws on both sandbox arms (resumable uploads are deferred; prod forwards it).
 - Remote: relays `storage.putBytes` (base64 over the wire). Payloads over 8 MiB reject with the payload-too-large error below, before anything is sent.
 
 ### `file.download(options?)`
+
 ```ts
 download(options?: DownloadOptions): Promise<[Buffer]>;
 ```
+
 Arms: local, remote. Returns a `[Buffer]` tuple, mirroring `@google-cloud/storage`. A missing file throws `Error('No such object: <bucket>/<path>')` on both arms, the same message shape as production, so catch blocks that string-match keep working. `options.validation` is accepted and ignored on the sandbox arms. Remote relays `storage.getBytes`.
 
 ### `file.delete()`
+
 ```ts
 delete(): Promise<void>;
 ```
+
 Arms: local, remote. Idempotent: deleting a missing file is a no-op (the `ignoreNotFound: true` mode is the only one the sandbox models). Remote relays `storage.deleteObject`.
 
 ### `file.exists()`
+
 ```ts
 exists(): Promise<[boolean]>;
 ```
+
 Arms: local, remote. `[true]` if the file exists. Remote probes `storage.getMetadata` and maps object-not-found to `[false]`.
 
 ### `file.getSignedUrl(options)`
+
 ```ts
 getSignedUrl(options: GetSignedUrlOptions): Promise<[string]>;
 ```
+
 Arms: local, remote (byte-identical output; the remote arm never relays this call). Returns a deterministic stub:
+
 ```
 pyric-sandbox-storage://<bucket>/<path>?expires=<ms>&action=<action>
 ```
+
 The sandbox does NOT serve this URL. It is a stable placeholder so code that round-trips signed URLs through logs, fixtures, or replay sees a consistent shape. `expires` accepts ms-since-epoch, an ISO date string, or a `Date`, normalized to ms; expiration is not enforced. Prod returns real signed URLs from GCS.
 
 ---
@@ -112,6 +130,7 @@ Every one of these works on the prod arm.
 ## Types
 
 ### `Storage`, `Bucket`, `File`
+
 ```ts
 interface Storage {
   bucket(name?: string): Bucket;
@@ -132,9 +151,11 @@ interface File {
   getSignedUrl(options: GetSignedUrlOptions): Promise<[string]>;
 }
 ```
+
 The shared contract across backends. On prod the returned object is a structural superset (the full `@google-cloud/storage` surface); the interfaces document the subset the sandbox arms implement.
 
 ### `SaveOptions`
+
 ```ts
 interface SaveOptions {
   metadata?: Record<string, unknown>;
@@ -142,23 +163,30 @@ interface SaveOptions {
   resumable?: boolean;  // true throws on sandbox arms; prod forwards
 }
 ```
+
 ### `DownloadOptions`
+
 ```ts
 interface DownloadOptions {
   validation?: 'md5' | 'crc32c' | boolean; // sandbox arms ignore; prod forwards
 }
 ```
+
 ### `GetSignedUrlOptions`
+
 ```ts
 interface GetSignedUrlOptions {
   action: 'read' | 'write' | 'delete' | 'resumable';
   expires: number | string | Date;
 }
 ```
+
 ### `StorageApp`
+
 ```ts
 type StorageApp = PyricAdminApp;
 ```
+
 The input `getStorage` accepts; an alias of the branded handle from `pyric-admin/app`.
 
 ---

@@ -10,12 +10,14 @@ order: 10022
 The three foundation types every primitive and orchestrator in `pyric-tools/deploy` uses.
 
 ## `ProjectScope`
+
 ```ts
 interface ProjectScope {
   readonly projectId: string;
   resolveToken(): Promise<string>;
 }
 ```
+
 Project-level credentials. One scope object instead of `(token, projectId, …)` signatures everywhere.
 
 - **`projectId`**: stable identity for the life of the scope. Frozen at construction time when built via `fromServiceAccount`.
@@ -24,6 +26,7 @@ Project-level credentials. One scope object instead of `(token, projectId, …)`
 ### Building a scope
 
 Two common paths:
+
 ```ts
 // Node host — service account JSON. Token caching is built in.
 import { fromServiceAccount } from 'pyric-tools/deploy';
@@ -35,7 +38,9 @@ const scope: ProjectScope = {
   resolveToken: () => firebaseAuth.currentUser!.getIdToken(),
 };
 ```
+
 ## `Outcome<TData, TErrCode>`
+
 ```ts
 type Outcome<TData, TErrCode extends string = never> =
   | { ok: true; data: TData }
@@ -46,6 +51,7 @@ type Outcome<TData, TErrCode extends string = never> =
       partial?: unknown;
     };
 ```
+
 Returned by orchestrators. Two universal error codes:
 
 - **`'permission-denied'`**: auth or IAM failure. Returned when the upstream API responds 401 or 403, or when the resolver itself rejects with an `AdminApiError` of that status.
@@ -60,15 +66,18 @@ When a batch orchestrator (e.g. `firestore.indexes.deployAll`) fails part-way th
 ## `AdminApiError`
 
 Thrown by primitive (non-orchestrator) functions for non-2xx responses.
+
 ```ts
 class AdminApiError extends Error {
   readonly status: number;   // HTTP status from upstream
   readonly body: string;     // capped at 8 KiB with [truncated, N bytes] suffix
 }
 ```
+
 `status` lets callers branch on permission (`401` / `403`), not-found (`404`), conflict (`409`), etc. `body` is the upstream payload, capped at 8 KiB so a misbehaving proxy returning a multi-megabyte HTML error page doesn't balloon error chains.
 
 ### Catching directly
+
 ```ts
 import { AdminApiError, firestore } from 'pyric-tools/deploy';
 
@@ -88,6 +97,7 @@ try {
   }
 }
 ```
+
 ### Why throw from primitives
 
 Primitives are intentionally low-level: they map one REST call to one TypeScript function. Throwing lets callers reach for finer-grained error handling than an `Outcome` union allows (an HTTP status, the full body). Orchestrators wrap primitives in `withResolvedScope` to translate thrown errors into `Outcome` shapes for callers that want one shape across all operations.

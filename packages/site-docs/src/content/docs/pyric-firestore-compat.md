@@ -736,11 +736,15 @@ Firestore-only slice).
 `getDocFromCache` / `getDocsFromCache`, `setLogLevel`, and
 `onSnapshotsInSync` are now exported from `pyric/firestore`. Before
 this, none of these existed on the modular surface — an app using the
-common explicit-init pattern```ts
+common explicit-init pattern
+
+```ts
 const db = initializeFirestore(app, {
   localCache: persistentLocalCache(persistentMultipleTabManager()),
 });
-```crashed at IMPORT (a missing named export) before it ever ran a read
+```
+
+crashed at IMPORT (a missing named export) before it ever ran a read
 or write.
 
 **Honest-mirror rationale**: these are aliases and honest no-op

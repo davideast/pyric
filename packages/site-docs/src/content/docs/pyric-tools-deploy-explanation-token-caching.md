@@ -23,6 +23,7 @@ Callers can override via `refreshAtFraction`.
 ## Two resolver shapes
 
 `memoizeTtl` accepts two resolver shapes:
+
 ```ts
 // Plain string — caller must supply ttlMs.
 memoizeTtl(async () => fetchTokenSomehow(), { ttlMs: 3600_000 });
@@ -30,6 +31,7 @@ memoizeTtl(async () => fetchTokenSomehow(), { ttlMs: 3600_000 });
 // Structured — TTL inferred from the returned shape.
 memoizeTtl(async () => ({ token: '…', expiresIn: 3600 }));
 ```
+
 The plain-string form is for cases where the caller already knows the TTL (test fixtures, hardcoded tokens, custom OAuth flows that don't surface `expires_in`). The structured form is the natural fit for resolvers that wrap an OAuth exchange. `fromServiceAccount` uses it internally.
 
 When both `ttlMs` and a structured `expiresIn` are present, the explicit `ttlMs` wins. This matters for tests that want a deliberately-short cache window without breaking the resolver's natural shape.
@@ -37,18 +39,22 @@ When both `ttlMs` and a structured `expiresIn` are present, the explicit `ttlMs`
 ## Coalescing concurrent calls
 
 Two callers asking for a token simultaneously after the cache expired could race. Each would trigger its own resolver call. `memoizeTtl` coalesces: the first caller starts the resolver, subsequent callers `await` the same in-flight promise.
+
 ```ts
 // Both calls share one network round trip.
 const [a, b] = await Promise.all([resolve(), resolve()]);
 ```
+
 The in-flight promise is cleared after it resolves (success or failure), so a later call can trigger a fresh refresh.
 
 ## Hung resolver timeout
 
 If the resolver hangs (a network blip, a DNS issue, a misbehaving OAuth proxy), every subsequent caller would block forever without a timeout. `memoizeTtl` races the resolver against a 30-second timeout by default:
+
 ```ts
 memoizeTtl(resolver, { resolverTimeoutMs: 30_000 });
 ```
+
 When the timeout fires, the in-flight promise rejects, the cache stays empty, and the next call can try again. This means a hung resolver fails one caller; subsequent callers retry rather than join the hung wait.
 
 Tune `resolverTimeoutMs` based on your resolver's expected latency. Service-account exchanges typically complete in 100 to 500 ms; browser ID-token refreshes are similar. The 30-second default is generous enough to cover transient delays without letting a true hang propagate.

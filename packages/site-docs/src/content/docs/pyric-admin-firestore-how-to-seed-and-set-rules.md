@@ -10,6 +10,7 @@ order: 20004
 This guide shows you how to use the sandbox-only `setRules` and `seed` methods on the Firestore handle.
 
 ## Deploy rules
+
 ```ts
 import { getFirestore } from 'pyric-admin';
 
@@ -29,9 +30,11 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
   throw new Error('rules failed to lint');
 }
 ```
+
 `setRules` returns the `LintResult` from `pyric/rules`. Check warnings before treating the deploy as successful. If the source has parse errors, the rules are *not* swapped (`setRules` is consistent with `LocalEnvironment.deployRules` on that point).
 
 ## Seed initial data
+
 ```ts
 const lint = adminDb.seed({
   documents: {
@@ -42,6 +45,7 @@ const lint = adminDb.seed({
   },
 });
 ```
+
 `seed` replaces the document store wholesale and **preserves the active ruleset**. Pass an empty `documents` map (or omit it) to clear data without touching rules.
 
 The return value is the lint of the preserved ruleset, for shape consistency with `setRules`. Callers that care about lint warnings can check them the same way after either call.
@@ -55,10 +59,12 @@ For tests where you want the seed itself to evaluate under rules (for example, t
 ## Order matters
 
 Rules first, then documents:
+
 ```ts
 adminDb.setRules(RULES);
 adminDb.seed({ documents: FIXTURES });
 ```
+
 If you seed before setting rules, the documents land under default-deny (the sandbox starts with no rules). Subsequent operations that need to read those documents will deny.
 
 In practice the order rarely matters because `seed` bypasses rules anyway, but it does matter for any operation you run between the two calls.
@@ -66,6 +72,7 @@ In practice the order rarely matters because `seed` bypasses rules anyway, but i
 ## Reset, then seed
 
 The most common pattern in tests:
+
 ```ts
 import { beforeEach } from 'bun:test';
 
@@ -75,16 +82,19 @@ beforeEach(() => {
   adminDb.seed({ documents: FIXTURES });
 });
 ```
+
 `reset` wipes everything (data, rules, listeners). The two follow-up calls restore the rules and fixtures. Subsequent tests start from the same known state.
 
 ## Snapshot for round-tripping
 
 The `snapshot()` method on the handle is a pair with `seed`: capture, restore.
+
 ```ts
 const before = adminDb.snapshot();
 // ... destructive operation
 adminDb.seed({ documents: before });
 ```
+
 `snapshot()` reads from the live state independent of rules. Use it for forensic dumps when a test fails or for round-tripping a known state across tests.
 
 ## Where to look next

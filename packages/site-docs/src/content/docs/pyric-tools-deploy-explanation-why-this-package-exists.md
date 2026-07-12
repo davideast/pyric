@@ -37,10 +37,12 @@ We use plain `fetch` instead. The package has no Firebase dependencies, only `ff
 Every primitive takes `ProjectScope` as its first argument. Every operation that can fail returns either a thrown `AdminApiError` (primitives) or an `Outcome` with a coded error (orchestrators). The factory layer (`createFirestoreDeployTools`, etc.) wraps those primitives as `@inbrowser/agent` `ToolHandler`s without bridging code.
 
 The result is that handing the deploy surface to an agent is two lines:
+
 ```ts
 const registry = createToolRegistry();
 for (const h of createFirestoreDeployTools({ scope })) registry.register(h);
 ```
+
 You don't need a translation layer between "deploy primitives" and "tool handlers" because they were designed together.
 
 ## What ends up here

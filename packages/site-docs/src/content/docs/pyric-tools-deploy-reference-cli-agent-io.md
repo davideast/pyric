@@ -40,6 +40,7 @@ handler **directly**.
   warnings for payload keys not in the schema) are plain text on
   stderr.
 - **Exit codes unchanged:** 0 success, 1 usage/validation, 2 runtime.
+
 ```bash
 pyric deploy hosting --json '{
   "siteId": "my-site",
@@ -49,6 +50,7 @@ pyric deploy hosting --json '{
   "channelId": "pr-42"
 }'
 ```
+
 ## `pyric deploy hosting --json` (bare)
 
 Machine-output mode for a normal, fully-resolved deploy: firebase.json,

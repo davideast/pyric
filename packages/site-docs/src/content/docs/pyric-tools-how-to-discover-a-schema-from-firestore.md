@@ -35,6 +35,7 @@ Provide a service account through **one** of these environment variables:
 
 If both are set, `FIREBASE_SA_BASE64` wins. If neither is set, the command
 exits with an error telling you to set one of them.
+
 ```bash
 # Option A — base64-encoded JSON (good for CI)
 export FIREBASE_SA_BASE64="$(base64 < service-account.json)"
@@ -42,6 +43,7 @@ export FIREBASE_SA_BASE64="$(base64 < service-account.json)"
 # Option B — path to the JSON file
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 ```
+
 The service account needs read access to the Firestore you want to crawl.
 
 ### Project
@@ -55,26 +57,32 @@ The project id is resolved in this order:
 
 For a one-off run against a specific database, pass `--project` explicitly
 so there is no ambiguity:
+
 ```bash
 pyric firestore:discover --project my-project-id
 ```
+
 ## Run the discover crawl
 
 ### Crawl the whole database
 
 Omit the positional argument to walk every root collection and recurse
 into subcollections:
+
 ```bash
 pyric firestore:discover --project my-project-id
 ```
+
 ### Crawl a single collection
 
 Pass a collection id as the positional argument to narrow the crawl to
 that root collection (and its subcollections). This is the "tell me about
 this one collection" probe. It avoids walking the whole tree:
+
 ```bash
 pyric firestore:discover users --project my-project-id
 ```
+
 The argument matches the **root collection id** exactly (for example
 `users`), not a full path.
 
@@ -117,9 +125,11 @@ Each entry under `schemaByTemplate` describes one collection:
   discovered beneath this collection.
 
 Redirect the output to a file so you can feed it into your next step:
+
 ```bash
 pyric firestore:discover --project my-project-id > schema.json
 ```
+
 From there you can use the inferred schema to author security rules
 against the `templatePath` keys, seed the local sandbox with realistic
 fixtures from the `example` values, or hand `schema.json` to an agent as

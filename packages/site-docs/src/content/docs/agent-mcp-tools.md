@@ -29,6 +29,7 @@ Eight tools cover the Firestore data plane. Each one takes an `as` argument: omi
 | `firestore_query_where` | One or more where clauses, AND semantics |
 
 An agent seeds as admin, then reads back as the user whose access it wants to prove:
+
 ```json
 {
   "tool": "firestore_query_where",
@@ -38,7 +39,9 @@ An agent seeds as admin, then reads back as the user whose access it wants to pr
     "as": { "uid": "alice" }
   }
 }
-``````json
+```
+
+```json
 {
   "ok": true,
   "summary": "2 matches in notes",
@@ -50,6 +53,7 @@ An agent seeds as admin, then reads back as the user whose access it wants to pr
   }
 }
 ```
+
 Swap `"as": { "uid": "alice" }` for `"as": { "uid": "bob" }` and the same call comes back empty, not because bob has no notes, because the rule says he can't see alice's.
 
 ## Ask whether a request would be allowed
@@ -59,6 +63,7 @@ Swap `"as": { "uid": "alice" }` for `"as": { "uid": "bob" }` and the same call c
 | Tool | Does |
 |---|---|
 | `firestore_simulate_rules` | Verdict per test case, with the deciding rule |
+
 ```json
 {
   "tool": "firestore_simulate_rules",
@@ -74,7 +79,9 @@ Swap `"as": { "uid": "alice" }` for `"as": { "uid": "bob" }` and the same call c
     }]
   }
 }
-``````json
+```
+
+```json
 {
   "ok": true,
   "summary": "1/1 test cases passed",
@@ -92,6 +99,7 @@ Swap `"as": { "uid": "alice" }` for `"as": { "uid": "bob" }` and the same call c
   }
 }
 ```
+
 An agent asserting "this rule works" without this call is guessing. With it, the assertion has a rule index and a condition string behind it.
 
 ## Open a session, write into it, undo what didn't work
@@ -111,16 +119,21 @@ Nine tools drive a stateful sandbox session: seed it, execute single writes, bat
 | `firestore_simulator_events` | Every event seen, allowed and denied, with debug messages |
 
 Seed, then try a write that should fail:
+
 ```json
 { "tool": "firestore_simulator_create", "arguments": {
   "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /notes/{id} {\n      allow read, write: if resource.data.ownerId == request.auth.uid;\n    }\n  }\n}",
   "documents": { "notes/n1": { "ownerId": "alice", "text": "hi" } }
 } }
-``````json
+```
+
+```json
 { "tool": "firestore_simulator_execute", "arguments": {
   "method": "update", "path": "notes/n1", "auth": { "uid": "bob" }, "data": { "text": "hacked" }
 } }
-``````json
+```
+
+```json
 {
   "ok": false,
   "summary": "update on notes/n1 denied",
@@ -130,6 +143,7 @@ Seed, then try a write that should fail:
   }
 }
 ```
+
 The write never touched state. `firestore_simulator_undo` would have nothing to undo, because the denial already stopped it.
 
 ## Lint rules and pull functions from the stdlib
@@ -144,11 +158,14 @@ Four tools work on rules source directly, no session needed: catch mistakes befo
 | `firestore_rules_stdlib_get` | Full detail for one module: signatures, examples, import line |
 
 Lint catches a JavaScript habit that parses but never runs in rules:
+
 ```json
 { "tool": "firestore_lint_rules", "arguments": {
   "source": "...allow read: if resource.data.tags.filter(t => t == 'public').size() > 0;..."
 } }
-``````json
+```
+
+```json
 {
   "ok": false,
   "summary": "Lint found 1 error, 0 warnings",
@@ -161,6 +178,7 @@ Lint catches a JavaScript habit that parses but never runs in rules:
   }
 }
 ```
+
 Before writing the fix, the agent looks up what's actually available. `firestore_rules_stdlib_get({ "key": "auth" })` returns the module's purpose, its two functions, and the exact line to write, `import { isAuthenticated, isOwner } from 'auth';`, ready to paste into a `2+modules` rules file.
 
 ## See what the sandbox just did
@@ -170,9 +188,12 @@ One call answers "what state is this in right now": the current rules with a lin
 | Tool | Does |
 |---|---|
 | `sandbox_inspect` | Rules + lint summary + document census + recent denials, one call |
+
 ```json
 { "tool": "sandbox_inspect", "arguments": {} }
-``````json
+```
+
+```json
 {
   "ok": true,
   "summary": "rules: 412B, 0 errors / 0 warnings · docs: 3 across 1 collections · events: 5 total, 1 recent denials",
@@ -184,6 +205,7 @@ One call answers "what state is this in right now": the current rules with a lin
   "_pyric": { "mode": "sandbox", "project": "demo-notes" }
 }
 ```
+
 This is the tool a well-set-up agent calls first, before guessing at anything. A debug session that once took fifty-one tool calls and seventy-two thousand tokens of grepping to answer "why aren't my rules working" now takes one.
 
 ## The production surface, not yet CLI-wired

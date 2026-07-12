@@ -12,11 +12,14 @@ Every public function in `pyric-tools/deploy` is one of two things, and the two 
 ## The split
 
 **Primitives** map one REST call to one TypeScript function. They throw `AdminApiError` on any non-2xx response.
+
 ```ts
 await firestore.rules.deploy(scope, source);   // throws on failure
 const op = await firestore.indexes.create(scope, entry);  // throws on failure
 ```
+
 **Orchestrators** chain multiple primitives together and bucket the failures into a coded `Outcome`. They never throw for expected failures.
+
 ```ts
 const outcome = await firestore.rules.ensure(scope, recipe);
 // outcome is { ok: true, status: '…' } or { ok: false, code, message }
@@ -24,6 +27,7 @@ const outcome = await firestore.rules.ensure(scope, recipe);
 const result = await firestore.indexes.deployAll(scope, config);
 // result is { ok: true, ... } or { ok: false, code, message, partial }
 ```
+
 The JSDoc on each implementation marks which it is. The naming pattern is consistent: terse imperative verbs (`fetch`, `deploy`, `create`) for primitives; longer English verbs (`ensure`, `provision`, `deployAll`, `getStatus`) for orchestrators.
 
 ## Why this split
