@@ -271,6 +271,54 @@ describe('worker auth — per-port sessions are isolated', () => {
     cleanupPort(ctx, port);
     expect(await currentUser(ctx, port)).toBeNull();
   });
+
+  it('cleanupPort drops the port SESSION-BOUND SUB RECORDS (a later session change does not resurrect them)', async () => {
+    // cleanupPort tears down the port's LIVE listeners (ctx.subs) — but a
+    // session-bound sub is tracked TWICE: the live unsub in `ctx.subs`, and a
+    // separate RECORD of the original sub message, kept so an auth transition
+    // can re-establish the listener under the new identity (#754). Tearing
+    // down only the live listener leaves that record behind, and the next
+    // session change on the port re-registers the listener from it — a
+    // disconnected port's listeners coming back to life, fed by whoever signs
+    // in next. This test pins the record teardown, which is invisible to any
+    // assertion that stops at `ctx.subs`.
+    const ctx = await makeCtx();
+    const port = fakePort();
+
+    await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.signInAnonymously' });
+    await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'setDoc', path: 'items/one', data: { v: 1 },
+    });
+
+    // A SESSION-BOUND listener: no `actAs` lens, so it is recorded against the
+    // port's session and re-established on that port's auth transitions.
+    const SUB = 'cleanup-session-sub';
+    await handleMessage(ctx, port, {
+      t: 'sub', subId: SUB, target: { __ref: 'collection', path: 'items' },
+    });
+    await tick();
+
+    const snapsFor = () => port.snapMessages.filter((m) => m.subId === SUB);
+    expect(snapsFor().length).toBeGreaterThanOrEqual(1); // the listener is live
+    expect(ctx.subs.has(port)).toBe(true);
+
+    // ── The port disconnects. ──
+    cleanupPort(ctx, port);
+    expect(ctx.subs.has(port)).toBe(false); // live listener torn down
+    const countAtCleanup = snapsFor().length;
+
+    // ── A LATER session change on that same port. ──
+    // If cleanupPort left the session-bound RECORD behind, this transition
+    // re-establishes the listener on the cleaned-up port: the sub comes back
+    // and delivers a fresh snapshot to a port that is already gone.
+    await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.signInAnonymously' });
+    await tick();
+
+    // No snapshot was delivered after cleanup…
+    expect(snapsFor().length).toBe(countAtCleanup);
+    // …and no listener was re-registered for the dead port.
+    expect(ctx.subs.has(port)).toBe(false);
+  });
 });
 
 // ─── Token accessors ──────────────────────────────────────────────────────
