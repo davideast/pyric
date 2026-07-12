@@ -70,7 +70,7 @@ export function getAdminFirestore(target: SandboxContext | Sandbox): SandboxFire
   // the normalised ctx's auth is irrelevant, exactly like the local path.
   const fresh = isRemoteSandbox(ctx.sandbox)
     ? createRemoteFirestore(ctx.sandbox, { mode: 'admin' })
-    : wrapWithErrorTranslation(buildFirestoreHandle(ctx, true), ctx);
+    : wrapWithErrorTranslation(buildFirestoreHandle(ctx, true), ctx, true);
   adminHandleCache.set(ctx, fresh);
   return fresh;
 }

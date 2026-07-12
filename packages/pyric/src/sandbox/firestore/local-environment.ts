@@ -832,6 +832,8 @@ export class LocalEnvironment {
      * which stay pinned to the auth they captured at registration.
      */
     followsCurrentUser = false,
+    /** Preserve the admin lens for the listener's full lifetime. */
+    bypassRules = false,
   ): () => void {
     const id = String(this.nextListenerId++);
     const record: ListenerRecord = {
@@ -839,6 +841,7 @@ export class LocalEnvironment {
       target,
       callback,
       auth,
+      bypassRules,
       followsCurrentUser,
       options,
       currentSnapshot: undefined,
@@ -903,7 +906,11 @@ export class LocalEnvironment {
    */
   private fireInitialSnapshot(record: ListenerRecord): void {
     if (record.target.kind === 'doc') {
-      const result = this.silentReadDoc(record.target.path, record.auth);
+      const result = this.silentReadDoc(
+        record.target.path,
+        record.auth,
+        record.bypassRules,
+      );
       if (!result.allowed) {
         this.markErrored(record, result.error);
         return;
@@ -935,7 +942,10 @@ export class LocalEnvironment {
 
     // Query target.
     const result = this.silentReadCollection(
-      record.target.collection, record.auth, record.target.constraints,
+      record.target.collection,
+      record.auth,
+      record.target.constraints,
+      record.bypassRules,
     );
     if (!result.allowed) {
       this.markErrored(record, result.error);
@@ -1071,7 +1081,11 @@ export class LocalEnvironment {
     if (record.target.kind !== 'doc') return;
     if (!touchedPaths.has(record.target.path)) return;
 
-    const result = this.silentReadDoc(record.target.path, record.auth);
+    const result = this.silentReadDoc(
+      record.target.path,
+      record.auth,
+      record.bypassRules,
+    );
     if (!result.allowed) {
       this.markErrored(record, result.error);
       return;
@@ -1181,7 +1195,10 @@ export class LocalEnvironment {
     if (!anyPathInCollection(touchedPaths, record.target.collection)) return;
 
     const result = this.silentReadCollection(
-      record.target.collection, record.auth, record.target.constraints,
+      record.target.collection,
+      record.auth,
+      record.target.constraints,
+      record.bypassRules,
     );
     if (!result.allowed) {
       this.markErrored(record, result.error);
@@ -1296,7 +1313,25 @@ export class LocalEnvironment {
   private silentReadDoc(
     path: string,
     auth: ListenerAuth,
+    bypassRules = false,
   ): { allowed: true; data: DocumentData | null } | { allowed: false; error: FirestoreSimError } {
+    if (bypassRules) {
+      const data = this.state.get(path);
+      this.emitRequest({
+        at: Date.now(),
+        evalMs: 0,
+        method: 'get',
+        path,
+        auth,
+        result: 'allow',
+        debugMessages: ['admin lens — rules bypassed'],
+        origin: 'listener',
+        resourceBefore: { data, exists: data !== null },
+        detail: { admin: true },
+        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+      });
+      return { allowed: true, data };
+    }
     const readServerTime = Timestamp.fromMillis(Date.now());
     const testCase = this.buildTestCase({ method: 'get', path, auth }, readServerTime);
     // Issue #307 — time the simulate call for listener-origin RequestEvents.
@@ -1397,6 +1432,7 @@ export class LocalEnvironment {
     collection: string,
     auth: ListenerAuth,
     constraints?: QueryConstraintApplier,
+    bypassRules = false,
   ): { allowed: true; docs: { path: string; data: DocumentData }[] } | { allowed: false; error: FirestoreSimError } {
     const readServerTime = Timestamp.fromMillis(Date.now());
     // List rules are defined at the document-match level, so the
@@ -1407,9 +1443,32 @@ export class LocalEnvironment {
     const listPath = `${collection}/__listPlaceholder__`;
     const structured: QueryConstraints = constraints?.structured ?? {};
     const requestQuery = listQueryFromStructured(structured);
-    const requestDetail = requestQuery ? { query: requestQuery } : undefined;
+    const detailFields = {
+      ...(bypassRules ? { admin: true } : {}),
+      ...(requestQuery ? { query: requestQuery } : {}),
+    };
+    const requestDetail = Object.keys(detailFields).length > 0 ? detailFields : undefined;
     const evalAt = Date.now();
     const evalStart = performance.now();
+    if (bypassRules) {
+      const docs = this.state.list(collection)
+        .filter((document) => !document.phantom)
+        .map((document) => ({ path: document.path, data: document.data }));
+      const constrained = constraints ? constraints(docs) : docs;
+      this.emitRequest({
+        at: evalAt,
+        evalMs: 0,
+        method: 'list',
+        path: collection,
+        auth,
+        result: 'allow',
+        debugMessages: ['admin lens — rules bypassed'],
+        origin: 'listener',
+        ...(requestDetail ? { detail: requestDetail } : {}),
+        ...(this.currentTrigger ? { triggeredBy: this.currentTrigger } : {}),
+      });
+      return { allowed: true, docs: constrained };
+    }
     // ── RULES-B11 gate: prove the query before evaluating the rule. ──
     const proof = proveListQuery(this.rulesAst(), listPath, auth, structured);
     if (proof.kind === 'unprovable') {
@@ -1728,7 +1787,11 @@ export class LocalEnvironment {
    */
   private reEvaluateDocListener(record: ListenerRecord): void {
     if (record.target.kind !== 'doc') return;
-    const result = this.silentReadDoc(record.target.path, record.auth);
+    const result = this.silentReadDoc(
+      record.target.path,
+      record.auth,
+      record.bypassRules,
+    );
     if (!result.allowed) {
       if (record.errored) return;
       this.markErrored(record, result.error);
@@ -1769,7 +1832,10 @@ export class LocalEnvironment {
   private reEvaluateQueryListener(record: ListenerRecord): void {
     if (record.target.kind !== 'query') return;
     const result = this.silentReadCollection(
-      record.target.collection, record.auth, record.target.constraints,
+      record.target.collection,
+      record.auth,
+      record.target.constraints,
+      record.bypassRules,
     );
     if (!result.allowed) {
       if (record.errored) return;
