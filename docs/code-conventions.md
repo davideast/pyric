@@ -106,3 +106,351 @@ Rule.
 - Pure mechanical moves are their own commits, separate from behavior change. A commit that moves code changes no behavior and passes the same tests it started with. A commit that changes behavior moves no files. A reviewer can tell which is which from the diff alone.
 - Shared state is hoisted before functions move. When splitting an API surface, the shared module state and symbols are lifted into one state file first, in isolation, so the family moves that follow are clean.
 - The public export path does not change during a restructure. The barrel keeps its import path; only what it re-exports from moves. Consumers see no change.
+
+<!--
+DRAFT for owner ratification. Insert into docs/code-conventions.md as the
+section that resolves the open choice in existing section 1 ("under X/sandbox/
+or under sandbox/X/"). Numbered 8 here for review; renumber on merge. This
+section supersedes that clause: it picks X/sandbox/ and says why.
+-->
+
+# 8. The anatomy of a surface (canonical)
+
+Section 1 fixed the four parts of a mirrored surface but left one choice open:
+the sandbox implementation lives "under `X/sandbox/` or under `sandbox/X/`."
+That "or" is the most foundational unratified convention in the tree. Every
+hill-climb that touches a backend has to answer it, and today six surfaces
+answer it six different ways. This section closes it.
+
+## 8.0 What is decided now, and what moves when
+
+Ratifying this section decides the target shape. It does not schedule a
+tree-wide move.
+
+- **Decisions land now.** The anatomy, the dependency direction, and the
+  enforcement checks are settled the day this section is ratified.
+- **Moves happen just in time, per surface, per climb.** No surface is
+  restructured speculatively. A surface is restructured in the commit that
+  precedes its next behavior climb, under the section 7 rules (characterization
+  first, mechanical move as its own commit, export path unchanged).
+- **New code lands in target shape immediately.** From ratification day, code a
+  climb writes goes where this section says, even in a surface that has not yet
+  been migrated. New backend concepts go in `X/sandbox/`, never in central
+  `sandbox/`.
+
+So the owner is not late. The decision is what has to be made before new code
+lands, and that is exactly what this section is. The moves it implies are cheap
+and deferred.
+
+## 8.1 What each surface does today (the motivating exhibit)
+
+Six mirror surfaces, six placements of the backend. This is the inconsistency
+this section removes.
+
+| Surface | Public entry | Where its sandbox backend lives today | Shape | Direction |
+|---|---|---|---|---|
+| firestore | `firestore/index.ts` barrel + per-family modules | `sandbox/firestore/` (engine) + `sandbox/admin-firestore/` (Admin chainable face) + `sandbox/admin-compat.ts` | central, one concept per file | central. the outlier |
+| auth | `auth/index.ts` | `auth/sandbox-backend.ts` | surface-local, one 2173-line file | surface-local |
+| database | `database/index.ts` | `database/sandbox/` (backend, data-tree, normalize, query, rules-eval, sentinels, push-id) | surface-local dir, one concept per file | surface-local. conforms |
+| storage | `storage/index.ts` (+ `storage/internal`) | inlined across `storage/service.ts`, `enforce.ts`, `rules.ts`, `persistence.ts`, `internal.ts` | surface-local, no `sandbox/` subdir | surface-local |
+| messaging | `messaging/index.ts` (+ `sw`, `internal`) | `messaging/broker/` | surface-local dir | surface-local. conforms |
+| ai | `ai/index.ts` (+ `scripting`) | `ai/broker/` + `ai/backend.ts` + `ai/sandbox-plane.ts` | surface-local dir | surface-local. conforms |
+
+Read the last column top to bottom. The newest surfaces (ai, messaging) and the
+database surface already keep the backend inside the surface directory. Auth
+keeps it surface-local but in one oversized file. Storage keeps it surface-local
+but smeared across the surface root with no isolating subdirectory. Firestore,
+the oldest, is the only surface that puts its backend in central `sandbox/`.
+
+The convention should ratify what the newest code already does, not what the
+oldest code did. The target is surface-local. Firestore is the migration.
+
+## 8.2 The ruling: surface-local backend, cross-surface-only central sandbox
+
+Rule. For a surface `X` in `packages/pyric/src`:
+
+- `X/index.ts` is the public subpath barrel. Re-exports only (section 4).
+- `X/` holds the public API family modules and the dual-target routing
+  (`target.ts` / `state.ts`) and the public types (`types.ts` or `types/`).
+- `X/sandbox/` holds that surface's no-network backend, one concept per file,
+  with a `backend.ts` facade. This is the resolution of the section 1 "or": the
+  backend is `X/sandbox/`, never `sandbox/X/`.
+- `X/internal.ts` (or `X/internal/`) holds the host-only seam when the surface
+  has one (storage already does; the sandbox host reaches it through a published
+  `./internal` subpath).
+
+The central `sandbox/` directory holds the cross-surface runtime and nothing
+else. A thing belongs in central `sandbox/` only if more than one surface
+depends on it. That is the whitelist:
+
+```
+packages/pyric/src/sandbox/
+  index.ts            the pyric/sandbox barrel
+  internal/           sandbox-impl + host protocol (getInternalEnv, ...)
+  sandbox-context.ts  the SandboxContext identity handle
+  types/              service-agnostic event / context / service / auth-state types
+  persistence/        snapshot to IndexedDB or a custom backend
+  tab-sync/           cross-tab realtime over BroadcastChannel
+  replay/             re-issue a captured session against a fresh sandbox
+  branches/           fork / apply / diff / promote / discard
+  remote.ts           remote-sandbox brand + channel contract
+```
+
+Everything in that list is consumed by every surface or by none in particular.
+Nothing in it names a Firebase capability. `sandbox/firestore/`,
+`sandbox/admin-firestore/`, and `sandbox/admin-compat.ts` name a capability, so
+they do not belong here. They are the exhibit, and they move (8.6).
+
+### The canonical tree
+
+```
+packages/pyric/src/
+  <surface>/                one Firebase capability: firestore, auth, database, storage, messaging, ai
+    index.ts                public subpath barrel. re-exports only
+    <family>.ts             public API families: refs, reads, writes, query-constraints,
+                            aggregates, listeners, field-values, transactions, ...
+    target.ts | state.ts    dual-target brand (TARGET_SYMBOL) + routing + finalizers
+    types.ts | types/       public handle/reference/snapshot/converter types
+    sandbox/                THIS surface's no-network backend
+      backend.ts            the service facade (wires collaborators, owns lifecycle)
+      <concept>.ts          state, query, converters/, rules-eval, sentinels, ...
+    internal.ts             host-only seam (optional; published as ./internal)
+  sandbox/                  CROSS-SURFACE runtime only (whitelist above)
+  app/                      composition root: initializeApp, dispatches to surface barrels
+  rules/                    native surface (no prod/sandbox split)
+  firestore-values/         native leaf codec (no prod/sandbox split)
+```
+
+### Alternatives considered
+
+Keep the backend in central `sandbox/X/`. This is firestore's current shape. It
+splits one capability across two top-level directories, so a reader who opens
+`firestore/` sees half the surface and has to know that the other half is under
+`sandbox/`. It also makes central `sandbox/` a shared write target that every
+surface's backend work touches, which is the junk-drawer failure mode section 5
+bans. Rejected.
+
+Full colocation, backend and cross-surface runtime both inside the surface. This
+would put persistence, replay, and tab-sync inside whichever surface first
+needed them, and every other surface would then import sideways into that
+surface to reach shared runtime. That is the direction violation 8.3 bans, at
+the level of the runtime itself. The runtime is genuinely cross-surface and has
+to sit above the surfaces. Rejected.
+
+Recommended: surface-local backend in `X/sandbox/`, cross-surface runtime in
+central `sandbox/`. One capability, one directory. Central `sandbox/` stays a
+small, stable, multi-tenant runtime that no single surface owns.
+
+## 8.3 Dependency direction
+
+Rule. Dependencies point one way:
+
+```
+app  ->  surface barrel (pyric/firestore, pyric/auth, ...)
+          ->  X/ families  ->  X/sandbox/ backend  ->  sandbox/ runtime  ->  firestore-values (leaf)
+```
+
+A surface depends downward on the shared runtime. A surface never depends
+sideways on another surface's non-barrel internals. `app` is the composition
+root and is allowed to depend on surface barrels (it dispatches `getFirestore` /
+`getAuth` / `getDatabase` by reading the `PyricApp` brand). Tools depend on
+surface barrels from outside the package (8.5).
+
+Today's sideways edges, enumerated:
+
+1. **rules -> database, re-export at the barrel.** `rules/index.ts`,
+   `rules/rtdb.ts`, and `rules/node.ts` re-export the RTDB constraints authoring
+   DSL and host contract from `database/*`. This is intentional composition:
+   `pyric/rules` presents the rtdb constraints surface as siblings. Ruling:
+   permitted, because it is re-export-only at a native aggregation barrel and
+   carries no logic. A mirror surface reaching sideways into another surface's
+   families is still banned. Encode the carve-out narrowly (8.7 check 2).
+
+2. **firestore-values -> rules/simulator/wrappers/*, deep leaf import.**
+   `firestore-values/index.ts` imports the seven wrapper value classes (Timestamp,
+   Bytes, LatLng, Duration, Reference, Path, Vector) by their direct leaf paths,
+   to avoid executing the `pyric/rules` barrel (which pulls the parser, linter,
+   and simulator, roughly 10 MB) into every serve page. This is a real sideways
+   deep import. It is tolerated today only because the imported files are
+   zero-dependency leaves. Ruling: this is a misfiled shared primitive, not a
+   firestore-values-specific dependency. The wrapper value classes are a leaf
+   that both `rules` and `firestore-values` should depend on downward. Target
+   (low priority, no climb blocks on it): host the wrapper classes as a shared
+   leaf (fold them into `firestore-values`, or a new `values/` leaf) and have
+   `rules/simulator` import them from there. That dissolves the sideways edge.
+   Until then it is the one whitelisted exception (8.7 check 2).
+
+3. **app/dispatch.test.ts -> firestore/auth/database barrels.** A test in the
+   composition root importing surface barrels. Correct direction. Not a
+   violation.
+
+No mirror surface imports another mirror surface's family or backend files. The
+direction rule holds today except for the two documented native-surface edges
+above.
+
+## 8.4 Native (non-mirror) surfaces
+
+A native surface reproduces no prod backend, so it has no dual-target split and
+no `X/sandbox/`. It still obeys the barrel, family, size, and direction rules.
+
+- **rules.** In-process engine. `rules/index.ts` is the barrel; the engine
+  (`simulator/`, `grammar/`, `linter/`, `modules/`) is engine-internal and is
+  reached by package-internal consumers through the published `rules/internal`
+  subpaths. No prod/sandbox split. Its only external dependency is the
+  re-export-only edge to `database` (8.3 case 1).
+- **firestore-values.** A leaf value codec with two consumers (the sandbox
+  persistence serializer and the serve worker client). It is a single-file
+  native surface by design: it must stay small so the per-page bundle does not
+  drag the rules engine. See 8.3 case 2 for its one sideways edge.
+- **The `pyric/sandbox` public API** is itself a native surface: `sandbox/index.ts`
+  is its barrel, `sandbox/types/` its types, and the whitelist in 8.2 its
+  implementation. It is the runtime every mirror surface sits on, so it lives at
+  the top level, not inside any surface.
+
+`app` is not a surface. It is the composition root: `initializeApp`, the
+`PyricApp` brand, and the dispatch that routes to surface barrels. It depends
+on surfaces; nothing in a surface depends on it.
+
+## 8.5 Worker and serve entries, and tools
+
+The serve worker and its per-surface entries live in `pyric-tools`, not in the
+surface directories. They are the transport that hosts the sandbox in a
+SharedWorker and bridges it to a page. They depend on the surfaces; the surfaces
+do not know they exist.
+
+Rule.
+
+- Serve worker host and client and entries stay in `pyric-tools`
+  (`serve/worker/host-<surface>.ts`, `serve/worker/client/<surface>.ts`,
+  `serve/entries/<surface>.ts`). Confirmed today: `host-auth.ts` imports
+  `pyric/auth`, `host-ai.ts` imports `pyric/ai`, `entries/auth.ts` imports
+  `pyric/auth`. Direction is downward, `pyric-tools` onto `pyric` barrels.
+- A worker entry imports a surface through its published barrel or its published
+  `./internal` subpath. It never reaches into a surface's non-exported files by
+  relative path. A host that needs bypass or host-only seams uses the surface's
+  `./internal` subpath (storage already exposes `pyric/storage/internal` for
+  exactly this; the sandbox exposes `pyric/sandbox/internal`).
+- In-surface tool factories (`firestore/tools.ts`, `database/tools.ts`,
+  `rules/tools.ts`, `storage/admin/tools.ts`) stay in the surface. They are part
+  of that surface's public contract. The MCP registry composition that wires
+  them into a server lives in the tools/bridge layer, not in the surface.
+- Symmetric surfaces split symmetrically (section 6). The worker client family
+  split (`client/firestore-reads.ts`, `firestore-refs.ts`, `firestore-writes.ts`)
+  mirrors the surface family names (`reads`, `refs`, `writes`). Keep that mirror.
+
+## 8.6 Migration table
+
+Per surface: current shape, target shape, the climb that moves it, and what
+moves. Restructures follow section 7 (characterization first, mechanical move as
+its own commit, export path unchanged).
+
+| Surface | Current shape | Target shape | When it moves | What moves |
+|---|---|---|---|---|
+| firestore | engine + Admin face in central `sandbox/firestore/`, `sandbox/admin-firestore/`, `sandbox/admin-compat.ts` | `firestore/sandbox/` (engine) + the Admin face under firestore (see 8.8) | the firestore behavior climb already in flight (composite queries over worker, tier-1 cache-init) | `sandbox/firestore/*` -> `firestore/sandbox/*`; split `local-environment.ts` in the same move; Admin face per 8.8; package.json subpaths `pyric/sandbox/admin-firestore` and `pyric/sandbox/admin-compat` remap to the new dist path so the export contract is unchanged |
+| auth | one file `auth/sandbox-backend.ts`, 2173 lines (over the 600 trigger) | `auth/sandbox/backend.ts` facade + one concept per file | the next auth climb (blocking-function / before-state work) | `auth/sandbox-backend.ts` splits into `auth/sandbox/*`. Location is already correct (surface-local); the split only deepens it. The `auth-backend-split` branch target conforms (8.8) |
+| database | `database/sandbox/*`, one concept per file | unchanged. this is the reference example | no move | nothing |
+| storage | backend inlined across `storage/{service,enforce,rules,persistence,internal}.ts`, no `sandbox/` subdir | extract the backend into `storage/sandbox/` (StorageService, IDB store, rules-eval), keep `storage/internal` as the host seam | the next storage climb (metadata / list / rules slices) | the non-public backend logic in those files moves to `storage/sandbox/*`; the family and `internal` files stay; `pyric/storage/internal` subpath unchanged |
+| messaging | `messaging/broker/*` | unchanged. reference example | no move | nothing |
+| ai | `ai/broker/*` + `ai/backend.ts` + `ai/sandbox-plane.ts` | conforms. optional tidy: fold `backend.ts` and `sandbox-plane.ts` under `ai/sandbox/` for symmetry | opportunistic, next time ai backend is touched | low priority; not blocking |
+| rules | native engine behind `rules/internal` | unchanged, except keep the `database` edge re-export-only | no move | nothing; 8.3 case 1 is a lint carve-out, not a move |
+| firestore-values | leaf codec, deep-imports rules wrappers | unchanged near-term; long-term host the wrapper leaf here (8.3 case 2) | deferred, no climb blocks on it | eventually the wrapper value classes move to a shared leaf; not scheduled |
+
+New code rule, restated for the table: from ratification day, any firestore
+backend concept a climb adds goes in `firestore/sandbox/` even before the bulk
+move; any auth backend concept goes in `auth/sandbox/`; and so on. The climb
+does not append to `sandbox/firestore/` or to `auth/sandbox-backend.ts`.
+
+## 8.7 Enforcement
+
+A structural test (a conventions linter over `packages/pyric/src`) can decide
+every rule in this section mechanically.
+
+1. **Barrel purity.** Parse every `index.ts`. It must contain only re-exports,
+   type declarations, and doc comments. Any function body, class, or branch
+   fails it. This is section 4's test, automated. It catches a surface entry
+   that grows inline implementation.
+
+2. **No sideways surface imports.** For any file under `src/<A>/`, a relative
+   import that crosses into another surface `src/<B>/` fails, with two
+   whitelisted exceptions: (a) importing `<B>/index.js` (the barrel) from a
+   native aggregation surface, which today is only `rules -> database`; (b) the
+   `firestore-values -> rules/simulator/wrappers/*` leaf edge, listed explicitly
+   so it is visible and removable. Any other cross-surface deep import fails.
+
+3. **Central-sandbox whitelist.** The top-level entries of `src/sandbox/` must
+   match the whitelist in 8.2 (`index.ts`, `internal`, `sandbox-context.ts`,
+   `types`, `persistence`, `tab-sync`, `replay`, `branches`, `remote.ts`). Any
+   entry that names a capability (`firestore`, `admin-firestore`, `admin-compat`,
+   `auth`, ...) fails. This is the check that keeps firestore's backend from
+   drifting back in, and that fails today until the firestore move lands.
+
+4. **Surface sandbox-dir contents.** `<surface>/sandbox/` contains backend
+   concept files only. It holds no public API family and no re-export barrel that
+   feeds the published surface. The published surface is `<surface>/index.ts`;
+   `<surface>/sandbox/` is not on the export map.
+
+5. **File-size trigger.** Section 2's 600-line trigger, run as a test. It fails
+   today on `auth/sandbox-backend.ts` (2173 lines), which is precisely the file
+   the auth migration splits.
+
+Checks 3 and 5 both fail on the current tree by design. They pass as each
+surface migrates, so they double as the migration's definition of done.
+
+## 8.8 The sharpest ruling, and the two in-flight splits
+
+### The ruling the owner must make: where the Admin Firestore face goes
+
+The firestore capability has one sandbox engine and two adapter faces:
+
+- the modular Web SDK face, `pyric/firestore`, in `src/firestore/`;
+- the Admin-SDK-shaped chainable face, consumed by the `pyric-admin` package and
+  published as `pyric/sandbox/admin-firestore` (plus the `pyric/sandbox/admin-compat`
+  shim), today in `src/sandbox/admin-firestore/` and `src/sandbox/admin-compat.ts`.
+
+The modular face is built on top of the chainable face (`firestore/sandbox-ops`
+wraps `pyric-admin`'s chainable adapter), and both faces sit on the same engine
+(`sandbox/firestore/local-environment.ts` and siblings). So the engine is shared
+by two faces, one of which has an external consumer and a stable published
+subpath. That is why this is the sharp decision. The choices:
+
+- **(A) One firestore directory.** Move the engine to `firestore/sandbox/` and
+  the Admin face under it (`firestore/sandbox/admin-compat/`, with the remote arm
+  alongside). Remap the two `pyric/sandbox/*` subpaths in `package.json` to the
+  new `dist/firestore/...` paths so the export contract does not change. Result:
+  central `sandbox/` is pure cross-surface runtime; every firestore concept is in
+  `firestore/`.
+- **(B) Promote admin-firestore to its own top-level surface** `src/admin-firestore/`,
+  a peer adapter surface with its own directory, keeping the engine in
+  `firestore/sandbox/` and having admin-firestore depend downward on it. Result:
+  the export subpath maps to `dist/admin-firestore/`; the two firestore faces are
+  siblings, not nested.
+
+Recommend (A). The Admin face is not a peer capability, it is a second face on
+the firestore capability, and the locality diagnosis that motivates this whole
+section says one capability lives in one directory. The engine is firestore's,
+not cross-surface, so it fails the central-`sandbox/` whitelist and belongs in
+`firestore/sandbox/`. Keep the two published subpaths stable through the exports
+map (section 7 already forbids changing the public import path during a
+restructure; this satisfies it). The one cost of (A) is that the Admin face
+nests under firestore rather than reading as a top-level surface, which is
+accurate: it is firestore's Admin face.
+
+### Do the two in-flight engine splits conform?
+
+- **auth-backend-split.** Conforms. The branch is currently identical to
+  `origin/main` (0 commits ahead, 0 behind), and on main the auth backend is the
+  single surface-local file `auth/sandbox-backend.ts`. Its location is already
+  the target location (surface-local, not central). The split this section calls
+  for deepens that file into `auth/sandbox/backend.ts` plus concept files. As
+  long as the split lands under `auth/sandbox/` and not in central `sandbox/`, it
+  conforms. Confirmed target: surface-local, correct.
+
+- **firestore engine split (firestore-entry-split, merged as #183; admin-firestore
+  one-concept split, merged as #181).** The entry split (#183) already put the
+  public firestore surface into per-family modules under `firestore/`, which
+  conforms. The admin-firestore split (#181) made `sandbox/admin-firestore/`
+  one-concept-per-file, which conforms on file shape but leaves the directory in
+  central `sandbox/`, which does not conform on location. Those files are the
+  ones the firestore behavior climb moves under 8.6 and the ruling in (A). So the
+  file-level shape is already right; only the location is pending, and it moves
+  with the next firestore climb, not as a separate project.
