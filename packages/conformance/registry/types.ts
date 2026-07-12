@@ -70,6 +70,22 @@ export interface CompatibilityRow {
   exceptionReason?: string;
   notes?: string;
   conformanceChecks?: OracleConformanceCheck[];
+  /**
+   * For rules-engine rows (`firestore-rules` / `storage-rules`): the
+   * rules-language construct ids (`rules-language/<engine>.json`) whose behavior
+   * this row adjudicates — the row's SCOPE in the language.
+   *
+   * Required on every rules-engine row whose status is `diverged-documented` or
+   * `bug`, because that scope is what a divergence CONTAMINATES: the assurance
+   * capability derivation (`src/assurance-capabilities.ts`) downgrades any
+   * capability that depends on a construct listed here, so a known-wrong
+   * simulator cannot silently underwrite a security claim. A divergence with no
+   * declared scope would contaminate nothing, which is the failure mode this
+   * field exists to prevent.
+   *
+   * Optional (and unused by the derivation) on conforming rows.
+   */
+  constructs?: string[];
 }
 
 export interface MarkdownBlock {
