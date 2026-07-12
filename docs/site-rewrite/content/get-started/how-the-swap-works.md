@@ -1,11 +1,11 @@
 ---
-title: How the swap works
-navLabel: How the swap works
-outcome: Understand how your firebase imports reached a local backend, and why production is untouched.
+title: How firebase/* imports resolve to Pyric in dev and Firebase in production
+navLabel: How firebase/* imports resolve
+outcome: Understand how firebase imports reach a local backend in development, and why production is untouched.
 status: draft
 ---
 
-# How the swap works
+# How firebase/* imports resolve to Pyric in dev and Firebase in production
 
 In development, your app's `firebase/*` imports resolve to a local backend with rules enforced, and no request leaves your machine. In production they resolve to Firebase, unchanged. Here's how, in three parts.
 

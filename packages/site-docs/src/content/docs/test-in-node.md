@@ -1,5 +1,5 @@
 ---
-title: "The same backend in tests and scripts"
+title: "Run the sandbox backend in Node tests and scripts"
 navLabel: "Test in Node"
 group: "Ship & test"
 section: ""
@@ -7,7 +7,7 @@ order: 5003
 description: "Run your rules and data logic in a Node test suite, with no browser and no emulator."
 ---
 
-# The same backend in tests and scripts
+# Run the sandbox backend in Node tests and scripts
 
 The backend that runs in your browser tab runs in a Node process the same way. That means your test suite gets a real Firestore with real rules enforcement, in-process, with nothing to start or tear down. No browser. No emulator. No port.
 

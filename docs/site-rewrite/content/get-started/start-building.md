@@ -77,4 +77,4 @@ pyric dev --bridge
 
 ## Where to go next
 
-You have a backend. [How the swap works](./how-the-swap-works.md) explains the swap in one page, or go straight to [signing users in](../build/sign-in-and-manage-users.md).
+You have a backend. [How firebase/* imports resolve](./how-the-swap-works.md) explains the dev-to-production swap in one page, or go straight to [signing users in](../build/sign-in-and-manage-users.md).
