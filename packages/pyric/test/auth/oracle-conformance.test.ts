@@ -21,13 +21,29 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
+  ActionCodeOperation,
+  applyActionCode,
+  AuthErrorCodes,
+  getAdditionalUserInfo,
   getAuth,
+  isSignInWithEmailLink,
   onAuthStateChanged,
   onIdTokenChanged,
+  OperationType,
+  parseActionCodeURL,
+  ProviderId,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  sendSignInLinkToEmail,
   signInAnonymously,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
+  signInWithEmailLink,
+  SignInMethod,
   createUserWithEmailAndPassword,
   signOut,
+  unlink,
+  validatePassword,
   sandbox as authSandbox,
   type User,
 } from '../../src/auth/index.js';
@@ -35,10 +51,43 @@ import {
 // auth-* observations live under the 'auth' surface subdirectory.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'auth');
 
-/** Observations that cannot be replayed against the sandbox, with the reason. */
+/**
+ * Observations that cannot be replayed against the sandbox, with the reason.
+ *
+ * ─── The honest ones, and why they are here ─────────────────────────────
+ * Several probes from the auth resolver climb ran against the real project and
+ * came back `auth/operation-not-allowed` on every arm. That is not the API
+ * contract — it is the ORACLE PROJECT'S CONFIGURATION answering first: the
+ * project currently has the Email/Password sign-in provider DISABLED, so a
+ * probe that needs to mint an email credential cannot even reach the behavior
+ * it was written to observe. (Anonymous sign-in still works, which is why the
+ * anonymous arms of those same probes DID capture.)
+ *
+ * These observations are committed exactly as captured rather than deleted,
+ * and they are listed here rather than asserted against the sandbox, because
+ * asserting `auth/operation-not-allowed` as if it were the linking or reauth
+ * contract would be manufacturing evidence. The corresponding registry rows
+ * are born `unit-backed`, not `oracle-backed`, and say so.
+ *
+ * To PROMOTE these rows to oracle-backed: enable Email/Password sign-in on the
+ * oracle project (Authentication -> Sign-in method) and re-run
+ *   bun --env-file=.env run packages/conformance/src/run.ts link- reauth- fsime
+ * The probes are already written and committed; only the project toggle is
+ * missing.
+ */
 const NOT_APPLICABLE: Record<string, string> = {
   'auth-bare-getauth-no-default-app.json':
     'exercises the prod fallthrough (fb.getAuth with no default app) — covered by the prod path, not sandbox behavior',
+  'auth-link-email-credential-to-anonymous.json':
+    'BLOCKED, not skipped: every arm returned auth/operation-not-allowed because the oracle project has the Email/Password provider disabled, so no email credential could be minted. The linking rows are unit-backed and say so. Re-run after enabling the provider to promote them.',
+  'auth-link-conflicts.json':
+    'BLOCKED: same disabled Email/Password provider — provider-already-linked / credential-already-in-use could not be reached. Linking rows are unit-backed.',
+  'auth-reauthenticate-with-credential.json':
+    'BLOCKED: same disabled Email/Password provider — the probe could not create the two accounts it needs. Reauth rows are unit-backed.',
+  'auth-fetchsigninmethodsforemail-deprecated.json':
+    'BLOCKED: same disabled Email/Password provider. The out-of-scope disposition for this symbol rests on the shipped @firebase/auth type declaration (a primary source: "returns an empty list when Email Enumeration Protection is enabled" + "migrating off of this method is recommended as a security best-practice"), NOT on this capture. See surface-denylist.ts.',
+  'auth-verifybeforeupdateemail-shape.json':
+    'BLOCKED: same disabled Email/Password provider — the probe could not create the user whose email it would change.',
 };
 
 function load(name: string): Record<string, unknown> {
@@ -494,6 +543,227 @@ describe('oracle conformance (auth)', () => {
     // still serves the cached token (claimUnforcedAfterAdminWrite: null).
     // The sandbox reads claims live at mint time but only re-mints on
     // force — matching the forced-refresh propagation story.
+  });
+
+  // ── the auth resolver climb: email-link / action-code, linking, reauth ──
+  //
+  // Read the honesty note in NOT_APPLICABLE before adding to this block.
+  // The observations that could NOT be captured (because the oracle project
+  // has the Email/Password provider disabled) are listed there with the
+  // captured error code, NOT quietly asserted against the sandbox as if they
+  // had been. What follows is only what production actually told us.
+
+  it('auth-actioncodeurl-parse', () => {
+    const obs = load('auth-actioncodeurl-parse.json') as {
+      wellFormed: Record<string, unknown>;
+      signInOperation: string;
+      noModeIsNull: boolean;
+      noCodeIsNull: boolean;
+      notAUrlIsNull: boolean;
+      actionCodeOperation: Record<string, string>;
+    };
+    // The PURE parse contract — no network, no project, so the sandbox owes
+    // production an exact match here and there is no excuse for a divergence.
+    const parsed = parseActionCodeURL(
+      'https://example.com/finish?mode=resetPassword&oobCode=CODE_123&apiKey=API_KEY_1&continueUrl=https%3A%2F%2Fapp.example.com%2Fnext&lang=fr',
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed!.operation).toBe(obs.wellFormed.operation as string);
+    expect(parsed!.code).toBe(obs.wellFormed.code as string);
+    expect(parsed!.apiKey).toBe(obs.wellFormed.apiKey as string);
+    // continueUrl comes out URL-DECODED — prod decodes it, so we must too.
+    expect(parsed!.continueUrl).toBe(obs.wellFormed.continueUrl as string);
+    expect(parsed!.languageCode).toBe(obs.wellFormed.languageCode as string);
+    expect(parsed!.tenantId).toBe(obs.wellFormed.tenantId as null);
+
+    // mode=signIn normalizes to EMAIL_SIGNIN, not 'signIn'.
+    const signIn = parseActionCodeURL('https://example.com/finish?mode=signIn&oobCode=C&apiKey=K');
+    expect(signIn!.operation).toBe(obs.signInOperation);
+
+    // The three null cases — the parse never throws.
+    expect(parseActionCodeURL('https://example.com/f?oobCode=X&apiKey=K') === null).toBe(obs.noModeIsNull);
+    expect(parseActionCodeURL('https://example.com/f?mode=signIn&apiKey=K') === null).toBe(obs.noCodeIsNull);
+    expect(parseActionCodeURL('definitely not a url') === null).toBe(obs.notAUrlIsNull);
+
+    // The operation constant map, value for value.
+    expect({ ...ActionCodeOperation }).toEqual(obs.actionCodeOperation);
+  });
+
+  it('auth-issigninwithemaillink-predicate', () => {
+    const obs = load('auth-issigninwithemaillink-predicate.json') as Record<string, boolean>;
+    const auth = freshAuth();
+    expect(isSignInWithEmailLink(auth, 'https://example.com/x?mode=signIn&oobCode=C1&apiKey=K')).toBe(obs.signInLink);
+    expect(isSignInWithEmailLink(auth, 'https://example.com/x?mode=resetPassword&oobCode=C1&apiKey=K')).toBe(obs.resetPasswordLink);
+    expect(isSignInWithEmailLink(auth, 'https://example.com/x?mode=signIn&apiKey=K')).toBe(obs.signInModeNoOobCode);
+    expect(isSignInWithEmailLink(auth, 'not-a-link')).toBe(obs.garbage);
+    expect(isSignInWithEmailLink(auth, '')).toBe(obs.empty);
+  });
+
+  it('auth-action-code-invalid', async () => {
+    const obs = load('auth-action-code-invalid.json') as Record<string, string>;
+    const auth = freshAuth();
+    // applyActionCode is the ONE redeem path the oracle reached (it is not
+    // gated on the password provider), and it said `auth/invalid-action-code`
+    // for both a bogus code and the empty string. Assert against the capture.
+    await expectCode(applyActionCode(auth, 'pyric-oracle-not-a-real-oob-code'), obs.applyActionCode!);
+    await expectCode(applyActionCode(auth, ''), obs.applyActionCodeEmpty!);
+    // The other three came back `auth/operation-not-allowed` — the oracle
+    // project's disabled password provider answering before the invalid-code
+    // contract could. We do NOT assert the sandbox against that: it is a fact
+    // about the project's configuration, not about the API. See NOT_APPLICABLE.
+    expect(obs.checkActionCode).toBe('auth/operation-not-allowed');
+  });
+
+  it('auth-sendsigninlinktoemail-settings-validation', async () => {
+    const obs = load('auth-sendsigninlinktoemail-settings-validation.json') as Record<string, string>;
+    const auth = freshAuth();
+    // Both of these are CLIENT-side validations — prod threw before any
+    // request left the process, so they are project-independent and the
+    // sandbox owes an exact match.
+    await expectCode(
+      sendSignInLinkToEmail(auth, 'ada@example.com', { handleCodeInApp: true } as never),
+      obs.missingUrl!,
+    );
+    await expectCode(
+      sendSignInLinkToEmail(auth, 'ada@example.com', { url: 'https://example.com/finish', handleCodeInApp: false }),
+      obs.handleCodeInAppFalse!,
+    );
+    // Worth pinning explicitly, because the constant's NAME misleads: a
+    // MISSING url yields `invalid-continue-uri`, not `missing-continue-uri`.
+    expect(obs.missingUrl).toBe('auth/invalid-continue-uri');
+    expect(obs.handleCodeInAppFalse).toBe('auth/argument-error');
+  });
+
+  it('auth-signinwithemaillink-invalid-link', async () => {
+    const obs = load('auth-signinwithemaillink-invalid-link.json') as Record<string, string>;
+    const auth = freshAuth();
+    // A link with no oobCode fails client-side with argument-error — prod
+    // never gets far enough to ask the server about a code it cannot find.
+    await expectCode(
+      signInWithEmailLink(auth, 'ada@example.com', 'https://example.com/x?mode=signIn&apiKey=K'),
+      obs.noOobCode!,
+    );
+    expect(obs.noOobCode).toBe('auth/argument-error');
+  });
+
+  it('auth-sendpasswordresetemail-unknown-user', async () => {
+    const obs = load('auth-sendpasswordresetemail-unknown-user.json') as {
+      resolvedForUnknownUser: boolean;
+      unknownUserCode: string | null;
+      malformedEmailCode: string;
+    };
+    const auth = freshAuth();
+    // THE behavior worth locking: prod does NOT leak account existence. An
+    // address nobody owns resolves silently. A sandbox that threw
+    // `auth/user-not-found` here would hand agent code an account oracle
+    // production deliberately removed.
+    expect(obs.resolvedForUnknownUser).toBe(true);
+    expect(obs.unknownUserCode).toBeNull();
+    await expect(sendPasswordResetEmail(auth, 'nobody-at-all@example.com')).resolves.toBeUndefined();
+    // ...and no mail was sent, because there was no account to send it to.
+    expect(authSandbox.listAuthMail(auth)).toEqual([]);
+    // Format validation still fires.
+    await expectCode(sendPasswordResetEmail(auth, 'not-an-email'), obs.malformedEmailCode);
+  });
+
+  it('auth-sendemailverification-shape', async () => {
+    const obs = load('auth-sendemailverification-shape.json') as { anonymousUserCode: string };
+    const auth = freshAuth();
+    // An anonymous user has no email to verify. Prod: `auth/missing-email`.
+    await signInAnonymously(auth);
+    await expectCode(sendEmailVerification(auth.currentUser!), obs.anonymousUserCode);
+    expect(obs.anonymousUserCode).toBe('auth/missing-email');
+  });
+
+  it('auth-unlink-provider', async () => {
+    const obs = load('auth-unlink-provider.json') as { noSuchProviderCode: string };
+    const auth = freshAuth();
+    // The one linking fact the oracle DID reach (it needs no email
+    // credential): unlinking a provider that was never linked.
+    await signInAnonymously(auth);
+    await expectCode(unlink(auth.currentUser!, 'google.com'), obs.noSuchProviderCode);
+    expect(obs.noSuchProviderCode).toBe('auth/no-such-provider');
+  });
+
+  it('auth-additional-user-info-shape', async () => {
+    const obs = load('auth-additional-user-info-shape.json') as {
+      anonymous: { isNewUser: boolean; providerId: string | null; profile: unknown };
+    };
+    const auth = freshAuth();
+    const cred = await signInAnonymously(auth);
+    const info = getAdditionalUserInfo(cred);
+    // Prod: { isNewUser: true, providerId: null, profile: {} }. Note
+    // providerId is NULL, not 'anonymous' — anonymous is not a federated
+    // provider. A mirror that reported 'anonymous' would break any consumer
+    // branching on providerId.
+    expect(info!.isNewUser).toBe(obs.anonymous.isNewUser);
+    expect(info!.providerId).toBe(obs.anonymous.providerId);
+    expect(info!.profile).toEqual(obs.anonymous.profile as Record<string, unknown>);
+  });
+
+  it('auth-mechanical-surface-constants', () => {
+    const obs = load('auth-mechanical-surface-constants.json') as {
+      ProviderId: Record<string, string>;
+      SignInMethod: Record<string, string>;
+      OperationType: Record<string, string>;
+      authErrorCodesSample: Record<string, string>;
+    };
+    // Value-for-value. Consumer code compares against these constants, so a
+    // mirror that got a string wrong would turn every such comparison into a
+    // silent false — worse than not exporting them at all.
+    expect({ ...ProviderId }).toEqual(obs.ProviderId);
+    expect({ ...SignInMethod }).toEqual(obs.SignInMethod);
+    expect({ ...OperationType }).toEqual(obs.OperationType);
+    for (const [name, code] of Object.entries(obs.authErrorCodesSample)) {
+      expect((AuthErrorCodes as unknown as Record<string, string>)[name]).toBe(code);
+    }
+    // The error codes this climb's families actually throw, pinned to the
+    // captured map rather than to a string we typed from memory.
+    expect(obs.authErrorCodesSample.INVALID_OOB_CODE).toBe('auth/invalid-action-code');
+    expect(obs.authErrorCodesSample.EXPIRED_OOB_CODE).toBe('auth/expired-action-code');
+    expect(obs.authErrorCodesSample.PROVIDER_ALREADY_LINKED).toBe('auth/provider-already-linked');
+    expect(obs.authErrorCodesSample.NO_SUCH_PROVIDER).toBe('auth/no-such-provider');
+    expect(obs.authErrorCodesSample.USER_MISMATCH).toBe('auth/user-mismatch');
+    // NOTE: the capture's `persistenceTypes` block is deliberately NOT
+    // asserted. The harness runs under Node, where firebase/auth stubs the
+    // browser-only persistence tokens to `type: 'NONE'` — it reports 'NONE'
+    // even for browserLocalPersistence, which is unambiguously 'LOCAL'. The
+    // observation is committed as captured (it is what we saw); asserting it
+    // would be asserting a harness artifact. See config-tokens.ts.
+  });
+
+  it('auth-signinwithcustomtoken-invalid', async () => {
+    const obs = load('auth-signinwithcustomtoken-invalid.json') as {
+      malformedCode: string;
+      emptyCode: string;
+    };
+    const auth = freshAuth();
+    await expectCode(signInWithCustomToken(auth, 'not-a-jwt'), obs.malformedCode);
+    await expectCode(signInWithCustomToken(auth, ''), obs.emptyCode);
+    expect(obs.malformedCode).toBe('auth/invalid-custom-token');
+  });
+
+  it('auth-validatepassword-status-shape', async () => {
+    const obs = load('auth-validatepassword-status-shape.json') as {
+      weak: Record<string, unknown>;
+      strong: Record<string, unknown>;
+    };
+    const auth = freshAuth();
+    const weak = await validatePassword(auth, 'x');
+    const strong = await validatePassword(auth, 'aReasonablyStrongPassword123!');
+    expect(weak.isValid).toBe(obs.weak.isValid as boolean);
+    expect(weak.meetsMinPasswordLength).toBe(obs.weak.meetsMinPasswordLength as boolean);
+    expect(weak.meetsMaxPasswordLength).toBe(obs.weak.meetsMaxPasswordLength as boolean);
+    expect(strong.isValid).toBe(obs.strong.isValid as boolean);
+    // The policy the sandbox reports must be the policy prod reports, or a
+    // UI showing live strength feedback draws the line in the wrong place.
+    expect(weak.passwordPolicy.customStrengthOptions.minPasswordLength).toBe(obs.weak.minPasswordLength as number);
+    expect(weak.passwordPolicy.customStrengthOptions.maxPasswordLength).toBe(obs.weak.maxPasswordLength as number);
+    // The character-class requirements are UNSET in prod's policy, and must
+    // be unset here — reporting `false` would claim the password failed a
+    // rule the project never had.
+    expect(weak.containsLowercaseLetter).toBeUndefined();
+    expect(obs.weak.containsLowercaseLetter).toBeNull();
   });
 
   // ── completeness: every observation is asserted or explicitly N/A ─────

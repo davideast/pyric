@@ -48,6 +48,74 @@
 
 import type { AuthFlowResolver, UserCredential } from './types.js';
 
+/**
+ * One message the sandbox's auth "mail server" emitted. Produced by
+ * every send-an-email API (`sendSignInLinkToEmail`,
+ * `sendPasswordResetEmail`, `sendEmailVerification`,
+ * `verifyBeforeUpdateEmail`).
+ *
+ * ─── Why a mailbox and not a stub ──────────────────────────────────
+ * The email family's one genuinely unobservable step is the human
+ * opening an inbox and clicking a link. Production cannot be probed
+ * across that gap and neither can a test. What the sandbox does is make
+ * the gap CROSSABLE instead of pretending it isn't there: the message,
+ * with its real out-of-band code and its real link, lands in an outbox
+ * the caller can read. `sandbox.takeAuthMail(auth)` is the program's
+ * substitute for a human reading their mail — and the code in that
+ * message is the same code `applyActionCode` / `signInWithEmailLink`
+ * will accept, so the round trip really does close.
+ *
+ * That is the same move `mockSignInResult` makes for OAuth: the sandbox
+ * does not fake the outcome of the external step, it hands you the seam
+ * where the external step's result enters the system.
+ */
+export interface OutboundAuthMail {
+  /** The {@link ActionCodeOperation} this message authorizes. */
+  operation: string;
+  /** Recipient. */
+  email: string;
+  /** The out-of-band code the recipient would redeem. */
+  code: string;
+  /** The full action link the message would contain — the exact string
+   *  `signInWithEmailLink` / `parseActionCodeURL` accept. */
+  link: string;
+  /** For `VERIFY_AND_CHANGE_EMAIL`: the address being moved TO. */
+  newEmail?: string;
+}
+
+/**
+ * Notified for every message the sandbox's auth mail server emits — the
+ * analog of {@link AuthFlowResolver} for the email family. A host (the
+ * playground) installs one to surface the link in its UI; a headless
+ * test reads {@link AuthFlowRegistry.takeMail} instead.
+ *
+ * Advisory, not a gate: the message is written to the outbox whether or
+ * not a resolver is installed, because in this model the sandbox IS the
+ * mail server — the mail exists regardless of who is watching.
+ */
+export interface AuthMailResolver {
+  deliver(mail: OutboundAuthMail): void;
+}
+
+/**
+ * What one staged out-of-band code authorizes. The sandbox's action-code
+ * store maps `code -> AuthActionCode`; the consumers
+ * (`applyActionCode`, `checkActionCode`, `confirmPasswordReset`,
+ * `verifyPasswordResetCode`, `signInWithEmailLink`) redeem against it.
+ */
+export interface AuthActionCode {
+  /** One of {@link ActionCodeOperation}. */
+  operation: string;
+  /** The account the code acts on. */
+  email: string;
+  /** For `VERIFY_AND_CHANGE_EMAIL`: the address being moved TO. */
+  newEmail?: string;
+  /** When true, redeeming throws `auth/expired-action-code` instead of
+   *  applying. Staged deliberately by `sandbox.mockActionCode` so the
+   *  expiry branch is reachable without waiting out a real TTL. */
+  expired?: boolean;
+}
+
 export class AuthFlowRegistry {
   /** Pre-staged sign-in results, keyed by providerId. The one-shot tier
    *  of the popup/redirect resolver precedence (see `index.ts`
@@ -99,5 +167,89 @@ export class AuthFlowRegistry {
     const r = this.redirectResult;
     this.redirectResult = null;
     return r;
+  }
+
+  // ─── Action-code store (the email family's staging slot) ────────────
+
+  /** Live out-of-band codes: `code -> what it authorizes`. The email
+   *  APIs mint into this map; the action-code consumers redeem from it. */
+  private readonly actionCodes = new Map<string, AuthActionCode>();
+
+  /** Monotonic serial behind {@link mintActionCode}. A counter, not a
+   *  random string: a sandbox code that is stable across runs makes a
+   *  failing test reproducible, and there is no secrecy requirement here
+   *  (the whole point is that the test can read it). */
+  private nextCodeSerial = 1;
+
+  /** Messages the sandbox's mail server has emitted, oldest first. */
+  private readonly outbox: OutboundAuthMail[] = [];
+
+  /** Installed {@link AuthMailResolver}, or null. */
+  private mailResolver: AuthMailResolver | null = null;
+
+  /** Mint a fresh, unique out-of-band code and register what it
+   *  authorizes. Returns the code. */
+  mintActionCode(spec: AuthActionCode): string {
+    const code = `sandbox-oob-${this.nextCodeSerial++}`;
+    this.actionCodes.set(code, spec);
+    return code;
+  }
+
+  /** Register a caller-supplied code (the `sandbox.mockActionCode` test
+   *  driver — lets a test stage a KNOWN code, including an expired one). */
+  stageActionCode(code: string, spec: AuthActionCode): void {
+    this.actionCodes.set(code, spec);
+  }
+
+  /** Look at a code WITHOUT redeeming it — backs `checkActionCode` and
+   *  `verifyPasswordResetCode`, both of which inspect without consuming
+   *  (a `checkActionCode` must not burn the code the subsequent
+   *  `applyActionCode` needs). */
+  peekActionCode(code: string): AuthActionCode | undefined {
+    return this.actionCodes.get(code);
+  }
+
+  /** Redeem a code: read it and burn it, so it cannot be replayed —
+   *  matching prod, where an out-of-band code is single-use. */
+  consumeActionCode(code: string): AuthActionCode | undefined {
+    const spec = this.actionCodes.get(code);
+    if (spec) this.actionCodes.delete(code);
+    return spec;
+  }
+
+  // ─── Mail outbox ────────────────────────────────────────────────────
+
+  setMailResolver(resolver: AuthMailResolver | null): void {
+    this.mailResolver = resolver;
+  }
+
+  /** Emit a message. Always recorded in the outbox (the sandbox IS the
+   *  mail server); additionally handed to an installed resolver, whose
+   *  throw is contained — a host UI that fails to render a link must not
+   *  fail the `sendPasswordResetEmail` call that produced it. */
+  deliverMail(mail: OutboundAuthMail): void {
+    this.outbox.push(mail);
+    if (this.mailResolver) {
+      try {
+        this.mailResolver.deliver(mail);
+      } catch {
+        // Contained on purpose — see above.
+      }
+    }
+  }
+
+  /** Read and remove the oldest message, optionally filtered to one
+   *  recipient. The program's stand-in for a human opening their inbox. */
+  takeMail(email?: string): OutboundAuthMail | null {
+    const i = email === undefined
+      ? (this.outbox.length > 0 ? 0 : -1)
+      : this.outbox.findIndex((m) => m.email.toLowerCase() === email.toLowerCase());
+    if (i < 0) return null;
+    return this.outbox.splice(i, 1)[0] ?? null;
+  }
+
+  /** Every message currently in the outbox, oldest first. Non-destructive. */
+  listMail(): OutboundAuthMail[] {
+    return [...this.outbox];
   }
 }

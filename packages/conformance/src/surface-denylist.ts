@@ -102,27 +102,55 @@ const appDenials: DenyEntry[] = [
 // (intentionally NOT shimmed)").
 //
 // Policy: essentially ALL of auth's remaining gaps are intended and buildable
-// via the resolver/mock pattern already proven for OAuth sign-in. The genuine
-// OUT_OF_SCOPE set for auth is therefore EMPTY — every entry below is
-// DEFERRED. `updateEmail`, `updatePassword`, `updatePhoneNumber` (partially —
-// see note), `deleteUser`, `reload`, `useDeviceLanguage`, and
-// `beforeAuthStateChanged` were REMOVED from this file entirely: they are
+// via the resolver/mock pattern already proven for OAuth sign-in. Only ONE
+// symbol is genuinely OUT_OF_SCOPE (fetchSignInMethodsForEmail — see below);
+// everything else here is DEFERRED. `updateEmail`, `updatePassword`,
+// `updatePhoneNumber` (partially), `deleteUser`, `reload`, `useDeviceLanguage`,
+// and `beforeAuthStateChanged` were REMOVED from this file entirely: they are
 // implemented, so they no longer belong on a deny-list at all.
+//
+// The auth resolver climb removed three more whole groups for the same reason —
+// account linking (linkWith* / unlink), re-authentication (reauthenticateWith*),
+// and the email-link / action-code family (sendSignInLinkToEmail,
+// signInWithEmailLink, applyActionCode, ActionCodeURL, …). They are mirrored
+// now, so denying them would be a REDUNDANT entry, which the census treats as
+// fatal decay.
 const authDenials: DenyEntry[] = [
-  ...deny('auth', 'deferred', 'Account linking is non-trivial auth state; deferred, not out of scope — buildable via the same resolver/mock pattern already used for OAuth sign-in (auth deny-list: linkWith* / unlink).', [
-    'linkWithCredential', 'linkWithPopup', 'linkWithRedirect', 'unlink',
-  ]),
-  ...deny('auth', 'deferred', 'Re-authentication is deferred, not out of scope — same credential-check machinery as sign-in, just not wired to a "recent login" gate yet (auth deny-list: reauthenticateWith*).', [
-    'reauthenticateWithCredential', 'reauthenticateWithPopup', 'reauthenticateWithRedirect',
+  // ── The one genuine out-of-scope symbol in the auth surface ──────────────
+  //
+  // `fetchSignInMethodsForEmail` is DEPRECATED upstream, and its deprecation
+  // is not cosmetic — it is a security retraction. The shipped
+  // @firebase/auth type declaration says so in two places: the API "returns an
+  // empty list when Email Enumeration Protection is enabled, irrespective of
+  // the number of authentication methods available for the given email", and
+  // "Migrating off of this method is recommended as a security best-practice."
+  // Email Enumeration Protection is ON by default for new projects.
+  //
+  // So against a modern project the production function is a constant: it
+  // returns `[]` no matter what. Mirroring it would mean either (a) faithfully
+  // reproducing a function that always returns nothing — an API whose only
+  // honest implementation is a no-op that misleads whoever calls it — or (b)
+  // implementing the pre-deprecation behavior the sandbox COULD provide
+  // (the sandbox knows every account's methods), which would be strictly WORSE:
+  // agent code would work against the mirror, then silently get `[]` in prod
+  // and take the wrong branch. A mirror that is more capable than production
+  // here is a trap, not a feature.
+  //
+  // This is the same criterion the two-tier policy already applies to Imagen
+  // in `firebase/ai`: an API whose production counterpart is being retired is
+  // out of scope, because mirroring it freezes dead behavior.
+  //
+  // Oracle note: we probed it (`auth-fetchsigninmethodsforemail-deprecated`)
+  // and the capture came back `auth/operation-not-allowed` — the oracle
+  // project has the Email/Password provider disabled, so the probe could not
+  // even create the account it needed. The disposition therefore rests on the
+  // SDK's own type declaration (a primary source, quoted above), not on that
+  // capture. Recorded rather than dressed up.
+  ...deny('auth', 'out-of-scope', 'Deprecated upstream as a security retraction, not a cosmetic one: the shipped @firebase/auth declaration states it "returns an empty list when Email Enumeration Protection is enabled, irrespective of the number of authentication methods available", and that "migrating off of this method is recommended as a security best-practice". Enumeration protection is on by default, so against a modern project the production function always returns []. A mirror that reproduced the pre-deprecation behavior would be MORE capable than prod and would silently mislead agent code that branches on the result; a mirror that reproduced the post-deprecation behavior would be a no-op. Same criterion applied to Imagen in firebase/ai — an API whose production counterpart is retiring is out of scope, because mirroring it freezes dead behavior.', [
+    'fetchSignInMethodsForEmail',
   ]),
   ...deny('auth', 'deferred', 'Phone number mutation deferred alongside the rest of the phone-auth family — buildable via a mocked SMS/verification-code resolver, same shape as the OAuth resolver (auth deny-list: updatePhoneNumber).', [
     'updatePhoneNumber',
-  ]),
-  ...deny('auth', 'deferred', 'Email-link / action-code flows are deferred, not out of scope — an SMTP dependency is not a valid out-of-scope reason (mocking external infrastructure is the product); these can follow the injected-resolver pattern (auth deny-list).', [
-    'verifyBeforeUpdateEmail', 'sendEmailVerification', 'applyActionCode', 'checkActionCode',
-    'confirmPasswordReset', 'sendPasswordResetEmail', 'verifyPasswordResetCode',
-    'isSignInWithEmailLink', 'sendSignInLinkToEmail', 'signInWithEmailLink',
-    'ActionCodeURL', 'ActionCodeOperation', 'parseActionCodeURL',
   ]),
   ...deny('auth', 'deferred', 'MFA / phone / reCAPTCHA family is deferred, not out of scope — reCAPTCHA/SMS are external infra pyric can mock (same resolver pattern as OAuth), and TOTP is pure algorithm work (auth deny-list: multiFactor / MFA APIs).', [
     'multiFactor', 'getMultiFactorResolver', 'FactorId',
@@ -131,7 +159,8 @@ const authDenials: DenyEntry[] = [
     'signInWithPhoneNumber', 'linkWithPhoneNumber', 'reauthenticateWithPhoneNumber',
     'RecaptchaVerifier', 'initializeRecaptchaConfig',
   ]),
-  // useDeviceLanguage, deleteUser, reload, and beforeAuthStateChanged are now
+  // useDeviceLanguage, deleteUser, reload, beforeAuthStateChanged, the linking
+  // family, the reauth family, and the email-link / action-code family are now
   // mirrored (see registry/auth.ts) and are intentionally NOT deny-listed.
 ];
 

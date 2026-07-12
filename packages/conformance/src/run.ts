@@ -34,15 +34,42 @@
  */
 import { createSign } from 'node:crypto';
 import { initializeApp, deleteApp } from 'firebase/app';
+import * as fbAuthNs from 'firebase/auth';
 import {
+  ActionCodeOperation,
+  ActionCodeURL,
+  applyActionCode,
+  AuthErrorCodes,
+  checkActionCode,
+  confirmPasswordReset,
   createUserWithEmailAndPassword,
   deleteUser,
+  EmailAuthProvider,
+  fetchSignInMethodsForEmail,
+  getAdditionalUserInfo,
   getAuth,
+  isSignInWithEmailLink,
+  linkWithCredential,
   onAuthStateChanged,
   onIdTokenChanged,
+  OperationType,
+  parseActionCodeURL,
+  ProviderId,
+  reauthenticateWithCredential,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  sendSignInLinkToEmail,
   signInAnonymously,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
+  signInWithEmailLink,
+  SignInMethod,
   signOut,
+  unlink,
+  validatePassword,
+  verifyBeforeUpdateEmail,
+  verifyPasswordResetCode,
+  type ActionCodeSettings,
   type Auth,
   type User,
 } from 'firebase/auth';
@@ -872,6 +899,37 @@ async function dropCurrentUser(): Promise<void> {
   const u: User | null = auth.currentUser;
   if (u && u.isAnonymous) {
     try { await u.delete(); } catch { /* ignored */ }
+  }
+}
+
+/**
+ * Read the `.type` discriminant off one of `firebase/auth`'s persistence
+ * tokens by name, through the namespace import. Returns
+ * `'absent-in-node-build'` for the browser-only tokens
+ * (`indexedDBLocalPersistence`, `browserCookiePersistence`), which this
+ * Node-resolved harness cannot see — the census resolves the browser
+ * condition and DOES see them, so the mirror still owes those exports.
+ */
+function persistenceType(name: string): string {
+  const token = (fbAuthNs as Record<string, unknown>)[name] as { type?: string } | undefined;
+  if (token === undefined) return 'absent-in-node-build';
+  return token.type ?? 'no-type-field';
+}
+
+/**
+ * Run a step and report the FirebaseError code it raised, or `null` if it
+ * resolved. Every step of a probe body — setup included — should go through
+ * this: an unguarded throw inside `observe()` aborts the whole run, so one
+ * operation this project happens to gate at the project level (Identity
+ * Platform's `auth/operation-not-allowed`) would otherwise take the
+ * remaining probes down with it. Recording the code IS the observation.
+ */
+async function attemptCode(step: () => Promise<unknown>): Promise<string | null> {
+  try {
+    await step();
+    return null;
+  } catch (e) {
+    return (e as { code?: string }).code ?? (e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -7457,6 +7515,646 @@ const probes: Probe[] = [
         allResults,
         restoreOk,
         restoreStatus: restoreRes.status,
+      };
+    },
+  },
+  // ─── Auth climb: email-link / action-code, linking, reauth ──────────
+  //
+  // Emails are addressed at the reserved, non-deliverable `oracle.test`
+  // TLD (same convention the existing email/password probes use), so a
+  // probe that successfully triggers an outbound send reaches no real
+  // inbox. No probe below completes an email ROUND TRIP — nothing here
+  // reads a mailbox. What they capture is what production does
+  // OBSERVABLY on the client side of these APIs: the accept/reject
+  // shape, the error code for an invalid/malformed input, the pure
+  // client-side parse contract, and the conflict codes for linking and
+  // reauth (which need no mail at all, because email/password
+  // credentials carry their own secret).
+  {
+    name: 'auth-actioncodeurl-parse',
+    matrixRow: 'auth #150',
+    rowIds: ['auth#150'],
+    description: 'ActionCodeURL.parseLink / parseActionCodeURL — the PURE CLIENT-SIDE parse contract for an out-of-band action link. No network, no mailbox: fully capturable. Locks which query params become which fields, and what a link that is missing mode/oobCode parses to.',
+    async observe() {
+      const wellFormed =
+        'https://example.com/finish?mode=resetPassword&oobCode=CODE_123&apiKey=API_KEY_1&continueUrl=https%3A%2F%2Fapp.example.com%2Fnext&lang=fr';
+      const parsed = ActionCodeURL.parseLink(wellFormed);
+      const viaFn = parseActionCodeURL(wellFormed);
+      const signInLink =
+        'https://example.com/finish?mode=signIn&oobCode=CODE_SIGNIN&apiKey=API_KEY_1';
+      const signInParsed = parseActionCodeURL(signInLink);
+      // A link with no `mode` / no `oobCode` — the two params the parse
+      // requires. Locks whether prod returns null or throws.
+      const noMode = parseActionCodeURL('https://example.com/finish?oobCode=X&apiKey=K');
+      const noCode = parseActionCodeURL('https://example.com/finish?mode=signIn&apiKey=K');
+      const notAUrl = parseActionCodeURL('definitely not a url');
+      return {
+        wellFormed: parsed
+          ? {
+            operation: parsed.operation,
+            code: parsed.code,
+            apiKey: parsed.apiKey,
+            continueUrl: parsed.continueUrl,
+            languageCode: parsed.languageCode,
+            tenantId: parsed.tenantId,
+          }
+          : null,
+        parseActionCodeURLAgrees: JSON.stringify(viaFn) === JSON.stringify(parsed),
+        signInOperation: signInParsed ? signInParsed.operation : null,
+        signInContinueUrl: signInParsed ? signInParsed.continueUrl : null,
+        noModeIsNull: noMode === null,
+        noCodeIsNull: noCode === null,
+        notAUrlIsNull: notAUrl === null,
+        // The ActionCodeOperation constant map — the operation strings the
+        // parse above yields.
+        actionCodeOperation: { ...ActionCodeOperation },
+      };
+    },
+  },
+  {
+    name: 'auth-issigninwithemaillink-predicate',
+    matrixRow: 'auth #151',
+    rowIds: ['auth#151'],
+    description: 'isSignInWithEmailLink — pure client-side predicate over a link. Locks exactly which links prod accepts as an email-link sign-in link (mode=signIn + oobCode) and which it rejects.',
+    async observe() {
+      const signIn = 'https://example.com/x?mode=signIn&oobCode=C1&apiKey=K';
+      const reset = 'https://example.com/x?mode=resetPassword&oobCode=C1&apiKey=K';
+      const noCode = 'https://example.com/x?mode=signIn&apiKey=K';
+      return {
+        signInLink: isSignInWithEmailLink(auth, signIn),
+        resetPasswordLink: isSignInWithEmailLink(auth, reset),
+        signInModeNoOobCode: isSignInWithEmailLink(auth, noCode),
+        garbage: isSignInWithEmailLink(auth, 'not-a-link'),
+        empty: isSignInWithEmailLink(auth, ''),
+      };
+    },
+  },
+  {
+    name: 'auth-action-code-invalid',
+    matrixRow: 'auth #152',
+    rowIds: ['auth#152'],
+    description: 'The four out-of-band code CONSUMERS against a code production never issued. This is the reject shape an email round trip is not needed to observe: applyActionCode / checkActionCode / verifyPasswordResetCode / confirmPasswordReset each hit the real Identity Platform endpoint with a bogus oobCode. Locks auth/invalid-action-code across all four.',
+    async observe() {
+      const bogus = 'pyric-oracle-not-a-real-oob-code';
+      async function codeOf(p: Promise<unknown>): Promise<string | null> {
+        try {
+          await p;
+          return null; // resolved — no error code
+        } catch (e) {
+          return (e as { code?: string }).code ?? null;
+        }
+      }
+      return {
+        applyActionCode: await codeOf(applyActionCode(auth, bogus)),
+        checkActionCode: await codeOf(checkActionCode(auth, bogus)),
+        verifyPasswordResetCode: await codeOf(verifyPasswordResetCode(auth, bogus)),
+        confirmPasswordReset: await codeOf(confirmPasswordReset(auth, bogus, 'newpassword123')),
+        // Empty-string code — locks whether the SDK validates client-side
+        // (argument-error) or lets the server decide (invalid-action-code).
+        applyActionCodeEmpty: await codeOf(applyActionCode(auth, '')),
+      };
+    },
+  },
+  {
+    name: 'auth-sendsigninlinktoemail-settings-validation',
+    matrixRow: 'auth #153',
+    rowIds: ['auth#153'],
+    description: 'sendSignInLinkToEmail ActionCodeSettings validation — the accept/reject shape for the continue-URL contract, capturable WITHOUT any mailbox. Locks auth/missing-continue-uri (no url), auth/invalid-continue-uri (malformed url), auth/argument-error (handleCodeInApp false), and auth/unauthorized-continue-uri (a continue domain not on the project allowlist).',
+    async observe() {
+      const email = `oracle-link-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
+      async function codeOf(p: Promise<unknown>): Promise<string | null> {
+        try {
+          await p;
+          return null;
+        } catch (e) {
+          return (e as { code?: string }).code ?? null;
+        }
+      }
+      // No `url` at all.
+      const missingUrl = await codeOf(
+        sendSignInLinkToEmail(auth, email, { handleCodeInApp: true } as unknown as ActionCodeSettings),
+      );
+      // `url` present but not a URL.
+      const invalidUrl = await codeOf(
+        sendSignInLinkToEmail(auth, email, { url: 'not-a-url', handleCodeInApp: true }),
+      );
+      // handleCodeInApp explicitly false — upstream requires it be true for
+      // the email-link sign-in flow.
+      const handleCodeInAppFalse = await codeOf(
+        sendSignInLinkToEmail(auth, email, { url: 'https://example.com/finish', handleCodeInApp: false }),
+      );
+      // A well-formed URL on a domain that is NOT in the project's
+      // authorized-domains list — the server-side arm of the contract.
+      const unauthorizedDomain = await codeOf(
+        sendSignInLinkToEmail(auth, email, {
+          url: 'https://pyric-oracle-not-authorized.example.com/finish',
+          handleCodeInApp: true,
+        }),
+      );
+      return { missingUrl, invalidUrl, handleCodeInAppFalse, unauthorizedDomain, attemptedEmail: email };
+    },
+  },
+  {
+    name: 'auth-signinwithemaillink-invalid-link',
+    matrixRow: 'auth #154',
+    rowIds: ['auth#154'],
+    description: 'signInWithEmailLink against a link the project never issued. The completion half of the email-link flow CANNOT be probed end to end (it needs a code from a real inbox), but its reject shape can: locks the code prod emits for a syntactically valid link carrying an unknown oobCode, and for a link with no oobCode at all.',
+    async observe() {
+      const email = `oracle-elink-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
+      async function codeOf(p: Promise<unknown>): Promise<string | null> {
+        try {
+          await p;
+          return null;
+        } catch (e) {
+          return (e as { code?: string }).code ?? null;
+        }
+      }
+      const unknownCode = await codeOf(
+        signInWithEmailLink(auth, email, 'https://example.com/x?mode=signIn&oobCode=pyric-oracle-bogus&apiKey=K'),
+      );
+      const noOobCode = await codeOf(
+        signInWithEmailLink(auth, email, 'https://example.com/x?mode=signIn&apiKey=K'),
+      );
+      await dropCurrentUser();
+      return { unknownCode, noOobCode };
+    },
+  },
+  {
+    name: 'auth-sendpasswordresetemail-unknown-user',
+    matrixRow: 'auth #155',
+    rowIds: ['auth#155'],
+    description: 'sendPasswordResetEmail for an email no account owns. Locks whether prod leaks account existence (auth/user-not-found) or silently resolves — the observable behavior depends on the project\'s Email Enumeration Protection setting, so the capture records what THIS project does and the row states the dependency.',
+    async observe() {
+      const unknown = `oracle-nobody-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
+      let resolved = false;
+      let code: string | null = null;
+      try {
+        await sendPasswordResetEmail(auth, unknown);
+        resolved = true;
+      } catch (e) {
+        code = (e as { code?: string }).code ?? null;
+      }
+      // Malformed email — client-side format validation, independent of
+      // enumeration protection.
+      let malformedCode: string | null = null;
+      try {
+        await sendPasswordResetEmail(auth, 'not-an-email');
+      } catch (e) {
+        malformedCode = (e as { code?: string }).code ?? null;
+      }
+      return { resolvedForUnknownUser: resolved, unknownUserCode: code, malformedEmailCode: malformedCode };
+    },
+  },
+  {
+    name: 'auth-sendemailverification-shape',
+    matrixRow: 'auth #156',
+    rowIds: ['auth#156'],
+    description: 'sendEmailVerification — the accept/reject shape. An ANONYMOUS user has no email to verify. A real email/password user IS a valid target. NOTE: the oracle project gates outbound-email operations at the project level, so `projectBlocksOutboundEmail` records whether what we observed is the API contract or this project\'s configuration answering first. Either way, the fact the flow turns on — that SENDING does not verify; only clicking the mailed link does — is not probeable from a client at all.',
+    async observe() {
+      // Anonymous user — no email on the account.
+      const anonCode = await attemptCode(async () => {
+        await signInAnonymously(auth);
+        await sendEmailVerification(auth.currentUser!);
+      });
+      await dropCurrentUser();
+
+      // Real email/password user. The send targets the non-deliverable
+      // `oracle.test` TLD, so nothing reaches an inbox — we capture the
+      // CLIENT-observable outcome of the call, not the mail.
+      const email = `oracle-verify-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
+      let verifiedBefore: boolean | null = null;
+      let verifiedAfterSend: boolean | null = null;
+      const createCode = await attemptCode(async () => {
+        await createUserWithEmailAndPassword(auth, email, 'oracle-pw-123');
+        verifiedBefore = auth.currentUser!.emailVerified;
+      });
+      const sendCode = await attemptCode(async () => {
+        await sendEmailVerification(auth.currentUser!);
+      });
+      await attemptCode(async () => {
+        await auth.currentUser!.reload();
+        verifiedAfterSend = auth.currentUser!.emailVerified;
+      });
+      const cleanupLeaked = (await attemptCode(async () => {
+        await deleteUser(auth.currentUser!);
+      })) !== null;
+      await dropCurrentUser();
+      return {
+        anonymousUserCode: anonCode,
+        createUserCode: createCode,
+        sendCode,
+        sendResolved: sendCode === null,
+        projectBlocksOutboundEmail: sendCode === 'auth/operation-not-allowed',
+        verifiedBefore,
+        // The fact the whole flow exists for: sending does NOT verify.
+        // Only clicking the link in the mail does — the one step no
+        // client-side probe can take.
+        verifiedAfterSend,
+        cleanupLeaked,
+      };
+    },
+  },
+  {
+    name: 'auth-verifybeforeupdateemail-shape',
+    matrixRow: 'auth #157',
+    rowIds: ['auth#157'],
+    description: 'verifyBeforeUpdateEmail — the client-observable contract: does the call change the email immediately, or only after the mailed link is clicked? The un-clicked half is the whole point of the API and is exactly what a sandbox must model deliberately. Records `projectBlocksOutboundEmail` when this project\'s configuration answers before the API contract does.',
+    async observe() {
+      const email = `oracle-vbue-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
+      const next = `oracle-vbue-next-${Date.now()}@oracle.test`;
+      const createCode = await attemptCode(async () => {
+        await createUserWithEmailAndPassword(auth, email, 'oracle-pw-123');
+      });
+      const code = await attemptCode(async () => {
+        await verifyBeforeUpdateEmail(auth.currentUser!, next);
+      });
+      let emailAfterCall: string | null = null;
+      await attemptCode(async () => {
+        await auth.currentUser!.reload();
+        emailAfterCall = auth.currentUser!.email;
+      });
+      const malformedCode = await attemptCode(async () => {
+        await verifyBeforeUpdateEmail(auth.currentUser!, 'not-an-email');
+      });
+      const cleanupLeaked = (await attemptCode(async () => {
+        await deleteUser(auth.currentUser!);
+      })) !== null;
+      await dropCurrentUser();
+      return {
+        createUserCode: createCode,
+        code,
+        resolved: code === null,
+        projectBlocksOutboundEmail: code === 'auth/operation-not-allowed',
+        emailAfterCall,
+        emailUnchangedUntilLinkClicked: emailAfterCall === email,
+        malformedTargetCode: malformedCode,
+        cleanupLeaked,
+      };
+    },
+  },
+  {
+    name: 'auth-link-email-credential-to-anonymous',
+    matrixRow: 'auth #160',
+    rowIds: ['auth#160'],
+    description: 'linkWithCredential — the anonymous-upgrade flow, fully probeable with NO mailbox and NO OAuth popup (an email/password credential carries its own secret). Locks the returned UserCredential shape (operationType, providerId) and the effect on the user: same uid, isAnonymous flips false, providerData gains the password provider.',
+    async observe() {
+      const email = `oracle-link-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
+      const password = 'oracle-pw-123';
+      let anonUid: string | null = null;
+      let result: Record<string, unknown> = {};
+      const linkCode = await attemptCode(async () => {
+        const anon = await signInAnonymously(auth);
+        anonUid = anon.user.uid;
+        const cred = EmailAuthProvider.credential(email, password);
+        const linked = await linkWithCredential(auth.currentUser!, cred);
+        result = {
+          operationType: linked.operationType,
+          credentialProviderId: linked.providerId,
+          uidPreserved: linked.user.uid === anonUid,
+          isAnonymousAfterLink: linked.user.isAnonymous,
+          emailAfterLink: linked.user.email,
+          providerIds: linked.user.providerData.map((p) => p.providerId),
+          // The linked identity is the live current user.
+          isCurrentUser: auth.currentUser?.uid === anonUid,
+          additionalUserInfoIsNewUser: getAdditionalUserInfo(linked)?.isNewUser ?? null,
+          additionalUserInfoProviderId: getAdditionalUserInfo(linked)?.providerId ?? null,
+        };
+      });
+      const cleanupLeaked = (await attemptCode(async () => {
+        await deleteUser(auth.currentUser!);
+      })) !== null;
+      await dropCurrentUser();
+      return { linkCode, ...result, cleanupLeaked };
+    },
+  },
+  {
+    name: 'auth-link-conflicts',
+    matrixRow: 'auth #161',
+    rowIds: ['auth#161'],
+    description: 'The two linking CONFLICT codes, both probeable without external infra: linking a provider the user already has (auth/provider-already-linked), and linking a credential another account already owns (locks whether prod says credential-already-in-use or email-already-in-use for an email credential).',
+    async observe() {
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const ownerEmail = `oracle-owner-${stamp}@oracle.test`;
+      const password = 'oracle-pw-123';
+      let ownerUid: string | null = null;
+      let bUid: string | null = null;
+
+      // Account A owns `ownerEmail`.
+      const setupACode = await attemptCode(async () => {
+        await createUserWithEmailAndPassword(auth, ownerEmail, password);
+        ownerUid = auth.currentUser!.uid;
+        await signOut(auth);
+      });
+
+      // Account B: anonymous, links its OWN fresh email — then tries to
+      // link a SECOND email credential onto the same account.
+      const bEmail = `oracle-b-${stamp}@oracle.test`;
+      const setupBCode = await attemptCode(async () => {
+        await signInAnonymously(auth);
+        await linkWithCredential(auth.currentUser!, EmailAuthProvider.credential(bEmail, password));
+        bUid = auth.currentUser!.uid;
+      });
+      const providerAlreadyLinkedCode = await attemptCode(async () => {
+        await linkWithCredential(
+          auth.currentUser!,
+          EmailAuthProvider.credential(`oracle-b2-${stamp}@oracle.test`, password),
+        );
+      });
+      const cleanupB = await attemptCode(async () => { await deleteUser(auth.currentUser!); });
+      await dropCurrentUser();
+
+      // Account C: anonymous, tries to link the credential ACCOUNT A owns.
+      const credentialAlreadyInUseCode = await attemptCode(async () => {
+        await signInAnonymously(auth);
+        await linkWithCredential(auth.currentUser!, EmailAuthProvider.credential(ownerEmail, password));
+      });
+      const cleanupC = await attemptCode(async () => { await deleteUser(auth.currentUser!); });
+      await dropCurrentUser();
+
+      // Purge account A.
+      const cleanupA = await attemptCode(async () => {
+        await signInWithEmailAndPassword(auth, ownerEmail, password);
+        await deleteUser(auth.currentUser!);
+      });
+      await dropCurrentUser();
+
+      return {
+        setupACode,
+        setupBCode,
+        providerAlreadyLinkedCode,
+        credentialAlreadyInUseCode,
+        ownerUidDiffersFromB: ownerUid !== null && bUid !== null && ownerUid !== bUid,
+        cleanupLeaked: cleanupA !== null || cleanupB !== null || cleanupC !== null,
+      };
+    },
+  },
+  {
+    name: 'auth-unlink-provider',
+    matrixRow: 'auth #162',
+    rowIds: ['auth#162'],
+    description: 'unlink — removing a linked provider from a user. Locks the returned User shape (providerData shrinks) and the code for unlinking a provider that was never linked (auth/no-such-provider).',
+    async observe() {
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const email = `oracle-unlink-${stamp}@oracle.test`;
+      const password = 'oracle-pw-123';
+      let beforeProviders: string[] | null = null;
+      const setupCode = await attemptCode(async () => {
+        await signInAnonymously(auth);
+        await linkWithCredential(auth.currentUser!, EmailAuthProvider.credential(email, password));
+        beforeProviders = auth.currentUser!.providerData.map((p) => p.providerId);
+      });
+
+      // Unlink a provider that was never linked.
+      const noSuchProviderCode = await attemptCode(async () => {
+        await unlink(auth.currentUser!, 'google.com');
+      });
+
+      // Unlink the password provider we just linked.
+      let unlinkedProviders: string[] | null = null;
+      let emailAfterUnlink: string | null = null;
+      let isAnonymousAfterUnlink: boolean | null = null;
+      const unlinkCode = await attemptCode(async () => {
+        const u = await unlink(auth.currentUser!, 'password');
+        unlinkedProviders = u.providerData.map((p) => p.providerId);
+        emailAfterUnlink = u.email;
+        isAnonymousAfterUnlink = u.isAnonymous;
+      });
+
+      const cleanupLeaked = (await attemptCode(async () => {
+        await deleteUser(auth.currentUser!);
+      })) !== null;
+      await dropCurrentUser();
+      return {
+        setupCode,
+        beforeProviders,
+        noSuchProviderCode,
+        unlinkCode,
+        unlinkedProviders,
+        emailAfterUnlink,
+        // Does unlinking the last provider send the user back to anonymous?
+        isAnonymousAfterUnlink,
+        cleanupLeaked,
+      };
+    },
+  },
+  {
+    name: 'auth-reauthenticate-with-credential',
+    matrixRow: 'auth #170',
+    rowIds: ['auth#170'],
+    description: 'reauthenticateWithCredential happy path + the two reject codes. Fully probeable with an email/password credential (no popup, no mail). Locks operationType `reauthenticate`, the wrong-password code, and the user-mismatch code when the credential belongs to a DIFFERENT account.',
+    async observe() {
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const email = `oracle-reauth-${stamp}@oracle.test`;
+      const other = `oracle-reauth-other-${stamp}@oracle.test`;
+      const password = 'oracle-pw-123';
+      let happy: Record<string, unknown> = {};
+
+      const setupCode = await attemptCode(async () => {
+        // A second, unrelated account whose credential we will present.
+        await createUserWithEmailAndPassword(auth, other, password);
+        await signOut(auth);
+        await createUserWithEmailAndPassword(auth, email, password);
+      });
+
+      const reauthCode = await attemptCode(async () => {
+        const uid = auth.currentUser!.uid;
+        const reauthed = await reauthenticateWithCredential(
+          auth.currentUser!,
+          EmailAuthProvider.credential(email, password),
+        );
+        happy = {
+          operationType: reauthed.operationType,
+          providerId: reauthed.providerId,
+          uidPreserved: reauthed.user.uid === uid,
+        };
+      });
+
+      const wrongPasswordCode = await attemptCode(async () => {
+        await reauthenticateWithCredential(auth.currentUser!, EmailAuthProvider.credential(email, 'wrong-pw-999'));
+      });
+
+      const userMismatchCode = await attemptCode(async () => {
+        await reauthenticateWithCredential(auth.currentUser!, EmailAuthProvider.credential(other, password));
+      });
+
+      const cleanup1 = await attemptCode(async () => { await deleteUser(auth.currentUser!); });
+      await dropCurrentUser();
+      const cleanup2 = await attemptCode(async () => {
+        await signInWithEmailAndPassword(auth, other, password);
+        await deleteUser(auth.currentUser!);
+      });
+      await dropCurrentUser();
+
+      return {
+        setupCode,
+        reauthCode,
+        ...happy,
+        wrongPasswordCode,
+        userMismatchCode,
+        cleanupLeaked: cleanup1 !== null || cleanup2 !== null,
+      };
+    },
+  },
+  {
+    name: 'auth-additional-user-info-shape',
+    matrixRow: 'auth #171',
+    rowIds: ['auth#171'],
+    description: 'getAdditionalUserInfo across the three credential-producing flows — anonymous sign-in, a fresh createUserWithEmailAndPassword, and a returning signInWithEmailAndPassword. Locks isNewUser + providerId + profile per flow.',
+    async observe() {
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const email = `oracle-aui-${stamp}@oracle.test`;
+      const password = 'oracle-pw-123';
+      const shape = (i: ReturnType<typeof getAdditionalUserInfo>) =>
+        i === null
+          ? null
+          : { isNewUser: i.isNewUser, providerId: i.providerId, profile: i.profile ?? null, username: i.username ?? null };
+
+      let anonymous: unknown = null;
+      let createUser: unknown = null;
+      let signInExisting: unknown = null;
+
+      const anonCode = await attemptCode(async () => {
+        anonymous = shape(getAdditionalUserInfo(await signInAnonymously(auth)));
+      });
+      await dropCurrentUser();
+
+      const flowCode = await attemptCode(async () => {
+        createUser = shape(getAdditionalUserInfo(await createUserWithEmailAndPassword(auth, email, password)));
+        await signOut(auth);
+        signInExisting = shape(getAdditionalUserInfo(await signInWithEmailAndPassword(auth, email, password)));
+      });
+
+      const cleanupLeaked = (await attemptCode(async () => {
+        await deleteUser(auth.currentUser!);
+      })) !== null;
+      await dropCurrentUser();
+
+      return { anonCode, flowCode, anonymous, createUser, signInExisting, cleanupLeaked };
+    },
+  },
+  {
+    name: 'auth-mechanical-surface-constants',
+    matrixRow: 'auth #172',
+    rowIds: ['auth#172'],
+    description: 'The constant maps and inert tokens of the mechanical family, snapshotted straight from the shipped SDK: ProviderId / SignInMethod / OperationType, the `type` discriminant of every persistence token, and a sample of AuthErrorCodes. Pure static values — the mirror must reproduce them exactly or consumer code comparing against them silently mismatches.',
+    async observe() {
+      return {
+        ProviderId: { ...ProviderId },
+        SignInMethod: { ...SignInMethod },
+        OperationType: { ...OperationType },
+        // `.type` is the observable discriminant every persistence token
+        // carries; the token objects themselves are opaque. Read through a
+        // namespace import and guarded: the BROWSER-only tokens are absent
+        // from the node build this harness runs under, and `absent-in-node-
+        // build` is itself the honest observation (the mirror still has to
+        // export the name — the census resolves the browser condition).
+        persistenceTypes: {
+          indexedDBLocalPersistence: persistenceType('indexedDBLocalPersistence'),
+          browserCookiePersistence: persistenceType('browserCookiePersistence'),
+          browserLocalPersistence: persistenceType('browserLocalPersistence'),
+          browserSessionPersistence: persistenceType('browserSessionPersistence'),
+          inMemoryPersistence: persistenceType('inMemoryPersistence'),
+        },
+        authErrorCodesSample: {
+          ARGUMENT_ERROR: AuthErrorCodes.ARGUMENT_ERROR,
+          INVALID_OOB_CODE: AuthErrorCodes.INVALID_OOB_CODE,
+          EXPIRED_OOB_CODE: AuthErrorCodes.EXPIRED_OOB_CODE,
+          PROVIDER_ALREADY_LINKED: AuthErrorCodes.PROVIDER_ALREADY_LINKED,
+          NO_SUCH_PROVIDER: AuthErrorCodes.NO_SUCH_PROVIDER,
+          CREDENTIAL_ALREADY_IN_USE: AuthErrorCodes.CREDENTIAL_ALREADY_IN_USE,
+          USER_MISMATCH: AuthErrorCodes.USER_MISMATCH,
+          INVALID_CUSTOM_TOKEN: AuthErrorCodes.INVALID_CUSTOM_TOKEN,
+          UNAUTHORIZED_DOMAIN: AuthErrorCodes.UNAUTHORIZED_DOMAIN,
+          INVALID_CONTINUE_URI: AuthErrorCodes.INVALID_CONTINUE_URI,
+          MISSING_CONTINUE_URI: AuthErrorCodes.MISSING_CONTINUE_URI,
+        },
+        authErrorCodesCount: Object.keys(AuthErrorCodes).length,
+      };
+    },
+  },
+  {
+    name: 'auth-signinwithcustomtoken-invalid',
+    matrixRow: 'auth #173',
+    rowIds: ['auth#173'],
+    description: 'signInWithCustomToken with a token this project never minted. The HAPPY path needs an Admin-SDK-signed JWT (the oracle harness is a Web SDK client), so what is capturable here is the reject shape: locks auth/invalid-custom-token for a malformed token.',
+    async observe() {
+      let malformedCode: string | null = null;
+      try {
+        await signInWithCustomToken(auth, 'not-a-jwt');
+      } catch (e) {
+        malformedCode = (e as { code?: string }).code ?? null;
+      }
+      let emptyCode: string | null = null;
+      try {
+        await signInWithCustomToken(auth, '');
+      } catch (e) {
+        emptyCode = (e as { code?: string }).code ?? null;
+      }
+      await dropCurrentUser();
+      return { malformedCode, emptyCode };
+    },
+  },
+  {
+    name: 'auth-validatepassword-status-shape',
+    matrixRow: 'auth #174',
+    rowIds: ['auth#174'],
+    description: 'validatePassword — the PasswordValidationStatus shape prod returns for a weak and a strong password, against the project\'s live password policy.',
+    async observe() {
+      const shape = (s: Awaited<ReturnType<typeof validatePassword>>) => ({
+        isValid: s.isValid,
+        meetsMinPasswordLength: s.meetsMinPasswordLength ?? null,
+        meetsMaxPasswordLength: s.meetsMaxPasswordLength ?? null,
+        containsLowercaseLetter: s.containsLowercaseLetter ?? null,
+        containsUppercaseLetter: s.containsUppercaseLetter ?? null,
+        containsNumericCharacter: s.containsNumericCharacter ?? null,
+        containsNonAlphanumericCharacter: s.containsNonAlphanumericCharacter ?? null,
+        minPasswordLength: s.passwordPolicy?.customStrengthOptions?.minPasswordLength ?? null,
+        maxPasswordLength: s.passwordPolicy?.customStrengthOptions?.maxPasswordLength ?? null,
+        enforcementState: s.passwordPolicy?.enforcementState ?? null,
+      });
+      let weak: unknown = null;
+      let strong: unknown = null;
+      const code = await attemptCode(async () => {
+        weak = shape(await validatePassword(auth, 'x'));
+        strong = shape(await validatePassword(auth, 'aReasonablyStrongPassword123!'));
+      });
+      return { code, weak, strong };
+    },
+  },
+  {
+    name: 'auth-fetchsigninmethodsforemail-deprecated',
+    matrixRow: 'auth #175',
+    rowIds: ['auth#175'],
+    description: 'fetchSignInMethodsForEmail — DEPRECATED upstream. Firebase documents that it returns an EMPTY list whenever Email Enumeration Protection is on (the default for new projects), irrespective of how many methods the account really has. This capture is the evidence for the disposition decision: what does prod actually return for an account we KNOW has a password method?',
+    async observe() {
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const email = `oracle-fsime-${stamp}@oracle.test`;
+      const password = 'oracle-pw-123';
+      let forKnownAccount: string[] | null = null;
+      let forUnknownAccount: string[] | null = null;
+
+      const code = await attemptCode(async () => {
+        await createUserWithEmailAndPassword(auth, email, password);
+        await signOut(auth);
+        // This account definitively HAS a password sign-in method.
+        forKnownAccount = await fetchSignInMethodsForEmail(auth, email);
+        forUnknownAccount = await fetchSignInMethodsForEmail(auth, `oracle-nobody-${stamp}@oracle.test`);
+      });
+
+      const cleanupLeaked = (await attemptCode(async () => {
+        await signInWithEmailAndPassword(auth, email, password);
+        await deleteUser(auth.currentUser!);
+      })) !== null;
+      await dropCurrentUser();
+      return {
+        code,
+        forKnownAccountWithPassword: forKnownAccount,
+        forUnknownAccount,
+        // The tell: an account we JUST created with a password comes back
+        // with an empty list => Email Enumeration Protection is on and the
+        // API is functionally dead against a modern project.
+        emptyForAccountThatHasAPasswordMethod: forKnownAccount !== null && forKnownAccount.length === 0,
+        cleanupLeaked,
       };
     },
   },

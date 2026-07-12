@@ -138,27 +138,31 @@ export interface User {
 /**
  * Result of every sign-in method. Mirrors `firebase/auth`.
  *
- * `operationType` is `'signIn'` for fresh sign-ins, `'reauthenticate'`
- * for re-auth flows (not implemented in v0; field present for type
- * parity), `'link'` for link flows (also v0 deny-list).
+ * `operationType` discriminates what produced it: `'signIn'` for a fresh
+ * sign-in (including `createUserWithEmailAndPassword` — oracle-pinned),
+ * `'link'` for `linkWith*`, `'reauthenticate'` for `reauthenticateWith*`.
  */
 export interface UserCredential {
   user: User;
   providerId: string | null;
   operationType: 'signIn' | 'reauthenticate' | 'link';
-}
-
-/**
- * Auth credential — opaque token from a sign-in flow. Used by
- * `signInWithCredential(auth, credential)`. The sandbox does not
- * verify these; they're treated as bearer markers paired with a
- * `mockSignInResult` pre-stage.
- */
-export interface AuthCredential {
-  /** Provider identifier (e.g. `'google.com'`, `'password'`). */
-  providerId: string;
-  /** Sign-in method identifier (often equal to `providerId`). */
-  signInMethod: string;
+  /**
+   * What `getAdditionalUserInfo(cred)` returns. Carried on the credential
+   * rather than derived, because `isNewUser` is a fact only the flow that
+   * MINTED the credential knows: `createUserWithEmailAndPassword` created
+   * the identity, `signInWithEmailAndPassword` did not, and nothing about
+   * the finished credential can tell them apart after the fact.
+   *
+   * Underscore-prefixed and optional: it is not part of the shape a host
+   * or a test fixture has to synthesize (a credential without it degrades
+   * honestly — see `getAdditionalUserInfo`).
+   */
+  _additionalUserInfo?: {
+    readonly isNewUser: boolean;
+    readonly profile: Record<string, unknown> | null;
+    readonly providerId: string | null;
+    readonly username?: string | null;
+  };
 }
 
 /**
@@ -258,15 +262,32 @@ export interface UserInternal {
    *  `updateCurrentUser(auth, user)` to hand the correct object to the
    *  right backend. */
   raw: unknown;
+  /**
+   * The dispatch target this user came from — the same brand
+   * {@link Auth} carries, recovered from the USER alone.
+   *
+   * Needed because a whole family of `firebase/auth` APIs takes a `User`
+   * and NO `Auth` handle (`sendEmailVerification(user)`,
+   * `linkWithCredential(user, cred)`, `unlink(user, id)`,
+   * `reauthenticateWithCredential(user, cred)`, …). Those functions still
+   * have to reach the backend that owns the user, and the user object is
+   * the only thing they are given. Same trick {@link raw} plays, one level
+   * up: the routing information rides on the user.
+   */
+  target: Target;
 }
 
 /**
  * Opaque marker for `setPersistence`. Sandbox treats these as
  * no-ops; prod hands them to `firebase/auth.setPersistence` which
  * looks at the `type` field at runtime.
+ *
+ * `'COOKIE'` is upstream's fourth type (`browserCookiePersistence`, for
+ * SSR) — the union matches `firebase/auth`'s `Persistence.type` exactly,
+ * so a consumer switching on it is exhaustive against both backends.
  */
 export interface Persistence {
-  readonly type: 'SESSION' | 'LOCAL' | 'NONE';
+  readonly type: 'SESSION' | 'LOCAL' | 'NONE' | 'COOKIE';
 }
 
 /**

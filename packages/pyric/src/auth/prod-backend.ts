@@ -18,6 +18,7 @@
 import * as fb from 'firebase/auth';
 
 import { makeAuthError } from './sandbox-backend.js';
+import type { ProdTarget } from './target.js';
 import {
   USER_INTERNAL,
   type AuthObserver,
@@ -47,7 +48,7 @@ const adaptedUsers = new WeakMap<fb.User, User>();
  * Memoized (see {@link adaptedUsers}) so reference equality holds
  * across re-reads, matching upstream's stored-`currentUser` semantics.
  */
-function adaptUser(u: fb.User): User {
+function adaptUser(u: fb.User, auth: fb.Auth): User {
   const cached = adaptedUsers.get(u);
   if (cached) return cached;
   const adapted: User = {
@@ -95,6 +96,9 @@ function adaptUser(u: fb.User): User {
       updatePassword: (newPassword: string) => fb.updatePassword(u, newPassword),
       reload: () => fb.reload(u),
       raw: u,
+      // Routing rides on the user (see UserInternal.target) — this one
+      // came from prod, and `u.auth` is the upstream handle it belongs to.
+      target: { kind: 'prod', auth } satisfies ProdTarget,
     },
     enumerable: false,
   });
@@ -103,19 +107,19 @@ function adaptUser(u: fb.User): User {
 }
 
 export function prodCurrentUser(auth: fb.Auth): User | null {
-  return auth.currentUser ? adaptUser(auth.currentUser) : null;
+  return auth.currentUser ? adaptUser(auth.currentUser, auth) : null;
 }
 
-function adaptCredential(c: fb.UserCredential): UserCredential {
+function adaptCredential(c: fb.UserCredential, auth: fb.Auth): UserCredential {
   return {
-    user: adaptUser(c.user),
+    user: adaptUser(c.user, auth),
     providerId: c.providerId,
     operationType: c.operationType as UserCredential['operationType'],
   };
 }
 
 export async function prodSignInAnonymously(auth: fb.Auth): Promise<UserCredential> {
-  return adaptCredential(await fb.signInAnonymously(auth));
+  return adaptCredential(await fb.signInAnonymously(auth), auth);
 }
 
 export async function prodSignInWithEmailAndPassword(
@@ -123,7 +127,7 @@ export async function prodSignInWithEmailAndPassword(
   email: string,
   password: string,
 ): Promise<UserCredential> {
-  return adaptCredential(await fb.signInWithEmailAndPassword(auth, email, password));
+  return adaptCredential(await fb.signInWithEmailAndPassword(auth, email, password), auth);
 }
 
 export async function prodCreateUserWithEmailAndPassword(
@@ -131,7 +135,7 @@ export async function prodCreateUserWithEmailAndPassword(
   email: string,
   password: string,
 ): Promise<UserCredential> {
-  return adaptCredential(await fb.createUserWithEmailAndPassword(auth, email, password));
+  return adaptCredential(await fb.createUserWithEmailAndPassword(auth, email, password), auth);
 }
 
 export async function prodSignOut(auth: fb.Auth): Promise<void> {
@@ -144,7 +148,7 @@ export async function prodSignInWithPopup(
 ): Promise<UserCredential> {
   // Cast: upstream `AuthProvider` is a more specific shape; we accept
   // anything with a providerId at our boundary and pass it through.
-  return adaptCredential(await fb.signInWithPopup(auth, provider as fb.AuthProvider));
+  return adaptCredential(await fb.signInWithPopup(auth, provider as fb.AuthProvider), auth);
 }
 
 export async function prodSignInWithRedirect(
@@ -158,7 +162,7 @@ export async function prodSignInWithRedirect(
 
 export async function prodGetRedirectResult(auth: fb.Auth): Promise<UserCredential | null> {
   const cred = await fb.getRedirectResult(auth);
-  return cred ? adaptCredential(cred) : null;
+  return cred ? adaptCredential(cred, auth) : null;
 }
 
 export async function prodSignInWithCredential(
@@ -171,17 +175,17 @@ export async function prodSignInWithCredential(
   // expected to pass an actual upstream credential object that we
   // re-cast here. The pyric API surface accepts both because the
   // sandbox doesn't care about credential internals.
-  return adaptCredential(await fb.signInWithCredential(auth, credential as unknown as fb.AuthCredential));
+  return adaptCredential(await fb.signInWithCredential(auth, toFbCredential(credential)), auth);
 }
 
 export function prodOnAuthStateChanged(auth: fb.Auth, observer: AuthObserver): Unsubscribe {
   // Upstream accepts the same `NextOrObserver` shape. We need to
   // re-wrap so the user our consumer sees is the adapted shape.
   if (typeof observer === 'function') {
-    return fb.onAuthStateChanged(auth, (u) => observer(u ? adaptUser(u) : null));
+    return fb.onAuthStateChanged(auth, (u) => observer(u ? adaptUser(u, auth) : null));
   }
   return fb.onAuthStateChanged(auth, {
-    next: (u) => observer.next?.(u ? adaptUser(u) : null),
+    next: (u) => observer.next?.(u ? adaptUser(u, auth) : null),
     error: (e) => observer.error?.(e),
     complete: () => observer.complete?.(),
   });
@@ -189,10 +193,10 @@ export function prodOnAuthStateChanged(auth: fb.Auth, observer: AuthObserver): U
 
 export function prodOnIdTokenChanged(auth: fb.Auth, observer: AuthObserver): Unsubscribe {
   if (typeof observer === 'function') {
-    return fb.onIdTokenChanged(auth, (u) => observer(u ? adaptUser(u) : null));
+    return fb.onIdTokenChanged(auth, (u) => observer(u ? adaptUser(u, auth) : null));
   }
   return fb.onIdTokenChanged(auth, {
-    next: (u) => observer.next?.(u ? adaptUser(u) : null),
+    next: (u) => observer.next?.(u ? adaptUser(u, auth) : null),
     error: (e) => observer.error?.(e),
     complete: () => observer.complete?.(),
   });
@@ -206,7 +210,7 @@ export function prodBeforeAuthStateChanged(
   // Upstream's callback also takes the adapted-shape user; re-wrap the
   // same way `prodOnAuthStateChanged` does so the callback sees our
   // subset `User`, not the raw `fb.User`.
-  return fb.beforeAuthStateChanged(auth, (u) => callback(u ? adaptUser(u) : null), onAbort);
+  return fb.beforeAuthStateChanged(auth, (u) => callback(u ? adaptUser(u, auth) : null), onAbort);
 }
 
 export async function prodSetPersistence(auth: fb.Auth, persistence: { type: string }): Promise<void> {
@@ -229,4 +233,208 @@ export async function prodSetPersistence(auth: fb.Auth, persistence: { type: str
       );
   }
   return fb.setPersistence(auth, p);
+}
+
+// ─── Credential bridge ────────────────────────────────────────────────
+
+/**
+ * Convert a pyric {@link AuthCredential} into the real upstream credential
+ * `firebase/auth` requires.
+ *
+ * This bridge is what keeps the product's central promise honest for the
+ * linking / reauth families: code written against the sandbox with
+ * `EmailAuthProvider.credential(email, password)` must run UNCHANGED
+ * against prod. It can, because the pyric credential carries the same
+ * secret the upstream factory wants — so we can rebuild the genuine
+ * article rather than casting a marker and hoping.
+ *
+ * A credential that is already an upstream one (a caller who imported
+ * from `firebase/auth` directly) passes straight through.
+ */
+function toFbCredential(credential: { providerId: string; signInMethod?: string }): fb.AuthCredential {
+  if (credential instanceof fb.AuthCredential) return credential;
+
+  const c = credential as {
+    providerId: string;
+    signInMethod?: string;
+    email?: string;
+    password?: string | null;
+    emailLink?: string | null;
+    idToken?: string;
+    accessToken?: string;
+    secret?: string;
+  };
+
+  if (c.providerId === 'password' && typeof c.email === 'string') {
+    if (typeof c.emailLink === 'string' && c.emailLink) {
+      return fb.EmailAuthProvider.credentialWithLink(c.email, c.emailLink);
+    }
+    if (typeof c.password === 'string') {
+      return fb.EmailAuthProvider.credential(c.email, c.password);
+    }
+  }
+  if (c.idToken !== undefined || c.accessToken !== undefined) {
+    return new fb.OAuthProvider(c.providerId).credential({
+      idToken: c.idToken,
+      accessToken: c.accessToken,
+    });
+  }
+  // Nothing we can faithfully rebuild — hand it through as upstream did
+  // before this bridge existed, so behavior is no worse than it was.
+  return credential as unknown as fb.AuthCredential;
+}
+
+// ─── Prod delegates: the email / linking / reauth families ────────────
+//
+// Each of these is a straight passthrough to `firebase/auth`, recovering
+// the upstream `fb.User` from the adapter's USER_INTERNAL `raw` hook where
+// the API is user-scoped. They exist so agent code written against the
+// sandbox runs unmodified against prod — the whole point of the mirror.
+
+/** Recover the upstream `fb.User` an adapted user wraps, plus the
+ *  `fb.Auth` it belongs to. Both ride on the USER_INTERNAL hook (`raw`
+ *  and `target`) — `fb.User` does not publicly expose its own auth, which
+ *  is exactly why the hook carries the target. */
+function rawUser(user: User, api: string): { raw: fb.User; auth: fb.Auth } {
+  const internal = (user as { [USER_INTERNAL]?: { raw: unknown; target?: { kind: string; auth?: fb.Auth } } })[USER_INTERNAL];
+  const raw = internal?.raw;
+  const auth = internal?.target?.kind === 'prod' ? internal.target.auth : undefined;
+  if (!raw || !auth) {
+    throw makeAuthError(
+      'auth/invalid-user-token',
+      `${api}: unrecognized user — was it produced by a pyric/auth sign-in?`,
+    );
+  }
+  return { raw: raw as fb.User, auth };
+}
+
+export async function prodSendEmailVerification(user: User, settings?: unknown): Promise<void> {
+  return fb.sendEmailVerification(rawUser(user, 'sendEmailVerification').raw, settings as fb.ActionCodeSettings);
+}
+
+export async function prodVerifyBeforeUpdateEmail(
+  user: User,
+  newEmail: string,
+  settings?: unknown,
+): Promise<void> {
+  return fb.verifyBeforeUpdateEmail(
+    rawUser(user, 'verifyBeforeUpdateEmail').raw,
+    newEmail,
+    settings as fb.ActionCodeSettings,
+  );
+}
+
+export async function prodSendPasswordResetEmail(
+  auth: fb.Auth,
+  email: string,
+  settings?: unknown,
+): Promise<void> {
+  return fb.sendPasswordResetEmail(auth, email, settings as fb.ActionCodeSettings);
+}
+
+export async function prodSendSignInLinkToEmail(
+  auth: fb.Auth,
+  email: string,
+  settings: unknown,
+): Promise<void> {
+  return fb.sendSignInLinkToEmail(auth, email, settings as fb.ActionCodeSettings);
+}
+
+export function prodIsSignInWithEmailLink(auth: fb.Auth, link: string): boolean {
+  return fb.isSignInWithEmailLink(auth, link);
+}
+
+export async function prodSignInWithEmailLink(
+  auth: fb.Auth,
+  email: string,
+  link: string,
+): Promise<UserCredential> {
+  return adaptCredential(await fb.signInWithEmailLink(auth, email, link), auth);
+}
+
+export async function prodApplyActionCode(auth: fb.Auth, code: string): Promise<void> {
+  return fb.applyActionCode(auth, code);
+}
+
+export async function prodCheckActionCode(auth: fb.Auth, code: string): Promise<unknown> {
+  return fb.checkActionCode(auth, code);
+}
+
+export async function prodVerifyPasswordResetCode(auth: fb.Auth, code: string): Promise<string> {
+  return fb.verifyPasswordResetCode(auth, code);
+}
+
+export async function prodConfirmPasswordReset(
+  auth: fb.Auth,
+  code: string,
+  newPassword: string,
+): Promise<void> {
+  return fb.confirmPasswordReset(auth, code, newPassword);
+}
+
+export async function prodLinkWithCredential(
+  user: User,
+  credential: { providerId: string },
+): Promise<UserCredential> {
+  const { raw, auth } = rawUser(user, 'linkWithCredential');
+  return adaptCredential(await fb.linkWithCredential(raw, toFbCredential(credential)), auth);
+}
+
+export async function prodLinkWithPopup(
+  user: User,
+  provider: { providerId: string },
+): Promise<UserCredential> {
+  const { raw, auth } = rawUser(user, 'linkWithPopup');
+  return adaptCredential(await fb.linkWithPopup(raw, provider as fb.AuthProvider), auth);
+}
+
+export async function prodLinkWithRedirect(
+  user: User,
+  provider: { providerId: string },
+): Promise<void> {
+  return fb.linkWithRedirect(rawUser(user, 'linkWithRedirect').raw, provider as fb.AuthProvider);
+}
+
+export async function prodUnlink(user: User, providerId: string): Promise<User> {
+  const { raw, auth } = rawUser(user, 'unlink');
+  const updated = await fb.unlink(raw, providerId);
+  return adaptUser(updated, auth);
+}
+
+export async function prodReauthenticateWithCredential(
+  user: User,
+  credential: { providerId: string },
+): Promise<UserCredential> {
+  const { raw, auth } = rawUser(user, 'reauthenticateWithCredential');
+  return adaptCredential(await fb.reauthenticateWithCredential(raw, toFbCredential(credential)), auth);
+}
+
+export async function prodReauthenticateWithPopup(
+  user: User,
+  provider: { providerId: string },
+): Promise<UserCredential> {
+  const { raw, auth } = rawUser(user, 'reauthenticateWithPopup');
+  return adaptCredential(await fb.reauthenticateWithPopup(raw, provider as fb.AuthProvider), auth);
+}
+
+export async function prodReauthenticateWithRedirect(
+  user: User,
+  provider: { providerId: string },
+): Promise<void> {
+  return fb.reauthenticateWithRedirect(rawUser(user, 'reauthenticateWithRedirect').raw, provider as fb.AuthProvider);
+}
+
+export async function prodSignInWithCustomToken(
+  auth: fb.Auth,
+  customToken: string,
+): Promise<UserCredential> {
+  return adaptCredential(await fb.signInWithCustomToken(auth, customToken), auth);
+}
+
+export async function prodValidatePassword(auth: fb.Auth, password: string): Promise<unknown> {
+  return fb.validatePassword(auth, password);
+}
+
+export async function prodRevokeAccessToken(auth: fb.Auth, token: string): Promise<void> {
+  return fb.revokeAccessToken(auth, token);
 }

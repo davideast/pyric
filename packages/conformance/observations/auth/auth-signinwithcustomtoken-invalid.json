@@ -1,0 +1,15 @@
+{
+  "name": "auth-signinwithcustomtoken-invalid",
+  "matrixRow": "auth #173",
+  "rowIds": [
+    "auth#173"
+  ],
+  "description": "signInWithCustomToken with a token this project never minted. The HAPPY path needs an Admin-SDK-signed JWT (the oracle harness is a Web SDK client), so what is capturable here is the reject shape: locks auth/invalid-custom-token for a malformed token.",
+  "observedAt": "2026-07-12T03:54:42.626Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "malformedCode": "auth/invalid-custom-token",
+    "emptyCode": "auth/invalid-custom-token"
+  }
+}

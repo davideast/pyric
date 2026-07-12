@@ -1,0 +1,15 @@
+{
+  "name": "auth-signinwithemaillink-invalid-link",
+  "matrixRow": "auth #154",
+  "rowIds": [
+    "auth#154"
+  ],
+  "description": "signInWithEmailLink against a link the project never issued. The completion half of the email-link flow CANNOT be probed end to end (it needs a code from a real inbox), but its reject shape can: locks the code prod emits for a syntactically valid link carrying an unknown oobCode, and for a link with no oobCode at all.",
+  "observedAt": "2026-07-12T03:50:12.161Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "unknownCode": "auth/operation-not-allowed",
+    "noOobCode": "auth/argument-error"
+  }
+}

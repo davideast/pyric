@@ -1,0 +1,21 @@
+{
+  "name": "auth-unlink-provider",
+  "matrixRow": "auth #162",
+  "rowIds": [
+    "auth#162"
+  ],
+  "description": "unlink — removing a linked provider from a user. Locks the returned User shape (providerData shrinks) and the code for unlinking a provider that was never linked (auth/no-such-provider).",
+  "observedAt": "2026-07-12T03:53:16.888Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "setupCode": "auth/operation-not-allowed",
+    "beforeProviders": null,
+    "noSuchProviderCode": "auth/no-such-provider",
+    "unlinkCode": "auth/no-such-provider",
+    "unlinkedProviders": null,
+    "emailAfterUnlink": null,
+    "isAnonymousAfterUnlink": null,
+    "cleanupLeaked": false
+  }
+}

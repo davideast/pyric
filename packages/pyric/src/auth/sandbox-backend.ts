@@ -36,7 +36,13 @@
  */
 
 import { makeAuthError } from './auth-errors.js';
-import { AuthFlowRegistry } from './sandbox-auth-flow.js';
+import {
+  AuthFlowRegistry,
+  type AuthActionCode,
+  type AuthMailResolver,
+  type OutboundAuthMail,
+} from './sandbox-auth-flow.js';
+import type { SandboxTarget } from './target.js';
 import { sandboxTokenFor } from './sandbox-token.js';
 import { validateEmailFormat, validatePasswordStrength } from './sandbox-credential-validators.js';
 
@@ -743,6 +749,273 @@ export class SandboxBackend {
     return this.usersByEmail.get(email.toLowerCase());
   }
 
+  findByUid(uid: string): StoredUser | undefined {
+    return this.usersByUid.get(uid);
+  }
+
+  // ─── Email family: action codes + the mail outbox ───────────────────
+  //
+  // Pure delegation to {@link AuthFlowRegistry} — the staging state lives
+  // there (it is independent of the coupled auth state machine); the
+  // IDENTITY MUTATION each redeemed code drives lives here, on the
+  // backend that owns the user DB. That split is the seam's whole design.
+
+  mintActionCode(spec: AuthActionCode): string {
+    return this.flow.mintActionCode(spec);
+  }
+
+  stageActionCode(code: string, spec: AuthActionCode): void {
+    this.flow.stageActionCode(code, spec);
+  }
+
+  peekActionCode(code: string): AuthActionCode | undefined {
+    return this.flow.peekActionCode(code);
+  }
+
+  consumeActionCode(code: string): AuthActionCode | undefined {
+    return this.flow.consumeActionCode(code);
+  }
+
+  deliverMail(mail: OutboundAuthMail): void {
+    this.flow.deliverMail(mail);
+  }
+
+  takeMail(email?: string): OutboundAuthMail | null {
+    return this.flow.takeMail(email);
+  }
+
+  listMail(): OutboundAuthMail[] {
+    return this.flow.listMail();
+  }
+
+  setMailResolver(resolver: AuthMailResolver | null): void {
+    this.flow.setMailResolver(resolver);
+  }
+
+  // ─── Identity mutations the redeemed codes drive ────────────────────
+
+  /**
+   * Mark an account's email verified — what a redeemed `VERIFY_EMAIL`
+   * code does. This is the state change the whole verification flow
+   * exists to produce, and the one that (in prod) only happens when a
+   * human clicks the link. Idempotent.
+   */
+  setEmailVerified(email: string, verified: boolean): StoredUser {
+    const stored = this.requireByEmail(email);
+    if (stored.emailVerified !== verified) {
+      stored.emailVerified = verified;
+      this.notifyUsersChanged();
+      this.emitAuthEvent('user_update', {
+        path: stored.uid,
+        after: this.toRecord(stored),
+        detail: { emailVerified: verified },
+      });
+    }
+    return stored;
+  }
+
+  /**
+   * Set an account's password by email — what a redeemed
+   * `PASSWORD_RESET` code does (`confirmPasswordReset`). Runs the same
+   * strength check `createUserWithEmailAndPassword` does, so a reset
+   * cannot install a password the create path would have rejected.
+   */
+  setPasswordByEmail(email: string, newPassword: string): StoredUser {
+    validatePasswordStrength(newPassword);
+    const stored = this.requireByEmail(email);
+    stored.password = newPassword;
+    this.notifyUsersChanged();
+    this.emitAuthEvent('user_update', {
+      path: stored.uid,
+      after: this.toRecord(stored),
+      detail: { passwordReset: true },
+    });
+    return stored;
+  }
+
+  /**
+   * Move an account to a new address — what a redeemed
+   * `VERIFY_AND_CHANGE_EMAIL` code does (`verifyBeforeUpdateEmail`). The
+   * new address arrives already verified: the user just proved they
+   * control it by redeeming a code sent TO it. That is the entire
+   * difference between this flow and a bare `updateEmail`.
+   */
+  changeEmail(fromEmail: string, toEmail: string): StoredUser {
+    validateEmailFormat(toEmail);
+    const stored = this.requireByEmail(fromEmail);
+    const toKey = toEmail.toLowerCase();
+    const existing = this.usersByEmail.get(toKey);
+    if (existing && existing.uid !== stored.uid) {
+      throw makeAuthError('auth/email-already-in-use', `An account already exists for ${toEmail}.`);
+    }
+    if (stored.email) this.usersByEmail.delete(stored.email.toLowerCase());
+    stored.email = toEmail;
+    stored.emailVerified = true;
+    this.usersByEmail.set(toKey, stored);
+    this.notifyUsersChanged();
+    this.emitAuthEvent('user_update', {
+      path: stored.uid,
+      after: this.toRecord(stored),
+      detail: { emailChanged: toEmail },
+    });
+    return stored;
+  }
+
+  /**
+   * Get-or-create the account an email-link sign-in resolves to.
+   * A first-time email-link sign-in CREATES the account (that is the
+   * passwordless flow's whole point) — and it arrives verified, because
+   * redeeming a code mailed to that address is proof of control.
+   *
+   * Returns `isNewUser` so the credential can carry an honest
+   * `getAdditionalUserInfo().isNewUser`.
+   */
+  upsertEmailLinkUser(email: string): { stored: StoredUser; isNewUser: boolean } {
+    validateEmailFormat(email);
+    const key = email.toLowerCase();
+    const existing = this.usersByEmail.get(key);
+    if (existing) {
+      if (!existing.providerUserInfo.some((p) => p.providerId === 'password')) {
+        existing.providerUserInfo.push({ providerId: 'password' });
+      }
+      // Redeeming a link mailed to this address proves control of it.
+      existing.emailVerified = true;
+      this.notifyUsersChanged();
+      return { stored: existing, isNewUser: false };
+    }
+    const uid = `email-${key}-${this.usersByEmail.size + 1}`;
+    const record = this.makeStored({
+      uid,
+      email,
+      // No password: an account born from an email link has never had
+      // one set. `signInWithEmailAndPassword` for it fails, exactly as it
+      // would in prod, until the user sets a password.
+      providerUserInfo: [{ providerId: 'password' }],
+    });
+    record.emailVerified = true;
+    this.usersByEmail.set(key, record);
+    this.usersByUid.set(uid, record);
+    this.notifyUsersChanged();
+    this.emitAuthEvent('user_create', { path: uid, after: this.toRecord(record), detail: { emailLink: true } });
+    return { stored: record, isNewUser: true };
+  }
+
+  // ─── Account linking / unlinking ────────────────────────────────────
+
+  /**
+   * Link a provider onto an existing identity. The mutation behind
+   * `linkWithCredential` / `linkWithPopup` / `linkWithRedirect`.
+   *
+   * Enforces the two conflict codes prod enforces:
+   *   - `auth/provider-already-linked` when the account already carries
+   *     this provider;
+   *   - `auth/email-already-in-use` when the email credential being
+   *     linked belongs to a DIFFERENT account (an email can only ever
+   *     back one identity).
+   *
+   * Linking a credential onto an ANONYMOUS account upgrades it in place:
+   * same uid, `isAnonymous` flips false. That upgrade is the single most
+   * common reason this API exists (the "let them try it, then let them
+   * keep it" onboarding flow), and preserving the uid is what makes the
+   * data they created while anonymous still theirs afterward.
+   */
+  linkProvider(
+    uid: string,
+    providerId: string,
+    identity?: { email?: string; password?: string | null; emailVerified?: boolean },
+  ): StoredUser {
+    const stored = this.usersByUid.get(uid);
+    if (!stored) {
+      throw makeAuthError('auth/user-not-found', `linkWithCredential: no identity with uid ${uid}.`);
+    }
+    if (stored.providerUserInfo.some((p) => p.providerId === providerId)) {
+      throw makeAuthError(
+        'auth/provider-already-linked',
+        `User can only be linked to one identity for the given provider (${providerId}).`,
+      );
+    }
+    const email = identity?.email;
+    if (email) {
+      validateEmailFormat(email);
+      const key = email.toLowerCase();
+      const owner = this.usersByEmail.get(key);
+      if (owner && owner.uid !== uid) {
+        throw makeAuthError(
+          'auth/email-already-in-use',
+          `An account already exists for ${email}.`,
+        );
+      }
+      if (identity.password !== undefined && identity.password !== null) {
+        validatePasswordStrength(identity.password);
+        stored.password = identity.password;
+      }
+      if (stored.email && stored.email.toLowerCase() !== key) {
+        this.usersByEmail.delete(stored.email.toLowerCase());
+      }
+      stored.email = email;
+      this.usersByEmail.set(key, stored);
+      if (identity.emailVerified !== undefined) stored.emailVerified = identity.emailVerified;
+    }
+    stored.providerUserInfo.push({ providerId });
+    // The upgrade: an identity that now carries a real provider is no
+    // longer anonymous, and it keeps its uid.
+    if (stored.isAnonymous) stored.isAnonymous = false;
+    this.notifyUsersChanged();
+    this.emitAuthEvent('user_update', {
+      path: uid,
+      after: this.toRecord(stored),
+      detail: { linked: providerId },
+    });
+    return stored;
+  }
+
+  /**
+   * Remove a provider from an identity — the mutation behind `unlink`.
+   * Throws `auth/no-such-provider` when it was never linked (oracle:
+   * `observations/auth/auth-unlink-provider.json` confirms prod emits
+   * exactly that code for an unlinked provider).
+   *
+   * Unlinking the LAST provider does NOT re-anonymize the account: the
+   * identity stays, credential-less. Matches prod — `isAnonymous` is
+   * about how the account was born, not what it currently carries.
+   */
+  unlinkProvider(uid: string, providerId: string): StoredUser {
+    const stored = this.usersByUid.get(uid);
+    if (!stored) {
+      throw makeAuthError('auth/user-not-found', `unlink: no identity with uid ${uid}.`);
+    }
+    const i = stored.providerUserInfo.findIndex((p) => p.providerId === providerId);
+    if (i < 0) {
+      throw makeAuthError(
+        'auth/no-such-provider',
+        `User was not linked to an account with the given provider (${providerId}).`,
+      );
+    }
+    stored.providerUserInfo.splice(i, 1);
+    if (providerId === 'password') {
+      // The password provider carried the secret; unlinking it takes the
+      // secret with it, so `signInWithEmailAndPassword` stops working —
+      // which is the observable point of unlinking it.
+      stored.password = null;
+    }
+    this.notifyUsersChanged();
+    this.emitAuthEvent('user_update', {
+      path: uid,
+      after: this.toRecord(stored),
+      detail: { unlinked: providerId },
+    });
+    return stored;
+  }
+
+  /** Shared lookup-or-throw behind the by-email mutations above. */
+  private requireByEmail(email: string): StoredUser {
+    const stored = this.usersByEmail.get(email.toLowerCase());
+    if (!stored) {
+      throw makeAuthError('auth/user-not-found', `No user found for ${email}.`);
+    }
+    return stored;
+  }
+
   createEmailPasswordUser(email: string, password: string): StoredUser {
     // Validate format BEFORE checking duplicates so an attacker can't
     // enumerate seeded emails by varying the malformed-vs-valid shape.
@@ -1364,6 +1637,7 @@ export class SandboxBackend {
       photoURL: stored.photoUrl,
       emailVerified: stored.emailVerified,
       phoneNumber: stored.phoneNumber,
+      providers: stored.providerUserInfo,
     });
   }
 
@@ -1609,6 +1883,8 @@ export class SandboxBackend {
     photoURL?: string | null;
     emailVerified?: boolean;
     phoneNumber?: string | null;
+    /** The identity's LINKED providers, from its stored record. */
+    providers?: ProviderUserInfo[];
   }): User {
     const photoURL = args.photoURL ?? null;
     const phoneNumber = args.phoneNumber ?? null;
@@ -1616,19 +1892,33 @@ export class SandboxBackend {
     // caller explicitly supplied it (AUTH-GAP).
     const emailVerified = args.emailVerified ?? false;
     const providerId = 'firebase';
-    // Synthesize a single provider entry from the user's own fields for
-    // non-anonymous users (the email/password or popup provider);
-    // anonymous users have no linked provider (AUTH-GAP).
+    // `providerData` is one entry PER LINKED PROVIDER, read from the stored
+    // record. It used to be a synthesized single `{providerId: 'password'}`
+    // entry for every non-anonymous user, which was wrong the moment an
+    // identity carried anything else: a Google popup sign-in reported its
+    // provider as `'password'`, and after the linking climb an account with
+    // two providers would still have reported one. Consumer code branches on
+    // this array (that is what it is FOR — "is this account linked to
+    // Google?"), so the synthesized version was actively misleading.
+    //
+    // ABSENT vs EMPTY is the distinction that matters, and conflating them is
+    // a real bug: `undefined` means "no stored record to read" (a popup/mock
+    // user the backend never saw) and falls back to the old single-entry
+    // synthesis so nothing that worked before regresses; `[]` means "this
+    // identity genuinely has no linked providers", which is exactly what
+    // `unlink` of the last provider produces. Falling back on `[]` would
+    // resurrect the very provider the user just removed.
+    const linked: ProviderUserInfo[] = args.providers ?? [{ providerId: 'password' }];
     const providerData: UserInfo[] = args.isAnonymous
       ? []
-      : [{
+      : linked.map((p) => ({
         uid: args.uid,
         displayName: args.displayName,
         email: args.email,
         phoneNumber,
         photoURL,
-        providerId: 'password',
-      }];
+        providerId: p.providerId,
+      }));
     const user: User = {
       uid: args.uid,
       email: args.email,
@@ -1678,10 +1968,20 @@ export class SandboxBackend {
           return Promise.resolve();
         },
         raw: user,
+        // Routing rides on the user — see UserInternal.target. Built here
+        // rather than injected because the backend predates the target
+        // object that wraps it (`getAuth` constructs the target FROM the
+        // backend), and every field of that target is already ours.
+        target: this.selfTarget(),
       },
       enumerable: false,
     });
     return user;
+  }
+
+  /** This backend's dispatch target — the same shape `getAuth` builds. */
+  private selfTarget(): SandboxTarget {
+    return { kind: 'sandbox', sandbox: this.sandbox, backend: this };
   }
 
   /**
