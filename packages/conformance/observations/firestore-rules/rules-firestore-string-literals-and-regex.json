@@ -13,5 +13,6 @@
     "matches('.*@acme\\\\.com') vs bob@other.com → DENY": "DENY",
     "matches('.*@acme.com') vs alice@acme.com → ALLOW (no-escape control)": "ALLOW",
     "!matches('.*\\t.*') vs name without tab → ALLOW (tab escape literal)": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:216201cadfd8e1a12b8d33ce6d3f9ef8212985649550d998d3f652c6beb37f2d"
 }

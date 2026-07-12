@@ -11,5 +11,6 @@
     "errorName": "FirebaseAppError",
     "isError": true,
     "message": "Firebase app named \"does-not-exist\" does not exist. Make sure you call initializeApp() before using any of the Firebase services."
-  }
+  },
+  "behaviorHash": "sha256:e491e9e8bcfb0688885c75923f2b9d5b96909a3e6292b4e5c7bc451613357dc3"
 }

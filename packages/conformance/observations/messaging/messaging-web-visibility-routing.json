@@ -20,5 +20,6 @@
     "noVisibleClient": {
       "deliveredTo": "onBackgroundMessage"
     }
-  }
+  },
+  "behaviorHash": "sha256:cf8a60f499afa391b542fbd579130af20cdc99497fb361af790cff8245857d39"
 }

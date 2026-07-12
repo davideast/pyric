@@ -10,5 +10,6 @@
   "behavior": {
     "threw": false,
     "returnedUndefined": true
-  }
+  },
+  "behaviorHash": "sha256:d1498e7d9a004648198322ec9eea54c2801ad54f211af2cf12e4fbfafbf07cc8"
 }

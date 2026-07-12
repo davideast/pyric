@@ -13,5 +13,6 @@
     "cascade allows anon deep read (true)": "ALLOW",
     "deeper false override write denied (BUT cascade from auth grant?)": "ALLOW",
     "top-level write allowed (auth)": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:19518773eb00b20c22e6c5b6e2246f6fe25843fbc27795c2c7665f23812e2f7a"
 }

@@ -14,5 +14,6 @@
     "colonSeparated": true,
     "suffixAfterColonStartsWithAPA91b": true,
     "urlSafe": true
-  }
+  },
+  "behaviorHash": "sha256:499edc501f83a684e11764e09f92ae7131c6f2c2b35064d2b21cb328ba7e68ea"
 }

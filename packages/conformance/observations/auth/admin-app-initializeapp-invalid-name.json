@@ -11,5 +11,6 @@
     "errorName": "FirebaseAppError",
     "isError": true,
     "message": "Invalid Firebase app name \"\" provided. App name must be a non-empty string."
-  }
+  },
+  "behaviorHash": "sha256:4699e789b94710b622caa8871afb7944dc22e5e40ff1a83a6f868b5830c90b27"
 }

@@ -17,5 +17,6 @@
     "get(mocked).id == 'site' → DENY (mocked get() has no resource identity in production)": "DENY",
     "get(mocked).__name__ == path literal → DENY (mocked get() has no resource identity in production)": "DENY",
     "exists(mocked true) → ALLOW (control)": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:a9fe346478bc123bb01759cfc72991b313c5acc4829667b231d9d5066c7a1545"
 }

@@ -12,5 +12,6 @@
     "authed read denied": "DENY",
     "authed write denied": "DENY",
     "anon read denied": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:214f56deb0a6134abcc958a8706b81f8d5017f752bfe0e222c9c4b697d0b365d"
 }

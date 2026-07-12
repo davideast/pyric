@@ -12,5 +12,6 @@
     "valid event within all bounds ALLOW": "ALLOW",
     "qty too small so qty*2 < 2 DENY (mul + gte)": "DENY",
     "negative area so sqrt precondition fails DENY (math.sqrt)": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:78184561e0653aaf5ed257231c0d009cbb3d7f0cbcb3d0d72336f17b6a763f76"
 }

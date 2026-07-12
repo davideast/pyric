@@ -23,5 +23,6 @@
     "adminSendThrows": true,
     "adminThrowCode": "messaging/registration-token-not-registered",
     "noDeliveryToClient": true
-  }
+  },
+  "behaviorHash": "sha256:485997df5e5131f70fc51868401a70e0acf267575d7760b42d3e6e3bad28cb8f"
 }

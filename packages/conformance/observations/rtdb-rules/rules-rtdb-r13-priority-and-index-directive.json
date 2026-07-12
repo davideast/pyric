@@ -13,5 +13,6 @@
     "plain set has a null priority": "ALLOW",
     "plain set cannot satisfy a non-null priority demand": "DENY",
     "auth-gated read of the indexed node allowed": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:44624c20b2b31eba68ae780dfb9b03ae2d2d7e57da6acaec9a9d060ec4859d7d"
 }

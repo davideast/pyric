@@ -21,6 +21,12 @@ export interface Observation {
   observedAt?: string;
   fbSdkVersion?: string;
   behavior: Record<string, unknown>;
+  /** The content hash over `behavior`, written by the capture runner at capture
+   *  time (src/observation-hash.ts). The validator recomputes it: an observation
+   *  whose recorded production verdicts were edited after capture no longer
+   *  matches, and compat:check fails. Optional on the type only so a MISSING hash
+   *  surfaces as a validator problem naming the file, rather than a load crash. */
+  behaviorHash?: string;
   raw: Record<string, unknown>;
 }
 
@@ -78,6 +84,7 @@ export function loadObservations(): Observation[] {
       observedAt: typeof raw.observedAt === 'string' ? raw.observedAt : undefined,
       fbSdkVersion: typeof raw.fbSdkVersion === 'string' ? raw.fbSdkVersion : undefined,
       behavior: (raw.behavior && typeof raw.behavior === 'object' ? raw.behavior : {}) as Record<string, unknown>,
+      behaviorHash: typeof raw.behaviorHash === 'string' ? raw.behaviorHash : undefined,
       raw,
     } satisfies Observation;
   });

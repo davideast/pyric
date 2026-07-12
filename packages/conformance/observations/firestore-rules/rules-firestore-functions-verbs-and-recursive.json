@@ -16,5 +16,6 @@
     "signed-in create covered by write grant ALLOW": "ALLOW",
     "recursive subtree read when signed-in ALLOW": "ALLOW",
     "recursive subtree read denied when anonymous DENY": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:11b83ff5b187707e574810f05039e073528d6ba4b2f7c2e4909e34c8be32827d"
 }

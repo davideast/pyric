@@ -33,5 +33,6 @@
     "childListenerStillFiringAfterOffValue": true,
     "childListenerStoppedAfterOffChild": true,
     "offValueClearsAllValueListeners": true
-  }
+  },
+  "behaviorHash": "sha256:ba989c47f3300d894c3d4fc18cb59f606fe4514c8a5c39c36f8e8efb623f6c23"
 }

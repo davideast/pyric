@@ -13,5 +13,6 @@
     "firestore.get(): profile uid mismatch → deny": "DENY",
     "firestore.exists(): membership present → allow create": "ALLOW",
     "firestore.exists(): membership absent → deny create": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:12819528f390bcf072604bedb96d31763f9339d612f910ced188106a74b69b84"
 }

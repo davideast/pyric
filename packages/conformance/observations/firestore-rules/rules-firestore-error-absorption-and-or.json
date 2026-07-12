@@ -16,5 +16,6 @@
     "false && error → DENY (short-circuit control)": "DENY",
     "error && true → DENY (error propagates)": "DENY",
     "(error && false) || true → ALLOW (nested absorption)": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:8c6a48e96d89cd1c3995304b7541d8fde8dd64a777cc29afacae6f3b502e7be2"
 }

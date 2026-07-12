@@ -19,5 +19,6 @@
     ],
     "firstFireAt": "after-timeout",
     "firstFireSyncDuringRegister": false
-  }
+  },
+  "behaviorHash": "sha256:9effa071561b1fc702cb3a4cb0d1a628c762048ff5b8cad70ba5e38929375633"
 }

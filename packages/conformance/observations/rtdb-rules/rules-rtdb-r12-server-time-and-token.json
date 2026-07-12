@@ -16,5 +16,6 @@
     "anonymous provider claim does not satisfy a password gate": "DENY",
     "signed-out request has no token claim to read": "DENY",
     "auth-gated read allowed": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:f9c2825ef99dd944cdffd14e76d5bc2f9df5aed23fb32d6d31acd3b018b0dddb"
 }

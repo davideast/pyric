@@ -20,5 +20,6 @@
     "crc32c Castagnoli ref ALLOW": "DENY",
     "hashing accepts Bytes input ALLOW": "ALLOW",
     "wrong md5 digest DENY": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:c302bd94e92bde7ac16740c37c759ef534ef468429cab0f3d7896731da4093d9"
 }

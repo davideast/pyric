@@ -32,5 +32,6 @@
     "ternary high tier raises the cap": "ALLOW",
     "ternary low tier keeps the cap": "DENY",
     "auth-gated read allowed": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:01a001db86551281a5fdf4092624b4233f76d628ef9a9d0a19ad512010f3bab7"
 }

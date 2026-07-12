@@ -11,5 +11,6 @@
     "type": "string",
     "isSemver": true,
     "value": "12.13.0"
-  }
+  },
+  "behaviorHash": "sha256:768b65ac14459a94c690cdd3147bae297024cd4d36d276c7f6a66c4813a403e8"
 }

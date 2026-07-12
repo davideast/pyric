@@ -19,5 +19,6 @@
     "string slice [i:i] → empty string ALLOW": "ALLOW",
     "string slice end OOB clamps to length ALLOW": "DENY",
     "list slice with wrong expected size DENY": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:8e0a3524b23560202706491a5089008ff85e1d32c55d71421ee094f5637a49ab"
 }

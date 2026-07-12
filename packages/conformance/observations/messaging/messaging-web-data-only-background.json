@@ -25,5 +25,6 @@
     "fromEqualsSenderId": true,
     "messageIdPresent": true,
     "notificationsAfterHandler": 0
-  }
+  },
+  "behaviorHash": "sha256:7ef35347718d78523aa0eabe2aa7c160a7b954dc05c182df7a49716a4e3a06b0"
 }

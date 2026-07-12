@@ -16,5 +16,6 @@
     "update changing only title ALLOW": "ALLOW",
     "update touching ownerId DENY (affectedKeys hasOnly)": "DENY",
     "update adding a new field DENY (addedKeys size 0)": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:e65b22ad664028e66ccbd6b72a37233203e3bb527ca1774c90d8835e470fc58c"
 }

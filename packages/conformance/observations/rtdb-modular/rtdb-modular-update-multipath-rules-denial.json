@@ -14,5 +14,6 @@
     "message": "PERMISSION_DENIED: Permission denied",
     "okPathWrittenDespiteDenial": false,
     "atomicRollback": true
-  }
+  },
+  "behaviorHash": "sha256:86fa90590d35d3b3e83628b89ee27a6c57d70e5f3ed2245f35c623c51c2bdf2f"
 }

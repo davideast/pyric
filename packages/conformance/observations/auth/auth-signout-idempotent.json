@@ -16,5 +16,6 @@
     "afterRedundantSignOut": 3,
     "redundantSignOutFiredListener": false,
     "leakedAnonymousUid": "6puxptiwO6YpryqFJbYSlMUdY1e2"
-  }
+  },
+  "behaviorHash": "sha256:cc9411ef8030603181abee9c240ee7b82467bc24564c9165d290976c1d1a5d7a"
 }

@@ -13,5 +13,6 @@
     "secondMinted": true,
     "tokensEqual": true,
     "sameLength": true
-  }
+  },
+  "behaviorHash": "sha256:fc4ff93fc2606f6c123863f7bd6fc5a94c444c0e4291062e1d837368272da301"
 }

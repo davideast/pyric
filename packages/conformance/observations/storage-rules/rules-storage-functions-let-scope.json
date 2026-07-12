@@ -14,5 +14,6 @@
     "nested call isImage(): wrong content type denied": "DENY",
     "block-scoped helper tooBig(): small file allowed": "ALLOW",
     "block-scoped helper tooBig(): large file denied": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:feadb779e21badb72116b568bfd62cfe6880f522b8bf7546f180a27e547902d6"
 }

@@ -15,5 +15,6 @@
     "token0EqualsToken1": false,
     "token1EqualsToken2": true,
     "forceRefreshReturnedDifferentString": true
-  }
+  },
+  "behaviorHash": "sha256:47dc3a104751ab9ed5fcc055c196a5d976d2239e80e83f95088994193868cbb5"
 }

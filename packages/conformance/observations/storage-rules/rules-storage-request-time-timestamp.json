@@ -13,5 +13,6 @@
     "timestamp.date(): after deadline denied": "DENY",
     "timestamp.value(): after epoch bound allowed": "ALLOW",
     "timestamp.value(): before epoch bound denied": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:7a99a0d2a9668f317dd890a6e724b15aaf9b8cc3dc7f8d0d0efa0f33d0cf0fc8"
 }

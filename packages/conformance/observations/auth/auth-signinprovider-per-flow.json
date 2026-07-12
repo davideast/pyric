@@ -17,5 +17,6 @@
       "signInProvider": "password",
       "firebaseClaim": "password"
     }
-  }
+  },
+  "behaviorHash": "sha256:97d32e09a64c9074504772ec5d8f1b647abb4ded096fc02e6da3f65e3f3e8137"
 }

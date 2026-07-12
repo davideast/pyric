@@ -21,5 +21,6 @@
     "errorName": "Error",
     "constructorName": "Error",
     "isErrorInstance": true
-  }
+  },
+  "behaviorHash": "sha256:5fce726283bb885c9b378f12fadbd85a87c991b23d7b4bfb6e4d7188845525c1"
 }

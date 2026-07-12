@@ -13,5 +13,6 @@
     "namedName": "secondary",
     "getAppsLength": 2,
     "getAppByNameResolvesSame": true
-  }
+  },
+  "behaviorHash": "sha256:be11de9c242b2307f094b086eadc03f251234ea3ba4ab31f06a9c75186379a5c"
 }

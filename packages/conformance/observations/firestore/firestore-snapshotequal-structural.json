@@ -12,5 +12,6 @@
     "identity": true,
     "twoFetchesSameData": false,
     "size": 1
-  }
+  },
+  "behaviorHash": "sha256:75b54c8a0a055a86f812909ff75c4e74fa7a3c32fbee1cddeac06cc74fd8a6df"
 }

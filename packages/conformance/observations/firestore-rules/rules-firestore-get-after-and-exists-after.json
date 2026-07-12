@@ -14,5 +14,6 @@
     "existsAfter delete false ALLOW": "DENY",
     "existsAfter unrelated mocked path ALLOW": "DENY",
     "wrong existsAfter on create DENY": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:13ec5f2ecd20b6b5cf6f16833a4da749a377cd5c0cea35d6fdf1bed3475108c1"
 }

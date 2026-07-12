@@ -13,5 +13,6 @@
     "category outside allowed set DENY (split hasOnly)": "DENY",
     "slug not lowercase DENY (String.lower)": "DENY",
     "code wrong length after upper DENY (String.upper/size)": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:24a4c7d9d422e061f85bc8af6a7a8c12960344997dff31e3caef57e8b2fd7b94"
 }

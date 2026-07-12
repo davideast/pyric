@@ -24,5 +24,6 @@
       "inner-and-match",
       "outer-z-match"
     ]
-  }
+  },
+  "behaviorHash": "sha256:ea225003b59d7b78ae7ca81b576cc32c3f78d74f68445b8d8c1344d6c5dc590e"
 }

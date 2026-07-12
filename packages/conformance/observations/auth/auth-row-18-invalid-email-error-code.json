@@ -16,5 +16,6 @@
     "attemptedEmail": "not-an-email",
     "createdUid": null,
     "cleanupLeaked": false
-  }
+  },
+  "behaviorHash": "sha256:b1b377a59924ddc547d2f45c7834279e9972934bbfe3d3a419c1c8d7dc26e25a"
 }

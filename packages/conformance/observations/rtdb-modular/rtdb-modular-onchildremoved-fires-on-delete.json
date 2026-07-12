@@ -24,5 +24,6 @@
     "noInitialReplay": true,
     "firesOnceOnDelete": true,
     "removedSnapCarriesPriorValue": true
-  }
+  },
+  "behaviorHash": "sha256:f3d8a0178f35996495ce857125951a8d19ed31b76b6fde1faf4895559b5eeafa"
 }

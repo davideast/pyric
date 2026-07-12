@@ -27,5 +27,6 @@
     "single-occurrence replace reaches the target": "ALLOW",
     "replace substitutes every occurrence not just the first": "ALLOW",
     "auth-gated read allowed": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:f4bb2146d871ba93a90a1b27191bb1fa04a62ccb21469996bfbaf745e2430ce6"
 }

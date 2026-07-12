@@ -7,6 +7,7 @@ import { surfaceDescriptors } from '../surfaces/load.ts';
 import { observationExceptions } from '../exceptions/load.ts';
 import type { SurfaceDescriptor } from '../surfaces/types.ts';
 import { buildCompatibilityLedger, loadObservations, REPO_ROOT, summarizeLedger, type Observation } from './ledger.ts';
+import { behaviorHashProblem } from './observation-hash.ts';
 import { checkGeneratedMarkdown } from './generate-docs.ts';
 import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
@@ -163,6 +164,14 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
 
   const rowIds = new Set(input.rows.map((row) => row.id));
   for (const obs of input.observations) {
+    // The observation's `behavior` blob is production's own verdicts, and it is
+    // what every number downstream is computed from. Recompute its content hash
+    // and compare: a blob edited after capture (a verdict flipped to match a
+    // failing simulator, say) no longer matches the hash its capture runner
+    // wrote, and that is fatal here. See src/observation-hash.ts for what the
+    // seal does and does not prove.
+    const hashProblem = behaviorHashProblem(obs);
+    if (hashProblem) problems.push(hashProblem);
     // Observation -> row direction: every structured link must resolve to a
     // real (canonical) registry row, exceptions included.
     for (const id of obs.rowIds) {

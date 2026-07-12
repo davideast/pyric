@@ -24,5 +24,6 @@
       "match-x",
       "match-y"
     ]
-  }
+  },
+  "behaviorHash": "sha256:cd96a03211f39307fb78b83b5ff63f7335edb716cc37cb0eb6028c24bcb5a58d"
 }

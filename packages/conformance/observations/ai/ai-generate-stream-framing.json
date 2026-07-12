@@ -33,5 +33,6 @@
       2
     ],
     "rawFrames": "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"1 2 3 4 5 6 7 8\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 15,\"totalTokenCount\": 30,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.1-flash-lite\",\"responseId\": \"F09Qasm4Jeiu_PUP85rr6Qg\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 9 10\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 20,\"totalTokenCount\": 35,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.1-flash-lite\",\"responseId\": \"F09Qasm4Jeiu_PUP85rr6Qg\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EjQKMgERTTIPuMvqbn223NOm7Eqs4Ya8PQOv0IGezVPX76tEiZ1uN27zJoiUQ0VG1q9abYy2\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 15,\"candidatesTokenCount\": 20,\"totalTokenCount\": 35,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 15}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.1-flash-lite\",\"responseId\": \"F09Qasm4Jeiu_PUP85rr6Qg\"}\r\n\r\n"
-  }
+  },
+  "behaviorHash": "sha256:ab3f507990aee00f9abcbd0dfbf2742a0a3be9d96e949b12298429ff5c81aae5"
 }

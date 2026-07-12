@@ -32,7 +32,8 @@
  *   bun run packages/conformance/src/app-registry-probes.ts --write     # recapture
  */
 import { deleteApp, getApps } from 'firebase/app';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { writeObservationFile } from './observation-hash.ts';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
@@ -203,7 +204,7 @@ async function write(probes: LoadedProbe[], installedVersion: string): Promise<v
       fbSdkVersion: installedVersion,
       behavior,
     };
-    writeFileSync(observationPath(id), JSON.stringify(envelope, null, 2) + '\n');
+    writeObservationFile(observationPath(id), envelope);
     console.log(`  wrote ${id}.json`);
   }
 }

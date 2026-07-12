@@ -30,5 +30,6 @@
     "dataEchoedExactly": true,
     "fromEqualsSenderId": true,
     "messageIdPresent": true
-  }
+  },
+  "behaviorHash": "sha256:ac7f701811dc2bfed2b594da7092f2c60ee84e653052a57e33c97edcf7515c5e"
 }

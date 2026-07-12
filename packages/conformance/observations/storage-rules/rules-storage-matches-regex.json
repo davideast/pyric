@@ -12,5 +12,6 @@
     "matches whole string: image/png accepted": "ALLOW",
     "matches whole string: text/plain rejected": "DENY",
     "anchoring: leading-prefixed ximage/png rejected (not a partial match)": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:c4b8ac6deec187babbb82e47518fe324e6ca8e08b524ef73b9e501dd590f7b6b"
 }

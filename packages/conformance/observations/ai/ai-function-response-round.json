@@ -22,7 +22,7 @@
           "content": {
             "parts": [
               {
-                "text": "The weather in Paris is clear with a temperature of 22\u00b0C.",
+                "text": "The weather in Paris is clear with a temperature of 22°C.",
                 "thoughtSignature": "EjQKMgERTTIPevU90Ul2ojBMEUvswVEQtpH2CCkaYfhCK46N4QViRsL43qnucf+qpsd7e0Nd"
               }
             ],
@@ -47,5 +47,6 @@
       "modelVersion": "gemini-3.1-flash-lite",
       "responseId": "JE9QavatJPON_PUP2quBsQw"
     }
-  }
+  },
+  "behaviorHash": "sha256:7d930347137ed5586609329e29547f85ae3c2e966da024a9e5ef8d5e6fdbc0a0"
 }

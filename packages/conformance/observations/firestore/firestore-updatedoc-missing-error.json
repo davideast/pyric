@@ -16,5 +16,6 @@
     "constructorName": "FirebaseError",
     "isFirebaseError": true,
     "isErrorInstance": true
-  }
+  },
+  "behaviorHash": "sha256:84c573730844132fb983ce2d7693f214c337d376a3b813f2b1d1739e464d6a40"
 }

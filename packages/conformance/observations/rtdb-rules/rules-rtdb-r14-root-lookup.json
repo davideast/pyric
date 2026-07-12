@@ -12,5 +12,6 @@
     "sentinel absent from the database root": "ALLOW",
     "sentinel cannot be found present at the database root": "DENY",
     "auth-gated read allowed": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:5427baacaa1d2adf82f5cc5a14f3e2b44c8bb274c2b081e82c3eb3220f8e2ca4"
 }

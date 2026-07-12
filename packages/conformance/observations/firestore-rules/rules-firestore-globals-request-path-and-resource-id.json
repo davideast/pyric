@@ -15,5 +15,6 @@
     "resource.id on create → DENY (resource is null pre-write)": "DENY",
     "resource.__name__ on create → DENY (resource is null pre-write)": "DENY",
     "wrong resource.id DENY": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:fe3346987fd56d1a61920befcc13b84036fac2838a7304c865fd8fbf591b235f"
 }

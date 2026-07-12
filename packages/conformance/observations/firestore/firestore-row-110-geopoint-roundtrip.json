@@ -21,5 +21,6 @@
     "locCtorName": "GeoPoint",
     "latMatches": true,
     "lngMatches": true
-  }
+  },
+  "behaviorHash": "sha256:c16986981152efa7cf19b910cf7f73045163e65868f46d929e067d18639a4600"
 }

@@ -14,5 +14,6 @@
     "foreign uid read denied": "DENY",
     "foreign uid write denied": "DENY",
     "anon read denied (no auth.uid)": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:110dd01d96c42a62ed9f6fe7eef85caf66430bd83e9b4b8afb1e1b068cc00255"
 }

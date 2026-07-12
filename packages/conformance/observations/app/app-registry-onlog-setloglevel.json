@@ -15,5 +15,6 @@
     "emittedType": "@firebase/app",
     "emittedMessageIsString": true,
     "emittedArgsIsArray": true
-  }
+  },
+  "behaviorHash": "sha256:d9cadbc3e81d26e1869af39342a7c847a823923344bbc520d6305b9263875f7e"
 }

@@ -13,5 +13,6 @@
     "getAppAfterDeleteThrew": true,
     "getAppAfterDeleteCode": "app/no-app",
     "reinitAfterDeleteThrew": false
-  }
+  },
+  "behaviorHash": "sha256:6b188ab4b3debc8a7865837467f1b3c49c2eb3c70e32f5661184dfed113c50b1"
 }

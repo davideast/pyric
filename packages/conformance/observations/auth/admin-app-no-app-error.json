@@ -11,6 +11,13 @@
     "errorName": "FirebaseAppError",
     "isError": true,
     "message": "The default Firebase app does not exist. Make sure you call initializeApp() before using any of the Firebase services.",
-    "appliesTo": ["getDatabase", "getAuth", "getFirestore", "getStorage", "getApp"]
-  }
+    "appliesTo": [
+      "getDatabase",
+      "getAuth",
+      "getFirestore",
+      "getStorage",
+      "getApp"
+    ]
+  },
+  "behaviorHash": "sha256:1719451812353213829ca5256b6bd4e24592a149ba277114a105006e7e87011f"
 }

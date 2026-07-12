@@ -13,5 +13,6 @@
     "wrong owner denied": "DENY",
     "missing owner field denied": "DENY",
     "auth-only read allowed": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:7e49e2218a71eb09c089936ed1eddb48ebc37ed8bc75f3d7b52a88befaf1f473"
 }

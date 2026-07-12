@@ -17,5 +17,6 @@
     "set intersection no overlap → empty ALLOW": "DENY",
     "chained union+difference → hasOnly([b,c]) ALLOW": "DENY",
     "difference with wrong expected size DENY": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:4adea564f4f3e7114e39f9c8ba30747d5a1fd8aeed43362afdb1164c5ec82823"
 }

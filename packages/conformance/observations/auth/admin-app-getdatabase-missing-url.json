@@ -12,5 +12,6 @@
     "isError": true,
     "message": "Can't determine Firebase Database URL.",
     "withDatabaseUrlReturnsConstructor": "Database"
-  }
+  },
+  "behaviorHash": "sha256:a6d0662b7f2885dae5aceac408a06fb0692b5b4c05a8fc5aa5a1b855a26262ba"
 }

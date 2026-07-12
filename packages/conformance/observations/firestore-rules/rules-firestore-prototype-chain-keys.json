@@ -14,5 +14,6 @@
     "literal field named 'toString' IS a key → ALLOW": "ALLOW",
     ".constructor access (no such field) → DENY (error)": "DENY",
     "keys() lists own keys only → ALLOW": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:aec867fd5ed9d4a1cc98e4f3efce0793729f17cb35c662e88152f544d17e731b"
 }

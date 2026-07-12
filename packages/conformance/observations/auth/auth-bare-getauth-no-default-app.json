@@ -13,5 +13,6 @@
     "code": "app/no-app",
     "errorName": "FirebaseError",
     "message": "Firebase: No Firebase App '[DEFAULT]' has been created - call initializeApp() first (app/no-app)."
-  }
+  },
+  "behaviorHash": "sha256:08fa7530715b32c82f52ae1b5f15606c7a8358c176fe6321e1d5276aab297a9c"
 }

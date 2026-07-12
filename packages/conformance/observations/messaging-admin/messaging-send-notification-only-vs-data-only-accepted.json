@@ -22,5 +22,6 @@
       "messageIdIsNumericString": true
     },
     "bothAccepted": true
-  }
+  },
+  "behaviorHash": "sha256:3eda13baa92a296586752cdde14746b59e4a7eb809b6c616ad96f7f1705dda1a"
 }

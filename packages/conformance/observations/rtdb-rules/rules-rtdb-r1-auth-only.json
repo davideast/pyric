@@ -13,5 +13,6 @@
     "authed write allowed": "ALLOW",
     "anon read denied": "DENY",
     "anon write denied": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:70b957dfe3bf1933dfd9a02c88438cbdbcd887bba5d757284659cd240e53f857"
 }

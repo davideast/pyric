@@ -20,5 +20,6 @@
     "expectedIds": [
       "match-both"
     ]
-  }
+  },
+  "behaviorHash": "sha256:2e92d80e3f1f7701296aed757de030ff560f926d9cff19974c83aaeee80b3e24"
 }

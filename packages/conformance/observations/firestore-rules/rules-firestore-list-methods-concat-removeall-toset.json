@@ -18,5 +18,6 @@
     "list toSet dedupes ALLOW": "ALLOW",
     "list toSet().difference chain (5.1 wiring) ALLOW": "DENY",
     "list concat with wrong expected size DENY": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:c477ac7011e9ff65da4d8e10136daaa2343e76c3849d40482e55d66c2cf662f2"
 }

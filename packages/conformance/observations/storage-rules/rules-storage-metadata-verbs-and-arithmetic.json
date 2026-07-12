@@ -4,7 +4,7 @@
   "rowIds": [
     "storage-rules#117"
   ],
-  "description": "Storage Rules Test API verdicts for corpus scenario \"metadata-verbs-and-arithmetic\" (Coverage: metadata, granular verbs, arithmetic operators). Production must accept request.resource.size arithmetic (+/-/*/\u00f7, >=, <=), request/resource content-type + metadata, request.method/path, request.auth.token OR-branch, allow list, and a recursive {allPaths=**} read tree.",
+  "description": "Storage Rules Test API verdicts for corpus scenario \"metadata-verbs-and-arithmetic\" (Coverage: metadata, granular verbs, arithmetic operators). Production must accept request.resource.size arithmetic (+/-/*/÷, >=, <=), request/resource content-type + metadata, request.method/path, request.auth.token OR-branch, allow list, and a recursive {allPaths=**} read tree.",
   "observedAt": "2026-07-12T02:33:30.003Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",
@@ -17,5 +17,6 @@
     "update changing content type DENY (immutable)": "DENY",
     "signed-in list ALLOW": "ALLOW",
     "public recursive read ALLOW": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:545870890172194d9880b381d2271a109a2ea6cd5715b16ff2f881fed3403d6c"
 }

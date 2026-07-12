@@ -23,5 +23,6 @@
     },
     "noInitialReplay": true,
     "firesOnceOnUpdate": true
-  }
+  },
+  "behaviorHash": "sha256:cdc969751653c5555a2b704a0119f5abb5469edf9f86589f428cb76908123b22"
 }

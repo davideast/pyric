@@ -20,5 +20,6 @@
       "ts": 42
     },
     "firedExactlyOnceOnSubscribe": true
-  }
+  },
+  "behaviorHash": "sha256:c4b1df87cd1e8434d55847ed3505efa839ae466a37299db888a54ef83b4d2e2f"
 }

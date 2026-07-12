@@ -10,5 +10,6 @@
     "reinitNoArgName": "[DEFAULT]",
     "reinitSameOptionsThrew": false,
     "reinitSameOptionsName": "app1"
-  }
+  },
+  "behaviorHash": "sha256:b1e6baaeaa5bc82224418c90cf020aa547c3f973cff55a23e627158ff4d1ce28"
 }

@@ -19,5 +19,6 @@
     "10 / 0 error || true → ALLOW (absorption)": "ALLOW",
     "integer payload is int / not float ALLOW": "ALLOW",
     "float payload is float / not int ALLOW": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:1bc3823e7a43bb3c09e340b0a94dd75d7b03f8c789daa0fc4537702c0e47ff5b"
 }

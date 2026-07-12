@@ -32,7 +32,8 @@
  *   PARITY_SA_BASE64="$(base64 < firebaserules-sa.json)" \
  *     bun run packages/conformance/src/run-rules.ts
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { writeObservationFile } from './observation-hash.ts';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TestFirestoreRulesResult } from '../../../packages/pyric/src/rules/test/spec.ts';
@@ -152,7 +153,7 @@ async function capture(): Promise<void> {
       behavior,
     };
     const path = observationPath(scenario);
-    writeFileSync(path, JSON.stringify(obs, null, 2) + '\n');
+    writeObservationFile(path, obs);
     const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
     const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
     console.log(

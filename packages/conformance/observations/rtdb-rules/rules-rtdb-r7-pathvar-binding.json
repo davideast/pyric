@@ -13,5 +13,6 @@
     "matching pathvar allows write": "ALLOW",
     "mismatching pathvar denies read": "DENY",
     "anon denied (no auth.uid)": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:ebd064954764f87f7b6e58a345f9bb98469b119785741064ae8b62fc1623af46"
 }

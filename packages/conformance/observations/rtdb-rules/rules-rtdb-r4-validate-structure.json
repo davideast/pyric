@@ -11,5 +11,6 @@
   "behavior": {
     "valid structure allowed": "ALLOW",
     "missing body denied (validate fails)": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:5129f9239fc1dbe1e6d8a77aed656559f84f887ed97c33a0907f0ad3b2f89553"
 }

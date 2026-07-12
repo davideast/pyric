@@ -16,5 +16,6 @@
     "hasLower": true,
     "hasDigit": true,
     "hasOther": false
-  }
+  },
+  "behaviorHash": "sha256:d251df235c2b2b3b2c5f10e24bb905690b42dd069a443364dd82bf6844bc446c"
 }

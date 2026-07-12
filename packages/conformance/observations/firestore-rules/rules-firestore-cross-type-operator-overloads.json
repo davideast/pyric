@@ -16,5 +16,6 @@
     "Duration - Duration → Duration ALLOW": "ALLOW",
     "Timestamp < Timestamp via field compare ALLOW": "ALLOW",
     "wrong arithmetic — Timestamp + Duration ≠ original Timestamp DENY": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:4d71f8896ea03decb182bca25629bdf832255c8b5a16417b4858dd7d6ec4b353"
 }

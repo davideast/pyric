@@ -11,5 +11,6 @@
     "errorName": "FirebaseAppError",
     "isError": true,
     "message": "A Firebase app named \"app1\" already exists with a different configuration."
-  }
+  },
+  "behaviorHash": "sha256:d92bb2ba91d240dba864bb9161be02710d21f4fa6c36f3cb2e35428451430346"
 }

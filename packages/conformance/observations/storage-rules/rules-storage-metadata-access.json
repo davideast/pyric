@@ -14,5 +14,6 @@
     "dotted metadata: missing owner key → deny": "DENY",
     "bracket metadata: owner matches → allow": "ALLOW",
     "bracket metadata: owner mismatch → deny": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:ced0ea55612be6427e35a0a9981d84a0a055a9d652f3041c0c8eb4be5fd027f6"
 }

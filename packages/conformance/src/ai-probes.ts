@@ -27,7 +27,8 @@
  * Requires: PYRIC_AI_FIREBASE_CONFIG (single-line JSON web app config).
  * Run: bun --env-file=<repo>/.env packages/conformance/src/ai-probes.ts
  */
-import { writeFileSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { writeObservationFile } from './observation-hash.ts';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -87,7 +88,7 @@ function writeObservation(name: string, description: string, behavior: Record<st
     model: MODEL,
     behavior,
   };
-  writeFileSync(join(OBS_DIR, `${name}.json`), JSON.stringify(obs, null, 2) + '\n');
+  writeObservationFile(join(OBS_DIR, `${name}.json`), obs);
   console.log(`✓ ${name}`);
 }
 

@@ -10,5 +10,6 @@
     "getFirestoreReturnsConstructor": "Firestore",
     "getStorageReturnsConstructor": "Storage",
     "allResolveDefaultNoArg": true
-  }
+  },
+  "behaviorHash": "sha256:e2aa90855b69a90c363fd9e1c5a451917fc81c261be387f3b4e0491ac4becff0"
 }

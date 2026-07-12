@@ -26,5 +26,6 @@
     "snapExists": true,
     "snapKey": "v",
     "committedReflectsNewValue": true
-  }
+  },
+  "behaviorHash": "sha256:ed9c384a4b4b7a916075344a3512deafa3fe6c6f91dbb42b8e5412224ff74b56"
 }

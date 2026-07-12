@@ -10,5 +10,6 @@
   "projectId": "digame-mas",
   "behavior": {
     "hashing.crc32(...) — sim should ABSTAIN, prod should ALLOW": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:7ea75ea4fae737b9837ff064e80f82e824a6d7e103ce3d043e0a34bc0bbf474a"
 }

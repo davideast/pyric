@@ -13,5 +13,6 @@
     "claimBefore": null,
     "claimUnforcedAfterAdminWrite": null,
     "claimForcedRefresh": "admin"
-  }
+  },
+  "behaviorHash": "sha256:c911745aaa8e094bed54ba1dfb31be9268805aab0389267ab9ab6d82d3239050"
 }

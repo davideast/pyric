@@ -12,5 +12,6 @@
     "write to empty path allowed (!data.exists)": "ALLOW",
     "write to populated path denied (data.exists)": "ALLOW",
     "read inherits ancestor (auth != null)": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:47e42bf961fc5d3a537b7869d12ff726b1a8b6229736410ef4d0adcc9523d9b1"
 }

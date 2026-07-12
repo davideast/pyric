@@ -16,5 +16,6 @@
     "string active fails isBoolean": "DENY",
     "name without sibling age fails the parent climb": "DENY",
     "auth-gated read allowed": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:cd515901e7a6daa583454932517cd7a1e1a5d5909898641a0313ebe06541f967"
 }

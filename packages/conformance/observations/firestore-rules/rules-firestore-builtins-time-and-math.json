@@ -17,5 +17,6 @@
     "timestamp.date(2025,1,1) > timestamp.date(2099,1,1) → DENY": "DENY",
     "duration.value(2,'h') > duration.value(1,'h') → ALLOW": "ALLOW",
     "duration.value(1,'h') > duration.value(2,'h') → DENY": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:ae16c0fc2057f7ed686bb22dc7b98d57f72fa0c7559e96a17e16c90cec5d23df"
 }

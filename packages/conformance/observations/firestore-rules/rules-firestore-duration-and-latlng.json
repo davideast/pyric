@@ -11,5 +11,6 @@
   "behavior": {
     "valid coordinate and durations ALLOW": "ALLOW",
     "latitude below -90 DENY (LatLng.latitude bound)": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:d789e9495e4d6bfb3c2ca09c121810233fee01a6e4f101186c52128a48c63209"
 }

@@ -16,5 +16,6 @@
     "'abc123!'.matches('[a-z]+[0-9]+') → DENY (trailing char)": "DENY",
     "alice@acme.com vs full-string email pattern → ALLOW": "ALLOW",
     "1alice@acme.com vs same pattern → DENY (substring would partial-match)": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:9399594d05fb2c14dffec0a51ad22e87093050acf8bceb40e617723d56d3841e"
 }

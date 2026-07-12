@@ -10,5 +10,6 @@
     "namedAppName": "secondary",
     "getAppByNameName": "secondary",
     "getAppsCountWithDefaultAndNamed": 2
-  }
+  },
+  "behaviorHash": "sha256:5705423575f8bcdc6b13ae92ac7220ef730f84cffa2d7637b26591ed9dfe0adf"
 }

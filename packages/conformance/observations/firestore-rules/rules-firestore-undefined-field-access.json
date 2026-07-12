@@ -15,5 +15,6 @@
     "nested missing field under existing map → DENY": "DENY",
     "!(missing == value) → DENY (error propagates through !)": "DENY",
     "missing-field error || true → ALLOW (absorption)": "ALLOW"
-  }
+  },
+  "behaviorHash": "sha256:9c881ac4d51612e60fbd92584219e2d0a8c9bc1e4222fbc7d12bb85f3228673c"
 }

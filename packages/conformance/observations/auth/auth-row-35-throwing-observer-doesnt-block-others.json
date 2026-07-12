@@ -19,5 +19,6 @@
     },
     "firstThrewObserved": 2,
     "secondObserverContinuedFiring": true
-  }
+  },
+  "behaviorHash": "sha256:61c6ddcfee20a65cc7dcc2303429d69f9d885a8f2ce77df79addc2e97c7ebf26"
 }

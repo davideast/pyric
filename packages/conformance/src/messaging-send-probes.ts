@@ -16,7 +16,8 @@
  * Requires: PYRIC_MESSAGING_SA_BASE64.
  * Run: bun run packages/conformance/src/messaging-send-probes.ts
  */
-import { writeFileSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { writeObservationFile } from './observation-hash.ts';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initializeApp, cert, deleteApp } from 'firebase-admin/app';
@@ -63,7 +64,7 @@ function writeObservation(name: string, rowIds: string[], description: string, b
     projectId,
     behavior,
   };
-  writeFileSync(join(OBS_DIR, `${name}.json`), JSON.stringify(obs, null, 2) + '\n');
+  writeObservationFile(join(OBS_DIR, `${name}.json`), obs);
   console.log(`✓ ${name}`);
 }
 

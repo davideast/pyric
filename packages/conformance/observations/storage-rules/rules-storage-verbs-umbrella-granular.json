@@ -25,5 +25,6 @@
     "create allowed when object does not exist (resource == null)": "DENY",
     "update allowed when object exists (resource != null)": "ALLOW",
     "create denied when object already exists (create rule requires resource == null)": "DENY"
-  }
+  },
+  "behaviorHash": "sha256:5ea5b538770d7c2ad632d3b8fcb3f941afcdf69355baf825adec3c260455d103"
 }

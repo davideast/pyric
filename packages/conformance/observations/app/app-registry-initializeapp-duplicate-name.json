@@ -13,5 +13,6 @@
     "errorName": "FirebaseError",
     "isError": true,
     "message": "Firebase: Firebase App named '[DEFAULT]' already exists with different options or config (app/duplicate-app)."
-  }
+  },
+  "behaviorHash": "sha256:4c8f6a137918e01d83a8e80fedc69a7220a662c071ff851efd1fc893c8454e7d"
 }

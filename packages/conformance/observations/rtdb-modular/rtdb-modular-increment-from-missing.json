@@ -18,5 +18,6 @@
     "afterNegative": 6,
     "startsFromZero": true,
     "accumulates": true
-  }
+  },
+  "behaviorHash": "sha256:0ac52a18552a48893ae0a1da80b71ff485adfa8d4d5daddcf3be5727c2592f6c"
 }

@@ -52,7 +52,8 @@
  *     bun run packages/conformance/src/run-rules-rtdb.ts
  */
 import { createSign } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { writeObservationFile } from './observation-hash.ts';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -431,7 +432,7 @@ async function capture(): Promise<void> {
       projectId: config.projectId,
       behavior,
     };
-    writeFileSync(observationPath(scenario), JSON.stringify(obs, null, 2) + '\n');
+    writeObservationFile(observationPath(scenario), obs);
     console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
   }
 

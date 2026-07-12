@@ -27,5 +27,6 @@
       }
     },
     "firesOncePerNewChild": true
-  }
+  },
+  "behaviorHash": "sha256:ba276f7dac30d27dbb81920c4c44a2dc5a3f752eaafced2aa5f14b21d8d47d17"
 }

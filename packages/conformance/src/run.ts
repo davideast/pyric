@@ -124,7 +124,8 @@ import {
   serverTimestamp as rtdbServerTimestamp,
   type Database,
 } from 'firebase/database';
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { writeObservationFile } from './observation-hash.ts';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { surfaceDescriptors } from '../surfaces/load.ts';
@@ -853,7 +854,7 @@ function writeObservation(obs: Observation): void {
   const dir = join(OBS_DIR, surface);
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${obs.name}.json`);
-  writeFileSync(file, JSON.stringify(obs, null, 2) + '\n');
+  writeObservationFile(file, obs);
 }
 
 async function purge(probeId: string): Promise<void> {

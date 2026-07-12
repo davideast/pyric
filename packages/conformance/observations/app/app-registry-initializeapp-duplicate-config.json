@@ -11,5 +11,6 @@
     "threw": false,
     "returnedSameInstance": true,
     "getAppsLength": 1
-  }
+  },
+  "behaviorHash": "sha256:835d2d12c018ae86781343f7e14eb9689603a7d9ad9e5880065812131966ddf4"
 }

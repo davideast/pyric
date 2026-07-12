@@ -12,5 +12,6 @@
     "getAppsAfterInit": 1,
     "getAppNoArgResolvesDefault": true,
     "getAppNoArgName": "[DEFAULT]"
-  }
+  },
+  "behaviorHash": "sha256:003cd62dd72ab656c39141da69a3adad3c23ec41c7c1b682d593e969a40ebacf"
 }

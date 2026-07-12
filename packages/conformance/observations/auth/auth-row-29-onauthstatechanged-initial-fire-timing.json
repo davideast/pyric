@@ -20,5 +20,6 @@
         "fence": "microtask"
       }
     ]
-  }
+  },
+  "behaviorHash": "sha256:2af44dab888867086919099d8d5e30ff5486c290d82105f5a0ac6b6e7cafc90f"
 }

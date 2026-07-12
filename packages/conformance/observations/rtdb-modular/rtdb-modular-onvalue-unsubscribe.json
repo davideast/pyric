@@ -15,5 +15,6 @@
     "preUnsubFires": 2,
     "postUnsubFires": 2,
     "unsubStopsFires": true
-  }
+  },
+  "behaviorHash": "sha256:fedbf91a0b7de1ceaefcff2dab950d1215bf9ffdc39f0672873a3b23471d0ad8"
 }

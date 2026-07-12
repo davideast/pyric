@@ -16,5 +16,6 @@
     "aX": 1,
     "bY": 2,
     "bothLanded": true
-  }
+  },
+  "behaviorHash": "sha256:bb8cf37d1d575695530c649080698a399a9134fd78158847d2d6cca01f5ca520"
 }

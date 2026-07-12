@@ -20,5 +20,6 @@
       "k1"
     ],
     "offStopsFires": true
-  }
+  },
+  "behaviorHash": "sha256:9b2134f59867b03a202008116dfea78315ea107529e20f1e6eeba361ab9d3963"
 }

@@ -13,5 +13,6 @@
     "errorName": "FirebaseError",
     "isError": true,
     "message": "Firebase: No Firebase App 'does-not-exist' has been created - call initializeApp() first (app/no-app)."
-  }
+  },
+  "behaviorHash": "sha256:ff4d6b0a05dc95ed1c74ad07cd3a2841ba0ad0bf626f0965e3cd9c88a236967f"
 }
