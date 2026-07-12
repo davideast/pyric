@@ -1,13 +1,13 @@
 /**
- * ─── Pack 10: path-constructor-and-bind ───────────────────────────────────
+ * ─── Scenario 10: path-constructor-and-bind ───────────────────────────────────
  * Targets Item 5.4 — Path wrapper + `path()` constructor + `Path.bind()`.
  * Pre-fix: literal /foo/$(x) returned a plain string, so `is path` was
  * false; `path("...")` threw UnsupportedError; `bind` had no dispatch.
  * Each case here pins one wrapper invariant against prod.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'Item 5.4',
   rationale: 'Sim must implement Path wrapper, path() constructor, and Path.bind(). Pre-fix: pathLiteral returned string (so `is path` was false), path() threw UnsupportedError, bind had no dispatch.',
   rules: `rules_version = '2';

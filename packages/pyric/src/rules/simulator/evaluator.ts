@@ -424,7 +424,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
       // Indices must be integers; production rejects non-integer (incl.
       // booleans coerced) so we surface as EvalError → DENY.
       // Out-of-bounds: clamp to [0, length] (matches JS Array.slice and
-      // is the standard CEL-style semantics — locked in by parity pack).
+      // is the standard CEL-style semantics — locked in by parity scenario).
       // Negative indices: rejected (CEL doesn't support Python negatives).
       const obj = evaluate(expr.object, ctx, scope);
       const start = evaluate(expr.start, ctx, scope);
@@ -1006,7 +1006,7 @@ function evaluateMethodCall(
       // shows production denies every call that reaches them — these
       // methods don't behave as modeled in the real Firestore Rules CEL
       // dialect (see triage: set-algebra-difference-union-intersection /
-      // list-methods-concat-removeall-toset packs, both false-ALLOW
+      // list-methods-concat-removeall-toset scenarios, both false-ALLOW
       // against a prod DENY). Abstain rather than emit a confident wrong
       // verdict; do not "fix" this by re-deriving semantics without a
       // fresh oracle capture that actually isolates correct behavior.
@@ -1122,7 +1122,7 @@ function evaluateMethodCall(
         // is already strings. Non-string elements (numbers, booleans) get
         // String()-coerced and may collapse onto each other (1 and '1'
         // become the same set member). Locked-in behavior is whatever the
-        // parity pack confirms; if prod diverges we revisit.
+        // parity scenario confirms; if prod diverges we revisit.
         return new FirestoreSet(obj.map(v => String(v)));
       }
     }
@@ -1176,7 +1176,7 @@ function compileRulesRegex(pattern: string, flags = ''): RegExp {
 // undefined" path because the identifiers `math` / `timestamp` / `duration`
 // resolve to undefined. The throw was caught by handler.ts and counted as
 // deny — silently denying every ALLOW case that touched a math/time
-// built-in. Confirmed by parity-stress-integration.test.ts (Pack 1).
+// built-in. Confirmed by parity-stress-integration.test.ts (Scenario 1).
 //
 // We model timestamp values and duration values as plain numbers
 // (milliseconds since epoch and milliseconds, respectively). That lets

@@ -1,5 +1,5 @@
 /**
- * ─── Pack 9: bytes-toutf8-and-hashing ─────────────────────────────────────
+ * ─── Scenario 9: bytes-toutf8-and-hashing ─────────────────────────────────────
  * Targets Item 5.3 — Bytes wrapper + String.toUtf8() + hashing.*. Pre-fix:
  * hashing.* threw UnsupportedError ('Unknown method on undefined' because
  * `hashing` resolved to undefined), and String.toUtf8 threw UnsupportedError.
@@ -7,9 +7,9 @@
  * a hash with a well-known reference value. Picked rules where the literal
  * outputs are stable across runs (no random/time inputs).
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'Item 5.3',
   rationale: 'Sim must implement Bytes + String.toUtf8() + hashing.{md5,sha256,crc32,crc32c}. Pre-fix: every reference hashing rule denied silently and toUtf8 threw UnsupportedError.',
   rules: `rules_version = '2';

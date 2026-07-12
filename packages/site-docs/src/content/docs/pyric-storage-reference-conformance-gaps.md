@@ -43,7 +43,7 @@ null` on create evaluates true and allows, matching the documented,
 intuitive semantics but not what production does today.
 
 Not a false-permissive gap for real rulesets: the mirrored companion case
-in the same pack (`create denied when object already exists`) matches
+in the same scenario (`create denied when object already exists`) matches
 production exactly, so a ruleset guarding writes with `resource == null` /
 `resource != null` still denies unauthorized writes correctly on the
 evaluator; only the specific "genuinely-new-object create" case is
@@ -59,7 +59,7 @@ pinned divergences:
 - `rules-storage-matches-regex`
 - `rules-storage-metadata-access`
 - `rules-storage-request-time-timestamp`
-- `rules-storage-resource-timestamp-witness` (a witness pack: both cases
+- `rules-storage-resource-timestamp-witness` (a witness scenario: both cases
   correctly DENY on both sides, but the evaluator's DENY is coincidental —
   `resource.timeCreated` / `resource.updated` are not modeled, so any
   comparison denies. See [Storage rules subset](../pyric-storage-reference-rules-subset/#out-of-scope).)

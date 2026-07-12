@@ -1,5 +1,5 @@
 /**
- * ─── Pack 1: error-absorption-and-or (RULES-B3) ───────────────────────────
+ * ─── Scenario 1: error-absorption-and-or (RULES-B3) ───────────────────────────
  * CEL's && and || are COMMUTATIVE error-absorbing operators: `error || true`
  * is true (the true branch absorbs the error), `error && false` is false,
  * while `error || false` / `error && true` propagate the error → DENY.
@@ -7,9 +7,9 @@
  * `error || true` denied where production allows. The error generator here
  * is a missing-field access (a runtime error post-RULES-B2).
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'RULES-B3',
   rationale: 'CEL tri-state: `error || true` → ALLOW, `error && false` → DENY-as-false; errors absorb commutatively, not JS left-to-right.',
   rules: `rules_version = '2';

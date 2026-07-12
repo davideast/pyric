@@ -1,14 +1,14 @@
 /**
- * ─── Pack 4: matches-full-string-regex (RULES-B4) ─────────────────────────
+ * ─── Scenario 4: matches-full-string-regex (RULES-B4) ─────────────────────────
  * Production's matches() requires the RE2 pattern to consume the ENTIRE
  * string (implicit anchoring). Pre-fix the simulator used JS RegExp.test()
  * partial matching, so any substring hit allowed. The discriminating cases
  * are patterns that match a SUBSTRING but not the full string — JS-partial
  * says true, prod says false.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'RULES-B4',
   rationale: 'matches() is an anchored full-string RE2 match; a pattern matching only a substring must be false (JS partial-match said true).',
   rules: `rules_version = '2';

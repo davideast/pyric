@@ -7,11 +7,11 @@
  * in-process storage evaluator (`evaluateStorageRules`), not merely cited.
  *
  * Data-driven by design: each observation's name is `rules-storage-<id>`,
- * where `<id>` is a corpus pack id. For every captured observation the suite
- * loads the matching pack, runs the LOCAL evaluator over the same ruleset +
+ * where `<id>` is a corpus scenario id. For every captured observation the suite
+ * loads the matching scenario, runs the LOCAL evaluator over the same ruleset +
  * cases, and asserts the evaluator's per-case decision equals the captured
  * production verdict. Coverage is structural: an observation whose id has no
- * corresponding pack FAILS loudly (a capture can't silently go un-checked) —
+ * corresponding scenario FAILS loudly (a capture can't silently go un-checked) —
  * this completeness check is live even before any data exists.
  *
  * KNOWN-GAP CASES: the storage evaluator has no `UNSUPPORTED` verdict channel
@@ -31,10 +31,10 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  ALL_RULES_STORAGE_PACKS,
+  ALL_RULES_STORAGE_SCENARIOS,
   RULES_STORAGE_OBSERVATION_PREFIX,
   storageObservationName,
-  type StoragePack,
+  type StorageScenario,
 } from '../../../../packages/conformance/rules-corpus/storage/index.ts';
 import {
   normalizeStoragePath,
@@ -50,9 +50,9 @@ import {
 // rules-storage-* observations live under the 'storage' surface subdirectory.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'storage');
 
-/** name (no extension) → pack, for O(1) observation→pack resolution. */
-const PACK_BY_OBSERVATION = new Map<string, StoragePack>(
-  ALL_RULES_STORAGE_PACKS.map((pack) => [storageObservationName(pack), pack]),
+/** name (no extension) → scenario, for O(1) observation→scenario resolution. */
+const SCENARIO_BY_OBSERVATION = new Map<string, StorageScenario>(
+  ALL_RULES_STORAGE_SCENARIOS.map((scenario) => [storageObservationName(scenario), scenario]),
 );
 
 interface RulesObservation {
@@ -164,10 +164,10 @@ function toEvaluationInput(tc: StorageTestCase): EvaluationInput {
 
 /** Evaluator decision per case, keyed by case description (the same key the
  *  capture uses) so the two tables line up 1:1. */
-function evaluatorVerdicts(pack: StoragePack): Record<string, 'ALLOW' | 'DENY'> {
-  const rules = parseStorageRules(pack.rules);
+function evaluatorVerdicts(scenario: StorageScenario): Record<string, 'ALLOW' | 'DENY'> {
+  const rules = parseStorageRules(scenario.rules);
   const table: Record<string, 'ALLOW' | 'DENY'> = {};
-  for (const tc of pack.cases) {
+  for (const tc of scenario.cases) {
     const now = tc.requestTime ? new Date(tc.requestTime) : undefined;
     const res = evaluateStorageRules(rules, toEvaluationInput(tc), now, lookupFromCase(tc));
     table[tc.description] = res.allowed ? 'ALLOW' : 'DENY';
@@ -178,11 +178,11 @@ function evaluatorVerdicts(pack: StoragePack): Record<string, 'ALLOW' | 'DENY'> 
 describe('oracle conformance (rules-storage)', () => {
   const files = capturedObservationFiles();
 
-  // Corpus sanity: every pack must parse. This runs even with no observations,
+  // Corpus sanity: every scenario must parse. This runs even with no observations,
   // so a malformed ruleset is caught at staging time, not only at capture.
-  it('every storage corpus pack parses', () => {
-    for (const pack of ALL_RULES_STORAGE_PACKS) {
-      expect(() => parseStorageRules(pack.rules), `pack "${pack.id}" must parse`).not.toThrow();
+  it('every storage corpus scenario parses', () => {
+    for (const scenario of ALL_RULES_STORAGE_SCENARIOS) {
+      expect(() => parseStorageRules(scenario.rules), `scenario "${scenario.id}" must parse`).not.toThrow();
     }
   });
 
@@ -200,24 +200,24 @@ describe('oracle conformance (rules-storage)', () => {
   // ── verdict-for-verdict replay (live the moment observations exist) ────────
   for (const file of files) {
     const obs = loadObservation(file);
-    const pack = PACK_BY_OBSERVATION.get(obs.name);
+    const scenario = SCENARIO_BY_OBSERVATION.get(obs.name);
 
     it(`${obs.name}: evaluator matches captured production verdicts`, () => {
-      // Completeness is structural: an observation with no corpus pack is a
-      // silent-gap failure — either the pack was removed or the file is stale.
+      // Completeness is structural: an observation with no corpus scenario is a
+      // silent-gap failure — either the scenario was removed or the file is stale.
       expect(
-        pack,
-        `observation "${obs.name}" has no matching corpus pack — coverage gap`,
+        scenario,
+        `observation "${obs.name}" has no matching corpus scenario — coverage gap`,
       ).toBeDefined();
-      if (!pack) return;
+      if (!scenario) return;
 
       // Cases marked knownGap are exercised but not asserted (the evaluator has
       // no UNSUPPORTED channel; it denies a field it does not model).
       const knownGap = new Set(
-        pack.cases.filter((c) => c.knownGap).map((c) => c.description),
+        scenario.cases.filter((c) => c.knownGap).map((c) => c.description),
       );
 
-      const evalTable = evaluatorVerdicts(pack);
+      const evalTable = evaluatorVerdicts(scenario);
       for (const [caseKey, prodVerdict] of Object.entries(obs.behavior)) {
         if (knownGap.has(caseKey)) continue;
         const divergenceKey = `${obs.name} :: ${caseKey}`;
@@ -235,10 +235,10 @@ describe('oracle conformance (rules-storage)', () => {
   }
 
   // ── coverage: no captured observation is left un-replayed ──────────────────
-  it('every captured rules-storage observation maps to a corpus pack', () => {
+  it('every captured rules-storage observation maps to a corpus scenario', () => {
     const uncovered = capturedObservationFiles()
       .map((f) => f.replace(/\.json$/, ''))
-      .filter((name) => !PACK_BY_OBSERVATION.has(name));
+      .filter((name) => !SCENARIO_BY_OBSERVATION.has(name));
     expect(uncovered).toEqual([]);
   });
 });
