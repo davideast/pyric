@@ -69,18 +69,18 @@
  *     supported    snapshot `accepted` AND capability probe `implemented` AND
  *                  production-verified AND no divergence covers it.
  *
- *   A construct is PRODUCTION-VERIFIED by either of two evidence paths, both of
- *   which are a real production comparison:
- *     - `verifiedBy.length >= 1` in the coverage report: a production-captured
- *       corpus scenario exercises it; or
- *     - a `conforms` + `oracle-backed` RULES-ENGINE row lists it in
- *       `constructs`: that row's verdicts were replayed against production's
- *       Rules Test API and matched. This path exists because the coverage
- *       analyzer detects constructs SYNTACTICALLY, so a `semantic` construct
- *       (error absorption, the deny-by-default default) can be oracle-proved by
- *       a row while showing an empty `verifiedBy`. An un-annotated row supplies
- *       no verification, so a missing annotation can only hold a capability
- *       DOWN, never lift it.
+ *   PRODUCTION-VERIFIED is not defined here. It is defined once, in
+ *   `production-verification.ts`, and this generator and the coverage analyzer
+ *   both call that predicate — the two numbers cannot drift apart. In short: a
+ *   construct is verified either SYNTACTICALLY (a production-captured corpus
+ *   scenario's ruleset AST contains it — `verifiedBy` in the coverage report) or
+ *   BEHAVIORALLY (a `conforms` + `oracle-backed` rules-engine row lists it in
+ *   `constructs`). The behavioral path exists because the analyzer detects
+ *   constructs in SOURCE, and an engine semantic (the RTDB cascades, error
+ *   absorption) has no source token to detect — only a verdict. See that
+ *   module's header for the honesty line on what a row may and may not credit.
+ *   An un-annotated row supplies no verification, so a missing annotation can
+ *   only hold a capability DOWN, never lift it.
  *
  *   registry-row dependency (auth acquisition, storage rules-engine behavior:
  *   surfaces the language snapshots do not model as constructs)
@@ -131,6 +131,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { surfaceRegistries, type CompatibilityRow } from '../registry/index.ts';
+import {
+  RULES_ENGINE_SURFACES,
+  describeProductionEvidence,
+  indexConstructScopes,
+  isProductionVerified,
+} from './production-verification.ts';
 import { loadAllSnapshots } from '../rules-language/load.ts';
 import { loadAssuranceCapabilityRecords, type LoadedCapability } from '../assurance-capabilities/load.ts';
 import type {
@@ -146,11 +152,6 @@ const CAPABILITY_DIR = join(HERE, '..', 'assurance-capabilities');
 const LANGUAGE_DIR = join(HERE, '..', 'rules-language');
 export const ARTIFACT_PATH = join(CAPABILITY_DIR, 'capabilities.json');
 export const GENERATED_TS_PATH = join(CAPABILITY_DIR, 'generated.ts');
-
-/** The registry surfaces that ARE the rules engine (as opposed to an SDK that
- *  enforces its verdict). A divergence here is a divergence in the machinery
- *  that decides ALLOW/DENY. */
-const RULES_ENGINE_SURFACES = new Set(['firestore-rules', 'storage-rules']);
 
 const STATUS_ORDER: Record<AssuranceCapabilityStatus, number> = {
   unsupported: 0,
@@ -187,7 +188,8 @@ export interface ConformanceGraph {
   /** construct id -> ids of diverged/bug rules-engine rows that cover it */
   divergedBy: Map<string, string[]>;
   /** construct id -> ids of conforming, oracle-backed rules-engine rows that
-   *  cover it (the second production-verification path) */
+   *  cover it (the BEHAVIORAL production-verification path — see
+   *  production-verification.ts) */
   oracleProvedBy: Map<string, string[]>;
 }
 
@@ -214,26 +216,22 @@ export function loadConformanceGraph(): ConformanceGraph {
   }
 
   const rows = new Map<string, CompatibilityRow>();
-  const divergedBy = new Map<string, string[]>();
-  const oracleProvedBy = new Map<string, string[]>();
   for (const registry of surfaceRegistries) {
     for (const block of registry.blocks) {
       if (block.kind !== 'table') continue;
-      for (const row of block.rows) {
-        rows.set(row.id, row);
-        if (!RULES_ENGINE_SURFACES.has(row.surface)) continue;
-        const contaminating = row.status === 'diverged-documented' || row.status === 'bug';
-        const proving = row.status === 'conforms' && row.automation === 'oracle-backed';
-        const target = contaminating ? divergedBy : proving ? oracleProvedBy : undefined;
-        if (!target) continue;
-        for (const construct of row.constructs ?? []) {
-          target.set(construct, [...(target.get(construct) ?? []), row.id]);
-        }
-      }
+      for (const row of block.rows) rows.set(row.id, row);
     }
   }
+  const { provingRows, divergingRows } = indexConstructScopes(surfaceRegistries);
 
-  return { snapshotStatus, probeClass, verifiedBy, rows, divergedBy, oracleProvedBy };
+  return {
+    snapshotStatus,
+    probeClass,
+    verifiedBy,
+    rows,
+    divergedBy: divergingRows,
+    oracleProvedBy: provingRows,
+  };
 }
 
 /**
@@ -303,17 +301,11 @@ function deriveConstruct(graph: ConformanceGraph, id: string): DerivedDependency
     verdicts.push('supported');
   }
 
-  const proved = graph.oracleProvedBy.get(id) ?? [];
-  if (verified.length > 0) {
-    evidence.push(`production-verified by ${verified.length} captured scenario(s)`);
-    verdicts.push('supported');
-  } else if (proved.length > 0) {
-    evidence.push(`production-verified by conforming oracle-backed rules-engine row ${proved.join(', ')}`);
-    verdicts.push('supported');
-  } else {
-    evidence.push('no production-captured scenario and no conforming oracle-backed row verifies it');
-    verdicts.push('qualified');
-  }
+  // The SHARED predicate (production-verification.ts): the same question the
+  // coverage report's `verifiedConstructs` numerator asks, answered once.
+  const productionEvidence = { scenarios: verified, provingRows: graph.oracleProvedBy.get(id) ?? [] };
+  evidence.push(describeProductionEvidence(productionEvidence));
+  verdicts.push(isProductionVerified(productionEvidence) ? 'supported' : 'qualified');
 
   if (diverged.length > 0) {
     evidence.push(`covered by rules-engine divergence ${diverged.join(', ')}`);
