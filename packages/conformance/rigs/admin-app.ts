@@ -1,7 +1,7 @@
 import type { RigManifestRecord } from './types.ts';
 
 /**
- * The admin app-registry rig (`scripts/oracle/admin-app-probes.ts`). Pure
+ * The admin app-registry rig (`packages/conformance/src/admin-app-probes.ts`). Pure
  * in-process probes of the INSTALLED firebase-admin package's default-app
  * registry — initializeApp/getApp/getApps/deleteApp, no-arg accessor
  * resolution, and FirebaseAppError shapes. No credentials, no project, no
@@ -32,6 +32,6 @@ export const rig: RigManifestRecord = {
   freshness: {
     versionField: 'adminSdkVersion',
     policy:
-      'Checked by scripts/oracle/check-observation-versions.ts against the installed node_modules/firebase-admin/package.json version — NOT the firebase/package.json version the other three rigs track.',
+      'Checked by packages/conformance/src/check-observation-versions.ts against the installed node_modules/firebase-admin/package.json version — NOT the firebase/package.json version the other three rigs track.',
   },
 };

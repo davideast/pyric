@@ -1,7 +1,7 @@
 import type { RigManifestRecord } from './types.ts';
 
 /**
- * The Firebase AI Logic oracle (`scripts/oracle/ai-probes.ts`). Calls the
+ * The Firebase AI Logic oracle (`packages/conformance/src/ai-probes.ts`). Calls the
  * production Firebase AI Logic proxy (firebasevertexai.googleapis.com, the
  * Gemini Developer API backend) with raw fetch that replicates the installed
  * `@firebase/ai` request shape, and freezes the deterministic facts — error
@@ -32,7 +32,7 @@ export const rig: RigManifestRecord = {
   },
   safety: {
     writes:
-      'No Firebase mutation — the probes only POST generateContent/streamGenerateContent/countTokens requests and read the responses. The only writes are the local observation JSON files under scripts/oracle/observations/. Real inference requests consume model quota against the config project.',
+      'No Firebase mutation — the probes only POST generateContent/streamGenerateContent/countTokens requests and read the responses. The only writes are the local observation JSON files under observations/ai/. Real inference requests consume model quota against the config project.',
     cleanup:
       'Not applicable; the rig performs no remote mutation to clean up. It overwrites its own ai- observation files in place on each run.',
     unattendedSafe: true,
@@ -40,6 +40,6 @@ export const rig: RigManifestRecord = {
   freshness: {
     versionField: 'fbSdkVersion',
     policy:
-      'Checked by scripts/oracle/check-observation-versions.ts against the installed node_modules/firebase/package.json version. Each observation stamps fbSdkVersion from the installed umbrella firebase package; the @firebase/ai request shape these probes replicate is that umbrella version pinned ai subpackage.',
+      'Checked by packages/conformance/src/check-observation-versions.ts against the installed node_modules/firebase/package.json version. Each observation stamps fbSdkVersion from the installed umbrella firebase package; the @firebase/ai request shape these probes replicate is that umbrella version pinned ai subpackage.',
   },
 };
