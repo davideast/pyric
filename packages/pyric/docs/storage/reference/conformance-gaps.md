@@ -10,24 +10,40 @@ inferred. There is one gap in the storage evaluator today. It affects the
 create-if-absent idiom, which is common. Read that one section and you are
 done.
 
-## How severity works
+## How to read severity
 
-Severity is the direction of the disagreement. Nothing else decides it.
+Every gap has two facts. A single label hides one of them, so this page
+reports both.
 
-**Critical: pyric allows, Firebase denies.** pyric's copy of your rule is
-more permissive than the real one. A guard that passed on your machine
-passed for a reason that does not hold in production. This is the highest
-severity the system has. Every gap in this direction is Critical, however
-narrow its trigger looks, because the whole point of a local mirror is that
-a verdict you get here is the verdict you get there.
+**Fidelity** is the direction of the disagreement. Either pyric allows where
+Firebase denies, or pyric denies where Firebase allows. Either way the verdict
+you get locally is not the verdict you get in production, and the whole point
+of a local mirror is that the two match.
 
-**Low: pyric denies, Firebase allows.** The local mirror is stricter than
-production. This is annoying, not dangerous. You find it immediately: the
-operation fails on your machine and works in the cloud.
+**Production impact** is whether the gap lets a request through in production
+that should not get through. It follows from the direction.
 
-There is no tier between them. A gap is one direction or the other.
+- **pyric allows, Firebase denies.** Production is stricter than pyric. Nothing
+  pyric wrongly allowed reaches production, so there is no production hole. The
+  cost is trust: a local ALLOW you relied on is wrong, and a legitimate
+  operation you validated locally can be refused in production.
+- **pyric denies, Firebase allows.** Production is more permissive than pyric.
+  A request your local mirror refused can succeed in production. This is the
+  direction that ships a hole: a rule you tested as blocking may not block.
 
-## Critical: `resource == null` allows a create in pyric that Firebase denies
+Read both. A broken verdict with no production hole is still a broken verdict,
+and a narrow trigger in the permissive direction is still the direction that
+leaks.
+
+## `resource == null` allows a create in pyric that Firebase denies
+
+**Fidelity:** pyric allows, Firebase denies.
+**Production impact:** no attacker reaches production, because Firebase denies
+this create too. But the companion cases match on both sides (an update, and a
+create over an object that already exists), so a real ruleset that guards writes
+with `resource == null` / `resource != null` still denies unauthorized writes in
+production. Only the case the guard exists for, the genuinely new object,
+differs: locally it uploads, in production it is refused.
 
 ### What you would write
 
@@ -48,7 +64,13 @@ service firebase.storage {
 
 ### What happens
 
-Upload `uploads/report.pdf` when no such object exists.
+Upload to `uploads/report.pdf` when no such object exists yet:
+
+```ts
+import { getStorage, ref, uploadBytes } from 'pyric/storage';
+
+await uploadBytes(ref(getStorage(app), 'uploads/report.pdf'), bytes);
+```
 
 In pyric the create is ALLOWED. `resource` is null before the object exists,
 so `resource == null` is true and the rule passes.

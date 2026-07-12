@@ -11,25 +11,37 @@ your rules use, none of them affects you.
 
 Tracked in [#135](https://github.com/davideast/pyric/issues/135).
 
-## How severity works
+## How to read severity
 
-Severity is the direction of the disagreement. Nothing else decides it.
+Every gap has two facts. A single label hides one of them, so this page
+reports both.
 
-**Critical: pyric allows, Firebase denies.** pyric's copy of your rule is
-more permissive than the real one. A guard that passed on your machine passed
-for a reason that does not hold in production. This is the highest severity
-the system has. Every gap in this direction is Critical, however narrow its
-trigger looks, because the whole point of a local mirror is that a verdict you
-get here is the verdict you get there.
+**Fidelity** is the direction of the disagreement. Either pyric allows where
+Firebase denies, or pyric denies where Firebase allows. Either way the verdict
+you get locally is not the verdict you get in production, and the whole point
+of a local mirror is that the two match.
 
-**Low: pyric denies, Firebase allows.** The local mirror is stricter than
-production. This is annoying, not dangerous. You find it immediately: the
-operation fails on your machine and works in the cloud.
+**Production impact** is whether the gap lets a request through in production
+that should not get through. It follows from the direction.
 
-There is no tier between them. A gap is one direction or the other. Six of the
-seven below are Critical. One is Low.
+- **pyric allows, Firebase denies.** Production is stricter than pyric. Nothing
+  pyric wrongly allowed reaches production, so there is no production hole. The
+  cost is trust: a local ALLOW you relied on is wrong, and a legitimate
+  operation you validated locally can be refused in production.
+- **pyric denies, Firebase allows.** Production is more permissive than pyric.
+  A request your local mirror refused can succeed in production. This is the
+  direction that ships a hole: a rule you tested as blocking may not block.
 
-## Critical: hashing built-ins allow in pyric and deny in Firebase
+Read both. A broken verdict with no production hole is still a broken verdict,
+and a narrow trigger in the permissive direction is still the direction that
+leaks. Six of the seven gaps below are pyric-allows-Firebase-denies; the
+seventh runs the other way, and it is the one to watch.
+
+## Hashing built-ins allow in pyric and deny in Firebase
+
+**Fidelity:** pyric allows, Firebase denies.
+**Production impact:** no production hole, because Firebase denies here too. The
+cost is trust: a legitimate write you validated locally is refused in the cloud.
 
 ### What you would write
 
@@ -69,7 +81,11 @@ identically in both engines.
 `toHexString()` and `toUtf8().size()` agree with production. The digest
 functions and `toBase64()` do not.
 
-## Critical: `getAfter()` and `existsAfter()` allow in pyric and deny in Firebase
+## `getAfter()` and `existsAfter()` allow in pyric and deny in Firebase
+
+**Fidelity:** pyric allows, Firebase denies.
+**Production impact:** no production hole, because Firebase denies here too. The
+cost is trust: a legitimate write you validated locally is refused in the cloud.
 
 ### What you would write
 
@@ -105,7 +121,11 @@ test them here and get an answer that means anything. Where the rule is really
 about the write in front of you, use `request.resource.data`, which agrees on
 both sides.
 
-## Critical: `.id` and `__name__` on a `get()` result allow in pyric and deny in Firebase
+## `.id` and `__name__` on a `get()` result allow in pyric and deny in Firebase
+
+**Fidelity:** pyric allows, Firebase denies.
+**Production impact:** no production hole, because Firebase denies here too. The
+cost is trust: a legitimate write you validated locally is refused in the cloud.
 
 ### What you would write
 
@@ -140,7 +160,11 @@ allow create: if get(/databases/$(database)/documents/cfg/site).data.open == tru
 If you need the identity, you already have it. It is the path you passed to
 `get()`.
 
-## Critical: `request.query` allows in pyric and denies in Firebase
+## `request.query` allows in pyric and denies in Firebase
+
+**Fidelity:** pyric allows, Firebase denies.
+**Production impact:** no production hole, because Firebase denies here too. The
+cost is trust: a legitimate write you validated locally is refused in the cloud.
 
 ### What you would write
 
@@ -165,7 +189,11 @@ DENIED.
 Only touch `request.query` inside a `list` rule, which is the only request
 that has one. On a document request, drop the check.
 
-## Critical: out-of-range slices allow in pyric and deny in Firebase
+## Out-of-range slices allow in pyric and deny in Firebase
+
+**Fidelity:** pyric allows, Firebase denies.
+**Production impact:** no production hole, because Firebase denies here too. The
+cost is trust: a legitimate write you validated locally is refused in the cloud.
 
 ### What you would write
 
@@ -197,7 +225,11 @@ allow create: if request.resource.data.tags.size() >= 4
 In-range slices, empty slices (`[i:i]`), and full-length slices all agree with
 production.
 
-## Critical: `path()` on a value that is already a path allows in pyric and denies in Firebase
+## `path()` on a value that is already a path allows in pyric and denies in Firebase
+
+**Fidelity:** pyric allows, Firebase denies.
+**Production impact:** no production hole, because Firebase denies here too. The
+cost is trust: a legitimate write you validated locally is refused in the cloud.
 
 ### What you would write
 
@@ -224,7 +256,15 @@ Call `path()` exactly once, on a string. Everything else about paths matches
 production: `path()` on a string literal, equality and inequality, `bind()`,
 numeric indexing, and type checks.
 
-## Low: a float in your test data reads as an int in pyric
+## A float in your test data reads as an int in pyric
+
+**Fidelity:** pyric denies, Firebase allows.
+**Production impact:** the leaking direction. A request your local mirror
+refused is allowed in production, so a rule you tested as blocking may not
+block. The trigger is narrow: it fires only where a rule tells integral-valued
+floats apart from ints with `is float` / `is int`. But this is the one gap on
+the page where production is the more permissive side, so it is the one to
+watch.
 
 ### What you would write
 
@@ -245,8 +285,11 @@ Firestore stores a type tag next to the number, so a value written as a float
 stays a float. pyric reads test data from JSON, where `2.0` and `2` are the
 same number, and narrows it toward int.
 
-This is the safe direction. pyric refuses a write production accepts, so you
-see it in front of you and nothing surprising happens after you deploy.
+This is the leaking direction. pyric refuses a write production accepts, so a
+rule that leans on `is float` to keep something out reads as a denial on your
+machine and lets it through in the cloud. You often catch it anyway, because a
+legitimate write fails locally and you go looking. The danger is the case you do
+not run locally: a rule you trusted to block, tested once, and shipped.
 
 ### What you should do
 
