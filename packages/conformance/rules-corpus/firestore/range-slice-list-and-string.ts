@@ -1,14 +1,14 @@
 /**
- * ─── Pack 6: range-slice-list-and-string ──────────────────────────────────
+ * ─── Scenario 6: range-slice-list-and-string ──────────────────────────────────
  * Targets Item 4 of the rebuild plan — range slice `[i:j]` for List and
  * String. Pre-fix the simulator threw a parse error on slice syntax (the
- * grammar's `bracketAccess` only matched a single Expr). This pack
+ * grammar's `bracketAccess` only matched a single Expr). This scenario
  * exercises the documented surface: j-exclusive sub-list / substring,
  * OOB clamping behavior, empty slice (i==j), and DENY witnesses.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'Item 4',
   rationale: 'Sim must parse and evaluate range slice [i:j] for List and String; pre-fix grammar rejected the syntax outright.',
   rules: `rules_version = '2';

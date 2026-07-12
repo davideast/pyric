@@ -9,7 +9,7 @@ import type { RigManifestRecord } from './types.ts';
  * the dedicated oracle database, EXECUTES each corpus op against the live
  * service (recording allow/deny), then RESTORES the prior ruleset and VERIFIES
  * the restore by reading the rules back and byte-comparing to the pre-run
- * snapshot. One observation per pack lands as `rules-rtdb-<pack.id>.json`.
+ * snapshot. One observation per scenario lands as `rules-rtdb-<scenario.id>.json`.
  *
  * STAGED: no `rules-rtdb-*` capture has been run yet (credentials were not
  * available and no observation was fabricated), so `rules-rtdb-` is declared in

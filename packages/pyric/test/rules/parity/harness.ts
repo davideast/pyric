@@ -1,10 +1,10 @@
 /**
- * Shared harness for the live Rules-Test-API parity packs.
+ * Shared harness for the live Rules-Test-API parity scenarios.
  *
  * Extracted from the pre-cutover `parity-stress-integration.test.ts`
  * (deleted in be3c2b2, resurrected 2026-06 per
- * the design rationale section 5) so the restored stress packs and
- * the new round-1/2 fix-class packs share one classification pipeline.
+ * the design rationale section 5) so the restored stress scenarios and
+ * the new round-1/2 fix-class scenarios share one classification pipeline.
  *
  * Production is the source of truth. Per case:
  *   - OK                : sim agrees with prod and prod matches expected
@@ -15,7 +15,7 @@
  *                         wrong; rewrite the rule before drawing conclusions)
  *   - ERR               : either side errored at the API layer
  *
- * The tests pass if the run completes; the per-pack tally is the artifact.
+ * The tests pass if the run completes; the per-scenario tally is the artifact.
  *
  * Requires: PARITY_SA_BASE64 in env — a minimal service account that holds
  * only `firebaserules.rulesets.test` (no need for the broad
@@ -27,14 +27,14 @@ import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/hand
 import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
 import type { TestCase, TestFirestoreRulesResult } from '../../../src/rules/test/spec.js';
 
-// ─── Pack types ────────────────────────────────────────────────────────────
+// ─── Scenario types ────────────────────────────────────────────────────────────
 //
-// The `Pack` shape now lives in the conformance corpus
+// The `Scenario` shape now lives in the conformance corpus
 // (packages/conformance/rules-corpus/firestore/types.ts). Re-exported here so the
-// existing parity importers keep resolving `Pack` from the harness while the
+// existing parity importers keep resolving `Scenario` from the harness while the
 // definition has a single home shared with the capture runner and replay suite.
 
-export type { Pack } from '../../../../../packages/conformance/rules-corpus/firestore/index.ts';
+export type { Scenario } from '../../../../../packages/conformance/rules-corpus/firestore/index.ts';
 
 export type Decision = 'ALLOW' | 'DENY';
 /**
@@ -48,7 +48,7 @@ export type ProdOutcome = Decision | 'ERROR';
 export type Status = 'OK' | 'SIM_BUG' | 'SIM_NOT_SUPPORTED' | 'BAD_RULE' | 'ERR';
 
 export interface CaseRow {
-  pack: string;
+  scenario: string;
   description: string;
   expected: Decision;
   simulator: SimOutcome;
@@ -137,31 +137,31 @@ export function classify(
   return 'OK';
 }
 
-// ─── Pack runner ───────────────────────────────────────────────────────────
+// ─── Scenario runner ───────────────────────────────────────────────────────────
 
 /**
- * Run one pack through both engines and classify each case.
+ * Run one scenario through both engines and classify each case.
  * Throws when the production API call itself fails — that's a real
  * signal (bad SA / unreachable API / rejected rules), not a tally row.
  */
-export async function runPack(pack: Pack, scope: ProjectScope): Promise<CaseRow[]> {
+export async function runScenario(scenario: Scenario, scope: ProjectScope): Promise<CaseRow[]> {
   const sim = new SimulateFirestoreRulesHandler();
   const prod = new TestFirestoreRulesHandler();
 
-  const simRes = sim.simulate(pack.rules, pack.cases);
-  const prodRes = await prod.execute(scope, pack.rules, pack.cases);
+  const simRes = sim.simulate(scenario.rules, scenario.cases);
+  const prodRes = await prod.execute(scope, scenario.rules, scenario.cases);
 
   if (!prodRes.success) {
     throw new Error(
-      `Production API call failed for pack "${pack.id}": ${prodRes.error.code} ${prodRes.error.message}`,
+      `Production API call failed for scenario "${scenario.id}": ${prodRes.error.code} ${prodRes.error.message}`,
     );
   }
 
-  const simActuals = simActualsFromResult(simRes, pack.cases);
-  const prodActuals = prodActualsFromResult(prodRes, pack.cases);
+  const simActuals = simActualsFromResult(simRes, scenario.cases);
+  const prodActuals = prodActualsFromResult(prodRes, scenario.cases);
 
-  return pack.cases.map((tc, i) => ({
-    pack: pack.id,
+  return scenario.cases.map((tc, i) => ({
+    scenario: scenario.id,
     description: tc.description,
     expected: tc.expectation,
     simulator: simActuals[i],
@@ -192,7 +192,7 @@ export function tally(rows: CaseRow[]): Tally {
   };
 }
 
-export function reportParity(title: string, packs: Pack[], allRows: CaseRow[]): void {
+export function reportParity(title: string, scenarios: Scenario[], allRows: CaseRow[]): void {
   console.log(`\n═══ ${title} ═══`);
   console.log('   Production is the source of truth.');
   console.log('   OK = sim matches prod & prod matches expected');
@@ -201,19 +201,19 @@ export function reportParity(title: string, packs: Pack[], allRows: CaseRow[]): 
   console.log('   BAD_RULE = prod disagrees with expected (test design wrong)');
   console.log('   ERR = API/handler error');
 
-  for (const pack of packs) {
-    const rows = allRows.filter(r => r.pack === pack.id);
+  for (const scenario of scenarios) {
+    const rows = allRows.filter(r => r.scenario === scenario.id);
     if (rows.length === 0) continue;
     const t = tally(rows);
-    console.log(`\n── Pack: ${pack.id}  (FM: ${pack.fm})`);
-    console.log(`   ${pack.rationale}`);
+    console.log(`\n── Scenario: ${scenario.id}  (FM: ${scenario.fm})`);
+    console.log(`   ${scenario.rationale}`);
     for (const r of rows) {
       console.log(
         `   [${r.status.padEnd(17)}] sim=${String(r.simulator).padEnd(11)} prod=${String(r.production).padEnd(5)} expected=${r.expected.padEnd(5)} :: ${r.description}`,
       );
     }
     console.log(
-      `   Pack: ok=${t.ok}  sim_bugs=${t.simBugs}  sim_not_supported=${t.simUnsup}  bad_rules=${t.bad}  errors=${t.errs}  (n=${t.n})`,
+      `   Scenario: ok=${t.ok}  sim_bugs=${t.simBugs}  sim_not_supported=${t.simUnsup}  bad_rules=${t.bad}  errors=${t.errs}  (n=${t.n})`,
     );
   }
 

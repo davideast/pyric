@@ -468,7 +468,7 @@ function buildContext(
   // request.resource.data: for non-write methods (get/list) Firestore exposes
   // null. For writes, it's the projected after-state. We keep the legacy
   // shape (`{}` when tc.data is absent) for backwards-compat — the parity
-  // packs that exercise this surface explicitly set tc.data.
+  // scenarios that exercise this surface explicitly set tc.data.
   const reqResourceData = projectedAfter ?? {};
 
   return {
@@ -612,7 +612,7 @@ export class SimulateFirestoreRulesHandler {
       // synthetic trailing document segment so `list menuItems` evaluates
       // `match /menuItems/{id}` exactly like the emulator does. Doc-style
       // list paths (`menuItems/any`) keep resolving on the first attempt,
-      // so existing call sites are unaffected. (RULES-LIST parity pack.)
+      // so existing call sites are unaffected. (RULES-LIST parity scenario.)
       let syntheticListDoc = false;
       if (matches.length === 0 && tc.method === 'list') {
         const widened = [...pathSegments, '__hypothetical_doc__'];

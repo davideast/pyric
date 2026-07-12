@@ -65,7 +65,7 @@
  *   PYRIC_MESSAGING_SA_BASE64        send-capable service account
  *
  * Run (headed browser will open; re-execs under caffeinate automatically):
- *   bun run packages/conformance/src/rigs/messaging-web/harness.ts
+ *   bun run packages/conformance/src/capture/messaging-web/harness.ts
  */
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';

@@ -6,7 +6,7 @@
  * on any walk failure (missing top-level key, missing intermediate,
  * non-map intermediate). It never returns `null` from a walk failure.
  *
- * These tests exercise the simulator alone — the parity-stress pack
+ * These tests exercise the simulator alone — the parity-stress scenario
  * `map-get-string-and-list-form` provides the prod-comparison receipt
  * (gated on FIREBASE_SA_BASE64).
  */

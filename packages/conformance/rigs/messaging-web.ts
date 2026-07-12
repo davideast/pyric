@@ -1,7 +1,7 @@
 import type { RigManifestRecord } from './types.ts';
 
 /**
- * The FCM web receive-plane rig (`src/rigs/messaging-web/harness.ts`).
+ * The FCM web receive-plane rig (`src/capture/messaging-web/harness.ts`).
  * Serves a real `firebase/messaging` app on localhost, launches HEADED
  * Chromium via Playwright against one reused persistent Chrome profile, and
  * drives token minting, foreground `onMessage`, service-worker
@@ -14,7 +14,7 @@ import type { RigManifestRecord } from './types.ts';
 export const rig: RigManifestRecord = {
   description:
     'Serves a real firebase/messaging app and drives HEADED Chromium (Playwright, persistent profile) through token minting, onMessage, onBackgroundMessage, visibility routing, and deleteToken against live push; captures structural facts as messaging-web- observations.',
-  script: 'packages/conformance/src/rigs/messaging-web/harness.ts',
+  script: 'packages/conformance/src/capture/messaging-web/harness.ts',
   observationPrefixes: ['messaging-web-'],
   automation: 'human-witnessed',
   network: 'firebase-production',

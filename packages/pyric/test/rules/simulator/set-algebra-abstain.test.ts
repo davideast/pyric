@@ -2,7 +2,7 @@
  * Set.difference / Set.union / Set.intersection — abstain, don't guess.
  *
  * Oracle capture (set-algebra-difference-union-intersection and
- * list-methods-concat-removeall-toset corpus packs) showed the simulator
+ * list-methods-concat-removeall-toset corpus scenarios) showed the simulator
  * computing a plausible-looking result for these three methods while
  * production DENIES every request that reaches them (false-ALLOW: the
  * most dangerous divergence for a rules-assurance tool). The methods
@@ -12,7 +12,7 @@
  * now abstains (UNSUPPORTED) whenever `.difference()`, `.union()`, or
  * `.intersection()` is called on a FirestoreSet, mirroring the existing
  * abstention path used elsewhere for unimplemented features (see
- * unsupported-feature-witness corpus pack / UnsupportedError in
+ * unsupported-feature-witness corpus scenario / UnsupportedError in
  * evaluator.ts). hasOnly/hasAll/hasAny/size/equals on FirestoreSet, and
  * List.concat/removeAll/toSet, are unaffected — those are prod-verified
  * and must keep working.
@@ -135,7 +135,7 @@ service cloud.firestore {
     expect(result.state).toBe('UNSUPPORTED');
   });
 
-  test('List.toSet().difference() abstains (list-methods pack 5.1/5.2 wiring case)', () => {
+  test('List.toSet().difference() abstains (list-methods scenario 5.1/5.2 wiring case)', () => {
     const rules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {

@@ -6,7 +6,7 @@
  *   List.removeAll(other: List) → List    items in this not in other (value equality)
  *   List.toSet() → Set                    convert to Set (dedupe)
  *
- * The parity-stress pack `list-methods-concat-removeall-toset` provides
+ * The parity-stress scenario `list-methods-concat-removeall-toset` provides
  * the prod-comparison receipt (gated on FIREBASE_SA_BASE64).
  *
  * toSet().difference()/.union()/.intersection() chaining is not exercised

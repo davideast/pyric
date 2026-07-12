@@ -1,9 +1,9 @@
 /**
- * Live-parity packs for the round-1/2 fix classes (round-3 track P3).
+ * Live-parity scenarios for the round-1/2 fix classes (round-3 track P3).
  *
- * The resurrected stress packs (`parity-stress.test.ts`) predate the
+ * The resurrected stress scenarios (`parity-stress.test.ts`) predate the
  * remediation rounds, so they would come back green even if the round-1/2
- * fix classes regressed. One focused pack per fixed ledger class:
+ * fix classes regressed. One focused scenario per fixed ledger class:
  *
  *   - RULES-B3  error-absorption in && / || (CEL commutative tri-state)
  *   - RULES-B2  undefined-field access is a runtime error (not null)
@@ -12,10 +12,10 @@
  *   - RULES-B7  no prototype-chain key leakage (own keys only)
  *   - RULES-B8  get() of a missing doc errors; get() resource has id/__name__
  *
- * The pack corpus MOVED (conformance-chain consolidation, staging): the 6
- * packs now live as one authored record per file under
- * `packages/conformance/rules-corpus/firestore/` (each pack's `group` field
- * is `'fix-class'`) and are imported here as `FIX_CLASS_PACKS`, computed by
+ * The scenario corpus MOVED (conformance-chain consolidation, staging): the 6
+ * scenarios now live as one authored record per file under
+ * `packages/conformance/rules-corpus/firestore/` (each scenario's `group` field
+ * is `'fix-class'`) and are imported here as `FIX_CLASS_SCENARIOS`, computed by
  * the corpus loader. This live-network parity suite is unchanged in
  * behavior — it just sources the migrated corpus instead of holding it inline.
  *
@@ -30,16 +30,16 @@
 import { describe, test, beforeAll, afterAll } from 'bun:test';
 import type { ProjectScope } from 'pyric-tools/deploy';
 import {
-  type Pack,
+  type Scenario,
   type CaseRow,
   hasParitySecret,
   parityScope,
-  runPack,
+  runScenario,
   reportParity,
 } from './harness.js';
-import { FIX_CLASS_PACKS } from '../../../../../packages/conformance/rules-corpus/firestore/index.ts';
+import { FIX_CLASS_SCENARIOS } from '../../../../../packages/conformance/rules-corpus/firestore/index.ts';
 
-const PACKS: Pack[] = FIX_CLASS_PACKS;
+const SCENARIOS: Scenario[] = FIX_CLASS_SCENARIOS;
 
 // ─── Test ──────────────────────────────────────────────────────────────────
 
@@ -53,14 +53,14 @@ beforeAll(() => {
 });
 
 describe.skipIf(!HAS_SA)('round-1/2 fix-class live parity', () => {
-  for (const pack of PACKS) {
-    test(`pack: ${pack.id}`, async () => {
-      allRows.push(...await runPack(pack, scope));
+  for (const scenario of SCENARIOS) {
+    test(`scenario: ${scenario.id}`, async () => {
+      allRows.push(...await runScenario(scenario, scope));
     }, 60000);
   }
 });
 
 afterAll(() => {
   if (!HAS_SA || allRows.length === 0) return;
-  reportParity('Round-1/2 fix-class parity report', PACKS, allRows);
+  reportParity('Round-1/2 fix-class parity report', SCENARIOS, allRows);
 });

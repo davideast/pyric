@@ -7,9 +7,9 @@
  * token in a path is substituted with the signed-in uid at capture/replay
  * time, so the matching case genuinely exercises `$uid === auth.uid`.
  */
-import type { RtdbPackRecord } from './types.ts';
+import type { RtdbScenarioRecord } from './types.ts';
 
-export const pack: RtdbPackRecord = {
+export const scenario: RtdbScenarioRecord = {
   fm: 'rtdb#71',
   rationale: '$uid path variable bound against auth.uid — production allows the owner path and denies foreign/anonymous access; the simulator binds the same variable and must agree.',
   provenance: 'Decomposed from the rtdb-simulator-vs-prod-agreement observation, ruleset r2-own-uid. Expectations are the recorded production allow/deny verdicts.',

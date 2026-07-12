@@ -7,7 +7,7 @@
  *   - Indices must be non-negative integers.
  *   - Out-of-bounds indices clamp to [0, length].
  *
- * The parity-stress pack `range-slice-list-and-string` provides the
+ * The parity-stress scenario `range-slice-list-and-string` provides the
  * prod-comparison receipt (gated on FIREBASE_SA_BASE64).
  */
 import { describe, test, expect } from 'bun:test';
