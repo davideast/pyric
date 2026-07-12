@@ -22,7 +22,7 @@ npm i -g pyric-tools
 pyric dev
 ```
 
-No cloud project. No emulator, no Java, no port to babysit. A working backend in the first minute.
+No cloud project. No emulator, no Java, no port to configure. A working backend in the first minute.
 
 ## Every write stays on your machine
 
@@ -57,7 +57,7 @@ npm i pyric-admin === npm i firebase-admin
 
 ## One CLI from first run to deploy
 
-You have already met `pyric dev`. The same CLI carries the rest of the loop:
+`pyric dev` is one command of several. The same CLI covers the rest of the workflow:
 
 - `pyric init` scaffolds a web or Node app
 - `pyric rules:lint` and `pyric rules:simulate` check rules in CI
