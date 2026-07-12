@@ -23,6 +23,7 @@ import { HomeSurface } from './features/home/HomeSurface.js';
 import { RtdbSurface } from './features/rtdb/RtdbSurface.js';
 import { PlaygroundSurface } from './features/playground/PlaygroundSurface.js';
 import { SettingsSurface } from './features/settings/SettingsSurface.js';
+import { AssuranceSurface } from './features/assurance/index.js';
 
 /**
  * The docs site is static pages composed alongside Studio under the same
@@ -118,6 +119,8 @@ function Surface({ id }: { id: string }) {
       return <RtdbSurface />;
     case 'traffic':
       return <TrafficSurface />;
+    case 'assurance':
+      return <AssuranceSurface />;
     case 'settings':
       return <SettingsSurface />;
     default:

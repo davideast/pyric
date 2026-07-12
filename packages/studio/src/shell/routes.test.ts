@@ -10,6 +10,7 @@ const SHELL_ROUTES: readonly RouteId[] = [
   'rtdb',
   'storage',
   'traffic',
+  'assurance',
   'prototype',
   'settings',
 ];
@@ -24,6 +25,7 @@ describe('Studio route registry', () => {
       'RTDB',
       'Storage',
       'Traffic',
+      'Assurance',
       'Prototype',
       'Settings',
     ]);

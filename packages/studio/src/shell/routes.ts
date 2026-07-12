@@ -2,8 +2,8 @@
  * Pyric Studio routes. This is the single route registry used by the shell,
  * Home navigation, and tests, so top-level scope cannot drift across files.
  *
- * Tab set per `specs/shell.md`: Home, Firestore, Auth, RTDB, Storage, Traffic,
- * Prototype, Settings. The spec also names Rules; no approved Rules surface
+ * Tab set: Home, Firestore, Auth, RTDB, Storage, Traffic, Assurance, Prototype,
+ * Settings. The shell spec also names Rules; no approved Rules surface
  * exists yet (the assist-era one was deliberately de-mounted, PRINCIPLES P4/M9),
  * so the tab is left out rather than shipping a placeholder.
  */
@@ -15,6 +15,7 @@ export type RouteId =
   | 'rtdb'
   | 'storage'
   | 'traffic'
+  | 'assurance'
   | 'prototype'
   | 'settings';
 
@@ -55,6 +56,11 @@ export const ROUTES: readonly StudioRoute[] = [
     id: 'traffic',
     label: 'Traffic',
     description: 'Watch sandbox requests, listener activity, and rule decisions.',
+  },
+  {
+    id: 'assurance',
+    label: 'Assurance',
+    description: 'Compare intended access with qualified local sandbox behavior.',
   },
   {
     id: 'prototype',
