@@ -5,7 +5,7 @@ group: "Compatibility"
 section: ""
 order: 8005
 ---
-<!-- Generated from scripts/compat/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
+<!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 > **Climb status: this surface is climbing under CDD.**
 > 56 of 56 rows conforming.
@@ -37,7 +37,7 @@ service-worker (`firebase/messaging/sw`) receive planes, and the admin
 </div>
 
 Probe references: `oracle:<name>` cites an observation under
-`scripts/oracle/observations/<name>.json`. Under CDD a citation records that
+`packages/conformance/observations/<name>.json`. Under CDD a citation records that
 production was consulted; it does not certify the sandbox matches — that waits
 on the conformance suite replaying it.
 
