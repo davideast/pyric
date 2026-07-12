@@ -26,6 +26,7 @@ const breadcrumbs = currentEntry ? await breadcrumbsFor(currentEntry) : [];
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{title} · Pyric Studio</title>
     {description ? <meta name="description" content={description} /> : null}
+    <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}pyric-logo.svg`} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
