@@ -32,7 +32,7 @@
  * so calling it with the same identity twice is a no-op.
  */
 
-import { FirebaseError } from 'firebase/app';
+import { makeAuthError } from './auth-errors.js';
 
 import type { AuthState, Sandbox } from 'pyric/sandbox';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
@@ -2155,19 +2155,7 @@ function validatePasswordStrength(password: string): void {
   }
 }
 
-/**
- * Build a real `FirebaseError` (the same class `firebase/auth` throws),
- * with the prod message wrapper `Firebase: <message> (<code>).`
- * (`clones/.../util/src/errors.ts:121` — `${serviceName}: ${message}
- * (${fullCode}).`, serviceName `Firebase`). So consumer code that does
- * `err instanceof FirebaseError` or matches on the wrapped message sees
- * the same shape sandbox vs prod (AUTH-GAP). `.code` is preserved.
- *
- * Oracle-pinned shapes this reproduces:
- *   - `Firebase: Error (auth/invalid-email).`
- *   - `Firebase: Password should be at least 6 characters (auth/weak-password).`
- */
-export function makeAuthError(code: string, message: string): FirebaseError {
-  return new FirebaseError(code, `Firebase: ${message} (${code}).`);
-}
+/** Re-exported from {@link ./auth-errors.ts} so consumers importing
+ *  `makeAuthError` from the `sandbox-backend` barrel keep working. */
+export { makeAuthError } from './auth-errors.js';
 
