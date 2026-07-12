@@ -1,12 +1,12 @@
 /**
- * ─── Pack 5: metadata-access ────────────────────────────────────────────────
+ * ─── Scenario 5: metadata-access ────────────────────────────────────────────────
  * Custom metadata in BOTH dotted (resource.metadata.owner) and bracket
  * (resource.metadata['owner']) form — they must resolve identically — and a
  * missing key (undefined → deny).
  */
-import type { StoragePackRecord } from './types.ts';
+import type { StorageScenarioRecord } from './types.ts';
 
-export const pack: StoragePackRecord = {
+export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-META',
   rationale:
     'resource.metadata custom-metadata access in dotted and bracket form (identical resolution) and missing-key deny.',

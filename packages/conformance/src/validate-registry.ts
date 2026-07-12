@@ -9,9 +9,9 @@ import { buildCompatibilityLedger, loadObservations, REPO_ROOT, summarizeLedger,
 import { checkGeneratedMarkdown } from './generate-docs.ts';
 import { loadRigManifests } from '../rigs/load.ts';
 import type { RigManifest } from '../rigs/types.ts';
-import { ALL_RULES_FIRESTORE_PACKS } from '../rules-corpus/firestore/index.ts';
-import { ALL_RULES_STORAGE_PACKS } from '../rules-corpus/storage/index.ts';
-import { ALL_RULES_RTDB_PACKS } from '../rules-corpus/rtdb/index.ts';
+import { ALL_RULES_FIRESTORE_SCENARIOS } from '../rules-corpus/firestore/index.ts';
+import { ALL_RULES_STORAGE_SCENARIOS } from '../rules-corpus/storage/index.ts';
+import { ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
 import { longestPrefixOwners, soleLongestPrefixOwner } from './observation-surface.ts';
 import { listProbeFiles, type ProbeFile } from '../probes/load.ts';
 
@@ -44,16 +44,16 @@ export interface ValidationInput {
    *  so existing tests that don't exercise rig-manifest wiring don't need to
    *  thread it through; the real compat:validate entry point always passes it. */
   rigManifests?: RigManifest[];
-  /** Firestore rules corpus pack ids (rules-corpus/firestore/*.ts, loaded via
+  /** Firestore rules corpus scenario ids (rules-corpus/firestore/*.ts, loaded via
    *  load.ts). Optional for the same reason as `rigManifests`; the real
    *  compat:validate entry point always passes it, alongside
-   *  `rulesStoragePackIds`, so the rules-corpus filename-twin check below is
+   *  `rulesStorageScenarioIds`, so the rules-corpus filename-twin check below is
    *  CI-enforced. */
-  rulesFirestorePackIds?: string[];
-  /** Storage rules corpus pack ids (rules-corpus/storage/*.ts). */
-  rulesStoragePackIds?: string[];
-  /** RTDB rules corpus pack ids (rules-corpus/rtdb/*.ts). */
-  rulesRtdbPackIds?: string[];
+  rulesFirestoreScenarioIds?: string[];
+  /** Storage rules corpus scenario ids (rules-corpus/storage/*.ts). */
+  rulesStorageScenarioIds?: string[];
+  /** RTDB rules corpus scenario ids (rules-corpus/rtdb/*.ts). */
+  rulesRtdbScenarioIds?: string[];
   /** Probe files (probes/<surface>/<name>.ts, loaded via probes/load.ts).
    *  Optional for the same reason as `rigManifests`; the real compat:validate
    *  entry point always passes it, so the twin-path check below (a probe's
@@ -249,29 +249,29 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
 
   // ── Rules corpus <-> observation filename-twin integrity ─────────────────
   // Every captured `rules-firestore-<x>.json` / `rules-storage-<x>.json` /
-  // `rules-rtdb-<x>.json` observation must have a corpus pack file `<x>.ts` in
+  // `rules-rtdb-<x>.json` observation must have a corpus scenario file `<x>.ts` in
   // the matching rules-corpus directory — an orphan observation (a capture
-  // whose pack was removed or renamed) is a silent-gap failure, fatal here. A
-  // pack WITHOUT an observation is fine (not yet captured); it still shows up
+  // whose scenario was removed or renamed) is a silent-gap failure, fatal here. A
+  // scenario WITHOUT an observation is fine (not yet captured); it still shows up
   // in its capture runner's inert plan as capturable, since the runner
-  // iterates the same loaded corpus this check does. Pack ids must also be
+  // iterates the same loaded corpus this check does. Scenario ids must also be
   // unique ACROSS all three corpora, not just within each: observation names
   // derive from them, so a collision would make ownership ambiguous.
   //
-  // Each engine's orphan check is gated on its own pack-id set being supplied
+  // Each engine's orphan check is gated on its own scenario-id set being supplied
   // (optional for tests that don't thread it); the real compat:validate entry
   // point passes all three, so the checks are CI-enforced. Cross-corpus
   // uniqueness is checked pairwise across whichever sets are present.
   const corpora: { dir: string; prefix: string; ids: Set<string> }[] = [];
-  if (input.rulesFirestorePackIds) corpora.push({ dir: 'rules-corpus/firestore', prefix: 'rules-firestore-', ids: new Set(input.rulesFirestorePackIds) });
-  if (input.rulesStoragePackIds) corpora.push({ dir: 'rules-corpus/storage', prefix: 'rules-storage-', ids: new Set(input.rulesStoragePackIds) });
-  if (input.rulesRtdbPackIds) corpora.push({ dir: 'rules-corpus/rtdb', prefix: 'rules-rtdb-', ids: new Set(input.rulesRtdbPackIds) });
+  if (input.rulesFirestoreScenarioIds) corpora.push({ dir: 'rules-corpus/firestore', prefix: 'rules-firestore-', ids: new Set(input.rulesFirestoreScenarioIds) });
+  if (input.rulesStorageScenarioIds) corpora.push({ dir: 'rules-corpus/storage', prefix: 'rules-storage-', ids: new Set(input.rulesStorageScenarioIds) });
+  if (input.rulesRtdbScenarioIds) corpora.push({ dir: 'rules-corpus/rtdb', prefix: 'rules-rtdb-', ids: new Set(input.rulesRtdbScenarioIds) });
 
   for (let a = 0; a < corpora.length; a++) {
     for (let b = a + 1; b < corpora.length; b++) {
       for (const id of corpora[a].ids) {
         if (corpora[b].ids.has(id)) {
-          problems.push(`rules corpus: pack id '${id}' exists in BOTH ${corpora[a].dir}/ and ${corpora[b].dir}/ — pack ids must be unique across all rules corpora`);
+          problems.push(`rules corpus: scenario id '${id}' exists in BOTH ${corpora[a].dir}/ and ${corpora[b].dir}/ — scenario ids must be unique across all rules corpora`);
         }
       }
     }
@@ -285,9 +285,9 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
   for (const obs of input.observations) {
     const owner = byLongestPrefix.find((c) => obs.file.startsWith(c.prefix));
     if (!owner) continue;
-    const packId = obs.file.slice(owner.prefix.length).replace(/\.json$/, '');
-    if (!owner.ids.has(packId)) {
-      problems.push(`${obs.file}: no matching ${owner.dir}/${packId}.ts pack — orphan observation`);
+    const scenarioId = obs.file.slice(owner.prefix.length).replace(/\.json$/, '');
+    if (!owner.ids.has(scenarioId)) {
+      problems.push(`${obs.file}: no matching ${owner.dir}/${scenarioId}.ts scenario — orphan observation`);
     }
   }
 
@@ -324,9 +324,9 @@ if (import.meta.main) {
     checkMarkdown: true,
     rigManifests,
     probeFiles: listProbeFiles(),
-    rulesFirestorePackIds: ALL_RULES_FIRESTORE_PACKS.map((pack) => pack.id),
-    rulesStoragePackIds: ALL_RULES_STORAGE_PACKS.map((pack) => pack.id),
-    rulesRtdbPackIds: ALL_RULES_RTDB_PACKS.map((pack) => pack.id),
+    rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => scenario.id),
+    rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((scenario) => scenario.id),
+    rulesRtdbScenarioIds: ALL_RULES_RTDB_SCENARIOS.map((scenario) => scenario.id),
   });
 
   const wantJson = process.argv.includes('--json');

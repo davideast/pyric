@@ -1,13 +1,13 @@
 /**
- * ─── Pack 3: int-float-and-division (RULES-B5) ────────────────────────────
+ * ─── Scenario 3: int-float-and-division (RULES-B5) ────────────────────────────
  * Production distinguishes int and float as separate types; `/` on two ints
  * is INTEGER division (truncating toward zero) and division by zero is a
  * runtime error (→ deny), not Infinity. Pre-fix the simulator used JS
  * float division for everything.
  */
-import type { PackRecord } from './types.ts';
+import type { ScenarioRecord } from './types.ts';
 
-export const pack: PackRecord = {
+export const scenario: ScenarioRecord = {
   fm: 'RULES-B5',
   rationale: 'int ÷ int truncates toward zero, float division stays float, div-by-zero errors (deny); `is int` / `is float` are distinct types.',
   rules: `rules_version = '2';

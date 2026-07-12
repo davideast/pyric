@@ -38,7 +38,7 @@
  *   bun run scripts/oracle/messaging-web/e2e-sandbox.ts
  *   PYRIC_MSG_E2E_HEADED=1 bun run scripts/oracle/messaging-web/e2e-sandbox.ts
  * Serve-only (a human and their own browser, no automation):
- *   PYRIC_MSG_E2E_SERVE_ONLY=1 bun run packages/conformance/src/rigs/messaging-web/e2e-sandbox.ts
+ *   PYRIC_MSG_E2E_SERVE_ONLY=1 bun run packages/conformance/src/capture/messaging-web/e2e-sandbox.ts
  */
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';

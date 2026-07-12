@@ -8,11 +8,11 @@
  * in-process sandbox simulator, not merely cited.
  *
  * Data-driven by design: each observation's name is `rules-firestore-<id>`,
- * where `<id>` is a corpus pack id. For every captured observation the suite
- * loads the matching pack from the corpus, runs the LOCAL simulator over the
+ * where `<id>` is a corpus scenario id. For every captured observation the suite
+ * loads the matching scenario from the corpus, runs the LOCAL simulator over the
  * same ruleset + cases, and asserts the simulator's per-case decision equals
  * the captured production verdict. The corpus is the single source, so
- * coverage is structural: an observation whose id has no corresponding pack
+ * coverage is structural: an observation whose id has no corresponding scenario
  * FAILS loudly (a capture can't silently go un-checked).
  *
  * STAGING STATE: no `rules-firestore-*` observation has been captured yet
@@ -26,18 +26,18 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  ALL_RULES_FIRESTORE_PACKS,
+  ALL_RULES_FIRESTORE_SCENARIOS,
   RULES_FIRESTORE_OBSERVATION_PREFIX,
   observationName,
-  type Pack,
+  type Scenario,
 } from '../../../../packages/conformance/rules-corpus/firestore/index.ts';
 
 // rules-firestore-* observations live under the 'firestore' surface subdirectory.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'firestore');
 
-/** name (no extension) → pack, for O(1) observation→pack resolution. */
-const PACK_BY_OBSERVATION = new Map<string, Pack>(
-  ALL_RULES_FIRESTORE_PACKS.map((pack) => [observationName(pack), pack]),
+/** name (no extension) → scenario, for O(1) observation→scenario resolution. */
+const SCENARIO_BY_OBSERVATION = new Map<string, Scenario>(
+  ALL_RULES_FIRESTORE_SCENARIOS.map((scenario) => [observationName(scenario), scenario]),
 );
 
 interface RulesObservation {
@@ -180,16 +180,16 @@ function capturedObservationFiles(): string[] {
  *  (by case description) so the two tables line up 1:1. The simulator (and its
  *  parser/evaluator dependency graph) is imported lazily so the empty-set guard
  *  path runs without loading it. */
-async function simulateVerdicts(pack: Pack): Promise<Record<string, 'ALLOW' | 'DENY' | 'UNSUPPORTED'>> {
+async function simulateVerdicts(scenario: Scenario): Promise<Record<string, 'ALLOW' | 'DENY' | 'UNSUPPORTED'>> {
   const { SimulateFirestoreRulesHandler } = await import('../../src/rules/simulator/handler.js');
   const sim = new SimulateFirestoreRulesHandler();
-  const res = sim.simulate(pack.rules, pack.cases);
+  const res = sim.simulate(scenario.rules, scenario.cases);
   if (!res.success) {
-    throw new Error(`simulator failed for pack "${pack.id}": ${res.error.code} ${res.error.message}`);
+    throw new Error(`simulator failed for scenario "${scenario.id}": ${res.error.code} ${res.error.message}`);
   }
   const table: Record<string, 'ALLOW' | 'DENY' | 'UNSUPPORTED'> = {};
   res.data.results.forEach((r, i) => {
-    table[pack.cases[i].description] = r.decision;
+    table[scenario.cases[i].description] = r.decision;
   });
   return table;
 }
@@ -211,23 +211,23 @@ describe('oracle conformance (rules-firestore)', () => {
   // ── verdict-for-verdict replay (live the moment observations exist) ──────
   for (const file of files) {
     const obs = loadObservation(file);
-    const pack = PACK_BY_OBSERVATION.get(obs.name);
+    const scenario = SCENARIO_BY_OBSERVATION.get(obs.name);
 
     it(`${obs.name}: simulator matches captured production verdicts`, async () => {
-      // Completeness is structural: an observation with no corpus pack is a
-      // silent-gap failure — either the pack was removed or the file is stale.
+      // Completeness is structural: an observation with no corpus scenario is a
+      // silent-gap failure — either the scenario was removed or the file is stale.
       expect(
-        pack,
-        `observation "${obs.name}" has no matching corpus pack — coverage gap`,
+        scenario,
+        `observation "${obs.name}" has no matching corpus scenario — coverage gap`,
       ).toBeDefined();
-      if (!pack) return;
+      if (!scenario) return;
 
-      const sim = await simulateVerdicts(pack);
-      // Every case in the pack is checked and any mismatch is collected here
+      const sim = await simulateVerdicts(scenario);
+      // Every case in the scenario is checked and any mismatch is collected here
       // rather than asserted immediately — bun aborts a test at the first
       // thrown `expect`, so asserting per-case would hide later divergences
       // behind an earlier one. Collecting first and asserting once at the end
-      // (below) means every diverging case in the pack is reported together.
+      // (below) means every diverging case in the scenario is reported together.
       const mismatches: string[] = [];
       for (const [caseKey, prodVerdict] of Object.entries(obs.behavior)) {
         const simVerdict = sim[caseKey];
@@ -266,10 +266,10 @@ describe('oracle conformance (rules-firestore)', () => {
   }
 
   // ── coverage: no captured observation is left un-replayed ────────────────
-  it('every captured rules-firestore observation maps to a corpus pack', () => {
+  it('every captured rules-firestore observation maps to a corpus scenario', () => {
     const uncovered = capturedObservationFiles()
       .map((f) => f.replace(/\.json$/, ''))
-      .filter((name) => !PACK_BY_OBSERVATION.has(name));
+      .filter((name) => !SCENARIO_BY_OBSERVATION.has(name));
     expect(uncovered).toEqual([]);
   });
 });
