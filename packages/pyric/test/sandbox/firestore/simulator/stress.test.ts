@@ -8,8 +8,8 @@ import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { SimulateFirestoreRulesHandler } from 'pyric/rules';
-import type { TestCase } from 'pyric/rules';
+import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
+import type { TestCase } from 'pyric/rules/internal';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const handler = new SimulateFirestoreRulesHandler();

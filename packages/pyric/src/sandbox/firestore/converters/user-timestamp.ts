@@ -42,7 +42,7 @@
  * first — so a second resolver pass over our own output is a no-op.
  */
 import { KEEP, type ValueConverter } from '../value-resolver.js';
-import { Timestamp as RulesTimestamp } from 'pyric/rules';
+import { Timestamp as RulesTimestamp } from 'pyric/rules/internal';
 
 /** Minimal duck-type for a compat / `firebase/firestore` `Timestamp`. */
 interface UserTimestampLike {

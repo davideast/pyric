@@ -9,7 +9,7 @@ import { isAuthenticated, isOwner } from 'auth';
 import { hasOnly } from 'validation';
 ```
 
-Then run `resolveModules(source)` to inline the exports into a standard `'2'` source. See [How to resolve `2+modules` imports](../how-to/resolve-module-imports.md).
+Then run `resolveModules(source)` to inline the exports into a standard `'2'` source. `resolveModules` is an internal engine seam, imported from `pyric/rules/internal/node`, not the public `pyric/rules` front door. See [How to resolve `2+modules` imports](../how-to/resolve-module-imports.md).
 
 Convention: modules either operate against `request` / `resource` / `request.auth` only (self-contained) or take explicit parameters (no implicit lookups).
 
@@ -124,6 +124,8 @@ Functions in a module that aren't marked `export` are still inlined by the resol
 Pass a `modules` map to `resolveModules` to shadow a stdlib name:
 
 ```ts
+import { resolveModules } from 'pyric/rules/internal/node';
+
 resolveModules(source, {
   modules: {
     auth: `

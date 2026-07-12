@@ -20,8 +20,8 @@ import {
   createHostingDeployTools,
   createFunctionsDeployTools,
 } from '../deploy/index.js';
-import { createFirestoreRulesTools } from 'pyric/rules/node';
-import { createFirestoreExtractTool } from 'pyric/rules/extract';
+import { createFirestoreRulesTools } from 'pyric/rules/internal/node';
+import { createFirestoreExtractTool } from 'pyric/rules/internal/extract';
 import {
   createFirestoreDataTools,
   type Firestore as PyricFirestore,
@@ -31,7 +31,7 @@ import { createFirestoreDiscoverTools } from '../discover/index.js';
 import { createAuthAdminTools } from '../auth/index.js';
 import { createVerifyTools } from '../verify/index.js';
 import { createRtdbDataTools } from 'pyric/database';
-import { createRtdbRulesTools, type RtdbHost } from 'pyric/rules/rtdb';
+import { createRtdbRulesTools, type RtdbHost } from 'pyric/rules/internal/rtdb';
 
 /**
  * Admin SDK deps for the Firestore admin-mode + user-mode dispatch factories.

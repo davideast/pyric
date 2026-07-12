@@ -16,8 +16,8 @@ export {
   loadModule,
   prefixPrivateFunctions,
   rewriteCalls,
-} from './modules/resolver.js';
-export type { ResolveResult, ResolveOptions } from './modules/resolver.js';
+} from '../modules/resolver.js';
+export type { ResolveResult, ResolveOptions } from '../modules/resolver.js';
 
 // Tool factories — `createFirestoreRulesTools` wraps resolver +
 // linter + simulator + test handlers into agent-runtime tools.
@@ -25,20 +25,20 @@ export type { ResolveResult, ResolveOptions } from './modules/resolver.js';
 export {
   createFirestoreRulesTools,
   createFirestoreSimulatorTools,
-} from './tools.js';
+} from '../tools.js';
 export type {
   FirestoreRulesToolDeps,
   FirestoreSimulatorToolDeps,
-} from './tools.js';
+} from '../tools.js';
 
 // Stdlib discovery tools — `firestore_rules_stdlib_list` +
 // `firestore_rules_stdlib_get`. Live on /node because the stdlib
 // modules ship as files the resolver loads from disk.
-export { createFirestoreRulesStdlibTools } from './stdlib-tools.js';
+export { createFirestoreRulesStdlibTools } from '../stdlib-tools.js';
 
 // RTDB rules generation — `writeRtdbRulesFile` writes a compiled
 // `defineRtdbRules(...).toJSON()` result to a static
 // `database.rules.json` file. Lives on /node because it touches disk;
 // the compilation itself stays in the isomorphic `pyric/rules/rtdb`
 // entry (RtdbMapper.mapToRulesJSON via RtdbRulesDocument#toJSON).
-export { writeRtdbRulesFile } from '../database/constraints/write-rules-file.js';
+export { writeRtdbRulesFile } from '../../database/constraints/write-rules-file.js';

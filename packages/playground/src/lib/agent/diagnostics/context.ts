@@ -9,7 +9,7 @@
  * `ctx.simulate(req)`) land here with the same noop-when-disabled
  * pattern.
  */
-import { lintFirestoreRules, type LintWarning as FsLintWarning } from 'pyric/rules';
+import { lintFirestoreRules, type LintWarning as FsLintWarning } from 'pyric/rules/internal';
 
 interface AdaptedWarning {
   severity: 'info' | 'warn' | 'error';

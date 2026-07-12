@@ -24,7 +24,7 @@ For each of these, `pyric/sandbox` is the alternative. In-process, browser-safe,
 A re-implementation of the data + rules portion of Firestore, in TypeScript, sized to fit the agent / playground / unit-test use cases:
 
 - The document store is an in-memory `LocalState` map.
-- The rules engine is `pyric/rules`' `SimulateFirestoreRulesHandler`, also browser-safe.
+- The rules engine is `pyric/rules`' engine-internal `SimulateFirestoreRulesHandler` (`pyric/rules/internal`), also browser-safe.
 - The transaction system tracks reads and writes per-tx, detects read-after-write violations, projects post-write state for `getAfter()`.
 - Snapshot listeners are first-class: doc and query listeners both implemented, including the production behaviour where stream errors silently terminate the listener.
 - Field-value sentinels (`increment`, `serverTimestamp`, `arrayUnion`) are honoured by the rules engine and the data plane.

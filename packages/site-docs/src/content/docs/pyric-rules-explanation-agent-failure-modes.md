@@ -24,7 +24,7 @@ The linter catches this with two rules:
 
 Both are `severity: 'error'`. The deploy path refuses to swap a ruleset that contains either.
 
-The fix isn't to relax the linter. It's to give the agent a real diagnostic for the original denial. The simulator's `debugMessages` array shows exactly which rule decided. If the agent learns to read that trace, the escape doesn't happen.
+The fix isn't to relax the linter. It's to give the agent a real diagnostic for the original denial. Each `CaseResult`'s `trace` array shows exactly which rule decided; `explainCase` renders it into a readable string. If the agent learns to read that trace, the escape doesn't happen.
 
 ## Silently removing predicates
 
@@ -35,7 +35,7 @@ allow update: if request.auth.uid == resource.data.ownerId
 ```
 A test case fails because the test set `status` to `'closed'`. The agent doesn't update the test data. It removes the `status == 'open'` conjunct from the rule. The test passes. The deploy ships. Updates against closed records are no longer gated.
 
-`RULES_WEAKENED` exists for this. When you pass the previously-deployed source to the linter:
+`RULES_WEAKENED` exists for this. When you pass the previously-deployed source to the linter (via the engine-internal `lintFirestoreRules` on `pyric/rules/internal`, since the public `lint` and `firestoreRules(source).lint()` take no options):
 ```ts
 lintFirestoreRules(newSource, { previousSource: oldSource });
 ```
@@ -68,7 +68,7 @@ A rule reads `request.time` (a date-gated discount window, a trial-period check,
 
 `REQUEST_TIME_NOT_PINNED` activates when `options.testCases` is passed to the linter. For each rule that transitively reads `request.time`, the linter emits one warning per test case that targets the rule and doesn't set `requestTime`. The fix is mechanical: add the ISO-8601 string. The diagnostic is precise: it names the rule, the test case, the path.
 
-This is the only lint rule that depends on a test suite, and the dependency is opt-in (`options.testCases` defaults to undefined). Source-only `lintFirestoreRules(source)` calls behave as they always did.
+This is the only lint rule that depends on a test suite, and the dependency is opt-in (`options.testCases` defaults to undefined). Source-only calls to the internal `lintFirestoreRules(source)` (or the public `lint(source)` / `firestoreRules(source).lint()`, which never take a test suite at all) behave as they always did.
 
 ## The shape of these rules
 

@@ -52,7 +52,7 @@ await rtdb.rules.deploy(scope, {
 });
 ```
 `rulesJson` must contain a top-level `rules` object. When `rules` is supplied,
-the function calls `rules.toJSON()`. The function maps the JSON through
+the function compiles the document to rules JSON. The function maps the JSON through
 `RtdbMapper.mapToIR` before writing it to the RTDB rules endpoint.
 
 ### `discoverDefaultDatabaseUrl(scope): Promise<RtdbRulesDiscoveryResult>`
@@ -98,11 +98,12 @@ interface RtdbFetchRulesInput {
 | `rtdb_get_rules` | `{ databaseUrl?: string }` | `{ ir: RtdbIR }` |
 | `rtdb_deploy_rules` | `{ rulesJson: object; databaseUrl?: string }` | `undefined` |
 
-The handler names match the host-backed RTDB rules tools from
-`pyric/rules/rtdb`. Do not register both factories in the same registry unless
-the registry supports explicit replacement.
+The handler names match the host-backed RTDB rules tools from the internal
+`pyric/rules/internal/rtdb` (`createRtdbRulesTools`). Do not register both
+factories in the same registry unless the registry supports explicit
+replacement.
 
-Tool calls remain JSON-only. Pass `rules.toJSON()` as `rulesJson` when deploying
+Tool calls remain JSON-only. Pass `rtdbRules(rules).toJSON()` (from `pyric/rules`) as `rulesJson` when deploying
 a generated rules document through an agent registry.
 
 ## CLI config shape

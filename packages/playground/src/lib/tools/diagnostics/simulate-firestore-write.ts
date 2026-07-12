@@ -33,7 +33,7 @@ import {
   type TestCase,
   type TestResult,
   type RuleEvaluation,
-} from 'pyric/rules';
+} from 'pyric/rules/internal';
 import { useWorkspaceStore } from '~/lib/store/workspace';
 
 type Decision = 'ALLOW' | 'DENY' | 'UNSUPPORTED';

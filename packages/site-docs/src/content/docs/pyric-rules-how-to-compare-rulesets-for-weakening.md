@@ -9,11 +9,13 @@ order: 13002
 
 When you ship a rules change, the most dangerous mistake is silently removing a security predicate to make a failing test pass. Here's how to catch that before it deploys.
 
+`RULES_WEAKENED` needs the previously-deployed source to diff against. The public `lint(source)` and `firestoreRules(source).lint()` take no options, so this check is reached through the engine-internal `lintFirestoreRules`, imported from `pyric/rules/internal`: not part of the public contract, but the mechanism this guide relies on.
+
 ## Lint with the previous source
 
 Pass the previously-deployed source as `options.previousSource`:
 ```ts
-import { lintFirestoreRules } from 'pyric/rules';
+import { lintFirestoreRules } from 'pyric/rules/internal';
 
 const result = lintFirestoreRules(newSource, { previousSource: oldSource });
 
@@ -50,7 +52,7 @@ firebase firestore:rules:get > previous.rules
 Then in your check script:
 ```ts
 import { readFileSync } from 'node:fs';
-import { lintFirestoreRules } from 'pyric/rules';
+import { lintFirestoreRules } from 'pyric/rules/internal';
 
 const previousSource = readFileSync('previous.rules', 'utf-8');
 const newSource = readFileSync('firestore.rules', 'utf-8');

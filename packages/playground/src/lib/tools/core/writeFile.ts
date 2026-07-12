@@ -10,7 +10,7 @@
  *     Phase C swaps the compile/deploy reads to the VFS directly.
  */
 import type { ToolHandler, ToolResult } from '@inbrowser/agent';
-import { resolveModulesBrowser } from 'pyric/rules';
+import { resolveModulesBrowser } from 'pyric/rules/internal';
 
 import { notifyVfsWrite } from '~/lib/files/bootstrap';
 import { RULES_PATH, WORKSPACE_ROOT, useFilesStore } from '~/lib/store/files';

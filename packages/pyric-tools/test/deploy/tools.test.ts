@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Fixture modules must resolve `pyric/rules/rtdb` via workspace
+// Fixture modules must resolve `pyric/rules` via workspace
 // node_modules, so they're created under this test directory (inside
 // the monorepo tree) rather than the OS tmpdir.
 const fixturesRoot = fileURLToPath(new URL('./fixtures-tmp/', import.meta.url));
@@ -116,7 +116,7 @@ describe('createRtdbDeployTools', () => {
       writeFileSync(
         join(dir, 'database.rules.ts'),
         [
-          "import { allow, defineRtdbRules, deny } from 'pyric/rules/rtdb';",
+          "import { allow, defineRtdbRules, deny } from 'pyric/rules';",
           'export const rules = defineRtdbRules({',
           "  paths: { '/': { read: allow(), write: deny() } },",
           '});',
@@ -128,7 +128,7 @@ describe('createRtdbDeployTools', () => {
       const result = await tool!.execute({ configPath: 'database.rules.ts', cwd: dir }, ctx);
 
       expect(result.ok).toBe(true);
-      const { defineRtdbRules, allow, deny } = await import('pyric/rules/rtdb');
+      const { defineRtdbRules, allow, deny } = await import('pyric/rules');
       const expected = defineRtdbRules({
         paths: { '/': { read: allow(), write: deny() } },
       }).toJSON();

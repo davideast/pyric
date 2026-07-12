@@ -16,7 +16,7 @@ import type {
   Divergence,
   SandboxEvent,
 } from 'pyric/sandbox';
-import type { TestResult } from 'pyric/rules';
+import type { TestResult } from 'pyric/rules/internal';
 import {
   classifyFixResults,
   classifyRegressions,

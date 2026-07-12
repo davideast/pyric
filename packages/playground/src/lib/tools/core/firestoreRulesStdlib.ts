@@ -16,7 +16,7 @@
  * here.
  */
 import type { ToolHandler } from '@inbrowser/agent';
-import { createFirestoreRulesStdlibTools } from 'pyric/rules';
+import { createFirestoreRulesStdlibTools } from 'pyric/rules/internal';
 
 export function buildFirestoreRulesStdlibHandlers(): ToolHandler[] {
   return createFirestoreRulesStdlibTools();

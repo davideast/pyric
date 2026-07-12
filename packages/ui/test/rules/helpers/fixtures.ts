@@ -1,4 +1,4 @@
-import { SimulateFirestoreRulesHandler } from 'pyric/rules';
+import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import type { Denial } from '../../../src/rules/index.js';
 
 export const NOTES_RULES = `rules_version = '2';

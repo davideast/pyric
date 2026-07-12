@@ -6,27 +6,27 @@ order: 17005
 ---
 # RTDB rules tooling
 
-The `pyric/rules/rtdb` subpath is the canonical Realtime Database rules tooling
-entrypoint.
+The RTDB constraints DSL (`defineRtdbRules` and the combinators) is public,
+re-exported directly from `pyric/rules`. The engine underneath it (the rule
+mapper, expression parser, validator, linter, simulation handler, write
+handler, and the rules-focused tool factory) is engine-internal, on the
+`pyric/rules/internal/rtdb` subpath. That subpath isn't covered by the
+public `pyric/rules` contract and may change without notice.
 ```ts
+import { defineRtdbRules } from 'pyric/rules';
 import {
-  defineRtdbRules,
   RtdbMapper,
   createRtdbRulesTools,
   SimulateHandler,
-} from 'pyric/rules/rtdb';
+} from 'pyric/rules/internal/rtdb';
 ```
-It re-exports the RTDB rule mapper, expression parser, validator, linter,
-simulation handler, write handler, rule constraints, and the rules-focused tool
-factory.
-
 ## Constraints authoring
 
 ### `defineRtdbRules(definition): RtdbRulesDocument`
 
 Create an in-memory RTDB rules document from path constraints.
 ```ts
-import { defineRtdbRules, deny, pathOwnerOnly } from 'pyric/rules/rtdb';
+import { defineRtdbRules, deny, pathOwnerOnly } from 'pyric/rules';
 
 const rules = defineRtdbRules({
   paths: {
@@ -50,30 +50,42 @@ argument first, then `definition.databaseUrl`, then the local fallback
 `https://local-rtdb.firebaseio.com`.
 
 ### `RtdbRulesDocument`
-```ts
-interface RtdbRulesDocument {
-  toJSON(): { rules: Record<string, unknown> };
-  toIR(databaseUrl?: string): RtdbIR;
-  check(databaseUrl?: string): RtdbRulesCheckResult;
-  simulate(input: RtdbRulesSimulationInput, opts?: { databaseUrl?: string }): SimulateResult;
-}
-```
-`toJSON()` returns Firebase RTDB rules JSON. `toIR()` returns Pyric's RTDB rule
-IR. `check()` returns parser and linter findings without throwing for compile
-failures. `simulate()` normalises friendly input and delegates to
-`SimulateHandler`.
-```ts
-const check = rules.check();
 
-const result = rules.simulate({
-  operation: 'read',
-  path: '/profiles/alice',
-  auth: 'alice',
-  data: {},
-});
+The value `defineRtdbRules` returns. On the public surface it is an inert
+authored artifact: the type exposes no methods. You hand it to `rtdbRules()`,
+which is the one analysis surface.
+```ts
+import { rtdbRules } from 'pyric/rules';
+
+const ruleset = rtdbRules(rules);
+
+const issues = ruleset.lint();   // RuleIssue[]
+const summary = ruleset.simulate([
+  {
+    description: 'owner reads their profile',
+    expectation: 'ALLOW',
+    operation: 'read',
+    path: '/profiles/alice',
+    auth: 'alice',
+  },
+]);
+const json = ruleset.toJSON();   // { rules: {...} }
 ```
-`RtdbRulesSimulationInput` accepts the existing simulation fields plus these
-authoring conveniences:
+`lint()` folds the document's parser and linter findings into one
+`RuleIssue[]` list; a compile failure arrives as a `COMPILE_ERROR` issue
+rather than a throw. `simulate(cases)` takes `RtdbCase[]` and returns
+`{ passed, failed, unsupported, cases }`. `toJSON()` compiles to Firebase
+RTDB rules JSON.
+
+The method-bearing document interface (`toJSON` / `toIR` / `check` /
+`simulate` on the document itself) is internal. Engine consumers reach it via
+`pyric/rules/internal/rtdb`, which exports it under the same
+`RtdbRulesDocument` name; it is not covered by the public contract.
+
+`RtdbRulesSimulationInput` is the input shape of the internal document
+`simulate` method (the public `rtdbRules().simulate` takes `RtdbCase[]`
+instead). It accepts the existing simulation fields plus these authoring
+conveniences:
 ```ts
 type RtdbRulesSimulationInput = {
   operation: 'read' | 'write' | 'validate';
@@ -100,26 +112,27 @@ Compile failures return an error finding with code `COMPILE_ERROR`.
 
 ### Generating `database.rules.json`
 
-`toJSON()` (above) compiles a constraints document to the exact
+`rtdbRules(rules).toJSON()` compiles a constraints document to the exact
 `{ rules: {...} }` shape Firebase expects in `database.rules.json`. Everything
-that writes the file — the CLI, the MCP tool, and this helper — calls
-`toJSON()` and never recompiles the rules a second time.
+that writes the file — the CLI, the MCP tool, and this helper — runs the same
+compilation and never recompiles the rules a second time.
 
-For scripts running in Node, `pyric/rules/node` exports a helper that writes
-the file directly:
+For scripts running in Node, `pyric/rules/internal/node` exports a helper that
+writes the file directly:
 ```ts
-import { writeRtdbRulesFile } from 'pyric/rules/node';
+import { writeRtdbRulesFile } from 'pyric/rules/internal/node';
 import { rules } from './database.rules.js';
 
 const path = await writeRtdbRulesFile(rules, 'database.rules.json');
 ```
 #### `writeRtdbRulesFile(doc, path): Promise<string>`
 
-Writes `doc.toJSON()` as pretty-printed JSON to `path`, creating parent
-directories as needed, and returns the resolved absolute path written. It is
-Node-only (imports `node:fs`), so it lives on the `pyric/rules/node` entry
-point rather than the isomorphic `pyric/rules/rtdb` entry — importing
-`pyric/rules/rtdb` never pulls in Node builtins.
+Compiles `doc` and writes the rules JSON as pretty-printed output to `path`,
+creating parent directories as needed, and returns the resolved absolute path
+written. It is Node-only (imports `node:fs`), so it lives on the internal
+`pyric/rules/internal/node` entry rather than alongside the compilation
+itself: `rtdbRules(rules).toJSON()`, from the public `pyric/rules`, never
+pulls in Node builtins.
 
 #### CLI
 ```sh
@@ -127,7 +140,7 @@ pyric database:rules:generate [--config <path>] [--out <path>]
 ```
 Loads a constraints module (default `database.rules.ts`, or the `--config`
 path), looks for a named `rules` export or a default export produced by
-`defineRtdbRules(...)`, compiles it via `toJSON()`, and writes it to `--out`
+`defineRtdbRules(...)`, compiles it to rules JSON, and writes it to `--out`
 (default: the `database.rules` path from `firebase.json`, or
 `database.rules.json`). Run this before `pyric deploy database` so the static
 file can be inspected, diffed, and committed ahead of a live deploy.
@@ -156,7 +169,7 @@ const result = await verifyFixture(fixture, {
 ```
 For CLI verification, generate JSON first and pass it as the RTDB rules file:
 ```ts
-await Bun.write('database.rules.json', JSON.stringify(rules.toJSON(), null, 2));
+await Bun.write('database.rules.json', JSON.stringify(rtdbRules(rules).toJSON(), null, 2));
 ``````sh
 pyric verify --service rtdb --rules rtdb=database.rules.json
 ```
@@ -301,9 +314,10 @@ user-mode data operations.
 
 ## Constraint helpers
 
-`pyric/rules/rtdb` also re-exports the RTDB rule constraint helpers. The
-canonical constraints-only package path is `pyric/rules/rtdb/constraints`.
-`pyric/rules/rtdb-constraints` remains available as a compatibility alias.
+The RTDB rule constraint helpers are re-exported directly from `pyric/rules`,
+the public front door. The previous dedicated subpaths (`pyric/rules/rtdb`,
+`pyric/rules/rtdb/constraints`, `pyric/rules/rtdb-constraints`) no longer
+exist; there is one place to import the DSL from now.
 
 The complete builder catalog, with the exact expression each helper
 produces, lives in [constraints.md](../pyric-database-reference-constraints/). At a glance the

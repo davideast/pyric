@@ -20,7 +20,7 @@
  * a frozen `value` array instead). A second resolver pass is a no-op.
  */
 import { KEEP, type ValueConverter } from '../value-resolver.js';
-import { Vector } from 'pyric/rules';
+import { Vector } from 'pyric/rules/internal';
 
 function isNumberArray(a: unknown): a is number[] {
   return Array.isArray(a) && a.every((n) => typeof n === 'number');

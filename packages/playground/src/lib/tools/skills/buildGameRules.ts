@@ -16,7 +16,7 @@
  * through lib/tools/index.
  */
 import type { ToolHandler } from '@inbrowser/agent';
-import { assembleGameRules, defaultCellName } from 'pyric/rules';
+import { assembleGameRules, defaultCellName } from 'pyric/rules/internal';
 
 const PRESETS = {
   'tic-tac-toe': { cols: 3, rows: 3, winLength: 3, hasGravity: false },

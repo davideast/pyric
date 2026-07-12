@@ -6,7 +6,7 @@
  * binds above 11x11).
  */
 import { describe, expect, test } from 'bun:test';
-import { lintFirestoreRules } from 'pyric/rules';
+import { lintFirestoreRules } from 'pyric/rules/internal';
 import { buildGameRulesHandler, type BuildGameRulesData } from './buildGameRules';
 
 async function run(args: Parameters<typeof buildGameRulesHandler.execute>[0]) {

@@ -4,9 +4,11 @@ Pyric's Realtime Database surface has two parts:
 
 - `pyric/database` mirrors the Firebase Database modular SDK and exposes
   host-backed data tools.
-- `pyric/rules/rtdb` exposes the rules tooling facade: rule JSON mapping,
+- `pyric/rules` exposes the RTDB rules constraints DSL (`defineRtdbRules`
+  and the combinators) plus `rtdbRules(...)`, the deep handle for linting
+  and simulating a ruleset. The engine underneath (rule JSON mapping,
   expression parsing and linting, local simulation, and rules-focused agent
-  tools.
+  tools) is internal, on `pyric/rules/internal/rtdb`.
 
 ## Where to go next
 

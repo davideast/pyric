@@ -27,7 +27,7 @@
  * a second resolver pass is a no-op.
  */
 import { KEEP, type ValueConverter } from '../value-resolver.js';
-import { Reference } from 'pyric/rules';
+import { Reference } from 'pyric/rules/internal';
 
 /** Minimal duck-type for admin SDK DocumentReference. */
 interface AdminDocumentReferenceLike {

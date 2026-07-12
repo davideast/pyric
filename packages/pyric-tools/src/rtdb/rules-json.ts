@@ -1,4 +1,4 @@
-import type { RtdbRulesDocument } from 'pyric/rules/rtdb';
+import type { RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
 
 export interface RtdbRulesJson {
   rules: Record<string, unknown>;

@@ -20,7 +20,7 @@
  * operate on what `cat` would show.
  */
 import type { Command, ExecResult } from 'just-bash';
-import { lintFirestoreRules } from 'pyric/rules';
+import { lintFirestoreRules } from 'pyric/rules/internal';
 
 import { commitCheckpoint } from '~/lib/checkpoints/service';
 import { RULES_PATH } from '~/lib/store/files';

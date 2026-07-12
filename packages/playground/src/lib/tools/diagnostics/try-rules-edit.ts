@@ -58,7 +58,7 @@ import {
 import {
   SimulateFirestoreRulesHandler,
   type TestCase,
-} from 'pyric/rules';
+} from 'pyric/rules/internal';
 import { getPlaygroundRuntime } from '~/lib/sandbox/runtime';
 import {
   classifyFixResults,

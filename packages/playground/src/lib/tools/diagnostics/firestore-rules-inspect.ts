@@ -19,7 +19,7 @@
  * when signed in, project picked, and `pyricDiagnosticsEnabled` is
  * true (the last gate handled by the caller in `~/lib/tools/index.ts`).
  */
-import { createFirestoreInspectTool } from 'pyric/rules';
+import { createFirestoreInspectTool } from 'pyric/rules/internal';
 import type { ToolHandler } from '@inbrowser/agent';
 
 export interface RulesInspectHandlerOptions {

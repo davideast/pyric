@@ -4,7 +4,7 @@ import type {
   PathResolutionEntry,
   ExprTraceEntry,
   FirestoreMethod,
-} from 'pyric/rules';
+} from 'pyric/rules/internal';
 
 // Re-export the simulator trace types so consumers of `@pyric/ui/rules`
 // can describe a `Denial` without reaching into `pyric/rules` themselves.

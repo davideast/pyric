@@ -77,7 +77,9 @@ The handler resolves every `{ __type: 'serverTimestamp' }` sentinel in your test
 
 The sandbox in `pyric/sandbox` also needs `Timestamp`, `Vector`, `Reference`. When it reads a document containing a timestamp field, it needs to return a `Timestamp` instance that `instanceof Timestamp` is true for. If the wrapper classes lived in the sandbox, the rules simulator couldn't use them without depending on the sandbox; if they lived in both packages, `instanceof Timestamp` would lie depending on which copy was imported.
 
-The wrappers live in `pyric/rules` because:
+The classes themselves are engine-internal, importable from `pyric/rules/internal` for callers that need `instanceof` checks or custom evaluation. Most callers never import them directly: the public `pyric/rules` value helpers (`serverTimestamp()`, `timestamp()`, `bytes()`, `latlng()`, `duration()`, `reference()`, `vector()`) construct the right instance without exposing the class.
+
+The wrappers live in `pyric/rules` (internally) because:
 
 - This is the package that defines what `is timestamp` means.
 - This is the package that evaluates expressions, which is where most wrapper code is exercised.

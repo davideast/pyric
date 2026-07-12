@@ -8,7 +8,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
-import { resolveModules } from 'pyric/rules/node';
+import { resolveModules } from 'pyric/rules/internal/node';
 
 const SOURCE = `import { validTransition } from 'transitions';
 import { isMemberOf, hasRole } from 'membership';

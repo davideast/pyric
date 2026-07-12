@@ -6,11 +6,13 @@ order: 13024
 ---
 # Simulator vs Rules Test API
 
-Two surfaces evaluate rules against test cases. They share a type signature and a result shape; they disagree on tradeoffs. Choosing between them is a deliberate decision, not an implementation detail.
+Two surfaces evaluate rules against test cases. Underneath, they share a case shape and a result vocabulary; they disagree on tradeoffs. Choosing between them is a deliberate decision, not an implementation detail.
 
 ## The shared surface
 
-Both handlers take a rules source and a list of `TestCase` objects, and both return a `TestFirestoreRulesResult`:
+The public front door only fronts one of the two: `firestoreRules(source).simulate(cases)` runs the local simulator, takes `FirestoreCase[]`, and returns a `SimulationSummary` (`{ passed, failed, unsupported, cases: CaseResult[] }`) that never carries a thrown-error branch, since a parse failure already threw `RulesCompileError` at construction.
+
+The Rules Test API has no public front door yet. Both engines still share their case and result vocabulary one level down, on `pyric/rules/internal`: `TestFirestoreRulesHandler.execute` (the Rules Test API client) and the internal `SimulateFirestoreRulesHandler.simulate` both take a rules source and a list of `TestCase` objects (the same shape as the public `FirestoreCase`), and both return a `TestFirestoreRulesResult`:
 ```ts
 type TestFirestoreRulesResult =
   | { success: true; data: { passed; failed; unsupported; results } }
@@ -18,7 +20,7 @@ type TestFirestoreRulesResult =
 ```
 Each `TestResult` in `results` carries `description`, `expectation`, `state`, and `debugMessages`. The `state` is `'PASSED' | 'FAILED' | 'UNSUPPORTED'`.
 
-The shared shape is a feature. You can swap one handler for the other, or route the same test suite to both, without rewriting any test-case code.
+The shared internal shape is a feature. You can swap one internal handler for the other, or route the same test suite to both, without rewriting any test-case code. See [How to test rules against the Firebase Rules Test API](../pyric-rules-how-to-test-rules-against-firebase/) for the escalation pattern built on the public `simulate` plus the internal test-API client.
 
 ## What they disagree on
 
@@ -36,7 +38,7 @@ The shared shape is a feature. You can swap one handler for the other, or route 
 
 The local simulator implements most of the rules language: literals, identifiers, member access, method calls, all the binary and unary operators, function definitions with let bindings, all the standard built-ins (`get`, `exists`, `getAfter`, `existsAfter`, `debug`, `request.auth`, `request.resource`, `resource`, path literals, the type-test `is` operator). It does **not** implement every namespace method on every wrapper type. `duration.value(...).abs()` works, some less-common `bytes` arithmetic does not.
 
-When the evaluator hits a method or operation it doesn't model, it throws `UnsupportedError` rather than guessing. The handler catches that and surfaces `state: 'UNSUPPORTED'`. The semantics is "the gap is on my side, not yours". An `UNSUPPORTED` case is **not** counted as a failure: `data.failed` and `data.unsupported` are separate counters.
+When the evaluator hits a method or operation it doesn't model, it throws `UnsupportedError` rather than guessing. The handler catches that and surfaces it as an abstention: `state: 'UNSUPPORTED'` internally, `unsupported: true` on the public `CaseResult`. The semantics is "the gap is on my side, not yours". An unsupported case is **not** counted as a failure: `failed` and `unsupported` are separate counters on both the internal result and the public `SimulationSummary`.
 
 The right response to `UNSUPPORTED` depends on context:
 
@@ -70,13 +72,11 @@ When the simulator and the API disagree, we treat the API as authoritative and f
 
 The fastest agent loops use simulator-first with `UNSUPPORTED` escalation:
 ```ts
-const local = sim.simulate(source, testCases);
-const escalate = testCases.filter(
-  (_, i) => local.data.results[i].state === 'UNSUPPORTED',
-);
+const local = firestoreRules(source).simulate(testCases);
+const escalate = local.cases.filter((c) => c.unsupported).map((c) => c.case);
 if (escalate.length > 0) {
   const remote = await api.execute(scope, source, escalate);
-  // merge remote.data.results back into local.data.results by index
+  // merge remote.data.results back into local.cases by matching case
 }
 ```
 Local-first keeps the inner loop in sub-millisecond territory; the API is only paid when the simulator genuinely can't decide.

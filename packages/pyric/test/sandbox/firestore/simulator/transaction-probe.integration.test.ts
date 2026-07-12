@@ -28,12 +28,12 @@
 import { describe, test, expect } from 'vitest';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tokenize } from 'pyric/rules';
-import { parse } from 'pyric/rules';
+import { tokenize } from 'pyric/rules/internal';
+import { parse } from 'pyric/rules/internal';
 import {
   ExpressionLexError,
   ExpressionParseError,
-} from 'pyric/rules';
+} from 'pyric/rules/internal';
 
 // ─── Gating ──────────────────────────────────────────────────────────────
 

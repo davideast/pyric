@@ -11,6 +11,8 @@ Write rules that import reusable helper functions, then resolve them into a stan
 
 `2+modules` is a Pyric extension. The Firestore rules engine itself only understands `rules_version = '2'`. The resolver inlines all imported functions and rewrites the version, so the output is something Firebase will accept.
 
+`resolveModules` is an engine-internal, Node-only seam, imported from `pyric/rules/internal/node`. It's not part of the public `pyric/rules` contract and may change without notice, but it's the supported way to resolve `2+modules` imports today.
+
 ## Author rules with imports
 
 Set the version to `'2+modules'` and add `import` statements at the top of the file:
@@ -34,7 +36,7 @@ service cloud.firestore {
 ```
 ## Resolve to standard rules
 ```ts
-import { resolveModules } from 'pyric/rules/node';
+import { resolveModules } from 'pyric/rules/internal/node';
 
 const result = resolveModules(source);
 if (!result.success) {

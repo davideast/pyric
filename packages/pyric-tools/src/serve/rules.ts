@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { lintFirestoreRules, resolveModulesBrowser } from 'pyric/rules';
+import { lintFirestoreRules, resolveModulesBrowser } from 'pyric/rules/internal';
 import { parseStorageRules } from 'pyric/storage';
 import type { FirebaseJson } from '../cli/firebase-json.js';
 import { parseRtdbRulesJson } from '../rtdb/rules-json.js';

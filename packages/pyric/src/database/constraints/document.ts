@@ -42,7 +42,27 @@ export type RtdbRulesSimulationInput =
     mockData?: Record<string, unknown>;
   };
 
+declare const RTDB_RULES_DOCUMENT_BRAND: unique symbol;
+
+/**
+ * The authored RTDB rules artifact `defineRtdbRules` returns.
+ *
+ * Deliberately INERT on the public surface: it exposes no methods. It is a
+ * value you author and hand to `rtdbRules()`, which is the one analysis
+ * surface (`lint` / `simulate` / `explain` / `toJSON`). The brand is
+ * type-level only; nothing exists at runtime.
+ */
 export interface RtdbRulesDocument {
+  readonly [RTDB_RULES_DOCUMENT_BRAND]?: never;
+}
+
+/**
+ * The method-bearing document interface — INTERNAL. The runtime object
+ * behind {@link RtdbRulesDocument} implements this; the engine seams
+ * (`pyric/rules/internal/rtdb`) and the `rtdbRules()` implementation call
+ * through it. Not part of the public `pyric/rules` contract.
+ */
+export interface RtdbRulesDocumentInternal extends RtdbRulesDocument {
   toJSON(): RtdbRulesJson;
   toIR(databaseUrl?: string): RtdbIR;
   check(databaseUrl?: string): RtdbRulesCheckResult;
@@ -100,7 +120,7 @@ function collectFindings(node: RtdbNode, kind: 'errors' | 'warnings'): RtdbRules
   return findings;
 }
 
-class DefinedRtdbRulesDocument implements RtdbRulesDocument {
+class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
   constructor(private readonly definition: RtdbRulesDefinition) {}
 
   toIR(databaseUrl?: string): RtdbIR {
@@ -148,5 +168,10 @@ class DefinedRtdbRulesDocument implements RtdbRulesDocument {
 }
 
 export function defineRtdbRules(definition: RtdbRulesDefinition): RtdbRulesDocument {
-  return new DefinedRtdbRulesDocument(definition);
+  // The runtime object carries the full method surface; the declared return
+  // type is the inert public artifact. Route the assignment through the
+  // internal interface (a declared subtype) so the brand-only weak type
+  // accepts it.
+  const doc: RtdbRulesDocumentInternal = new DefinedRtdbRulesDocument(definition);
+  return doc;
 }

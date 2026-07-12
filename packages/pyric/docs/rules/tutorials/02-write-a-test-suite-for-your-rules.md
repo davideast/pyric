@@ -1,12 +1,12 @@
 # Write a test suite for your rules
 
-Pick up where [Lint your first rules file](./01-lint-your-first-rules-file.md) left off and add a suite of test cases. You will use the in-process simulator, `SimulateFirestoreRulesHandler`, so the whole loop stays local. No Firebase project, no network, no deployment.
+Pick up where [Lint your first rules file](./01-lint-your-first-rules-file.md) left off and add a suite of test cases. You will use `firestoreRules(source).simulate(cases)`, the in-process simulator front door, so the whole loop stays local. No Firebase project, no network, no deployment.
 
 By the end you will have a script that:
 
 1. Loads a rules file.
-2. Runs a list of `TestCase` objects against the rules.
-3. Reports passes, failures, and `UNSUPPORTED` cases.
+2. Runs a list of `FirestoreCase` objects against the rules.
+3. Reports passes, failures, and unsupported cases.
 
 This tutorial assumes you completed Tutorial 1 and still have the `rules-lint-tutorial` folder. If not, copy the final `firestore.rules` from that tutorial first.
 
@@ -35,7 +35,7 @@ service cloud.firestore {
 }
 ```
 
-Lint it first. You should see zero warnings. (If you skip the lint, the simulator will still run, but you've lost the chance to catch a syntax error before you scaffolded ten tests around it.)
+Lint it first. You should see zero issues. (If you skip the lint, the simulator will still run, but you've lost the chance to catch a syntax error before you scaffolded ten tests around it.)
 
 ## Step 2: Write your first test case
 
@@ -43,14 +43,11 @@ Create `simulate.ts`:
 
 ```ts
 import { readFileSync } from 'node:fs';
-import {
-  SimulateFirestoreRulesHandler,
-  type TestCase,
-} from 'pyric/rules';
+import { firestoreRules, type FirestoreCase } from 'pyric/rules';
 
 const source = readFileSync('./firestore.rules', 'utf-8');
 
-const testCases: TestCase[] = [
+const testCases: FirestoreCase[] = [
   {
     description: 'authenticated read on /notes is allowed',
     expectation: 'ALLOW',
@@ -60,18 +57,13 @@ const testCases: TestCase[] = [
   },
 ];
 
-const sim = new SimulateFirestoreRulesHandler();
-const result = sim.simulate(source, testCases);
+const ruleset = firestoreRules(source); // throws RulesCompileError if source doesn't parse
+const { passed, failed, unsupported, cases } = ruleset.simulate(testCases);
 
-if (!result.success) {
-  console.error('Simulation failed:', result.error);
-  process.exit(1);
-}
-
-const { passed, failed, unsupported, results } = result.data;
 console.log(`${passed} passed · ${failed} failed · ${unsupported} unsupported`);
-for (const r of results) {
-  console.log(`  [${r.state}] ${r.description}`);
+for (const c of cases) {
+  const state = c.unsupported ? 'UNSUPPORTED' : c.passed ? 'PASSED' : 'FAILED';
+  console.log(`  [${state}] ${c.description}`);
 }
 ```
 
@@ -88,7 +80,7 @@ You will see:
   [PASSED] authenticated read on /notes is allowed
 ```
 
-Notice what just happened: the simulator parsed the rules, resolved the match block for `notes/n1`, built a request with `auth.uid = 'alice'`, evaluated the `allow read` rule, decided `ALLOW`, and compared that to your `expectation`. They matched, so the case passed.
+Notice what just happened: `firestoreRules(source)` parsed the rules once; `simulate` resolved the match block for `notes/n1`, built a request with `auth.uid = 'alice'`, evaluated the `allow read` rule, decided `ALLOW`, and compared that to your `expectation`. They matched, so the case passed (`passed: true` on its `CaseResult`).
 
 ## Step 3: Add a deny case
 
@@ -181,30 +173,32 @@ To see what a failure looks like, change the last case's expectation from `ALLOW
   [FAILED] admin can read any admin doc
 ```
 
-The simulator decided `ALLOW`. Your expectation said `DENY`. They disagreed, so the state is `FAILED`. The `result.data.results[i].debugMessages` array contains a trace if you want to see which rule allowed and which denied:
+The simulator decided `ALLOW`. Your expectation said `DENY`. They disagreed, so `passed` is `false` on that case's result. Each `CaseResult`'s `trace` array carries the rule-by-rule account of which rule decided; `explainCase` renders it as a string:
 
 ```ts
-console.log(result.data.results[4].debugMessages);
-// [
-//   "Rule #0 (read,write) → ALLOW",
-//   "Simulated: ALLOW",
-// ]
+import { explainCase } from 'pyric/rules';
+
+console.log(explainCase(cases[4]));
+// FAIL: admin can read any admin doc
+//   get admin/config/secrets/api-keys (expected DENY, got ALLOW)
+//   rules evaluated:
+//     #0 (read,write) [admin/{document=**}] -> ALLOW: request.auth.token.role == 'admin'
 ```
 
 Flip the expectation back to `ALLOW` when you're done.
 
-## Step 7: A glimpse of `UNSUPPORTED`
+## Step 7: A glimpse of unsupported cases
 
-The local simulator implements most of the rules language, but not everything. When it hits a feature it doesn't yet handle (some namespace methods, certain wrappers), it returns `state: 'UNSUPPORTED'` instead of pretending to decide. That distinction matters: an `UNSUPPORTED` result is the simulator abstaining, not your rule failing.
+The local simulator implements most of the rules language, but not everything. When it hits a feature it doesn't yet handle (some namespace methods, certain wrappers), it reports `unsupported: true` on that case's result instead of pretending to decide. That distinction matters: an unsupported result is the simulator abstaining, not your rule failing.
 
-If you ever see `UNSUPPORTED` cases in your suite and you need a verdict, route those cases to the real Firebase Rules Test API. See [Test rules against the Firebase Rules Test API](../how-to/test-rules-against-firebase.md). For most agent-authored rules, the simulator is enough.
+If you ever see unsupported cases in your suite and you need a verdict, route those cases to the real Firebase Rules Test API. See [Test rules against the Firebase Rules Test API](../how-to/test-rules-against-firebase.md). For most agent-authored rules, the simulator is enough.
 
 ## What you have learned
 
-- `SimulateFirestoreRulesHandler.simulate(source, testCases)` runs an entire test suite in-process.
-- A `TestCase` is a small object: `description`, `expectation`, `method`, `path`, plus optional `auth`, `resource`, and `data`.
+- `firestoreRules(source).simulate(cases)` runs an entire test suite in-process. The constructor throws `RulesCompileError` on unparseable source; `simulate` itself never throws on a rule outcome.
+- A `FirestoreCase` is a small object: `description`, `expectation`, `method`, `path`, plus optional `auth`, `resource`, and `data`.
 - `resource` is the *existing* document; `data` is the *proposed* write.
-- Each result lands in one of three states: `PASSED`, `FAILED`, or `UNSUPPORTED`.
+- Each result lands in one of three states, readable off `CaseResult`: passed (`passed: true`), failed (`passed: false`, `unsupported: false`), or unsupported (`unsupported: true`).
 
 ## What to do next
 
