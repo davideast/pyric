@@ -1,0 +1,17 @@
+{
+  "name": "rules-firestore-list-and-string-methods",
+  "matrixRow": "firestore-rules#179",
+  "rowIds": [
+    "firestore-rules#179"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"list-and-string-methods\" (Coverage: String + List methods). Production must accept String.split/lower/upper/trim/replace/size, List.hasAll/hasAny/hasOnly/join and Map.values() in field-validation conditions.",
+  "observedAt": "2026-07-12T02:29:54.837Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "well-formed post ALLOW": "ALLOW",
+    "category outside allowed set DENY (split hasOnly)": "DENY",
+    "slug not lowercase DENY (String.lower)": "DENY",
+    "code wrong length after upper DENY (String.upper/size)": "DENY"
+  }
+}

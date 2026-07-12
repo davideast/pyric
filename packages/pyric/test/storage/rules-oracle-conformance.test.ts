@@ -47,8 +47,10 @@ import {
   type FirestoreLookup,
 } from '../../src/storage/rules.ts';
 
-// rules-storage-* observations live under the 'storage' surface subdirectory.
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'storage');
+// rules-storage-* observations live under the native 'storage-rules'
+// conformance surface (issue #184) — distinct from the SDK-surface 'storage'
+// dir. The capture runner (run-rules-storage.ts) writes here; read the same place.
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'storage-rules');
 
 /** name (no extension) → scenario, for O(1) observation→scenario resolution. */
 const SCENARIO_BY_OBSERVATION = new Map<string, StorageScenario>(

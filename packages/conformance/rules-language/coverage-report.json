@@ -4,10 +4,10 @@
     {
       "engine": "firestore",
       "totalConstructs": 140,
-      "exercisedConstructs": 68,
-      "verifiedConstructs": 68,
-      "exercisedCoverage": 0.4857142857142857,
-      "verifiedCoverage": 0.4857142857142857,
+      "exercisedConstructs": 126,
+      "verifiedConstructs": 126,
+      "exercisedCoverage": 0.9,
+      "verifiedCoverage": 0.9,
       "constructs": [
         {
           "id": "firestore.binding.request",
@@ -16,18 +16,23 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ],
@@ -35,18 +40,23 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ]
@@ -58,38 +68,52 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "globals-request-path-and-resource-id",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "unsupported-feature-witness"
           ],
           "verifiedBy": [
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "globals-request-path-and-resource-id",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "unsupported-feature-witness"
           ]
         },
         {
           "id": "firestore.binding.request.auth.uid",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "required-fields-and-mapdiff"
+          ],
+          "verifiedBy": [
+            "required-fields-and-mapdiff"
+          ]
         },
         {
           "id": "firestore.binding.request.auth.token",
@@ -110,26 +134,34 @@
           "kind": "binding",
           "exercisedBy": [
             "builtins-time-and-math",
+            "duration-and-latlng",
             "error-absorption-and-or",
             "get-after-and-exists-after",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
+            "time-math-and-casts",
             "undefined-field-access"
           ],
           "verifiedBy": [
             "builtins-time-and-math",
+            "duration-and-latlng",
             "error-absorption-and-or",
             "get-after-and-exists-after",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
+            "time-math-and-casts",
             "undefined-field-access"
           ]
         },
@@ -138,34 +170,46 @@
           "kind": "binding",
           "exercisedBy": [
             "builtins-time-and-math",
+            "duration-and-latlng",
             "error-absorption-and-or",
             "get-after-and-exists-after",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
+            "time-math-and-casts",
             "undefined-field-access"
           ],
           "verifiedBy": [
             "builtins-time-and-math",
+            "duration-and-latlng",
             "error-absorption-and-or",
             "get-after-and-exists-after",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
+            "time-math-and-casts",
             "undefined-field-access"
           ]
         },
         {
           "id": "firestore.binding.request.time",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.binding.request.path",
@@ -182,8 +226,12 @@
         {
           "id": "firestore.binding.request.method",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.binding.request.query",
@@ -199,17 +247,23 @@
           "id": "firestore.binding.resource",
           "kind": "binding",
           "exercisedBy": [
-            "globals-request-path-and-resource-id"
+            "globals-request-path-and-resource-id",
+            "required-fields-and-mapdiff"
           ],
           "verifiedBy": [
-            "globals-request-path-and-resource-id"
+            "globals-request-path-and-resource-id",
+            "required-fields-and-mapdiff"
           ]
         },
         {
           "id": "firestore.binding.resource.data",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "required-fields-and-mapdiff"
+          ],
+          "verifiedBy": [
+            "required-fields-and-mapdiff"
+          ]
         },
         {
           "id": "firestore.binding.resource.id",
@@ -244,19 +298,24 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ],
@@ -264,19 +323,24 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ]
@@ -350,26 +414,42 @@
         {
           "id": "firestore.function.math.floor",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.function.math.round",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.function.math.sqrt",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.function.math.pow",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.function.math.isInfinite",
@@ -380,8 +460,12 @@
         {
           "id": "firestore.function.math.isNaN",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.function.timestamp.date",
@@ -410,30 +494,44 @@
           "kind": "function",
           "exercisedBy": [
             "builtins-time-and-math",
-            "cross-type-operator-overloads"
+            "cross-type-operator-overloads",
+            "duration-and-latlng"
           ],
           "verifiedBy": [
             "builtins-time-and-math",
-            "cross-type-operator-overloads"
+            "cross-type-operator-overloads",
+            "duration-and-latlng"
           ]
         },
         {
           "id": "firestore.function.duration.time",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "duration-and-latlng"
+          ],
+          "verifiedBy": [
+            "duration-and-latlng"
+          ]
         },
         {
           "id": "firestore.function.duration.abs",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "duration-and-latlng"
+          ],
+          "verifiedBy": [
+            "duration-and-latlng"
+          ]
         },
         {
           "id": "firestore.function.latlng.value",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "duration-and-latlng"
+          ],
+          "verifiedBy": [
+            "duration-and-latlng"
+          ]
         },
         {
           "id": "firestore.function.hashing.md5",
@@ -480,20 +578,32 @@
         {
           "id": "firestore.function.cast.string",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.function.cast.int",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.function.cast.float",
           "kind": "function",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.function.cast.bool",
@@ -526,38 +636,64 @@
         {
           "id": "firestore.method.string.lower",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods"
+          ]
         },
         {
           "id": "firestore.method.string.upper",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods"
+          ]
         },
         {
           "id": "firestore.method.string.trim",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods"
+          ]
         },
         {
           "id": "firestore.method.string.size",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods",
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods",
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.string.split",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods"
+          ]
         },
         {
           "id": "firestore.method.string.replace",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods"
+          ]
         },
         {
           "id": "firestore.method.string.toUtf8",
@@ -572,28 +708,42 @@
         {
           "id": "firestore.method.list.hasAll",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods"
+          ]
         },
         {
           "id": "firestore.method.list.hasAny",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods"
+          ]
         },
         {
           "id": "firestore.method.list.hasOnly",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods"
+          ]
         },
         {
           "id": "firestore.method.list.size",
           "kind": "method",
           "exercisedBy": [
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset"
           ],
           "verifiedBy": [
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset"
           ]
         },
@@ -630,26 +780,36 @@
         {
           "id": "firestore.method.list.join",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods"
+          ]
         },
         {
           "id": "firestore.method.map.keys",
           "kind": "method",
           "exercisedBy": [
             "prototype-chain-keys",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection"
           ],
           "verifiedBy": [
             "prototype-chain-keys",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection"
           ]
         },
         {
           "id": "firestore.method.map.values",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "list-and-string-methods"
+          ],
+          "verifiedBy": [
+            "list-and-string-methods"
+          ]
         },
         {
           "id": "firestore.method.map.size",
@@ -692,38 +852,62 @@
         {
           "id": "firestore.method.map.diff",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "required-fields-and-mapdiff"
+          ],
+          "verifiedBy": [
+            "required-fields-and-mapdiff"
+          ]
         },
         {
           "id": "firestore.method.mapdiff.addedKeys",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "required-fields-and-mapdiff"
+          ],
+          "verifiedBy": [
+            "required-fields-and-mapdiff"
+          ]
         },
         {
           "id": "firestore.method.mapdiff.removedKeys",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "required-fields-and-mapdiff"
+          ],
+          "verifiedBy": [
+            "required-fields-and-mapdiff"
+          ]
         },
         {
           "id": "firestore.method.mapdiff.changedKeys",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "required-fields-and-mapdiff"
+          ],
+          "verifiedBy": [
+            "required-fields-and-mapdiff"
+          ]
         },
         {
           "id": "firestore.method.mapdiff.affectedKeys",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "required-fields-and-mapdiff"
+          ],
+          "verifiedBy": [
+            "required-fields-and-mapdiff"
+          ]
         },
         {
           "id": "firestore.method.mapdiff.unchangedKeys",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "required-fields-and-mapdiff"
+          ],
+          "verifiedBy": [
+            "required-fields-and-mapdiff"
+          ]
         },
         {
           "id": "firestore.method.set.difference",
@@ -760,17 +944,23 @@
         {
           "id": "firestore.method.set.hasAll",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "required-fields-and-mapdiff"
+          ],
+          "verifiedBy": [
+            "required-fields-and-mapdiff"
+          ]
         },
         {
           "id": "firestore.method.set.hasAny",
           "kind": "method",
           "exercisedBy": [
-            "prototype-chain-keys"
+            "prototype-chain-keys",
+            "required-fields-and-mapdiff"
           ],
           "verifiedBy": [
-            "prototype-chain-keys"
+            "prototype-chain-keys",
+            "required-fields-and-mapdiff"
           ]
         },
         {
@@ -779,11 +969,13 @@
           "exercisedBy": [
             "list-methods-concat-removeall-toset",
             "prototype-chain-keys",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection"
           ],
           "verifiedBy": [
             "list-methods-concat-removeall-toset",
             "prototype-chain-keys",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection"
           ]
         },
@@ -792,10 +984,12 @@
           "kind": "method",
           "exercisedBy": [
             "list-methods-concat-removeall-toset",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection"
           ],
           "verifiedBy": [
             "list-methods-concat-removeall-toset",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection"
           ]
         },
@@ -844,74 +1038,122 @@
         {
           "id": "firestore.method.timestamp.year",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.month",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.day",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.hours",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.minutes",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.seconds",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.nanos",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.dayOfWeek",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.dayOfYear",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.date",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.time",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.timestamp.toMillis",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.method.duration.seconds",
@@ -928,20 +1170,32 @@
         {
           "id": "firestore.method.latlng.latitude",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "duration-and-latlng"
+          ],
+          "verifiedBy": [
+            "duration-and-latlng"
+          ]
         },
         {
           "id": "firestore.method.latlng.longitude",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "duration-and-latlng"
+          ],
+          "verifiedBy": [
+            "duration-and-latlng"
+          ]
         },
         {
           "id": "firestore.method.latlng.distance",
           "kind": "method",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "duration-and-latlng"
+          ],
+          "verifiedBy": [
+            "duration-and-latlng"
+          ]
         },
         {
           "id": "firestore.operator.eq",
@@ -953,12 +1207,15 @@
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
+            "time-math-and-casts",
             "undefined-field-access"
           ],
           "verifiedBy": [
@@ -968,12 +1225,15 @@
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
+            "time-math-and-casts",
             "undefined-field-access"
           ]
         },
@@ -984,28 +1244,38 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "globals-request-path-and-resource-id",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
+            "time-math-and-casts",
             "unsupported-feature-witness"
           ],
           "verifiedBy": [
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "globals-request-path-and-resource-id",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
+            "time-math-and-casts",
             "unsupported-feature-witness"
           ]
         },
@@ -1024,11 +1294,17 @@
           "kind": "operator",
           "exercisedBy": [
             "builtins-time-and-math",
-            "error-absorption-and-or"
+            "duration-and-latlng",
+            "error-absorption-and-or",
+            "list-and-string-methods",
+            "time-math-and-casts"
           ],
           "verifiedBy": [
             "builtins-time-and-math",
-            "error-absorption-and-or"
+            "duration-and-latlng",
+            "error-absorption-and-or",
+            "list-and-string-methods",
+            "time-math-and-casts"
           ]
         },
         {
@@ -1044,8 +1320,18 @@
         {
           "id": "firestore.operator.gte",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "duration-and-latlng",
+            "functions-verbs-and-recursive",
+            "list-and-string-methods",
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "duration-and-latlng",
+            "functions-verbs-and-recursive",
+            "list-and-string-methods",
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.operator.add",
@@ -1070,8 +1356,14 @@
         {
           "id": "firestore.operator.mul",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "functions-verbs-and-recursive",
+            "time-math-and-casts"
+          ],
+          "verifiedBy": [
+            "functions-verbs-and-recursive",
+            "time-math-and-casts"
+          ]
         },
         {
           "id": "firestore.operator.div",
@@ -1100,33 +1392,43 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
-            "set-algebra-difference-union-intersection"
+            "required-fields-and-mapdiff",
+            "set-algebra-difference-union-intersection",
+            "time-math-and-casts"
           ],
           "verifiedBy": [
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
-            "set-algebra-difference-union-intersection"
+            "required-fields-and-mapdiff",
+            "set-algebra-difference-union-intersection",
+            "time-math-and-casts"
           ]
         },
         {
@@ -1166,8 +1468,12 @@
         {
           "id": "firestore.operator.ternary",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "functions-verbs-and-recursive"
+          ],
+          "verifiedBy": [
+            "functions-verbs-and-recursive"
+          ]
         },
         {
           "id": "firestore.operator.in",
@@ -1201,9 +1507,11 @@
           "id": "firestore.operator.unary-minus",
           "kind": "operator",
           "exercisedBy": [
+            "duration-and-latlng",
             "int-float-and-division"
           ],
           "verifiedBy": [
+            "duration-and-latlng",
             "int-float-and-division"
           ]
         },
@@ -1214,19 +1522,24 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ],
@@ -1234,19 +1547,24 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ]
@@ -1279,10 +1597,12 @@
           "id": "firestore.rule-kind.allow-read",
           "kind": "rule-kind",
           "exercisedBy": [
+            "functions-verbs-and-recursive",
             "string-literals-and-regex",
             "unsupported-feature-witness"
           ],
           "verifiedBy": [
+            "functions-verbs-and-recursive",
             "string-literals-and-regex",
             "unsupported-feature-witness"
           ]
@@ -1290,20 +1610,32 @@
         {
           "id": "firestore.rule-kind.allow-write",
           "kind": "rule-kind",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "functions-verbs-and-recursive"
+          ],
+          "verifiedBy": [
+            "functions-verbs-and-recursive"
+          ]
         },
         {
           "id": "firestore.rule-kind.allow-get",
           "kind": "rule-kind",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "functions-verbs-and-recursive"
+          ],
+          "verifiedBy": [
+            "functions-verbs-and-recursive"
+          ]
         },
         {
           "id": "firestore.rule-kind.allow-list",
           "kind": "rule-kind",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "functions-verbs-and-recursive"
+          ],
+          "verifiedBy": [
+            "functions-verbs-and-recursive"
+          ]
         },
         {
           "id": "firestore.rule-kind.allow-create",
@@ -1312,44 +1644,58 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
+            "time-math-and-casts",
             "undefined-field-access"
           ],
           "verifiedBy": [
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
+            "time-math-and-casts",
             "undefined-field-access"
           ]
         },
         {
           "id": "firestore.rule-kind.allow-update",
           "kind": "rule-kind",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "functions-verbs-and-recursive",
+            "required-fields-and-mapdiff"
+          ],
+          "verifiedBy": [
+            "functions-verbs-and-recursive",
+            "required-fields-and-mapdiff"
+          ]
         },
         {
           "id": "firestore.rule-kind.allow-delete",
@@ -1368,19 +1714,24 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ],
@@ -1388,19 +1739,24 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ]
@@ -1408,14 +1764,22 @@
         {
           "id": "firestore.rule-kind.function",
           "kind": "rule-kind",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "functions-verbs-and-recursive"
+          ],
+          "verifiedBy": [
+            "functions-verbs-and-recursive"
+          ]
         },
         {
           "id": "firestore.rule-kind.let",
           "kind": "rule-kind",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "functions-verbs-and-recursive"
+          ],
+          "verifiedBy": [
+            "functions-verbs-and-recursive"
+          ]
         },
         {
           "id": "firestore.rule-kind.rules_version",
@@ -1424,19 +1788,24 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ],
@@ -1444,19 +1813,24 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ]
@@ -1474,19 +1848,24 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ],
@@ -1494,19 +1873,24 @@
             "builtins-time-and-math",
             "bytes-toutf8-and-hashing",
             "cross-type-operator-overloads",
+            "duration-and-latlng",
             "error-absorption-and-or",
+            "functions-verbs-and-recursive",
             "get-after-and-exists-after",
             "get-missing-doc",
             "globals-request-path-and-resource-id",
             "int-float-and-division",
+            "list-and-string-methods",
             "list-methods-concat-removeall-toset",
             "map-get-string-and-list-form",
             "matches-full-string-regex",
             "path-constructor-and-bind",
             "prototype-chain-keys",
             "range-slice-list-and-string",
+            "required-fields-and-mapdiff",
             "set-algebra-difference-union-intersection",
             "string-literals-and-regex",
+            "time-math-and-casts",
             "undefined-field-access",
             "unsupported-feature-witness"
           ]
@@ -1514,8 +1898,12 @@
         {
           "id": "firestore.semantic.recursive-wildcard",
           "kind": "semantic",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "functions-verbs-and-recursive"
+          ],
+          "verifiedBy": [
+            "functions-verbs-and-recursive"
+          ]
         },
         {
           "id": "firestore.semantic.error-absorption-and",
@@ -1542,8 +1930,8 @@
           "verifiedBy": []
         }
       ],
-      "scenarioCount": 18,
-      "verifiedScenarioCount": 18,
+      "scenarioCount": 23,
+      "verifiedScenarioCount": 23,
       "unresolved": [
         {
           "scenario": "range-slice-list-and-string",
@@ -1575,10 +1963,10 @@
     {
       "engine": "storage",
       "totalConstructs": 54,
-      "exercisedConstructs": 35,
-      "verifiedConstructs": 35,
-      "exercisedCoverage": 0.6481481481481481,
-      "verifiedCoverage": 0.6481481481481481,
+      "exercisedConstructs": 51,
+      "verifiedConstructs": 51,
+      "exercisedCoverage": 0.9444444444444444,
+      "verifiedCoverage": 0.9444444444444444,
       "constructs": [
         {
           "id": "storage.binding.request",
@@ -1588,6 +1976,7 @@
             "functions-let-scope",
             "matches-regex",
             "metadata-access",
+            "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
             "resource-timestamp-witness"
           ],
@@ -1596,6 +1985,7 @@
             "functions-let-scope",
             "matches-regex",
             "metadata-access",
+            "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
             "resource-timestamp-witness"
           ]
@@ -1605,11 +1995,13 @@
           "kind": "binding",
           "exercisedBy": [
             "firestore-lookup",
-            "metadata-access"
+            "metadata-access",
+            "metadata-verbs-and-arithmetic"
           ],
           "verifiedBy": [
             "firestore-lookup",
-            "metadata-access"
+            "metadata-access",
+            "metadata-verbs-and-arithmetic"
           ]
         },
         {
@@ -1617,39 +2009,49 @@
           "kind": "binding",
           "exercisedBy": [
             "firestore-lookup",
-            "metadata-access"
+            "metadata-access",
+            "metadata-verbs-and-arithmetic"
           ],
           "verifiedBy": [
             "firestore-lookup",
-            "metadata-access"
+            "metadata-access",
+            "metadata-verbs-and-arithmetic"
           ]
         },
         {
           "id": "storage.binding.request.auth.token",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.binding.request.resource",
           "kind": "binding",
           "exercisedBy": [
             "functions-let-scope",
-            "matches-regex"
+            "matches-regex",
+            "metadata-verbs-and-arithmetic"
           ],
           "verifiedBy": [
             "functions-let-scope",
-            "matches-regex"
+            "matches-regex",
+            "metadata-verbs-and-arithmetic"
           ]
         },
         {
           "id": "storage.binding.request.resource.size",
           "kind": "binding",
           "exercisedBy": [
-            "functions-let-scope"
+            "functions-let-scope",
+            "metadata-verbs-and-arithmetic"
           ],
           "verifiedBy": [
-            "functions-let-scope"
+            "functions-let-scope",
+            "metadata-verbs-and-arithmetic"
           ]
         },
         {
@@ -1657,18 +2059,24 @@
           "kind": "binding",
           "exercisedBy": [
             "functions-let-scope",
-            "matches-regex"
+            "matches-regex",
+            "metadata-verbs-and-arithmetic"
           ],
           "verifiedBy": [
             "functions-let-scope",
-            "matches-regex"
+            "matches-regex",
+            "metadata-verbs-and-arithmetic"
           ]
         },
         {
           "id": "storage.binding.request.resource.metadata",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.binding.request.time",
@@ -1685,25 +2093,35 @@
         {
           "id": "storage.binding.request.method",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.binding.request.path",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.binding.resource",
           "kind": "binding",
           "exercisedBy": [
             "metadata-access",
+            "metadata-verbs-and-arithmetic",
             "resource-timestamp-witness",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
             "metadata-access",
+            "metadata-verbs-and-arithmetic",
             "resource-timestamp-witness",
             "verbs-umbrella-granular"
           ]
@@ -1711,14 +2129,22 @@
         {
           "id": "storage.binding.resource.size",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.binding.resource.contentType",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.binding.resource.metadata",
@@ -1733,8 +2159,26 @@
         {
           "id": "storage.binding.path-variable",
           "kind": "binding",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "firestore-lookup",
+            "functions-let-scope",
+            "matches-regex",
+            "metadata-access",
+            "metadata-verbs-and-arithmetic",
+            "request-time-timestamp",
+            "resource-timestamp-witness",
+            "verbs-umbrella-granular"
+          ],
+          "verifiedBy": [
+            "firestore-lookup",
+            "functions-let-scope",
+            "matches-regex",
+            "metadata-access",
+            "metadata-verbs-and-arithmetic",
+            "request-time-timestamp",
+            "resource-timestamp-witness",
+            "verbs-umbrella-granular"
+          ]
         },
         {
           "id": "storage.binding.resource.name",
@@ -1802,10 +2246,12 @@
           "id": "storage.method.string.matches",
           "kind": "method",
           "exercisedBy": [
-            "matches-regex"
+            "matches-regex",
+            "metadata-verbs-and-arithmetic"
           ],
           "verifiedBy": [
-            "matches-regex"
+            "matches-regex",
+            "metadata-verbs-and-arithmetic"
           ]
         },
         {
@@ -1815,12 +2261,14 @@
             "firestore-lookup",
             "functions-let-scope",
             "metadata-access",
+            "metadata-verbs-and-arithmetic",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
             "firestore-lookup",
             "functions-let-scope",
             "metadata-access",
+            "metadata-verbs-and-arithmetic",
             "verbs-umbrella-granular"
           ]
         },
@@ -1828,9 +2276,11 @@
           "id": "storage.operator.neq",
           "kind": "operator",
           "exercisedBy": [
+            "metadata-verbs-and-arithmetic",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
+            "metadata-verbs-and-arithmetic",
             "verbs-umbrella-granular"
           ]
         },
@@ -1839,11 +2289,13 @@
           "kind": "operator",
           "exercisedBy": [
             "functions-let-scope",
+            "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
             "resource-timestamp-witness"
           ],
           "verifiedBy": [
             "functions-let-scope",
+            "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
             "resource-timestamp-witness"
           ]
@@ -1863,58 +2315,86 @@
         {
           "id": "storage.operator.lte",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.operator.gte",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.operator.add",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.operator.sub",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.operator.mul",
           "kind": "operator",
           "exercisedBy": [
-            "functions-let-scope"
+            "functions-let-scope",
+            "metadata-verbs-and-arithmetic"
           ],
           "verifiedBy": [
-            "functions-let-scope"
+            "functions-let-scope",
+            "metadata-verbs-and-arithmetic"
           ]
         },
         {
           "id": "storage.operator.div",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.operator.and",
           "kind": "operator",
           "exercisedBy": [
-            "functions-let-scope"
+            "functions-let-scope",
+            "metadata-verbs-and-arithmetic"
           ],
           "verifiedBy": [
-            "functions-let-scope"
+            "functions-let-scope",
+            "metadata-verbs-and-arithmetic"
           ]
         },
         {
           "id": "storage.operator.or",
           "kind": "operator",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.operator.not",
@@ -1934,6 +2414,7 @@
             "functions-let-scope",
             "matches-regex",
             "metadata-access",
+            "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
             "resource-timestamp-witness"
           ],
@@ -1942,6 +2423,7 @@
             "functions-let-scope",
             "matches-regex",
             "metadata-access",
+            "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
             "resource-timestamp-witness"
           ]
@@ -1960,9 +2442,11 @@
           "id": "storage.rule-kind.allow-read",
           "kind": "rule-kind",
           "exercisedBy": [
+            "metadata-verbs-and-arithmetic",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
+            "metadata-verbs-and-arithmetic",
             "verbs-umbrella-granular"
           ]
         },
@@ -1995,8 +2479,12 @@
         {
           "id": "storage.rule-kind.allow-list",
           "kind": "rule-kind",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.rule-kind.allow-create",
@@ -2005,6 +2493,7 @@
             "firestore-lookup",
             "functions-let-scope",
             "matches-regex",
+            "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
             "verbs-umbrella-granular"
           ],
@@ -2012,6 +2501,7 @@
             "firestore-lookup",
             "functions-let-scope",
             "matches-regex",
+            "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
             "verbs-umbrella-granular"
           ]
@@ -2020,9 +2510,11 @@
           "id": "storage.rule-kind.allow-update",
           "kind": "rule-kind",
           "exercisedBy": [
+            "metadata-verbs-and-arithmetic",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
+            "metadata-verbs-and-arithmetic",
             "verbs-umbrella-granular"
           ]
         },
@@ -2044,6 +2536,7 @@
             "functions-let-scope",
             "matches-regex",
             "metadata-access",
+            "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
             "resource-timestamp-witness",
             "verbs-umbrella-granular"
@@ -2053,6 +2546,7 @@
             "functions-let-scope",
             "matches-regex",
             "metadata-access",
+            "metadata-verbs-and-arithmetic",
             "request-time-timestamp",
             "resource-timestamp-witness",
             "verbs-umbrella-granular"
@@ -2081,16 +2575,36 @@
         {
           "id": "storage.rule-kind.rules_version",
           "kind": "rule-kind",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "firestore-lookup",
+            "functions-let-scope",
+            "matches-regex",
+            "metadata-access",
+            "metadata-verbs-and-arithmetic",
+            "request-time-timestamp",
+            "resource-timestamp-witness",
+            "verbs-umbrella-granular"
+          ],
+          "verifiedBy": [
+            "firestore-lookup",
+            "functions-let-scope",
+            "matches-regex",
+            "metadata-access",
+            "metadata-verbs-and-arithmetic",
+            "request-time-timestamp",
+            "resource-timestamp-witness",
+            "verbs-umbrella-granular"
+          ]
         },
         {
           "id": "storage.semantic.read-umbrella",
           "kind": "semantic",
           "exercisedBy": [
+            "metadata-verbs-and-arithmetic",
             "verbs-umbrella-granular"
           ],
           "verifiedBy": [
+            "metadata-verbs-and-arithmetic",
             "verbs-umbrella-granular"
           ]
         },
@@ -2107,8 +2621,12 @@
         {
           "id": "storage.semantic.recursive-wildcard",
           "kind": "semantic",
-          "exercisedBy": [],
-          "verifiedBy": []
+          "exercisedBy": [
+            "metadata-verbs-and-arithmetic"
+          ],
+          "verifiedBy": [
+            "metadata-verbs-and-arithmetic"
+          ]
         },
         {
           "id": "storage.semantic.deny-by-default",
@@ -2117,8 +2635,8 @@
           "verifiedBy": []
         }
       ],
-      "scenarioCount": 7,
-      "verifiedScenarioCount": 7,
+      "scenarioCount": 8,
+      "verifiedScenarioCount": 8,
       "unresolved": []
     },
     {
