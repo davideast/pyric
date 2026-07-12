@@ -47,29 +47,12 @@
  * `updateFn` — see `txnCommit` handler for full details.
  */
 
-import {
-  onSnapshot,
-  SandboxError,
-  type DocumentReference,
-  type CollectionReference,
-  type Query,
-} from 'pyric/firestore';
-import {
-  ref as rtdbRef,
-  onValue as rtdbOnValue,
-  type DatabaseReference,
-} from 'pyric/database/modular';
-
 import type {
   InboundMessage,
   OpMessage,
-  FirestoreSubMessage,
-  RtdbValueSubMessage,
-  UnsubMessage,
   ToolMessage,
 } from './protocol.js';
 import {
-  serializeError,
   isAuthSub,
   isEventSub,
   isRtdbSub,
@@ -81,7 +64,7 @@ import {
 // of a separate in-page sandbox.
 import { buildSandboxDispatcher } from '../../bridge/client/dispatch.js';
 
-import { type HostCtx, type PortLike, post, ok, fail } from './host-context.js';
+import { type HostCtx, type PortLike, ok, fail } from './host-context.js';
 import {
   authSubsFor,
   isAuthOp,
@@ -103,22 +86,20 @@ import {
   cleanupPortMessaging,
 } from './host-messaging.js';
 import {
-  resolveTarget,
-  serializeDocSnap,
   lensDb,
   lensProvenance,
   sessionDb,
-  lensRtdb,
   opProvenance,
 } from './host/core.js';
 import { isFirestoreReadOp, handleFirestoreReadOp } from './host/firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './host/firestore-writes.js';
 import { isRulesOp, handleRulesOp } from './host/rules.js';
 import { isAdminFirestoreOp, handleAdminFirestoreOp } from './host/admin-firestore.js';
-import { isRtdbOp, handleRtdbOp, rtdbSnapToWire } from './host/rtdb.js';
+import { isRtdbOp, handleRtdbOp } from './host/rtdb.js';
 import { isStorageOp, handleStorageOp } from './host/storage.js';
 import { isConnectionOp, handleConnectionOp } from './host/connection.js';
 import { isStudioOp, handleStudioOp } from './host/studio.js';
+import { handleSub, handleRtdbSub, handleUnsub, dropPortSessionSubs } from './host/subscriptions.js';
 
 // Re-export so host.ts's public surface is unchanged after the decomposition.
 export { ensureAuth, portSession } from './host-auth.js';
@@ -163,177 +144,6 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
   // to their handlers by dispatchMessage BEFORE reaching handleOp, so any
   // method landing here is genuinely unknown.
   fail(port, msg.id, new Error(`Unknown method: ${String((msg as { method: unknown }).method)}`));
-}
-
-// ─── Subscription handler ─────────────────────────────────────────────────
-
-/**
- * Session-bound sub registry (#754): the original sub message for every
- * listener a port opened WITHOUT an explicit lens, so a port session change
- * can re-establish it under the new identity (see resubscribeSessionSubs).
- * Parallel to `ctx.subs` (which holds only the unsub fns).
- */
-type SessionBoundSubMessage = FirestoreSubMessage | RtdbValueSubMessage;
-
-const _sessionSubs = new WeakMap<HostCtx, Map<PortLike, Map<string, SessionBoundSubMessage>>>();
-
-function sessionSubsFor(ctx: HostCtx, port: PortLike): Map<string, SessionBoundSubMessage> {
-  let byPort = _sessionSubs.get(ctx);
-  if (!byPort) {
-    byPort = new Map();
-    _sessionSubs.set(ctx, byPort);
-  }
-  let bySubId = byPort.get(port);
-  if (!bySubId) {
-    bySubId = new Map();
-    byPort.set(port, bySubId);
-  }
-  return bySubId;
-}
-
-/**
- * Re-establish a port's session-bound listeners under its CURRENT session —
- * invoked (via the ctx hook) on every port session change. Mirrors prod's
- * stream re-establishment on auth transitions: each listener is torn down and
- * re-registered through `sessionDb`, so the fresh evaluation either delivers
- * a snapshot (allowed) or a `permission-denied` snap-error (revoked). A
- * signed-out page no longer keeps receiving auth-gated data.
- */
-function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
-  const bound = _sessionSubs.get(ctx)?.get(port);
-  if (!bound || bound.size === 0) return;
-  const portSubs = ctx.subs.get(port);
-  for (const [subId, msg] of [...bound]) {
-    const unsub = portSubs?.get(subId);
-    if (unsub) unsub();
-    portSubs?.delete(subId);
-    bound.delete(subId); // handleSub/handleRtdbSub re-records it
-    if (isRtdbSub(msg)) {
-      handleRtdbSub(ctx, port, msg);
-    } else {
-      handleSub(ctx, port, msg);
-    }
-  }
-}
-
-function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void {
-  // Resolve the listener's data handle through the SAME lens path ops use
-  // (Pyric Studio F4 "watch as user"): `{ mode: 'as', uid }` registers the
-  // listener as that user so its rule evals impersonate, `{ mode: 'admin' }`
-  // bypasses rules. Absent ⇒ the PORT'S SESSION (#754), so an app listener
-  // evaluates rules as whoever this tab signed in as.
-  const db = msg.actAs ? lensDb(ctx, msg.actAs) : sessionDb(ctx, port);
-  ensurePortSubs(ctx, port);
-  const portSubs = ctx.subs.get(port)!;
-
-  if (portSubs.has(msg.subId)) return; // idempotent
-
-  // Session-bound listeners re-establish on this port's auth transitions.
-  if (!msg.actAs) {
-    ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
-    sessionSubsFor(ctx, port).set(msg.subId, msg);
-  }
-
-  let target: DocumentReference | CollectionReference | Query;
-  let unsub: () => void;
-  try {
-    target = resolveTarget(db, msg.target);
-    unsub = registerListener(ctx, port, msg, target);
-  } catch (e) {
-    // resolveTarget / onSnapshot can throw synchronously (e.g. an invalid
-    // query or a rules-rejected target). Deliver it to the client's onSnapshot
-    // error callback as a snap-error instead of letting it escape handleMessage
-    // as an unhandled rejection (which would silently deliver NOTHING).
-    post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
-    return;
-  }
-
-  portSubs.set(msg.subId, unsub);
-}
-
-function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessage): void {
-  ensurePortSubs(ctx, port);
-  const portSubs = ctx.subs.get(port)!;
-  if (portSubs.has(msg.subId)) return;
-
-  if (!msg.actAs) {
-    ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
-    sessionSubsFor(ctx, port).set(msg.subId, msg);
-  }
-
-  try {
-    const ref = rtdbRef(lensRtdb(ctx, msg.actAs, port), msg.target.path);
-    const unsub = rtdbOnValue(
-      ref as DatabaseReference,
-      (snap) => post(port, { t: 'snap', subId: msg.subId, value: rtdbSnapToWire(snap) }),
-    );
-    portSubs.set(msg.subId, unsub);
-  } catch (e) {
-    post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
-  }
-}
-
-/** Register the real sandbox listener for a resolved target; returns its unsub.
- *  Split out of handleSub so the throwing surface (resolveTarget + onSnapshot)
- *  is inside handleSub's try/catch. */
-function registerListener(
-  _ctx: HostCtx,
-  port: PortLike,
-  msg: FirestoreSubMessage,
-  target: DocumentReference | CollectionReference | Query,
-): () => void {
-  return onSnapshot(
-    target as DocumentReference | Query,
-    (snap) => {
-      // Detect doc vs query snapshot by shape.
-      const snapAny = snap as {
-        id?: string;
-        path?: string;
-        exists?: boolean | (() => boolean);
-        data?: () => Record<string, unknown> | undefined;
-        docs?: Array<{
-          id: string;
-          path?: string;
-          exists: boolean | (() => boolean);
-          data(): Record<string, unknown>;
-        }>;
-      };
-
-      if (Array.isArray(snapAny.docs)) {
-        // Query snapshot
-        const docs = snapAny.docs.map((d) =>
-          serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0]),
-        );
-        post(port, { t: 'snap', subId: msg.subId, value: { docs } });
-      } else if (snapAny.id !== undefined) {
-        // Doc snapshot
-        post(port, {
-          t: 'snap',
-          subId: msg.subId,
-          value: serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0]),
-        });
-      }
-    },
-    (err) => {
-      // Snapshot listener error (e.g. rules changed to deny).
-      // We forward as a snap with an __error field so the client can
-      // surface it to the original onSnapshot error callback.
-      post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(err) } });
-    },
-  );
-}
-
-function handleUnsub(ctx: HostCtx, port: PortLike, msg: UnsubMessage): void {
-  // Drop the session-bound record first — even when the live listener never
-  // registered (it errored at sub time), the record must not resurrect the
-  // sub on a later session change.
-  _sessionSubs.get(ctx)?.get(port)?.delete(msg.subId);
-  const portSubs = ctx.subs.get(port);
-  if (!portSubs) return;
-  const unsub = portSubs.get(msg.subId);
-  if (!unsub) return;
-  unsub();
-  portSubs.delete(msg.subId);
 }
 
 // ─── Main dispatch ────────────────────────────────────────────────────────
@@ -449,7 +259,7 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   // (#754).
   authSubsFor(ctx).delete(port);
   cleanupPortSession(ctx, port);
-  _sessionSubs.get(ctx)?.delete(port);
+  dropPortSessionSubs(ctx, port);
 
   // Drop the port's event-stream subscriptions too (also routing entries off
   // the single shared `sandbox.onEvent` subscription — nothing to unsubscribe,
@@ -467,12 +277,4 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
     unsub();
   }
   ctx.subs.delete(port);
-}
-
-// ─── Internal helpers ─────────────────────────────────────────────────────
-
-function ensurePortSubs(ctx: HostCtx, port: PortLike): void {
-  if (!ctx.subs.has(port)) {
-    ctx.subs.set(port, new Map());
-  }
 }
