@@ -1977,7 +1977,705 @@ export const authRegistry = {
         },
       ],
     },
-    { kind: 'markdown', markdown: "\n## Deny-list (intentionally NOT shimmed)\n\nThese exist in `firebase/auth` but the sandbox refuses to import/use\nthem. The agent's writeApp prompt and the deploy bundle's metafile\ngate enforce the deny-list at build time.\n\n| Name | Reason |\n|---|---|\n| `linkWithCredential` / `linkWithPopup` / `linkWithRedirect` | v0 scope — account linking is non-trivial state |\n| `unlink` | Same as above |\n| `reauthenticateWithCredential` / `reauthenticateWithPopup` / `reauthenticateWithRedirect` | v0 scope |\n| `verifyBeforeUpdateEmail` / `sendEmailVerification` / `applyActionCode` / `checkActionCode` / `confirmPasswordReset` / `sendPasswordResetEmail` / `verifyPasswordResetCode` | Email-link flows require an SMTP path; deliberately out of scope |\n| `multiFactor(user)` / MFA APIs | Not modeled |\n| `setLanguageCode` (Auth method) | i18n surface; not in v0. (`useDeviceLanguage` is now mirrored as an accepted no-op.) |\n| `User.toJSON()` | Serialization the sandbox doesn't model — documented per AUTH-GAP. (`User.reload()` / `User.delete()` are now mirrored via the top-level `reload(user)` / `deleteUser(user)`.) |\n| `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox; documented per AUTH-GAP |\n| Positional listener `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Sandbox observers never error/complete (synchronous in-memory fan-out); pass the `{ next, error, complete }` observer object if you need those handlers. The prod backend forwards all three. |\n\n---\n\n## Visible gaps to address next\n\nRows currently marked **?** (need explicit probes):\n\n- #3 `getAuth(app)` prod-backend dispatch — landing once the\n  empirical oracle harness (`packages/conformance/src/run.ts`) captures the\n  observation against a real Firebase project. Harness is in\n  place; needs the `PYRIC_ORACLE_FIREBASE_CONFIG` env var pointed\n  at a dedicated oracle project before observations can be\n  committed. See `packages/conformance/docs/oracle-project-setup.md` for project setup.\n- #69 (ordering only) — disabled-vs-wrong-password precedence on\n  `signInWithEmailAndPassword`. Sandbox checks disabled BEFORE the\n  password compare (anti-probing best-known semantics); needs an\n  oracle capture against a disabled prod account to lock the order.\n- #68 (prod side) — `IdTokenResult.signInProvider` values per flow are\n  documented SDK behavior but not yet oracle-captured.\n\nRows **locked by the empirical oracle harness** (committed observations under `packages/conformance/observations/auth/`, captured against the `blockingfun` project):\n\n- #10 `onAuthStateChanged` exactly-one-per-transition — oracle confirmed signIn → signOut → signIn each produced exactly 1 fire (in addition to the initial null fire on subscribe); sandbox matches.\n- #14 `signInWithEmailAndPassword` user-not-found — oracle confirmed prod still emits `auth/user-not-found` (not the newer `auth/invalid-credential`); sandbox matches.\n- #17 `signInWithEmailAndPassword` fires once with the new user — oracle confirmed `firesForSignIn: 1` with the signed-in uid against prod; sandbox matches.\n- #18 `auth/invalid-email` format-validation — oracle confirmed `createUserWithEmailAndPassword(auth, 'not-an-email', …)` throws `auth/invalid-email` against prod; sandbox now matches (validation lives in `sandbox-backend.ts` and runs before user-DB lookup on both `signIn` and `createUser` paths).\n- #19 `auth/weak-password` strength-validation — oracle confirmed prod rejects 3-char passwords with `auth/weak-password` and message `Password should be at least 6 characters`; sandbox now matches the same 6-char threshold (validated on `createUser` only — `signIn` lets in previously-seeded weak passwords, mirroring prod).\n- #24 `createUserWithEmailAndPassword` fires once with the new user — oracle confirmed `firesForCreate: 1` with the newly-created uid against prod; sandbox matches.\n- #26 `signOut` fires null exactly once — oracle confirmed the signOut transition produced exactly 1 fire with `uid === null`; sandbox matches.\n- #30 `onAuthStateChanged` on every subsequent identity change — oracle confirmed signIn → signOut → signIn → signOut all 4 fired exactly once; sandbox matches.\n- #32 `Unsubscribe` removes the observer — oracle confirmed post-unsubscribe signOut+signIn+signOut produced zero further fires; sandbox matches.\n- #33 multiple subscribers all fire — oracle confirmed two listeners registered back-to-back both fire on each transition; sandbox matches.\n- #36 observer object form (`{next, error, complete}`) — oracle confirmed prod accepts both forms; both fire on every transition; sandbox matches.\n- #21 `createUserWithEmailAndPassword` `operationType` — oracle confirmed prod returns `'signIn'` (NOT `'register'`); sandbox matches.\n- #22 `createUserWithEmailAndPassword` duplicate email — oracle confirmed prod emits `auth/email-already-in-use`; sandbox matches.\n- #25 `signOut` synchronous-null — oracle confirmed prod sets `auth.currentUser` to `null` in the synchronous continuation immediately after `await signOut(auth)` resolves; sandbox matches.\n- #27 `signOut` idempotent — oracle confirmed prod is a no-op, no listener fire on the redundant call.\n- #29 `onAuthStateChanged` initial-fire timing — oracle confirmed prod fires the initial value on the microtask after subscribe, not synchronously; sandbox matches.\n- #31 `onAuthStateChanged` no-dup on sync transition — oracle baseline: prod has no synchronous state-change API, so the dedup case is sandbox-only. Async subscribe + signIn produces two natural fires (initial null, then user).\n- #35 `onAuthStateChanged` throwing-observer isolation — oracle confirmed a throwing observer does not block subsequent observers; sandbox matches.\n- #37 `onAuthStateChanged` same-user no-double-fire — oracle confirmed calling `signInAnonymously` twice in a row returns the same uid and the second call does NOT produce a fresh listener fire; sandbox matches.\n- #38 `onIdTokenChanged` user-change fires — oracle confirmed every signIn/signOut transition produces exactly one fire; sandbox matches.\n- #39 `onIdTokenChanged` on forced refresh — oracle confirmed prod fires the listener after `getIdToken(true)`; sandbox matches (divergence closed).\n- #40 `onIdTokenChanged` initial-fire parity with `onAuthStateChanged` — oracle confirmed both listeners share the microtask-deferred initial-fire timing; sandbox matches.\n- #55 `getIdToken(forceRefresh)` — oracle confirmed prod returns a different token string after a forced refresh and a subsequent non-forced read returns the cached new token; sandbox matches (divergence closed).\n\nRows currently marked **—** that we might want to fill (rough priority):\n\n1. #20-23 `updateProfile` — common app pattern, agent code often calls it\n2. #57 `user.emailVerified` — used by gating logic in real apps\n3. #58-61 `user.metadata` / `reload` / `delete` — full User shape parity\n\nRows currently marked **⚠** that we might want to upgrade to **✓**\n(by aligning the sandbox to prod or by formally documenting the\ndivergence in `feature-matrix.md`):\n\n- #7 anonymous uid format\n- #12, #28 persistence story\n- #43 setPersistence respect\n- #48 popup window\n" },
+    {
+      kind: 'table',
+      prefix: "## `ActionCodeURL` / email-link / action-code — the out-of-band family\n",
+      rows: [
+        {
+          "id": "auth#150",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "150",
+          "rowNumber": 150,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "ActionCodeURL.parseLink(link) / parseActionCodeURL(link)",
+          "behavior": "Parses an out-of-band action link. The `mode` query param maps to a NORMALIZED operation (`mode=resetPassword` -> `PASSWORD_RESET`, `mode=signIn` -> `EMAIL_SIGNIN`), `oobCode` surfaces as `code`, `lang` as `languageCode`, and `continueUrl` comes out URL-DECODED. A link missing `mode`, missing `oobCode`, carrying an unknown mode, or that is not a URL at all parses to `null` — the parse NEVER throws. `parseActionCodeURL` and `ActionCodeURL.parseLink` agree.",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED and project-independent: this is a PURE client-side parse (no network, no project, no mailbox), so the sandbox owes prod an exact match and there is no room for a divergence. Oracle: `auth-actioncodeurl-parse` against firebase-js-sdk 12.13.0. Replayed in `unit:oracle-conformance.test.ts`.",
+          "risk": [
+            "specific-value",
+            "specific-field"
+          ],
+          "riskScore": 6,
+          "riskReasons": [
+            "asserts 6 specific parsed field values",
+            "asserts the mode->operation normalization"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-actioncodeurl-parse"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts",
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ]
+        },
+        {
+          "id": "auth#151",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "151",
+          "rowNumber": 151,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "isSignInWithEmailLink(auth, link)",
+          "behavior": "Pure predicate over the link string — no network. `true` only for a link whose mode is `signIn` AND which carries an `oobCode`; `false` for a password-reset link, for `mode=signIn` with no code, for garbage, and for the empty string. Never throws.",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED, project-independent (no server involved): `auth-issigninwithemaillink-predicate` captured all five cases against prod. Replayed in `unit:oracle-conformance.test.ts`.",
+          "risk": [
+            "specific-value"
+          ],
+          "riskScore": 3,
+          "riskReasons": [
+            "asserts 5 specific predicate outcomes"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-issigninwithemaillink-predicate"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts",
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ]
+        },
+        {
+          "id": "auth#152",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "152",
+          "rowNumber": 152,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "applyActionCode(auth, code)",
+          "behavior": "Redeems an out-of-band code and performs its state change (`VERIFY_EMAIL` sets `emailVerified`, `VERIFY_AND_CHANGE_EMAIL` moves the account to the new address). Throws `auth/invalid-action-code` for a code the project never issued, for the empty string, and for a code already redeemed (single-use). A `PASSWORD_RESET` code is refused — `confirmPasswordReset` owns that one.",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED on the reject path: `auth-action-code-invalid` confirmed prod emits `auth/invalid-action-code` for both a bogus code and the empty string (this endpoint is NOT gated on the password provider, so it answered honestly). The APPLY path (a real code, redeemed) cannot be probed from a client — it needs a code from a real inbox — and is unit-backed end to end against the sandbox outbox in `unit:sandbox-email-link.test.ts`.",
+          "risk": [
+            "error-code"
+          ],
+          "riskScore": 4,
+          "riskReasons": [
+            "asserts Firebase error code(s): `auth/invalid-action-code`"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-action-code-invalid"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts",
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ]
+        },
+        {
+          "id": "auth#153",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "153",
+          "rowNumber": 153,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "sendSignInLinkToEmail(auth, email, settings)",
+          "behavior": "ActionCodeSettings validation, enforced CLIENT-side before any request leaves the process: a missing or unparseable `url` throws `auth/invalid-continue-uri` (NOT `auth/missing-continue-uri`, despite the constant's name), and `handleCodeInApp` other than `true` throws `auth/argument-error`. On success the sandbox mints a single-use code and posts the message to the outbox.",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED on both client-side arms (project-independent — prod threw before any network call): `auth-sendsigninlinktoemail-settings-validation` captured `missingUrl: auth/invalid-continue-uri` and `handleCodeInAppFalse: auth/argument-error`. Replayed in `unit:oracle-conformance.test.ts`; the send path is unit-backed in `unit:sandbox-email-link.test.ts`.",
+          "risk": [
+            "error-code"
+          ],
+          "riskScore": 4,
+          "riskReasons": [
+            "asserts Firebase error code(s): `auth/invalid-continue-uri`, `auth/argument-error`"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-sendsigninlinktoemail-settings-validation"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts",
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ]
+        },
+        {
+          "id": "auth#154",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "154",
+          "rowNumber": 154,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "signInWithEmailLink(auth, email, link)",
+          "behavior": "Redeems the code in a sign-in link. A link carrying no `oobCode` throws `auth/argument-error` CLIENT-side (the SDK never reaches the server to ask about a code it cannot find in the link). A first-time sign-in for an address CREATES the account, `getAdditionalUserInfo(cred).isNewUser` is `true`, and the account arrives `emailVerified: true` — redeeming a code mailed to that address is proof of control. The code is single-use.",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED on the client-side reject (`auth-signinwithemaillink-invalid-link`: `noOobCode: auth/argument-error`). The REDEMPTION path could not be probed: the oracle project has email-link sign-in disabled, so the server arm answered `auth/operation-not-allowed`. That half is unit-backed end to end against the sandbox outbox (`unit:sandbox-email-link.test.ts` drives send -> read the outbox -> sign in).",
+          "risk": [
+            "error-code"
+          ],
+          "riskScore": 4,
+          "riskReasons": [
+            "asserts Firebase error code(s): `auth/argument-error`"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-signinwithemaillink-invalid-link"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts",
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ]
+        },
+        {
+          "id": "auth#155",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "155",
+          "rowNumber": 155,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "sendPasswordResetEmail(auth, email)",
+          "behavior": "For an address NO account owns, prod RESOLVES silently — it does not throw `auth/user-not-found`. Email Enumeration Protection is on by default and refusing to leak account existence is the point. The sandbox matches: it resolves and mails nothing. A malformed address still throws `auth/invalid-email`. For a real account, the sandbox mails a reset code; `confirmPasswordReset` redeems it and the new password signs in while the old one throws `auth/wrong-password`.",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED on the enumeration-protection behavior — the fact most likely to be got wrong: `auth-sendpasswordresetemail-unknown-user` captured `resolvedForUnknownUser: true`, `unknownUserCode: null`, `malformedEmailCode: auth/invalid-email`. A shim that threw `auth/user-not-found` here would hand agent code an account oracle production deliberately removed. Reset round trip unit-backed in `unit:sandbox-email-link.test.ts`.",
+          "risk": [
+            "error-code",
+            "specific-value"
+          ],
+          "riskScore": 5,
+          "riskReasons": [
+            "asserts Firebase error code(s): `auth/invalid-email`",
+            "asserts prod does NOT throw for an unknown account"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-sendpasswordresetemail-unknown-user"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts",
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ]
+        },
+        {
+          "id": "auth#156",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "156",
+          "rowNumber": 156,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "sendEmailVerification(user)",
+          "behavior": "Throws `auth/missing-email` for a user with no email on the account (an anonymous user). For a real account the mail goes out and NOTHING ELSE HAPPENS: `user.emailVerified` stays `false`. Verification happens when the code in the message is redeemed (`applyActionCode`), not when it is sent.",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED on the anonymous reject: `auth-sendemailverification-shape` captured `anonymousUserCode: auth/missing-email` against prod. The send-does-not-verify property is the one the whole flow turns on and is unit-backed (`unit:sandbox-email-link.test.ts` asserts `emailVerified` is still false after the send and true only after the code is applied) — it cannot be oracle-confirmed end to end because confirming it would require reading a real inbox.",
+          "risk": [
+            "error-code"
+          ],
+          "riskScore": 4,
+          "riskReasons": [
+            "asserts Firebase error code(s): `auth/missing-email`"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-sendemailverification-shape"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts",
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ]
+        },
+        {
+          "id": "auth#157",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "157",
+          "rowNumber": 157,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "verifyBeforeUpdateEmail(user, newEmail)",
+          "behavior": "Mails a code to the NEW address and returns. The account's email does NOT change until that code is redeemed — the single guarantee separating this API from a bare `updateEmail`: the user must prove control of the new address before it becomes theirs. On redemption the account moves and the new address arrives `emailVerified: true`. `checkActionCode` on the code reports `data.email` = the new address and `data.previousEmail` = the old one.",
+          "status": "conforms",
+          "evidence": "UNIT-BACKED, not oracle-backed, and the reason is recorded rather than hidden: the probe (`auth-verifybeforeupdateemail-shape`) ran against the real project and came back `auth/operation-not-allowed` on every arm, because the oracle project has the Email/Password provider DISABLED and the probe could not even create the user whose email it would change. The capture is committed showing exactly that. Behavior is proven end to end against the sandbox in `unit:sandbox-email-link.test.ts`.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [
+            "auth-verifybeforeupdateemail-shape"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-email-link.test.ts",
+            "packages/pyric/test/auth/oracle-conformance.test.ts"
+          ]
+        },
+        {
+          "id": "auth#158",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "158",
+          "rowNumber": 158,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "sandbox.takeAuthMail(auth) / sandbox.setAuthMailResolver(auth, resolver)",
+          "behavior": "The sandbox IS the mail server. Every send posts a real message (operation, recipient, single-use code, and the full action link) to an outbox; `sandbox.takeAuthMail` reads it — the program's substitute for a human opening an inbox. The mailed link round-trips through the public `isSignInWithEmailLink` / `parseActionCodeURL` unchanged, and its code is the code the redeemer accepts, so the round trip production cannot complete without a human closes in-process. An installed `AuthMailResolver` is additionally notified per message; a resolver that THROWS does not fail the send that produced it.",
+          "status": "conforms",
+          "evidence": "`unit:sandbox-email-link.test.ts` — sandbox-only driver (no `firebase/auth` counterpart; this is the seam that makes the family testable at all).",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "sandbox-only",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ],
+          "exceptionReason": "sandbox-only test driver — no firebase/auth counterpart to observe (the analog of sandbox.mockSignInResult for the email family)"
+        },
+        {
+          "id": "auth#159",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "159",
+          "rowNumber": 159,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "checkActionCode(auth, code) / verifyPasswordResetCode(auth, code) / confirmPasswordReset(auth, code, newPassword)",
+          "behavior": "`checkActionCode` and `verifyPasswordResetCode` INSPECT a code without burning it — a check must not destroy the code the subsequent apply needs. `confirmPasswordReset` redeems it and sets the password, running the same strength check `createUserWithEmailAndPassword` runs; a weak new password throws `auth/weak-password` and does NOT burn the code (a typo must not destroy the user's one reset link). A code staged as expired throws `auth/expired-action-code`.",
+          "status": "conforms",
+          "evidence": "UNIT-BACKED, stated honestly: these three endpoints answered `auth/operation-not-allowed` in the oracle run (`auth-action-code-invalid`) because the oracle project's disabled password provider replies before the invalid-code contract can. That is a fact about the project's configuration, not about the API, so it is NOT asserted as evidence. The error codes used here are matched to the oracle-CAPTURED `AuthErrorCodes` map (`INVALID_OOB_CODE = auth/invalid-action-code`, `EXPIRED_OOB_CODE = auth/expired-action-code` — see auth#172). Behavior proven in `unit:sandbox-email-link.test.ts`.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ]
+        },
+        {
+          "id": "auth#163",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "163",
+          "rowNumber": 163,
+          "section": "`ActionCodeURL` / email-link / action-code — the out-of-band family",
+          "api": "sendSignInLinkToEmail — `auth/unauthorized-continue-uri` (domain allowlist)",
+          "behavior": "Prod rejects a continue URL whose domain is not on the project's authorized-domains list. The sandbox has NO domain allowlist and does not invent one: it accepts any parseable continue URL. A continue URL that would be rejected in production is accepted here.",
+          "status": "diverged-documented",
+          "evidence": "The sandbox has no project config to hold an authorized-domains list, so there is nothing to check against; inventing an allowlist would mean inventing a policy the user never set. The probe attempted the server arm (`auth-sendsigninlinktoemail-settings-validation`, `unauthorizedDomain`) but the oracle project has email-link sign-in disabled, so it answered `auth/operation-not-allowed` rather than `auth/unauthorized-continue-uri` — the divergence is declared from the documented contract, not from a capture we do not have.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ]
+        },
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "## `linkWithCredential` / `linkWithPopup` / `linkWithRedirect` / `unlink` — account linking\n",
+      rows: [
+        {
+          "id": "auth#160",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "160",
+          "rowNumber": 160,
+          "section": "`linkWithCredential` / `linkWithPopup` / `linkWithRedirect` / `unlink` — account linking",
+          "api": "linkWithCredential(user, credential)",
+          "behavior": "The ANONYMOUS UPGRADE. Linking an email credential onto an anonymous account upgrades it IN PLACE: the uid is PRESERVED, `isAnonymous` flips to `false`, the email is set, and `providerData` gains the provider. Preserving the uid is what keeps the data the user created while anonymous theirs. Returns a `UserCredential` with `operationType: 'link'` and `getAdditionalUserInfo().isNewUser === false` (a link never creates an identity). The linked credential then works as a first-class `signInWithEmailAndPassword`.",
+          "status": "conforms",
+          "evidence": "UNIT-BACKED, not oracle-backed — stated plainly. The probe (`auth-link-email-credential-to-anonymous`) ran against the real project and returned `linkCode: auth/operation-not-allowed`: the oracle project has the Email/Password provider DISABLED, so no email credential can be minted there and the flow cannot be reached. The capture is committed showing exactly that rather than being dropped. Behavior proven in `unit:sandbox-linking-reauth.test.ts`, including the uid-preservation invariant.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [
+            "auth-link-email-credential-to-anonymous"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+          ]
+        },
+        {
+          "id": "auth#161",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "161",
+          "rowNumber": 161,
+          "section": "`linkWithCredential` / `linkWithPopup` / `linkWithRedirect` / `unlink` — account linking",
+          "api": "linkWithCredential — conflict codes",
+          "behavior": "`auth/provider-already-linked` when the account already carries the provider (one identity per provider). `auth/email-already-in-use` when the email credential belongs to a DIFFERENT account — an address can back only one identity, so the link cannot be granted without stealing it.",
+          "status": "conforms",
+          "evidence": "UNIT-BACKED. The probe (`auth-link-conflicts`) ran and every arm returned `auth/operation-not-allowed` (same disabled Email/Password provider on the oracle project), so the conflict codes could not be observed against prod. They are matched instead to the oracle-CAPTURED `AuthErrorCodes` map (`PROVIDER_ALREADY_LINKED = auth/provider-already-linked`, `CREDENTIAL_ALREADY_IN_USE = auth/credential-already-in-use` — auth#172) and proven in `unit:sandbox-linking-reauth.test.ts`. NOTE: for an EMAIL credential the sandbox emits `auth/email-already-in-use`, the code prod uses for an address collision; `credential-already-in-use` remains the OAuth-credential case.",
+          "risk": [
+            "error-code"
+          ],
+          "riskScore": 4,
+          "riskReasons": [
+            "asserts Firebase error code(s): `auth/provider-already-linked`, `auth/email-already-in-use`"
+          ],
+          "automation": "unit-backed",
+          "oracleObservations": [
+            "auth-link-conflicts"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+          ]
+        },
+        {
+          "id": "auth#162",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "162",
+          "rowNumber": 162,
+          "section": "`linkWithCredential` / `linkWithPopup` / `linkWithRedirect` / `unlink` — account linking",
+          "api": "unlink(user, providerId)",
+          "behavior": "Detaches a provider and returns the updated user with a SHRUNKEN `providerData`. Unlinking a provider that was never linked throws `auth/no-such-provider`. Unlinking `'password'` takes the password with it, so `signInWithEmailAndPassword` for that account stops working. Unlinking the LAST provider does NOT re-anonymize the account — `isAnonymous` describes how an identity was born, not what it currently carries.",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED on the reject path — the ONE linking fact the oracle could reach, because it needs no email credential: `auth-unlink-provider` captured `noSuchProviderCode: auth/no-such-provider` against prod on an anonymous user. Replayed in `unit:oracle-conformance.test.ts`. The detach path is unit-backed (`unit:sandbox-linking-reauth.test.ts`).",
+          "risk": [
+            "error-code"
+          ],
+          "riskScore": 4,
+          "riskReasons": [
+            "asserts Firebase error code(s): `auth/no-such-provider`"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-unlink-provider"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts",
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+          ]
+        },
+        {
+          "id": "auth#164",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "164",
+          "rowNumber": 164,
+          "section": "`linkWithCredential` / `linkWithPopup` / `linkWithRedirect` / `unlink` — account linking",
+          "api": "linkWithPopup(user, provider, resolver?) / linkWithRedirect(...)",
+          "behavior": "Route through the SAME `AuthFlowResolver` seam as `signInWithPopup`, with `authType: 'link'` on the request so a host UI can present 'link your Google account' rather than 'sign in'. The resolved credential names the provider to attach; the sandbox performs the attach and the uid is preserved. A disabled provider throws `auth/operation-not-allowed` AHEAD of the resolver check — a code deliberately distinct from `auth/argument-error`, which keeps meaning 'enabled, but no resolver/mock wired'.",
+          "status": "conforms",
+          "evidence": "`unit:sandbox-linking-reauth.test.ts` — asserts the resolver sees `authType: 'link'`, the uid is preserved, and the two error codes stay distinct. The OAuth arm cannot be oracle-probed at all (it needs a real IdP popup and a human), which is precisely why it goes through the resolver seam.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+          ]
+        },
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "## `reauthenticateWithCredential` / `reauthenticateWithPopup` / `reauthenticateWithRedirect` — re-authentication\n",
+      rows: [
+        {
+          "id": "auth#170",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "170",
+          "rowNumber": 170,
+          "section": "`reauthenticateWithCredential` / `reauthenticateWithPopup` / `reauthenticateWithRedirect` — re-authentication",
+          "api": "reauthenticateWithCredential(user, credential)",
+          "behavior": "Really re-verifies: an email credential is checked against the stored password exactly as `signInWithEmailAndPassword` checks it. A wrong password throws `auth/wrong-password`. A credential belonging to a DIFFERENT account throws `auth/user-mismatch` — checked BEFORE the password compare, so it cannot leak whether the other account's password was right. On success a fresh ID token is minted (a new `authTime`), and the returned `UserCredential` carries `operationType: 'reauthenticate'`.",
+          "status": "conforms",
+          "evidence": "UNIT-BACKED, and the reason it is not oracle-backed is recorded rather than glossed: the probe (`auth-reauthenticate-with-credential`) ran against the real project and could not even create the two accounts it needs — `setupCode: auth/operation-not-allowed`, because the oracle project has the Email/Password provider DISABLED. The capture is committed showing that. `auth/user-mismatch` is matched to the oracle-captured `AuthErrorCodes` map (auth#172). Behavior proven in `unit:sandbox-linking-reauth.test.ts`.",
+          "risk": [
+            "error-code"
+          ],
+          "riskScore": 4,
+          "riskReasons": [
+            "asserts Firebase error code(s): `auth/wrong-password`, `auth/user-mismatch`"
+          ],
+          "automation": "unit-backed",
+          "oracleObservations": [
+            "auth-reauthenticate-with-credential"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+          ]
+        },
+        {
+          "id": "auth#176",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "176",
+          "rowNumber": 176,
+          "section": "`reauthenticateWithCredential` / `reauthenticateWithPopup` / `reauthenticateWithRedirect` — re-authentication",
+          "api": "reauthenticate* — `auth/requires-recent-login` is NOT enforced",
+          "behavior": "In production the POINT of re-authentication is the `auth/requires-recent-login` gate: `updateEmail` / `updatePassword` / `deleteUser` refuse to run on a session whose sign-in is older than a few minutes, and re-auth is how you clear it. The sandbox does NOT enforce that gate — those three mutations already run on a session of any age (a pre-existing documented divergence), so there is no gate here for re-auth to clear. What re-auth DOES do here is real but narrower: it genuinely re-verifies the credential, mints a fresh token, and returns `operationType: 'reauthenticate'`. Code that calls it runs unchanged against prod, where it also clears the gate.",
+          "status": "diverged-documented",
+          "evidence": "Declared divergence, not a bug: inventing a recent-login gate would break every existing sandbox flow (which never re-authenticates) while proving nothing. `unit:sandbox-linking-reauth.test.ts` pins the behavior that IS provided (real credential re-verification + a fresh token).",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+          ]
+        },
+        {
+          "id": "auth#177",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "177",
+          "rowNumber": 177,
+          "section": "`reauthenticateWithCredential` / `reauthenticateWithPopup` / `reauthenticateWithRedirect` — re-authentication",
+          "api": "reauthenticateWithPopup(user, provider, resolver?) / reauthenticateWithRedirect(...)",
+          "behavior": "Route through the shared resolver seam with `authType: 'reauth'`. The identity the resolver produces MUST be the user being re-authenticated — a resolver that hands back a different uid throws `auth/user-mismatch`. That check is the entire security content of the flow; without it 're-authentication' would accept anyone.",
+          "status": "conforms",
+          "evidence": "`unit:sandbox-linking-reauth.test.ts` — asserts the resolver sees `authType: 'reauth'` and that an impostor identity is rejected with `auth/user-mismatch`.",
+          "risk": [
+            "error-code"
+          ],
+          "riskScore": 4,
+          "riskReasons": [
+            "asserts Firebase error code(s): `auth/user-mismatch`"
+          ],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+          ]
+        },
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "## Constants, credentials, and inert config tokens\n",
+      rows: [
+        {
+          "id": "auth#171",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "171",
+          "rowNumber": 171,
+          "section": "Constants, credentials, and inert config tokens",
+          "api": "getAdditionalUserInfo(userCredential)",
+          "behavior": "Returns `{ isNewUser, profile, providerId }`. For a fresh anonymous sign-in prod reports `{ isNewUser: true, providerId: null, profile: {} }` — `providerId` is NULL, not `'anonymous'`, because anonymous is not a federated provider. `isNewUser` is `true` for `createUserWithEmailAndPassword`, a first-time email-link sign-in, and a custom-token sign-in that minted the account; `false` for a returning `signInWithEmailAndPassword` and for every `link` / `reauthenticate`.",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED on the anonymous shape: `auth-additional-user-info-shape` captured `{isNewUser: true, providerId: null, profile: {}}` against prod. Replayed in `unit:oracle-conformance.test.ts`. The email/password arms of the probe were blocked by the oracle project's disabled password provider and are unit-backed instead.",
+          "risk": [
+            "specific-field",
+            "specific-value"
+          ],
+          "riskScore": 5,
+          "riskReasons": [
+            "asserts `providerId` is null (not 'anonymous') for anonymous sign-in",
+            "asserts isNewUser per flow"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-additional-user-info-shape"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts",
+            "packages/pyric/test/auth/sandbox-email-link.test.ts",
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+          ]
+        },
+        {
+          "id": "auth#172",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "172",
+          "rowNumber": 172,
+          "section": "Constants, credentials, and inert config tokens",
+          "api": "ProviderId / SignInMethod / OperationType / ActionCodeOperation / AuthErrorCodes",
+          "behavior": "The constant maps, value for value. `OperationType.SIGN_IN === 'signIn'`, `SignInMethod.EMAIL_LINK === 'emailLink'`, `ProviderId.GOOGLE === 'google.com'`, `ActionCodeOperation.PASSWORD_RESET === 'PASSWORD_RESET'`, and the 106-entry `AuthErrorCodes` map (`INVALID_OOB_CODE === 'auth/invalid-action-code'`, `PROVIDER_ALREADY_LINKED === 'auth/provider-already-linked'`, `NO_SUCH_PROVIDER === 'auth/no-such-provider'`, `USER_MISMATCH === 'auth/user-mismatch'`, …).",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED, snapshotted straight from the shipped SDK: `auth-mechanical-surface-constants` against firebase-js-sdk 12.13.0, replayed value-for-value in `unit:oracle-conformance.test.ts`. This matters more than it looks: consumer code COMPARES against these constants, so a mirror that got a string wrong would turn every such comparison into a silent `false` — a worse failure than the export simply being absent, because it typechecks and runs. NOTE: the capture's `persistenceTypes` block is deliberately NOT asserted — the harness runs under Node, where firebase/auth stubs the browser-only persistence tokens to `type: 'NONE'` (it reports 'NONE' even for `browserLocalPersistence`, which is unambiguously 'LOCAL'); asserting it would be asserting a harness artifact. See auth#178.",
+          "risk": [
+            "specific-value"
+          ],
+          "riskScore": 6,
+          "riskReasons": [
+            "asserts every value of 4 constant maps plus 11 error codes"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-mechanical-surface-constants"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts"
+          ]
+        },
+        {
+          "id": "auth#173",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "173",
+          "rowNumber": 173,
+          "section": "Constants, credentials, and inert config tokens",
+          "api": "signInWithCustomToken(auth, customToken)",
+          "behavior": "Throws `auth/invalid-custom-token` for a malformed token and for the empty string. The sandbox accepts a token in the two shapes it can honestly read: a JSON (optionally base64url) `{uid, claims}` payload — exactly what `admin.auth().createCustomToken` signs, so the pyric-admin mint and this redeem compose — or a real three-part JWT whose payload segment carries `uid`/`sub`. The SIGNATURE IS NOT VERIFIED: the sandbox has no service-account key. The identity is created if it does not exist, and the credential carries `providerId: null` (custom-token sign-in is not a federated provider).",
+          "status": "diverged-documented",
+          "evidence": "ORACLE-BACKED on the reject path: `auth-signinwithcustomtoken-invalid` captured `auth/invalid-custom-token` for both a malformed token and the empty string, replayed in `unit:oracle-conformance.test.ts`. Diverged on the ACCEPT path, declared rather than hidden: prod verifies an RS256 signature against the project's service-account key and the sandbox has no key, so it reads the token's claims WITHOUT verifying them. A forged token that prod would reject is accepted here. The happy path cannot be oracle-probed from a Web SDK client at all (it needs an Admin-SDK-signed JWT).",
+          "risk": [
+            "error-code"
+          ],
+          "riskScore": 4,
+          "riskReasons": [
+            "asserts Firebase error code(s): `auth/invalid-custom-token`"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-signinwithcustomtoken-invalid"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts"
+          ]
+        },
+        {
+          "id": "auth#174",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "174",
+          "rowNumber": 174,
+          "section": "Constants, credentials, and inert config tokens",
+          "api": "validatePassword(auth, password)",
+          "behavior": "Returns a `PasswordValidationStatus` against the project's password policy, WITHOUT attempting a sign-up (so a UI can show live strength feedback). The sandbox's policy is `minPasswordLength: 6`, `maxPasswordLength: 4096`, `enforcementState: 'ENFORCE'`, with every character-class requirement UNSET — so a password this function calls valid is exactly one `createUserWithEmailAndPassword` will accept. The character-class fields are `undefined`, not `false`: upstream distinguishes 'not required' from 'required and unmet', and reporting `false` would claim the password failed a rule the project never had.",
+          "status": "conforms",
+          "evidence": "ORACLE-BACKED: `auth-validatepassword-status-shape` captured prod's live policy (minPasswordLength 6, maxPasswordLength 4096, ENFORCE, character classes unset) and the status shape for a weak and a strong password. Replayed in `unit:oracle-conformance.test.ts`. The 6-char minimum agrees with the separately oracle-pinned `auth/weak-password` threshold on the create path, so the two surfaces draw the same line here exactly as they do in prod.",
+          "risk": [
+            "specific-value",
+            "specific-field"
+          ],
+          "riskScore": 5,
+          "riskReasons": [
+            "asserts the policy's min/max length",
+            "asserts character-class requirements are UNSET rather than false"
+          ],
+          "automation": "oracle-backed",
+          "oracleObservations": [
+            "auth-validatepassword-status-shape"
+          ],
+          "conformanceTests": [
+            "packages/pyric/test/auth/oracle-conformance.test.ts"
+          ]
+        },
+        {
+          "id": "auth#175",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "175",
+          "rowNumber": 175,
+          "section": "Constants, credentials, and inert config tokens",
+          "api": "fetchSignInMethodsForEmail(auth, email)",
+          "behavior": "NOT MIRRORED — the one genuinely out-of-scope symbol in the auth surface. Deprecated upstream as a SECURITY RETRACTION: the shipped `@firebase/auth` declaration states the API 'returns an empty list when Email Enumeration Protection is enabled, irrespective of the number of authentication methods available for the given email', and that 'migrating off of this method is recommended as a security best-practice'. Enumeration protection is on by default, so against a modern project the production function always returns `[]`.",
+          "status": "unsupported",
+          "evidence": "DISPOSITION, with the reasoning recorded: mirroring it would mean either reproducing a function that always returns nothing (a no-op that misleads whoever calls it) or implementing the pre-deprecation behavior the sandbox COULD provide — which would be strictly worse, because agent code would work against the mirror and then silently get `[]` in prod and take the wrong branch. A mirror that is MORE capable than production here is a trap, not a feature. Same criterion the two-tier policy already applies to Imagen in `firebase/ai`. The disposition rests on the SDK's own type declaration (a primary source), NOT on the oracle probe: `auth-fetchsigninmethodsforemail-deprecated` came back `auth/operation-not-allowed` because the oracle project has the Email/Password provider disabled, and that capture proves nothing either way. Deny-list entry (tier `out-of-scope`) in `packages/conformance/src/surface-denylist.ts`.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unsupported",
+          "oracleObservations": [
+            "auth-fetchsigninmethodsforemail-deprecated"
+          ],
+          "conformanceTests": [],
+          "exceptionReason": "deliberately not mirrored — deprecated upstream as a security retraction; see the evidence column"
+        },
+        {
+          "id": "auth#178",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "178",
+          "rowNumber": 178,
+          "section": "Constants, credentials, and inert config tokens",
+          "api": "inMemoryPersistence / browserSessionPersistence / browserLocalPersistence / indexedDBLocalPersistence / browserCookiePersistence / browserPopupRedirectResolver / debugErrorMap / prodErrorMap",
+          "behavior": "Inert configuration tokens, accepted so the idiomatic `initializeAuth(app, { persistence: indexedDBLocalPersistence })` and `setPersistence(auth, browserCookiePersistence)` compile, run, and behave identically. The `.type` discriminant matches upstream exactly (`NONE` / `SESSION` / `LOCAL` / `LOCAL` / `COOKIE`) because consumer code branches on it. `browserPopupRedirectResolver` is accepted and ignored — the sandbox has its own first-class pluggable equivalent (`sandbox.setAuthFlowResolver`). `prodErrorMap` is accepted and DELIBERATELY not honored: installing it upstream strips error messages, and doing that in a sandbox whose purpose is to tell a developer what went wrong would be actively hostile.",
+          "status": "diverged-documented",
+          "evidence": "In an in-memory sandbox the persistence CHOICE has no observable consequence, so accepting the token and recording the mode is the honest behavior — the same inert-token pattern `pyric/firestore` uses for its cache-factory tokens. `unit:types.test.ts` + `unit:sandbox-email-link.test.ts` cover the exports. Oracle caveat recorded on auth#172: the `persistenceTypes` block of `auth-mechanical-surface-constants` reports `NONE` for every token including `browserLocalPersistence` — a Node-build stub artifact, not the browser contract, so the `.type` values here follow the documented `Persistence.type` union instead.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/types.test.ts",
+            "packages/pyric/test/auth/sandbox-email-link.test.ts"
+          ]
+        },
+        {
+          "id": "auth#179",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "179",
+          "rowNumber": 179,
+          "section": "Constants, credentials, and inert config tokens",
+          "api": "revokeAccessToken(auth, token)",
+          "behavior": "Accepted no-op. In production this reaches OUTSIDE Firebase entirely — it tells the identity provider (in practice Apple) to revoke an OAuth access token, which is a call landing on Apple's servers. There is no external IdP behind a sandbox sign-in, so there is no token out there to revoke and nothing this call could truthfully do. It resolves (so the account-deletion flow Apple requires an app to ship runs end to end against the sandbox) and changes no sandbox state (because claiming otherwise would be a lie).",
+          "status": "diverged-documented",
+          "evidence": "`unit:types.test.ts` — the export resolves. Deliberately not oracle-probed: a successful probe would revoke a real token at a real IdP, which is a side effect on someone else's system that a conformance run has no business causing.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/types.test.ts"
+          ]
+        },
+        {
+          "id": "auth#180",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "180",
+          "rowNumber": 180,
+          "section": "Constants, credentials, and inert config tokens",
+          "api": "AuthCredential / EmailAuthCredential / OAuthCredential",
+          "behavior": "Real classes, not markers. `EmailAuthProvider.credential(email, password)` returns an `EmailAuthCredential` that CARRIES THE SECRET — which is what makes `linkWithCredential`, `reauthenticateWithCredential`, and `signInWithCredential` decidable in the sandbox with no resolver and no mock (the backend already stores and verifies passwords). `credentialWithLink` carries the link instead, and `signInMethod` discriminates (`'password'` vs `'emailLink'`). The backing secret is non-enumerable, so a spread or `Object.keys` walk does not pick it up; `toJSON()` DOES carry it, matching upstream (whose `fromJSON` needs it to round-trip). `OAuthCredential` carries the IdP tokens, which the sandbox cannot verify — those flows keep going through the resolver seam.",
+          "status": "conforms",
+          "evidence": "`unit:sandbox-linking-reauth.test.ts` — pins the secret-carrying behavior, the enumerable/toJSON split (so nobody 'hardens' it into a divergence later), and that a real email credential now signs in via `signInWithCredential` instead of throwing the sandbox-only `auth/no-mock-configured` it used to.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+          ]
+        },
+        {
+          "id": "auth#181",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "181",
+          "rowNumber": 181,
+          "section": "Constants, credentials, and inert config tokens",
+          "api": "TwitterAuthProvider / SAMLAuthProvider",
+          "behavior": "Provider marker classes. `TwitterAuthProvider.credential(token, secret)` takes a token AND a secret — Twitter is the one OAuth 1.0a provider in the set, where the OAuth 2.0 providers take a single access token. `SAMLAuthProvider`'s constructor ENFORCES the `saml.` providerId prefix (throwing `auth/argument-error` otherwise), because that id is what routes an assertion to the right configured IdP and a typo there would silently target nothing. SAML has no client-constructible credential, so the class has no `credential()` factory.",
+          "status": "conforms",
+          "evidence": "`unit:types.test.ts` — construction, PROVIDER_ID values, and the SAML prefix guard.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/types.test.ts"
+          ]
+        },
+        {
+          "id": "auth#182",
+          "surface": "auth",
+          "aliases": [],
+          "rowRef": "182",
+          "rowNumber": 182,
+          "section": "Constants, credentials, and inert config tokens",
+          "api": "User.providerData",
+          "behavior": "One entry PER LINKED PROVIDER, read from the identity's stored record. Previously the sandbox synthesized a single `{providerId: 'password'}` entry for EVERY non-anonymous user, so a Google popup sign-in reported its provider as `'password'` and a linked account could never show more than one. Consumer code branches on this array (that is what it is for — 'is this account linked to Google?'), so the synthesized version was actively misleading. Empty for anonymous users; after `unlink` of the last provider it is genuinely empty (it does not resurrect the removed provider).",
+          "status": "conforms",
+          "evidence": "Was a BUG until this climb, and worth naming as one: the array was fabricated, not read. Now fixed and locked. `unit:sandbox-linking-reauth.test.ts` now pins that a Google link surfaces `google.com` in `providerData`, that `unlink` shrinks it, and that unlinking the last provider leaves it empty rather than falling back to a synthesized `'password'` entry.",
+          "risk": [],
+          "riskScore": 0,
+          "riskReasons": [],
+          "automation": "unit-backed",
+          "oracleObservations": [],
+          "conformanceTests": [
+            "packages/pyric/test/auth/sandbox-linking-reauth.test.ts"
+          ]
+        },
+      ],
+    },
+    { kind: 'markdown', markdown: "\n## Deny-list (intentionally NOT shimmed)\n\nThese exist in `firebase/auth` but the sandbox does not mirror them.\n\nThe list is much shorter than it was. The auth resolver climb removed three whole\nfamilies from it — account linking (`linkWith*` / `unlink`), re-authentication\n(`reauthenticateWith*`), and the email-link / action-code family\n(`sendSignInLinkToEmail`, `signInWithEmailLink`, `applyActionCode`, `ActionCodeURL`, …) —\nby building them, not by re-arguing them. Their old reasons (\"v0 scope\", \"email-link\nflows require an SMTP path\") were never good ones: mocking external infrastructure is\nthe product, and needing an inbox is not the same as being unmodelable.\n\n| Name | Reason |\n|---|---|\n| `fetchSignInMethodsForEmail` | **Out of scope, not deferred.** Deprecated upstream as a security retraction: the shipped `@firebase/auth` declaration says it \"returns an empty list when Email Enumeration Protection is enabled, irrespective of the number of authentication methods available\", and that \"migrating off of this method is recommended as a security best-practice\". Enumeration protection is on by default, so in a modern project the production function always returns `[]`. Mirroring the pre-deprecation behavior would make the sandbox MORE capable than prod — agent code would work here and then silently take the wrong branch in production. See row #175. |\n| `multiFactor(user)` / MFA / phone / reCAPTCHA APIs | Deferred, not out of scope — reCAPTCHA and SMS are external infrastructure pyric can mock through the same resolver seam the OAuth and email families now use, and TOTP is pure algorithm work. |\n| `updatePhoneNumber` | Deferred with the rest of the phone family. |\n| `setLanguageCode` (Auth method) | i18n surface. (`useDeviceLanguage` is mirrored as an accepted no-op.) |\n| `User.toJSON()` | Serialization the sandbox doesn't model (AUTH-GAP). (`User.reload()` / `User.delete()` are mirrored via the top-level `reload(user)` / `deleteUser(user)`.) |\n| `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox; documented per AUTH-GAP. |\n| Positional listener `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Sandbox observers never error/complete (synchronous in-memory fan-out); pass the `{ next, error, complete }` observer object if you need those handlers. The prod backend forwards all three. |\n\n---\n\n## What the oracle could not reach, and why\n\nRecorded here because a coverage number that hides its own blind spots is worth less\nthan a smaller one that names them.\n\n**The oracle project currently has the Email/Password sign-in provider DISABLED.**\nAnonymous sign-in works; every email/password path returns `auth/operation-not-allowed`.\nThat blocked oracle-backing for the linking and reauthentication families outright (an\nemail credential cannot be minted there at all) and for the server-side half of the\nemail-link family. Those probes were still written, still run, and their captures are\nstill committed — showing `auth/operation-not-allowed` — rather than being quietly\ndropped. The rows they would have backed are born `unit-backed` and say so in their\nevidence column. See the `NOT_APPLICABLE` block in\n`packages/pyric/test/auth/oracle-conformance.test.ts`.\n\nThis also means the EXISTING email/password observations in this surface\n(`auth-row-18-invalid-email`, `auth-row-19-weak-password`, `auth-email-already-in-use`,\n`auth-user-not-found`, `auth-wrong-password`, …) can no longer be RE-captured against\nthis project. They were captured when the provider was on; re-running the rig today\nwould fail them. That is pre-existing infrastructure decay, surfaced here, not caused\nby this climb.\n\nTo lift the whole set to oracle-backed: enable Email/Password sign-in on the oracle\nproject (Authentication -> Sign-in method) and re-run the probes, which are already\nwritten and committed.\n\n**Genuinely unobservable, for anyone.** No probe and no test can read a human's inbox.\nThe email round trip is therefore closed in the sandbox by the mail outbox\n(`sandbox.takeAuthMail`), which hands the program the same real, single-use code a\nhuman would have clicked — the analog of `mockSignInResult` for the email family. What\nIS fully observable, and is oracle-pinned exactly, is the pure client-side half:\nthe `ActionCodeURL` parse contract, the `isSignInWithEmailLink` predicate, and the\n`ActionCodeSettings` validation — none of which touch a network at all.\n\n---\n\n## Visible gaps to address next\n\nRows currently marked **?** (need explicit probes):\n\n- #3 `getAuth(app)` prod-backend dispatch — landing once the\n  empirical oracle harness (`packages/conformance/src/run.ts`) captures the\n  observation against a real Firebase project. Harness is in\n  place; needs the `PYRIC_ORACLE_FIREBASE_CONFIG` env var pointed\n  at a dedicated oracle project before observations can be\n  committed. See `packages/conformance/docs/oracle-project-setup.md` for project setup.\n- #69 (ordering only) — disabled-vs-wrong-password precedence on\n  `signInWithEmailAndPassword`. Sandbox checks disabled BEFORE the\n  password compare (anti-probing best-known semantics); needs an\n  oracle capture against a disabled prod account to lock the order.\n- #68 (prod side) — `IdTokenResult.signInProvider` values per flow are\n  documented SDK behavior but not yet oracle-captured.\n\nRows **locked by the empirical oracle harness** (committed observations under `packages/conformance/observations/auth/`, captured against the `blockingfun` project):\n\n- #10 `onAuthStateChanged` exactly-one-per-transition — oracle confirmed signIn → signOut → signIn each produced exactly 1 fire (in addition to the initial null fire on subscribe); sandbox matches.\n- #14 `signInWithEmailAndPassword` user-not-found — oracle confirmed prod still emits `auth/user-not-found` (not the newer `auth/invalid-credential`); sandbox matches.\n- #17 `signInWithEmailAndPassword` fires once with the new user — oracle confirmed `firesForSignIn: 1` with the signed-in uid against prod; sandbox matches.\n- #18 `auth/invalid-email` format-validation — oracle confirmed `createUserWithEmailAndPassword(auth, 'not-an-email', …)` throws `auth/invalid-email` against prod; sandbox now matches (validation lives in `sandbox-backend.ts` and runs before user-DB lookup on both `signIn` and `createUser` paths).\n- #19 `auth/weak-password` strength-validation — oracle confirmed prod rejects 3-char passwords with `auth/weak-password` and message `Password should be at least 6 characters`; sandbox now matches the same 6-char threshold (validated on `createUser` only — `signIn` lets in previously-seeded weak passwords, mirroring prod).\n- #24 `createUserWithEmailAndPassword` fires once with the new user — oracle confirmed `firesForCreate: 1` with the newly-created uid against prod; sandbox matches.\n- #26 `signOut` fires null exactly once — oracle confirmed the signOut transition produced exactly 1 fire with `uid === null`; sandbox matches.\n- #30 `onAuthStateChanged` on every subsequent identity change — oracle confirmed signIn → signOut → signIn → signOut all 4 fired exactly once; sandbox matches.\n- #32 `Unsubscribe` removes the observer — oracle confirmed post-unsubscribe signOut+signIn+signOut produced zero further fires; sandbox matches.\n- #33 multiple subscribers all fire — oracle confirmed two listeners registered back-to-back both fire on each transition; sandbox matches.\n- #36 observer object form (`{next, error, complete}`) — oracle confirmed prod accepts both forms; both fire on every transition; sandbox matches.\n- #21 `createUserWithEmailAndPassword` `operationType` — oracle confirmed prod returns `'signIn'` (NOT `'register'`); sandbox matches.\n- #22 `createUserWithEmailAndPassword` duplicate email — oracle confirmed prod emits `auth/email-already-in-use`; sandbox matches.\n- #25 `signOut` synchronous-null — oracle confirmed prod sets `auth.currentUser` to `null` in the synchronous continuation immediately after `await signOut(auth)` resolves; sandbox matches.\n- #27 `signOut` idempotent — oracle confirmed prod is a no-op, no listener fire on the redundant call.\n- #29 `onAuthStateChanged` initial-fire timing — oracle confirmed prod fires the initial value on the microtask after subscribe, not synchronously; sandbox matches.\n- #31 `onAuthStateChanged` no-dup on sync transition — oracle baseline: prod has no synchronous state-change API, so the dedup case is sandbox-only. Async subscribe + signIn produces two natural fires (initial null, then user).\n- #35 `onAuthStateChanged` throwing-observer isolation — oracle confirmed a throwing observer does not block subsequent observers; sandbox matches.\n- #37 `onAuthStateChanged` same-user no-double-fire — oracle confirmed calling `signInAnonymously` twice in a row returns the same uid and the second call does NOT produce a fresh listener fire; sandbox matches.\n- #38 `onIdTokenChanged` user-change fires — oracle confirmed every signIn/signOut transition produces exactly one fire; sandbox matches.\n- #39 `onIdTokenChanged` on forced refresh — oracle confirmed prod fires the listener after `getIdToken(true)`; sandbox matches (divergence closed).\n- #40 `onIdTokenChanged` initial-fire parity with `onAuthStateChanged` — oracle confirmed both listeners share the microtask-deferred initial-fire timing; sandbox matches.\n- #55 `getIdToken(forceRefresh)` — oracle confirmed prod returns a different token string after a forced refresh and a subsequent non-forced read returns the cached new token; sandbox matches (divergence closed).\n\nRows currently marked **—** that we might want to fill (rough priority):\n\n1. #20-23 `updateProfile` — common app pattern, agent code often calls it\n2. #57 `user.emailVerified` — used by gating logic in real apps\n3. #58-61 `user.metadata` / `reload` / `delete` — full User shape parity\n\nRows currently marked **⚠** that we might want to upgrade to **✓**\n(by aligning the sandbox to prod or by formally documenting the\ndivergence in `feature-matrix.md`):\n\n- #7 anonymous uid format\n- #12, #28 persistence story\n- #43 setPersistence respect\n- #48 popup window\n" },
   ],
 } satisfies CompatibilitySurfaceRegistry;
 
