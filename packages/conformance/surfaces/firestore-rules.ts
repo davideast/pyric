@@ -2,6 +2,7 @@ import type { SurfaceDescriptorRecord } from './types.ts';
 
 export const surface: SurfaceDescriptorRecord = {
   order: 9,
+  maturity: 'v1, conformance-held',
   // Native surface: there is no `firebase/rules` module to mirror. The
   // contract is the in-process Firestore rules simulator measured against the
   // production Firestore Rules Test API engine, replayed verdict-for-verdict

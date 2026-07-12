@@ -123,8 +123,10 @@ describe('single-source compatibility registry', () => {
 
   test('generated markdown covers every checked-in compat document', () => {
     const docs = renderAllCompatibilityMarkdown();
-    expect(docs.size).toBe(surfaceRegistries.length);
+    // One doc per surface registry, plus the generated central scoreboard.
+    expect(docs.size).toBe(surfaceRegistries.length + 1);
     expect(docs.get('packages/pyric/docs/auth/COMPAT.md')).toContain('Generated from packages/conformance/registry/*.ts');
+    expect(docs.get('packages/pyric/docs/conformance/SCORES.md')).toContain('# Conformance scores by surface');
   });
 
   test('every observation internal name matches its filename minus .json', () => {

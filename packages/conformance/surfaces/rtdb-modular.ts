@@ -2,6 +2,7 @@ import type { SurfaceDescriptorRecord } from './types.ts';
 
 export const surface: SurfaceDescriptorRecord = {
   order: 5,
+  maturity: 'Experimental',
   kind: 'mirror',
   // Shares the rtdb registry (and its COMPAT.md doc) but keeps a distinct
   // observation prefix and its own matrix rows. Since classic `rtdb` is now a

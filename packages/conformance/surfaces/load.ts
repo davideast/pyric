@@ -49,6 +49,7 @@ function recordProblems(file: string, value: unknown): string[] {
   }
   if (typeof record.coverage !== 'boolean') fail("missing boolean 'coverage'");
   if (typeof record.scopeNote !== 'string' || !record.scopeNote.trim()) fail("missing 'scopeNote'");
+  if (typeof record.maturity !== 'string' || !record.maturity.trim()) fail("missing 'maturity'");
   if (!isStringArray(record.captureRigs)) fail("'captureRigs' must be a string array");
   if (record.conformanceSuite !== undefined && typeof record.conformanceSuite !== 'string') {
     fail("'conformanceSuite' must be a string");

@@ -56,6 +56,14 @@ interface SurfaceDescriptorRecordBase {
   coverage: boolean;
   /** One-line coverage scope statement (what is genuinely out of scope vs deferred). */
   scopeNote: string;
+  /**
+   * The surface's maturity, in plain sentence case, as the generated COMPAT
+   * header states it (`Maturity: <maturity>.`). This is the one authored home
+   * for the tier; the doc generator reads it, never hand-asserts it. Descriptors
+   * sharing a registry (e.g. `firestore-rules` / `storage-rules` / `rtdb-rules`)
+   * carry the same value so their shared COMPAT page has one maturity.
+   */
+  maturity: string;
   /** Repo-relative conformance suite path, if any. */
   conformanceSuite?: string;
   /** Rig ids (`rigs/<id>.ts`) whose captures land under this surface's prefixes. */

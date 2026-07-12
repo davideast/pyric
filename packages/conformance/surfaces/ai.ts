@@ -2,6 +2,7 @@ import type { SurfaceDescriptorRecord } from './types.ts';
 
 export const surface: SurfaceDescriptorRecord = {
   order: 1,
+  maturity: 'Experimental, climbed under Conformance Driven Development',
   kind: 'mirror',
   registry: 'ai',
   censusSurface: 'ai',

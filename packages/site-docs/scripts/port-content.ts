@@ -400,6 +400,11 @@ interface Page {
 function mdFilesIn(dir: string): string[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.md'))
+    // `*.generated.md` (TypeDoc API reference output) is not wired into the
+    // site yet: the hand-written api.md still owns the reference nav, and the
+    // generated file's cross-links are not resolved. Skip until the per-subpath
+    // cutover lands. Regenerate with `bun run docs:api:generate`.
+    .filter((f) => !f.endsWith('.generated.md'))
     .sort()
     .map((f) => join(dir, f));
 }
@@ -498,6 +503,7 @@ for (const group of GUIDE_GROUPS) {
 // to agents especially, so they stay itemized in the nav rather than
 // folding into the Reference shelf. Slugs are unchanged (slugFor).
 const COMPAT_PAGES: { file: string; label: string }[] = [
+  { file: 'conformance/SCORES.md', label: 'Conformance scores' },
   { file: 'app/COMPAT.md', label: 'App' },
   { file: 'firestore/COMPAT.md', label: 'Firestore' },
   { file: 'auth/COMPAT.md', label: 'Auth' },
@@ -546,7 +552,9 @@ function* walkMd(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) yield* walkMd(full);
-    else if (entry.name.endsWith('.md')) yield full;
+    // `*.generated.md` (TypeDoc API output) is intentionally not ported yet
+    // (see mdFilesIn); exempt it from the unclaimed-doc guard too.
+    else if (entry.name.endsWith('.md') && !entry.name.endsWith('.generated.md')) yield full;
   }
 }
 for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {

@@ -20,7 +20,7 @@ export const appRegistry = {
     {
       kind: 'markdown',
       markdown:
-        "# `pyric/app` compatibility matrix\n\nThe single readable contract for \"what the `pyric/app` initialization surface\nguarantees vs the production `firebase/app` client SDK.\" `pyric/app` is the\nentry point every user hits first: `initializeApp`, the name-keyed app registry\n(`getApp` / `getApps` / `deleteApp`), the `FirebaseError` class and `SDK_VERSION`\nconstant, and the diagnostic logger seam (`onLog` / `setLogLevel` /\n`registerVersion`).\n\nThe registry rows are authored from the `app-registry-*` oracle observations\n(pure in-process captures of the installed `firebase/app` package — no project,\nno network) and replayed verdict-for-verdict by\n`packages/pyric/test/app/oracle-conformance.test.ts`.\n\n## Status legend\n\n| Status | Meaning |\n|---|---|\n| ✓ | **Conforming** — the mirror matches prod, locked by a passing replay |\n| ⚠ | **Diverged (documented)** — intentional difference with a written reason |\n| ✗ | **Bug** — should match prod but doesn't; failing probe pins it |\n| — | **Unsupported** — not implemented (deliberately or deferred) |\n| ? | **Unverified** — claim from docs not yet observed prod-side |\n\n---\n",
+        "# `pyric/app` compatibility matrix\n\n## Status legend\n\n| Status | Meaning |\n|---|---|\n| ✓ | **Conforming** — the mirror matches prod, locked by a passing replay |\n| ⚠ | **Diverged (documented)** — intentional difference with a written reason |\n| ✗ | **Bug** — should match prod but doesn't; failing probe pins it |\n| — | **Unsupported** — not implemented (deliberately or deferred) |\n| ? | **Unverified** — claim from docs not yet observed prod-side |\n\n---\n",
     },
     {
       kind: 'table',

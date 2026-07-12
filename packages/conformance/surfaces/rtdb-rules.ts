@@ -2,6 +2,7 @@ import type { SurfaceDescriptorRecord } from './types.ts';
 
 export const surface: SurfaceDescriptorRecord = {
   order: 11,
+  maturity: 'v1, conformance-held',
   // Native surface: there is no `firebase/rules` module to mirror. The contract
   // is the in-process RTDB rules simulator (`RtdbMapper` + `SimulateHandler` on
   // `pyric/database`) measured against production, replayed verdict-for-verdict

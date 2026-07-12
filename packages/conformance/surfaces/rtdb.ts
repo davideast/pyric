@@ -2,6 +2,7 @@ import type { SurfaceDescriptorRecord } from './types.ts';
 
 export const surface: SurfaceDescriptorRecord = {
   order: 4,
+  maturity: 'Experimental',
   // Classic `@pyric/rtdb` is the agent-tools / host surface — the
   // `createRtdbAdminTools` / `getRtdbTools` factories, the `RtdbHost` contract
   // and `fetchDatabase` REST helper, and the constraint-authoring DSL. It has
