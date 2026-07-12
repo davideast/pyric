@@ -87,4 +87,4 @@ The rules arrive already exercised against the app's real behavior, and composit
 
 ## Where to go next
 
-Start with [the quickstart](./get-started/start-building.md). If you came for rules, go straight to [prove a user can touch only their own data](./secure/secure-it-with-rules.md).
+Start with [the quickstart](./get-started/start-building.md). If you came for rules, go straight to [prove a user can access only their own data](./secure/secure-it-with-rules.md).

@@ -74,7 +74,7 @@ Avoid: leverage, powerful, seamless, simply, easy, just (as minimizer), robust, 
 
 ## Avoid "your" (owner review)
 
-Do not lean on "your" as a possessive. It piles up ("your code, your machine, your data, your rules, your agent") into a coax-y register that documentation should not have. Name the thing plainly: "the `firebase/*` code," "the backend," "a coding agent," "the machine." "You" as a verb subject is fine ("an answer you can read"); it is the possessive that goes. One deliberate exception, pending owner confirmation: the identity line "Firebase that runs in your browser," where "your" is the load-bearing hook and is kept on purpose.
+Do not lean on "your" as a possessive. It piles up ("your code, your machine, your data, your rules, your agent") into a coax-y register that documentation should not have. Name the thing plainly: "the `firebase/*` code," "the backend," "a coding agent," "the machine." "You" as a verb subject is fine ("an answer you can read"); it is the possessive that goes. One deliberate exception (owner-confirmed): the identity line "Firebase that runs in your browser," where "your" is the load-bearing hook and is kept on purpose.
 
 ## Straightforward, not unserious (owner review)
 
