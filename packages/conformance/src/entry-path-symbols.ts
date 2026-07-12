@@ -1,39 +1,32 @@
 #!/usr/bin/env bun
 /**
- * The entry-path critical set — statically extracted, never executed.
+ * The entry-path critical set — statically extracted, never executed, never
+ * stored.
  *
  * Parses every `entry-path/<name>.ts` corpus program's SOURCE TEXT (simple
  * regex-based import parsing — deliberately NOT a real TS/AST analysis, so
  * this has no dependency on the parallel language-analyzer branch) to find
- * which `pyric/*` package symbols the entry path actually imports, and emits
- * `entry-path/critical-symbols.json`: the computed critical set, per package.
- *
- * This is the corpus's OWN claim about what it needs — `entry-path-validate.ts`
- * cross-checks every critical symbol against the live surface census (is it
- * really exported by the mirror?) and fails fatally if a critical symbol is a
- * genuine gap with no expected-failure citation covering it.
+ * which `pyric/*` package symbols the entry path actually imports. The
+ * programs ARE the source of truth; the critical set is derived from them on
+ * demand and never checked in. `entry-path-validate.ts` calls
+ * `computeCriticalSymbols()` fresh and cross-checks every critical symbol
+ * against the live surface census (is it really exported by the mirror?),
+ * failing fatally if a critical symbol is a genuine gap with no
+ * expected-failure citation covering it.
  *
  * Only `pyric/*` import specifiers are tracked — `firebase/*`, `node:*`, and
  * bare-package imports (`fake-indexeddb/auto`, if a program ever needed one)
  * are outside the compat census's scope; a program importing something that
- * ins't a pyric mirror package has nothing for this gate to check against.
+ * isn't a pyric mirror package has nothing for this gate to check against.
  * Type-only imports (`import type { X } from …` and the `type` modifier on an
  * individual named specifier) are excluded — the census is about RUNTIME
  * exports the mirror must actually provide, not compile-time-only types.
  *
  * Usage:
- *   bun run packages/conformance/src/entry-path-symbols.ts            # check (fails if stale)
- *   bun run packages/conformance/src/entry-path-symbols.ts --write    # regenerate + write
- *   bun run packages/conformance/src/entry-path-symbols.ts --check    # explicit check (same as default)
+ *   bun run packages/conformance/src/entry-path-symbols.ts   # print the derived critical set
  */
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { listEntryPathProgramFiles } from '../entry-path/load.ts';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-export const REPO_ROOT = join(HERE, '..', '..', '..');
-export const CRITICAL_SYMBOLS_PATH = join(HERE, '..', 'entry-path', 'critical-symbols.json');
 
 /** Only import specifiers under this prefix participate in the critical set. */
 const TRACKED_PREFIX = 'pyric/';
@@ -76,7 +69,6 @@ export interface CriticalSymbolsPackage {
 }
 
 export interface CriticalSymbolsReport {
-  generatedAt: string;
   packages: Record<string, CriticalSymbolsPackage>;
 }
 
@@ -99,51 +91,16 @@ export function computeCriticalSymbols(): CriticalSymbolsReport {
       programs: [...packages[specifier].programs].sort(),
     };
   }
-  return { generatedAt: new Date().toISOString(), packages: sortedPackages };
-}
-
-/** Reads the committed `critical-symbols.json`, or throws if it is missing. */
-export function readCommittedCriticalSymbols(): CriticalSymbolsReport {
-  if (!existsSync(CRITICAL_SYMBOLS_PATH)) {
-    throw new Error(`${CRITICAL_SYMBOLS_PATH.replace(REPO_ROOT + '/', '')} is missing — run \`bun run packages/conformance/src/entry-path-symbols.ts --write\`.`);
-  }
-  return JSON.parse(readFileSync(CRITICAL_SYMBOLS_PATH, 'utf8')) as CriticalSymbolsReport;
-}
-
-/** Same-content comparison, ignoring `generatedAt` (a timestamp, not data). */
-function samePackages(a: CriticalSymbolsReport, b: CriticalSymbolsReport): boolean {
-  return JSON.stringify(a.packages) === JSON.stringify(b.packages);
-}
-
-/** Fatal-check entry point for `validate-registry.ts` — returns problems, never exits. */
-export function checkCriticalSymbolsUpToDate(): string[] {
-  const fresh = computeCriticalSymbols();
-  if (!existsSync(CRITICAL_SYMBOLS_PATH)) {
-    return [`entry-path/critical-symbols.json is missing — run \`bun run packages/conformance/src/entry-path-symbols.ts --write\`.`];
-  }
-  const committed = JSON.parse(readFileSync(CRITICAL_SYMBOLS_PATH, 'utf8')) as CriticalSymbolsReport;
-  if (!samePackages(fresh, committed)) {
-    return [`entry-path/critical-symbols.json is stale (does not match the entry-path corpus on disk) — run \`bun run packages/conformance/src/entry-path-symbols.ts --write\`.`];
-  }
-  return [];
+  return { packages: sortedPackages };
 }
 
 if (import.meta.main) {
-  const write = process.argv.includes('--write');
   const report = computeCriticalSymbols();
-
-  if (write) {
-    writeFileSync(CRITICAL_SYMBOLS_PATH, JSON.stringify(report, null, 2) + '\n');
-    const totalSymbols = Object.values(report.packages).reduce((n, p) => n + p.symbols.length, 0);
-    console.log(`entry-path/critical-symbols.json written: ${Object.keys(report.packages).length} package(s), ${totalSymbols} critical symbol(s).`);
-    process.exit(0);
-  }
-
-  const problems = checkCriticalSymbolsUpToDate();
-  if (problems.length > 0) {
-    for (const problem of problems) console.error(`- ${problem}`);
-    process.exit(1);
-  }
-  console.log('entry-path/critical-symbols.json is up to date.');
-  process.exit(0);
+  const totalSymbols = Object.values(report.packages).reduce((n, p) => n + p.symbols.length, 0);
+  console.log(JSON.stringify(report, null, 2));
+  console.error(
+    `\nDerived from ${listEntryPathProgramFiles().length} entry-path program(s): ` +
+      `${Object.keys(report.packages).length} package(s), ${totalSymbols} critical symbol(s). ` +
+      `Not stored — the programs are the source.`,
+  );
 }

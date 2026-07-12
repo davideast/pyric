@@ -8,7 +8,8 @@
  * runnable module exporting an async `run()` — see `load.ts` for how the
  * directory becomes the index, `../src/entry-path-gate.ts` for the CLIFF gate
  * that runs every program in-process, and `../src/entry-path-symbols.ts` for
- * the static import-set extraction that feeds `critical-symbols.json`.
+ * the static import-set extraction that derives the critical set from these
+ * programs on demand.
  */
 import type { CensusSurface } from '../src/surface-denylist.ts';
 

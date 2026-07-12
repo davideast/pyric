@@ -15,7 +15,7 @@ import { ALL_RULES_STORAGE_SCENARIOS } from '../rules-corpus/storage/index.ts';
 import { ALL_RULES_RTDB_SCENARIOS } from '../rules-corpus/rtdb/index.ts';
 import { longestPrefixOwners, soleLongestPrefixOwner } from './observation-surface.ts';
 import { listProbeFiles, type ProbeFile } from '../probes/load.ts';
-import { checkCriticalSymbolsUpToDate, computeCriticalSymbols } from './entry-path-symbols.ts';
+import { computeCriticalSymbols } from './entry-path-symbols.ts';
 import { validateEntryPath, type EntryPathCensusRow } from './entry-path-validate.ts';
 import { expectedFailures as entryPathExpectedFailures } from '../entry-path/expected-failures.ts';
 import { listEntryPathProgramFiles } from '../entry-path/load.ts';
@@ -327,7 +327,6 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
   // census-mapped right now, or covered by an expected-failure record that
   // itself cites a real, currently-existing gap.
   if (input.entryPathCensus) {
-    problems.push(...checkCriticalSymbolsUpToDate());
     problems.push(
       ...validateEntryPath({
         criticalSymbols: computeCriticalSymbols(),

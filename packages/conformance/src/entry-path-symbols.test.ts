@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { parseImportedSymbols, computeCriticalSymbols, checkCriticalSymbolsUpToDate } from './entry-path-symbols.ts';
+import { parseImportedSymbols, computeCriticalSymbols } from './entry-path-symbols.ts';
 
 describe('parseImportedSymbols', () => {
   test('extracts named imports from a tracked pyric/* specifier', () => {
@@ -44,9 +44,5 @@ describe('computeCriticalSymbols (real entry-path corpus)', () => {
     const report = computeCriticalSymbols();
     expect(report.packages['pyric/app']?.symbols).toContain('initializeApp');
     expect(report.packages['pyric/sandbox']?.symbols).toContain('initializeSandbox');
-  });
-
-  test('critical-symbols.json committed to disk matches the corpus (not stale)', () => {
-    expect(checkCriticalSymbolsUpToDate()).toEqual([]);
   });
 });
