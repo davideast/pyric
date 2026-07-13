@@ -38,7 +38,7 @@ while IFS= read -r tb; do
 done < <(node -e "
 const path = require('path');
 const manifest = require(path.join(process.cwd(), 'dist/packages/manifest.json'));
-const names = ['pyric', 'pyric-admin', '@pyric/cli', '@pyric/ui'];
+const names = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui'];
 for (const name of names) {
   const entry = manifest.packages.find((p) => p.name === name);
   if (!entry) {
@@ -52,7 +52,7 @@ for tb in "${TARBALLS[@]}"; do
   [ -f "$tb" ] || { echo "✗ missing tarball $tb (run: npm run pack)" >&2; exit 1; }
 done
 
-# 2. Fresh consumer. The four libs are declared as `file:` tarball deps, and the
+# 2. Fresh consumer. The five packages are declared as `file:` tarball deps, and the
 #    SAME local tarballs are pinned via every manager's override channel
 #    (overrides / resolutions / pnpm.overrides). Without this, the inter-package
 #    deps can resolve differently per manager. Pinning makes the matrix test OUR
@@ -66,8 +66,8 @@ CONSUMER_DIR="$CONSUMER" node -e '
 const fs = require("fs");
 const path = require("path");
 const dir = process.env.CONSUMER_DIR;
-const [pyric, admin, tools, ui] = process.argv.slice(1).map((p) => "file:" + p);
-const pin = { "pyric": pyric, "pyric-admin": admin, "@pyric/cli": tools, "@pyric/ui": ui };
+const [pyric, admin, create, tools, ui] = process.argv.slice(1).map((p) => "file:" + p);
+const pin = { "pyric": pyric, "pyric-admin": admin, "create-pyric": create, "@pyric/cli": tools, "@pyric/ui": ui };
 const pkg = {
   name: "pyric-install-matrix-consumer", private: true, version: "1.0.0", type: "module",
   dependencies: { ...pin, react: "^19", "react-dom": "^19", firebase: "^12" },
@@ -84,7 +84,7 @@ fs.writeFileSync(path.join(dir, "pnpm-workspace.yaml"), yaml);
 ' "${TARBALLS[@]}"
 
 # 3. Install — file: deps + overrides drive everything to the local tarballs.
-echo "▸ $PM install (4 file: tarballs + peers, inter-deps pinned local)…"
+echo "▸ $PM install (5 file: tarballs + peers, inter-deps pinned local)…"
 cd "$CONSUMER"
 case "$PM" in
   npm)  npm install --no-audit --no-fund --loglevel=error ;;
@@ -96,11 +96,11 @@ case "$PM" in
   bun)  bun install ;;
 esac
 
-# 4. Resolve EVERY advertised subpath of all four libs, derived from the INSTALLED
+# 4. Resolve EVERY advertised subpath of all five packages, derived from the INSTALLED
 #    manifests (drift-free — no hardcoded list to fall out of sync).
 cat > "$CONSUMER/__matrix-resolve.mjs" <<'NODECHECK'
 import { readFileSync } from 'node:fs';
-const PKGS = ['pyric', 'pyric-admin', '@pyric/cli', '@pyric/ui'];
+const PKGS = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui'];
 let failed = false, total = 0;
 for (const pkg of PKGS) {
   const manifest = JSON.parse(readFileSync(`node_modules/${pkg}/package.json`, 'utf8'));

@@ -15,7 +15,7 @@
  *      the returned identity (and call shape) proves dispatch happened.
  */
 
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 
 import { initializeSandbox } from 'pyric/sandbox';
 import type { Sandbox } from 'pyric/sandbox';
@@ -192,71 +192,5 @@ describe('pyric-admin/database — sandbox backend (Phase 4b)', () => {
     expect(() => (ref as any).transaction(() => 1)).toThrow(/not implemented/);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => (ref as any).onDisconnect()).toThrow(/not implemented/);
-  });
-});
-
-// ── Prod-dispatch test ───────────────────────────────────────────────
-
-describe('pyric-admin/database — prod dispatch (Phase 3)', () => {
-  it('dispatches to firebase-admin/database when handed a prod app', async () => {
-    // Mock firebase-admin/database so we can prove the prod branch reaches
-    // it without needing real credentials. Re-import the module under
-    // test after the mock so it binds to the mocked exports.
-    const sentinel = { __sentinel: 'prod-database-handle' };
-    const getDatabaseMock = mock(() => sentinel);
-    const getDatabaseWithUrlMock = mock(() => sentinel);
-
-    mock.module('firebase-admin/database', () => ({
-      getDatabase: getDatabaseMock,
-      getDatabaseWithUrl: getDatabaseWithUrlMock,
-    }));
-
-    const { getDatabase: getDatabaseUnderTest } = await import(
-      `./index.js?prod-no-url=${Date.now()}`
-    );
-
-    const fakeAdminApp = { name: '[DEFAULT]', options: { projectId: 'test' } };
-    const app = {
-      [ADMIN_APP_TARGET]: 'prod' as const,
-      adminApp: fakeAdminApp,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any as PyricAdminApp;
-    const out = getDatabaseUnderTest(app);
-
-    expect(out).toBe(sentinel);
-    expect(getDatabaseMock).toHaveBeenCalledTimes(1);
-    expect(getDatabaseMock).toHaveBeenCalledWith(fakeAdminApp);
-    expect(getDatabaseWithUrlMock).toHaveBeenCalledTimes(0);
-  });
-
-  it('dispatches to firebase-admin/database `getDatabaseWithUrl` when a URL is supplied', async () => {
-    const sentinel = { __sentinel: 'prod-database-handle-url' };
-    const getDatabaseMock = mock(() => sentinel);
-    const getDatabaseWithUrlMock = mock(() => sentinel);
-
-    mock.module('firebase-admin/database', () => ({
-      getDatabase: getDatabaseMock,
-      getDatabaseWithUrl: getDatabaseWithUrlMock,
-    }));
-
-    const { getDatabase: getDatabaseUnderTest } = await import(
-      `./index.js?prod-with-url=${Date.now()}`
-    );
-
-    const fakeAdminApp = { name: '[DEFAULT]', options: { projectId: 'test' } };
-    const app = {
-      [ADMIN_APP_TARGET]: 'prod' as const,
-      adminApp: fakeAdminApp,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any as PyricAdminApp;
-    const url = 'https://test-default-rtdb.firebaseio.com';
-    const out = getDatabaseUnderTest(app, url);
-
-    expect(out).toBe(sentinel);
-    expect(getDatabaseWithUrlMock).toHaveBeenCalledTimes(1);
-    // firebase-admin's signature is `getDatabaseWithUrl(url, app)` —
-    // assert the order matches.
-    expect(getDatabaseWithUrlMock).toHaveBeenCalledWith(url, fakeAdminApp);
-    expect(getDatabaseMock).toHaveBeenCalledTimes(0);
   });
 });

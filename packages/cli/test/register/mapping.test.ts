@@ -1,17 +1,10 @@
 /**
  * Unit coverage for the register seam's pure pieces: the specifier map
- * (firebase → pyric, with a register-only app adapter, non-Firebase untouched), the
- * mirror-package exemption (Firebase imports FROM WITHIN the pyric mirrors
- * stay Firebase — their prod arms), CLI imports still rewrite like consumer
- * imports, and the ESM-only exports walker behind the CJS require() fallback.
+ * (firebase → pyric, with a register-only app adapter, non-Firebase untouched)
+ * and the ESM-only exports walker behind the CJS require() fallback.
  */
 import { describe, it, expect } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { mapFirebaseSpecifier } from '../../src/register/mapping.js';
-import { owningPackageName, rewriteSpecifier } from '../../src/register/exempt.js';
 import { resolveEsmOnlySubpath } from '../../src/register/esm-exports.js';
 
 describe('mapFirebaseSpecifier', () => {
@@ -53,72 +46,6 @@ describe('mapFirebaseSpecifier', () => {
   it('does not double-map pyric specifiers', () => {
     expect(mapFirebaseSpecifier('pyric-admin/app')).toBeNull();
     expect(mapFirebaseSpecifier('pyric/firestore')).toBeNull();
-  });
-});
-
-describe('rewriteSpecifier (mirror-package exemption)', () => {
-  const repoRoot = resolve(import.meta.dir, '../../../..');
-  const pyricAdminParent = pathToFileURL(
-    join(repoRoot, 'packages/pyric-admin/src/database/index.ts'),
-  ).href;
-  const pyricParent = pathToFileURL(join(repoRoot, 'packages/pyric/src/app/index.ts')).href;
-  const cliParent = pathToFileURL(join(repoRoot, 'packages/cli/src/cli/index.ts')).href;
-
-  it('does NOT rewrite Firebase imports made from within the pyric mirrors', () => {
-    // The repro: pyric-admin/database's own prod-arm import — a rewrite
-    // turns it into a self-import missing getDatabaseWithUrl.
-    expect(rewriteSpecifier('firebase-admin/database', pyricAdminParent)).toBeNull();
-    expect(rewriteSpecifier('firebase-admin/app', pyricAdminParent)).toBeNull();
-    expect(rewriteSpecifier('firebase/app', pyricParent)).toBeNull();
-  });
-
-  it('rewrites Firebase imports made from within the CLI package', () => {
-    expect(rewriteSpecifier('firebase-admin/firestore', cliParent)).toBe(
-      'pyric-admin/firestore',
-    );
-  });
-
-  it('rewrites from user modules, entry points, and non-file parents', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-exempt-'));
-    try {
-      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'user-app' }));
-      const userParent = pathToFileURL(join(dir, 'server.mjs')).href;
-      expect(rewriteSpecifier('firebase-admin/database', userParent)).toBe('pyric-admin/database');
-      expect(rewriteSpecifier('firebase/app', userParent)).toBe('pyric/app/register');
-      expect(rewriteSpecifier('firebase-admin/app', undefined)).toBe('pyric-admin/app');
-      expect(rewriteSpecifier('firebase-admin/app', 'data:text/javascript,')).toBe(
-        'pyric-admin/app',
-      );
-      // Non-Firebase specifiers stay null regardless of parent.
-      expect(rewriteSpecifier('express', userParent)).toBeNull();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('identifies the owner by package NAME, skipping nameless format-marker package.json', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-owner-'));
-    try {
-      // A copy under an arbitrary 'pyric'-flavored path: identity must come
-      // from the package.json name, never from a path substring.
-      const pkgDir = join(dir, 'some-pyric-worktree/node_modules/pyric-admin');
-      mkdirSync(join(pkgDir, 'dist'), { recursive: true });
-      writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({ name: 'pyric-admin' }));
-      // Nameless format marker inside dist — skipped, not the owner.
-      writeFileSync(join(pkgDir, 'dist', 'package.json'), JSON.stringify({ type: 'module' }));
-      const parent = pathToFileURL(join(pkgDir, 'dist', 'database.js')).href;
-      expect(owningPackageName(parent)).toBe('pyric-admin');
-      expect(rewriteSpecifier('firebase-admin/database', parent)).toBeNull();
-
-      // A user package on a path CONTAINING 'pyric' still gets rewritten.
-      const userDir = join(dir, 'my-pyric-app');
-      mkdirSync(userDir, { recursive: true });
-      writeFileSync(join(userDir, 'package.json'), JSON.stringify({ name: 'my-pyric-app' }));
-      const userParent = pathToFileURL(join(userDir, 'index.mjs')).href;
-      expect(rewriteSpecifier('firebase-admin/database', userParent)).toBe('pyric-admin/database');
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
   });
 });
 

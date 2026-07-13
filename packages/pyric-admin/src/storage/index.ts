@@ -1,16 +1,9 @@
 /**
- * `pyric-admin/storage` — Phase 3 + Phase 4b implementation.
+ * `pyric-admin/storage` — sandbox mirror for the Admin Storage shape.
  *
- * Mirrors `firebase-admin/storage` with sandbox + prod backends, both
- * selected at {@link initializeApp} time on `pyric-admin/app` (ADR-001
- * D6). Dispatch reads the {@link ADMIN_APP_TARGET} brand on the
- * `PyricAdminApp` handle — no structural duck-typing, no per-call
- * shape probing.
- *
- *   - **Prod path** — delegates to `firebase-admin/storage`'s
- *     `getStorage(adminApp)`. The returned object is the genuine
- *     production `Storage`, so every method on `Storage` / `Bucket` /
- *     `File` (from `@google-cloud/storage`) is present unchanged.
+ * Mirrors the useful `firebase-admin/storage` shape for local and remote
+ * sandbox apps selected at {@link initializeApp} time. Dispatch reads the
+ * {@link ADMIN_APP_TARGET} brand on the `PyricAdminApp` handle.
  *
  *   - **Remote sandbox path** — a handle branded by `@pyric/cli`'
  *     `connectRemoteSandbox()`/`remoteSandbox()` relays every data
@@ -38,14 +31,8 @@
  *     **Deferred in the sandbox backend** (throws `"not implemented in
  *     pyric-admin/storage sandbox backend"`): streaming uploads
  *     (`createWriteStream`), resumable uploads, signed cookies, IAM
- *     policies, lifecycle rules, ACLs, copy/move, notifications. The
- *     prod path keeps every one of these — only the sandbox stub omits
- *     them.
+ *     policies, lifecycle rules, ACLs, copy/move, notifications.
  */
-
-import type { App as AdminApp } from 'firebase-admin/app';
-import type { Storage as ProdStorage } from 'firebase-admin/storage';
-import { getStorage as getProdStorage } from 'firebase-admin/storage';
 
 import {
   isRemoteSandbox,
@@ -58,36 +45,29 @@ import {
   ADMIN_APP_TARGET,
   getApp,
   type PyricAdminApp,
-  type ProdAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
 
 // ─── Public surface ─────────────────────────────────────────────────────
 
 /**
- * `pyric-admin/storage`'s `Storage` handle. On the prod path this is
- * literally `firebase-admin/storage`'s `Storage`. On the sandbox path
- * this is an in-process surface that exposes the subset of methods
+ * `pyric-admin/storage`'s sandbox `Storage` handle. It exposes the subset
  * documented in the module header.
  *
  * The shared `bucket(name?)` shape is the contract — consumers code
- * against it without caring which backend is live, the same way they
- * code against `firebase-admin/storage` in production.
+ * against it without caring whether the local or remote sandbox is live.
  */
 export interface Storage {
   /**
    * Get a {@link Bucket} handle. When `name` is omitted, returns the
-   * default bucket (sandbox: `'pyric-default'`; prod: whatever
-   * `firebase-admin/storage`'s `bucket()` resolves to from app config).
+   * sandbox default bucket (`'pyric-default'`).
    */
   bucket(name?: string): Bucket;
 }
 
 /**
- * A storage bucket handle. The sandbox and prod paths both implement
- * this interface — the prod path delegates to `@google-cloud/storage`'s
- * `Bucket` and exposes every method that class carries; the sandbox
- * path implements only the documented subset.
+ * A storage bucket handle implemented by both local and remote sandbox
+ * paths. Only the documented subset is supported.
  */
 export interface Bucket {
   /** Name of the bucket. Stable across `file()` lookups. */
@@ -99,7 +79,7 @@ export interface Bucket {
 /**
  * A file handle within a bucket. Method shapes mirror
  * `@google-cloud/storage`'s `File` (return tuples for download / exists
- * / getSignedUrl, etc.) so consumer code is identical across backends.
+ * / getSignedUrl, etc.) so common consumer code retains the familiar shape.
  *
  * The sandbox backend implements the methods documented here. Any
  * other `File` method from `@google-cloud/storage` (`createWriteStream`,
@@ -138,7 +118,7 @@ export interface File {
    * `pyric-sandbox-storage://${path}?expires=${expires}`. The sandbox
    * does NOT serve the URL — it's a deterministic placeholder so
    * agent code that round-trips signed URLs (logs, fixtures, replay)
-   * sees a stable shape. Prod returns real signed URLs from GCS.
+   * sees a stable shape.
    */
   getSignedUrl(options: GetSignedUrlOptions): Promise<[string]>;
 }
@@ -149,26 +129,25 @@ export interface SaveOptions {
    * Arbitrary metadata stored alongside the file. The sandbox stores
    * it verbatim; consumers that need to round-trip `contentType`,
    * `metadata.custom`, etc. get it back via internal admin tooling
-   * (not exposed on `File` itself yet). The prod path forwards to
-   * `@google-cloud/storage`.
+   * (not exposed on `File` itself yet).
    */
   metadata?: Record<string, unknown>;
   /**
-   * Content type hint. Sandbox stores it on the entry; prod forwards.
+   * Content type hint stored on the sandbox entry.
    * Convenience shortcut for `metadata.contentType`.
    */
   contentType?: string;
   /**
    * `resumable: false` is the only mode the sandbox models (single-
-   * shot writes). Pass-through on prod. Sandbox throws when set to
-   * `true` since resumable uploads are deferred.
+   * shot writes). The sandbox throws when set to `true` since resumable
+   * uploads are deferred.
    */
   resumable?: boolean;
 }
 
 /** Options bag for {@link File.download}. Subset of `@google-cloud/storage`'s `DownloadOptions`. */
 export interface DownloadOptions {
-  /** Sandbox accepts but ignores `validation` — prod forwards. */
+  /** The sandbox accepts but ignores `validation`. */
   validation?: 'md5' | 'crc32c' | boolean;
 }
 
@@ -196,10 +175,7 @@ export type StorageApp = PyricAdminApp;
 /**
  * Get the {@link Storage} service for the given app.
  *
- * - **Prod app** → returns `firebase-admin/storage`'s `Storage` for
- *   the underlying `adminApp`. Drop-in compatible with production
- *   code that uses `firebase-admin/storage` directly.
- * - **Sandbox app** → returns a sandbox-backed `Storage` whose state
+ * Returns a sandbox-backed `Storage` whose state
  *   lives on the `Sandbox`. `sandbox.reset()` wipes it.
  */
 export function getStorage(app?: StorageApp): Storage {
@@ -217,9 +193,6 @@ export function getStorage(app?: StorageApp): Storage {
     }
     return getSandboxStorage(resolved);
   }
-  if (resolved[ADMIN_APP_TARGET] === 'prod') {
-    return getProdStorageHandle(resolved);
-  }
   // Defensive: the union is closed at the type level. A runtime value
   // that lands here means a caller forged a handle without going
   // through `initializeApp`.
@@ -227,23 +200,6 @@ export function getStorage(app?: StorageApp): Storage {
     'pyric-admin/storage: getStorage expected a PyricAdminApp from `initializeApp`; ' +
       'received a value with no recognized ADMIN_APP_TARGET brand.',
   );
-}
-
-// ─── Prod path ──────────────────────────────────────────────────────────
-
-/**
- * Resolve the prod path. The returned `Storage` is the unmodified
- * `firebase-admin/storage` handle — every `Bucket` / `File` method
- * works exactly as documented in `@google-cloud/storage`.
- *
- * We assert-cast the result to our local {@link Storage} interface:
- * structurally it's a superset (same `bucket(name?)` shape) and
- * exposing the broader surface gives callers full access without
- * forcing them back into a `firebase-admin/storage` import.
- */
-function getProdStorageHandle(app: ProdAdminApp): Storage {
-  const prod: ProdStorage = getProdStorage(app.adminApp as AdminApp);
-  return prod as unknown as Storage;
 }
 
 // ─── Sandbox path ───────────────────────────────────────────────────────
@@ -424,7 +380,7 @@ class SandboxFile implements File {
 //     metadata), so `bucket('non-default')` throws instead of silently
 //     merging buckets. The default bucket name matches the local arm.
 //   - byte payloads are capped at 8 MiB per op (whole-object buffering
-//     over four relay hops; streaming stays unsupported on both arms).
+//     over four relay hops; streaming stays unsupported on both sandbox arms).
 // `getSignedUrl` does NOT relay: it stays the byte-identical local stub.
 
 /** firebase-admin's rules-bypass lens, pinned on every relayed operation. */
@@ -548,7 +504,7 @@ class RemoteFile implements File {
     } catch (err) {
       // The worker store's delete is already idempotent, but swallow a
       // not-found defensively so the local arm's idempotent-delete contract
-      // holds even if `pyric/storage` adopts the strict prod throw later.
+      // holds even if `pyric/storage` adopts stricter delete semantics later.
       if (isObjectNotFound(err)) return;
       throw err;
     }
@@ -652,6 +608,6 @@ function normalizeExpires(expires: number | string | Date): number {
   if (expires instanceof Date) return expires.getTime();
   // String form — accept anything `Date` parses. Bogus input becomes
   // `NaN`, which is still embeddable in the URL; we don't enforce
-  // strictness because the prod path delegates this to GCS anyway.
+  // strictness because the value only feeds the deterministic sandbox stub.
   return new Date(expires).getTime();
 }

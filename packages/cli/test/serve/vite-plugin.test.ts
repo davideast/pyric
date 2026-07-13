@@ -95,14 +95,6 @@ describe('resolveId — the importer-aware swap', () => {
     expect(resolveId('firebase/firestore', lib)).toBe(entries.firestore);
   });
 
-  it('routes ANY firebase/* from pyric-internal code to the inert stub (breaks recursion)', () => {
-    expect(resolveId('firebase/firestore', pyricImporter)).toBe('\0pyric:fb-stub:firebase/firestore');
-    expect(resolveId('firebase/app', pyricImporter)).toBe('\0pyric:fb-stub:firebase/app');
-    // non-served subpaths are still stubbed when pyric imports them
-    expect(resolveId('firebase/database', pyricImporter)).toBe('\0pyric:fb-stub:firebase/database');
-    expect(resolveId('firebase/storage', pyricImporter)).toBe('\0pyric:fb-stub:firebase/storage');
-  });
-
   it('swaps RTDB and Storage from user/library code', () => {
     expect(resolveId('firebase/database', userImporter)).toBe(entries.database);
     expect(resolveId('firebase/storage', userImporter)).toBe(entries.storage);
@@ -133,29 +125,7 @@ describe('resolveId — the importer-aware swap', () => {
   });
 });
 
-describe('load — the stub bodies', () => {
-  it('does not synthesize firebase/firestore bindings after Firestore isolation', () => {
-    const src = load('\0pyric:fb-stub:firebase/firestore') as string;
-    expect(src).toContain('export default');
-    expect(src).not.toContain('export const');
-    expect(src).not.toContain('getFirestore');
-    expect(src).not.toContain('Bytes');
-  });
-
-  it('does not synthesize firebase/app bindings after app isolation', () => {
-    const src = load('\0pyric:fb-stub:firebase/app') as string;
-    expect(src).toContain('export default');
-    expect(src).not.toContain('initializeApp');
-    expect(src).not.toContain('FirebaseError');
-  });
-
-  it('does not synthesize firebase/auth bindings after auth isolation', () => {
-    const src = load('\0pyric:fb-stub:firebase/auth') as string;
-    expect(src).toContain('export default');
-    expect(src).not.toContain('getAuth');
-    expect(src).not.toContain('signInAnonymously');
-  });
-
+describe('load — node shims', () => {
   it('emits the node-builtin shim source', () => {
     expect(load('\0pyric:node-shim:fs') as string).toContain('readFileSync');
     expect(load('\0pyric:node-shim:path') as string).toContain('export const join');
@@ -230,8 +200,6 @@ describe('integration — real vite dev pluginContainer', () => {
     expect(r?.id).toBe(entries.firestore);
     const storage = await server!.pluginContainer.resolveId('firebase/storage', userImporter);
     expect(storage?.id).toBe(entries.storage);
-    const stub = await server!.pluginContainer.resolveId('firebase/firestore', pyricImporter);
-    expect(stub?.id).toContain('pyric:fb-stub');
   });
 });
 

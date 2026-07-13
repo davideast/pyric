@@ -1,27 +1,16 @@
 /**
- * `pyric-admin/auth` — Phase 3 (branded-app dispatch) + Phase 4b
- * (minimal in-memory sandbox backend).
+ * `pyric-admin/auth` — the sandbox mirror for the Firebase Admin Auth shape.
  *
  * Mirrors `firebase-admin/auth` for a useful subset of methods. The
  * `app` argument is the branded handle from `pyric-admin/app`
- * ({@link PyricAdminApp}); the brand symbol picks the backend:
- *
- *   - **Prod path** (`app[ADMIN_APP_TARGET] === 'prod'`) — delegates to
- *     `firebase-admin/auth`'s `getAuth(app.adminApp)` and returns the
- *     production `Auth` instance unchanged. Drop-in replacement for
- *     `firebase-admin/auth` so agents already calling it keep their
- *     exact behavior (tenants, providers, MFA, session cookies, action
- *     codes, all present on the returned handle).
- *
- *   - **Sandbox path** (`app[ADMIN_APP_TARGET] === 'sandbox'`) — backed
- *     by an in-memory store keyed off `app.sandbox`. Implements the
- *     core user-management subset listed below. Tokens are NOT real
- *     JWTs — they're deterministic strings the same sandbox backend
- *     parses on `verifyIdToken`. The sandbox backend is intentionally
- *     minimal: enough to exercise agent code paths that use
- *     `createUser` / `getUser` / `setCustomUserClaims` /
- *     `createCustomToken` / `verifyIdToken`, not enough to model a
- *     real identity platform.
+ * ({@link PyricAdminApp}); only sandbox-branded apps enter this package.
+ * The local sandbox path uses an in-memory store keyed off `app.sandbox`
+ * and implements the core user-management subset below. Tokens are NOT
+ * real JWTs — they are deterministic strings parsed by the same sandbox
+ * backend. This is enough to exercise agent code paths that use
+ * `createUser` / `getUser` / `setCustomUserClaims` /
+ * `createCustomToken` / `verifyIdToken`, not enough to model a real
+ * identity platform.
  *
  *   - **Remote sandbox arm** — when the sandbox carries `pyric/sandbox`'s
  *     remote brand (a Node-side handle onto the browser-hosted
@@ -69,20 +58,9 @@
  *   - `getUserByPhoneNumber`, `getUserByProviderUid`.
  *   - `updateUser` — not required by the brief.
  *
- * Real `firebase-admin` types are imported with `import type` so
- * signatures stay identical to upstream — there's no shape drift to
- * keep in sync.
+ * Public types are mirror-owned structural types. Production applications
+ * load `firebase-admin/auth` directly, outside this package graph.
  */
-
-import type {
-  Auth as AdminAuth,
-  CreateRequest,
-  DecodedIdToken,
-  ListUsersResult,
-  UpdateRequest,
-  UserRecord,
-} from 'firebase-admin/auth';
-import type { App } from 'firebase-admin/app';
 import {
   isRemoteSandbox,
   type RemoteSandbox,
@@ -98,24 +76,86 @@ import {
   ADMIN_APP_TARGET,
   getApp,
   type PyricAdminApp,
-  type ProdAdminApp,
-  type SandboxAdminApp,
 } from '../app/index.js';
 
-/**
- * The handle returned by {@link getAuth}. On the prod path this is
- * literally `firebase-admin/auth`'s `Auth` — every method, every
- * tenant/project manager, every shape detail. On the sandbox path it is
- * a structurally-compatible `Auth` whose method set is the explicit
- * subset documented above; non-implemented methods throw a clear
- * remediation error rather than silently returning bad data.
- */
-export type Auth = AdminAuth;
+export interface CreateRequest {
+  uid?: string;
+  email?: string;
+  emailVerified?: boolean;
+  displayName?: string | null;
+  photoURL?: string | null;
+  phoneNumber?: string | null;
+  disabled?: boolean;
+  password?: string;
+}
 
-// Re-export supporting types so consumers can spell them with a
-// `pyric-admin/auth` import path and not reach back into
-// `firebase-admin/auth` for the same definitions.
-export type { CreateRequest, DecodedIdToken, UserRecord };
+export interface UpdateRequest extends Omit<CreateRequest, 'uid'> {
+  multiFactor?: unknown;
+  providerToLink?: unknown;
+  providersToUnlink?: unknown;
+}
+
+export interface DecodedIdToken extends Record<string, unknown> {
+  aud: string;
+  auth_time: number;
+  exp: number;
+  firebase: { identities: Record<string, unknown>; sign_in_provider: string };
+  iat: number;
+  iss: string;
+  sub: string;
+  uid: string;
+}
+
+export interface UserMetadata {
+  creationTime: string;
+  lastSignInTime: string;
+  toJSON(): Record<string, unknown>;
+}
+
+export interface UserInfo {
+  providerId: string;
+  uid: string;
+  displayName?: string;
+  email?: string;
+  photoURL?: string;
+  phoneNumber?: string;
+  toJSON(): Record<string, unknown>;
+}
+
+export interface UserRecord {
+  readonly uid: string;
+  readonly email?: string;
+  readonly emailVerified: boolean;
+  readonly displayName?: string;
+  readonly photoURL?: string;
+  readonly phoneNumber?: string;
+  readonly disabled: boolean;
+  readonly metadata: UserMetadata;
+  readonly providerData: UserInfo[];
+  readonly customClaims?: Record<string, unknown>;
+  readonly tenantId: string | null;
+  toJSON(): Record<string, unknown>;
+}
+
+export interface ListUsersResult {
+  users: UserRecord[];
+  pageToken?: string;
+}
+
+/** Sandbox Auth interface intentionally limited to implemented behavior. */
+export interface Auth {
+  readonly app: PyricAdminApp;
+  createCustomToken(uid: string, developerClaims?: object): Promise<string>;
+  verifyIdToken(idToken: string, checkRevoked?: boolean): Promise<DecodedIdToken>;
+  createUser(properties: CreateRequest): Promise<UserRecord>;
+  getUser(uid: string): Promise<UserRecord>;
+  getUserByEmail(email: string): Promise<UserRecord>;
+  deleteUser(uid: string): Promise<void>;
+  setCustomUserClaims(uid: string, customUserClaims: object | null): Promise<void>;
+  updateUser(uid: string, properties: UpdateRequest): Promise<UserRecord>;
+  listUsers(maxResults?: number, pageToken?: string): Promise<ListUsersResult>;
+  [key: string]: unknown;
+}
 
 // ─── Sandbox backend ────────────────────────────────────────────────────
 
@@ -142,7 +182,7 @@ class AuthStore {
    * collision resistance — it needs a stable, debuggable identifier
    * that doesn't collide *within one sandbox session*. A counter plus
    * a constant prefix is enough; padding keeps the visual width
-   * roughly consistent with prod uids.
+ * roughly consistent with Firebase Auth uids.
    */
   mintUid(): string {
     const n = String(this.nextAutoUid++).padStart(20, '0');
@@ -232,7 +272,7 @@ function mintSandboxCustomToken(uid: string, developerClaims?: object): Promise<
  * `DecodedIdToken`-shaped object — every required field is filled with a
  * sandbox-appropriate placeholder (`iss`/`aud` = `pyric-sandbox`, time
  * fields = now), and the developer claims are spread onto the result so
- * `decoded.role` etc. work the same way they do in prod.
+ * `decoded.role` etc. retain the familiar Firebase Admin shape.
  *
  * Throws on any token that doesn't match the
  * `${SANDBOX_TOKEN_PREFIX}:${uid}:${json}` shape — including real JWTs
@@ -363,9 +403,8 @@ function makeSandboxAuth(sandbox: Sandbox): Auth {
   // rest throw via `notImplemented`. Cast to `Auth` at return.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handle: any = {
-    /** Stamp the app on the handle so debugging shows where it came
-     *  from. The prod handle has an `app` getter too — matching the
-     *  shape keeps consumers that inspect `auth.app` from breaking. */
+    /** Preserve the upstream `auth.app` property shape while failing loudly
+     *  because the minimal local backend does not expose an app handle. */
     get app() {
       throw notImplemented('auth.app');
     },
@@ -817,47 +856,14 @@ function makeRemoteAuth(sandbox: RemoteSandbox): Auth {
   return handle as Auth;
 }
 
-// ─── Dispatch ────────────────────────────────────────────────────────────
-
-/**
- * Type guard for the prod arm of {@link PyricAdminApp}. Reads the
- * brand symbol from `pyric-admin/app` — no structural sniffing.
- */
-function isProdAdminApp(app: PyricAdminApp): app is ProdAdminApp {
-  return app[ADMIN_APP_TARGET] === 'prod';
-}
-
-/**
- * Type guard for the sandbox arm of {@link PyricAdminApp}. Brand-based,
- * symmetric with {@link isProdAdminApp}.
- */
-function isSandboxAdminApp(app: PyricAdminApp): app is SandboxAdminApp {
-  return app[ADMIN_APP_TARGET] === 'sandbox';
-}
+// ─── Sandbox selection ──────────────────────────────────────────────────
 
 /**
  * Return an `Auth` handle for the given app — or for the DEFAULT app when
  * called with no argument (mirrors firebase-admin's no-arg `getAuth()`:
  * resolves `'[DEFAULT]'` through `pyric-admin/app`'s registry and throws
- * `app/no-app` when nothing has been initialized). Works on all three
- * arms — local sandbox, remote sandbox, prod — since dispatch happens on
- * whatever brand the resolved app carries.
- *
- * Dispatches on the brand symbol set by `pyric-admin/app`'s
- * `initializeApp`:
- *   - `'prod'` → delegates to `firebase-admin/auth`'s `getAuth` against
- *     `app.adminApp`. The returned `Auth` is the production object,
- *     unmodified.
- *   - `'sandbox'` → returns an in-memory `Auth` handle backed by an
- *     {@link AuthStore} keyed off `app.sandbox`. Repeat calls for the
- *     same sandbox share the store, so writes are visible across
- *     handles (matches upstream `getAuth(app)` idempotency).
- *
- * The firebase-admin import is dynamic (`require` at call time) so the
- * module's top-level evaluation stays cheap and so sandbox-only
- * consumers do not pay the firebase-admin initialization cost. Mirrors
- * how `pyric/firestore` defers its firebase init: backends are
- * pay-for-what-you-use.
+ * `app/no-app` when nothing has been initialized). Local sandboxes use the
+ * in-memory store; remote sandboxes relay to the browser-hosted worker.
  *
  * @example
  * ```ts
@@ -885,36 +891,13 @@ export function getAuth(app?: PyricAdminApp): Auth {
     throw new TypeError(
       'pyric-admin/auth: getAuth expected a PyricAdminApp (from pyric-admin/app#initializeApp). ' +
         'Received a value with no ADMIN_APP_TARGET brand. Pass the handle returned by ' +
-        '`initializeApp({ credential })` (prod) or `initializeApp({ sandbox })` (sandbox).',
+        '`initializeApp({ sandbox })`.',
     );
   }
-  if (isSandboxAdminApp(app)) {
-    // Remote-branded sandboxes dispatch BEFORE the local arm: the local
-    // in-memory store would be a private server-side user table the
-    // browser never sees (and its `sandbox.onEvent` reset wiring throws
-    // on remote handles by design).
-    if (isRemoteSandbox(app.sandbox)) {
-      return makeRemoteAuth(app.sandbox);
-    }
-    return makeSandboxAuth(app.sandbox);
+  if (app[ADMIN_APP_TARGET] !== 'sandbox') {
+    throw new TypeError('pyric-admin/auth: getAuth expected a sandbox admin app.');
   }
-  if (isProdAdminApp(app)) {
-    // Prod path — defer the firebase-admin import to call time so the
-    // module load is cheap. `require` works in Bun + Node ESM via
-    // module-interop and avoids top-level `await` (which would force
-    // every consumer to live in an async module graph).
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getAuth: getAdminAuth } = require('firebase-admin/auth') as {
-      getAuth: (app: App) => AdminAuth;
-    };
-    return getAdminAuth(app.adminApp);
-  }
-  // Branded with a value the dispatch table doesn't know — future
-  // target string from a newer `pyric-admin/app` we haven't been
-  // updated for.
-  throw new TypeError(
-    `pyric-admin/auth: getAuth received a PyricAdminApp with an unrecognized ADMIN_APP_TARGET value: ${String(
-      (app as { [ADMIN_APP_TARGET]: unknown })[ADMIN_APP_TARGET],
-    )}`,
-  );
+  return isRemoteSandbox(app.sandbox)
+    ? makeRemoteAuth(app.sandbox)
+    : makeSandboxAuth(app.sandbox);
 }

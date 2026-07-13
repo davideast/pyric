@@ -104,15 +104,9 @@ describe('oracle conformance (admin app registry)', () => {
 
   it('admin-app-initializeapp-reinit-idempotent', async () => {
     const obs = load('admin-app-initializeapp-reinit-idempotent');
-    // No-arg re-init: returns the SAME [DEFAULT] app, no throw (prod auto-init).
-    const a = initializeApp();
-    const b = initializeApp();
-    expect(a === b).toBe(!(obs.reinitNoArgThrew as boolean)); // did not throw → same
-    expect(a.name).toBe(obs.reinitNoArgName as string); // '[DEFAULT]'
-    await deleteApp(a);
-    // Same-options named re-init: idempotent (returns the same handle).
-    const c = initializeApp({ databaseURL: 'https://a.firebaseio.com' }, 'app1');
-    const d = initializeApp({ databaseURL: 'https://a.firebaseio.com' }, 'app1');
+    const sandbox = initializeSandbox();
+    const c = initializeApp({ sandbox }, 'app1');
+    const d = initializeApp({ sandbox }, 'app1');
     expect(c === d).toBe(!(obs.reinitSameOptionsThrew as boolean));
     expect(c.name).toBe(obs.reinitSameOptionsName as string); // 'app1'
     await deleteApp(c);
@@ -120,9 +114,9 @@ describe('oracle conformance (admin app registry)', () => {
 
   it('admin-app-initializeapp-duplicate-different-config', async () => {
     const obs = load('admin-app-initializeapp-duplicate-different-config');
-    const first = initializeApp({ databaseURL: 'https://a.firebaseio.com' }, 'app1');
+    const first = initializeApp({ sandbox: initializeSandbox() }, 'app1');
     const err = expectThrewCode(
-      () => initializeApp({ databaseURL: 'https://b.firebaseio.com' }, 'app1'),
+      () => initializeApp({ sandbox: initializeSandbox() }, 'app1'),
       obs.code as string, // 'app/duplicate-app'
     );
     expect(err.constructor.name).toBe(obs.errorName as string); // 'FirebaseAppError'
@@ -133,7 +127,7 @@ describe('oracle conformance (admin app registry)', () => {
 
   it('admin-app-initializeapp-autoinit-mismatch', async () => {
     const obs = load('admin-app-initializeapp-autoinit-mismatch');
-    const first = initializeApp({ databaseURL: 'https://a.firebaseio.com' }, 'app1');
+    const first = initializeApp({ sandbox: initializeSandbox() }, 'app1');
     const err = expectThrewCode(
       () => initializeApp(undefined, 'app1'),
       obs.code as string, // 'app/invalid-app-options'

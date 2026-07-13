@@ -1,7 +1,7 @@
 /** Canonical Firebase Firestore imports executed through real Vite resolution. */
 import 'fake-indexeddb/auto';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ViteDevServer } from 'vite';
@@ -24,6 +24,7 @@ afterAll(async () => {
 describe('canonical Firestore operation through Vite', () => {
   it('writes and reads through the package-selected sandbox mirror', async () => {
     fixtureRoot = mkdtempSync(join(tmpdir(), 'pyric-vite-firestore-'));
+    expect(existsSync(join(fixtureRoot, 'node_modules/firebase'))).toBe(false);
     writeFileSync(
       join(fixtureRoot, 'firestore-smoke.ts'),
       `import { initializeApp } from 'firebase/app';
