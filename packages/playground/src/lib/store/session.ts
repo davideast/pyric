@@ -1,7 +1,7 @@
 /**
  * Project-scope pointer — which real Firebase project the user is
- * working against. Read by the system-prompt builder (deploy guidance
- * changes when a real project is linked) and the diagnostics tools.
+ * working against. Read by the system-prompt builder and diagnostics
+ * tools that inspect a real project.
  *
  * History: this store used to carry the legacy cloud-save machinery
  * (`saveState`, `currentSessionId`, per-email last-project pointers)
@@ -11,10 +11,8 @@
  * `~/lib/store/autosave.ts` for the visible status seam), so the
  * orphaned wiring was deleted with it.
  *
- * NOTE: nothing currently sets `currentProjectId` — the deleted modal
- * was the only setter. The deploy flow tracks its own target
- * (`deployTarget` in the workspace store); re-wiring that into this
- * pointer is a known follow-up, kept out of the save/load UX change.
+ * NOTE: nothing currently sets `currentProjectId`; project linking is
+ * not yet exposed by the Playground UI.
  */
 import { create } from 'zustand';
 

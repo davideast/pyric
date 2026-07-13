@@ -6,7 +6,6 @@
 // credential source works (pyric login / ADC / GIS) — no token-audience /
 // Firebase-Auth-sign-in dependency.
 import type { ChatMessage } from '~/lib/store/chat';
-import type { DeployTarget } from '~/lib/store/workspace';
 import type { TurnTrace } from '~/lib/store/trace';
 import type { ContextWindowSnapshot } from '~/lib/agent/context-window';
 import {
@@ -30,7 +29,6 @@ export interface RemoteExportWorkspaceSnapshot {
   rules: string;
   appSource: string;
   code?: string;
-  deployTarget?: DeployTarget | null;
 }
 
 export interface RemoteExportInput {
@@ -42,7 +40,7 @@ export interface RemoteExportInput {
   messages: readonly ChatMessage[];
   tracesByTurn: Record<string, TurnTrace>;
   contextSnapshot?: ContextWindowSnapshot;
-  firebaseConfig?: FirebaseWebConfig | DeployTarget['firebaseConfig'] | null;
+  firebaseConfig?: FirebaseWebConfig | null;
 }
 
 export interface RemoteExportIdentity {

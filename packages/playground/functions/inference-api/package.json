@@ -9,6 +9,6 @@
     "node": "22"
   },
   "dependencies": {
-    "@google-cloud/functions-framework": "^3.4.0"
+    "firebase-functions": "^7.2.5"
   }
 }

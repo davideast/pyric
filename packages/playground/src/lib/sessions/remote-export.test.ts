@@ -174,7 +174,6 @@ function baseInput(includeFullDetails: boolean): RemoteExportInput {
       rules: 'rules SECRET',
       appSource: 'app SECRET',
       code: '',
-      deployTarget: { projectId: 'demo-project' },
     },
     messages,
     tracesByTurn,

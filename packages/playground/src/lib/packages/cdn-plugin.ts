@@ -1,8 +1,7 @@
 /**
  * esbuild plugin that marks user-installed bare specifiers as
  * `external`, so the bundler leaves the import as a bare specifier
- * in the output. The runtime — either the preview iframe's import
- * map or the deploy HTML shell's import map — resolves it to the
+ * in the output. The preview iframe's import map resolves it to the
  * canonical esm.sh URL.
  *
  * The plugin receives the `name → cdnUrl` map synchronously at

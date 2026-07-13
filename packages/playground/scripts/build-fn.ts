@@ -6,12 +6,12 @@
  * Bun resolves all imports at build
  * time (the shared handlers, job-store, provider adapters, sse) into
  * one self-contained file. `@inbrowser/agent` is imported type-only by
- * the adapters, so it's erased — the output has no runtime deps
- * beyond `node:*` builtins, which `target: 'node'` keeps external.
+ * the adapters, so it's erased. `firebase-functions` remains an
+ * external runtime dependency so firebase-tools can inspect endpoint
+ * metadata before deployment.
  *
- * Output goes to `lib/` (not `dist/`): @pyric/deploy's function
- * bundler ignores `dist/` but keeps `lib/`, and `package.json`'s
- * `main` points at `lib/index.js`.
+ * Output goes to `lib/` (not `dist/`) because `package.json`'s `main`
+ * points at `lib/index.js`.
  *
  * Wired into package.json `build`, before `astro build`.
  */
@@ -27,6 +27,7 @@ const result = await Bun.build({
   naming: 'index.js',
   target: 'node',
   format: 'esm',
+  external: ['firebase-functions', 'firebase-functions/*'],
   minify: false,
 });
 

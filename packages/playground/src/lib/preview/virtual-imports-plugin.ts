@@ -120,18 +120,17 @@ const ALIASES: Record<PreviewModuleId, AliasSpec> = {
       'inMemoryPersistence',
       // Preview-only escape hatch: the `sandbox` namespace (seedUsers,
       // setUser, mockSignInResult) lets preview tests pre-stage
-      // test users with customClaims. NOT shipped in deploy bundles —
-      // see preview-scope.ts for the safety analysis.
+      // test users with customClaims. This capability exists only in
+      // the Playground preview; see preview-scope.ts for the safety analysis.
       'sandbox',
     ],
   },
-  // `firebase/database` modular SDK — aliased to `@pyric/rtdb` at
-  // preview-bundle time (Phase 3 Tier 5). Excludes the `sandbox.*`
+  // `firebase/database` modular SDK — aliased to `pyric/database` at
+  // preview-bundle time. Excludes the `sandbox.*`
   // test driver namespace — that's runner-side only, not app code.
-  // The exported list mirrors `@pyric/rtdb`'s modular surface as of
-  // Phase 3 Tier 1 (the foundation merged on main as PR #431);
+  // The exported list mirrors `pyric/database`'s modular surface;
   // higher-tier additions (child-event listeners, query constraints)
-  // can be added here as they ship in `packages/rtdb/src/modular.ts`.
+  // can be added here as they ship in `packages/pyric/src/database/modular.ts`.
   'firebase/database': {
     kind: 'reexport',
     exports: [

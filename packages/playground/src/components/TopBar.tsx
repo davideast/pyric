@@ -17,8 +17,7 @@ export interface TopBarProps {
   githubRepo?: SessionMeta['githubRepo'] | null;
   onOpenKeys?: () => void;
   onOpenSettings?: () => void;
-  /** Opens the account/sign-in modal (`AuthModal`). Labeled as
-   *  account — sign-in is for deploys, not a prerequisite to save. */
+  /** Opens the account/sign-in modal (`AuthModal`). */
   onOpenAccount?: () => void;
   homeHref?: string;
   children?: React.ReactNode;
@@ -133,7 +132,7 @@ export function TopBar({
             <button
               type="button"
               onClick={onOpenAccount}
-              title="Account — sign in for deploys"
+              title="Account"
               className="inline-flex items-center justify-center text-slate-gray hover:text-soft-white transition-colors p-1.5 rounded"
             >
               <span className="material-symbols-outlined text-[18px]">account_circle</span>

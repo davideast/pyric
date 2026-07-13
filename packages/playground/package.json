@@ -20,8 +20,6 @@
     "debug:driver": "bun --env-file=../../.env --env-file=.env scripts/playground-debug.ts",
     "debug:fixtures": "bun --env-file=../../.env --env-file=.env scripts/run-fixtures.ts",
     "test": "bun test src functions scripts",
-    "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",
-    "test:e2e:headed": "playwright test --config=tests/e2e/playwright.config.ts --headed",
     "preview:proof": "bun scripts/preview-proof.ts",
     "preview:proof:headed": "bun scripts/preview-proof.ts --headed"
   },
@@ -72,11 +70,12 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
-    "@playwright/test": "^1.60.0",
     "@types/babel__standalone": "^7.1.9",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "firebase-functions": "^7.2.5",
+    "firebase-tools": "^15.23.0",
     "google-auth-library": "^10.0.0",
     "playwright": "^1.60.0",
     "typescript": "^5.7.0"

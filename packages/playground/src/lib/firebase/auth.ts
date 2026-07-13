@@ -5,16 +5,15 @@
  * This file is a thin compatibility shim. The original implementation
  * used Firebase Auth's `signInWithPopup`/`signInWithRedirect` against
  * the playground's own Firebase project to capture a Google OAuth
- * access token; that token's expiry could not be silently refreshed,
- * which is why the deploy flow needed its own GIS-based auth
- * (`lib/auth/gis-token`).
+ * access token; that token's expiry could not be silently refreshed.
+ * GIS now owns the refreshable access-token flow.
  *
  * The migration consolidates onto a single sign-in surface: GIS owns
  * the auth flow + token cache + userinfo. This module preserves the
  * legacy `SignedInUser` shape and `useGoogleSession` hook so callers
  * (`AuthModal`, diagnostics tools) don't need to migrate in
  * lockstep. The `accessToken` returned here is the same GIS-minted
- * token the deploy hooks use — one sign-in, one token, both flows.
+ * token used by live-project diagnostics.
  *
  * What's gone vs. the old shape:
  *   - `signInWithRedirect` / `getRedirectResult` (GIS uses a popup
@@ -48,8 +47,7 @@ export interface SignedInUser {
   /**
    * OAuth access token with `cloud-platform` scope. Use as
    * `Authorization: Bearer <token>` against Firebase Management API,
-   * Storage REST, Firestore Admin, IAM — same shape the deploy hooks
-   * use via `useAccessToken().resolveToken`.
+   * Storage REST, Firestore Admin, IAM, and other Google APIs.
    */
   accessToken: string;
   /** Epoch ms when `accessToken` is considered expired locally. */

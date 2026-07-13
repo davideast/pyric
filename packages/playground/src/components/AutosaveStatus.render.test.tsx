@@ -15,15 +15,13 @@ import { AUTOSAVE_TRUTH_COPY } from '~/lib/store/autosave';
 describe('AutosaveStatus render states', () => {
   test('idle renders "Autosave on" with the truth copy as tooltip, popover closed', () => {
     const html = renderToString(
-      <AutosaveStatusView state={{ status: 'idle' }} onOpenAccount={() => {}} />,
+      <AutosaveStatusView state={{ status: 'idle' }} />,
     );
     expect(html).toContain('Autosave on');
     expect(html).toContain('aria-expanded="false"');
     // Tooltip carries the single-source persistence claim.
     expect(html).toContain('sandbox data is not yet saved');
     expect(AUTOSAVE_TRUTH_COPY).toContain('sandbox data is not yet saved');
-    // Popover content (sign-in CTA) must not render while closed.
-    expect(html).not.toContain('Sign in for deploys');
   });
 
   test('saving renders the spinner state', () => {

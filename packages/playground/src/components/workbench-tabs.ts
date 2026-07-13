@@ -11,8 +11,7 @@ export type FirebaseWorkbenchSubTab =
   | 'sandbox'
   | 'traffic'
   | 'seed'
-  | 'suggestions'
-  | 'deploy';
+  | 'suggestions';
 
 export function workspaceTabsForProfile(
   promptProfile: AgentPromptProfile = 'firebase',
@@ -44,6 +43,5 @@ export function firebaseSubTabsForProfile(
     ...focused,
     { id: 'ideas', label: 'Ideas' },
     { id: 'suggestions', label: 'Suggestions' },
-    { id: 'deploy', label: 'Deploy' },
   ];
 }
