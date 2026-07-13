@@ -144,9 +144,11 @@ describe('load — the stub bodies', () => {
     expect(src).toContain('Bytes');
   });
 
-  it('emits the firebase/app named binding set', () => {
+  it('does not synthesize firebase/app bindings after app isolation', () => {
     const src = load('\0pyric:fb-stub:firebase/app') as string;
-    expect(src).toContain('initializeApp');
+    expect(src).toContain('export default');
+    expect(src).not.toContain('initializeApp');
+    expect(src).not.toContain('FirebaseError');
   });
 
   it('emits the node-builtin shim source', () => {
