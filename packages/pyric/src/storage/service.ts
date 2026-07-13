@@ -19,7 +19,12 @@
  * `Promise<StorageService>` for sandbox handles.
  */
 import { SandboxContextImpl } from 'pyric/sandbox';
-import type { Sandbox, SandboxContext } from 'pyric/sandbox';
+import type { EventProvenance, Sandbox, SandboxContext } from 'pyric/sandbox';
+import {
+  bindOperationContext,
+  provenanceForOperationContext,
+  resolveOperationContext,
+} from 'pyric/sandbox/internal';
 import { openStorageBackend, type StorageBackend } from './persistence.js';
 import { parseStorageRules, type StorageRules } from './rules.js';
 
@@ -223,13 +228,15 @@ export function getStorageSandbox(
   return handle;
 }
 
-/** One rules-bypass admin handle per `Sandbox` (internal admin plane). */
-const ADMIN_SANDBOX_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
+/** Admin handles are cached by bound context so Studio, agent, and
+ * unattributed callers can share storage state without sharing provenance. */
+const ADMIN_CONTEXT_HANDLES = new WeakMap<SandboxContext, FirebaseStorage>();
+const BARE_ADMIN_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
 
 /**
  * INTERNAL (exported via `pyric/storage/internal` only) — construct
  * (or return cached) the rules-BYPASS admin `FirebaseStorage` handle
- * for a sandbox. Shares the SAME `StorageService` (one IDB store, one
+ * for a sandbox or bound context. Shares the SAME `StorageService` (one IDB store, one
  * ruleset) as every rules-honest handle on that sandbox; only rule
  * evaluation is skipped (see {@link SandboxTarget.admin}). Bucket /
  * dbName / rules options follow the same first-call-per-`Sandbox`
@@ -242,29 +249,83 @@ const ADMIN_SANDBOX_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
  * surface so the modular API stays rules-honest.
  */
 export function getAdminStorageSandbox(
-  sandbox: Sandbox,
+  target: Sandbox | SandboxContext,
   options: StorageOptions = {},
 ): FirebaseStorage {
+  const fromBareSandbox = !isContext(target);
+  const sandbox = isContext(target) ? target.sandbox : target;
   // Service first (late differing `rules` must throw, even on a cache hit).
   const servicePromise = ensureService(sandbox, options, 'getAdminStorageSandbox');
 
-  const cached = ADMIN_SANDBOX_HANDLES.get(sandbox);
+  if (fromBareSandbox) {
+    const cachedBare = BARE_ADMIN_HANDLES.get(sandbox);
+    if (cachedBare) return cachedBare;
+  }
+
+  const baseContext = isContext(target) ? target : sandbox.withAuth(null);
+  const context = baseContext.operationContext.authLens.mode === 'admin'
+    ? baseContext
+    : bindOperationContext(baseContext, {
+        source: baseContext.operationContext.source,
+        authLens: { mode: 'admin' },
+        ...(baseContext.operationContext.planId === undefined
+          ? {}
+          : { planId: baseContext.operationContext.planId }),
+      });
+  const cached = ADMIN_CONTEXT_HANDLES.get(baseContext);
   if (cached) return cached;
 
   const sandboxTarget: SandboxTarget = {
     kind: 'sandbox',
     sandbox,
-    // Anonymous context: the admin plane has no acting user. Rules are
-    // bypassed, so the context identity only feeds event provenance
-    // (`auth: null` — same as an anonymous caller).
-    context: sandbox.withAuth(null),
+    context,
     bucket: options.bucket ?? DEFAULT_BUCKET,
     servicePromise,
     admin: true,
   };
   const handle: FirebaseStorage = Object.freeze({ [TARGET_SYMBOL]: sandboxTarget });
-  ADMIN_SANDBOX_HANDLES.set(sandbox, handle);
+  ADMIN_CONTEXT_HANDLES.set(baseContext, handle);
+  if (fromBareSandbox) BARE_ADMIN_HANDLES.set(sandbox, handle);
   return handle;
+}
+
+/** Merge a host override with the immutable provenance bound to a Storage
+ * handle. The result is captured before awaits, so concurrent async
+ * operations cannot exchange source or auth-lens identity. */
+export function storageOperationProvenance(
+  target: SandboxTarget,
+  override?: EventProvenance,
+): EventProvenance {
+  const context = resolveOperationContext(
+    override,
+    provenanceForOperationContext(target.context.operationContext),
+  );
+  return {
+    ...override,
+    ...provenanceForOperationContext(context),
+    service: 'storage',
+  };
+}
+
+/** Return an operation-scoped view of a Storage handle. The backing service,
+ * bucket, and admin/rules mode are shared; only immutable operation identity is
+ * rebound. Worker hosts use this internal seam instead of extending Firebase's
+ * public function signatures with host-only provenance arguments. */
+export function bindStorageOperationContext(
+  storage: FirebaseStorage,
+  provenance: EventProvenance | undefined,
+): FirebaseStorage {
+  if (!provenance) return storage;
+  const target = targetOf(storage);
+  const context = resolveOperationContext(
+    provenance,
+    provenanceForOperationContext(target.context.operationContext),
+  );
+  const scopedTarget: SandboxTarget = {
+    ...target,
+    context: bindOperationContext(target.context, context),
+  };
+  return Object.freeze({ [TARGET_SYMBOL]: scopedTarget });
 }
 
 /**

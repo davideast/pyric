@@ -34,9 +34,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { initializeApp, type PyricApp } from 'pyric/app';
 import { getAdminFirestore, getFirestore, type Firestore } from 'pyric/firestore';
 import { getAuth, type Auth } from 'pyric/auth';
-import { getStorage, type FirebaseStorage } from 'pyric/storage';
+import type { FirebaseStorage } from 'pyric/storage';
 import { initializeSandbox, type PersistenceBackend, type Sandbox } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
+import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import { studioAdminContext } from '../../shell/studio-operation-context.js';
 import type { FirestoreApi } from '@pyric/ui/firestore';
 import type { AuthApi } from '@pyric/ui/auth';
 import type { StorageApi } from '@pyric/ui/storage';
@@ -131,13 +133,14 @@ let studioAppSeq = 0;
 function makeHandles(sandbox: Sandbox): StudioDataHandles {
   const app = initializeApp({ sandbox }, `pyric-studio-${studioAppSeq++}`);
   const env = getInternalEnv(sandbox);
+  const studioContext = studioAdminContext(sandbox);
   return {
     sandbox,
     app,
     firestore: getFirestore(sandbox),
-    adminFirestore: getAdminFirestore(sandbox),
+    adminFirestore: getAdminFirestore(studioContext),
     auth: getAuth(sandbox),
-    storage: getStorage(app),
+    storage: getAdminStorageSandbox(studioContext),
     listRootCollections: () => env.listRootCollections(),
     listSubcollections: (docPath: string) => env.listSubcollections(docPath),
     listDocuments: (collectionPath: string) => listDocumentsForBrowse(env, collectionPath),

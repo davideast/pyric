@@ -394,7 +394,7 @@
   color: var(--muted);
   font: inherit;
   font-size: var(--fs-caption);
-  /* Pills are uppercase everywhere (ALLOW / DENY / ADMIN verdicts, the
+  /* Pills are uppercase everywhere (ALLOW / DENY / BYPASSED verdicts, the
      service labels) — the filter pills match the standard. */
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -438,7 +438,7 @@
   background: var(--deny);
   color: var(--deny-ink);
 }
-.traffic__verdict[data-verdict='admin'] {
+.traffic__verdict[data-verdict='bypassed'] {
   background: var(--accent-tint);
   color: var(--accent);
 }

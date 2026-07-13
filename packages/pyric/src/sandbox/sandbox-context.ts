@@ -1,7 +1,7 @@
 /**
  * `SandboxContext` — identity-bearing handle on a {@link Sandbox}.
  *
- * Cheap, immutable `(sandbox, auth)` pair. Service factories
+ * Cheap, immutable `(sandbox, auth, operationContext)` handle. Service factories
  * (`getFirestore`, future `getDatabase`, etc.) accept a
  * `SandboxContext` and route operations through the captured auth.
  *
@@ -22,19 +22,52 @@
 
 import type { AuthState } from './types/auth-state.js';
 import type { SandboxContext } from './types/context.js';
+import type { AuthLens, OperationContext } from './types/events.js';
 import { SandboxError } from './types/errors.js';
 import type { Sandbox } from './types/service.js';
+import { immutableOperationContext } from './operation-record.js';
+
+function authLensFor(auth: AuthState): AuthLens {
+  if (auth === null) return { mode: 'anon' };
+  return auth.token === undefined
+    ? { mode: 'as', uid: auth.uid }
+    : { mode: 'as', uid: auth.uid, token: auth.token };
+}
 
 export class SandboxContextImpl implements SandboxContext {
   constructor(
     public readonly sandbox: Sandbox,
     public readonly auth: AuthState,
-  ) {}
+    operationContext?: OperationContext,
+  ) {
+    this.operationContext = immutableOperationContext(operationContext ?? {
+      source: { kind: 'unattributed' },
+      authLens: authLensFor(auth),
+    });
+  }
+
+  public readonly operationContext: OperationContext;
 
   withAuth(auth: AuthState): SandboxContext {
     validateAuthState(auth);
-    return new SandboxContextImpl(this.sandbox, auth);
+    return new SandboxContextImpl(this.sandbox, auth, {
+      source: this.operationContext.source,
+      authLens: authLensFor(auth),
+      ...(this.operationContext.planId === undefined
+        ? {}
+        : { planId: this.operationContext.planId }),
+    });
   }
+}
+
+/** Bind source, lens, and optional plan identity to a sandbox handle. Service
+ * adapters use this once when constructing a handle; individual operations
+ * cannot accidentally omit or contradict it. */
+export function bindOperationContext(
+  ctx: SandboxContext,
+  operationContext: OperationContext,
+): SandboxContext {
+  return new SandboxContextImpl(ctx.sandbox, ctx.auth, operationContext);
 }
 
 /**

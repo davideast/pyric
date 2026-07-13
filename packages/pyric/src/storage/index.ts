@@ -25,6 +25,7 @@
 
 import { getStorageSandbox } from './service.js';
 import type { FirebaseStorage } from './service.js';
+import { bindOperationContext } from 'pyric/sandbox/internal';
 
 import type { PyricApp } from 'pyric/app';
 
@@ -36,7 +37,10 @@ export type { FirebaseStorage, StorageOptions, Target, SandboxTarget } from './s
 // Package resolution chooses Firebase or Pyric before this module loads.
 // Therefore a Pyric Storage entry accepts only a sandbox-backed PyricApp.
 export function getStorage(app: PyricApp, _bucketUrl?: string): FirebaseStorage {
-  return getStorageSandbox(app.sandbox);
+  return getStorageSandbox(bindOperationContext(app.sandbox.withAuth(app.sandbox.currentUser), {
+    source: { kind: 'app' },
+    authLens: { mode: 'app-session' },
+  }));
 }
 
 export { StorageError } from './errors.js';

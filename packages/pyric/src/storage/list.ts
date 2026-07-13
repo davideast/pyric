@@ -24,7 +24,7 @@
  * that semantic exactly.
  */
 import { ref, type StorageReference } from './reference.js';
-import { getStorageService, targetOf } from './service.js';
+import { getStorageService, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 
 /**
@@ -45,6 +45,7 @@ export interface ListResult {
 export async function listAll(refIn: StorageReference): Promise<ListResult> {
   const storage = refIn.storage;
   const target = targetOf(storage);
+  const operationProvenance = storageOperationProvenance(target);
   const service = await getStorageService(storage);
   // ST-B2: enforce rules on the listed prefix. Firebase Storage's
   // `read` permission governs both download AND list, so a `listAll`
@@ -59,7 +60,7 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
       path: refIn.fullPath,
     },
     resource: null,
-  }, target);
+  }, target, operationProvenance);
   const scanPrefix = refIn.fullPath === '' ? '' : `${refIn.fullPath}/`;
   const records = await service.backend.listByPrefix(scanPrefix);
 

@@ -25,7 +25,11 @@ import {
   initializeSandbox,
   type SandboxEvent,
 } from 'pyric/sandbox';
-import { getFirestore as getAdminFirestore } from 'pyric/sandbox/admin-firestore';
+import { bindOperationContext } from 'pyric/sandbox/internal';
+import {
+  getAdminFirestore,
+  getFirestore as getRulesFirestore,
+} from 'pyric/sandbox/admin-firestore';
 import { getFirestore as getSandboxFirestore, doc, setDoc, collection, query, getDocs, SandboxError } from 'pyric/firestore';
 import { getDatabase, ref, set, sandbox as rtdbSandbox } from 'pyric/database';
 import {
@@ -84,11 +88,31 @@ const UNPARSEABLE_RULES = `this is not a ruleset {{{`;
  *  attempting auth so a re-run can reproduce it. */
 function denyingSandbox() {
   const sandbox = initializeSandbox();
-  getAdminFirestore(sandbox.withAuth(null)).setRules(OWNER_RULES);
+  getRulesFirestore(sandbox.withAuth(null)).setRules(OWNER_RULES);
   return sandbox;
 }
 
 describe('rules-debug model: Firestore denial → rule → context', () => {
+  it('does not present a Studio admin LIST as a Rules evaluation', async () => {
+    const sandbox = initializeSandbox();
+    sandbox.admin.setDocument('posts/p1', { title: 'One' });
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((event) => events.push(event));
+    const context = bindOperationContext(sandbox.withAuth(null), {
+      source: { kind: 'studio' },
+      authLens: { mode: 'admin' },
+    });
+
+    await getAdminFirestore(context).collection('posts').get();
+
+    expect(selectRuleEvaluations(events)).toEqual([]);
+    const list = events.find(
+      (event) => event.kind === 'request' && event.method === 'list',
+    );
+    if (!list || list.kind !== 'request') throw new Error('Expected a Firestore LIST event');
+    expect(list.rulesDisposition).toEqual({ kind: 'bypassed', reason: 'admin' });
+  });
+
   it('projects a denied write into a Denial carrying rule, auth, and path/op', async () => {
     const sandbox = denyingSandbox();
     const events: SandboxEvent[] = [];
@@ -634,7 +658,7 @@ service cloud.firestore {
 
   async function listDenial() {
     const sandbox = initializeSandbox();
-    getAdminFirestore(sandbox.withAuth(null)).setRules(LIST_DENY_RULES);
+    getRulesFirestore(sandbox.withAuth(null)).setRules(LIST_DENY_RULES);
     const events: SandboxEvent[] = [];
     sandbox.onEvent((e) => events.push(e));
     const db = getSandboxFirestore(sandbox.withAuth({ uid: 'bob' }));

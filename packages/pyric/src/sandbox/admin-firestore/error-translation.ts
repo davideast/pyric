@@ -37,6 +37,7 @@ import {
   type DenialContext,
   type SandboxErrorCode,
 } from 'pyric/sandbox';
+import { provenanceForOperationContext } from 'pyric/sandbox/internal';
 
 /**
  * Hidden property on every wrapped object that returns the
@@ -220,7 +221,11 @@ export function wrapWithErrorTranslation<T extends object>(
       return function (this: unknown, ...args: unknown[]): unknown {
         let result: unknown;
         try {
-          result = (value as (...a: unknown[]) => unknown).apply(t, args);
+          const invoke = () => (value as (...a: unknown[]) => unknown).apply(t, args);
+          result = ctx.sandbox.runWithProvenance?.(
+            provenanceForOperationContext(ctx.operationContext),
+            invoke,
+          ) ?? invoke();
         } catch (e) {
           throw toSandboxError(e, ctx);
         }

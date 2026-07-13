@@ -8,13 +8,13 @@
  *   2. A compact filter row (verdict), single row per the spec's filter
  *      contract.
  *   3. The request stream (grouped via `useTrafficGroups`), each row carrying a
- *      VERDICT pill — allow | deny | admin (rules bypassed) | blank for
+ *      VERDICT pill — allow | deny | bypassed | blank for
  *      non-rule ops — derived from fields the events already carry
  *      (`verdict.ts`). Clicking a RULES-EVALUATED row (allow or deny —
  *      `opensRulesInspector`) EXPANDS IN PLACE (disclosure, no modal) into the
  *      RULES INSPECTOR detail (features/rules-debug): the deciding rule per
  *      service, request.auth, the data the rule saw, and the capability-gated
- *      re-runs. Admin-bypass and blank-verdict rows (no rules decision to
+ *      re-runs. Bypassed and blank-verdict rows (no rules decision to
  *      inspect) navigate to the record the op touched (`subjectTarget` → the
  *      route codec) instead.
  *
@@ -364,7 +364,9 @@ export function TrafficSurface() {
                           const target = subjectTarget(ev);
                           if (target) pushPath(target);
                         }}
-                        renderClassification={verdictBadge}
+                        renderClassification={(event) =>
+                          verdictBadge(event as StudioTrafficEvent)
+                        }
                         formatTime={defaultFormatTime}
                       />
                     </li>
@@ -379,7 +381,9 @@ export function TrafficSurface() {
                         event={item.event}
                         selected={item.event.id === expandedId}
                         onSelect={(e) => onRowSelect(e as StudioTrafficEvent)}
-                        renderClassification={verdictBadge}
+                        renderClassification={(event) =>
+                          verdictBadge(event as StudioTrafficEvent)
+                        }
                         formatTime={defaultFormatTime}
                       />
                       {item.event.id === expandedId &&

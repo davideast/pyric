@@ -157,8 +157,8 @@ export function getLens(): AuthLens | undefined {
  * viewer/editor ops out of the app's stream.
  *
  * Studio's live plane sets this once at connect (`connectWorkerLive`);
- * the served APP page never calls it (its module instance stays
- * untagged), and RELAYED frames bypass stamping entirely — the bridge
+ * the served APP page never calls it (its service handles remain the source
+ * of app attribution), and RELAYED frames bypass Studio stamping entirely — the bridge
  * relay ({@link relayWorkerOp} / {@link relayWorkerSub}) forwards remote
  * frames verbatim through {@link rawRpc} / a direct postMessage, so a
  * user's own admin-SDK traffic through the remote bridge is never

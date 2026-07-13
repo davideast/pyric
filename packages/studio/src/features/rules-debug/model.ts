@@ -18,6 +18,7 @@ import type {
   SandboxEvent,
   SandboxOperationEvent,
 } from 'pyric/sandbox';
+import { toOperationRecord } from 'pyric/sandbox';
 import type { EvaluatedRuleInfo, ExprTraceEntry } from 'pyric/rules/internal';
 
 type DeniedSandboxEvent = RequestEvent | SandboxOperationEvent;
@@ -93,10 +94,7 @@ function isDeniedRequest(e: SandboxEvent): e is DeniedSandboxEvent {
  *  unsupported. Excludes non-rule results (not-applicable, error) so the rules
  *  inspector only ever opens ops that actually went through a rules engine. */
 function isRulesEvaluatedRequest(e: SandboxEvent): e is DeniedSandboxEvent {
-  return (
-    (e.kind === 'request' || e.kind === 'operation') &&
-    (e.result === 'allow' || e.result === 'deny' || e.result === 'unsupported')
-  );
+  return toOperationRecord(e)?.rules.kind === 'evaluated';
 }
 
 function serviceOf(e: DeniedSandboxEvent): string {

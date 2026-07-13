@@ -26,10 +26,12 @@ export type {
   EventActor,
   EventProvenance,
   EventService,
+  OperationContext,
   ListenerLifecycleEvent,
   LocalSandbox,
   PersistableService,
   RequestEvent,
+  RulesDisposition,
   Sandbox,
   SandboxConfig,
   SandboxContext,
@@ -49,6 +51,13 @@ export type {
 } from './types/index.js';
 export { SandboxError } from './types/index.js';
 export { SandboxContextImpl } from './sandbox-context.js';
+export {
+  isOperationEvent,
+  operationContextFor,
+  rulesDispositionFor,
+  toOperationRecord,
+} from './operation-record.js';
+export type { OperationRecord } from './operation-record.js';
 
 // Remote sandbox (slice 1) — the brand + minimal channel contract that
 // lets `pyric-admin` recognize a Node-side handle onto the browser-hosted

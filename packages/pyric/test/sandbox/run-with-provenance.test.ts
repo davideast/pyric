@@ -85,7 +85,7 @@ describe('sandbox.runWithProvenance', () => {
 
     env.execute({ method: 'set', path: 'notes/n2', auth: null, data: { body: 'after' } });
     for (const e of events) {
-      expect(e.actor).toEqual({ kind: 'app' });
+      expect(e.actor).toEqual({ kind: 'unattributed' });
     }
   });
 
@@ -150,7 +150,7 @@ describe('sandbox.runWithProvenance', () => {
     expect(writeEvents.length).toBeGreaterThan(0);
     for (const e of writeEvents) expect(e.actor).toEqual({ kind: 'studio' });
     expect(deferred.length).toBeGreaterThan(0);
-    for (const e of deferred) expect(e.actor).toEqual({ kind: 'app' });
+    for (const e of deferred) expect(e.actor).toEqual({ kind: 'unattributed' });
     unsub();
   });
 });

@@ -17,7 +17,7 @@
  */
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
-import { getStorageService, targetOf } from './service.js';
+import { getStorageService, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './rules.js';
 import { objectNotFound, invalidRootOperation } from './errors.js';
@@ -127,6 +127,7 @@ export function bump(value: string): string {
 export async function getMetadata(ref: StorageReference): Promise<FullMetadata> {
   guardNonRoot(ref, 'getMetadata');
   const target = targetOf(ref.storage);
+  const operationProvenance = storageOperationProvenance(target);
   const service = await getStorageService(ref.storage);
   const stored = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
@@ -136,7 +137,7 @@ export async function getMetadata(ref: StorageReference): Promise<FullMetadata> 
       path: ref.fullPath,
     },
     resource: resourceFromStored(stored),
-  }, target);
+  }, target, operationProvenance);
   if (!stored) {
     throw objectNotFound(ref.fullPath);
   }
@@ -166,6 +167,7 @@ export async function updateMetadata(
 ): Promise<FullMetadata> {
   guardNonRoot(ref, 'updateMetadata');
   const target = targetOf(ref.storage);
+  const operationProvenance = storageOperationProvenance(target, provenance);
   const service = await getStorageService(ref.storage);
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
@@ -189,7 +191,7 @@ export async function updateMetadata(
         : undefined,
     },
     resource: resourceFromStored(existing),
-  }, target, provenance);
+  }, target, operationProvenance);
   if (!existing) {
     throw objectNotFound(ref.fullPath);
   }
@@ -207,7 +209,7 @@ export async function updateMetadata(
         after: next,
         detail: { bucket: ref.bucket },
       }),
-      { ...provenance, service: 'storage' },
+      operationProvenance,
     );
   } catch {
     // Observational — never let event emission break a metadata update.

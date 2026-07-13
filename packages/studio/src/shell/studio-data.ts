@@ -35,6 +35,7 @@ import type {
   SandboxOperationEvent,
   SandboxSnapshot,
 } from 'pyric/sandbox';
+import { toOperationRecord } from 'pyric/sandbox';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
@@ -264,10 +265,16 @@ function isTrafficEvent(
 function toTrafficEvent(
   e: (RequestEvent | SandboxOperationEvent) & EventProvenance,
 ): StudioTrafficEvent {
+  const record = toOperationRecord(e);
+  if (!record) {
+    throw new Error('Studio traffic adapter received a non-operation event');
+  }
   if (e.kind === 'request') {
-    // Structurally identical (plus provenance fields riding through) — the
-    // verdict layer reads `authLens` off the same object.
-    return e as unknown as StudioTrafficEvent;
+    return {
+      ...e,
+      operationContext: record.context,
+      rulesDisposition: record.rules,
+    } as StudioTrafficEvent;
   }
   return {
     kind: 'operation',
@@ -287,7 +294,8 @@ function toTrafficEvent(
     groupId: e.groupId,
     groupKind: e.groupKind,
     triggeredBy: e.triggeredBy,
-    authLens: e.authLens,
+    operationContext: record.context,
+    rulesDisposition: record.rules,
   };
 }
 

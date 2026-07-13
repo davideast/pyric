@@ -5,70 +5,63 @@
  *
  *   allow  rules evaluated and allowed
  *   deny   rules evaluated and denied
- *   admin  rules BYPASSED (admin lens / admin origin)
- *   null   non-rule op (not-applicable / unsupported / error) — blank cell
+ *   bypassed  rules BYPASSED (currently by an admin lens)
+ *   null   Rules not evaluated (no rules / unsupported / runtime op) — blank cell
  *
  * PURE: mapping + filtering + identity formatting only; the surface renders.
  */
 
-import type { AuthLens } from 'pyric/sandbox';
+import type { OperationContext, RulesDisposition } from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
 import type { CommandTarget } from '../home/command.js';
 
 /** A traffic event as Studio's adapter emits it: the library shape plus the
- *  provenance every `SandboxEvent` may carry (additive, optional). `actor`
- *  is stamped MECHANICALLY at the issuing call site (Studio's worker client
- *  declares `issuer: 'studio'`; the worker host maps it onto the event via
- *  the sandbox's ambient-provenance window) — never inferred from the op's
- *  shape, so a user's own admin-SDK traffic through the remote bridge is
- *  never classified as Studio's. */
+ * canonical context and Rules disposition normalized by the sandbox recorder.
+ * Studio source is stamped mechanically at the issuing call site, never
+ * inferred from the operation shape. */
 export type StudioTrafficEvent = TrafficEvent & {
-  authLens?: AuthLens;
-  actor?: { kind?: string; name?: string };
+  operationContext: OperationContext;
+  rulesDisposition: RulesDisposition;
 };
 
 /** Was this op issued by Pyric Studio itself (data viewers/editors, the
- *  typeahead index, seed actions)? Provenance-stamped events only — an
- *  absent `actor` means the served app (or a pre-provenance emitter) and is
- *  never hidden. */
-export function isStudioTraffic(event: { actor?: { kind?: string } }): boolean {
-  return event.actor?.kind === 'studio';
+ * typeahead index, seed actions)? Source is independent of the auth lens. */
+export function isStudioTraffic(event: Pick<StudioTrafficEvent, 'operationContext'>): boolean {
+  return event.operationContext.source.kind === 'studio';
 }
 
 /** Drop Studio-issued events when `hide` is on (pure; `hide: false` is a
  *  pass-through copy so callers can treat the result uniformly). */
-export function filterStudioTraffic<E extends { actor?: { kind?: string } }>(
+export function filterStudioTraffic<E extends Pick<StudioTrafficEvent, 'operationContext'>>(
   events: readonly E[],
   hide: boolean,
 ): E[] {
   return hide ? events.filter((e) => !isStudioTraffic(e)) : [...events];
 }
 
-export type TrafficVerdict = 'allow' | 'deny' | 'admin' | null;
+export type TrafficVerdict = 'allow' | 'deny' | 'bypassed' | null;
 
 /** The filter positions, `all` plus each real verdict. */
-export type VerdictFilter = 'all' | 'allow' | 'deny' | 'admin';
+export type VerdictFilter = 'all' | 'allow' | 'deny' | 'bypassed';
 
-export const VERDICT_FILTERS: readonly VerdictFilter[] = ['all', 'allow', 'deny', 'admin'];
+export const VERDICT_FILTERS: readonly VerdictFilter[] = ['all', 'allow', 'deny', 'bypassed'];
 
 /**
- * Derive the verdict. Admin wins first: an op under the admin lens (or with
- * `origin: 'admin'`) never evaluated rules, so its `allow` result is a bypass,
- * not a rules verdict.
+ * Derive the verdict from the recorder's Rules disposition. Source and auth
+ * lens are intentionally irrelevant here.
  */
 export function verdictFor(event: {
-  result: StudioTrafficEvent['result'];
-  origin?: StudioTrafficEvent['origin'];
-  authLens?: AuthLens;
+  rulesDisposition: RulesDisposition;
 }): TrafficVerdict {
-  if (event.authLens?.mode === 'admin' || event.origin === 'admin') return 'admin';
-  if (event.result === 'deny') return 'deny';
-  if (event.result === 'allow') return 'allow';
-  return null; // not-applicable / unsupported / error → not a rules op
+  if (event.rulesDisposition.kind === 'bypassed') return 'bypassed';
+  if (event.rulesDisposition.kind === 'evaluated') {
+    return event.rulesDisposition.verdict;
+  }
+  return null;
 }
 
 /** Apply the verdict filter (`all` passes everything, including blanks). */
-export function filterByVerdict<E extends { result: StudioTrafficEvent['result']; origin?: StudioTrafficEvent['origin']; authLens?: AuthLens }>(
+export function filterByVerdict<E extends { rulesDisposition: RulesDisposition }>(
   events: readonly E[],
   filter: VerdictFilter,
 ): E[] {
@@ -82,20 +75,18 @@ export function filterByVerdict<E extends { result: StudioTrafficEvent['result']
  */
 export function actingIdentity(event: {
   auth: StudioTrafficEvent['auth'];
-  authLens?: AuthLens;
+  operationContext: OperationContext;
 }): string {
-  const lens = event.authLens;
-  if (lens) {
-    switch (lens.mode) {
-      case 'admin':
-        return 'admin (rules bypassed)';
-      case 'as':
-        return `as ${lens.uid}`;
-      case 'anon':
-        return 'anonymous';
-      case 'app-session':
-        break; // fall through to the op's auth state
-    }
+  const lens = event.operationContext.authLens;
+  switch (lens.mode) {
+    case 'admin':
+      return 'admin (rules bypassed)';
+    case 'as':
+      return `as ${lens.uid}`;
+    case 'anon':
+      return 'anonymous';
+    case 'app-session':
+      break;
   }
   return event.auth?.uid ? event.auth.uid : 'anonymous';
 }
@@ -113,12 +104,9 @@ export function denialReasons(event: { reasons?: readonly string[] }): string[] 
  * rows (non-rule ops) keep their subject navigation instead.
  */
 export function opensRulesInspector(event: {
-  result: StudioTrafficEvent['result'];
-  origin?: StudioTrafficEvent['origin'];
-  authLens?: AuthLens;
+  rulesDisposition: RulesDisposition;
 }): boolean {
-  const v = verdictFor(event);
-  return v === 'allow' || v === 'deny';
+  return event.rulesDisposition.kind === 'evaluated';
 }
 
 /**

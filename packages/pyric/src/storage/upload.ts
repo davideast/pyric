@@ -25,7 +25,7 @@
  */
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
-import { getStorageService, targetOf } from './service.js';
+import { getStorageService, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './rules.js';
 import { toFullMetadata, type SettableMetadata, type UploadResult } from './metadata.js';
@@ -47,15 +47,11 @@ export type StringFormat = 'raw' | 'base64' | 'data_url';
  * uploads need a non-empty path, matching Firebase's
  * `invalid-root-operation` precondition.
  *
- * `provenance` (host-only) is the op's {@link EventProvenance} bound at
- * ISSUE time by the worker host — `actor`/`authLens` threaded EXPLICITLY
- * onto the emitted `service_mutation` event. Storage dispatch is async
- * (the awaits above), so it escapes the sandbox's synchronous
- * ambient-provenance window (`runWithProvenance`); the window has already
- * closed by the time this emit runs. Passing provenance through the call
- * binds it immutably to THIS op, so concurrent uploads from different
- * issuers can never swap actors. `service: 'storage'` always wins. Omitted
- * ⇒ the app-session default (a served-app write stays untagged).
+ * Provenance is captured from the reference's operation-scoped Storage
+ * handle before the first await. The optional `provenance` argument remains
+ * as a compatibility override for internal callers. Either way, concurrent
+ * uploads cannot exchange source or auth-lens identity, and
+ * `service: 'storage'` always wins.
  */
 export async function uploadBytes(
   ref: StorageReference,
@@ -65,6 +61,7 @@ export async function uploadBytes(
 ): Promise<UploadResult> {
   guardNonRoot(ref, 'uploadBytes');
   const target = targetOf(ref.storage);
+  const operationProvenance = storageOperationProvenance(target, provenance);
   const blob = toBlob(data, metadata?.contentType);
   const stored = buildStoredMetadata({ ref, blob, settable: metadata });
   const service = await getStorageService(ref.storage);
@@ -84,7 +81,7 @@ export async function uploadBytes(
       }),
     },
     resource: resourceFromStored(existing),
-  }, target, provenance);
+  }, target, operationProvenance);
   await service.backend.put(ref.fullPath, blob, stored);
   // Land the put on the unified Studio stream. Best-effort: a throw from
   // the emit path must not fail the upload the caller just completed.
@@ -105,7 +102,7 @@ export async function uploadBytes(
           overwrite: existing != null,
         },
       }),
-      { ...provenance, service: 'storage' },
+      operationProvenance,
     );
   } catch {
     // Observational — never let event emission break a storage write.

@@ -14,7 +14,13 @@
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { CommandTarget } from './command.js';
 
-export type ActivityProvenance = 'app' | 'studio' | 'agent' | 'app-builder' | 'system';
+export type ActivityProvenance =
+  | 'app'
+  | 'studio'
+  | 'agent'
+  | 'app-builder'
+  | 'unattributed'
+  | 'system';
 
 export interface ActivityRow {
   id: string;
@@ -34,7 +40,7 @@ function provenanceOf(event: SandboxEvent): {
   provenance: ActivityProvenance;
   identity: string;
 } {
-  const actor = event.actor;
+  const actor = event.operationContext?.source ?? event.actor;
   if (actor?.kind === 'agent') return { provenance: 'agent', identity: `agent:${actor.name}` };
   if (actor?.kind === 'studio') return { provenance: 'studio', identity: 'studio' };
   if (actor?.kind === 'app-builder') return { provenance: 'app-builder', identity: 'builder' };
@@ -42,6 +48,9 @@ function provenanceOf(event: SandboxEvent): {
     'auth' in event && event.auth && typeof event.auth === 'object'
       ? (event.auth as { uid?: string }).uid
       : undefined;
+  if (!actor || actor.kind === 'unattributed') {
+    return { provenance: 'unattributed', identity: uid ?? 'unattributed' };
+  }
   return { provenance: 'app', identity: uid ?? 'app' };
 }
 
