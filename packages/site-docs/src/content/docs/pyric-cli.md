@@ -1,7 +1,7 @@
 ---
 title: "@pyric/cli"
 navLabel: "Overview"
-group: "pyric-tools"
+group: "@pyric/cli"
 section: ""
 order: 9001
 ---
@@ -20,25 +20,27 @@ Firebase project.
 
 - [Getting started](../start-building/): scaffold → dev → plugin →
   agent, end to end.
-- [Wire Claude Code (manual MCP)](../pyric-tools-tutorials-wire-claude-code/): bridges,
+- [Wire Claude Code (manual MCP)](../pyric-cli-tutorials-wire-claude-code/): bridges,
   custom ports, other MCP clients.
 
 ## How-to guides: accomplishing a task
 
-- [Persistence and multi-tab with `pyric dev`](../pyric-tools-how-to-serve-persistence-and-multi-tab/)
-- [Verify your rules against a captured session](../pyric-tools-how-to-verify-against-a-captured-session/)
-- [Promote sandbox state to a committable fixture](../pyric-tools-how-to-promote-sandbox-state-to-a-fixture/)
-- [Use the Vite plugin](../pyric-tools-how-to-use-the-vite-plugin/)
-- [Build a standalone `pyric` binary](../pyric-tools-how-to-build-a-standalone-binary/): a
+- [Persistence and multi-tab with `pyric dev`](../pyric-cli-how-to-serve-persistence-and-multi-tab/)
+- [Verify your rules against a captured session](../pyric-cli-how-to-verify-against-a-captured-session/)
+- [Promote sandbox state to a committable fixture](../pyric-cli-how-to-promote-sandbox-state-to-a-fixture/)
+- [Use the Vite plugin](../pyric-cli-how-to-use-the-vite-plugin/)
+- [Build a standalone `pyric` binary](../pyric-cli-how-to-build-a-standalone-binary/): a
   single self-contained executable via `bun build --compile`.
 
 ## Reference: facts while working
 
-- **[CLI reference](../pyric-tools-reference-cli/)**: every `pyric` command, every flag,
+- **[CLI reference](../pyric-cli-reference-cli/)**: every `pyric` command, every flag,
   exit codes, environment variables. The authoritative source.
-- [Verify API](../pyric-tools-reference-verify/): programmatic captured-session replay for
+- [Verify API](../pyric-cli-reference-verify/): programmatic captured-session replay for
   Firestore and RTDB rules.
-- [Bridge](../pyric-tools-bridge/): `@pyric/cli/bridge` (server + client).
+- [Package exports and resolution](../pyric-cli-reference-package-and-resolution/):
+  public subpaths and the activated-development/inactive-production seam.
+- [Bridge](../pyric-cli-bridge/): `@pyric/cli/bridge` (server + client).
 
 ## Explanation: understanding why
 

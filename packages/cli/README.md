@@ -14,27 +14,26 @@ hosted discovery) is **not** part of this package. Use
 [`firebase-tools`](https://firebase.google.com/docs/cli) or the Firebase
 Console to ship rules, indexes, hosting, and functions to a real project.
 
-The npm package may still appear as `pyric-tools` in some install instructions;
-prefer `@pyric/cli` for import paths.
-
 ## CLI subcommands
 
 | Command | What it does |
 |---|---|
-| `pyric init [dir]` | Scaffold a pyric project — never prompts, idempotent, safe to rerun. `--template web` (default): a servable app with **canonical `firebase/*` imports** (owner-based rules, `seed.json`, `dev`/`dev:agent` scripts, real `firebase` dep) — `pyric dev` runs it on the sandbox; any standard bundler runs the same code on real Firebase. The swap is environmental, never a code edit. `--template node`: script-style scaffold whose backend is picked by `PYRIC_TARGET=sandbox\|firebase`. Also `--name`, `--force` (overwrite scaffold-owned files), `--json` (machine result on stdout: `{template, dir, created, merged, skipped, conflicts, nextSteps}`) |
+| `pyric init [dir]` | Scaffold a pyric project — never prompts, idempotent, safe to rerun. `--template web` (default) creates a Vite app with canonical `firebase/*` imports; `--template static` creates a no-bundler app; `--template node` creates a script-style project. Run any template through `pyric dev` for sandbox resolution; inactive production tooling loads Firebase directly. Also `--name`, `--force` (overwrite scaffold-owned files), and `--json` (machine result on stdout). |
 | `pyric bridge` | Stand up an HTTP+WebSocket bridge an MCP client (Claude Code, Cursor) connects to (sandbox mode only) |
 | `pyric dev` | Local dev server with the pyric sandbox standing in for Firebase: serves `hosting.public`, resolves unmodified `firebase/*` imports to a pyric sandbox via a served import map, deploys + hot-reloads `firestore.rules` (SSE), opens an emulator-style sign-in helper for `signInWithPopup`/`signInWithRedirect`. The sandbox runs in a **SharedWorker by default** — one backend shared by every tab of the origin (live cross-tab sync), kept in the browser's IndexedDB so **your sandbox data — Firestore docs, auth users, RTDB, storage objects, and the traffic history — survives a refresh/restart by default** (see the persistence guide's coverage matrix for the exact tiers); a per-tab in-page sandbox is the fallback when SharedWorker is unavailable. Flags + exit codes: [CLI reference](docs/reference/cli.md#pyric-dev); persistence, ephemeral runs, clearing data, and SharedWorker tips: [persistence & multi-tab](docs/how-to/serve-persistence-and-multi-tab.md) |
 | `pyric snapshot` | Promote lived sandbox state (live `dev --persist`, else `.pyric/state/state.json`) to a committable fixture; `pyric dev --seed <fixture>` re-serves it (docs + users). `--out`, `--port`, `--force`, `--json` |
 | `pyric verify` | Replay a captured sandbox session against candidate rules (`--engine sandbox\|rules-test-api\|both`). Hosted Rules Test API needs SA/ADC via `FIREBASE_SA_BASE64` / `GOOGLE_APPLICATION_CREDENTIALS` |
-| `pyric rules:lint <path>` | Lint a Firestore rules file |
-| `pyric rules:validate <path>` | Validate Firestore rules structure |
-| `pyric rules:simulate` | Local rules simulator |
-| `pyric database:rules:lint <path>` | Lint a Realtime Database rules JSON file |
-| `pyric database:rules:validate <path>` | Validate Realtime Database rules expressions |
-| `pyric database:rules:simulate` | Local Realtime Database rules simulator |
-| `pyric database:rules:generate` | Compile a constraints module to local `database.rules.json` (no production contact) |
-| `pyric firestore:indexes:generate` | Derive composite-index definitions from query shapes |
-| `pyric storage:rules:lint` / `simulate` | Local Storage rules lint and simulation |
+| `pyric mcp` | Start the stdio MCP server; attach to `pyric dev --bridge` when available or host a headless sandbox |
+| `pyric firestore rules lint <path>` | Lint a Firestore rules file |
+| `pyric firestore rules validate <path>` | Validate Firestore rules structure |
+| `pyric firestore rules simulate` | Run the local Firestore rules simulator |
+| `pyric firestore rules resolve <path>` | Resolve `2+modules` imports into a Firebase rules artifact |
+| `pyric firestore indexes generate <path...>` | Derive composite-index definitions from application source |
+| `pyric storage rules lint <path>` / `simulate` | Run local Storage rules lint or simulation |
+| `pyric database rules lint <path>` | Lint a Realtime Database rules JSON file |
+| `pyric database rules validate <path>` | Validate Realtime Database rules expressions |
+| `pyric database rules simulate` | Run the local Realtime Database rules simulator |
+| `pyric database rules generate` | Compile a constraints module to local `database.rules.json` without contacting production |
 
 Every command's full flags, defaults, exit codes, and environment variables are
 in the **[CLI reference](docs/reference/cli.md)**. Task guides and the rest of
@@ -82,11 +81,13 @@ rulesHash}`.
 |---|---|
 | `@pyric/cli/credentials/node` | `fromServiceAccount`, `fromAdc` — build a `ProjectScope` for the Rules Test API (`pyric verify --engine rules-test-api\|both`) |
 | `@pyric/cli/verify` | Captured-session replay for Firestore and RTDB rules |
+| `@pyric/cli/assurance` | Assurance campaign types and tools |
+| `@pyric/cli/assurance/browser` | Browser attachment for assurance campaigns |
 | `@pyric/cli/bridge` | `createBridge`, `startServer` (Node) / `connectBridge` (browser via conditional export). Vite integration is `pyricSandbox({ bridge })` in `@pyric/cli/vite`. |
+| `@pyric/cli/bridge/client` | Browser bridge client helpers |
 | `@pyric/cli/vite` | `pyricSandbox(opts)`, the dev-only firebase→sandbox swap plugin. Opts: `rules`, `persist`/`fresh`, `seed`, `capture`, `bridge` (MCP), `ui` (Pyric Studio at `/__pyric/ui/`, parity with `dev --ui`). |
 | `@pyric/cli/discover` | Credential-free crawl helpers for sandbox discovery (`crawl`, `findCollectionGroup`, `createFirestoreDiscoverTools`). Not registered on the default MCP bridge. |
 | `@pyric/cli/serve/worker` | SharedWorker serve runtime |
-| `@pyric/cli/assurance` | Assurance campaign tools (also registered on the default bridge) |
 | `@pyric/cli/remote` | Remote / headless helpers |
 | `@pyric/cli/register` | Registration helpers |
 
@@ -131,11 +132,5 @@ and other browser-only state:
 - `try_rules_edit` — replay events under a proposed rules edit
 - `debug_firestore_rules` — orchestrator over simulate + lint + history + state
 
-These are powerful and worth lifting into the library so any
-`pyric bridge` user gets them. The blockers are: `inspect_traffic`
-needs a generic traffic-log API on `Sandbox` (today the playground
-maintains its own ring buffer); `try_rules_edit` + `debug_firestore_rules`
-are orchestrators that depend on the replay engine being wired to a
-generic "session" abstraction. Tracked as a follow-up — the underlying
-primitives (`sandbox.history()`, `pyric/sandbox/replay`, the rules
-simulator) all exist.
+The underlying primitives (`sandbox.history()`, `pyric/sandbox/replay`, and the
+rules simulator) remain available for custom compositions.

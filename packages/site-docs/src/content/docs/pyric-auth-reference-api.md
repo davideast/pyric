@@ -156,7 +156,7 @@ Registers a BLOCKING gate that runs before a real sign-in/sign-out transition co
 
 Fires for both directions — a real sign-in (`nextUser` non-null) and a real sign-out (`nextUser === null`). Covers every sign-in path `pyric/auth` has: `signInAnonymously`, `signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `signInWithPopup`, `signInWithRedirect`, `signInWithCredential`, and `signOut`.
 
-Does NOT gate the `sandbox.setUser` test driver — that bypass has no prod analog (it already skips provider enforcement the same way). Over the served-worker path (`pyric-tools`'s SharedWorker-backed auth), registering throws immediately rather than silently accepting a callback that could never run — see COMPAT.md.
+Does NOT gate the `sandbox.setUser` test driver — that bypass has no production analogue (it already skips provider enforcement the same way). Over the served-worker path (`@pyric/cli`'s SharedWorker-backed auth), registering throws immediately rather than silently accepting a callback that could never run — see COMPAT.md.
 
 ---
 

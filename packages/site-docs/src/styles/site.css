@@ -818,12 +818,39 @@ samp {
   margin: 1rem 0;
 }
 
+.prose .compat-list--plain .compat-line {
+  grid-template-columns: 1fr;
+}
+
 .prose .compat-line {
   display: grid;
-  grid-template-columns: 2.5rem 0.75rem 1fr auto;
+  grid-template-columns: 0.75rem 1fr auto;
   column-gap: var(--space-3);
   align-items: start;
   padding: var(--space-2) 0;
+}
+
+.prose .compat-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.prose .compat-api {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.prose .compat-sub {
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+.prose .compat-category {
+  color: var(--muted);
 }
 
 .prose .compat-row {
@@ -854,14 +881,6 @@ samp {
   transform: rotate(90deg);
 }
 
-.prose .compat-num {
-  font-family: var(--font-mono);
-  font-size: var(--fs-caption);
-  color: var(--faint);
-  text-align: right;
-  padding-top: 2px;
-}
-
 .prose .compat-dot {
   width: 8px;
   height: 8px;
@@ -873,7 +892,7 @@ samp {
 /* In the rows (top-aligned grid) the dot optically centers on the
    first line of the behavior; in the key the flexbox centers it. */
 .prose .compat-line .compat-dot {
-  margin-top: 0.45em;
+  margin-top: 0.4em;
 }
 
 .prose .compat-dot[data-status='ok'] {
@@ -908,7 +927,7 @@ samp {
 }
 
 .prose .compat-evidence {
-  margin: 0 0 var(--space-2) calc(2.5rem + 0.75rem + 2 * var(--space-3));
+  margin: 0 0 var(--space-2) calc(0.75rem + var(--space-3));
 }
 
 .prose .compat-probe,

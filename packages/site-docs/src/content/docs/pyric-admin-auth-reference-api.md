@@ -7,13 +7,15 @@ order: 20002
 ---
 # API reference: `pyric-admin/auth`
 
-Exact signatures of every public export, plus the per-arm method matrix for the `Auth` handle. The package's whole story is which arm supports what, so every method below names its arms.
+Exact signatures of every public export, plus the local/remote method matrix for the `Auth` handle.
 
-The three arms:
+The two sandbox backends:
 
-- **prod**: the app was initialized with `{ credential }` (or ambient with `PYRIC_SANDBOX` unset). `getAuth` returns `firebase-admin/auth`'s production `Auth` unchanged. Every method, tenant manager, and provider config works exactly as firebase-admin documents it. Nothing below applies to prod.
 - **local**: the app carries an in-process `Sandbox`. Users live in an in-memory store keyed off the sandbox; `sandbox.reset()` wipes it.
 - **remote**: the app carries a remote-branded sandbox (a Node handle onto the browser-hosted worker sandbox). User CRUD relays over the worker channel into the one user pool the browser app, Studio, and agents share. Mutations emit auth `SandboxEvent`s in the worker.
+
+Production code loads `firebase-admin/auth` directly with Pyric activation
+absent.
 
 ---
 
@@ -23,9 +25,8 @@ The three arms:
 ```ts
 function getAuth(app?: PyricAdminApp): Auth;
 ```
-Return an `Auth` handle for the given app, or for the `'[DEFAULT]'` app when called with no argument (mirrors firebase-admin's no-arg `getAuth()`; throws `app/no-app` when nothing is initialized). Dispatch reads the brand symbol on the handle:
+Return an `Auth` handle for the given app, or for the `'[DEFAULT]'` sandbox app when called with no argument (throws `app/no-app` when nothing is initialized). Dispatch reads the brand symbol on the handle:
 
-- prod app: delegates to `firebase-admin/auth`'s `getAuth(app.adminApp)`. The firebase-admin import is deferred to call time, so sandbox-only consumers don't pay its initialization cost.
 - sandbox app with a remote-branded sandbox: returns the remote relay handle.
 - sandbox app (local): returns the in-memory handle. Repeat calls for the same sandbox share the store, so writes are visible across handles.
 
@@ -133,15 +134,16 @@ The full list, by area:
 
 Multi-factor: `UserRecord.multiFactor` is always `undefined` on the sandbox arms; MFA enrollment is unsupported.
 
-All of these work on the prod arm, which is the unmodified firebase-admin `Auth`.
+Use Firebase Admin directly when production needs these methods.
 
 ---
 
 ## Types
 
-All four are re-exported so consumers can spell them with a `pyric-admin/auth` import path instead of reaching back into `firebase-admin/auth`:
+These types use Firebase Admin's public shapes so sandbox code can retain the
+same signatures:
 
-- `Auth`: alias of `firebase-admin/auth`'s `Auth`. On prod it is literally that object; on the sandbox arms it is a structurally compatible handle whose method set is the subset above.
+- `Auth`: a structurally compatible handle whose implemented method set is the subset above.
 - `CreateRequest`: firebase-admin's `createUser` properties bag.
 - `DecodedIdToken`: firebase-admin's decoded token shape. Sandbox fills required fields with the placeholders documented under `verifyIdToken`.
 - `UserRecord`: firebase-admin's user record shape. Sandbox arms build plain objects with the same field set (including `toJSON()`).
@@ -150,5 +152,5 @@ All four are re-exported so consumers can spell them with a `pyric-admin/auth` i
 
 ## Where to go next
 
-- [`pyric-admin/app` reference](../pyric-admin-app-reference-api/) for how the arm is chosen.
+- [`pyric-admin/app` reference](../pyric-admin-app-reference-api/) for sandbox binding and activation.
 - [`pyric/auth` reference](../pyric-auth-reference-api/) for the Web-SDK-shaped mirror with the full sign-in surface.

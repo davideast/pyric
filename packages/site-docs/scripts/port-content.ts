@@ -85,15 +85,15 @@ const DIATAXIS: SectionSpec[] = [
   { label: 'How-to', path: 'how-to' },
   { label: 'Reference', path: 'reference' },
   { label: 'Explanation', path: 'explanation' },
-  // COMPAT.md files are claimed by the Compatibility guide group below,
+  // COMPAT.md files are claimed by the Conformance guide group below,
   // not by the per-service reference trees.
 ];
 
 const GROUPS: GroupSpec[] = [
   {
     pkg: 'cli',
-    slugPrefix: 'pyric-tools',
-    label: 'pyric-tools',
+    slugPrefix: 'pyric-cli',
+    label: '@pyric/cli',
     dir: '.',
     sections: [
       { label: '', path: 'README.md' },
@@ -265,11 +265,11 @@ function slugFor(pkg: string, absFile: string, slugPrefix = pkg): string {
  * TOC "on this page") — this only swaps the nav item's text.
  */
 const NAV_ALIASES: Record<string, string> = {
-  'pyric-tools-tutorials-wire-claude-code': 'Wire Claude Code',
+  'pyric-cli-tutorials-wire-claude-code': 'Wire Claude Code',
   'pyric-rules-how-to-test-rules-against-firebase': 'Test rules against Firebase',
-  'pyric-tools-how-to-promote-sandbox-state-to-a-fixture': 'Promote sandbox state',
+  'pyric-cli-how-to-promote-sandbox-state-to-a-fixture': 'Promote sandbox state',
   'pyric-sandbox-how-to-pick-an-adapter': 'Pick an adapter',
-  'pyric-tools-how-to-verify-against-a-captured-session': 'Verify rules against prod',
+  'pyric-cli-how-to-verify-against-a-captured-session': 'Verify rules',
   'pyric-sandbox-explanation-local-backend-vs-firestore-offline': 'Local backend vs. offline',
   'pyric-sandbox-how-to-multiple-isolated-sandboxes': 'Run isolated sandboxes',
   'pyric-database-explanation-rules-authoring-and-deploy-are-separate': 'Authoring vs. deploy',
@@ -289,16 +289,16 @@ const NAV_ALIASES: Record<string, string> = {
   'pyric-rules-how-to-compare-rulesets-for-weakening': 'Compare rulesets',
   'pyric-rules-how-to-register-tools-with-an-agent': 'Register rules tools',
   'pyric-sandbox-how-to-use-admin-reads': 'Use admin reads',
-  'pyric-tools-how-to-serve-persistence-and-multi-tab': 'Persistence & multi-tab',
+  'pyric-cli-how-to-serve-persistence-and-multi-tab': 'Persistence & multi-tab',
   'pyric-firestore-how-to-migrate-from-firebase-firestore': 'Use in existing code',
   'pyric-rules-explanation-agent-failure-modes': 'Agent failure modes',
   'pyric-rules-explanation-sentinel-expression-engine': 'Sentinel expression engine',
-  'pyric-tools-how-to-use-the-vite-plugin': 'Use the Vite plugin',
+  'pyric-cli-how-to-use-the-vite-plugin': 'Use the Vite plugin',
   'ui-auth-authsigninhelper': 'AuthSignInHelper',
   'pyric-sandbox-explanation-listener-re-evaluation': 'Listener re-evaluation',
   'pyric-sandbox-how-to-replay-events': 'Replay events',
   'pyric-storage-tutorials-01-upload-and-download': 'Upload and download',
-  'pyric-firestore-compat': 'Compatibility matrix',
+  'pyric-firestore-compat': 'Conformance matrix',
   'pyric-rules-explanation-lint-vs-validate-vs-simulate-vs-test': 'Lint vs validate vs test',
   'pyric-rules-how-to-inspect-rules-via-the-ast': 'Inspect rules via the AST',
   'pyric-sandbox-explanation-identity-is-a-context': 'Identity is a context',
@@ -310,18 +310,18 @@ const NAV_ALIASES: Record<string, string> = {
   'pyric-firestore-how-to-use-sandbox-ops': 'Use sandbox-only ops',
   'pyric-sandbox-how-to-seed-data-and-rules': 'Seed data and rules',
   'pyric-sandbox-reference-sandbox-and-context': 'Sandbox and context',
-  'pyric-storage-compat': 'Compatibility matrix',
-  'pyric-rules-compat': 'Compatibility matrix',
+  'pyric-storage-compat': 'Conformance matrix',
+  'pyric-rules-compat': 'Conformance matrix',
   'pyric-firestore-tutorials-02-swap-to-prod-backend': 'Swap to prod backend',
   'pyric-rules-tutorials-02-write-a-test-suite-for-your-rules': 'Write a rules test suite',
   'pyric-sandbox-how-to-switch-users': 'Switch users',
   'pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness': 'Sandbox in a test harness',
-  'pyric-database-compat': 'Compatibility matrix',
+  'pyric-database-compat': 'Conformance matrix',
   'pyric-rules-how-to-resolve-module-imports': 'Resolve 2+modules imports',
-  'pyric-auth-compat': 'Compatibility matrix',
-  'pyric-ai-compat': 'Compatibility matrix',
+  'pyric-auth-compat': 'Conformance matrix',
+  'pyric-ai-compat': 'Conformance matrix',
   'pyric-sandbox-reference-snapshot-and-admin': 'Snapshot and admin reads',
-  'pyric-tools-how-to-build-a-standalone-binary': 'Build a standalone binary',
+  'pyric-cli-how-to-build-a-standalone-binary': 'Build a standalone binary',
   'pyric-admin-firestore-explanation-per-call-delegate': 'Per-call delegate',
   'pyric-admin-firestore-explanation-why-mirror-admin-shape': 'Why mirror the admin SDK',
   'pyric-sandbox-explanation-internal-adapter-protocol': 'The /internal protocol',
@@ -385,6 +385,9 @@ interface Page {
 function mdFilesIn(dir: string): string[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.md'))
+    // TypeDoc receipts remain beside the hand-written reference but are not
+    // site pages until their cross-links and navigation role are designed.
+    .filter((f) => !f.endsWith('.generated.md'))
     .sort()
     .map((f) => join(dir, f));
 }
@@ -402,13 +405,13 @@ const bySlug = new Map<string, Page>();
  * offset`. Adding a doc then renumbers at most the trailing pages of
  * its own group; adding a group renumbers nothing before it. GROUP_ORDER
  * must list every group label the port ever assigns (GUIDE_GROUPS, the
- * synthetic 'Compatibility' group, then GROUPS) in the exact order the
+ * synthetic 'Conformance' group, then GROUPS) in the exact order the
  * nav renders them — that order is what the rendered sidebar sequence
  * depends on, not the numeric order values.
  */
 const GROUP_ORDER: string[] = [
   ...GUIDE_GROUPS.map((g) => g.label),
-  'Compatibility',
+  'Conformance',
   ...GROUPS.map((g) => g.label),
 ];
 const GROUP_RANK_SPACING = 1000;
@@ -478,13 +481,12 @@ for (const group of GUIDE_GROUPS) {
   }
 }
 
-// The compatibility matrices, right after the guide: the per-service
+// The conformance matrices, right after the guide: the per-service
 // conformance tables are the receipt behind the Trust pages and matter
 // to agents especially, so they stay itemized in the nav rather than
 // folding into the Reference shelf. Slugs are unchanged (slugFor).
 const COMPAT_PAGES: { file: string; label: string }[] = [
-  // Scoreboard first: the two-number summary (behavior + surface coverage).
-  { file: 'conformance/SCORES.md', label: 'Scores' },
+  { file: 'conformance/SCORES.md', label: 'Conformance scores' },
   { file: 'app/COMPAT.md', label: 'App' },
   { file: 'firestore/COMPAT.md', label: 'Firestore' },
   { file: 'auth/COMPAT.md', label: 'Auth' },
@@ -503,9 +505,9 @@ for (const c of COMPAT_PAGES) {
   const page: Page = {
     src,
     slug,
-    group: 'Compatibility',
+    group: 'Conformance',
     section: '',
-    order: nextOrder('Compatibility'),
+    order: nextOrder('Conformance'),
     title: titleOf(src),
     navLabel: c.label,
   };
@@ -533,7 +535,7 @@ function* walkMd(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) yield* walkMd(full);
-    else if (entry.name.endsWith('.md')) yield full;
+    else if (entry.name.endsWith('.md') && !entry.name.endsWith('.generated.md')) yield full;
   }
 }
 for (const pkg of ['pyric', 'pyric-admin', 'cli', 'ui']) {
@@ -731,12 +733,12 @@ function rewriteLinks(page: Page, body: string): string {
     .join('');
 }
 
-/* ── Compatibility row lists ───────────────────────────────────────── */
+/* ── Conformance row lists ─────────────────────────────────────────── */
 //
 // The COMPAT matrices are authored as markdown tables, and a table is
 // the wrong display for them: a one-glyph status column between two
 // prose columns never aligns, and the probe text fights the behavior
-// text for width. On Compatibility pages the port rewrites each
+// text for width. On Conformance pages the port rewrites each
 // `# | Behavior | Status | Probe [| …]` table into a row list — status
 // dot, number, behavior, probe on its own muted line. Tables with any
 // other header (the status legend, the target tables) pass through
@@ -789,10 +791,37 @@ function transformCompatTables(body: string): string {
           const header = splitRow(line).map((h) => h.trim().toLowerCase());
           const col = (name: string) => header.findIndex((h) => h === name || h.startsWith(name));
           const iNum = col('#');
+          const iApi = col('api');
+          const iCat = col('category');
           const iBeh = col('behavior');
           const iSt = col('status');
           const iPr = col('probe');
           const iMeaning = col('meaning');
+          // Consolidated status roundups are two-column API tables. Render
+          // them as readable rows under the section that already names the
+          // status, without inventing a status dot.
+          if (header.length === 2 && header[0] === 'api') {
+            let j = i + 2;
+            const html: string[] = ['<div class="compat-list compat-list--plain">'];
+            while (j < lines.length && /^\s*\|/.test(lines[j])) {
+              const cells = splitRow(lines[j]);
+              const apiName = (cells[0] ?? '').trim();
+              const detail = (cells[1] ?? '').trim();
+              const mainInner = apiName
+                ? `<code class="compat-api">${mdInlineHtml(apiName)}</code><span class="compat-sub">${mdInlineHtml(detail)}</span>`
+                : `<span class="compat-behavior">${mdInlineHtml(detail)}</span>`;
+              html.push(
+                '<div class="compat-row">',
+                `<div class="compat-line"><span class="compat-main">${mainInner}</span></div>`,
+                '</div>',
+              );
+              j++;
+            }
+            html.push('</div>');
+            out.push(html.join('\n'));
+            i = j - 1;
+            continue;
+          }
           // The status legend becomes the key for the dots: one compact
           // line per status, same dot the rows use.
           if (iBeh < 0 && iSt >= 0 && iMeaning >= 0) {
@@ -831,24 +860,34 @@ function transformCompatTables(body: string): string {
               const glyph = status.slice(0, 1);
               const meta = STATUS_META[status] ?? STATUS_META[glyph];
               const qualifier = meta && status.length > 1 ? status.slice(1).trim() : '';
-              const num = iNum >= 0 ? (cells[iNum] ?? '').trim() : '';
               const probe = iPr >= 0 ? (cells[iPr] ?? '').trim() : '';
+              const apiName = iApi >= 0 ? (cells[iApi] ?? '').trim() : '';
+              const category = iCat >= 0 ? (cells[iCat] ?? '').trim() : '';
               const extras = cells
                 .map((c, k) => ({ c, k }))
-                .filter(({ k }) => ![iNum, iBeh, iSt, iPr].includes(k))
+                .filter(({ k }) => ![iNum, iApi, iCat, iBeh, iSt, iPr].includes(k))
                 .map(({ c }) => c.trim())
                 .filter(Boolean);
-              // The scan line is dot + behavior, nothing else. Evidence
-              // (probe, qualifier, notes) hides behind a native
+              // The scan line is status plus the API heading and its
+              // category/behaviour sub-line. Evidence hides behind a native
               // disclosure; rows without evidence render as plain rows.
               const dot = meta
                 ? `<span class="compat-dot" data-status="${meta.key}" role="img" aria-label="${meta.label}" title="${meta.label}"></span>`
                 : `<span class="compat-status">${mdInlineHtml(status)}</span>`;
-              const scanLine = [
-                `<span class="compat-num">${mdInlineHtml(num)}</span>`,
-                dot,
-                `<span class="compat-behavior">${mdInlineHtml(cells[iBeh] ?? '')}</span>`,
-              ].join('');
+              const behaviorHtml = mdInlineHtml(cells[iBeh] ?? '');
+              let mainInner: string;
+              if (apiName) {
+                const sub = [
+                  category ? `<span class="compat-category">${mdInlineHtml(category)}</span>` : '',
+                  `<span class="compat-behavior">${behaviorHtml}</span>`,
+                ]
+                  .filter(Boolean)
+                  .join(' · ');
+                mainInner = `<code class="compat-api">${mdInlineHtml(apiName)}</code><span class="compat-sub">${sub}</span>`;
+              } else {
+                mainInner = `<span class="compat-behavior">${behaviorHtml}</span>`;
+              }
+              const scanLine = [dot, `<span class="compat-main">${mainInner}</span>`].join('');
               const evidence = [
                 probe ? `<div class="compat-probe">${mdInlineHtml(probe)}</div>` : '',
                 qualifier ? `<div class="compat-note">${mdInlineHtml(qualifier)}</div>` : '',
@@ -898,7 +937,7 @@ for (const page of pages) {
   const raw = readFileSync(page.src, 'utf8');
   const source = page.stripFm ? parseFrontmatter(raw).body : raw;
   let body = rewriteLinks(page, source);
-  if (page.group === 'Compatibility') body = transformCompatTables(body);
+  if (page.group === 'Conformance') body = transformCompatTables(body);
   const fm = [
     '---',
     `title: ${yamlQuote(page.title)}`,

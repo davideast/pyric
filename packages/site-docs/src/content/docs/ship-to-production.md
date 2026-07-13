@@ -24,7 +24,7 @@ This pushes the `firestore.rules` named in `firebase.json` to your project. By t
 
 ## Deploy indexes from your query shapes
 
-Composite indexes usually live in a hand-kept file that drifts from the queries. Pyric derives them instead: index extraction reads your `query(collection, where, orderBy)` call sites in source and produces the `firestore.indexes.json` those shapes require (`pyric firestore:indexes:generate`). Then:
+Composite indexes usually live in a hand-kept file that drifts from the queries. Pyric derives them instead: index extraction reads your `query(collection, where, orderBy)` call sites in source and produces the `firestore.indexes.json` those shapes require (`pyric firestore indexes generate src`). Then:
 ```bash
 firebase deploy --only firestore:indexes
 ```
@@ -49,7 +49,7 @@ By default verification runs on the local sandbox engine. For Firestore you can 
 ```bash
 pyric verify --service firestore --engine both --project my-app --rules firestore=firestore.rules
 ```
-`both` cross-checks the two engines against each other and flags any disagreement. That checks your rules and, at the same time, checks Pyric's own engine against production's answer for your exact traffic. Hosted verification needs a project id plus `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS` (or ADC); build a `ProjectScope` programmatically with `@pyric/cli/credentials/node` (`fromServiceAccount` / `fromAdc`).
+`both` cross-checks the two engines against each other and flags any disagreement. That checks your rules and, at the same time, checks Pyric's own engine against Google's answer for your exact traffic. The Rules Test API evaluates cases only: it does not deploy rules or change a project. Hosted verification needs a project id plus `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS` (or ADC); build a `ProjectScope` programmatically with `@pyric/cli/credentials/node` (`fromServiceAccount` / `fromAdc`).
 
 ## Deploy hosting and functions
 ```bash
@@ -65,7 +65,7 @@ Use `firebase-tools` (or the Console) for production shipping. Preview channels 
 - **CI / local**: a service account via `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`.
 - **Fallback**: ambient application-default credentials.
 
-The full flag list is in the [CLI reference](../pyric-tools-reference-cli/).
+The full flag list is in the [CLI reference](../pyric-cli-reference-cli/).
 
 ## Where to go next
 

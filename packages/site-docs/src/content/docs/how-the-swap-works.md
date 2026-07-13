@@ -8,7 +8,7 @@ description: "Understand how your firebase imports reached a local backend, and 
 
 # How the swap works
 
-In development, your app's `firebase/*` imports resolve to a local backend with rules enforced, and no request leaves your machine. In production they resolve to Firebase, unchanged. Here is the whole mechanism, in three parts.
+In activated development, your app's `firebase/*` imports resolve to a local backend with rules enforced, and no request leaves your machine. With that activation absent in production, the runtime resolves those imports to Firebase directly. Here is the whole mechanism, in three parts.
 
 ## Your imports resolve differently in dev
 
@@ -21,7 +21,11 @@ Your source says `import { getFirestore } from 'firebase/firestore'`. In develop
 
 The Vite path reaches libraries too. A dependency that imports `firebase/firestore` on your behalf lands on the sandbox the same way your own code does.
 
-Either way, the call sites are identical to production code. The Firebase config you pass to `initializeApp` is accepted and ignored in dev, because there is no project to talk to.
+Either way, the call sites are identical to production code. The Firebase config you pass to `initializeApp` is accepted and ignored in development, because there is no project to talk to.
+
+For a Node child process, `pyric dev` sets `PYRIC_SANDBOX` and preloads
+`@pyric/cli/register`. While activated, that resolver maps `firebase/*` to
+`pyric/*` and `firebase-admin/*` to `pyric-admin/*`.
 
 ## One backend, shared across tabs
 
@@ -35,7 +39,7 @@ This is also why an agent and Studio see what you see. The MCP bridge and the St
 
 ## Production keeps real Firebase
 
-A plain `vite build` ships the real `firebase` package, using the same config you passed to `initializeApp` all along. Nothing in your app source changes. Not for dev, not for prod, not ever.
+A plain `vite build` leaves the development swap inactive and ships the real `firebase` package, using the same config you passed to `initializeApp` all along. A Node production process does not set `PYRIC_SANDBOX`, so `@pyric/cli/register` is inert and normal resolution loads Firebase directly. Nothing in your app source changes.
 
 - There is no graduation step and no environment flag in your source.
 - A sandbox-flavored build carries a marker in `index.html`; production hosting deploys should use an unmarked production build so a sandbox-wired dist never reaches production by accident.

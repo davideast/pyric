@@ -83,12 +83,14 @@ function* walkMd(dir: string): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) yield* walkMd(full);
-    else if (entry.name.endsWith('.md')) yield full;
+    // TypeDoc declaration receipts are checked by `docs:api:check`. They stay
+    // beside the hand-written references but are not site pages.
+    else if (entry.name.endsWith('.md') && !entry.name.endsWith('.generated.md')) yield full;
   }
 }
 const slugSet = new Set(sources.map((s) => s.slug));
 /** Match scripts/port-content.ts slugPrefix overrides (pkg dir ≠ public URL). */
-const PKG_SLUG_PREFIX: Record<string, string> = { cli: 'pyric-tools' };
+const PKG_SLUG_PREFIX: Record<string, string> = { cli: 'pyric-cli' };
 for (const pkg of ['pyric', 'pyric-admin', 'cli', 'ui']) {
   const docsRoot = join(repoRoot, 'packages', pkg, 'docs');
   let count = 0;

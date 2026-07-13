@@ -11,7 +11,7 @@
   "bugs": {
     "url": "https://github.com/davideast/pyric/issues"
   },
-  "description": "Pyric admin-shape adapters (firestore, auth, database, storage) with swappable sandbox/prod backends. Mirrors firebase-admin.",
+  "description": "Firebase Admin-shaped adapters for the Pyric development sandbox.",
   "type": "module",
   "exports": {
     "./app": {

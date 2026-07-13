@@ -32,9 +32,9 @@ node app.mjs
 
 ## Run the same source in the Node sandbox
 
-Build the Pyric packages, then preload the register hook:
+Let `pyric dev` activate the resolver for the child command:
 ```bash
-PYRIC_SANDBOX=local node --import @pyric/cli/register app.mjs
+pyric dev -- node app.mjs
 ```
 The hook rewrites the canonical imports to `pyric/app` and
 `pyric/firestore`. The configuration object is retained for source
@@ -49,8 +49,8 @@ export default defineConfig({
   plugins: [pyricSandbox()],
 });
 ```
-Use a non-production sandbox mode for builds. The plugin refuses the normal
-production build mode unless explicitly configured otherwise.
+`vite dev` activates the swap. A normal `vite build` leaves it inactive and
+produces the Firebase build.
 
 ## Construct an explicit test sandbox
 

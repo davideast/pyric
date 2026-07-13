@@ -66,6 +66,13 @@ jobs:
         # CI and local can't drift.
         run: bash scripts/build.sh
 
+      - name: Documentation generation, drift, links, and site build
+        # API markdown is generated from the declarations named by each
+        # package export map. The site test re-ports authored sources, builds
+        # every route and Markdown twin, verifies the output/link inventory,
+        # and runs the documentation-rhythm audit.
+        run: bun run docs:api:check && bun run --cwd packages/site-docs test
+
       - name: Oracle conformance gate (observations × probes)
         # Loads every observations/*.json (structural floor), asserts each
         # registry entry's captured prod values are intact (so the prod record

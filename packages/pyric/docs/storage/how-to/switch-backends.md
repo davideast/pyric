@@ -1,4 +1,4 @@
-# How Storage switches between sandbox and production
+# Select the Storage runtime
 
 Keep application imports canonical:
 

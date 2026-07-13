@@ -1631,7 +1631,7 @@ export const authRegistry = {
           "rowNumber": 76,
           "section": "`beforeAuthStateChanged(auth, callback, onAbort?)`",
           "api": "beforeAuthStateChanged(auth, callback, onAbort?)",
-          "behavior": "Served-worker path (SharedWorker-backed auth, `pyric-tools`'s `serve/entries/auth.ts`): the worker owns the shared user pool and commits transitions on its own side of the port, so a page-local `beforeAuthStateChanged` registration can't actually gate a worker-driven sign-in. Rather than silently accept a callback that would never run, registering THROWS immediately (`auth/operation-not-supported-in-this-environment`) — same defensive pattern as `signInWithCredential` over the worker.",
+          "behavior": "Served-worker path (SharedWorker-backed auth in `@pyric/cli`): the worker owns the shared user pool and commits transitions on its own side of the port, so a page-local `beforeAuthStateChanged` registration can't actually gate a worker-driven sign-in. Rather than silently accept a callback that could never run, registering THROWS immediately (`auth/operation-not-supported-in-this-environment`) — same defensive pattern as `signInWithCredential` over the worker.",
           "status": "diverged-documented",
           "evidence": "`packages/cli/src/serve/worker/client.ts` (`beforeAuthStateChanged` throws `makeUnsupported`)",
           "risk": ["error-code"],

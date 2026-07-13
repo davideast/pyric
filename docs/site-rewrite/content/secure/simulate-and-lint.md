@@ -38,12 +38,12 @@ Simulated: DENY
 
 `UNSUPPORTED` means the simulator hit a feature it does not implement and abstained rather than guessed. Those cases can be routed to Google's own engine. See [write a rules test suite](../secure/write-a-rules-test-suite.md).
 
-The same simulator is on the command line as `pyric rules:simulate`, and it is what evaluates every operation inside your running sandbox.
+The same simulator is on the command line as `pyric firestore rules simulate`, and it is what evaluates every operation inside your running sandbox.
 
 ## Lint before the compiler can reject you
 
 ```bash
-pyric rules:lint firestore.rules
+pyric firestore rules lint firestore.rules
 ```
 
 Or in code:

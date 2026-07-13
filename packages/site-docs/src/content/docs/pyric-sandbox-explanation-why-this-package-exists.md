@@ -58,6 +58,6 @@ See [Why service adapters live in sibling packages](../pyric-sandbox-explanation
 | Render a sandboxed Firestore in a browser playground | `pyric/sandbox` |
 | Test full Firestore semantics including transport behaviour | Firebase Emulator Suite |
 | Cover Auth flows, RTDB, Storage, or Functions | Firebase Emulator Suite |
-| Bit-for-bit production parity | Live Firestore (via `pyric/firestore` with the prod backend) |
+| Production execution | Firebase, loaded directly with Pyric activation absent |
 
 For most of the use cases this stack targets, the sandbox is the right call. For the cases it doesn't cover, the emulator or live Firestore are the right call. The two coexist. Nothing about `pyric/sandbox` makes the emulator harder to use.

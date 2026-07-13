@@ -1,7 +1,7 @@
 ---
 title: "How to verify your rules against a captured session"
-navLabel: "Verify rules against prod"
-group: "pyric-tools"
+navLabel: "Verify rules"
+group: "@pyric/cli"
 section: "How-to"
 order: 9008
 ---
@@ -146,9 +146,9 @@ The non-zero exit on a real divergence is what blocks the merge.
 
 ## Verify from code
 
-Use `pyric-tools/verify` when your RTDB rules are authored in memory:
+Use `@pyric/cli/verify` when your RTDB rules are authored in memory:
 ```ts
-import { verifyFixture } from 'pyric-tools/verify';
+import { verifyFixture } from '@pyric/cli/verify';
 import { rules } from './database.rules.js';
 
 const fixture = JSON.parse(await Bun.file('.pyric/last-session.json').text());
@@ -165,7 +165,7 @@ if (!result.ok) process.exit(1);
 
 Firestore can use the hosted engine from code:
 ```ts
-import { verifyFixture } from 'pyric-tools/verify';
+import { verifyFixture } from '@pyric/cli/verify';
 
 const result = await verifyFixture(fixture, {
   engines: ['rulesTestApi'],
@@ -177,4 +177,4 @@ const result = await verifyFixture(fixture, {
   },
 });
 ```
-For the full flag list, see the [`pyric verify` reference](../pyric-tools-reference-cli/).
+For the full flag list, see the [`pyric verify` reference](../pyric-cli-reference-cli/).

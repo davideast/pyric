@@ -31,7 +31,7 @@ In your app's repo:
 npm install --save-dev pyric
 ```
 
-This pulls in the bridge implementation (`@pyric/cli/bridge`) as a transitive dependency. You don't install it separately: it ships inside `@pyric/cli` / `pyric-tools`.
+This pulls in the bridge implementation (`@pyric/cli/bridge`) as part of `@pyric/cli`.
 
 Verify:
 
@@ -49,7 +49,7 @@ The bridge waits for a browser tab to register a sandbox over WebSocket. Your ap
 
 ```ts
 import { defineConfig } from 'vite';
-import { pyricSandbox } from 'pyric-tools/vite';
+import { pyricSandbox } from '@pyric/cli/vite';
 
 export default defineConfig({
   plugins: [pyricSandbox({ bridge: true })],

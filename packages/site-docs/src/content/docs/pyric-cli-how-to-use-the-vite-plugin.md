@@ -1,11 +1,11 @@
 ---
-title: "Use the Vite plugin (pyric-tools/vite)"
+title: "Use the Vite plugin (@pyric/cli/vite)"
 navLabel: "Use the Vite plugin"
-group: "pyric-tools"
+group: "@pyric/cli"
 section: "How-to"
 order: 9007
 ---
-# Use the Vite plugin (`pyric-tools/vite`)
+# Use the Vite plugin (`@pyric/cli/vite`)
 
 The `pyricSandbox()` Vite plugin gives a **source-driven** app the same
 `firebase/*` → pyric-sandbox swap that `pyric dev` gives a **static** app,
@@ -30,7 +30,7 @@ points in your toolchain. Pick by how your app is built:
 
 They are **not** competing. If you already build with Vite, the plugin keeps you
 in one toolchain (`vite dev` for the sandbox, `vite build` for prod). If you have
-a pre-built or no-build app, reach for [`pyric dev`](../pyric-tools-how-to-serve-persistence-and-multi-tab/).
+a pre-built or no-build app, reach for [`pyric dev`](../pyric-cli-how-to-serve-persistence-and-multi-tab/).
 
 > **What the plugin covers.** It swaps `firebase/*`, deploys/hot-reloads your
 > rules, runs the sandbox in a **SharedWorker** (one backend shared across tabs,
@@ -47,19 +47,19 @@ a pre-built or no-build app, reach for [`pyric dev`](../pyric-tools-how-to-serve
 
 ## Install
 
-Add `pyric-tools` as a dev dependency:
+Add `@pyric/cli` as a development dependency:
 ```bash
-npm install --save-dev pyric-tools
+npm install --save-dev @pyric/cli
 ```
 (`vite` is a peer dependency you already have.)
 
 ## Add it to `vite.config.ts`
 
-Import `pyricSandbox` from `pyric-tools/vite` and add it to your `plugins`:
+Import `pyricSandbox` from `@pyric/cli/vite` and add it to your `plugins`:
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
-import { pyricSandbox } from 'pyric-tools/vite';
+import { pyricSandbox } from '@pyric/cli/vite';
 
 export default defineConfig({
   plugins: [pyricSandbox()],
@@ -146,7 +146,7 @@ pyricSandbox({ seed: 'seed.json' });
 ```
 The persistence model (the `.pyric/state` file, `persist` vs `fresh`, and how
 seed precedence works) is identical to `pyric dev` and documented in depth in
-[Persistence and multi-tab](../pyric-tools-how-to-serve-persistence-and-multi-tab/).
+[Persistence and multi-tab](../pyric-cli-how-to-serve-persistence-and-multi-tab/).
 
 ## Drive the sandbox from an agent (`bridge`)
 
@@ -168,7 +168,7 @@ This adds three routes on your dev server's port (no sidecar process):
 
 Connect from Claude Code with the **pyric Claude Code plugin**: it runs a bundled
 stdio proxy that auto-discovers the running bridge from `.pyric/serve.json` (no
-fixed port, no `claude mcp add`). The [Wire Claude Code](../pyric-tools-tutorials-wire-claude-code/)
+fixed port, no `claude mcp add`). The [Wire Claude Code](../pyric-cli-tutorials-wire-claude-code/)
 tutorial walks the agent-side setup end to end.
 
 Open your app in a browser tab; the page connects to the bridge automatically (the
@@ -181,8 +181,8 @@ then seed, query, undo/redo, and audit the sandbox the page is running on.
 > is no separate agent sandbox. The agent still reaches the worker through an open
 > page, so keep a tab open while it works.
 
-The bridge is the same machinery as [`pyric dev --bridge`](../pyric-tools-how-to-serve-persistence-and-multi-tab/);
-the [Wire Claude Code](../pyric-tools-tutorials-wire-claude-code/) tutorial walks the
+The bridge is the same machinery as [`pyric dev --bridge`](../pyric-cli-how-to-serve-persistence-and-multi-tab/);
+the [Wire Claude Code](../pyric-cli-tutorials-wire-claude-code/) tutorial walks the
 agent-side setup end to end.
 
 ## Two build flavors: production vs. sandbox
@@ -277,9 +277,9 @@ What the plugin does and doesn't cover:
 
 ## Troubleshooting
 
-**`pyric-tools/vite: pyric is not built …`** The plugin needs pyric's compiled
+**`@pyric/cli/vite: pyric is not built …`** The plugin needs pyric's compiled
 output to read Firebase's public surface. In a monorepo checkout, build pyric
-first (e.g. `bun run build`). An installed `pyric-tools` from npm ships built, so
+first (e.g. `bun run build`). An installed `@pyric/cli` from npm ships built, so
 you'll only hit this developing against a source checkout.
 
 **A `firebase/*` import you expected to swap didn't.** Only `firebase/app`,
@@ -289,7 +289,7 @@ package in this release.
 
 ## See also
 
-- [Persistence and multi-tab with `pyric dev`](../pyric-tools-how-to-serve-persistence-and-multi-tab/):
+- [Persistence and multi-tab with `pyric dev`](../pyric-cli-how-to-serve-persistence-and-multi-tab/):
   the static-app analog; the worker/persist/seed model is identical to the plugin's.
 - [Getting started](../start-building/): the end-to-end scaffold →
   serve → agent loop.

@@ -87,7 +87,7 @@ Then, in Claude Code inside your app's directory, run:
 
 The skill starts `pyric dev --bridge --persist` and opens the app.
 `--bridge` exposes an MCP endpoint inside the dev server; the plugin's stdio
-proxy (`pyric mcp-proxy`) finds the running dev server automatically via the
+server (`pyric mcp`) finds the running dev server automatically via the
 `.pyric/serve.json` pointer — **no `claude mcp add`, no port wiring**.
 
 ## Step 5 — Let the agent drive
@@ -107,10 +107,11 @@ pyric snapshot            # dump sandbox state to a file
 
 ## You now have
 
-A local Firebase-shaped dev loop where the backend lives in your browser
-tab, rules are enforced for real, and an agent can safely operate on all
-of it — and the same app code deploys unchanged against real Firebase
-(`firebase deploy` via `firebase-tools` / Console).
+A local Firebase-shaped development loop where the backend lives in your
+browser tab, rules are enforced for real, and an agent can safely operate on
+all of it. A production build leaves package resolution inactive, so the same
+canonical imports load Firebase directly; `firebase-tools` or the Console
+deploys that build and its artifacts.
 
 ## Where next
 
@@ -121,10 +122,7 @@ of it — and the same app code deploys unchanged against real Firebase
   any directory with a `firebase.json` — start at Step 2 in your app.
 - **Manual MCP wiring (no plugin), or connecting a sandbox embedded in
   your own dev server:** [wire-claude-code.md](./wire-claude-code.md).
-- **Deploying for real** (rules, indexes, hosting incl. preview
-  channels, functions): [`../deploy/`](../deploy/README.md), and
-  [`deploy-to-a-preview-channel`](../deploy/how-to/deploy-to-a-preview-channel.md).
-- **Agent-facing CLI I/O** (`--schema` / `--json` on deploy commands):
-  [`../deploy/reference/cli-agent-io.md`](../deploy/reference/cli-agent-io.md).
+- **Shipping rules, indexes, hosting, and functions:** use `firebase-tools` or
+  the Firebase Console after generating and verifying artifacts locally.
 - **Why an in-browser sandbox at all:** the explanation docs under
   [`packages/pyric/docs/sandbox/`](../../../pyric/docs/sandbox/).
