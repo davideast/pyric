@@ -32,14 +32,12 @@ Probe references: `unit:<file>` means a Bun test under
 under `packages/conformance/observations/storage/<name>.json` captured by
 `packages/conformance/src/run.ts` against a real Firebase project.
 
-Targets:
-- **sandbox** — IDB-backed handle built via `getStorageSandbox(target, options?)`.
-  Identity is either a `SandboxContext` (frozen at handle-construction)
-  or a `Sandbox` (anonymous, via `sandbox.withAuth(null)`). Rule
-  evaluation runs in-process via `enforce.ts`.
-- **prod** — `firebase/storage` target built via `getStorageProd(app)`.
-  Identity flows naturally from `firebase/auth`'s `currentUser`; rules
-  enforced server-side by Firebase.
+Target:
+- **sandbox mirror** — package resolution selects `pyric/storage` before this
+  module loads. The IDB-backed handle comes from `getStorage(app)` or
+  `getStorageSandbox(target, options?)`; identity and rules evaluation stay
+  entirely inside the sandbox. Production execution imports `firebase/storage`
+  directly and never loads this mirror.
 
 Storage differs from auth/firestore in a few load-bearing ways the
 matrix has to cover:
@@ -48,29 +46,29 @@ matrix has to cover:
   intrinsic type, fallback to `application/octet-stream`).
 - Reference identity is a value object, not an interned handle —
   `ref(s, 'a/b')` twice are equal-by-path, not `===`.
-- The persistence layer for sandbox is IDB (with `fake-indexeddb` in
-  tests); prod is the Firebase Storage REST API plus a downloadURL
-  surface backed by token-signed GETs.
+- The mirror persistence layer is IDB (with `fake-indexeddb` in tests).
+  Production observations record the Firebase REST/download-URL answer key;
+  the mirror never delegates to that implementation.
 
 ---
 
-## `getStorageSandbox(target, options?)` / `getStorageProd(app, options?)` — initializer
+## `getStorage(app, bucketUrl?)` / `getStorageSandbox(target, options?)` — initializer
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
 | 1 | `getStorageSandbox(ctx)` returns a tagged sandbox-target handle (frozen identity) | ✓ | `unit:service.test.ts` |
 | 2 | `getStorageSandbox(sandbox)` wraps a bare Sandbox with an anonymous context (`auth: null`) | ✓ | `unit:service.test.ts` |
-| 3 | `getStorageProd(app)` returns a tagged prod-target handle | ✓ | `unit:prod-target.test.ts` |
+| 3 | `getStorage(app)` returns the sandbox handle selected by package resolution | ✓ | `entry-path:storage` runs the canonical `initializeApp` → `getStorage(app)` → `ref` → `uploadBytes` flow |
 | 4 | Two `getStorageSandbox(ctx)` calls on the same context return the SAME wrapper (identity-stable) | ✓ | `unit:service.test.ts` ("returns the same handle for repeated calls on the same context") |
 | 4a | Two `getStorageSandbox(sandbox)` calls on a bare `Sandbox` return the SAME wrapper (identity-stable) | ✓ | ST-B3 fixed: `withAuth(null)` mints a fresh context per call, so the per-context cache missed and bare-Sandbox calls returned different handles. A `Sandbox`-keyed cache makes the convenience path stable, matching the docstring. Probe: `unit:service.test.ts` ("ST-B3: returns the same handle for repeated bare-Sandbox calls"). |
 | 5 | Two different `SandboxContext`s on the same `Sandbox` get DIFFERENT handles but share the underlying `StorageService` (IDB) | ✓ | `unit:service.test.ts` ("shares the underlying StorageService across contexts on the same sandbox") |
 | 6 | `options.bucket` round-trips on metadata records; v1 has a single implicit bucket but the field is preserved | ✓ | `unit:service.test.ts` ("records the bucket value on the handle") |
 | 7 | `options.dbName` honored on the FIRST call per `Sandbox`; second-call overrides ignored | ✓ | `unit:service.test.ts` ("dbName only takes effect on the sandbox's first getStorage call") |
 | 8 | `options.rules` parsed eagerly — malformed rules throw `SyntaxError` at config time | ✓ | `unit:rules.test.ts` (parse errors propagate from `parseStorageRules`) |
-| 9 | Handle dispatch by `TARGET_SYMBOL` brand — ops route to their owning target | ✓ | `unit:prod-target.test.ts` ("getStorageService throws — service is sandbox-only") |
-| 10 | Unrecognized handle (not produced by a factory) → `TypeError` "not a FirebaseStorage handle" | ✓ | `unit:prod-target.test.ts` ("throws TypeError on objects without TARGET_SYMBOL") |
-| 11 | Prod handle: `bucket` field sourced from the SDK's resolved bucket (so `gs://` overrides round-trip) | ✓ | implicit in `unit:prod-target.test.ts` |
-| 12 | `getStorageSandbox(undefined)` / bare-call default-to-sandbox in playground preview | — | not yet wired — mirror of the `getFirestore` wrap (auth #4 / firestore #4) |
+| 9 | The `TARGET_SYMBOL` brand keeps each handle bound to its owning sandbox service and identity | ✓ | `unit:service.test.ts` (distinct contexts share one service while retaining distinct handles) |
+| 10 | Unrecognized handle (not produced by a factory) → `TypeError` "not a FirebaseStorage handle" | ✓ | `unit:service.test.ts` ("rejects an object that was not produced by a factory") |
+| 11 | `getStorage(app, bucketUrl?)` accepts Firebase's bucket argument; the sandbox remains bound to its configured single bucket | ⚠ | Package resolution owns production selection. The sandbox accepts the canonical argument but does not model production multi-bucket routing; `unit:service.test.ts` pins the configured `pyric-default` bucket. |
+| 12 | The served `firebase/storage` entry accepts bare `getStorage()` and returns the page's shared sandbox handle | ✓ | The canonical served entry supplies the page sandbox when the app argument is omitted; the entry-path and bundler suites execute the public package shape. |
 
 ## `ref(storage[, path])` / `ref(parent, path)` — reference constructor
 
@@ -86,7 +84,7 @@ matrix has to cover:
 | 20 | `root` accessor returns the bucket-root ref regardless of starting depth | ✓ | `unit:reference.test.ts` |
 | 21 | `toString()` returns `gs://<bucket>/<fullPath>` | ✓ | `unit:reference.test.ts` ("toString returns gs://bucket/path") |
 | 22 | Reference identity: two `ref(s, 'a/b')` calls are equal-by-`toString` but NOT `===` (value objects, not interned) | ✓ | (implicit in `unit:reference.test.ts` parent-chain test — each `.parent` returns a fresh object) |
-| 23 | Prod refs proxy the underlying `firebase/storage` ref via a WeakMap; `parent` / `root` recursively wrap to keep target consistent | ✓ | `unit:prod-target.test.ts` (delegation pattern documented in `reference.ts`) |
+| 23 | References are mirror-owned value objects; `parent` and `root` preserve the same storage handle and path semantics | ✓ | `unit:reference.test.ts` pins parent traversal, root identity, bucket, and path behavior through the public reference interface. |
 
 ## `uploadBytes(ref, data, metadata?)` — write blob
 
@@ -104,7 +102,7 @@ matrix has to cover:
 | 33 | Returned `metadata.size` matches the input blob's byte length | ✓ | `unit:reference.test.ts` |
 | 34 | Returned `metadata.bucket` matches the storage handle's bucket | ✓ | `unit:reference.test.ts` |
 | 35 | Replaces any existing object at the path (overwrite, not append) | ? | sandbox semantics in `persistence.ts` use `put`; no explicit overwrite test |
-| 36 | Prod: round-trips uploaded bytes through `getDownloadURL` + fetch (byte-for-byte equality) | ✓ (prod-only) | oracle: `packages/conformance/observations/storage/storage-upload-bytes-roundtrip.json` (against blockingfun, fb-js-sdk 12.13.0: 6-byte payload → uploadBytes → getDownloadURL → HTTPS fetch → `bytesMatch: true`, `urlIsHttps: true`, `bodyLen === payloadLen === 6`). Sandbox doesn't ship `getDownloadURL` (row #51 is `—`); the round-trip is observed prod-side only. |
+| 36 | Prod: round-trips uploaded bytes through `getDownloadURL` + fetch (byte-for-byte equality) | ✓ (prod-only) | oracle: `packages/conformance/observations/storage/storage-upload-bytes-roundtrip.json` (against blockingfun, fb-js-sdk 12.13.0: 6-byte payload → uploadBytes → getDownloadURL → HTTPS fetch → `bytesMatch: true`, `urlIsHttps: true`, `bodyLen === payloadLen === 6`). This row records the production answer key; row #51 compares the sandbox's page-local URL behavior against it. |
 | 37 | Returned `metadata.contentType` matches what the caller hinted (when set) | ✓ | `unit:reference.test.ts` + oracle: `packages/conformance/observations/storage/storage-upload-then-getmetadata.json` (`contentType: 'application/octet-stream'` round-trip against blockingfun, fb-js-sdk 12.13.0; `contentTypeMatches: true`) |
 | 38 | Returned `metadata.generation` / `metageneration` are stringified counters (`'1'` after fresh upload) | ✓ | `unit:metadata.test.ts` |
 
@@ -238,9 +236,9 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 | # | Behavior | Status | Probe |
 |---|---|---|---|
 | 109 | `getStorageService(storage)` returns the backing `StorageService` for sandbox handles (sandbox-only escape hatch for tests) | ✓ | `unit:service.test.ts` |
-| 110 | `getStorageService` on a prod-target handle throws `Error: …sandbox-only` | ✓ | `unit:prod-target.test.ts` ("throws — service is sandbox-only") |
-| 111 | `targetOf(storage)` returns the discriminated `Target` (sandbox / prod) | ✓ | `unit:service.test.ts` |
-| 117 | `connectStorageEmulator(storage, host, port)` is a no-op on sandbox targets — pyric replaces the Firebase emulator, so the sandbox IS already the local emulator. Forwards to `firebase/storage`'s real `connectStorageEmulator` on prod targets | ⚠ pyric replaces the Firebase emulator; connectStorageEmulator is a no-op | `unit:connect-storage-emulator.test.ts` ("is a no-op on a sandbox handle — does not throw") |
+| 110 | `getStorageService` rejects an unbranded handle through the public handle guard | ✓ | `unit:service.test.ts` ("rejects an object that was not produced by a factory") |
+| 111 | `targetOf(storage)` returns the mirror-owned sandbox state carried by the handle brand | ✓ | `unit:service.test.ts` |
+| 117 | `connectStorageEmulator(storage, host, port)` is an accepted no-op — pyric replaces the Firebase emulator, so the sandbox is already the local implementation | ⚠ pyric replaces the Firebase emulator; connectStorageEmulator is a no-op | `unit:connect-storage-emulator.test.ts` ("is a no-op on a sandbox handle — does not throw") |
 
 ## Visible gaps / open questions
 
@@ -250,9 +248,9 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 - `md5Hash` (row 91) — sandbox doesn't compute it. Oracle confirms
   prod always sets it. Worth a one-row alignment if real consumer
   code reads it.
-- Prod target row #11 — needs an explicit oracle observation against
-  `firebase/storage` to lock the bucket-name format (with vs without
-  `gs://` prefix).
+- Canonical bucket routing (row #11) — the single-bucket sandbox accepts but
+  ignores `getStorage(app, bucketUrl)`. Production observations should pin the
+  upstream bucket-name format before a multi-bucket sandbox is designed.
 
 ## Rows locked by the empirical oracle harness
 

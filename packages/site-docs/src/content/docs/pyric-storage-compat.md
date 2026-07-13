@@ -39,14 +39,12 @@ Probe references: `unit:<file>` means a Bun test under
 under `packages/conformance/observations/storage/<name>.json` captured by
 `packages/conformance/src/run.ts` against a real Firebase project.
 
-Targets:
-- **sandbox** — IDB-backed handle built via `getStorageSandbox(target, options?)`.
-  Identity is either a `SandboxContext` (frozen at handle-construction)
-  or a `Sandbox` (anonymous, via `sandbox.withAuth(null)`). Rule
-  evaluation runs in-process via `enforce.ts`.
-- **prod** — `firebase/storage` target built via `getStorageProd(app)`.
-  Identity flows naturally from `firebase/auth`'s `currentUser`; rules
-  enforced server-side by Firebase.
+Target:
+- **sandbox mirror** — package resolution selects `pyric/storage` before this
+  module loads. The IDB-backed handle comes from `getStorage(app)` or
+  `getStorageSandbox(target, options?)`; identity and rules evaluation stay
+  entirely inside the sandbox. Production execution imports `firebase/storage`
+  directly and never loads this mirror.
 
 Storage differs from auth/firestore in a few load-bearing ways the
 matrix has to cover:
@@ -55,13 +53,13 @@ matrix has to cover:
   intrinsic type, fallback to `application/octet-stream`).
 - Reference identity is a value object, not an interned handle —
   `ref(s, 'a/b')` twice are equal-by-path, not `===`.
-- The persistence layer for sandbox is IDB (with `fake-indexeddb` in
-  tests); prod is the Firebase Storage REST API plus a downloadURL
-  surface backed by token-signed GETs.
+- The mirror persistence layer is IDB (with `fake-indexeddb` in tests).
+  Production observations record the Firebase REST/download-URL answer key;
+  the mirror never delegates to that implementation.
 
 ---
 
-## `getStorageSandbox(target, options?)` / `getStorageProd(app, options?)` — initializer
+## `getStorage(app, bucketUrl?)` / `getStorageSandbox(target, options?)` — initializer
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
@@ -73,8 +71,8 @@ matrix has to cover:
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">3</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorageProd(app)</code> returns a tagged prod-target handle</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">3</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorage(app)</code> returns the sandbox handle selected by package resolution</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>entry-path:storage</code> runs the canonical <code>initializeApp</code> → <code>getStorage(app)</code> → <code>ref</code> → <code>uploadBytes</code> flow</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Two <code>getStorageSandbox(ctx)</code> calls on the same context return the SAME wrapper (identity-stable)</span></summary>
@@ -101,20 +99,20 @@ matrix has to cover:
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code> (parse errors propagate from <code>parseStorageRules</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">9</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Handle dispatch by <code>TARGET_SYMBOL</code> brand — ops route to their owning target</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code> ("getStorageService throws — service is sandbox-only")</div></div>
+<summary class="compat-line"><span class="compat-num">9</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The <code>TARGET_SYMBOL</code> brand keeps each handle bound to its owning sandbox service and identity</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> (distinct contexts share one service while retaining distinct handles)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">10</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Unrecognized handle (not produced by a factory) → <code>TypeError</code> "not a FirebaseStorage handle"</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code> ("throws TypeError on objects without TARGET_SYMBOL")</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("rejects an object that was not produced by a factory")</div></div>
+</details>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">11</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>getStorage(app, bucketUrl?)</code> accepts Firebase's bucket argument; the sandbox remains bound to its configured single bucket</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Package resolution owns production selection. The sandbox accepts the canonical argument but does not model production multi-bucket routing; <code>unit:service.test.ts</code> pins the configured <code>pyric-default</code> bucket.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">11</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod handle: <code>bucket</code> field sourced from the SDK's resolved bucket (so <code>gs://</code> overrides round-trip)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">implicit in <code>unit:prod-target.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">12</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>getStorageSandbox(undefined)</code> / bare-call default-to-sandbox in playground preview</span></summary>
-<div class="compat-evidence"><div class="compat-probe">not yet wired — mirror of the <code>getFirestore</code> wrap (auth #4 / firestore #4)</div></div>
+<summary class="compat-line"><span class="compat-num">12</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The served <code>firebase/storage</code> entry accepts bare <code>getStorage()</code> and returns the page's shared sandbox handle</span></summary>
+<div class="compat-evidence"><div class="compat-probe">The canonical served entry supplies the page sandbox when the app argument is omitted; the entry-path and bundler suites execute the public package shape.</div></div>
 </details>
 </div>
 
@@ -162,8 +160,8 @@ matrix has to cover:
 <div class="compat-evidence"><div class="compat-probe">(implicit in <code>unit:reference.test.ts</code> parent-chain test — each <code>.parent</code> returns a fresh object)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">23</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod refs proxy the underlying <code>firebase/storage</code> ref via a WeakMap; <code>parent</code> / <code>root</code> recursively wrap to keep target consistent</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code> (delegation pattern documented in <code>reference.ts</code>)</div></div>
+<summary class="compat-line"><span class="compat-num">23</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">References are mirror-owned value objects; <code>parent</code> and <code>root</code> preserve the same storage handle and path semantics</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:reference.test.ts</code> pins parent traversal, root identity, bucket, and path behavior through the public reference interface.</div></div>
 </details>
 </div>
 
@@ -220,7 +218,7 @@ matrix has to cover:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">36</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Prod: round-trips uploaded bytes through <code>getDownloadURL</code> + fetch (byte-for-byte equality)</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-upload-bytes-roundtrip.json</code> (against blockingfun, fb-js-sdk 12.13.0: 6-byte payload → uploadBytes → getDownloadURL → HTTPS fetch → <code>bytesMatch: true</code>, <code>urlIsHttps: true</code>, <code>bodyLen === payloadLen === 6</code>). Sandbox doesn't ship <code>getDownloadURL</code> (row #51 is <code>—</code>); the round-trip is observed prod-side only.</div>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/storage/storage-upload-bytes-roundtrip.json</code> (against blockingfun, fb-js-sdk 12.13.0: 6-byte payload → uploadBytes → getDownloadURL → HTTPS fetch → <code>bytesMatch: true</code>, <code>urlIsHttps: true</code>, <code>bodyLen === payloadLen === 6</code>). This row records the production answer key; row #51 compares the sandbox's page-local URL behavior against it.</div>
 <div class="compat-note">(prod-only)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
@@ -550,15 +548,15 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">110</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorageService</code> on a prod-target handle throws <code>Error: …sandbox-only</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code> ("throws — service is sandbox-only")</div></div>
+<summary class="compat-line"><span class="compat-num">110</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorageService</code> rejects an unbranded handle through the public handle guard</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("rejects an object that was not produced by a factory")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">111</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>targetOf(storage)</code> returns the discriminated <code>Target</code> (sandbox / prod)</span></summary>
+<summary class="compat-line"><span class="compat-num">111</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>targetOf(storage)</code> returns the mirror-owned sandbox state carried by the handle brand</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">117</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>connectStorageEmulator(storage, host, port)</code> is a no-op on sandbox targets — pyric replaces the Firebase emulator, so the sandbox IS already the local emulator. Forwards to <code>firebase/storage</code>'s real <code>connectStorageEmulator</code> on prod targets</span></summary>
+<summary class="compat-line"><span class="compat-num">117</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>connectStorageEmulator(storage, host, port)</code> is an accepted no-op — pyric replaces the Firebase emulator, so the sandbox is already the local implementation</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:connect-storage-emulator.test.ts</code> ("is a no-op on a sandbox handle — does not throw")</div>
 <div class="compat-note">pyric replaces the Firebase emulator; connectStorageEmulator is a no-op</div></div>
 </details>
@@ -572,9 +570,9 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 - `md5Hash` (row 91) — sandbox doesn't compute it. Oracle confirms
   prod always sets it. Worth a one-row alignment if real consumer
   code reads it.
-- Prod target row #11 — needs an explicit oracle observation against
-  `firebase/storage` to lock the bucket-name format (with vs without
-  `gs://` prefix).
+- Canonical bucket routing (row #11) — the single-bucket sandbox accepts but
+  ignores `getStorage(app, bucketUrl)`. Production observations should pin the
+  upstream bucket-name format before a multi-bucket sandbox is designed.
 
 ## Rows locked by the empirical oracle harness
 
