@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { PluginOption, UserConfig } from 'vite';
-import config from '../vite.config';
+import config, { studioSandboxOptions } from '../vite.config';
 
 function pluginNames(options: PluginOption[]): string[] {
   return options.flatMap((option) => {
@@ -17,5 +17,11 @@ describe('Studio Vite development config', () => {
     // The runtime plugin serves /__pyric/sdk/worker.js. Without it, Vite's SPA
     // fallback returns index.html and SharedWorker fails on the leading "<".
     expect(names).toContain('pyric:sandbox');
+  });
+
+  it('serves the embedded Playground instead of recursing into Studio', () => {
+    // `ui: true` owns /__pyric/playground/. With it disabled, Vite's SPA
+    // fallback serves Studio at that URL, and Studio embeds itself forever.
+    expect(studioSandboxOptions.ui).toBe(true);
   });
 });
