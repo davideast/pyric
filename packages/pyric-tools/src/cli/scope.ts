@@ -1,13 +1,11 @@
 /**
- * `resolveScope` — build a `ProjectScope` for CLI subcommands that hit Google's
- * control-plane APIs (deploy, auth-admin, discover).
+ * `resolveScope` — build a `ProjectScope` for hosted Rules Test API verification.
  *
  * Credential sources, in precedence order:
  *   1. `FIREBASE_SA_BASE64` — base64 service-account JSON (CI). Grants all scopes.
  *   2. `GOOGLE_APPLICATION_CREDENTIALS` — path to a service-account JSON file.
- *   3. `PYRIC_REFRESH_TOKEN` — a CI-injected user refresh token (`pyric login --ci`).
- *   4. Logged-in user (`pyric login`) — a stored refresh token; carries only the
- *      scopes Google granted.
+ *   3. `PYRIC_REFRESH_TOKEN` — a CI-injected user refresh token.
+ *   4. A stored user credential; carries only the scopes Google granted.
  *   5. ADC (`gcloud auth application-default login` / workload identity) — the
  *      ambient keyless fallback.
  *
@@ -95,8 +93,9 @@ export async function resolveScope(options: ResolveScopeOptions = {}): Promise<R
 
   // 6. Nothing.
   throw new Error(
-    'pyric: not authenticated. Run `pyric login`, set FIREBASE_SA_BASE64 / GOOGLE_APPLICATION_CREDENTIALS / ' +
-      'PYRIC_REFRESH_TOKEN, or run `gcloud auth application-default login`.',
+    'pyric: Rules Test API verification requires FIREBASE_SA_BASE64, ' +
+      'GOOGLE_APPLICATION_CREDENTIALS, or Application Default Credentials from ' +
+      '`gcloud auth application-default login`.',
   );
 }
 

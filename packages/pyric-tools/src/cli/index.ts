@@ -3,7 +3,7 @@
  * `pyric` CLI — front door to the bridge + project tooling.
  *
  * Subcommands:
- *   pyric bridge [--mode sandbox|prod] [--port N] [--project ID] …
+ *   pyric bridge [--port N] [--project ID]
  *   pyric dev [--port N] [--host H] [--no-cache] [--bridge] [--ui] [--seed FILE] [--no-watch] [--no-open] [--no-capture] [--no-run] [--json] [--persist] [--fresh] [-- <cmd>]
  *   pyric init [dir] [--template web|node] [--name N] [--force] [--json]
  *   pyric vendor [dir] [--json]
@@ -20,25 +20,15 @@
  *   pyric database rules validate <path>
  *   pyric database rules simulate [--stdin]
  *   pyric database rules generate [--config <path>] [--out <path>]
- *   pyric auth:configure-provider <provider> <true|false>
- *   pyric auth:manage-domains <add|remove|list> [domain]
- *   pyric firestore:discover [collection]
- *   pyric login [--ci]
- *   pyric logout
- *   pyric whoami
  *   pyric --help
  *   pyric --version
  *
  * Env vars:
- *   PYRIC_MODE                       — 'sandbox' (default) or 'prod' (bridge)
  *   PYRIC_PORT                       — bridge port (default 5174)
- *   PYRIC_PROJECT                    — project id (sandbox: any; prod: Firebase project id)
+ *   PYRIC_PROJECT                    — project label for bridge health and audit output
  *   PYRIC_VERBOSE                    — set to 1 for per-tool-call logging
- *   FIREBASE_SA_BASE64               — base64-encoded service-account JSON (verify / auth / discover)
- *   GOOGLE_APPLICATION_CREDENTIALS   — path to service-account JSON (verify / auth / discover)
- *   PYRIC_OAUTH_CLIENT_ID            — Google "Desktop app" OAuth client id (pyric login)
- *   PYRIC_OAUTH_CLIENT_SECRET        — its client secret (pyric login; required by Google)
- *   PYRIC_REFRESH_TOKEN              — CI refresh token from `pyric login --ci`
+ *   FIREBASE_SA_BASE64               — base64-encoded service-account JSON (Rules Test API verify)
+ *   GOOGLE_APPLICATION_CREDENTIALS   — path to service-account JSON (Rules Test API verify)
  *
  * Exit codes:
  *   0  success
@@ -46,11 +36,8 @@
  *   2  runtime error
  */
 
-import { startServer, type BridgeMode } from '@pyric/cli/bridge';
+import { startServer } from '@pyric/cli/bridge';
 import { parseArgs, type ParsedArgs } from './parse-args.js';
-import { runLoginCommand, runLogoutCommand, runWhoamiCommand } from './login.js';
-import { runAuthConfigureProvider, runAuthManageDomains } from './auth.js';
-import { runFirestoreDiscover } from './discover.js';
 import { runInit, runVendor } from './init.js';
 import { runServe } from './serve.js';
 import { runSnapshot } from './snapshot.js';
@@ -67,8 +54,8 @@ const VERSION = pyricVersion();
 
 function printUsage(): void {
   process.stdout.write(`pyric ${VERSION}
-Firebase for agents — bridge an in-browser pyric sandbox (or a real Firebase
-project) to external MCP clients (Claude Code, Cursor, ...).
+Firebase for agents — bridge an in-browser pyric sandbox to external MCP
+clients (Claude Code, Cursor, ...).
 
 USAGE
   pyric bridge [flags]
@@ -88,12 +75,6 @@ USAGE
   pyric database rules validate <path>
   pyric database rules simulate [--stdin]
   pyric database rules generate [--config <path>] [--out <path>]
-  pyric auth:configure-provider <anonymous|email|phone|google> <true|false>
-  pyric auth:manage-domains <add|remove|list> [domain]
-  pyric firestore:discover [collection]
-  pyric login [--ci]
-  pyric logout
-  pyric whoami
   pyric --help
   pyric --version
 
@@ -143,17 +124,6 @@ COMMANDS
   database rules validate    Validate Realtime Database rules expressions.
   database rules simulate    Run the local Realtime Database rules simulator.
   database rules generate    Compile a constraints module to database.rules.json.
-  auth:configure-provider    Identity Toolkit: enable/disable an auth provider.
-  auth:manage-domains        Identity Toolkit: add/remove/list authorized domains.
-  firestore:discover         Crawl a Firestore to infer schema.
-  login [--ci]               Google sign-in for verify / auth / discover (loopback
-                             OAuth + PKCE). Stores a refresh token at
-                             ~/.pyric/credentials.json. --ci prints the token to
-                             stdout to set as PYRIC_REFRESH_TOKEN in CI. Requires
-                             PYRIC_OAUTH_CLIENT_ID + PYRIC_OAUTH_CLIENT_SECRET.
-  logout                     Clear the stored credential (~/.pyric/credentials.json).
-  whoami                     Print the signed-in account + the scopes Google granted.
-
 CORE FLAGS (dev)
   --port             Port to serve on. Default 3473 — "FIRE" on a phone keypad (scans forward when taken;
                      macOS AirPlay squats 5000).
@@ -207,35 +177,16 @@ CORE FLAGS (dev)
                      GET <url>/__pyric/init.json → 200 (live rules hash).
 
 CORE FLAGS (bridge)
-  --mode             'sandbox' (default) or 'prod'. Prod mode requires Firebase
-                     credentials (GOOGLE_APPLICATION_CREDENTIALS / PYRIC_SA_PATH)
-                     AND interactive terminal confirmation (or --non-interactive).
   --port             Port to bind on 127.0.0.1. Default 5174. Env: PYRIC_PORT.
-  --project          Project id surfaced in /health + audit log. Required for
-                     --mode prod (typically the Firebase project id).
+  --project          Project label surfaced in /health + audit output.
                      Env: PYRIC_PROJECT.
 
-PROD-MODE CONFIRMATION FLAGS
-  --auto-approve LIST    Comma-separated tool names that skip confirmation.
-  --require-confirm LIST Comma-separated tool names forced to always prompt.
-  --require-confirm-all  Force every tool, including reads, to prompt.
-  --confirm-timeout MS   Per-prompt timeout. Default 45000.
-  --non-interactive      Run prod mode without a TTY (CI etc.).
-
 CREDENTIALS
-  pyric login uses an OAuth "Desktop app" client (loopback + PKCE) and stores a
-  refresh token at ~/.pyric/credentials.json. Configure the client with:
-    PYRIC_OAUTH_CLIENT_ID            Google "Desktop app" OAuth client id (required)
-    PYRIC_OAUTH_CLIENT_SECRET        its client secret (required — Google's token
-                                     exchange needs it even with PKCE)
-
-  verify / auth / discover resolve a credential in this precedence order:
+  Rules Test API verification resolves existing Google credentials:
     1. FIREBASE_SA_BASE64            base64-encoded service-account JSON (CI)
     2. GOOGLE_APPLICATION_CREDENTIALS  path to a service-account JSON file
-    3. PYRIC_REFRESH_TOKEN           CI refresh token from \`pyric login --ci\`
-    4. ~/.pyric/credentials.json     the \`pyric login\` user (granted scopes only)
-    5. ADC                           \`gcloud auth application-default login\` (ambient)
-  PYRIC_PROJECT / --project          project id for user/ADC creds (else .firebaserc default)
+    3. ADC                           \`gcloud auth application-default login\` (ambient)
+  PYRIC_PROJECT / --project          Firebase project id for Rules Test API verification
 `);
 }
 
@@ -246,22 +197,20 @@ function printVersion(): void {
   );
 }
 
-function splitCommaList(value: string | boolean | Array<string | boolean> | undefined): string[] {
-  const values = Array.isArray(value) ? value : [value];
-  return values
-    .filter((v): v is string => typeof v === 'string')
-    .flatMap((v) => v.split(','))
-    .map((v) => v.trim())
-    .filter((v) => v.length > 0);
-}
-
 async function runBridge(parsed: ParsedArgs): Promise<number> {
-  const flagMode = parsed.flags.get('mode');
-  const mode: BridgeMode =
-    (typeof flagMode === 'string' ? flagMode : process.env.PYRIC_MODE ?? 'sandbox') as BridgeMode;
-  if (mode !== 'sandbox' && mode !== 'prod') {
-    process.stderr.write(`pyric: invalid --mode '${mode}'. Must be 'sandbox' or 'prod'.\n`);
-    return 1;
+  const removedFlags = [
+    'mode',
+    'auto-approve',
+    'require-confirm',
+    'require-confirm-all',
+    'confirm-timeout',
+    'non-interactive',
+  ];
+  for (const flag of removedFlags) {
+    if (parsed.flags.has(flag)) {
+      process.stderr.write(`pyric: unknown option '--${flag}' for pyric bridge.\n`);
+      return 1;
+    }
   }
 
   const flagPort = parsed.flags.get('port');
@@ -280,56 +229,12 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
   const project =
     typeof flagProject === 'string' ? flagProject : process.env.PYRIC_PROJECT ?? undefined;
 
-  if (mode === 'prod' && !project) {
-    process.stderr.write(
-      'pyric: --mode prod requires --project <id> (or PYRIC_PROJECT env var).\n',
-    );
-    return 1;
-  }
-
-  if (mode === 'prod') {
-    // The CLI doesn't yet wire prodTools (that needs ADC discovery +
-    // composeMcpRegistry composition). Without prodTools registered,
-    // a CLI-started prod bridge would expose zero tools to MCP
-    // clients — confusing UX. Bail with a clear pointer to the
-    // programmatic startServer({ prodTools }) path until v1.1
-    // wires this end-to-end.
-    process.stderr.write(
-      'pyric: prod-mode CLI is a v1.1 follow-up — currently requires the caller to wire\n' +
-        '       composeMcpRegistry tools via the programmatic startServer({ prodTools })\n' +
-        '       API. Use sandbox mode for now, or call startServer directly from a script.\n',
-    );
-    return 2;
-  }
-
-  const autoApproveTools = splitCommaList(parsed.flags.get('auto-approve'));
-  const requireConfirmTools = splitCommaList(parsed.flags.get('require-confirm'));
-  const requireConfirmAll = parsed.flags.get('require-confirm-all') === true;
-  const flagTimeout = parsed.flags.get('confirm-timeout');
-  const confirmTimeoutMs =
-    typeof flagTimeout === 'string' ? Number(flagTimeout) : undefined;
-  if (
-    confirmTimeoutMs !== undefined &&
-    (!Number.isFinite(confirmTimeoutMs) || confirmTimeoutMs < 1000)
-  ) {
-    process.stderr.write(
-      `pyric: invalid --confirm-timeout '${flagTimeout}'. Must be a number >= 1000 ms.\n`,
-    );
-    return 1;
-  }
-  const nonInteractive = parsed.flags.get('non-interactive') === true;
-
   let handle;
   try {
     handle = await startServer({
-      mode,
+      mode: 'sandbox',
       port,
       project,
-      autoApproveTools,
-      requireConfirmTools,
-      requireConfirmAll,
-      confirmTimeoutMs,
-      nonInteractive,
     });
   } catch (err) {
     process.stderr.write(
@@ -337,29 +242,6 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
     );
     return 2;
   }
-
-  // Curated user-facing banner on stdout (lifecycle lines already on stderr).
-  // Prod-mode banner branches stay here as dead code today — they'll wake up
-  // when CLI prod-mode wiring lands in v1.1. The early `return 2` above
-  // currently makes them unreachable; the cast satisfies the narrower.
-  const reportedMode = handle.bridge.mode as BridgeMode;
-  const prodNotes =
-    reportedMode === 'prod'
-      ? nonInteractive
-        ? `\nPROD MODE (non-interactive):\n` +
-          `  Auto-approved tools: ${autoApproveTools.join(', ') || '(none — every call will deny silently)'}\n` +
-          `  Everything else denies without prompting.\n`
-        : `\n⚠  PROD MODE — confirmation prompts appear in THIS terminal\n` +
-          `  Reads auto-approved; writes / deletes / deploys require approval per call.\n` +
-          `  Timeout: ${confirmTimeoutMs ?? 45000}ms → defaults to DENY.\n` +
-          (autoApproveTools.length > 0
-            ? `  Auto-approved (override): ${autoApproveTools.join(', ')}\n`
-            : '') +
-          (requireConfirmTools.length > 0
-            ? `  Force-prompt (override): ${requireConfirmTools.join(', ')}\n`
-            : '') +
-          (requireConfirmAll ? `  ⚠  Paranoid mode: every tool prompts, even reads.\n` : '')
-      : '';
 
   // Graceful shutdown. Idempotent because:
   //   1. npx forwards SIGINT to its child AND the terminal sends SIGINT
@@ -406,7 +288,6 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
       `  mcp:     ${handle.url}/mcp\n` +
       `  sandbox: ${handle.url.replace('http://', 'ws://')}/sandbox\n` +
       (handle.auditLogPath ? `  audit:   ${handle.auditLogPath}\n` : '') +
-      prodNotes +
       `\nRegister with Claude Code:\n` +
       `  claude mcp add --transport http pyric ${handle.url}/mcp --scope project\n` +
       `\nBridge will log peer connect/disconnect to stderr. Set PYRIC_VERBOSE=1 for per-tool-call logs.\n` +
@@ -455,18 +336,6 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       return await runInit(parsed);
     case 'vendor':
       return await runVendor(parsed);
-    case 'login':
-      return await runLoginCommand({ ci: parsed.flags.get('ci') === true });
-    case 'logout':
-      return await runLogoutCommand();
-    case 'whoami':
-      return await runWhoamiCommand();
-    case 'auth:configure-provider':
-      return await runAuthConfigureProvider(parsed);
-    case 'auth:manage-domains':
-      return await runAuthManageDomains(parsed);
-    case 'firestore:discover':
-      return await runFirestoreDiscover(parsed);
     default:
       process.stderr.write(`pyric: unknown command '${parsed.subcommand}'.\n\n`);
       printUsage();

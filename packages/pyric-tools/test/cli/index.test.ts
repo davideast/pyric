@@ -47,6 +47,40 @@ describe('retained pyric command surface', () => {
     }
   });
 
+  it('does not expose production project or credential commands', () => {
+    const help = runCli(['--help']);
+    expect(help.code).toBe(0);
+
+    for (const command of [
+      'login',
+      'logout',
+      'whoami',
+      'auth:configure-provider',
+      'auth:manage-domains',
+      'firestore:discover',
+    ]) {
+      expect(help.stdout).not.toMatch(new RegExp(`^\\s+(?:pyric )?${command}\\b`, 'm'));
+      const removed = runCli([command]);
+      expect(removed.code).toBe(1);
+      expect(removed.stderr).toContain(`unknown command '${command}'`);
+    }
+  });
+
+  it('rejects the removed production bridge controls instead of ignoring them', () => {
+    for (const [flag, value] of [
+      ['--mode', 'prod'],
+      ['--auto-approve', 'firestore.list_collections'],
+      ['--require-confirm', 'firestore.delete_document'],
+      ['--require-confirm-all'],
+      ['--confirm-timeout', '5000'],
+      ['--non-interactive'],
+    ] as const) {
+      const result = runCli(['bridge', flag, ...(value === undefined ? [] : [value])]);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain(`unknown option '${flag}' for pyric bridge`);
+    }
+  });
+
   it('does not publish a programmatic deployment entry point', () => {
     const manifest = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as {
       exports: Record<string, unknown>;
