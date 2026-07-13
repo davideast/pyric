@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { validateExpression } from '../../../src/database/grammar/validator.js';
+import { validateExpression } from '../../../../src/rules/rtdb/grammar/validator.js';
 
 describe('validateExpression', () => {
   test('no errors for valid read expression', () => {

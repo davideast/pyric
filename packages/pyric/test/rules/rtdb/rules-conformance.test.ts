@@ -34,18 +34,18 @@
 import { describe, it, expect } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { RtdbMapper } from '../../src/database/mapper.js';
+import { RtdbMapper } from '../../../src/rules/rtdb/mapper.js';
 import {
   ALL_RULES_RTDB_SCENARIOS,
   RULES_RTDB_OBSERVATION_PREFIX,
   rtdbObservationName,
   type RtdbScenario,
-} from '../../../../packages/conformance/rules-corpus/rtdb/index.ts';
-import { replayRtdbScenario } from '../../../../packages/conformance/src/rules-rtdb-replay.ts';
+} from '../../../../../packages/conformance/rules-corpus/rtdb/index.ts';
+import { replayRtdbScenario } from '../../../../../packages/conformance/src/rules-rtdb-replay.ts';
 
 // rules-rtdb-* observations live under the 'rtdb-rules' surface subdirectory
 // (surfaces/rtdb-rules.ts owns the prefix), NOT the SDK-plane 'rtdb' one.
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb-rules');
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb-rules');
 
 const DATABASE_URL = 'https://pyric-oracle.firebaseio.com';
 

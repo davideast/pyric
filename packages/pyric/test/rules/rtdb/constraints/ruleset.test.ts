@@ -1,10 +1,10 @@
 import { describe, test, expect } from 'bun:test';
 import { z } from 'zod';
-import { ruleset } from '../../../src/database/constraints/ruleset.js';
-import { all, any, deny, always, expr } from '../../../src/database/constraints/compose.js';
-import { authenticated, ownPath, ownField, isNew } from '../../../src/database/constraints/atoms.js';
-import { ownerOrNew, pathOwnerOnly, hasRole, required } from '../../../src/database/constraints/policies.js';
-import type { RtdbNode } from '../../../src/database/types.js';
+import { ruleset } from '../../../../src/rules/rtdb/constraints/ruleset.js';
+import { all, any, deny, always, expr } from '../../../../src/rules/rtdb/constraints/compose.js';
+import { authenticated, ownPath, ownField, isNew } from '../../../../src/rules/rtdb/constraints/atoms.js';
+import { ownerOrNew, pathOwnerOnly, hasRole, required } from '../../../../src/rules/rtdb/constraints/policies.js';
+import type { RtdbNode } from '../../../../src/rules/rtdb/types.js';
 
 const URL = 'https://test-db.firebaseio.com';
 

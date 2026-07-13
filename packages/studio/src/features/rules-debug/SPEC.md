@@ -152,7 +152,7 @@ never as an empty object.
 
 ### RTDB
 
-`SimulateHandler.execute` (`packages/pyric/src/database/simulation/handler.ts`)
+`SimulateHandler.execute` (`packages/pyric/src/rules/rtdb/simulation/handler.ts`)
 walks the rule tree via `collectAncestors()` with first-true-wins cascade for
 `.read`/`.write`, and for a write ALSO walks `.validate` at and below the
 write location (`findFailingValidate()` — it knows WHICH rule node failed).

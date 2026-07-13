@@ -6,7 +6,7 @@
  * aggregate — `ALL_RULES_RTDB_SCENARIOS` is computed from the loaded directory.
  * Adding a scenario is adding a file. Consumers:
  *   - packages/conformance/src/run-rules-rtdb.ts                     (capture runner: deploy→observe→restore)
- *   - packages/pyric/test/database/rules-conformance.test.ts         (in-process replay vs frozen prod verdicts)
+ *   - packages/pyric/test/rules/rtdb/rules-conformance.test.ts      (in-process replay vs frozen prod verdicts)
  *
  * The observation filename for a scenario is `rules-rtdb-<scenario.id>.json` (see
  * `rtdbObservationName`). Keep scenario ids stable — they are the join key between

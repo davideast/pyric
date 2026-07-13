@@ -20,9 +20,9 @@
  * is `{ ".read": "auth != null", ".write": "auth != null" }`; an
  * unconfigured DB allows everything until rules deploy).
  */
-import { RtdbMapper } from '../mapper.js';
-import { SimulateHandler } from '../simulation/handler.js';
-import type { RtdbIR } from '../types.js';
+import { RtdbMapper } from '../../rules/rtdb/mapper.js';
+import { SimulateHandler } from '../../rules/rtdb/simulation/handler.js';
+import type { RtdbIR } from '../../rules/rtdb/types.js';
 import type { AuthState } from 'pyric/sandbox';
 
 /**

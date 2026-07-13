@@ -57,7 +57,7 @@ import type {
   MatchBlock,
 } from '../../../packages/pyric/src/rules/grammar/FirestoreAST.ts';
 import { parseStorageRules } from '../../../packages/pyric/src/storage/rules.ts';
-import { grammar as rtdbGrammar } from '../../../packages/pyric/src/database/grammar/RtdbExprParser.ts';
+import { grammar as rtdbGrammar } from '../../../packages/pyric/src/rules/rtdb/grammar/RtdbExprParser.ts';
 import { loadSnapshot, type RulesEngine } from '../rules-language/load.ts';
 import { surfaceRegistries } from '../registry/index.ts';
 import {
@@ -628,7 +628,7 @@ let _rtdbSemantics: ohm.Semantics | null = null;
 /** A semantics operation over the EXISTING RTDB grammar that collects the
  *  construct ids an expression exercises. Reuses the parser's grammar (no new
  *  parsing); mirrors how `identifiers`/`validate` semantics are defined on the
- *  same grammar in database/grammar/. */
+ *  same grammar in rules/rtdb/grammar/. */
 function rtdbSemantics(): ohm.Semantics {
   if (_rtdbSemantics) return _rtdbSemantics;
   const sem = rtdbGrammar.createSemantics();

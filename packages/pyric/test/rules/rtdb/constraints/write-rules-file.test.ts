@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { allow, defineRtdbRules, deny } from '../../../src/database/constraints/index.js';
-import { writeRtdbRulesFile } from '../../../src/database/constraints/write-rules-file.js';
+import { allow, defineRtdbRules, deny } from '../../../../src/rules/rtdb/constraints/index.js';
+import { writeRtdbRulesFile } from '../../../../src/rules/rtdb/constraints/write-rules-file.js';
 
 describe('writeRtdbRulesFile', () => {
   let dir: string | undefined;

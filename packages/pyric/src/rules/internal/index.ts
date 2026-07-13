@@ -232,7 +232,7 @@ export * from '../generators/expressions.js';
 // write/host chain statically pulls a Node HTTP client, which cannot ship
 // to the browser. This browser-safe seam therefore excludes it. The public
 // front door re-exports the (browser-safe) RTDB constraints DSL directly
-// from `../../database/constraints`; node consumers that need the engine
+// from `../rtdb/constraints`; node consumers that need the engine
 // import from `pyric/rules/internal/rtdb`.
 //
 // The expression PARSER is the exception, and it belongs here rather than on
@@ -242,5 +242,5 @@ export * from '../generators/expressions.js';
 // parse — and `rtdbRules(compiledJson).lint()` cannot tell it, because a
 // compiled document carries no IR to lint. Routing that one question through
 // `./rtdb` would drag the Node HTTP chain into the browser bundle.
-export { parseExpression as parseRtdbExpression } from '../../database/grammar/RtdbExprParser.js';
-export type { ParsedExpression as ParsedRtdbExpression } from '../../database/types.js';
+export { parseExpression as parseRtdbExpression } from '../rtdb/grammar/RtdbExprParser.js';
+export type { ParsedExpression as ParsedRtdbExpression } from '../rtdb/types.js';

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { RtdbMapper, buildRuleExpression } from '../../src/database/mapper.js';
+import { RtdbMapper, buildRuleExpression } from '../../../src/rules/rtdb/mapper.js';
 
 const DB_URL = 'https://test-default-rtdb.firebaseio.com';
 

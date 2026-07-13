@@ -14,7 +14,7 @@
 import type { ParseError } from '../grammar/FirestoreParser.js';
 import type { LintWarning } from '../linter/linter.js';
 import type { ValidationFinding } from '../grammar/FirestoreValidator.js';
-import type { RtdbRulesFinding } from '../../database/constraints/document.js';
+import type { RtdbRulesFinding } from '../rtdb/constraints/document.js';
 
 /** Ordered by decreasing urgency. `info` is advisory. */
 export type RuleIssueSeverity = 'error' | 'warning' | 'info';

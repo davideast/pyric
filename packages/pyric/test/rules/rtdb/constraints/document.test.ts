@@ -12,8 +12,8 @@ import {
   newDataVal,
   pathOwnerOnly,
   ruleset,
-} from '../../../src/database/constraints/index.js';
-import type { RtdbNode } from '../../../src/database/types.js';
+} from '../../../../src/rules/rtdb/constraints/index.js';
+import type { RtdbNode } from '../../../../src/rules/rtdb/types.js';
 
 const LOCAL_URL = 'https://local-rtdb.firebaseio.com';
 const EXPLICIT_URL = 'https://demo-default-rtdb.firebaseio.com';

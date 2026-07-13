@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
-import { DataSnapshot, evaluateExpression } from '../../../src/database/grammar/simulator.js';
-import { grammar } from '../../../src/database/grammar/RtdbExprParser.js';
+import { DataSnapshot, evaluateExpression } from '../../../../src/rules/rtdb/grammar/simulator.js';
+import { grammar } from '../../../../src/rules/rtdb/grammar/RtdbExprParser.js';
 
 function evalExpr(raw: string, ctx: Parameters<typeof evaluateExpression>[1]) {
   const match = grammar.match(raw.trim());

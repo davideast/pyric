@@ -343,7 +343,7 @@ describe('oracle conformance (rtdb)', () => {
     // (same rule engine the audit exercised): a `.validate`-requiring rule
     // now DENIES the structurally-invalid write, matching prod's recorded
     // `prodAllowed: false` (`.validate` walk in
-    // src/database/simulation/handler.ts, reached from all backend write
+    // src/rules/rtdb/simulation/handler.ts, reached from all backend write
     // sites).
     const { sandbox, db } = setup();
     rtdbSandbox.setRules(db, {

@@ -16,7 +16,7 @@
  * the agreement probe deployed it; the subtree mounts under the scenario id (the
  * mount key doubles as the observation stem, `rules-rtdb-<id>.json`). Both
  * consumers — the capture runner (src/run-rules-rtdb.ts) and the in-process
- * replay suite (packages/pyric/test/database/rules-conformance.test.ts) — mount
+ * replay suite (packages/pyric/test/rules/rtdb/rules-conformance.test.ts) — mount
  * the subtree under the scenario id and run the same ops, so a scenario hands off to
  * either the live database or the in-process `SimulateHandler` without
  * translation.

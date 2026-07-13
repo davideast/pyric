@@ -1,6 +1,6 @@
-import { RtdbMapper } from '../../pyric/src/database/mapper.ts';
-import { SimulateHandler } from '../../pyric/src/database/simulation/handler.ts';
-import type { SimulationInput } from '../../pyric/src/database/simulation/spec.ts';
+import { RtdbMapper } from '../../pyric/src/rules/rtdb/mapper.ts';
+import { SimulateHandler } from '../../pyric/src/rules/rtdb/simulation/handler.ts';
+import type { SimulationInput } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
 import type { RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
 
 const REPLAY_UID = 'THP041EPnYbzh9c8GGBniSDoUKc2';

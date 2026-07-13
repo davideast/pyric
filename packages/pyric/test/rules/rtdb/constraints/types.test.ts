@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
-import type { Expr } from '../../../src/database/constraints/types.js';
-import { expr } from '../../../src/database/constraints/compose.js';
+import type { Expr } from '../../../../src/rules/rtdb/constraints/types.js';
+import { expr } from '../../../../src/rules/rtdb/constraints/compose.js';
 
 describe('Expr branded type', () => {
   test('expr() returns a string', () => {

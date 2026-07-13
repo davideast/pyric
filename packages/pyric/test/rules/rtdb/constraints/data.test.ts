@@ -3,7 +3,7 @@ import {
   dataVal, newDataVal, dataExists, newDataExists,
   newDataIs, dataParentVal, newDataParentVal, newDataParentExists,
   eq, neq, gt, lte, AUTH_UID,
-} from '../../../src/database/constraints/data.js';
+} from '../../../../src/rules/rtdb/constraints/data.js';
 
 describe('Data template helpers', () => {
   // --- Value access ---

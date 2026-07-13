@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
-import { SimulateHandler } from '../../../src/database/simulation/handler.js';
-import type { RtdbIR, RtdbNode } from '../../../src/database/types.js';
+import { SimulateHandler } from '../../../../src/rules/rtdb/simulation/handler.js';
+import type { RtdbIR, RtdbNode } from '../../../../src/rules/rtdb/types.js';
 
 function makeIR(readRule: string): RtdbIR {
   const rootNode: RtdbNode = {

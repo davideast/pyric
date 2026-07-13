@@ -11,7 +11,7 @@
  * step before simulation. `toJSON` always returns compiled `rules.json`.
  */
 
-import { defineRtdbRules } from '../../database/constraints/document.js';
+import { defineRtdbRules } from '../rtdb/constraints/document.js';
 import type {
   RtdbRulesDefinition,
   RtdbRulesDocument,
@@ -19,10 +19,10 @@ import type {
   RtdbRulesJson,
   RtdbRulesSimulationAuth,
   RtdbRulesSimulationInput,
-} from '../../database/constraints/document.js';
-import { RtdbMapper } from '../../database/mapper.js';
-import { SimulateHandler } from '../../database/simulation/handler.js';
-import type { SimulationInput, SimulateResult } from '../../database/simulation/spec.js';
+} from '../rtdb/constraints/document.js';
+import { RtdbMapper } from '../rtdb/mapper.js';
+import { SimulateHandler } from '../rtdb/simulation/handler.js';
+import type { SimulationInput, SimulateResult } from '../rtdb/simulation/spec.js';
 import type { RuleIssue } from './issue.js';
 import { rtdbFindingToIssue } from './issue.js';
 import type {

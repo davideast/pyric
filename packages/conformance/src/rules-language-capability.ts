@@ -31,9 +31,9 @@ import {
   evaluateStorageRules,
   type EvaluationInput,
 } from '../../../packages/pyric/src/storage/rules.ts';
-import { RtdbMapper } from '../../../packages/pyric/src/database/mapper.ts';
-import { SimulateHandler } from '../../../packages/pyric/src/database/simulation/handler.ts';
-import type { SimulationInput } from '../../../packages/pyric/src/database/simulation/spec.ts';
+import { RtdbMapper } from '../../../packages/pyric/src/rules/rtdb/mapper.ts';
+import { SimulateHandler } from '../../../packages/pyric/src/rules/rtdb/simulation/handler.ts';
+import type { SimulationInput } from '../../../packages/pyric/src/rules/rtdb/simulation/spec.ts';
 import { loadSnapshot, type LanguageConstruct, type RulesEngine } from '../rules-language/load.ts';
 
 export type Classification = 'implemented' | 'unsupported' | 'error' | 'unprobeable';

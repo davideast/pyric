@@ -41,4 +41,4 @@ export { createFirestoreRulesStdlibTools } from '../stdlib-tools.js';
 // `database.rules.json` file. Lives on /node because it touches disk;
 // the compilation itself stays in the isomorphic `pyric/rules/rtdb`
 // entry (RtdbMapper.mapToRulesJSON via RtdbRulesDocument#toJSON).
-export { writeRtdbRulesFile } from '../../database/constraints/write-rules-file.js';
+export { writeRtdbRulesFile } from '../rtdb/constraints/write-rules-file.js';

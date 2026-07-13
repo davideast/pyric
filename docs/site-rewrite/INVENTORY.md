@@ -77,7 +77,7 @@ Mirrors `firebase/auth` modular SDK.
 Two surfaces in one package.
 - Modular SDK (`database/modular.ts`): `getDatabase`, `ref`, `child`, `get`, `set`, `update`, `remove`, `push`, `onValue`, `onChildAdded/Changed/Removed/Moved`, `off`, `runTransaction`, `serverTimestamp`, `increment`; query builder `orderByChild/Key/Value`, `startAt`, `equalTo`, `limitToFirst/Last`.
 - Agent-tool + rules toolkit: `getRtdbTools`, factories for the 11 RTDB agent tools, IR generator, simulator, validated write, structure crawl.
-- Rules constraint DSL (`database/constraints`): `expr`, `all`, `any`, `not`, `deny`, `allow`, `turnGuard`, `schemaRules`, `defineRtdbRules`.
+- Rules constraint DSL (`rules/rtdb/constraints`): `expr`, `all`, `any`, `not`, `deny`, `allow`, `turnGuard`, `schemaRules`, `defineRtdbRules`.
 
 ### Storage (`pyric/storage`, experimental)
 Mirrors `firebase/storage` plus a control plane.

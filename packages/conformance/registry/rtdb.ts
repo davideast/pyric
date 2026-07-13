@@ -47,7 +47,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/simulation/handler.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"]
         },
         {
           "id": "rtdb#60",
@@ -65,7 +65,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/simulation/handler.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"]
         },
         {
           "id": "rtdb#61",
@@ -83,7 +83,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/simulation/handler.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"]
         },
         {
           "id": "rtdb#62",
@@ -101,7 +101,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/simulation/handler.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"]
         },
         {
           "id": "rtdb#63",
@@ -119,7 +119,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/grammar/simulator.test.ts", "packages/pyric/test/database/simulation/handler.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/grammar/simulator.test.ts", "packages/pyric/test/rules/rtdb/simulation/handler.test.ts"]
         },
         {
           "id": "rtdb#64",
@@ -137,7 +137,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/simulation/handler.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"]
         },
         {
           "id": "rtdb#65",
@@ -155,7 +155,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/grammar/simulator.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/grammar/simulator.test.ts"]
         },
         {
           "id": "rtdb#66",
@@ -191,7 +191,7 @@ export const rtdbRegistry = {
           "riskReasons": ["asserts a specific field/property value"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/simulation/handler.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"]
         },
         {
           "id": "rtdb#68",
@@ -209,7 +209,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/simulation/handler.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"]
         },
         {
           "id": "rtdb#69",
@@ -227,7 +227,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/simulation/handler.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"]
         },
         {
           "id": "rtdb#70",
@@ -245,7 +245,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/simulation/handler.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts"]
         },
         {
           "id": "rtdb#71",
@@ -257,7 +257,7 @@ export const rtdbRegistry = {
           "api": "SimulateHandler.execute(ir, input)",
           "behavior": "Simulator's allow/deny decision matches the real RTDB rules engine for the same `{ rules, mockData, auth, operation, path, newData }` tuple, modulo the documented cross-path divergence on row #66",
           "status": "conforms",
-          "evidence": "oracle: `packages/conformance/observations/rtdb/rtdb-simulator-vs-prod-agreement.json` — 8 test rules × 29 (rule, op) tuples; 28 agreements, 1 disagreement at capture time (`r4-validate-structure`: the simulator did not evaluate `.validate` on writes). The `.validate` walk is now implemented (`src/database/simulation/handler.ts`, reached from all backend write sites; grammar array-literals + `hasChildren(keys)` fixed alongside), closing the recorded disagreement — replayed as prod-conforming denial in `oracle-conformance.test.ts`. The frozen capture documents the historical divergence",
+          "evidence": "oracle: `packages/conformance/observations/rtdb/rtdb-simulator-vs-prod-agreement.json` — 8 test rules × 29 (rule, op) tuples; 28 agreements, 1 disagreement at capture time (`r4-validate-structure`: the simulator did not evaluate `.validate` on writes). The `.validate` walk is now implemented (`src/rules/rtdb/simulation/handler.ts`, reached from all backend write sites; grammar array-literals + `hasChildren(keys)` fixed alongside), closing the recorded disagreement — replayed as prod-conforming denial in `oracle-conformance.test.ts`. The frozen capture documents the historical divergence",
           "risk": ["specific-field"],
           "riskScore": 1,
           "riskReasons": ["asserts a specific field/property value"],
@@ -287,7 +287,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/mapper.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/mapper.test.ts"]
         },
         {
           "id": "rtdb#80",
@@ -305,7 +305,7 @@ export const rtdbRegistry = {
           "riskReasons": ["asserts a specific field/property value"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/mapper.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/mapper.test.ts"]
         },
         {
           "id": "rtdb#81",
@@ -323,7 +323,7 @@ export const rtdbRegistry = {
           "riskReasons": ["asserts a specific field/property value"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/mapper.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/mapper.test.ts"]
         },
         {
           "id": "rtdb#82",
@@ -341,7 +341,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/grammar/linter.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/grammar/linter.test.ts"]
         },
         {
           "id": "rtdb#83",
@@ -359,7 +359,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/grammar/RtdbExprParser.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/grammar/RtdbExprParser.test.ts"]
         },
       ],
     },
@@ -383,7 +383,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/constraints/atoms.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/constraints/atoms.test.ts"]
         },
         {
           "id": "rtdb#85",
@@ -401,7 +401,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/constraints/policies.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/constraints/policies.test.ts"]
         },
         {
           "id": "rtdb#86",
@@ -419,7 +419,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/constraints/compose.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/constraints/compose.test.ts"]
         },
         {
           "id": "rtdb#87",
@@ -437,7 +437,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/constraints/ruleset.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/constraints/ruleset.test.ts"]
         },
         {
           "id": "rtdb#88",
@@ -455,7 +455,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/constraints/game.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/constraints/game.test.ts"]
         },
       ],
     },
@@ -479,7 +479,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/mapper.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/mapper.test.ts"]
         },
         {
           "id": "rtdb#90",
@@ -497,7 +497,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/mapper.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/mapper.test.ts"]
         },
         {
           "id": "rtdb#91",
@@ -515,7 +515,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/mapper.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/mapper.test.ts"]
         },
         {
           "id": "rtdb#92",
@@ -533,7 +533,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/mapper.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/mapper.test.ts"]
         },
         {
           "id": "rtdb#93",
@@ -551,7 +551,7 @@ export const rtdbRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/database/mapper.test.ts"]
+          "conformanceTests": ["packages/pyric/test/rules/rtdb/mapper.test.ts"]
         },
       ],
     },

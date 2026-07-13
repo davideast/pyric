@@ -1,11 +1,11 @@
 import { describe, test, expect } from 'bun:test';
-import { ATOM_SPECS } from '../../../src/database/constraints/atoms.spec.js';
+import { ATOM_SPECS } from '../../../../src/rules/rtdb/constraints/atoms.spec.js';
 import {
   authenticated, ownPath, ownField, isNew,
   hasChildren, hasChild, fieldIsString, fieldIsNumber, fieldIsBoolean, fieldEnum,
   immutable, immutableSelf,
   rootExists, rootEquals,
-} from '../../../src/database/constraints/atoms.js';
+} from '../../../../src/rules/rtdb/constraints/atoms.js';
 
 describe('Constraint Atoms', () => {
   test('authenticated()', () => {

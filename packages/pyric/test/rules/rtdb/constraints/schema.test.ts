@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { z } from 'zod';
-import { schemaRules } from '../../../src/database/constraints/schema.js';
-import { expr } from '../../../src/database/constraints/compose.js';
+import { schemaRules } from '../../../../src/rules/rtdb/constraints/schema.js';
+import { expr } from '../../../../src/rules/rtdb/constraints/compose.js';
 
 describe('schemaRules', () => {
   test('z.string() → isString', () => {

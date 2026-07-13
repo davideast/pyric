@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { SimulationInputSchema } from '../../../src/database/simulation/spec.js';
+import { SimulationInputSchema } from '../../../../src/rules/rtdb/simulation/spec.js';
 
 const BASE = {
   operation: 'read' as const,

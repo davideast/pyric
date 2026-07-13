@@ -1,9 +1,9 @@
 import { describe, test, expect } from 'bun:test';
-import { POLICY_SPECS } from '../../../src/database/constraints/policies.spec.js';
+import { POLICY_SPECS } from '../../../../src/rules/rtdb/constraints/policies.spec.js';
 import {
   pathOwnerOnly, fieldOwnerOnly, ownerOrNew,
   hasRole, isMember, required, transition,
-} from '../../../src/database/constraints/policies.js';
+} from '../../../../src/rules/rtdb/constraints/policies.js';
 
 describe('Policies', () => {
   test('pathOwnerOnly($uid)', () => {

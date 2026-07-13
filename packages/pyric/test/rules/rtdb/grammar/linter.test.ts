@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { lintExpression } from '../../../src/database/grammar/linter.js';
+import { lintExpression } from '../../../../src/rules/rtdb/grammar/linter.js';
 
 describe('lintExpression', () => {
   test('no warnings for strict equality', () => {

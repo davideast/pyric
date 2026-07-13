@@ -1,10 +1,10 @@
-import { RtdbMapper } from '../../database/mapper.js';
-import { SimulateHandler } from '../../database/simulation/handler.js';
+import { RtdbMapper } from './mapper.js';
+import { SimulateHandler } from './simulation/handler.js';
 import type {
   SimulationInput,
   SimulateResult,
-} from '../../database/simulation/spec.js';
-import type { RtdbIR, RtdbNode } from '../../database/types.js';
+} from './simulation/spec.js';
+import type { RtdbIR, RtdbNode } from './types.js';
 
 const LEGACY_INTERNAL_DATABASE_URL = 'https://local-rtdb.firebaseio.com';
 

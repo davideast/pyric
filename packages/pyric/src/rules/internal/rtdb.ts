@@ -14,7 +14,7 @@ export type {
 export {
   buildRuleExpression,
   RtdbMapper,
-} from '../../database/mapper.js';
+} from '../rtdb/mapper.js';
 export {
   compileRtdbRules,
   serializeRtdbRules,
@@ -22,21 +22,21 @@ export {
 } from '../rtdb/compiled-rules.js';
 export type { CompiledRtdbRules } from '../rtdb/compiled-rules.js';
 
-export { parseExpression } from '../../database/grammar/RtdbExprParser.js';
-export { validateExpression } from '../../database/grammar/validator.js';
-export { lintExpression } from '../../database/grammar/linter.js';
+export { parseExpression } from '../rtdb/grammar/RtdbExprParser.js';
+export { validateExpression } from '../rtdb/grammar/validator.js';
+export { lintExpression } from '../rtdb/grammar/linter.js';
 
 export {
   SimulationInputSchema,
   SimulateErrorCode,
   SimulationResultSchema,
-} from '../../database/simulation/spec.js';
+} from '../rtdb/simulation/spec.js';
 export type {
   SimulationInput,
   SimulationResult,
   SimulateResult,
-} from '../../database/simulation/spec.js';
-export { SimulateHandler } from '../../database/simulation/handler.js';
+} from '../rtdb/simulation/spec.js';
+export { SimulateHandler } from '../rtdb/simulation/handler.js';
 
 export type {
   ParsedExpression,
@@ -46,7 +46,7 @@ export type {
   RtdbRuleExpression,
   RuleError,
   RuleLint,
-} from '../../database/types.js';
+} from '../rtdb/types.js';
 
 export {
   expr,
@@ -96,7 +96,7 @@ export {
   schemaRules,
   ruleset,
   defineRtdbRules,
-} from '../../database/constraints/index.js';
+} from '../rtdb/constraints/index.js';
 export type {
   Expr,
   PathDef,
@@ -111,4 +111,4 @@ export type {
   RulesetContext,
   SchemaRulesResult,
   Segment,
-} from '../../database/constraints/index.js';
+} from '../rtdb/constraints/index.js';

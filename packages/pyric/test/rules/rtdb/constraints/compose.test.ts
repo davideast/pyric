@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { all, any, not, expr, deny, always } from '../../../src/database/constraints/compose.js';
+import { all, any, not, expr, deny, always } from '../../../../src/rules/rtdb/constraints/compose.js';
 
 describe('compose', () => {
   describe('expr()', () => {

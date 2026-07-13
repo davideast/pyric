@@ -149,4 +149,3 @@ function findNode(root: RtdbNode, path: string): RtdbNode | null {
   }
   return null;
 }
-

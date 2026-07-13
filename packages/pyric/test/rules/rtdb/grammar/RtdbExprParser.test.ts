@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { parseExpression } from '../../../src/database/grammar/RtdbExprParser.js';
+import { parseExpression } from '../../../../src/rules/rtdb/grammar/RtdbExprParser.js';
 
 describe('parseExpression', () => {
   test('parses a simple auth check', () => {
