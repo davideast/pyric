@@ -13,8 +13,9 @@
 import { describe, expect, test } from 'bun:test';
 import * as client from '../../../src/serve/worker/client.js';
 
-/** The 120 value (runtime) exports of the worker client, sorted. Frozen. */
+/** The 125 value (runtime) exports of the worker client, sorted. Frozen. */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
+  'PRESENCE_HEARTBEAT_INTERVAL_MS', 'PRESENCE_STALE_MS',
   'acceptProviderCredential', 'addDoc', 'adminClearUsers', 'adminCreateUser',
   'adminDeleteDocument', 'adminDeleteRtdbValue', 'adminDeleteUser', 'adminGetDocument',
   'adminListDocuments', 'adminReadRtdbState', 'adminReadState', 'adminSetDocument',
@@ -33,6 +34,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'getStorage', 'getWorkerInstanceId', 'getWorkerVersion', 'importWorkerState',
   'increment', 'inMemoryPersistence', 'limit', 'limitToLast', 'listAll',
   'listRootCollections', 'listSubcollections', 'listUsers', 'listWorkerBranches',
+  'mintPresenceClientId',
   'onAuthStateChanged', 'onIdTokenChanged', 'onSnapshot', 'or', 'orderBy', 'query',
   'ref', 'relayWorkerOp', 'relayWorkerSub', 'restorePortSession', 'rtdbChild',
   'rtdbConnectDatabaseEmulator', 'rtdbGet', 'rtdbGetDatabase', 'rtdbOff', 'rtdbOnValue',
@@ -40,7 +42,8 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'runTransaction', 'saveWorkerBranch', 'serverTimestamp', 'setDatabaseRules', 'setDoc',
   'setFirestoreRules', 'setLens', 'setOpIssuer', 'setPersistence',
   'setProviderConfig', 'setRules', 'signInAnonymously', 'signInWithCredential',
-  'signInWithEmailAndPassword', 'signOut', 'startAfter', 'startAt', 'subscribeEvents',
+  'signInWithEmailAndPassword', 'signOut', 'startAfter', 'startAt', 'startPresence',
+  'subscribeEvents', 'subscribePresence',
   'sum', 'switchWorkerBranch', 'updateDoc', 'updateProfile', 'uploadBytes', 'where',
   'writeBatch',
 ];
