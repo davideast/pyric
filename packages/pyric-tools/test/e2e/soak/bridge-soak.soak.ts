@@ -509,27 +509,10 @@ for (;;) {
     }
   });
 
-  test('7. FINDING (expected fail): admin-lens Firestore listener is rules-evaluated as unauthenticated', async ({ browser }) => {
-    // Found by this suite on its first live run. The `actAs: { mode: 'admin' }`
-    // lens is documented (worker protocol, FirestoreSubMessage.actAs) to
-    // register a snapshot listener "through the rule-bypass handle", and the
-    // worker host resolves it via the same lensDb path ops use. Ops DO bypass
-    // rules (the admin setDoc below succeeds against `allow write: if
-    // request.auth != null`). But the LISTENER's rule evaluation
-    // (LocalEnvironment.silentReadDoc → addSnapshotListener's ListenerAuth)
-    // has no bypass: the admin handle registers with a null auth, the
-    // listener-init read simulates `get` as UNAUTHENTICATED, and the
-    // subscription dies with `permission-denied: get <path> denied by rules`.
-    //
-    // Reproduces headlessly in-process too (getAdminFirestore + onSnapshot
-    // under any auth-gated ruleset), so the fix's regression test can live in
-    // the unit suite. Until fixed, `pyric-admin`'s remote onSnapshot (admin
-    // plane) errors on every project whose rules require auth.
-    //
-    // test.fail(): this test PASSES only while the bug exists; when the
-    // listener bypass is fixed it will flip to "expected to fail but passed",
-    // flagging that this pin (and OBSERVER_LENS above) should be retired.
-    test.fail();
+  test('7. admin-lens Firestore listener bypasses rules', async ({ browser }) => {
+    // The worker pins `actAs: { mode: 'admin' }` on the subscription. The
+    // listener must preserve that bypass for its initial read and later
+    // re-evaluations, just as one-shot admin operations do.
     const serve = await startSoakServe();
     const context = await newInstrumentedContext(browser);
     let sb: RemoteSandbox | null = null;

@@ -47,6 +47,11 @@ import {
  */
 export const CONTEXT_SYMBOL: unique symbol = Symbol('pyric/sandbox/context');
 
+/** Hidden property carried by wrapped local admin handles and every ref/query
+ * they produce. Snapshot listeners read it back so the rules-bypass contract
+ * survives registration and every later listener re-evaluation. */
+export const BYPASS_RULES_SYMBOL: unique symbol = Symbol('pyric/sandbox/bypassRules');
+
 /**
  * Late-bound reference to the free `onSnapshot(ref, ...args)` function
  * from `index.ts`. Synthesized into wrapped refs as a `.onSnapshot(...)`
@@ -176,12 +181,14 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
 export function wrapWithErrorTranslation<T extends object>(
   target: T,
   ctx: SandboxContext,
+  bypassRules = false,
 ): T {
   return new Proxy(target, {
     get(t, prop, receiver) {
       // Hidden context recovery — must come before any other property
       // resolution. Symbol-keyed so it can't collide with real props.
       if (prop === CONTEXT_SYMBOL) return ctx;
+      if (prop === BYPASS_RULES_SYMBOL) return bypassRules;
 
       // Synthesize a chainable `.onSnapshot(...)` method on every
       // ref-shaped wrapped value. The underlying compat ref doesn't
@@ -219,11 +226,13 @@ export function wrapWithErrorTranslation<T extends object>(
         }
         if (result instanceof Promise) {
           return result
-            .then((v) => (v && typeof v === 'object' ? wrapWithErrorTranslation(v as object, ctx) : v))
+            .then((v) => (v && typeof v === 'object'
+              ? wrapWithErrorTranslation(v as object, ctx, bypassRules)
+              : v))
             .catch((e) => { throw toSandboxError(e, ctx); });
         }
         if (result && typeof result === 'object') {
-          return wrapWithErrorTranslation(result as object, ctx);
+          return wrapWithErrorTranslation(result as object, ctx, bypassRules);
         }
         return result;
       };

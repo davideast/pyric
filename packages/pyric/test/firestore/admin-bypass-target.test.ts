@@ -17,6 +17,7 @@ import {
   collection,
   getDoc,
   getDocs,
+  onSnapshot,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -88,6 +89,51 @@ describe('deny-vs-bypass: getDoc / getDocs', () => {
     const admin = getAdminFirestore(sandbox);
     const snap = await getDocs(collection(admin, 'items'));
     expect(snap.docs.map((d) => d.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('admin listeners read documents and collections despite deny-all rules', () => {
+    const sandbox = denyAllSandbox();
+    sandbox.admin.setDocument('items/a', { n: 1 });
+    sandbox.admin.setDocument('items/b', { n: 2 });
+    const admin = getAdminFirestore(sandbox);
+    const errors: unknown[] = [];
+    const documents: unknown[] = [];
+    const collections: string[][] = [];
+    const listenerRequests: Array<{ result: string; detail?: { admin?: boolean } }> = [];
+    sandbox.onEvent((event) => {
+      if (event.kind === 'request' && event.origin === 'listener') {
+        listenerRequests.push(event);
+      }
+    });
+
+    const unsubscribeDocument = onSnapshot(doc(admin, 'items/a'), {
+      next: (snapshot) => documents.push(snapshot.data()),
+      error: (error) => errors.push(error),
+    });
+    const unsubscribeCollection = onSnapshot(collection(admin, 'items'), {
+      next: (snapshot) => collections.push(snapshot.docs.map((item) => item.id).sort()),
+      error: (error) => errors.push(error),
+    });
+
+    getInternalEnv(sandbox).flushListeners();
+
+    expect(errors).toEqual([]);
+    expect(documents).toEqual([{ n: 1 }]);
+    expect(collections).toEqual([['a', 'b']]);
+
+    sandbox.admin.setDocument('items/a', { n: 3 });
+    sandbox.admin.setDocument('items/c', { n: 4 });
+    getInternalEnv(sandbox).flushListeners();
+
+    expect(errors).toEqual([]);
+    expect(documents.at(-1)).toEqual({ n: 3 });
+    expect(collections.at(-1)).toEqual(['a', 'b', 'c']);
+    expect(listenerRequests.length).toBeGreaterThanOrEqual(4);
+    expect(listenerRequests.every(
+      (request) => request.result === 'allow' && request.detail?.admin === true,
+    )).toBe(true);
+    unsubscribeDocument();
+    unsubscribeCollection();
   });
 });
 

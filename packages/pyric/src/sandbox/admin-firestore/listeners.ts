@@ -34,7 +34,11 @@ import type {
   SnapshotListenerOptions,
 } from 'pyric/sandbox/admin-compat';
 import { getInternalEnv } from 'pyric/sandbox/internal';
-import { CONTEXT_SYMBOL, registerOnSnapshotImpl } from './error-translation.js';
+import {
+  BYPASS_RULES_SYMBOL,
+  CONTEXT_SYMBOL,
+  registerOnSnapshotImpl,
+} from './error-translation.js';
 import { getRemoteSnapshotRegistrar, registerRemoteOnSnapshotImpl } from './remote/listeners.js';
 import type { SnapshotObserver, Unsubscribe } from './types.js';
 
@@ -306,6 +310,8 @@ export function onSnapshot(
   // (the safe default for any direct chainable-adapter caller).
   const followsCurrentUser =
     (options as { [FOLLOWS_CURRENT_USER]?: boolean })[FOLLOWS_CURRENT_USER] === true;
+  const bypassRules =
+    (reference as { [BYPASS_RULES_SYMBOL]?: boolean })[BYPASS_RULES_SYMBOL] === true;
   if (FOLLOWS_CURRENT_USER in options) {
     const { [FOLLOWS_CURRENT_USER]: _omit, ...rest } = options as Record<PropertyKey, unknown>;
     options = rest as SnapshotListenOptions;
@@ -315,7 +321,13 @@ export function onSnapshot(
   // so the listener machinery stays on its non-optional callback contract;
   // denials still route to `onError` (FS-B14).
   return env.addSnapshotListener(
-    target, onNext ?? (() => {}), options, ctx.auth, onError, followsCurrentUser,
+    target,
+    onNext ?? (() => {}),
+    options,
+    ctx.auth,
+    onError,
+    followsCurrentUser,
+    bypassRules,
   );
 }
 

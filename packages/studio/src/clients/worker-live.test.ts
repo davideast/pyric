@@ -19,6 +19,7 @@ import { createStudioEnvironment } from '../env.js';
 import type { SandboxEvent } from 'pyric/sandbox';
 import {
   getFirestore as workerGetFirestore,
+  setLens as resetWorkerLens,
   type ClientDb,
 } from '@pyric/cli/serve/worker';
 
@@ -55,6 +56,7 @@ describe('connectWorkerLive', () => {
   afterEach(() => {
     restore?.();
     restore = null;
+    resetWorkerLens(undefined);
   });
 
   it('returns null when no SharedWorker is available (HTTP-fallback contract)', () => {
@@ -139,6 +141,36 @@ function fakeWrite(id: string): SandboxEvent {
     requestTime: { seconds: 0, nanoseconds: 0 },
   } as SandboxEvent;
 }
+
+describe('Studio Firestore data lens', () => {
+  let restore: (() => void) | null = null;
+  afterEach(() => {
+    restore?.();
+    restore = null;
+    resetWorkerLens(undefined);
+  });
+
+  it('pins admin before the first data-view subscription is registered', () => {
+    const sw = controllableSharedWorker();
+    restore = sw.restore;
+    const plane = connectWorkerLive('worker://test')!;
+    const users = plane.firestoreApi.collection(
+      plane.db as never,
+      'users',
+    );
+
+    const unsubscribe = plane.firestoreApi.onSnapshot(users, () => {});
+    const subscription = sw.port.sent.find(
+      (message): message is { t: 'sub'; target: object; actAs?: { mode: string } } =>
+        (message as { t?: string }).t === 'sub' &&
+        typeof (message as { target?: unknown }).target === 'object',
+    );
+
+    expect(plane.getLens()).toEqual({ mode: 'admin' });
+    expect(subscription?.actAs).toEqual({ mode: 'admin' });
+    unsubscribe();
+  });
+});
 
 describe('workerEventFeed (F1 live-feed adapter)', () => {
   let restore: (() => void) | null = null;

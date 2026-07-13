@@ -119,6 +119,9 @@ export interface ListenerRecord {
   errorCallback?: SnapshotErrorCallback;
   /** Captured at registration; see {@link ListenerAuth}. */
   auth: ListenerAuth;
+  /** `true` for the Studio/admin lens. Rules stay bypassed for the initial
+   * snapshot and every write- or rules-driven re-evaluation. */
+  bypassRules: boolean;
   /**
    * `true` when this listener was registered through a `sandbox-live`
    * Firestore handle (`getFirestore(sandbox)`), whose identity follows

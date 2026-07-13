@@ -293,6 +293,11 @@ export function connectWorkerLive(
     // treat as "no live plane" so the env falls back cleanly.
     return null;
   }
+  // Data viewers are admin-only. Pin the lens synchronously, before React can
+  // mount a child hook and register its first onSnapshot subscription. The
+  // previous effect-time initialization raced child passive effects, leaving
+  // the first collection/document listeners frozen to the app session.
+  workerSetLens({ mode: 'admin' });
 
   // One feed shared by F1 and the auth `subscribeUsers` re-list signal. One auth
   // handle reusing the same port (the single-backend invariant).
