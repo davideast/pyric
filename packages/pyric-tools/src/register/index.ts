@@ -92,7 +92,7 @@ function activate(): void {
     moduleApi.registerHooks({
       resolve(specifier, context, nextResolve) {
         // The rewrite decision includes the mirror-package exemption:
-        // Firebase imports made FROM WITHIN pyric/pyric-admin/@pyric/cli
+        // Firebase imports made FROM WITHIN pyric/pyric-admin
         // are their prod arms and must keep resolving to real Firebase
         // (see exempt.ts).
         const mapped = rewriteSpecifier(specifier, context.parentURL);

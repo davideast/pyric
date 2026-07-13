@@ -9,5 +9,7 @@ describe('@pyric/cli package manifest', () => {
   it('does not publish retired programmatic entry points', () => {
     expect(Object.keys(manifest.exports)).not.toContain('./deploy');
     expect(Object.keys(manifest.exports)).not.toContain('./credentials');
+    expect(Object.keys(manifest.exports)).not.toContain('./auth');
+    expect(Object.keys(manifest.exports)).not.toContain('./registry');
   });
 });

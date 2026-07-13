@@ -3,7 +3,7 @@
  *
  * `createStorageAdminTools({ scope })` returns the two
  * provisioning/status tools as `ToolHandler[]`, consumable by
- * `@inbrowser/agent`'s registry — including by `composeMcpRegistry`.
+ * an `@inbrowser/agent` registry.
  * Uses the same tool-factory shape as `createFirestoreRulesTools`: a
  * `ProjectScope` in, JSON-Schema-typed `ToolHandler`s out.
  */

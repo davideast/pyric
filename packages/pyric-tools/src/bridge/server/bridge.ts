@@ -12,8 +12,7 @@
  *  - sandbox: every tool call is forwarded over WS to the browser.
  *    The bridge does not execute tools itself; it acts as a relay
  *    with a tool-name allow-list pinned by the peer's `hello`.
- *  - prod: tools execute in-process via `composeMcpRegistry` with
- *    the supplied `scope` + `adminDeps`. No peer needed.
+ *  - prod: caller-supplied tools execute in-process. No peer needed.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -365,8 +364,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
     if (mode === 'sandbox') {
       return peer ? Array.from(peer.tools).sort() : [];
     }
-    // Prod mode: caller provides tool names via composeMcpRegistry
-    // wiring. Bridge core doesn't own that registry; the caller
+    // Prod mode: caller provides the tool names and dispatch wiring.
+    // Bridge core doesn't own that tool set; the caller
     // (standalone server or vite plugin) supplies dispatch handlers
     // for prod tools directly. See createProdBridge in standalone.ts.
     return [];
@@ -389,7 +388,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
         // error.
         result = {
           ok: false,
-          summary: 'bridge.dispatch() called in prod mode — prod tools dispatch via composeMcpRegistry directly, not through the bridge',
+          summary:
+            'bridge.dispatch() called in prod mode — caller-supplied tools dispatch directly, not through the bridge',
         };
       }
     } catch (err) {
