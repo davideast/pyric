@@ -1,14 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
 import {
-  deleteObject,
-  listAll,
-  ref as refFn,
+  deleteObject as defaultDeleteObject,
+  listAll as defaultListAll,
   type FirebaseStorage,
   type StorageReference,
 } from 'pyric/storage';
-import { folderPlaceholderRef } from '../folderPlaceholder.js';
 import type { StorageSelectionEntry } from './useStorageSelection.js';
 import type { UseStorageListResult } from './useStorageList.js';
+import { useStorageApi, type StorageApi } from '../storageApi.js';
+import { asFolderPlaceholder } from '../folderPlaceholder.js';
 
 export interface StorageDeleteProgress {
   /** Objects deleted so far in this folder walk. */
@@ -39,26 +39,32 @@ export interface StorageRecursiveDeleteImpl {
  * so the walk alone would leave ghost folders). Placeholder sweeps
  * are best-effort — `deletedCount` counts listed objects only.
  */
-export function createListAllDeleteImpl(): StorageRecursiveDeleteImpl {
+export function createListAllDeleteImpl(
+  api?: Pick<StorageApi, 'listAll' | 'deleteObject'>,
+): StorageRecursiveDeleteImpl {
   return {
     async *start(target: StorageReference) {
+      const operations = api ?? {
+        listAll: defaultListAll,
+        deleteObject: defaultDeleteObject,
+      };
       let deletedCount = 0;
       const stack: StorageReference[] = [target];
       const visited: StorageReference[] = [];
       while (stack.length > 0) {
         const folder = stack.pop()!;
         visited.push(folder);
-        const result = await listAll(folder);
+        const result = await operations.listAll(folder);
         stack.push(...result.prefixes);
         for (const item of result.items) {
-          await deleteObject(item);
+          await operations.deleteObject(item);
           deletedCount++;
           yield { deletedCount, done: false };
         }
       }
       for (const folder of visited) {
         try {
-          await deleteObject(folderPlaceholderRef(folder.storage, folder.fullPath));
+          await operations.deleteObject(asFolderPlaceholder(folder));
         } catch {
           // Best-effort: a strict backend may reject the structural
           // placeholder or throw not-found. Neither should fail the
@@ -122,6 +128,7 @@ export function useStorageDelete(
   storage: FirebaseStorage | null | undefined,
   options: UseStorageDeleteOptions = {},
 ): UseStorageDeleteResult {
+  const api = useStorageApi();
   const [progress, setProgress] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<Error | undefined>(undefined);
@@ -139,7 +146,7 @@ export function useStorageDelete(
       const outcome: StorageDeleteOutcome = { deleted: [], failed: [] };
       if (storage == null || entries.length === 0) return outcome;
       setIsRunning(true);
-      const impl = optionsRef.current.impl ?? createListAllDeleteImpl();
+      const impl = optionsRef.current.impl ?? createListAllDeleteImpl(api);
       let count = 0;
       try {
         for (const entry of entries) {
@@ -147,10 +154,10 @@ export function useStorageDelete(
           optionsRef.current.list?.removeItem(entry.fullPath);
           try {
             if (entry.kind === 'object') {
-              await deleteObject(refFn(storage, entry.fullPath));
+              await api.deleteObject(api.ref(storage, entry.fullPath));
               count++;
             } else {
-              for await (const evt of impl.start(refFn(storage, entry.fullPath))) {
+              for await (const evt of impl.start(api.ref(storage, entry.fullPath))) {
                 if (myGen !== generationRef.current) return outcome;
                 // The impl reports counts local to its walk; add the
                 // objects already deleted by earlier entries.
@@ -181,7 +188,7 @@ export function useStorageDelete(
         if (myGen === generationRef.current) setIsRunning(false);
       }
     },
-    [storage],
+    [api, storage],
   );
 
   return { deleteEntries, progress, isRunning, error };

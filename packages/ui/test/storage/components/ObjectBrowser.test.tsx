@@ -121,6 +121,32 @@ describe('ObjectBrowser', () => {
     expect(navigated).toEqual(['docs/sub']);
   });
 
+  it('renders row actions beside the navigation button', () => {
+    const navigated: string[] = [];
+    const acted: string[] = [];
+    const { container } = render(
+      <ObjectBrowser
+        entries={ENTRIES}
+        onNavigate={(p) => navigated.push(p)}
+        renderRowAction={(entry) => (
+          <button type="button" onClick={() => acted.push(entry.fullPath)}>
+            Select
+          </button>
+        )}
+      />,
+    );
+
+    const firstRow = container.querySelector('[data-pyric-storage-entry]')!;
+    const action = firstRow.querySelector('[data-pyric-storage-action] button')!;
+    fireEvent.click(action);
+
+    expect(acted).toEqual(['docs/sub']);
+    expect(navigated).toEqual([]);
+    expect(
+      action.parentElement?.previousElementSibling?.hasAttribute('data-pyric-entry-select'),
+    ).toBe(true);
+  });
+
   it('renders loading, idle, empty, and error states', () => {
     const { container: loading } = render(
       <ObjectBrowser entries={[]} status="loading" />,

@@ -43,8 +43,10 @@ import {
   ObjectInspector,
   PathBreadcrumb,
   UploadDropzone,
+  DeleteSelectionWithConfirm,
   useObjectUpload,
   useStorageList,
+  useStorageSelection,
   useStorageRulesGate,
   usePathState,
   normalizeStoragePath,
@@ -57,6 +59,7 @@ import {
   type DroppedFile,
   type StorageListEntry,
 } from '@pyric/ui/storage';
+import { ConfirmProvider, ToastProvider } from '@pyric/ui/primitives';
 import type { FirebaseStorage, FullMetadata, StorageReference } from 'pyric/storage';
 import { useDataNav } from './navigation.js';
 import './storage.css';
@@ -209,6 +212,7 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
     nav.navigate({ view: 'storage', objectPath });
   };
   const list = useStorageList(storage, pathState.path);
+  const selection = useStorageSelection();
   // Pre-flight read verdicts → the read-denied row treatment (advisory).
   const gate = useStorageRulesGate(storage);
 
@@ -269,6 +273,8 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
     ].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     return [...folders, ...list.entries.filter((e) => e.kind === 'object')];
   }, [list.entries, pending, pathState.path]);
+  const allSelected =
+    entries.length > 0 && entries.every((entry) => selection.isSelected(entry.fullPath));
 
   // Upload a batch into the browsed folder, OS-copy renaming collisions
   // against the folder's direct children (real + pending + this batch).
@@ -309,6 +315,10 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusPath]);
 
+  // Selection is scoped to the directory currently on screen. Navigating to
+  // another prefix starts a fresh selection, matching the Firebase console.
+  useEffect(() => selection.clear(), [pathState.path, selection.clear]);
+
   const failed = uploader.tasks.filter((t) => t.status === 'error');
   // Advisory pre-flight for the drop target (the gate's canonical wiring —
   // see UploadDropzone's `disabledReason` doc). Conservative: no size or
@@ -316,6 +326,8 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
   const writeVerdict = gate.verdictFor(pathState.path);
 
   return (
+    <ToastProvider>
+      <ConfirmProvider>
     <div className="storage">
       <div className="storage__sub">
         <PathBreadcrumb
@@ -327,6 +339,48 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
           }}
         />
         <div className="storage__actions">
+          {selection.size > 0 ? (
+            <>
+              <span className="studio-selection-count">{selection.size} selected</span>
+              <DeleteSelectionWithConfirm
+                storage={storage}
+                entries={selection.selected}
+                list={list}
+                gate={gate}
+                className="studio-selection-delete"
+                onDeleted={(outcome) => {
+                  for (const entry of selection.selected) {
+                    if (entry.kind === 'folder' && outcome.deleted.includes(entry.fullPath)) {
+                      dispatchPending({ type: 'discard', path: entry.fullPath });
+                    }
+                  }
+                  if (
+                    selectedPath &&
+                    selection.selected.some((entry) =>
+                      entry.kind === 'object'
+                        ? entry.fullPath === selectedPath
+                        : selectedPath.startsWith(`${entry.fullPath}/`),
+                    )
+                  ) {
+                    selectObject(null);
+                  }
+                  selection.clear();
+                  list.refresh();
+                }}
+                onFailed={(outcome) => {
+                  const failed = new Set(outcome.failed.map((entry) => entry.fullPath));
+                  selection.selectAll(
+                    selection.selected.filter((entry) => failed.has(entry.fullPath)),
+                  );
+                  list.refresh();
+                }}
+              />
+              <button type="button" className="storage__action" onClick={selection.clear}>
+                Clear selection
+              </button>
+            </>
+          ) : (
+            <>
           <button
             type="button"
             className="storage__action"
@@ -358,6 +412,8 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
               e.currentTarget.value = '';
             }}
           />
+            </>
+          )}
         </div>
       </div>
 
@@ -423,6 +479,16 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
           disabledReason={writeVerdict.reasons.write.join('; ')}
         >
           <div className="storage__lhead">
+            <label className="storage__select-all" title="Select all in this folder">
+              <input
+                type="checkbox"
+                aria-label="Select all in this folder"
+                checked={allSelected}
+                onChange={(event) =>
+                  event.currentTarget.checked ? selection.selectAll(entries) : selection.clear()
+                }
+              />
+            </label>
             <span>name</span>
             <span>type</span>
             <span>size</span>
@@ -435,6 +501,16 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
             gate={gate}
             selectedPath={selectedPath ?? undefined}
             renderEntry={renderEntry}
+            renderRowAction={(entry) => (
+              <label className="storage__select-row" title={`Select ${entry.name}`}>
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${entry.name}`}
+                  checked={selection.isSelected(entry.fullPath)}
+                  onChange={() => selection.toggle(entry)}
+                />
+              </label>
+            )}
             onNavigate={(p) => {
               pathState.enter(p);
               selectObject(null);
@@ -480,5 +556,7 @@ export function LiveStoragePane({ storage, focusPath }: StoragePaneProps) {
         </div>
       </div>
     </div>
+      </ConfirmProvider>
+    </ToastProvider>
   );
 }

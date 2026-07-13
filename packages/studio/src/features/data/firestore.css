@@ -34,6 +34,21 @@
   background: var(--color-content-bg);
 }
 
+.fs-delete-recursive {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.fs-delete-recursive input {
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+  flex: none;
+}
+
 /* clickable path bar */
 [data-pyric-ui='fs-breadcrumb'] {
   display: flex;
@@ -148,7 +163,7 @@
   cursor: pointer;
 }
 
-/* multiple secondary header actions (e.g. "+ New" + "Import JSON") sit as a
+/* multiple secondary header actions sit as a
    gap-separated row pinned to the trailing edge — gap, not margin, between
    the buttons themselves (L2). */
 [data-pyric-ui='fs-browser'] .fs-phead-actions {
@@ -441,37 +456,6 @@
   opacity: 1;
   color: var(--color-danger, #ff6b6b);
   background: var(--color-sidebar-bg);
-}
-/* armed inline confirm: ✓ delete / ✕ cancel (stays visible while armed) */
-[data-pyric-ui='fs-browser'] .fs-doc-del-confirm {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-[data-pyric-ui='fs-browser'] .fs-doc-del-yes,
-[data-pyric-ui='fs-browser'] .fs-doc-del-no {
-  border: none;
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  line-height: 1;
-  padding: 3px 7px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-[data-pyric-ui='fs-browser'] .fs-doc-del-yes {
-  color: var(--color-danger, #ff6b6b);
-}
-[data-pyric-ui='fs-browser'] .fs-doc-del-yes:hover {
-  background: var(--color-danger, #ff6b6b);
-  color: var(--color-soft-white);
-}
-[data-pyric-ui='fs-browser'] .fs-doc-del-no {
-  color: var(--color-muted, #8a8f98);
-}
-[data-pyric-ui='fs-browser'] .fs-doc-del-no:hover {
-  background: var(--color-sidebar-bg);
-  color: var(--color-soft-white);
 }
 [data-pyric-ui='fs-browser'] .fs-doc-del-err {
   color: var(--color-danger, #ff6b6b);

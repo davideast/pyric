@@ -5,6 +5,7 @@
  */
 import type { SerializedDocData } from '../protocol.js';
 import { deserializeDocData } from '../protocol.js';
+import type { DocRefHandle } from './handles.js';
 
 // ─── Rehydration (class instance restoration) ─────────────────────────────
 
@@ -33,17 +34,22 @@ export interface RawDocResult {
   data?: SerializedDocData;
 }
 
-export function makeDocSnapshot(raw: RawDocResult): ClientDocSnapshot {
+export function makeDocSnapshot(raw: RawDocResult, port: MessagePort): ClientDocSnapshot {
   const data = raw.exists && raw.data ? rehydrateDocData(raw.data) : undefined;
   const path = raw.path ?? raw.id;
+  const ref: DocRefHandle = {
+    __kind: 'doc-ref',
+    descriptor: { __ref: 'doc', path },
+    port,
+    id: raw.id,
+    path,
+  };
   return {
     id: raw.id,
     path,
-    // The modular SDK contract (and `@pyric/ui`'s grids) read `snap.ref.path`
-    // off query docs; mirror it so the worker snapshot is a drop-in. A
-    // lightweight ref (id + path) is all consumers read; a full handle is
-    // rebuilt from the path when an op is needed.
-    ref: { id: raw.id, path },
+    // Query snapshot refs are real worker handles, not path-only lookalikes:
+    // Firebase callers may pass `snapshot.ref` straight into deleteDoc/setDoc.
+    ref,
     exists: () => raw.exists,
     data: () => data,
   };
@@ -53,8 +59,8 @@ export interface RawQueryResult {
   docs: RawDocResult[];
 }
 
-export function makeQuerySnapshot(raw: RawQueryResult): ClientQuerySnapshot {
-  const docs = raw.docs.map(makeDocSnapshot);
+export function makeQuerySnapshot(raw: RawQueryResult, port: MessagePort): ClientQuerySnapshot {
+  const docs = raw.docs.map((doc) => makeDocSnapshot(doc, port));
   return {
     size: docs.length,
     empty: docs.length === 0,
@@ -67,9 +73,8 @@ export function makeQuerySnapshot(raw: RawQueryResult): ClientQuerySnapshot {
 export interface ClientDocSnapshot {
   readonly id: string;
   readonly path: string;
-  /** Lightweight document ref (id + path), mirroring the modular SDK's
-   *  `snap.ref` that `@pyric/ui` reads off query docs. */
-  readonly ref: { readonly id: string; readonly path: string };
+  /** Full port-carrying reference, usable by write APIs. */
+  readonly ref: DocRefHandle;
   exists(): boolean;
   data(): Record<string, unknown> | undefined;
 }

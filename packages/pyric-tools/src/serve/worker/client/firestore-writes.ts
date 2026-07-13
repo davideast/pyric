@@ -185,7 +185,7 @@ export async function runTransaction<R>(
           data: (rawResult.exists && rawResult.data) ? rawResult.data : null,
         });
 
-        return makeDocSnapshot(rawResult);
+        return makeDocSnapshot(rawResult, ref.port);
       },
       set(ref, data, options) {
         writes.push({ method: 'set', path: ref.descriptor.path, data, options });

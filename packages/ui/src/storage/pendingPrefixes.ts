@@ -46,6 +46,8 @@ export type PendingPrefixAction =
   /** An object now exists directly under `path`: drop `path` and its
    *  ancestors from pending (they are real prefixes now). */
   | { type: 'materialize'; path: string }
+  /** Remove a session-only folder and every pending descendant beneath it. */
+  | { type: 'discard'; path: string }
   | { type: 'clear' };
 
 /** `'a/b/c'` → `['a', 'a/b', 'a/b/c']`; `''` → `[]`. */
@@ -72,6 +74,12 @@ export function pendingPrefixReducer(
       const real = new Set(expandPathChain(action.path));
       if (real.size === 0) return state;
       const next = state.filter((p) => !real.has(p));
+      return next.length === state.length ? state : next;
+    }
+    case 'discard': {
+      const path = normalizeStoragePath(action.path);
+      if (path === '') return state;
+      const next = state.filter((entry) => entry !== path && !entry.startsWith(`${path}/`));
       return next.length === state.length ? state : next;
     }
     case 'clear':

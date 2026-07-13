@@ -151,6 +151,117 @@
   }
 }
 
+/* Shared portal chrome for the headless @pyric/ui destructive-action
+   primitives. Portals mount under <body>, so feature-scoped selectors cannot
+   reach them; Studio owns their visual treatment here. */
+[data-pyric-ui='confirm-portal'] {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+[data-pyric-ui='confirm-overlay'] {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+[data-pyric-ui='confirm-dialog'] {
+  position: relative;
+  width: min(440px, 100%);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  padding: 20px;
+  background: var(--elevated);
+  color: var(--ink);
+  box-shadow: 0 18px 60px color-mix(in srgb, var(--bg) 75%, transparent);
+}
+[data-pyric-confirm-title] {
+  font-size: 16px;
+  font-weight: 650;
+}
+[data-pyric-confirm-body] {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+[data-pyric-confirm-body] ul {
+  max-height: 180px;
+  margin: 0;
+  padding-left: 20px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+[data-pyric-confirm-actions] {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+[data-pyric-confirm-actions] button {
+  appearance: none;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  padding: 7px 13px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+[data-pyric-confirm-confirm][data-pyric-destructive] {
+  border-color: var(--diff-remove);
+  background: var(--diff-remove);
+  color: var(--deny-ink);
+}
+
+[data-pyric-ui='toast-region'] {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 2100;
+  display: grid;
+  width: min(360px, calc(100vw - 36px));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-pyric-toast] {
+  position: relative;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  padding: 12px 36px 12px 14px;
+  background: var(--elevated);
+  color: var(--ink);
+  box-shadow: 0 12px 36px color-mix(in srgb, var(--bg) 65%, transparent);
+}
+[data-pyric-toast][data-pyric-toast-kind='error'] {
+  border-color: color-mix(in srgb, var(--diff-remove) 55%, var(--line));
+}
+[data-pyric-toast-title] {
+  font-weight: 600;
+}
+[data-pyric-toast-body] {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+[data-pyric-toast-dismiss] {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+
 .studio-chip {
   display: inline-flex;
   align-items: center;
@@ -164,6 +275,26 @@
   line-height: 1.2;
   white-space: nowrap;
   text-decoration: none;
+}
+.studio-selection-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+.studio-selection-delete {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--diff-remove) 45%, var(--line));
+  border-radius: 7px;
+  background: var(--elevated);
+  color: var(--diff-remove);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+.studio-selection-delete:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 a.studio-chip:hover {
   border-color: var(--line-2);

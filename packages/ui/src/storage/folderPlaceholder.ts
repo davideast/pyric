@@ -19,11 +19,22 @@ export function folderPlaceholderRef(
     storage,
     bucket: folder.bucket,
     fullPath: `${folder.fullPath}/`,
-    // GCS semantics: the segment after the final slash — empty for a
-    // placeholder.
     name: '',
     parent: folder,
     root: folder.root,
     toString: () => `${folder.toString()}/`,
+  };
+}
+
+/** Preserve whichever backend identity a reference carries (in-process
+ *  storage handle or worker MessagePort) while targeting its trailing-slash
+ *  GCS folder placeholder. */
+export function asFolderPlaceholder<T extends { fullPath: string; name: string }>(
+  folder: T,
+): T {
+  return {
+    ...folder,
+    fullPath: `${folder.fullPath}/`,
+    name: '',
   };
 }

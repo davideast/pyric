@@ -16,6 +16,8 @@ const create = (state: PendingPrefixState, path: string) =>
   pendingPrefixReducer(state, { type: 'create', path });
 const materialize = (state: PendingPrefixState, path: string) =>
   pendingPrefixReducer(state, { type: 'materialize', path });
+const discard = (state: PendingPrefixState, path: string) =>
+  pendingPrefixReducer(state, { type: 'discard', path });
 
 describe('expandPathChain', () => {
   it('expands every ancestor level', () => {
@@ -62,6 +64,12 @@ describe('pendingPrefixReducer', () => {
   it('materialize at root is a no-op', () => {
     const state = create(initialPendingPrefixes, 'a');
     expect(materialize(state, '')).toBe(state);
+  });
+
+  it('discard removes an empty pending folder and its descendants', () => {
+    let state = create(initialPendingPrefixes, 'stuff/things/cool');
+    state = create(state, 'stuff/keep');
+    expect(discard(state, 'stuff/things')).toEqual(['stuff', 'stuff/keep']);
   });
 
   it('clear empties', () => {

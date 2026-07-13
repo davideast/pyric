@@ -24,6 +24,9 @@ export interface AuthUserListProps {
   /** Per-row action slot (edit / disable / delete menu). Rendered in a
    *  trailing cell; column header is added when this is provided. */
   renderActions?: (user: AuthUserRecord) => ReactNode;
+  /** Optional content for the trailing actions column header (for example,
+   *  a select-all checkbox). Only rendered with `renderActions`. */
+  renderActionsHeader?: ReactNode;
   /** Timestamp formatter for Created / Signed In. Default: locale date,
    *  em dash for null. */
   formatDate?: (iso: string | null) => ReactNode;
@@ -81,6 +84,7 @@ export function AuthUserList({
   renderIdentifier,
   renderProviders,
   renderActions,
+  renderActionsHeader,
   formatDate = defaultFormatDate,
   emptyState,
   noResultsState,
@@ -169,7 +173,9 @@ export function AuthUserList({
         <span role="columnheader" data-pyric-user-cell="signed-in">Signed In</span>
         <span role="columnheader" data-pyric-user-cell="uid">User UID</span>
         {renderActions ? (
-          <span role="columnheader" data-pyric-user-cell="actions" aria-label="Actions" />
+          <span role="columnheader" data-pyric-user-cell="actions" aria-label="Actions">
+            {renderActionsHeader}
+          </span>
         ) : null}
       </div>
       {virtualized ? (

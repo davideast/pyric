@@ -24,7 +24,7 @@ export async function getDoc(ref: DocRefHandle): Promise<ClientDocSnapshot> {
     method: 'getDoc',
     path: ref.descriptor.path,
   }) as RawDocResult;
-  return makeDocSnapshot(result);
+  return makeDocSnapshot(result, ref.port);
 }
 
 export async function getDocs(
@@ -38,7 +38,7 @@ export async function getDocs(
       ? (source as CollRefHandle).descriptor
       : (source as QueryHandle).descriptor,
   }) as RawQueryResult;
-  return makeQuerySnapshot(result);
+  return makeQuerySnapshot(result, source.port);
 }
 
 /**
@@ -140,9 +140,9 @@ export function onSnapshot(
     next: (raw) => {
       const r = raw as Record<string, unknown>;
       if ('docs' in r) {
-        callback(makeQuerySnapshot(r as unknown as RawQueryResult));
+        callback(makeQuerySnapshot(r as unknown as RawQueryResult, port));
       } else {
-        callback(makeDocSnapshot(r as unknown as RawDocResult));
+        callback(makeDocSnapshot(r as unknown as RawDocResult, port));
       }
     },
     error: errorCallback,

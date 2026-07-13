@@ -38,7 +38,9 @@ import { ConfirmProvider } from '../../../src/primitives/useConfirm.js';
 import { ToastProvider } from '../../../src/primitives/Toast.js';
 import {
   DeleteSelectionWithConfirm,
+  StorageApiProvider,
   useStorageRulesGate,
+  type StorageApi,
   type StorageRecursiveDeleteImpl,
 } from '../../../src/storage/index.js';
 
@@ -132,6 +134,51 @@ describe('DeleteSelectionWithConfirm', () => {
     const listed = await listAll(ref(storage, 'docs'));
     expect(listed.items).toEqual([]);
     expect(listed.prefixes).toEqual([]);
+  });
+
+  it('uses the injected Storage API for worker-backed file and folder deletion', async () => {
+    const deleted: string[] = [];
+    const storage = { __kind: 'client-storage' } as unknown as FirebaseStorage;
+    const makeRef = (fullPath: string) => ({
+      storage,
+      fullPath,
+      name: fullPath.split('/').at(-1) ?? '',
+      bucket: 'pyric-default',
+    });
+    const api = {
+      ref: (_storage: FirebaseStorage, fullPath = '') => makeRef(fullPath),
+      listAll: async (target: { fullPath: string }) =>
+        target.fullPath === 'docs/sub'
+          ? { prefixes: [], items: [makeRef('docs/sub/nested.txt')] }
+          : { prefixes: [], items: [] },
+      deleteObject: async (target: { fullPath: string }) => {
+        deleted.push(target.fullPath);
+      },
+      getMetadata: async () => ({}),
+      getBlob: async () => new Blob(),
+      uploadBytes: async () => ({}),
+    } as unknown as StorageApi;
+
+    render(
+      withProviders(
+        <StorageApiProvider value={api}>
+          <DeleteSelectionWithConfirm
+            storage={storage}
+            entries={[
+              { kind: 'object', fullPath: 'docs/a.txt' },
+              { kind: 'folder', fullPath: 'docs/sub' },
+            ]}
+          />
+        </StorageApiProvider>,
+      ),
+    );
+
+    fireEvent.click(q('[data-pyric-ui="delete-selection"]')!);
+    await waitFor(() => expect(q('[data-pyric-ui="confirm-dialog"]')).not.toBeNull());
+    fireEvent.click(q('[data-pyric-confirm-confirm]')!);
+
+    await waitFor(() => expect(deleted).toContain('docs/a.txt'));
+    expect(deleted).toContain('docs/sub/nested.txt');
   });
 
   it('failures toast an error listing each failed path', async () => {

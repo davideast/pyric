@@ -35,15 +35,18 @@ import {
   AuthUserList,
   AuthUserForm,
   AuthApiProvider,
+  DeleteUserWithConfirm,
   providerLabel,
   useAuthUsers,
   type AuthUserFormSubmit,
 } from '@pyric/ui/auth';
+import { ConfirmProvider } from '@pyric/ui/primitives';
 import { FEDERATED_PROVIDER_IDS } from 'pyric/auth';
 import type { Auth, AuthUserRecord, CreateUserRequest, ProviderUserInfo } from 'pyric/auth';
 import { useDevSeed } from '../../dev/DevSeedProvider.js';
 import { useDataNav } from '../data/navigation.js';
 import { useStudioDataSource } from '../../shell/studio-data.js';
+import { DeleteSelectedUsers, useVisibleUserSelection } from './auth-bulk-delete.js';
 import './auth.css';
 
 /** Compact "11m ago" / "just now" relative time for the list + detail. */
@@ -112,7 +115,11 @@ export function AuthSurface({ auth: authProp }: AuthSurfaceProps = {}) {
       </div>
     );
   }
-  const body = <AuthSurfaceBody auth={auth} />;
+  const body = (
+    <ConfirmProvider>
+      <AuthSurfaceBody auth={auth} />
+    </ConfirmProvider>
+  );
   return authApi ? <AuthApiProvider value={authApi}>{body}</AuthApiProvider> : body;
 }
 
@@ -127,7 +134,6 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
     createUser,
     updateUser,
     deleteUser,
-    clearUsers,
   } = useAuthUsers(auth);
 
   const nav = useDataNav();
@@ -144,6 +150,7 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
   // "Add user" discloses the create form in the detail pane (one create at a
   // time; selecting a user closes it).
   const [creating, setCreating] = useState(false);
+  const selection = useVisibleUserSelection(users);
 
   return (
     <div className="auth-surface" data-pyric-ui="auth-surface">
@@ -160,27 +167,40 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
           aria-label="Filter users"
         />
         <div className="auth-sub__right">
-          <button
-            type="button"
-            className="auth-sub__add"
-            onClick={() => {
-              setCreating(true);
-              selectUser(null);
-            }}
-          >
-            Add user
-          </button>
-          <button
-            type="button"
-            className="auth-sub__clear"
-            onClick={() => {
-              clearUsers();
-              selectUser(null);
-            }}
-            disabled={totalCount === 0}
-          >
-            Clear all
-          </button>
+          {selection.selectedUsers.length > 0 ? (
+            <>
+              <span className="studio-selection-count">
+                {selection.selectedUsers.length} selected
+              </span>
+              <DeleteSelectedUsers
+                users={selection.selectedUsers}
+                filter={filter}
+                onDelete={(uid) => Promise.resolve(deleteUser(uid))}
+                onComplete={(failedUids) => {
+                  selection.replace(failedUids);
+                  if (selectedUid && !failedUids.includes(selectedUid)) selectUser(null);
+                }}
+              />
+              <button
+                type="button"
+                className="auth-sub__clear"
+                onClick={selection.clear}
+              >
+                Clear selection
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="auth-sub__add"
+              onClick={() => {
+                setCreating(true);
+                selectUser(null);
+              }}
+            >
+              Add user
+            </button>
+          )}
         </div>
       </div>
 
@@ -199,6 +219,26 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
             }}
             renderIdentifier={renderIdentifier}
             formatDate={clockTime}
+            renderActionsHeader={
+              <label className="auth-select" title="Select all shown users">
+                <input
+                  type="checkbox"
+                  aria-label="Select all shown users"
+                  checked={selection.allVisibleSelected}
+                  onChange={(event) => selection.selectAll(event.currentTarget.checked)}
+                />
+              </label>
+            }
+            renderActions={(user) => (
+              <label className="auth-select" title={`Select ${user.uid}`}>
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${user.uid}`}
+                  checked={selection.isSelected(user.uid)}
+                  onChange={() => selection.toggle(user.uid)}
+                />
+              </label>
+            )}
             emptyState={
               <p className="auth-zero">
                 No users yet. Sign-ins from the app, agent-seeded users, and
@@ -466,9 +506,11 @@ function UserDetail({
       </AuthUserForm>
 
       <div className="auth-editor__foot">
-        <button type="button" className="auth-del" onClick={onDelete}>
-          Delete user
-        </button>
+        <DeleteUserWithConfirm
+          user={user}
+          onDelete={onDelete}
+          className="auth-del"
+        />
       </div>
     </div>
   );
