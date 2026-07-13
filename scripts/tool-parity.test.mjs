@@ -74,14 +74,23 @@ describe('tool-parity extraction against the real codebase', () => {
       'try_rules_edit',
       'generate_fixture_from_session',
       'debug_firestore_rules',
-      'firestore_discover_paths',
-      'firestore_inspect_rules',
     ]) {
       expect(playground.get(name)).toStartWith('flag-gated');
     }
     // Registered in CORE_TOOLS despite living under diagnostics/.
     expect(playground.get('seed_firestore_data_as_admin')).toBe('always-on');
     expect(playground.get('build_game_rules')).toStartWith('skill-gated');
+  });
+
+  test('production-project inspection tools are absent from both surfaces', () => {
+    for (const name of [
+      'firestore_discover_paths',
+      'firestore_find_collection_group',
+      'firestore_inspect_rules',
+    ]) {
+      expect(mcp.has(name)).toBe(false);
+      expect(playground.has(name)).toBe(false);
+    }
   });
 
   test('the TOOL-SYSTEM.md gap rows are still gaps (playground-only)', () => {

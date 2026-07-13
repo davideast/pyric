@@ -53,10 +53,6 @@
       "types": "./dist/discover/index.d.ts",
       "import": "./dist/discover/index.js"
     },
-    "./discover/production": {
-      "types": "./dist/discover/production.d.ts",
-      "import": "./dist/discover/production.js"
-    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"

@@ -84,7 +84,7 @@ rulesHash}`.
 | `@pyric/cli/verify` | Captured-session replay for Firestore and RTDB rules |
 | `@pyric/cli/bridge` | `createBridge`, `startServer` (Node) / `connectBridge` (browser via conditional export). Vite integration is `pyricSandbox({ bridge })` in `@pyric/cli/vite`. |
 | `@pyric/cli/vite` | `pyricSandbox(opts)`, the dev-only firebase→sandbox swap plugin. Opts: `rules`, `persist`/`fresh`, `seed`, `capture`, `bridge` (MCP), `ui` (Pyric Studio at `/__pyric/ui/`, parity with `dev --ui`). |
-| `@pyric/cli/discover` | Library crawl helpers for sandbox / Rest discovery (`crawl`, `findCollectionGroup`, `createRestCrawlerFirestore`, `createFirestoreDiscoverTools`). Not registered on the default MCP bridge. |
+| `@pyric/cli/discover` | Credential-free crawl helpers for sandbox discovery (`crawl`, `findCollectionGroup`, `createFirestoreDiscoverTools`). Not registered on the default MCP bridge. |
 | `@pyric/cli/serve/worker` | SharedWorker serve runtime |
 | `@pyric/cli/assurance` | Assurance campaign tools (also registered on the default bridge) |
 | `@pyric/cli/remote` | Remote / headless helpers |

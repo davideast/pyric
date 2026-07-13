@@ -348,21 +348,15 @@ for (const sym of [
   else bad('@pyric/cli/bridge STILL exports retired ' + sym);
 }
 
-// Credential-free discovery is the retained contract. The production REST
-// adapter remains reachable only through its explicit temporary entry until
-// issue #265 removes it.
+// Credential-free discovery is the retained contract. Production discovery
+// has no package entry or adapter export.
 const discover = await import('@pyric/cli/discover');
-const productionDiscover = await import('@pyric/cli/discover/production');
 if (!('createRestCrawlerFirestore' in discover)) {
   ok('@pyric/cli/discover does NOT export production REST discovery');
 } else {
   bad('@pyric/cli/discover STILL exports production REST discovery');
 }
-if (typeof productionDiscover.createRestCrawlerFirestore === 'function') {
-  ok('@pyric/cli/discover/production exports the isolated REST adapter');
-} else {
-  bad('@pyric/cli/discover/production is MISSING the isolated REST adapter');
-}
+await assertNotExported('@pyric/cli/discover/production');
 
 // Production deployment is owned by firebase-tools. The old programmatic
 // subpath must fail resolution instead of lingering as a compatibility shim.

@@ -35,6 +35,15 @@ describe('W2.2 environment brief', () => {
     expect(diagOn).toContain('man diagnostics');
   });
 
+  test('does not advertise production-project inspection', () => {
+    for (const prompt of [diagOn, diagOff]) {
+      expect(prompt).not.toContain('firestore_discover_paths');
+      expect(prompt).not.toContain('firestore_find_collection_group');
+      expect(prompt).not.toContain('firestore_get_rules');
+      expect(prompt).not.toContain('REAL PROJECT TOOLS');
+    }
+  });
+
   test('keeps the anti-footgun invariants in the standing prompt', () => {
     for (const p of [appDiagOn, appDiagOff]) {
       // write_file semantics — the invariant that prevents damage.

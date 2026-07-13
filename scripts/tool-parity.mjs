@@ -158,16 +158,6 @@ const PLAYGROUND_WRAPPERS = {
     pick: ['firestore_rules_stdlib_list', 'firestore_rules_stdlib_get'],
     gate: 'always-on',
   },
-  [`${PLAY}/tools/diagnostics/firestore-rules-inspect.ts`]: {
-    file: `${PYRIC}/rules/inspect/tools.ts`,
-    factory: 'createFirestoreInspectTool',
-    gate: 'flag-gated + requires sign-in/project',
-  },
-  [`${PLAY}/tools/diagnostics/firestore-discover.ts`]: {
-    file: `${TOOLS}/discover/tools.ts`,
-    factory: 'createFirestoreDiscoverTools',
-    gate: 'flag-gated + requires sign-in/project',
-  },
 };
 
 /** Standalone playground tool modules registered outside lib/tools. */

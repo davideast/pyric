@@ -11,9 +11,8 @@
  * The migration consolidates onto a single sign-in surface: GIS owns
  * the auth flow + token cache + userinfo. This module preserves the
  * legacy `SignedInUser` shape and `useGoogleSession` hook so callers
- * (`AuthModal`, diagnostics tools) don't need to migrate in
- * lockstep. The `accessToken` returned here is the same GIS-minted
- * token used by live-project diagnostics.
+ * can migrate independently. The `accessToken` returned here is the
+ * same GIS-minted token used by connected Firebase workflows.
  *
  * What's gone vs. the old shape:
  *   - `signInWithRedirect` / `getRedirectResult` (GIS uses a popup
