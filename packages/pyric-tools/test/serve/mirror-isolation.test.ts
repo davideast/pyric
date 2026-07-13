@@ -2,10 +2,10 @@
  * Ratchet for the client mirror's runtime production-SDK dependency graph.
  *
  * The Vite/import-map layer owns Firebase-versus-sandbox selection. Until the
- * legacy production arms are deleted, this fixture records their exact built
- * Firebase bindings. New bindings fail; deleting a binding also fails until
- * the fixture shrinks in the same change. The fixture reaches zero and is then
- * replaced by the packed-package isolation assertion.
+ * transitional internal production toolkit is deleted, this fixture records
+ * its exact package-wide Firebase bindings. New bindings fail; deleting a
+ * binding also fails until the fixture shrinks in the same change. The public
+ * mirror entry is checked independently in bundler.test.ts.
  */
 import { expect, test } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';

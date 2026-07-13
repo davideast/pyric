@@ -33,7 +33,7 @@ describe('packageToCensusSurface', () => {
     const map = packageToCensusSurface();
     expect(map.get('pyric/auth')).toBe('auth');
     expect(map.get('pyric/firestore')).toBe('firestore');
-    expect(map.get('pyric/database/modular')).toBe('database');
+    expect(map.get('pyric/database')).toBe('database');
     expect(map.get('pyric/storage')).toBe('storage');
     expect(map.get('pyric/app')).toBe('app');
     // pyric/sandbox has no upstream firebase module — no census surface.

@@ -29,7 +29,7 @@
 
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
-import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database/modular';
+import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
 import type { PersistenceBackend } from 'pyric/sandbox';

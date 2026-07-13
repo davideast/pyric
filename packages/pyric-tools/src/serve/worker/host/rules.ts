@@ -12,7 +12,7 @@
 
 import type { Firestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
-import { sandbox as rtdbSandbox } from 'pyric/database/modular';
+import { sandbox as rtdbSandbox } from 'pyric/database';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';

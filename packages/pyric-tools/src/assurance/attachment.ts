@@ -2,7 +2,7 @@ import { getAuth, sandbox as authSandbox } from "pyric/auth";
 import {
   getAdminDatabase,
   sandbox as rtdbSandbox,
-} from "pyric/database/modular";
+} from "pyric/database";
 import type { Sandbox } from "pyric/sandbox";
 import {
   ASSURANCE_TARGET_SCHEMA,

@@ -1,28 +1,23 @@
 /**
- * `@pyric/rtdb` modular SDK surface — Phase 3 implementation.
+ * `pyric/database` sandbox-only modular SDK mirror.
  *
  * Mirrors `firebase/database`'s tree-shakable free-function shape:
  * `getDatabase`, `ref`, `child`, `get`, `set`, `update`, `remove`,
  * `push`, `onValue`, `serverTimestamp`, `connectDatabaseEmulator`.
  *
- * Three backends picked by what's passed to `getDatabase`:
+ * Two sandbox identity modes are picked by what's passed to `getDatabase`:
  *
  *   - **Sandbox target** — wraps `RtdbBackend` (in-memory JSON tree
- *     plus the existing `@pyric/rtdb` rule simulator). Identity is the
+ *     plus the existing RTDB rule simulator). Identity is the
  *     `SandboxContext`'s frozen `auth`.
  *   - **Sandbox-live target** — same backend, but identity is read
  *     per-op from `sandbox.currentUser` so a `pyric/auth`-driven
  *     sign-in flips the next op's `request.auth` without re-binding.
- *   - **Prod target** — wraps `firebase/database` against a real
- *     Firebase project.
  *
- * Dispatch machinery mirrors `pyric/firestore`:
+ * Routing machinery mirrors `pyric/firestore`:
  *   - {@link TARGET_SYMBOL} brand on every {@link Database} handle.
  *   - {@link refToTarget} WeakMap from refs to their owning target so
  *     chained calls (`child(ref, 'sub')`, `get(ref)`) recover routing.
- *
- * Every public function has a `target.kind` switch with explicit
- * branches — structure is parallel and grep-friendly.
  *
  * **Critical contract — error shape (locked by oracle observation
  * `packages/conformance/observations/rtdb/rtdb-rules-denied-error-code.json`):**
@@ -37,13 +32,9 @@
  * a custom subclass.
  */
 
-import type { FirebaseApp } from 'firebase/app';
-import * as fb from 'firebase/database';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import { SandboxContextImpl } from 'pyric/sandbox';
 
-// A PyricApp always wraps a sandbox. Direct FirebaseApp support remains a
-// temporary service-level production arm until the RTDB package migration.
 import { APP_TARGET, type PyricApp } from 'pyric/app';
 
 import { RtdbBackend } from './sandbox/backend.js';
@@ -68,7 +59,7 @@ import {
 // ─── Brand + routing ─────────────────────────────────────────────────
 
 /** Hidden brand on every {@link Database} handle. */
-export const TARGET_SYMBOL: unique symbol = Symbol('@pyric/rtdb/target');
+export const TARGET_SYMBOL: unique symbol = Symbol('pyric/database/target');
 
 type SandboxTarget = {
   kind: 'sandbox';
@@ -82,12 +73,7 @@ type SandboxLiveTarget = {
   sandbox: Sandbox;
   admin?: boolean;
 };
-type ProdTarget = { kind: 'prod'; db: fb.Database };
-type Target = SandboxTarget | SandboxLiveTarget | ProdTarget;
-
-function isSandboxKind(t: Target): t is SandboxTarget | SandboxLiveTarget {
-  return t.kind === 'sandbox' || t.kind === 'sandbox-live';
-}
+type Target = SandboxTarget | SandboxLiveTarget;
 
 /** Resolve the active identity for a sandbox-flavored target. */
 function authFor(t: SandboxTarget | SandboxLiveTarget): AuthState {
@@ -109,7 +95,7 @@ function targetOf(refOrDb: object): Target {
   const t = refToTarget.get(refOrDb);
   if (!t) {
     throw new TypeError(
-      '@pyric/rtdb: unrecognized reference — was it produced by a factory in this package?',
+      'pyric/database: unrecognized reference — was it produced by a factory in this package?',
     );
   }
   return t;
@@ -131,9 +117,7 @@ export interface Database {
  * `null` for the root ref. `parent` is the ref one segment up
  * (`null` at root). `root` is always the root ref.
  *
- * `toString()` returns the absolute URL — for sandbox refs we
- * stub a `sandbox://` URL; for prod refs `firebase/database`
- * provides the real URL.
+ * `toString()` returns a stable `sandbox://` URL.
  */
 export interface DatabaseReference {
   readonly key: string | null;
@@ -222,10 +206,10 @@ export type Unsubscribe = () => void;
  * Distinct from `TARGET_SYMBOL`; this brand is only used to dispatch
  * `get` / `onValue` between plain refs and query-wrapped refs.
  */
-export const QUERY_SYMBOL: unique symbol = Symbol('@pyric/rtdb/query');
+export const QUERY_SYMBOL: unique symbol = Symbol('pyric/database/query');
 
 /** Hidden brand on every {@link QueryConstraint}. */
-const CONSTRAINT_SYMBOL: unique symbol = Symbol('@pyric/rtdb/query-constraint');
+const CONSTRAINT_SYMBOL: unique symbol = Symbol('pyric/database/query-constraint');
 
 /**
  * RTDB-shaped Query — a ref + an immutable constraint chain. Mirrors
@@ -241,8 +225,6 @@ export interface Query {
   toString(): string;
   /** Internal — the constraint chain that built this query (sandbox path). */
   readonly _spec: QuerySpec;
-  /** Internal — the prod-side fb.Query (when this query routes to prod). */
-  readonly _fbQuery?: fb.Query;
   readonly [QUERY_SYMBOL]: true;
 }
 
@@ -281,57 +263,13 @@ function isQuery(v: object): v is Query {
   return QUERY_SYMBOL in v;
 }
 
-/** Internal-only: bridge our constraint into the prod-side fb constraint. */
-function toFbConstraint(c: QueryConstraint): fb.QueryConstraint {
-  switch (c.type) {
-    case 'orderByChild': {
-      const ic = c[CONSTRAINT_SYMBOL] as { kind: 'orderBy'; spec: { kind: 'child'; path: string } };
-      return fb.orderByChild(ic.spec.path);
-    }
-    case 'orderByKey':
-      return fb.orderByKey();
-    case 'orderByValue':
-      return fb.orderByValue();
-    case 'startAt': {
-      const ic = c[CONSTRAINT_SYMBOL] as { kind: 'bound'; bound: { value: unknown; key?: string } };
-      return fb.startAt(ic.bound.value as never, ic.bound.key);
-    }
-    case 'startAfter': {
-      const ic = c[CONSTRAINT_SYMBOL] as { kind: 'bound'; bound: { value: unknown; key?: string } };
-      return fb.startAfter(ic.bound.value as never, ic.bound.key);
-    }
-    case 'endAt': {
-      const ic = c[CONSTRAINT_SYMBOL] as { kind: 'bound'; bound: { value: unknown; key?: string } };
-      return fb.endAt(ic.bound.value as never, ic.bound.key);
-    }
-    case 'endBefore': {
-      const ic = c[CONSTRAINT_SYMBOL] as { kind: 'bound'; bound: { value: unknown; key?: string } };
-      return fb.endBefore(ic.bound.value as never, ic.bound.key);
-    }
-    case 'equalTo': {
-      const ic = c[CONSTRAINT_SYMBOL] as { kind: 'bound'; bound: { value: unknown; key?: string } };
-      return fb.equalTo(ic.bound.value as never, ic.bound.key);
-    }
-    case 'limitToFirst': {
-      const ic = c[CONSTRAINT_SYMBOL] as { kind: 'limit'; n: number };
-      return fb.limitToFirst(ic.n);
-    }
-    case 'limitToLast': {
-      const ic = c[CONSTRAINT_SYMBOL] as { kind: 'limit'; n: number };
-      return fb.limitToLast(ic.n);
-    }
-  }
-}
-
 // ─── Constructors ────────────────────────────────────────────────────
 
 /**
- * Build a Database handle. Three overloads dispatch by input shape:
+ * Build a sandbox Database handle:
  *
  *   - `SandboxContext` → sandbox-backed, frozen identity.
  *   - `Sandbox` → sandbox-backed, live identity (per-op `currentUser`).
- *   - `FirebaseApp` → prod-backed (delegates to `firebase/database`).
- *
  * @example
  * ```ts
  * import { initializeSandbox } from 'pyric/sandbox';
@@ -346,10 +284,9 @@ function toFbConstraint(c: QueryConstraint): fb.QueryConstraint {
  */
 export function getDatabase(ctx: SandboxContext): Database;
 export function getDatabase(sandbox: Sandbox): Database;
-export function getDatabase(app: FirebaseApp): Database;
 export function getDatabase(app: PyricApp): Database;
 export function getDatabase(
-  target: SandboxContext | Sandbox | FirebaseApp | PyricApp,
+  target: SandboxContext | Sandbox | PyricApp,
 ): Database {
   // Package resolution already selected the sandbox mirror before this code
   // loaded, so a PyricApp can only unwrap to its Sandbox.
@@ -366,9 +303,7 @@ export function getDatabase(
     const t: SandboxLiveTarget = { kind: 'sandbox-live', backend, sandbox: target };
     return { [TARGET_SYMBOL]: t };
   }
-  const fbDb = fb.getDatabase(target);
-  const t: ProdTarget = { kind: 'prod', db: fbDb };
-  return { [TARGET_SYMBOL]: t };
+  throw packageResolutionError();
 }
 
 /**
@@ -383,18 +318,29 @@ export function getAdminDatabase(target: Sandbox | SandboxContext | PyricApp): D
   if (isPyricApp(target)) {
     return getAdminDatabase(target.sandbox);
   }
-  const sandbox = isSandboxContext(target) ? target.sandbox : target;
+  const sandbox = isSandboxContext(target)
+    ? target.sandbox
+    : isSandbox(target)
+      ? target
+      : undefined;
+  if (sandbox === undefined) throw packageResolutionError();
   const backend = getOrCreateBackend(sandbox);
   const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true };
   return { [TARGET_SYMBOL]: t };
 }
 
+function packageResolutionError(): TypeError {
+  return new TypeError(
+    'pyric/database is a sandbox-only mirror. Package resolution must leave firebase/database unchanged for production; activate pyric dev or @pyric/cli/register before importing to select the sandbox.',
+  );
+}
+
 /**
- * Brand-based test for the {@link PyricApp} overload. Direct Sandbox,
- * FirebaseApp, and SandboxContext handles never carry the app-wrapper symbol.
+ * Brand-based test for the {@link PyricApp} overload. Direct Sandbox and
+ * SandboxContext handles never carry the app-wrapper symbol.
  */
 function isPyricApp(
-  target: SandboxContext | Sandbox | FirebaseApp | PyricApp,
+  target: SandboxContext | Sandbox | PyricApp,
 ): target is PyricApp {
   return (
     target !== null
@@ -404,13 +350,13 @@ function isPyricApp(
 }
 
 function isSandboxContext(
-  target: SandboxContext | Sandbox | FirebaseApp,
+  target: SandboxContext | Sandbox | PyricApp,
 ): target is SandboxContext {
   return target instanceof SandboxContextImpl;
 }
 
 function isSandbox(
-  target: SandboxContext | Sandbox | FirebaseApp,
+  target: SandboxContext | Sandbox | PyricApp,
 ): target is Sandbox {
   if (target === null || typeof target !== 'object') return false;
   const o = target as unknown as Record<string, unknown>;
@@ -427,23 +373,12 @@ function isSandbox(
 /**
  * Build a {@link DatabaseReference} at `path` (default root).
  *
- * Sandbox: returns a lightweight ref object owning its absolute path.
- * Prod: delegates to `firebase/database`'s `ref(db, path)` and tags
- * the returned ref so chained ops route correctly.
- *
  * Path normalisation: leading + trailing slashes are stripped;
  * empty path / `'/'` becomes the root.
  */
 export function ref(db: Database, path?: string): DatabaseReference {
   const target = targetOf(db);
-  if (isSandboxKind(target)) {
-    return buildSandboxRef(target, path ?? '/');
-  }
-  const r = fb.ref(target.db, path);
-  // Tag so subsequent free-function calls (child, get, set, …)
-  // recover routing without inspecting the ref shape.
-  tag(r as unknown as object, target);
-  return r as unknown as DatabaseReference;
+  return buildSandboxRef(target, path ?? '/');
 }
 
 /**
@@ -455,13 +390,8 @@ export function ref(db: Database, path?: string): DatabaseReference {
  */
 export function child(parent: DatabaseReference, path: string): DatabaseReference {
   const target = targetOf(parent as unknown as object);
-  if (isSandboxKind(target)) {
-    const absSegs = [...pathSegments(parent._path), ...pathSegments(path)];
-    return buildSandboxRef(target, joinPath(absSegs));
-  }
-  const r = fb.child(parent as unknown as fb.DatabaseReference, path);
-  tag(r as unknown as object, target);
-  return r as unknown as DatabaseReference;
+  const absSegs = [...pathSegments(parent._path), ...pathSegments(path)];
+  return buildSandboxRef(target, joinPath(absSegs));
 }
 
 /**
@@ -500,9 +430,8 @@ function buildSandboxRef(
  * `get(ref)` — one-shot read at the ref's path. Resolves to a
  * `DataSnapshot`-shaped object.
  *
- * Sandbox: runs through the rule engine; denial throws the plain-`Error`
- * shape locked by the oracle. Prod: delegates to `firebase/database`'s
- * `get(ref)` and wraps the returned snapshot in our minimal shape.
+ * Runs through the sandbox rule engine; denial throws the plain-`Error`
+ * shape locked by the oracle.
  *
  * Absent path → `snap.val() === null && snap.exists() === false`.
  * Matches the SDK's `DataSnapshot.val()` contract.
@@ -512,27 +441,17 @@ export async function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
   if (isQuery(r as object)) {
     const q = r as Query;
     const target = targetOf(q.ref as unknown as object);
-    if (isSandboxKind(target)) {
-      const rows = target.admin
-        ? target.backend.adminGetQuery(q.ref._path, q._spec)
-        : target.backend.getQuery(authFor(target), q.ref._path, q._spec);
-      return buildSandboxQuerySnap(target, q.ref, rows);
-    }
-    // Prod — q._fbQuery was built via fb.query() at construction time.
-    const fbQ = q._fbQuery ?? (q.ref as unknown as fb.Query);
-    const snap = await fb.get(fbQ);
-    return wrapFbSnap(snap, target, q.ref);
+    const rows = target.admin
+      ? target.backend.adminGetQuery(q.ref._path, q._spec)
+      : target.backend.getQuery(authFor(target), q.ref._path, q._spec);
+    return buildSandboxQuerySnap(target, q.ref, rows);
   }
   const ref0 = r as DatabaseReference;
   const target = targetOf(ref0 as unknown as object);
-  if (isSandboxKind(target)) {
-    const val = target.admin
-      ? target.backend.adminGet(ref0._path)
-      : target.backend.get(authFor(target), ref0._path);
-    return buildSandboxSnap(target, ref0, val);
-  }
-  const snap = await fb.get(ref0 as unknown as fb.DatabaseReference);
-  return wrapFbSnap(snap, target, ref0);
+  const val = target.admin
+    ? target.backend.adminGet(ref0._path)
+    : target.backend.get(authFor(target), ref0._path);
+  return buildSandboxSnap(target, ref0, val);
 }
 
 /**
@@ -540,21 +459,15 @@ export async function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
  * deletes (matches the RTDB invariant — locked by oracle observation
  * `rtdb-remove-vs-set-null.json`).
  *
- * `serverTimestamp()` sentinels are resolved at write time on the
- * sandbox side; the prod side relies on `firebase/database`'s wire
- * encoder.
+ * `serverTimestamp()` sentinels are resolved at write time.
  */
 export async function set(r: DatabaseReference, value: unknown): Promise<void> {
   const target = targetOf(r as unknown as object);
-  if (isSandboxKind(target)) {
-    if (target.admin) {
-      target.backend.adminSet(r._path, value as JsonValue);
-    } else {
-      target.backend.set(authFor(target), r._path, value as JsonValue);
-    }
-    return;
+  if (target.admin) {
+    target.backend.adminSet(r._path, value as JsonValue);
+  } else {
+    target.backend.set(authFor(target), r._path, value as JsonValue);
   }
-  await fb.set(r as unknown as fb.DatabaseReference, value);
 }
 
 /**
@@ -575,19 +488,15 @@ export async function update(
   values: Record<string, unknown>,
 ): Promise<void> {
   const target = targetOf(r as unknown as object);
-  if (isSandboxKind(target)) {
-    if (target.admin) {
-      target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
-    } else {
-      target.backend.update(
-        authFor(target),
-        r._path,
-        values as Record<string, JsonValue>,
-      );
-    }
-    return;
+  if (target.admin) {
+    target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
+  } else {
+    target.backend.update(
+      authFor(target),
+      r._path,
+      values as Record<string, JsonValue>,
+    );
   }
-  await fb.update(r as unknown as fb.DatabaseReference, values);
 }
 
 /**
@@ -599,15 +508,11 @@ export async function update(
  */
 export async function remove(r: DatabaseReference): Promise<void> {
   const target = targetOf(r as unknown as object);
-  if (isSandboxKind(target)) {
-    if (target.admin) {
-      target.backend.adminRemove(r._path);
-    } else {
-      target.backend.remove(authFor(target), r._path);
-    }
-    return;
+  if (target.admin) {
+    target.backend.adminRemove(r._path);
+  } else {
+    target.backend.remove(authFor(target), r._path);
   }
-  await fb.remove(r as unknown as fb.DatabaseReference);
 }
 
 /**
@@ -625,30 +530,23 @@ export async function remove(r: DatabaseReference): Promise<void> {
  */
 export function push(r: DatabaseReference, value?: unknown): ThenableReference {
   const target = targetOf(r as unknown as object);
-  if (isSandboxKind(target)) {
-    // Mint the key SYNCHRONOUSLY (client-side, no rule check) so the
-    // returned ref + `.key` are available even if the optional write is
-    // later denied (DB-B7). The write is deferred onto the thenable's
-    // promise — a rules denial REJECTS the promise rather than throwing
-    // here and discarding the key.
-    const key = target.backend.mintKey();
-    const childPath = joinPath([...pathSegments(r._path), key]);
-    // Two refs (mirroring upstream): `thenablePushRef` gets then/catch and
-    // is returned; `pushRef` is a SEPARATE plain ref used as the promise's
-    // fulfilled value — so resolving the promise doesn't re-enter the
-    // thenable's own `then` (the self-reference unwrap trap).
-    const thenablePushRef = buildSandboxRef(target, childPath);
-    const pushRef = buildSandboxRef(target, childPath);
-    const promise = value === undefined
-      ? Promise.resolve(pushRef)
-      : set(pushRef, value).then(() => pushRef);
-    return makeThenable(thenablePushRef, promise);
-  }
-  const out = value === undefined
-    ? fb.push(r as unknown as fb.DatabaseReference)
-    : fb.push(r as unknown as fb.DatabaseReference, value);
-  tag(out as unknown as object, target);
-  return out as unknown as ThenableReference;
+  // Mint the key SYNCHRONOUSLY (client-side, no rule check) so the
+  // returned ref + `.key` are available even if the optional write is
+  // later denied (DB-B7). The write is deferred onto the thenable's
+  // promise — a rules denial REJECTS the promise rather than throwing
+  // here and discarding the key.
+  const key = target.backend.mintKey();
+  const childPath = joinPath([...pathSegments(r._path), key]);
+  // Two refs (mirroring upstream): `thenablePushRef` gets then/catch and
+  // is returned; `pushRef` is a SEPARATE plain ref used as the promise's
+  // fulfilled value — so resolving the promise doesn't re-enter the
+  // thenable's own `then` (the self-reference unwrap trap).
+  const thenablePushRef = buildSandboxRef(target, childPath);
+  const pushRef = buildSandboxRef(target, childPath);
+  const promise = value === undefined
+    ? Promise.resolve(pushRef)
+    : set(pushRef, value).then(() => pushRef);
+  return makeThenable(thenablePushRef, promise);
 }
 
 /**
@@ -670,8 +568,7 @@ function makeThenable(
 /**
  * Pre-mint a push key without writing. Used by callers that need the
  * key for a multi-path update (`update(rootRef, { [\`/users/${key}\`]: ... })`).
- * Sandbox-side: returns a freshly-minted key. Prod-side: same — the
- * `push(ref).key` pattern is the documented way.
+ * Returns a freshly-minted key.
  */
 export function pushKey(): string {
   return generatePushId();
@@ -729,56 +626,43 @@ export function onValue(
   if (isQuery(r as object)) {
     const q = r as Query;
     const target = targetOf(q.ref as unknown as object);
-    if (isSandboxKind(target)) {
-      return target.backend.onValue(
-        authFor(target),
-        q.ref._path,
-        (raw) => {
-          const snap = buildSandboxSnapFromRaw(target, q.ref, raw.val);
-          try {
-            cb(snap);
-          } catch {
-            // Listener throws are swallowed.
-          }
-        },
-        q._spec,
-      );
-    }
-    const fbQ = q._fbQuery ?? (q.ref as unknown as fb.Query);
-    const off = fb.onValue(fbQ, (snap) => {
-      cb(wrapFbSnap(snap, target, q.ref));
-    });
-    return off;
+    return target.backend.onValue(
+      authFor(target),
+      q.ref._path,
+      (raw) => {
+        const snap = buildSandboxSnapFromRaw(target, q.ref, raw.val);
+        try {
+          cb(snap);
+        } catch {
+          // Listener throws are swallowed.
+        }
+      },
+      q._spec,
+    );
   }
   const ref0 = r as DatabaseReference;
   const target = targetOf(ref0 as unknown as object);
-  if (isSandboxKind(target)) {
-    const wrapper = (raw: { val: JsonValue; key: string | null }): void => {
-      const snap = buildSandboxSnapFromRaw(target, ref0, raw.val);
-      try {
-        cb(snap);
-      } catch {
-        // Listener throws are swallowed — match `firebase/database`'s
-        // behavior where one observer's exception doesn't block others.
-      }
-    };
-    rememberWrapper(
-      target.backend,
-      ref0._path,
-      'value',
-      cb,
-      wrapper as unknown as (snap: { val: JsonValue; key: string }) => void,
-    );
-    const unsub = target.backend.onValue(authFor(target), ref0._path, wrapper);
-    return () => {
-      forgetWrapper(target.backend, ref0._path, 'value', cb);
-      unsub();
-    };
-  }
-  const off = fb.onValue(ref0 as unknown as fb.DatabaseReference, (snap) => {
-    cb(wrapFbSnap(snap, target, ref0));
-  });
-  return off;
+  const wrapper = (raw: { val: JsonValue; key: string | null }): void => {
+    const snap = buildSandboxSnapFromRaw(target, ref0, raw.val);
+    try {
+      cb(snap);
+    } catch {
+      // Listener throws are swallowed — match `firebase/database`'s
+      // behavior where one observer's exception doesn't block others.
+    }
+  };
+  rememberWrapper(
+    target.backend,
+    ref0._path,
+    'value',
+    cb,
+    wrapper as unknown as (snap: { val: JsonValue; key: string }) => void,
+  );
+  const unsub = target.backend.onValue(authFor(target), ref0._path, wrapper);
+  return () => {
+    forgetWrapper(target.backend, ref0._path, 'value', cb);
+    unsub();
+  };
 }
 
 /**
@@ -964,45 +848,25 @@ function onChildEvent(
   const baseRef = isQ ? (r as Query).ref : (r as DatabaseReference);
   const spec = isQ ? (r as Query)._spec : undefined;
   const target = targetOf(baseRef as unknown as object);
-  if (isSandboxKind(target)) {
-    const wrapper = (raw: { key: string; val: JsonValue }): void => {
-      // Synthesize a snapshot rooted at the child path so `snap.key`
-      // and `snap.val()` match the upstream `onChildAdded` snapshot
-      // shape (key = the child's key, val = the child's value).
-      const childRef = child(baseRef, raw.key);
-      const snap = buildSandboxSnapFromRaw(target, childRef, raw.val);
-      try {
-        cb(snap);
-      } catch {
-        // Listener throws are swallowed — match `firebase/database`'s
-        // behavior where one observer's exception doesn't block others.
-      }
-    };
-    rememberWrapper(target.backend, baseRef._path, event, cb, wrapper);
-    const unsub = target.backend.onChild(authFor(target), event, baseRef._path, wrapper, spec);
-    return () => {
-      forgetWrapper(target.backend, baseRef._path, event, cb);
-      unsub();
-    };
-  }
-  const handler = (snap: fb.DataSnapshot): void => {
-    cb(wrapFbSnap(snap, target, child(baseRef, snap.key ?? '')));
+  const wrapper = (raw: { key: string; val: JsonValue }): void => {
+    // Synthesize a snapshot rooted at the child path so `snap.key`
+    // and `snap.val()` match the upstream `onChildAdded` snapshot
+    // shape (key = the child's key, val = the child's value).
+    const childRef = child(baseRef, raw.key);
+    const snap = buildSandboxSnapFromRaw(target, childRef, raw.val);
+    try {
+      cb(snap);
+    } catch {
+      // Listener throws are swallowed — match `firebase/database`'s
+      // behavior where one observer's exception doesn't block others.
+    }
   };
-  // Prod: subscribe against the fb Query when one was built at construction
-  // time, else the plain fb ref.
-  const fbListenTarget = (isQ
-    ? ((r as Query)._fbQuery ?? (baseRef as unknown as fb.Query))
-    : (baseRef as unknown as fb.Query));
-  switch (event) {
-    case 'child_added':
-      return fb.onChildAdded(fbListenTarget, handler);
-    case 'child_changed':
-      return fb.onChildChanged(fbListenTarget, handler);
-    case 'child_removed':
-      return fb.onChildRemoved(fbListenTarget, handler);
-    case 'child_moved':
-      return fb.onChildMoved(fbListenTarget, handler);
-  }
+  rememberWrapper(target.backend, baseRef._path, event, cb, wrapper);
+  const unsub = target.backend.onChild(authFor(target), event, baseRef._path, wrapper, spec);
+  return () => {
+    forgetWrapper(target.backend, baseRef._path, event, cb);
+    unsub();
+  };
 }
 
 /**
@@ -1028,27 +892,19 @@ export function off(
   callback?: (snap: DataSnapshot) => void,
 ): void {
   const target = targetOf(r as unknown as object);
-  if (isSandboxKind(target)) {
-    if (callback !== undefined && eventType !== undefined) {
-      // Translate the user-supplied callback to the wrapper actually
-      // registered with the backend.
-      const wrapper = lookupWrapper(target.backend, r._path, eventType, callback);
-      if (wrapper !== undefined) {
-        target.backend.off(r._path, eventType, wrapper);
-        forgetWrapper(target.backend, r._path, eventType, callback);
-      }
-      // If no wrapper was found, the user-cb wasn't registered against
-      // this ref + eventType — no-throw, matches upstream behavior.
-      return;
+  if (callback !== undefined && eventType !== undefined) {
+    // Translate the user-supplied callback to the wrapper actually
+    // registered with the backend.
+    const wrapper = lookupWrapper(target.backend, r._path, eventType, callback);
+    if (wrapper !== undefined) {
+      target.backend.off(r._path, eventType, wrapper);
+      forgetWrapper(target.backend, r._path, eventType, callback);
     }
-    target.backend.off(r._path, eventType, undefined);
+    // If no wrapper was found, the user-cb wasn't registered against
+    // this ref + eventType — no-throw, matches upstream behavior.
     return;
   }
-  fb.off(
-    r as unknown as fb.DatabaseReference,
-    eventType as fb.EventType | undefined,
-    callback as ((snap: fb.DataSnapshot) => void) | undefined,
-  );
+  target.backend.off(r._path, eventType, undefined);
 }
 
 // ─── Queries (Tier 3) ────────────────────────────────────────────────
@@ -1057,8 +913,7 @@ export function off(
  * `query(ref, ...constraints)` — wrap a ref in an immutable
  * constraint chain. The resulting {@link Query} routes through
  * {@link get}/{@link onValue} and applies the ordering + filtering +
- * limit pipeline on the sandbox backend; on prod it delegates to
- * `firebase/database`'s `query()`.
+ * limit pipeline on the sandbox backend.
  *
  * Chaining is supported — `query(query(ref, orderByChild('x')),
  * limitToFirst(2))` folds both constraints into one spec.
@@ -1085,12 +940,10 @@ export function query(
   // Resolve base — could be a ref or a prior query (chaining).
   let baseRef: DatabaseReference;
   let baseSpec: QuerySpec;
-  let basePriorFbQuery: fb.Query | undefined;
   if (isQuery(refOrQuery as object)) {
     const prior = refOrQuery as Query;
     baseRef = prior.ref;
     baseSpec = prior._spec;
-    basePriorFbQuery = prior._fbQuery;
   } else {
     baseRef = refOrQuery as DatabaseReference;
     baseSpec = emptySpec();
@@ -1099,21 +952,9 @@ export function query(
   for (const c of constraints) {
     spec = applyConstraint(spec, c[CONSTRAINT_SYMBOL]);
   }
-  // Prod branch — chain into fb.query so the wire encoder + index
-  // checks happen in the upstream SDK exactly as a non-shim consumer
-  // would see them.
-  const target = targetOf(baseRef as unknown as object);
-  let fbQuery: fb.Query | undefined;
-  if (target.kind === 'prod') {
-    const fbBase = (basePriorFbQuery ?? (baseRef as unknown as fb.Query)) as fb.Query;
-    fbQuery = constraints.length === 0
-      ? fbBase
-      : fb.query(fbBase, ...constraints.map(toFbConstraint));
-  }
   const q: Query = {
     ref: baseRef,
     _spec: spec,
-    _fbQuery: fbQuery,
     [QUERY_SYMBOL]: true,
     toString() {
       return baseRef.toString();
@@ -1303,25 +1144,14 @@ export async function runTransaction<T>(
   options?: { applyLocally?: boolean },
 ): Promise<TransactionResult> {
   const target = targetOf(r as unknown as object);
-  if (isSandboxKind(target)) {
-    const result = target.backend.runTransaction(
-      authFor(target),
-      r._path,
-      transactionUpdate as (current: JsonValue) => JsonValue | undefined,
-      options,
-    );
-    const snap = buildSandboxSnapFromRaw(target, r, result.val);
-    return { committed: result.committed, snapshot: snap };
-  }
-  const fbResult = await fb.runTransaction(
-    r as unknown as fb.DatabaseReference,
-    transactionUpdate as (current: T | null) => T | undefined,
+  const result = target.backend.runTransaction(
+    authFor(target),
+    r._path,
+    transactionUpdate as (current: JsonValue) => JsonValue | undefined,
     options,
   );
-  return {
-    committed: fbResult.committed,
-    snapshot: wrapFbSnap(fbResult.snapshot, target, r),
-  };
+  const snap = buildSandboxSnapFromRaw(target, r, result.val);
+  return { committed: result.committed, snapshot: snap };
 }
 
 // ─── Sentinels ───────────────────────────────────────────────────────
@@ -1332,10 +1162,7 @@ export async function runTransaction<T>(
  * write — locked by the prod SDK's resolved-as-number contract
  * (oracle: `rtdb-servertimestamp-resolves.json`).
  *
- * Same shape across targets: the sandbox backend recognises the
- * marker; the prod backend's wire encoder does too. Agent code that
- * imports `serverTimestamp` from `@pyric/rtdb` works identically on
- * either target.
+ * The sandbox backend recognises the marker.
  */
 export function serverTimestamp(): ServerTimestampSentinel {
   return serverTimestampSentinel();
@@ -1347,10 +1174,8 @@ export function serverTimestamp(): ServerTimestampSentinel {
  * write's field. Starts from `0` when the field is absent or
  * non-numeric (oracle: `rtdb-modular-increment-from-missing.json`).
  *
- * Same shape across targets: the sandbox backend resolves it against the
- * field's prior value at write time; the prod backend's wire encoder
- * recognises the marker. Mirrors `firebase/database`'s `increment`
- * (`api/ServerValue.ts:38-44`).
+ * The sandbox backend resolves it against the field's prior value at write
+ * time. Mirrors `firebase/database`'s `increment` (`api/ServerValue.ts:38-44`).
  */
 export function increment(delta: number): IncrementSentinel {
   return incrementSentinel(delta);
@@ -1359,30 +1184,22 @@ export function increment(delta: number): IncrementSentinel {
 // ─── Emulator (no-op on sandbox) ─────────────────────────────────────
 
 /**
- * `connectDatabaseEmulator(db, host, port)` — point a prod handle at
- * a Firebase emulator. No-op on sandbox handles (the sandbox IS a
- * local emulator); the call is still accepted so consumer code that
- * does the wiring unconditionally compiles against both targets.
+ * `connectDatabaseEmulator(db, host, port)` is an accepted no-op because the
+ * selected backend already is the local sandbox.
  */
 export function connectDatabaseEmulator(
-  db: Database,
-  host: string,
-  port: number,
-  // The modular SDK's signature lets you pass an optional namespace
-  // (multi-DB projects). We accept-and-forward.
-  options?: { mockUserToken?: string | fb.EmulatorMockTokenOptions },
+  _db: Database,
+  _host: string,
+  _port: number,
+  _options?: { mockUserToken?: string | Record<string, unknown> },
 ): void {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) return;
-  fb.connectDatabaseEmulator(target.db, host, port, options);
+  // Accepted no-op.
 }
 
 // ─── Low-hanging-fruit exports (issue #149) ─────────────────────────
 //
 // Honest aliases / honest no-ops for `firebase/database` free functions
-// that a real app imports at module load. Same-shape across targets so
-// consumer code that wires them unconditionally compiles + runs against
-// both the sandbox and a prod handle.
+// that a real app imports at module load.
 
 /**
  * `goOffline(db)` — disconnect the client from the RTDB backend.
@@ -1391,25 +1208,19 @@ export function connectDatabaseEmulator(
  * sandbox to toggle, so honest behavior is to accept the call and do
  * nothing (we deliberately do NOT simulate a disconnect — pending
  * writes, listeners, and `get()` all keep working exactly as before).
- * Forwards to `firebase/database`'s `goOffline` on prod handles.
  */
-export function goOffline(db: Database): void {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) return;
-  fb.goOffline(target.db);
+export function goOffline(_db: Database): void {
+  // Accepted no-op.
 }
 
 /**
  * `goOnline(db)` — reconnect the client to the RTDB backend.
  *
  * No-op on sandbox handles (there is no connection to reopen — see
- * {@link goOffline}). Forwards to `firebase/database`'s `goOnline` on
- * prod handles.
+ * {@link goOffline}).
  */
-export function goOnline(db: Database): void {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) return;
-  fb.goOnline(target.db);
+export function goOnline(_db: Database): void {
+  // Accepted no-op.
 }
 
 /**
@@ -1418,9 +1229,7 @@ export function goOnline(db: Database): void {
  *
  * No-op: transport selection is meaningless to the in-process/worker
  * sandbox, which never opens a real socket. Accepted so init code that
- * calls it unconditionally compiles + runs. This is a process-global
- * `firebase/database` setter (no `db` handle), so there is no prod
- * handle to forward through from here.
+ * calls it unconditionally compiles + runs.
  */
 export function forceLongPolling(): void {
   // Accepted no-op — see docstring.
@@ -1465,39 +1274,31 @@ export function enableLogging(
  * the path component is honored.
  */
 export function refFromURL(db: Database, url: string): DatabaseReference {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) {
-    // Strip the scheme + host, keep the path. `new URL` handles the
-    // `https://<ns>.firebaseio.com/a/b` and `.firebasedatabase.app`
-    // hosts alike; the query string / hash (if any) is dropped —
-    // RTDB paths carry neither.
-    let path: string;
-    try {
-      path = new URL(url).pathname;
-    } catch {
-      throw new Error(
-        `@pyric/rtdb: refFromURL received a value that is not an absolute URL: ${url}`,
-      );
-    }
-    return ref(db, path);
+  // Strip the scheme + host, keep the path. `new URL` handles the
+  // `https://<ns>.firebaseio.com/a/b` and `.firebasedatabase.app`
+  // hosts alike; the query string / hash (if any) is dropped —
+  // RTDB paths carry neither.
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    throw new Error(
+      `pyric/database: refFromURL received a value that is not an absolute URL: ${url}`,
+    );
   }
-  const r = fb.refFromURL(target.db, url);
-  tag(r as unknown as object, target);
-  return r as unknown as DatabaseReference;
+  return ref(db, path);
 }
 
 // ─── Sandbox-only ops ───────────────────────────────────────────────
 //
 // Mirrors `pyric/firestore`'s `sandbox` namespace — explicit
-// per-package sandbox lifecycle that the prod target doesn't ship.
-// Calling against a prod handle throws.
+// per-package sandbox lifecycle.
 
 export const sandbox = {
   /**
    * Replace deployed rules. Pass `null` to clear (sandbox returns to
    * default-allow). Rules are evaluated through the existing
-   * `@pyric/rtdb` simulator — same engine as `simulate()` /
-   * `rtdb_simulate_access`.
+   * RTDB rules simulator — the same engine used by the rules tooling.
    *
    * @example
    * ```ts
@@ -1511,9 +1312,6 @@ export const sandbox = {
    */
   setRules(db: Database, rulesJson: { rules: Record<string, unknown> } | null): void {
     const target = targetOf(db);
-    if (!isSandboxKind(target)) {
-      throw new Error('sandbox.setRules is sandbox-only.');
-    }
     target.backend.setRules(rulesJson);
   },
 
@@ -1524,9 +1322,6 @@ export const sandbox = {
    */
   setData(db: Database, data: Record<string, unknown>): void {
     const target = targetOf(db);
-    if (!isSandboxKind(target)) {
-      throw new Error('sandbox.setData is sandbox-only.');
-    }
     target.backend.setData(data as Record<string, JsonValue>);
   },
 
@@ -1534,9 +1329,6 @@ export const sandbox = {
    *  object; may be a primitive when the root holds one (DB-B13). */
   snapshotState(db: Database): JsonValue {
     const target = targetOf(db);
-    if (!isSandboxKind(target)) {
-      throw new Error('sandbox.snapshotState is sandbox-only.');
-    }
     return target.backend.snapshotState();
   },
 };
@@ -1669,38 +1461,7 @@ function buildSandboxQuerySnap(
   };
 }
 
-/**
- * Adapt a `firebase/database` `DataSnapshot` to our minimal interface.
- *
- * The fb snap already has all the methods our `DataSnapshot` shape
- * promises; we just need a `ref` that routes through our `Database`
- * handle's target on subsequent calls. Returning `fbSnap` unchanged
- * works for everything except the ref — the snap's `.ref` is an
- * `fb.DatabaseReference` that hasn't been tagged. Tag it.
- */
-function wrapFbSnap(
-  fbSnap: fb.DataSnapshot,
-  target: Target,
-  refForSnap: DatabaseReference,
-): DataSnapshot {
-  // The fb snap's `.ref` is the same `fb.DatabaseReference` semantically
-  // identical to what we built in `get(r)`. Tag it so chained ops
-  // through `snap.ref` route correctly.
-  tag(fbSnap.ref as unknown as object, target);
-  return new Proxy(fbSnap as unknown as DataSnapshot, {
-    get(t, prop) {
-      if (prop === 'ref') return refForSnap;
-      // Forward through to the fb snap for everything else; bind
-      // methods so `this` stays the fb snap (it relies on private
-      // state).
-      const v = (t as unknown as Record<string | symbol, unknown>)[prop];
-      if (typeof v === 'function') return (v as (...a: unknown[]) => unknown).bind(t);
-      return v;
-    },
-  });
-}
-
 // ─── Type re-exports ─────────────────────────────────────────────────
 
-export type { Sandbox, SandboxContext, AuthState, FirebaseApp };
+export type { Sandbox, SandboxContext, AuthState };
 export type { JsonValue };

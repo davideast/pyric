@@ -5,12 +5,12 @@ import {
   getDatabase,
   ref,
   remove,
-  replay,
   runTransaction,
   set,
   update,
   sandbox as rtdbSandbox,
 } from '../../src/database/index.js';
+import { replay } from '../../src/rules/internal/rtdb.js';
 
 const ALLOW_ALL = { rules: { '.read': true, '.write': true } };
 const DENY_ALL = { rules: { '.read': false, '.write': false } };

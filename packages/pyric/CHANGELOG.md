@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Breaking: `pyric/database` is the canonical sandbox-only mirror
+
+- `pyric/database` now exports only the Firebase-shaped modular Database
+  surface and sandbox-specific extensions. It no longer exports the legacy
+  production host, REST handlers, stateful `getRtdbTools` resolver, or agent
+  tool factories.
+- The duplicate `pyric/database/modular` subpath is removed. Import the mirror
+  from `pyric/database`.
+- Direct mirror calls reject real Firebase apps. Package resolution owns the
+  backend swap: inactive production code imports `firebase/database`, while
+  Pyric activation maps that canonical import to the sandbox mirror.
+
 ### Added: local Realtime Database inspection
 
 - `rtdbRules({ rules: ... }).simulate(cases)` now evaluates compiled RTDB

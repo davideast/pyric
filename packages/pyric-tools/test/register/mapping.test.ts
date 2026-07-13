@@ -32,7 +32,7 @@ describe('mapFirebaseSpecifier', () => {
   });
 
   it('maps nested subpaths verbatim', () => {
-    expect(mapFirebaseSpecifier('firebase/database/modular')).toBe('pyric/database/modular');
+    expect(mapFirebaseSpecifier('firebase/messaging/sw')).toBe('pyric/messaging/sw');
   });
 
   it('leaves non-Firebase specifiers untouched', () => {

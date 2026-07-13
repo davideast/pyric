@@ -42,10 +42,6 @@
       "types": "./dist/database/index.d.ts",
       "import": "./dist/database/index.js"
     },
-    "./database/modular": {
-      "types": "./dist/database/modular.d.ts",
-      "import": "./dist/database/modular.js"
-    },
     "./storage": {
       "types": "./dist/storage/index.d.ts",
       "import": "./dist/storage/index.js"

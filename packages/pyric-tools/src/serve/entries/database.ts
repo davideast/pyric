@@ -5,8 +5,8 @@
  * and the Playground. This entry gives served apps the same common modular SDK
  * surface while the in-page fallback delegates to `pyric/database`.
  */
-import * as ip from 'pyric/database/modular';
-import { getDatabase as pyricGetDatabase } from 'pyric/database/modular';
+import * as ip from 'pyric/database';
+import { getDatabase as pyricGetDatabase } from 'pyric/database';
 import {
   rtdbChild,
   rtdbConnectDatabaseEmulator,

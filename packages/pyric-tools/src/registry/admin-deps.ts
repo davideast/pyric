@@ -12,7 +12,7 @@ import { initializeApp as initializeClientApp, initializeServerApp } from 'fireb
 import { getAuth as getClientAuth, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore as getClientFirestore } from 'firebase/firestore';
 import { getDatabase as getClientDatabase } from 'firebase/database';
-import { initializeDatabaseApp, type RtdbHost } from 'pyric/database';
+import { initializeDatabaseApp, type RtdbHost } from 'pyric/rules/internal/rtdb';
 import type { ProjectScope } from '../credentials/core/types.js';
 import { projectScopeFromAdminApp } from '../credentials/node/admin-app-scope.js';
 import type { AdminAppDeps } from './compose.js';

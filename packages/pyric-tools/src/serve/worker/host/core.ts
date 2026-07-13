@@ -44,7 +44,7 @@ import {
   getDatabase as pyricGetDatabase,
   getAdminDatabase as pyricGetAdminDatabase,
   type Database,
-} from 'pyric/database/modular';
+} from 'pyric/database';
 import type { AuthLens, EventProvenance } from 'pyric/sandbox';
 
 import type {

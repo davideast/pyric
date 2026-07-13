@@ -168,7 +168,7 @@ import {
   RtdbMapper,
   type RtdbIR,
   type SimulationInput,
-} from 'pyric/database';
+} from 'pyric/rules/internal/rtdb';
 
 // ─── Setup ────────────────────────────────────────────────────────────
 

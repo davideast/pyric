@@ -21,7 +21,7 @@ import {
   update as updateRtdb,
   type Database,
   type QueryConstraint as RtdbQueryConstraint,
-} from "pyric/database/modular";
+} from "pyric/database";
 import {
   collection,
   deleteDoc,

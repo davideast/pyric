@@ -2,7 +2,7 @@
  * Empirical check: RTDB writes reach the Home activity feed.
  *
  * These tests do NOT hand-craft event shapes. They run real RTDB writes
- * through the SAME `pyric/database/modular` handles the served worker's
+ * through the SAME `pyric/database` handles the served worker's
  * `rtdb.set` handler resolves (`serve/worker/host.ts` → `lensRtdb`):
  *
  *   - app-session / `as` / anon lens → `getDatabase(...)` → the rule-gated
@@ -24,7 +24,7 @@ import {
   ref,
   sandbox as rtdbSandbox,
   set,
-} from 'pyric/database/modular';
+} from 'pyric/database';
 import { toActivityRow, type ActivityRow } from './activity.js';
 
 /** Run `write` on a fresh sandbox and return ONLY the events it emitted. */

@@ -74,7 +74,7 @@
  *         channel's RTDB value subscription; other event types still
  *         throw "not implemented").
  *       - `update()` relays to the worker's full multi-path update
- *         (`pyric/database/modular` semantics) rather than the local
+ *         (`pyric/database` semantics) rather than the local
  *         arm's shallow per-key merge.
  *       - Server-side writes run through the real worker RTDB backend,
  *         so they emit `SandboxEvent`s into the unified stream (visible
@@ -941,7 +941,7 @@ function buildRemoteRef(
     },
 
     /** Relays `rtdb.update` — the worker applies the FULL multi-path
-     *  update semantics (`pyric/database/modular`), an upgrade over the
+     *  update semantics (`pyric/database`), an upgrade over the
      *  local arm's shallow per-key merge. `null` values delete. */
     async update(values: object): Promise<void> {
       if (values === null || typeof values !== 'object') {
