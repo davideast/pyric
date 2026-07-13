@@ -110,6 +110,13 @@ jobs:
         # Runs after the build: the derivation loads the built pyric/* packages.
         run: bun run compat:assurance:check
 
+      - name: Agent tool exposure contract
+        # Every tool visible through the default MCP bridge, Playground agent,
+        # or composed CLI registry must have an explicit exposure decision.
+        # Additions cannot silently appear on one surface, and removals make
+        # their annotations stale until the contract is updated deliberately.
+        run: bun run tool:parity:check
+
       - name: Compat coverage gate (surface + behavior %, regression-only)
         # Runs packages/conformance/src/coverage.ts, which combines surface-census.ts
         # (mirrored SDK exports / SDK exports) and the compat ledger

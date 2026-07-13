@@ -29,7 +29,7 @@ import {
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import { buildMcpServer } from './mcp.js';
-import { getSandboxToolMetadata, getRulesToolHandlers } from './tool-metadata.js';
+import { getDefaultMcpToolSurface } from './mcp-contract.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
 
 /** Where the headless sandbox snapshot is persisted (relative to the project
@@ -44,10 +44,7 @@ export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
  */
 export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: LocalBridgeOptions) {
   const bridge = createLocalBridge(sandbox, opts);
-  return buildMcpServer(bridge, {
-    forwarded: getSandboxToolMetadata(),
-    inProcess: getRulesToolHandlers(),
-  });
+  return buildMcpServer(bridge, getDefaultMcpToolSurface());
 }
 
 /**
