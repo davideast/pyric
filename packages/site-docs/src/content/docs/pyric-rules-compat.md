@@ -3,11 +3,17 @@ title: "pyric/rules compatibility matrix"
 navLabel: "Rules"
 group: "Compatibility"
 section: ""
-order: 8006
+order: 8007
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 # `pyric/rules` compatibility matrix
+
+> **Surface coverage:** native (no upstream Firebase public API — measured against pyric's own surface)
+>
+> **Fidelity:** 86.2% (50 of 58 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
 Rules is a NATIVE conformance surface: there is no `firebase/rules` module to
 mirror, so this contract is NOT measured against an upstream SDK. It is measured
@@ -238,7 +244,7 @@ corpus lives at `packages/conformance/rules-corpus/{firestore,storage,rtdb}/`.
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">1</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>auth != null</code> gate on <code>.read</code>/<code>.write</code> — authed ops allow, signed-out ops deny</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-rtdb-r1-auth-only</code> — production verdicts captured by deploy-observe-restore against the live oracle database (RTDB has no server-side rules test API), replayed verdict-for-verdict against the in-process simulator by <code>packages/pyric/test/database/rules-conformance.test.ts</code>; all 4 cases match production.</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>oracle:rules-rtdb-r1-auth-only</code> — production verdicts captured by deploy-observe-restore against the live oracle database (RTDB has no server-side rules test API), replayed verdict-for-verdict against the in-process simulator by <code>packages/pyric/test/rules/rtdb/rules-conformance.test.ts</code>; all 4 cases match production.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">2</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>$uid</code> path-variable ownership (<code>$uid === auth.uid</code>) — the owner path allows, a foreign uid and an anonymous request deny</span></summary>

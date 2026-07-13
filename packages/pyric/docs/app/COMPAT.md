@@ -2,6 +2,12 @@
 
 # `pyric/app` compatibility matrix
 
+> **Surface coverage:** 39.1% of Firebase's public exports · 90% of what pyric intends to mirror
+>
+> **Fidelity:** 93.3% (14 of 15 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
+
 The single readable contract for "what the `pyric/app` initialization surface
 guarantees vs the production `firebase/app` client SDK." `pyric/app` is the
 entry point every user hits first: `initializeApp`, the name-keyed app registry

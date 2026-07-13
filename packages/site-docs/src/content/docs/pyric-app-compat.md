@@ -3,11 +3,17 @@ title: "pyric/app compatibility matrix"
 navLabel: "App"
 group: "Compatibility"
 section: ""
-order: 8001
+order: 8002
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 # `pyric/app` compatibility matrix
+
+> **Surface coverage:** 39.1% of Firebase's public exports · 90% of what pyric intends to mirror
+>
+> **Fidelity:** 93.3% (14 of 15 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
 The single readable contract for "what the `pyric/app` initialization surface
 guarantees vs the production `firebase/app` client SDK." `pyric/app` is the

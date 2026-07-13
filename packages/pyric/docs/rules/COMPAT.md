@@ -2,6 +2,12 @@
 
 # `pyric/rules` compatibility matrix
 
+> **Surface coverage:** native (no upstream Firebase public API — measured against pyric's own surface)
+>
+> **Fidelity:** 86.2% (50 of 58 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
+
 Rules is a NATIVE conformance surface: there is no `firebase/rules` module to
 mirror, so this contract is NOT measured against an upstream SDK. It is measured
 two ways. The claimable API is the public export set of `pyric/rules` (plus the

@@ -85,8 +85,6 @@ export const ASSURANCE_ENGINE_CAPABILITIES: readonly GeneratedAssuranceCapabilit
       {"kind":"registry-row","id":"auth#15","verdict":"supported","surface":"auth","status":"conforms","rulesEngineSurface":false},
       {"kind":"registry-row","id":"auth#16","verdict":"supported","surface":"auth","status":"conforms","rulesEngineSurface":false},
       {"kind":"registry-row","id":"auth#69","verdict":"supported","surface":"auth","status":"conforms","rulesEngineSurface":false},
-      {"kind":"registry-row","id":"auth#63","verdict":"supported","surface":"auth","status":"conforms","rulesEngineSurface":false},
-      {"kind":"registry-row","id":"auth#73","verdict":"supported","surface":"auth","status":"conforms","rulesEngineSurface":false},
       {"kind":"registry-row","id":"auth#75","verdict":"supported","surface":"auth","status":"conforms","rulesEngineSurface":false},
     ],
   },

@@ -3,11 +3,17 @@ title: "pyric/firestore compatibility matrix"
 navLabel: "Firestore"
 group: "Compatibility"
 section: ""
-order: 8002
+order: 8003
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 # `pyric/firestore` compatibility matrix
+
+> **Surface coverage:** 55.5% of Firebase's public exports · 63.5% of what pyric intends to mirror
+>
+> **Fidelity:** 87.6% (141 of 161 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
 The single readable contract for what the sandbox mirror guarantees compared
 with the production `firebase/firestore` SDK.
@@ -764,31 +770,6 @@ resolution leaves Firebase's production implementations unchanged.
 <summary class="compat-line"><span class="compat-num">150</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Fires the callback once the current snapshot-delivery microtask queue settles — the closest honest approximation of "every active listener has delivered its latest state" available without a true cross-listener sync signal. Not scoped to real server round-trips like the real SDK's guarantee; scoped to local delivery only</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div>
 <div class="compat-note">approximated from local snapshot-delivery settle, not a true global in-sync signal</div></div>
-</details>
-</div>
-
-## `pyric/sandbox/firestore` — sandbox-only controls
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">122</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>setRules(sandbox, rules)</code> loads rules into the owning sandbox's Firestore environment; returns <code>LintResult</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/sandbox-controls.test.ts</code>, <code>playground:rules-data-validation</code>, <code>playground:rules-cross-doc-get</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">123</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>seedDocuments(sandbox, {path: data, ...})</code> replaces the owning sandbox's Firestore documents, bypassing rules without synthesizing listener callbacks or events</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/sandbox-controls.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">124</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>snapshotDocuments(sandbox)</code> returns only Firestore documents without snapshotting other registered sandbox services</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/sandbox-controls.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">125</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>pyric/firestore</code> does not export sandbox controls; synchronous <code>pyric/sandbox/firestore</code> controls accept <code>LocalSandbox</code>, and <code>RemoteSandbox</code> is not assignable</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/entry-surface.test.ts</code>, <code>typecheck:firestore/sandbox-controls.ts</code>, <code>packaging:runtime-smoke</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">126</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Firestore controls affect only the <code>LocalSandbox</code> passed to the operation; independent sandboxes remain isolated</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/sandbox-controls.test.ts</code> ("applies controls only to the Sandbox passed to the operation")</div></div>
 </details>
 </div>
 

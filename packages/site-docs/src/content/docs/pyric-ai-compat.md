@@ -3,11 +3,17 @@ title: "pyric/ai compatibility matrix"
 navLabel: "AI Logic"
 group: "Compatibility"
 section: ""
-order: 8008
+order: 8009
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 # `pyric/ai` compatibility matrix
+
+> **Surface coverage:** 69.1% of Firebase's public exports · 80.9% of what pyric intends to mirror
+>
+> **Fidelity:** 92.3% (72 of 78 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
 This surface climbed under Conformance Driven Development
 (map: https://github.com/davideast/pyric/issues/92). Every row below was

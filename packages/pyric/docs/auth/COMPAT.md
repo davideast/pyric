@@ -2,6 +2,12 @@
 
 # `pyric/auth` compatibility matrix
 
+> **Surface coverage:** 82.4% of Firebase's public exports · 83.3% of what pyric intends to mirror
+>
+> **Fidelity:** 80.7% (96 of 119 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
+
 The single readable contract for "what this shim guarantees vs the
 production `firebase/auth` SDK."
 
@@ -168,21 +174,6 @@ means a Bun test in `packages/auth/test/<file>`.
 | 75 | Custom-claims changes (`sandbox.updateUser` / re-seed) reach an active session on the next FORCED token refresh, not immediately — claims are read live from the user DB at mint time (prod's refresh-propagation story; AUTH-B10) | ✓ | `unit:sandbox-user-admin.test.ts`, `unit:sandbox-cluster-b9-b12.test.ts` |
 | 61 | `user.reload()` / `user.delete()` / `user.toJSON()` / `user.refreshToken` / `user.tenantId` | — | not modeled by the sandbox; documented in the deny-list rather than synthesized (AUTH-GAP) |
 | 62 | `updateProfile(user, {displayName, photoURL})` | — | not implemented |
-
-## `sandbox.*` (sandbox-only test driver)
-
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 63 | `sandbox.seedUsers(auth, [{uid, email, password, displayName?, customClaims?, providerId?}])` seeds the user DB; `providerId` defaults to `'password'` | ✓ | `unit:sandbox-test-driver.test.ts`, `unit:sandbox-user-admin.test.ts` |
-| 63a | Re-seeding an existing uid OVERWRITES it: a new email drops the stale email→record mapping (the old email no longer signs in), and re-seeded `customClaims` are LIVE — a held `User`'s `getIdToken(true)` reflects the new claims rather than the claims frozen at mint time | ✓ | `unit:sandbox-cluster-b9-b12.test.ts` (locks AUTH-B9 + AUTH-B10) |
-| 64 | `sandbox.setUser(auth, user)` / `sandbox.setUser(auth, null)` directly switches identity. Bypasses the `disabled` check and does NOT bump `lastLoginAt` (not a real sign-in) | ✓ | `unit:sandbox-test-driver.test.ts` |
-| 65 | `sandbox.mockSignInResult(auth, {providerId, user, …})` pre-stages a popup/credential result | ✓ | `unit:sandbox-providers.test.ts` |
-| 66 | All `sandbox.*` methods operate only on the sandbox backend attached to a mirror-produced `Auth` handle; there is no production target or production branch | ✓ | `unit:sandbox-test-driver.test.ts`, `unit:sandbox-user-admin.test.ts` + compiled client-binding isolation |
-| 67 | `sandbox.reset()` (host-side, via `Sandbox.reset()`) clears auth state and fires sign-out | ✓ | `unit:sandbox-listeners.test.ts` |
-| 71 | `sandbox.listIdentities(auth)` returns the REAL provider per identity — `providerId` primary label (`'anonymous'` for anonymous users) + emulator-shaped `providerUserInfo` array; anonymous users included | ✓ | `unit:sandbox-user-admin.test.ts` ("provider tracking") — fixes the pre-epic mislabeling (`'password'`/`'anonymous'` only) |
-| 72 | `sandbox.createSignInCredential(auth, {providerId, uid \| spec})` mints backend-owned credentials for host-driven flows: `{uid}` picks an existing identity (`auth/user-not-found` for unknown uids); `{spec}` upserts (same-email reuse; default uid `'<providerId>:<email>'`; no password). Tokens route through the backend token cache | ✓ | `unit:sandbox-user-admin.test.ts` ("sandbox.createSignInCredential") |
-| 73 | User-admin CRUD: `sandbox.listUsers` / `createUser` (no sign-in; `auth/uid-already-exists`, `auth/email-already-in-use`, `auth/invalid-email`, `auth/weak-password`) / `updateUser` (displayName incl. null-clear, email re-key, password + provider link, customClaims wholesale replace, disabled, emailVerified) / `deleteUser` / `clearUsers`. Deletion/clear/disable do NOT terminate active sessions (prod parity). Record shape: `{uid, email, displayName, phoneNumber, photoUrl, customClaims, providerUserInfo, isAnonymous, disabled, emailVerified, createdAt, lastLoginAt}` with ISO timestamps | ✓ | `unit:sandbox-user-admin.test.ts` (CRUD describes) |
-| 74 | `sandbox.subscribeUsers(auth, cb)` fires a coarse no-payload callback on every user-DB mutation (seed/create/update/delete/clear, provider links, lastLoginAt bumps); no initial fire; throwing listeners isolated; unsubscribe stops fires | ✓ | `unit:sandbox-user-admin.test.ts` ("sandbox.subscribeUsers") |
 
 ## `beforeAuthStateChanged(auth, callback, onAbort?)`
 

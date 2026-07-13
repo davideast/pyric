@@ -6,6 +6,12 @@
 
 # `pyric` messaging compatibility matrix
 
+> **Surface coverage:** 100% of Firebase's public exports · 100% of what pyric intends to mirror
+>
+> **Fidelity:** 100% (56 of 56 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
+
 > **Conformance-held; not yet in published packages.** Every row below is
 > replayed by conformance suites that run in blocking CI, so the statuses are
 > live guarantees against this repository. The messaging entry points are not
