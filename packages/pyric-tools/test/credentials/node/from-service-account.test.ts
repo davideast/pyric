@@ -14,7 +14,7 @@ import { createPublicKey, createVerify, generateKeyPairSync } from 'node:crypto'
 import { writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fromServiceAccount } from '../../src/deploy/index.js';
+import { fromServiceAccount } from '../../../src/credentials/node/from-service-account.js';
 
 const originalFetch = globalThis.fetch;
 beforeEach(() => { globalThis.fetch = originalFetch; });

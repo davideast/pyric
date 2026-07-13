@@ -16,7 +16,7 @@
  */
 import type { App as AdminApp } from 'firebase-admin/app';
 import type { ProjectScope } from './scope.js';
-import { memoizeTtl } from './memoize-ttl.js';
+import { memoizeTtl } from '../credentials/core/memoize-ttl.js';
 
 interface CredentialWithToken {
   getAccessToken(): Promise<{ access_token: string; expires_in: number }>;

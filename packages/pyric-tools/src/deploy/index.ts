@@ -30,9 +30,9 @@
 
 export type { ProjectScope, Outcome } from './scope.js';
 export { AdminApiError } from './scope.js';
-export { fromServiceAccount } from './from-service-account.js';
+export { fromServiceAccount } from '../credentials/node/from-service-account.js';
 export { getDeploy } from './from-admin-app.js';
-export { memoizeTtl, type MemoizeTtlOptions } from './memoize-ttl.js';
+export { memoizeTtl, type MemoizeTtlOptions } from '../credentials/core/memoize-ttl.js';
 export { withResolvedScope } from './with-resolved-scope.js';
 
 // ─── Named-object namespaces (Slice 3) ───────────────────────────────

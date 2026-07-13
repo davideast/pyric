@@ -17,12 +17,12 @@
  * `gcloud auth application-default login`" hint). Node-only: reads credential
  * files via the existing `credentials/` adapters — never by hand.
  */
-import { fromServiceAccount } from '../../deploy/index.js';
 import { oauthClient } from '../core/client.js';
 import { fromUserCredential } from '../core/from-user-credential.js';
 import type { CredentialStore, ProjectScope } from '../core/types.js';
 import { defaultCredentialPath, fileCredentialStore } from './file-store.js';
 import { fromAdc } from './from-adc.js';
+import { fromServiceAccount } from './from-service-account.js';
 
 export type LocalCredentialSource = 'service-account' | 'login' | 'adc';
 

@@ -1,5 +1,5 @@
 /**
- * `memoizeTtl` — host-side caching wrapper for resolver functions.
+ * Host-side caching wrapper for credential resolvers.
  *
  * Per F4, the SDK convention is "resolvers fire per-dispatch; hosts
  * memoize via `memoizeTtl` if cost matters." This is that memoizer.
