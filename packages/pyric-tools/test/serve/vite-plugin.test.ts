@@ -135,13 +135,12 @@ describe('resolveId — the importer-aware swap', () => {
 });
 
 describe('load — the stub bodies', () => {
-  it('emits a NAMED-export inert proxy stub (a bare default would fail the build)', () => {
+  it('does not synthesize firebase/firestore bindings after Firestore isolation', () => {
     const src = load('\0pyric:fb-stub:firebase/firestore') as string;
-    expect(src).toContain('export default'); // the inert proxy
-    expect(src).toContain('export const'); // named bindings — the load-bearing part
-    // pyric pulls real named bindings from firebase/firestore (e.g. these).
-    expect(src).toContain('getFirestore');
-    expect(src).toContain('Bytes');
+    expect(src).toContain('export default');
+    expect(src).not.toContain('export const');
+    expect(src).not.toContain('getFirestore');
+    expect(src).not.toContain('Bytes');
   });
 
   it('does not synthesize firebase/app bindings after app isolation', () => {

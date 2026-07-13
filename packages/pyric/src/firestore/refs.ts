@@ -1,27 +1,22 @@
 /**
  * `pyric/firestore` — reference / query path constructors + `withConverter`.
  *
- * `doc` / `collection` / `collectionGroup` build tagged refs against either
- * backend; `withConverter` attaches (or strips) a data converter, returning
+ * `doc` / `collection` / `collectionGroup` build tagged sandbox refs;
+ * `withConverter` attaches (or strips) a data converter, returning
  * a fresh typed view that carries forward through the chain factories.
  */
-import * as fb from 'firebase/firestore';
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 
 import {
   TARGET_SYMBOL,
   targetOf,
-  isSandboxKind,
   sandboxDb,
-  tag,
   tagSandboxRef,
   converterOf,
   underlyingOf,
   buildSandboxShell,
   asChainColl,
   asChainDoc,
-  asFbColl,
-  asFbDoc,
 } from './state.js';
 import type {
   Firestore,
@@ -41,59 +36,39 @@ export function doc<T = DocumentData>(
   const isHandle = TARGET_SYMBOL in parent;
   // Propagate any converter from a typed collection to the resulting
   // doc — `doc(coll<User>, 'u1')` returns `DocumentReference<User>`.
-  // For prod, fb's `.doc()` chain inherits the converter natively, so
-  // this only needs to fire on the sandbox side.
   const conv = isHandle ? undefined : converterOf(parent);
-  if (isSandboxKind(target)) {
-    const db = sandboxDb(target);
-    if (isHandle) {
-      if (pathSegments.length === 0) {
-        throw new TypeError('doc(db, path) requires at least one path segment.');
-      }
-      const path = pathSegments.join('/');
-      const built = db.doc(path);
-      const tagged = tagSandboxRef(
-        built as object,
-        target,
-        (fresh) => fresh.doc(path) as unknown as object,
-      );
-      return tagged as DocumentReference<T>;
-    }
-    const coll = asChainColl(underlyingOf(parent));
-    const ref = pathSegments.length === 0
-      ? coll.doc()
-      : coll.doc(pathSegments.join('/'));
-    // The path is now known (either the explicit segments under the
-    // parent's path, or the auto-minted id appended). Rebuild from
-    // the absolute path so the live ref re-resolves under whatever
-    // auth the next op picks up.
-    const absPath = (ref as { path: string }).path;
-    const tagged = tagSandboxRef(
-      ref as object,
-      target,
-      (fresh) => fresh.doc(absPath) as unknown as object,
-    );
-    if (conv) {
-      return buildSandboxShell(
-        tagged as { id: string; path: string },
-        target,
-        conv,
-      ) as DocumentReference<T>;
-    }
-    return tagged as DocumentReference<T>;
-  }
-  // prod
+  const db = sandboxDb(target);
   if (isHandle) {
     if (pathSegments.length === 0) {
       throw new TypeError('doc(db, path) requires at least one path segment.');
     }
-    return tag(fb.doc(target.db, pathSegments.join('/')) as object, target) as DocumentReference<T>;
+    const path = pathSegments.join('/');
+    const built = db.doc(path);
+    const tagged = tagSandboxRef(
+      built as object,
+      target,
+      (fresh) => fresh.doc(path) as unknown as object,
+    );
+    return tagged as DocumentReference<T>;
   }
-  const coll = asFbColl(parent);
+  const coll = asChainColl(underlyingOf(parent));
   const ref = pathSegments.length === 0
-    ? fb.doc(coll)
-    : fb.doc(coll, pathSegments.join('/'));
-  return tag(ref as object, target) as DocumentReference<T>;
+    ? coll.doc()
+    : coll.doc(pathSegments.join('/'));
+  const absPath = (ref as { path: string }).path;
+  const tagged = tagSandboxRef(
+    ref as object,
+    target,
+    (fresh) => fresh.doc(absPath) as unknown as object,
+  );
+  if (conv) {
+    return buildSandboxShell(
+      tagged as { id: string; path: string },
+      target,
+      conv,
+    ) as DocumentReference<T>;
+  }
+  return tagged as DocumentReference<T>;
 }
 
 /**
@@ -106,16 +81,12 @@ export function doc<T = DocumentData>(
  */
 export function collectionGroup(db: Firestore, collectionId: string): Query {
   const target = targetOf(db);
-  if (isSandboxKind(target)) {
-    const q = sandboxDb(target).collectionGroup(collectionId);
-    return tagSandboxRef(
-      q as unknown as Query,
-      target,
-      (fresh) => fresh.collectionGroup(collectionId) as unknown as object,
-    );
-  }
-  const q = fb.collectionGroup(target.db, collectionId);
-  return tag(q as unknown as Query, target);
+  const q = sandboxDb(target).collectionGroup(collectionId);
+  return tagSandboxRef(
+    q as unknown as Query,
+    target,
+    (fresh) => fresh.collectionGroup(collectionId) as unknown as object,
+  );
 }
 
 export function collection(parent: Firestore | DocumentReference, ...pathSegments: string[]): CollectionReference {
@@ -128,32 +99,24 @@ export function collection(parent: Firestore | DocumentReference, ...pathSegment
   // NOT propagate to the sub-collection — matches `firebase/firestore`'s
   // `collection(typedDoc, path)` returning `CollectionReference<DocumentData>`.
   // A parent doc's T describes its own data, not its subcollections'.
-  if (isSandboxKind(target)) {
-    if (isHandle) {
-      const path = pathSegments.join('/');
-      const built = sandboxDb(target).collection(path);
-      return tagSandboxRef(
-        built as CollectionReference,
-        target,
-        (fresh) => fresh.collection(path) as unknown as object,
-      );
-    }
-    const docRef = asChainDoc(underlyingOf(parent));
-    const subPath = pathSegments.join('/');
-    const built = docRef.collection(subPath);
-    const absPath = (built as { path: string }).path;
+  if (isHandle) {
+    const path = pathSegments.join('/');
+    const built = sandboxDb(target).collection(path);
     return tagSandboxRef(
       built as CollectionReference,
       target,
-      (fresh) => fresh.collection(absPath) as unknown as object,
+      (fresh) => fresh.collection(path) as unknown as object,
     );
   }
-  // prod
-  if (isHandle) {
-    return tag(fb.collection(target.db, pathSegments.join('/')) as CollectionReference, target);
-  }
-  const docRef = asFbDoc(parent);
-  return tag(fb.collection(docRef, pathSegments.join('/')) as CollectionReference, target);
+  const docRef = asChainDoc(underlyingOf(parent));
+  const subPath = pathSegments.join('/');
+  const built = docRef.collection(subPath);
+  const absPath = (built as { path: string }).path;
+  return tagSandboxRef(
+    built as CollectionReference,
+    target,
+    (fresh) => fresh.collection(absPath) as unknown as object,
+  );
 }
 
 // ─── withConverter (typed refs / queries) ────────────────────────────
@@ -217,20 +180,6 @@ export function withConverter(
   converter: FirestoreDataConverter<unknown, DocumentData> | null,
 ): object {
   const target = targetOf(source);
-  if (target.kind === 'prod') {
-    // fb's native withConverter is on every ref / query — applies the
-    // converter to all subsequent reads / writes through fb's own API.
-    const native = (source as fb.DocumentReference | fb.CollectionReference | fb.Query) as {
-      withConverter: (
-        c: fb.FirestoreDataConverter<unknown, DocumentData> | null,
-      ) => fb.DocumentReference | fb.CollectionReference | fb.Query;
-    };
-    const out = native.withConverter(
-      converter as fb.FirestoreDataConverter<unknown, DocumentData> | null,
-    );
-    return tag(out as object, target);
-  }
-  // Sandbox.
   if (converter === null) {
     // Strip — return the underlying plain ref. Falls back to `source`
     // itself if it was never wrapped (no-op).

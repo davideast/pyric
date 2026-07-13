@@ -124,12 +124,15 @@ console.log('PROD_ARM_OK');
     `import assert from 'node:assert';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { doc, getDoc, getFirestore, setDoc } from 'firebase/firestore';
 const app = initializeApp({ apiKey: 'ignored', projectId: 'demo-project' });
 assert.strictEqual(app[Symbol.for('pyric.app.target')], 'sandbox');
 assert.strictEqual(app.options.projectId, 'demo-project');
 const db = getFirestore(app);
 assert.strictEqual(typeof db, 'object');
+const ref = doc(db, 'package-resolution/firestore');
+await setDoc(ref, { selected: 'sandbox' });
+assert.strictEqual((await getDoc(ref)).data()?.selected, 'sandbox');
 const auth = getAuth(app);
 assert.strictEqual(getAuth(), auth, 'bare getAuth() must use the registered default sandbox app');
 const credential = await signInAnonymously(auth);
@@ -159,9 +162,19 @@ console.log('AI_CLIENT_OK');
   writeFileSync(
     join(fixtureDir, 'probe.mjs'),
     `const app = await import('firebase-admin/app');
+const clientAppModule = await import('firebase/app');
+const firestoreModule = await import('firebase/firestore');
 const factory = globalThis[Symbol.for('pyric.remote.sandboxFactory')];
+const clientApp = clientAppModule.initializeApp(
+  { apiKey: 'ignored', projectId: 'register-inertness' },
+  'register-inertness',
+);
+const clientDb = firestoreModule.getFirestore(clientApp);
 console.log(JSON.stringify({
   rewritten: app.ADMIN_APP_TARGET === Symbol.for('pyric.admin.app.target'),
+  clientRewritten: clientApp[Symbol.for('pyric.app.target')] === 'sandbox',
+  firestoreRewritten: Object.getOwnPropertySymbols(clientDb)
+    .some((symbol) => symbol.description === 'pyric/firestore/target'),
   factory: typeof factory,
 }));
 `,
@@ -213,7 +226,12 @@ describe('@pyric/cli/register (child process)', () => {
   it('is inert without PYRIC_SANDBOX — real firebase-admin, no factory, no log', () => {
     const res = runNode('probe.mjs', {});
     expect(res.status).toBe(0);
-    expect(JSON.parse(res.stdout)).toEqual({ rewritten: false, factory: 'undefined' });
+    expect(JSON.parse(res.stdout)).toEqual({
+      rewritten: false,
+      clientRewritten: false,
+      firestoreRewritten: false,
+      factory: 'undefined',
+    });
     expect(res.stderr).not.toContain('@pyric/cli/register');
   });
 
@@ -224,7 +242,12 @@ describe('@pyric/cli/register (child process)', () => {
     });
     expect(res.status).toBe(0);
     expect(res.stderr).toContain('refusing to activate under NODE_ENV=production');
-    expect(JSON.parse(res.stdout)).toEqual({ rewritten: false, factory: 'undefined' });
+    expect(JSON.parse(res.stdout)).toEqual({
+      rewritten: false,
+      clientRewritten: false,
+      firestoreRewritten: false,
+      factory: 'undefined',
+    });
   });
 
   it('PYRIC_SANDBOX_FORCE=1 overrides the production refusal', () => {
@@ -235,6 +258,11 @@ describe('@pyric/cli/register (child process)', () => {
     });
     expect(res.status).toBe(0);
     expect(res.stderr).toContain('@pyric/cli/register: active');
-    expect(JSON.parse(res.stdout)).toEqual({ rewritten: true, factory: 'function' });
+    expect(JSON.parse(res.stdout)).toEqual({
+      rewritten: true,
+      clientRewritten: true,
+      firestoreRewritten: true,
+      factory: 'function',
+    });
   });
 });

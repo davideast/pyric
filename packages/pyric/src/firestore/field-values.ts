@@ -1,11 +1,9 @@
 /**
- * `pyric/firestore` — field-value sentinels + scalar type re-exports.
+ * `pyric/firestore` — field-value sentinels + sandbox scalar types.
  *
- * The `serverTimestamp` / `increment` / `arrayUnion` / `arrayRemove` /
- * `deleteField` sentinels (riding `pyric-admin`'s FieldValue), the
- * `FieldValue` / `Timestamp` classes, and the `firebase/firestore` scalar
- * types (`Bytes`, `GeoPoint`, `documentId`, `FieldPath`, `vector`,
- * `VectorValue`) that both targets share.
+ * Canonical `firebase/firestore` imports still receive Firebase's classes
+ * when package resolution has not selected Pyric. This mirror owns local
+ * equivalents so its sandbox implementation never loads the production SDK.
  */
 import {
   FieldValue as ChainFieldValue,
@@ -13,44 +11,167 @@ import {
   type FieldValueSentinel,
 } from 'pyric/sandbox/admin-firestore';
 
-// ─── Tier 1: scalar types + sentinels re-exported from firebase ──────
-//
-// These types are class shapes (or sentinels) the `firebase/firestore`
-// modular SDK exposes. They're shared across both targets in the
-// sense that:
-//
-//   - **Prod target** uses them natively (round-trips through the
-//     wire encoder, server stores them as proper Firestore values).
-//   - **Sandbox target** rides `Bytes`, `GeoPoint`, and `VectorValue`
-//     through their converters at `sandbox/firestore/converters/` on
-//     write, then finalizes the read back to `fb.Bytes` / `fb.GeoPoint`
-//     / `fb.VectorValue` in {@link finalizeSandboxValue} so consumer
-//     code's `instanceof` checks match prod. `vector()` / `VectorValue`
-//     are re-exported from `firebase/firestore` like the others.
-//
-// `documentId()` and `FieldPath` ARE supported on both sides today —
-// `documentId()` returns a `FieldPath` sentinel that the chainable
-// adapter recognizes as "by document id" when passed to `where()`.
+export class Bytes {
+  private constructor(private readonly bytes: Uint8Array) {}
 
-export {
-  Bytes,
-  GeoPoint,
-  documentId,
-  FieldPath,
-  vector,
-  VectorValue,
-} from 'firebase/firestore';
+  static fromBase64String(base64: string): Bytes {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new Bytes(bytes);
+  }
 
-// ─── Sentinels + scalar types ─────────────────────────────────────────
-//
-// Sentinels in pyric ride on `pyric-admin`'s sentinel objects, which
-// are structurally identical to `firebase/firestore`'s — the simulator
-// recognizes them by `__type` discriminator, and so does production
-// Firestore (their wire format normalizes through the same path). One
-// `FieldValue.increment(1)` works in both targets.
-//
-// `Timestamp` is similar — admin-shape `{seconds, nanoseconds}` matches
-// the modular SDK's `Timestamp` shape.
+  static fromUint8Array(array: Uint8Array): Bytes {
+    return new Bytes(array.slice());
+  }
+
+  toBase64(): string {
+    let binary = '';
+    for (const byte of this.bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  }
+
+  toUint8Array(): Uint8Array {
+    return this.bytes.slice();
+  }
+
+  toString(): string {
+    return `Bytes(base64: ${this.toBase64()})`;
+  }
+
+  isEqual(other: Bytes): boolean {
+    return other instanceof Bytes
+      && this.bytes.length === other.bytes.length
+      && this.bytes.every((byte, index) => byte === other.bytes[index]);
+  }
+
+  toJSON(): object {
+    return { type: 'firestore/bytes/1.0', bytes: this.toBase64() };
+  }
+
+  static fromJSON(json: object): Bytes {
+    const value = json as { type?: unknown; bytes?: unknown };
+    if (value.type !== 'firestore/bytes/1.0' || typeof value.bytes !== 'string') {
+      throw new TypeError('Invalid Bytes JSON value.');
+    }
+    return Bytes.fromBase64String(value.bytes);
+  }
+}
+
+export class GeoPoint {
+  constructor(
+    private readonly lat: number,
+    private readonly lng: number,
+  ) {
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+      throw new TypeError('Latitude must be a number between -90 and 90.');
+    }
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+      throw new TypeError('Longitude must be a number between -180 and 180.');
+    }
+  }
+
+  get latitude(): number { return this.lat; }
+  get longitude(): number { return this.lng; }
+
+  isEqual(other: GeoPoint): boolean {
+    return other instanceof GeoPoint
+      && this.lat === other.lat
+      && this.lng === other.lng;
+  }
+
+  toJSON(): { latitude: number; longitude: number; type: string } {
+    return {
+      latitude: this.lat,
+      longitude: this.lng,
+      type: 'firestore/geoPoint/1.0',
+    };
+  }
+
+  static fromJSON(json: object): GeoPoint {
+    const value = json as { type?: unknown; latitude?: unknown; longitude?: unknown };
+    if (
+      value.type !== 'firestore/geoPoint/1.0'
+      || typeof value.latitude !== 'number'
+      || typeof value.longitude !== 'number'
+    ) {
+      throw new TypeError('Invalid GeoPoint JSON value.');
+    }
+    return new GeoPoint(value.latitude, value.longitude);
+  }
+}
+
+export class FieldPath {
+  readonly _internalPath: { segments: string[]; offset: number; len: number };
+
+  constructor(...fieldNames: string[]) {
+    if (fieldNames.length === 0 || fieldNames.some((name) => name.length === 0)) {
+      throw new TypeError('FieldPath requires at least one non-empty field name.');
+    }
+    this._internalPath = {
+      segments: fieldNames.slice(),
+      offset: 0,
+      len: fieldNames.length,
+    };
+  }
+
+  isEqual(other: FieldPath): boolean {
+    const ours = this._internalPath.segments;
+    const theirs = other?._internalPath?.segments;
+    return Array.isArray(theirs)
+      && ours.length === theirs.length
+      && ours.every((segment, index) => segment === theirs[index]);
+  }
+}
+
+export function documentId(): FieldPath {
+  return new FieldPath('__name__');
+}
+
+export class VectorValue {
+  private constructor(readonly _values: number[]) {}
+
+  static create(values: number[]): VectorValue {
+    if (!values.every((value) => typeof value === 'number')) {
+      throw new TypeError('Vector values must be numbers.');
+    }
+    return new VectorValue(values.slice());
+  }
+
+  toArray(): number[] {
+    return this._values.slice();
+  }
+
+  isEqual(other: VectorValue): boolean {
+    const theirs = other instanceof VectorValue ? other._values : undefined;
+    return theirs !== undefined
+      && this._values.length === theirs.length
+      && this._values.every((value, index) => value === theirs[index]);
+  }
+
+  toJSON(): object {
+    return {
+      type: 'firestore/vectorValue/1.0',
+      vectorValues: this.toArray(),
+    };
+  }
+
+  static fromJSON(json: object): VectorValue {
+    const value = json as { type?: unknown; vectorValues?: unknown };
+    if (
+      value.type !== 'firestore/vectorValue/1.0'
+      || !Array.isArray(value.vectorValues)
+      || !value.vectorValues.every((entry) => typeof entry === 'number')
+    ) {
+      throw new TypeError('Invalid VectorValue JSON value.');
+    }
+    return VectorValue.create(value.vectorValues);
+  }
+}
+
+export function vector(values: number[] = []): VectorValue {
+  return VectorValue.create(values);
+}
 
 export { ChainFieldValue as FieldValue, ChainTimestamp as Timestamp };
 

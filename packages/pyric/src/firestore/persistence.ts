@@ -7,17 +7,11 @@
  * variants, `setLogLevel`, and `onSnapshotsInSync`. Read the section note
  * below before touching any function.
  */
-import type { FirebaseApp } from 'firebase/app';
-import * as fb from 'firebase/firestore';
 import type { PyricApp } from 'pyric/app';
+import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 
-import {
-  targetOf,
-  isSandboxKind,
-  asFbDoc,
-  asFbQuery,
-} from './state.js';
+import { targetOf } from './state.js';
 import type {
   Firestore,
   DocumentReference,
@@ -53,8 +47,12 @@ import { getDoc, getDocs } from './reads.js';
 // they just stop a real app's init sequence from crashing on an
 // import that used to not exist.
 //
-// Prod targets are unaffected: every function below forwards to the
-// real `fb.*` implementation when `db` was built from a `FirebaseApp`.
+// Production never enters this module; package resolution leaves
+// `firebase/firestore` unchanged when the sandbox is inactive.
+
+export interface PersistenceSettings {
+  forceOwnership?: boolean;
+}
 
 /**
  * Sandbox: no-op success. The sandbox's default persistence (IndexedDB
@@ -69,15 +67,14 @@ import { getDoc, getDocs } from './reads.js';
  * so enforcing the same restriction would only make app code that
  * calls this defensively at startup fail for no local reason.
  *
- * Prod: forwards to `firebase/firestore`'s real implementation.
  */
 export function enableIndexedDbPersistence(
   db: Firestore,
-  persistenceSettings?: fb.PersistenceSettings,
+  persistenceSettings?: PersistenceSettings,
 ): Promise<void> {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) return Promise.resolve();
-  return fb.enableIndexedDbPersistence(target.db, persistenceSettings);
+  targetOf(db);
+  void persistenceSettings;
+  return Promise.resolve();
 }
 
 /**
@@ -86,12 +83,10 @@ export function enableIndexedDbPersistence(
  * SharedWorker path already IS the single shared store every tab talks
  * to, so there's no separate "multi-tab" mode to opt into.
  *
- * Prod: forwards to `firebase/firestore`.
  */
 export function enableMultiTabIndexedDbPersistence(db: Firestore): Promise<void> {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) return Promise.resolve();
-  return fb.enableMultiTabIndexedDbPersistence(target.db);
+  targetOf(db);
+  return Promise.resolve();
 }
 
 /**
@@ -108,14 +103,12 @@ export function enableMultiTabIndexedDbPersistence(db: Firestore): Promise<void>
  * same way as a `sandbox`/`sandbox-live` target's `.sandbox` field —
  * both variants do, in fact, so this always has a sandbox to call into.
  *
- * Prod: forwards to `firebase/firestore`. Note the real SDK requires
- * this to be called before Firestore starts; the sandbox's mapped
+ * The real SDK requires this before Firestore starts; the sandbox's mapped
  * `clearPersistence()` has no such restriction.
  */
 export function clearIndexedDbPersistence(db: Firestore): Promise<void> {
   const target = targetOf(db);
-  if (isSandboxKind(target)) return target.sandbox.clearPersistence();
-  return fb.clearIndexedDbPersistence(target.db);
+  return target.sandbox.clearPersistence();
 }
 
 /**
@@ -128,25 +121,20 @@ export function clearIndexedDbPersistence(db: Firestore): Promise<void> {
  * App code that calls this to prep for flaky connectivity will not
  * crash, but it also will not observe write-queuing behavior.
  *
- * Prod: forwards to `firebase/firestore`, which has a real network to
- * disable.
  */
 export function disableNetwork(db: Firestore): Promise<void> {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) return Promise.resolve();
-  return fb.disableNetwork(target.db);
+  targetOf(db);
+  return Promise.resolve();
 }
 
 /**
  * Sandbox: no-op success, symmetric with {@link disableNetwork} — since
  * network was never disabled locally, there is nothing to re-enable.
  *
- * Prod: forwards to `firebase/firestore`.
  */
 export function enableNetwork(db: Firestore): Promise<void> {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) return Promise.resolve();
-  return fb.enableNetwork(target.db);
+  targetOf(db);
+  return Promise.resolve();
 }
 
 /**
@@ -157,12 +145,10 @@ export function enableNetwork(db: Firestore): Promise<void> {
  * called there are, honestly, never any writes still pending a round
  * trip.
  *
- * Prod: forwards to `firebase/firestore`.
  */
 export function waitForPendingWrites(db: Firestore): Promise<void> {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) return Promise.resolve();
-  return fb.waitForPendingWrites(target.db);
+  targetOf(db);
+  return Promise.resolve();
 }
 
 /**
@@ -181,16 +167,11 @@ export function waitForPendingWrites(db: Firestore): Promise<void> {
  * too. This differs from the real SDK, where `terminate()` only
  * affects the one `Firestore` instance. Documented divergence.
  *
- * Prod: forwards to `firebase/firestore`'s real `terminate`, which
- * only tears down the one Firestore instance.
  */
 export function terminate(db: Firestore): Promise<void> {
   const target = targetOf(db);
-  if (isSandboxKind(target)) {
-    target.sandbox.dispose();
-    return Promise.resolve();
-  }
-  return fb.terminate(target.db);
+  target.sandbox.dispose();
+  return Promise.resolve();
 }
 
 // ─── Tier-1 cache-init + get-from-* + log-level + snapshot-sync ───────
@@ -208,9 +189,8 @@ export function terminate(db: Firestore): Promise<void> {
 // persistence on by default, so there is no separate cache tier to
 // configure into existence. `getDocFromServer`/`getDocFromCache` and
 // their plural forms delegate to the same read path as `getDoc`/
-// `getDocs` on sandbox targets (the sandbox store IS the authoritative,
-// always-fresh source — there's no cache/server split to honor);
-// on prod targets they forward to the real split. `setLogLevel` and
+// `getDocs` (the sandbox store IS the authoritative, always-fresh source —
+// there's no cache/server split to honor). `setLogLevel` and
 // `onSnapshotsInSync` round out the surface a real app's init sequence
 // commonly touches alongside the persistence family.
 
@@ -312,17 +292,13 @@ export interface FirestoreSettings {
  * persistence is already the sandbox default, so there is nothing left to
  * configure into existence.
  *
- * Prod: settings ARE meaningful to `firebase/firestore`, but this helper
- * still only forwards to `getFirestore(app)` — a real cache/network
- * settings pass-through for the prod path is out of scope for this tier-1
- * pass (tracked separately).
  */
 export function initializeFirestore(
-  app: FirebaseApp | PyricApp,
+  app: SandboxContext | Sandbox | PyricApp,
   _settings?: FirestoreSettings,
   _databaseId?: string,
 ): Firestore {
-  return getFirestore(app as FirebaseApp);
+  return getFirestore(app);
 }
 
 /**
@@ -331,24 +307,18 @@ export function initializeFirestore(
  * round-trip to force, so "from server" and the default read are the
  * same honest thing.
  *
- * Prod: forwards to `firebase/firestore`'s real `getDocFromServer`,
- * which does force a server round-trip.
  */
 export function getDocFromServer<T = DocumentData>(
   ref: DocumentReference<T>,
 ): Promise<DocumentSnapshot<T>> {
-  const target = targetOf(ref);
-  if (isSandboxKind(target)) return getDoc(ref);
-  return fb.getDocFromServer(asFbDoc(ref)) as unknown as Promise<DocumentSnapshot<T>>;
+  return getDoc(ref);
 }
 
 /** Query-plural form of {@link getDocFromServer}. */
 export function getDocsFromServer<T = DocumentData>(
   query: Query<T>,
 ): Promise<QuerySnapshot<T>> {
-  const target = targetOf(query);
-  if (isSandboxKind(target)) return getDocs(query);
-  return fb.getDocsFromServer(asFbQuery(query)) as unknown as Promise<QuerySnapshot<T>>;
+  return getDocs(query);
 }
 
 /**
@@ -358,28 +328,22 @@ export function getDocsFromServer<T = DocumentData>(
  * there — so this never throws for that reason. Documented divergence,
  * not a claim of parity.
  *
- * Prod: forwards to `firebase/firestore`'s real `getDocFromCache`,
- * which DOES throw `'unavailable'` on a genuine cache miss.
  */
 export function getDocFromCache<T = DocumentData>(
   ref: DocumentReference<T>,
 ): Promise<DocumentSnapshot<T>> {
-  const target = targetOf(ref);
-  if (isSandboxKind(target)) return getDoc(ref);
-  return fb.getDocFromCache(asFbDoc(ref)) as unknown as Promise<DocumentSnapshot<T>>;
+  return getDoc(ref);
 }
 
 /** Query-plural form of {@link getDocFromCache} — same cache-miss divergence. */
 export function getDocsFromCache<T = DocumentData>(
   query: Query<T>,
 ): Promise<QuerySnapshot<T>> {
-  const target = targetOf(query);
-  if (isSandboxKind(target)) return getDocs(query);
-  return fb.getDocsFromCache(asFbQuery(query)) as unknown as Promise<QuerySnapshot<T>>;
+  return getDocs(query);
 }
 
 /** Mirrors `firebase/firestore`'s `LogLevel` union. */
-export type LogLevel = fb.LogLevel;
+export type LogLevel = 'debug' | 'verbose' | 'info' | 'warn' | 'error' | 'silent';
 
 /**
  * Accepted no-op: the sandbox has no modular-SDK-style logger to wire
@@ -400,25 +364,18 @@ export function setLogLevel(logLevel: LogLevel): void {
  * This is NOT the real SDK's guarantee (which is scoped to actual
  * server round-trips); it is scoped to local delivery only.
  *
- * Prod: forwards to `firebase/firestore`'s real `onSnapshotsInSync`.
  */
 export function onSnapshotsInSync(
   db: Firestore,
   observerOrCallback: (() => void) | { next?: () => void; complete?: () => void; error?: (error: unknown) => void },
 ): Unsubscribe {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) {
-    const cb = typeof observerOrCallback === 'function' ? observerOrCallback : observerOrCallback.next;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled && cb) cb();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }
-  return fb.onSnapshotsInSync(
-    target.db,
-    observerOrCallback as unknown as Parameters<typeof fb.onSnapshotsInSync>[1],
-  );
+  targetOf(db);
+  const cb = typeof observerOrCallback === 'function' ? observerOrCallback : observerOrCallback.next;
+  let cancelled = false;
+  queueMicrotask(() => {
+    if (!cancelled && cb) cb();
+  });
+  return () => {
+    cancelled = true;
+  };
 }

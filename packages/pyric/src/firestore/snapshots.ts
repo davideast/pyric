@@ -14,7 +14,6 @@ import type { AdminDocumentSnapshot as ChainDocSnap, DocumentData } from 'pyric/
 
 import {
   tag,
-  isSandboxKind,
   sandboxDb,
   sandboxLiveRebuild,
   refToUnderlying,
@@ -126,15 +125,13 @@ export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
  * `onSnapshot(snap.ref)` would crash with "ref.onSnapshot is not a
  * function." Bind the snapshot ref to a full chainable doc ref via
  * `refToUnderlying`; `underlyingOf(snap.ref)` then returns the real
- * ref the chainable adapter exposes its op methods on. No-op for
- * prod (their refs are already operative) and for refs that already
- * have a registered underlying.
+ * ref the chainable adapter exposes its op methods on. No-op for refs that
+ * already have a registered underlying.
  */
 export function wireSnapshotRefToUnderlying(
   snapRef: { path?: string },
   target: Target,
 ): void {
-  if (!isSandboxKind(target)) return;
   if (typeof snapRef.path !== 'string' || snapRef.path.length === 0) return;
   if (refToUnderlying.has(snapRef as object)) return;
   const path = snapRef.path;

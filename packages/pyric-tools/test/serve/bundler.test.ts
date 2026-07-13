@@ -35,32 +35,16 @@ describe('resolveDocsUiDir (embed fallback)', () => {
 });
 
 describe('firebase stub generation (drift-proof list)', () => {
-  it('collects named import AND re-export bindings from the real dist', () => {
+  it('collects only the production bindings that sandbox mirrors still use', () => {
     const bindings = collectFirebaseBindings(join(pyricPackageRoot(), 'dist'));
-    // `export { Bytes, GeoPoint, documentId, FieldPath } from 'firebase/firestore'`
-    const fs = bindings.get('firebase/firestore');
-    expect(fs).toBeDefined();
-    for (const n of ['Bytes', 'GeoPoint', 'documentId', 'FieldPath']) {
-      expect(fs!.has(n)).toBe(true);
-    }
-    // App, Auth, and Storage are sandbox-only mirrors: package resolution chooses
-    // Firebase or Pyric before either module loads.
+    // These are sandbox-only mirrors: package resolution chooses Firebase or
+    // Pyric before either module loads.
     expect(bindings.has('firebase/app')).toBe(false);
     expect(bindings.has('firebase/auth')).toBe(false);
+    expect(bindings.has('firebase/firestore')).toBe(false);
+    expect(bindings.has('firebase/storage')).toBe(false);
     // `import { get, set, … } from 'firebase/database'`
     expect(bindings.get('firebase/database')?.has('ref')).toBe(true);
-    // Storage is a sandbox-only mirror: package resolution chooses
-    // Firebase or Pyric before the module loads, so its built implementation
-    // has no production bindings for the stub generator to collect.
-    expect(bindings.has('firebase/storage')).toBe(false);
-    // NAMESPACE-accessed members (`import * as fb`; `fb.where(...)`): pyric
-    // builds the prod filter eagerly even on the sandbox path, so these MUST be
-    // collected or `fb.where` is undefined at runtime ("(void 0) is not a
-    // function"). Regression guard for the gate bug.
-    const fs2 = collectFirebaseBindings(join(pyricPackageRoot(), 'dist')).get('firebase/firestore');
-    for (const n of ['where', 'query', 'or', 'and', 'orderBy', 'doc', 'collection']) {
-      expect(fs2!.has(n)).toBe(true);
-    }
   });
 
   it('stub module is INERT — exports every name as a non-throwing deny proxy', () => {

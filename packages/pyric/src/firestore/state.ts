@@ -1,7 +1,7 @@
 /**
  * `pyric/firestore` — shared routing + branding state.
  *
- * The dual-target machinery every family module depends on: the
+ * The sandbox routing machinery every family module depends on: the
  * {@link TARGET_SYMBOL} brand, the ref→target / converter / underlying
  * WeakMaps, the tag / resolve helpers, and the sandbox read-path value
  * finalizers. Hoisted out of the former single-file entry first (see the
@@ -26,16 +26,14 @@ import {
   LatLng as RulesLatLng,
   Vector as RulesVector,
 } from 'pyric/rules/internal';
-import * as fb from 'firebase/firestore';
-
 import type { FirestoreDataConverter } from './types.js';
+import { Bytes, GeoPoint, vector } from './field-values.js';
 
 // ─── Branding + routing ───────────────────────────────────────────────
 
 /**
  * Hidden property on every {@link Firestore} handle. Discriminates
- * between sandbox and prod backends so free functions can route
- * without consumer-visible API differences.
+ * the sandbox backend so free functions can recover their owner.
  */
 export const TARGET_SYMBOL: unique symbol = Symbol('pyric/firestore/target');
 
@@ -58,15 +56,7 @@ export type SandboxTarget = { kind: 'sandbox'; db: SandboxFirestore; sandbox: Sa
  * `withAuth(null)` is anonymous; `withAuth(state)` is signed-in.
  */
 export type SandboxLiveTarget = { kind: 'sandbox-live'; sandbox: Sandbox; getDb: () => SandboxFirestore };
-export type ProdTarget = { kind: 'prod'; db: fb.Firestore };
-export type Target = SandboxTarget | SandboxLiveTarget | ProdTarget;
-
-/** True for both sandbox variants — used at dispatch sites that share a
- *  branch (every sandbox op routes the same way once we've resolved the
- *  chainable handle). The prod branch is the complement. */
-export function isSandboxKind(target: Target): target is SandboxTarget | SandboxLiveTarget {
-  return target.kind === 'sandbox' || target.kind === 'sandbox-live';
-}
+export type Target = SandboxTarget | SandboxLiveTarget;
 
 /**
  * Resolve a sandbox-flavored target to its chainable Firestore handle.
@@ -111,8 +101,7 @@ export function tag<T extends object>(obj: T, target: Target): T {
  * The closure form supports the full chain: `doc(coll, id)` rebuilds
  * via `rebuild(coll)(db).doc(id)`; `query(coll, where(...))` rebuilds
  * via `apply(constraints)` over the rebuilt source. Stored only for
- * sandbox-live refs — the `sandbox` (frozen-ctx) and `prod` paths
- * keep their existing held-ref semantics.
+ * sandbox-live refs; frozen `sandbox` refs keep held-ref semantics.
  */
 export const sandboxLiveRebuild = new WeakMap<object, (db: SandboxFirestore) => object>();
 
@@ -267,9 +256,6 @@ export function buildSandboxShell(
 export function asChainDoc(r: object): ChainDocRef { return r as ChainDocRef; }
 export function asChainColl(r: object): ChainCollRef { return r as ChainCollRef; }
 export function asChainQuery(r: object): ChainQuery { return r as ChainQuery; }
-export function asFbDoc(r: object): fb.DocumentReference { return r as fb.DocumentReference; }
-export function asFbColl(r: object): fb.CollectionReference { return r as fb.CollectionReference; }
-export function asFbQuery(r: object): fb.Query { return r as fb.Query; }
 
 export function isNumberArray(a: unknown): a is number[] {
   return Array.isArray(a) && a.every((n) => typeof n === 'number');
@@ -296,16 +282,12 @@ export function vectorValuesOf(value: unknown): number[] | null {
  *
  * The admin-compat read-path walker (in `pyric/sandbox`'s admin-compat
  * `snapshots.ts`) leaves `pyric/rules` wrappers (`Bytes`,
- * `LatLng`) as identity — it can't translate them to
- * `firebase/firestore`'s `Bytes` / `GeoPoint` because the admin-compat
- * layer doesn't depend on `firebase/firestore`.
+ * `LatLng`) as identity. The modular mirror owns the final conversion to
+ * its public scalar classes.
  *
- * This package does, so we do the final hop here: walk the value tree
- * and convert any rules-wrapper instance into its `firebase/firestore`
- * counterpart so consumer code can rely on
- * `data.b instanceof fb.Bytes === true` and
- * `data.g instanceof fb.GeoPoint === true` against sandbox reads —
- * matching the prod-target invariant.
+ * Walk the value tree and convert recognized rules wrappers into the
+ * corresponding local modular value class so `instanceof` survives a
+ * sandbox round trip.
  *
  * Closes firestore COMPAT rows #109 (`Bytes`) and #110 (`GeoPoint`).
  * Vectors (#111, `VectorValue` / `vector()`) round-trip the same way as of
@@ -314,14 +296,14 @@ export function vectorValuesOf(value: unknown): number[] | null {
  */
 export function finalizeSandboxValue(value: unknown): unknown {
   if (value instanceof RulesBytes) {
-    return fb.Bytes.fromUint8Array(value.data);
+    return Bytes.fromUint8Array(value.data);
   }
   if (value instanceof RulesLatLng) {
-    return new fb.GeoPoint(value.lat, value.lng);
+    return new GeoPoint(value.lat, value.lng);
   }
   const vectorValues = vectorValuesOf(value);
   if (vectorValues) {
-    return fb.vector(vectorValues);
+    return vector(vectorValues);
   }
   if (Array.isArray(value)) {
     return value.map(finalizeSandboxValue);

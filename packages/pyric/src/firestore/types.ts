@@ -21,9 +21,6 @@ import {
   type Transaction as ChainTransaction,
 } from 'pyric/sandbox/admin-firestore';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
-import type { FirebaseApp } from 'firebase/app';
-import type * as fb from 'firebase/firestore';
-
 import { TARGET_SYMBOL, type Target } from './state.js';
 
 /**
@@ -48,9 +45,7 @@ export interface FirestoreDataConverter<
 // ─── Public Firestore handle ──────────────────────────────────────────
 
 /**
- * Opaque handle returned by {@link getFirestoreSandbox} or
- * {@link getFirestoreProd}. Carries the target via {@link TARGET_SYMBOL};
- * never inspected by consumer code.
+ * Opaque sandbox handle carrying its owner via {@link TARGET_SYMBOL}.
  */
 export interface Firestore {
   readonly [TARGET_SYMBOL]: Target;
@@ -58,16 +53,13 @@ export interface Firestore {
 
 // ─── Reference / query types ──────────────────────────────────────────
 //
-// Modular refs are the underlying chainable refs (sandbox) or the
-// Firebase modular refs (prod) at runtime — we tag them in
-// `refToTarget` to recover routing.
+// Modular refs are underlying chainable refs tagged in `refToTarget` so
+// operations can recover their sandbox owner.
 //
 // At the type level, exposing a discriminated union per ref kind would
 // be uniformly nice but costs a lot in user-side ergonomics. Instead
 // the public types are structural intersections of the operations we
-// support; consumer code interacts with refs only through our free
-// functions, never property access, so the runtime heterogeneity is
-// invisible.
+// support; consumer code interacts with refs through our free functions.
 
 /** A reference to a Firestore document. Backend-opaque. */
 export interface DocumentReference<_T = DocumentData> {
@@ -104,8 +96,8 @@ export interface QuerySnapshot<T = DocumentData> {
   readonly empty: boolean;
   readonly docs: ReadonlyArray<QueryDocumentSnapshot<T>>;
 }
-export type WriteBatch = ChainWriteBatch | fb.WriteBatch;
-export type Transaction = ChainTransaction | fb.Transaction;
+export type WriteBatch = ChainWriteBatch;
+export type Transaction = ChainTransaction;
 export type Unsubscribe = () => void;
 
 export type {
@@ -117,7 +109,6 @@ export type {
   LintResult,
   OrderDirection,
   WhereFilterOp,
-  FirebaseApp,
 };
 
 export { SandboxError };

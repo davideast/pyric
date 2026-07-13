@@ -5,13 +5,11 @@
  * under current auth, threading the follows-current-user marker, tagging +
  * rehydrating delivered snapshots, and the default uncaught-error handler.
  */
-import * as fb from 'firebase/firestore';
 import { FOLLOWS_CURRENT_USER } from 'pyric/sandbox/admin-firestore';
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 
 import {
   targetOf,
-  isSandboxKind,
   sandboxDb,
   sandboxLiveRebuild,
   underlyingOf,
@@ -56,51 +54,14 @@ export function onSnapshot(
   arg4?: (error: unknown) => void,
 ): Unsubscribe {
   const target = targetOf(ref);
-  if (isSandboxKind(target)) {
-    // Resolve the chainable ref. For frozen sandbox, this is the held
-    // chainable; for sandbox-live, build a fresh chainable bound to the
-    // *current* `sandbox.currentUser` — the listener captures that
-    // identity as its initial auth. For sandbox-live the listener also
-    // FOLLOWS `currentUser`: a later sign-out / sign-in re-evaluates it
-    // under the new auth (an auth-gated listener loses access on
-    // sign-out, regains under a different signed-in user). This matches
-    // production, which re-establishes the listen stream on a session
-    // auth change. Frozen-ctx (`getFirestore(ctx)`) listeners stay
-    // pinned to their chosen identity (admin/testing path).
-    const r = resolveSandboxListenable(target, ref);
-    // Wrap the next callback so any ref the snapshot carries (the
-    // document's `.ref` for a doc snapshot; each doc's `.ref` for a
-    // query snapshot) gets tagged in `refToTarget` before the consumer
-    // ever sees it. Without this, `snap.ref` / `snap.docs[i].ref`
-    // come back from the chainable adapter untagged, and the next
-    // `onSnapshot(ref, …)` / `setDoc(ref, …)` throws
-    // "pyric/firestore: unrecognized reference."
-    const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target);
-    // Thread the live-vs-frozen marker down to the chainable adapter so
-    // it can set `addSnapshotListener`'s `followsCurrentUser` flag. The
-    // adapter sees only a `SandboxContext` and can't recover the
-    // distinction on its own; we stamp an internal symbol onto the
-    // forwarded options object (prepending one when the call used the
-    // callback-first form). The adapter reads + strips it.
-    const finalArgs = markSandboxLiveSnapshotArgs(wrappedArgs, target);
-    return finalArgs.length === 3
-      ? r.onSnapshot(finalArgs[0], finalArgs[1], finalArgs[2])
-      : finalArgs.length === 2
-        ? r.onSnapshot(finalArgs[0], finalArgs[1])
-        : r.onSnapshot(finalArgs[0]);
-  }
-  // prod — `firebase/firestore`'s onSnapshot takes the same arg shapes.
-  // fb's modular SDK already returns refs that route through `targetOf`'s
-  // `TARGET_SYMBOL` path (we set the symbol on each ref the package
-  // exposes), so no wrapping is needed on the prod side.
-  const fbRef = ref as unknown as fb.DocumentReference | fb.Query;
-  // The fb overload set is wide — cast through `any` for the arg
-  // forwarding; the types match at runtime.
-  return arg4 !== undefined
-    ? (fb.onSnapshot as unknown as (...a: unknown[]) => Unsubscribe)(fbRef, arg2, arg3, arg4)
-    : arg3 !== undefined
-      ? (fb.onSnapshot as unknown as (...a: unknown[]) => Unsubscribe)(fbRef, arg2, arg3)
-      : (fb.onSnapshot as unknown as (...a: unknown[]) => Unsubscribe)(fbRef, arg2);
+  const r = resolveSandboxListenable(target, ref);
+  const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target);
+  const finalArgs = markSandboxLiveSnapshotArgs(wrappedArgs, target);
+  return finalArgs.length === 3
+    ? r.onSnapshot(finalArgs[0], finalArgs[1], finalArgs[2])
+    : finalArgs.length === 2
+      ? r.onSnapshot(finalArgs[0], finalArgs[1])
+      : r.onSnapshot(finalArgs[0]);
 }
 
 /**
@@ -136,8 +97,7 @@ function resolveSandboxListenable(
  * Wrap the `next` callback in an `onSnapshot(…)` call so every ref the
  * snapshot carries is tagged into `refToTarget` before delivery. Returns
  * the rewritten arg tuple ready to forward to the underlying chainable
- * adapter. Only used for the sandbox target — prod refs from
- * `firebase/firestore` already carry `TARGET_SYMBOL`.
+ * adapter.
  */
 /**
  * FS-B14 — `true` when `obj` is a partial `onSnapshot` observer (an object
@@ -203,8 +163,7 @@ function tagSandboxSnapshotArgs(
  * Stamp the internal `FOLLOWS_CURRENT_USER` marker onto the options
  * object of a forwarded `onSnapshot` arg tuple, so the chainable adapter
  * can set `addSnapshotListener`'s `followsCurrentUser` flag. Only applies
- * to `sandbox-live` targets — frozen-ctx (`sandbox`) and prod listeners
- * keep their pinned identity and are returned unchanged.
+ * to `sandbox-live` targets; frozen-ctx listeners keep their pinned identity.
  *
  * `args` is the post-`tagSandboxSnapshotArgs` tuple, which is one of:
  *   - `[options, next|observer, error?]` — options-first form
@@ -231,7 +190,7 @@ function markSandboxLiveSnapshotArgs(args: unknown[], target: Target): unknown[]
 }
 
 function finalizeSandboxSnapshot(snap: unknown, target: Target): unknown {
-  if (!isSandboxKind(target) || !snap || typeof snap !== 'object') return snap;
+  if (!snap || typeof snap !== 'object') return snap;
   const s = snap as {
     data?: () => DocumentData | undefined;
     docs?: Array<object>;
