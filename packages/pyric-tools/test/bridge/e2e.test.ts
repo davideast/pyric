@@ -34,6 +34,7 @@ import {
   isBridgeMessage,
   NO_SANDBOX_ERROR_MESSAGE,
 } from '../../src/bridge/protocol.js';
+import { DEFAULT_MCP_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
 
 const PORT = 5179; // distinct from default 5174
 
@@ -195,13 +196,7 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
     try {
       const result = await client.listTools();
       const names = result.tools.map((t) => t.name).sort();
-      // Sandbox-mode bridge exposes simulator tools (forwarded) +
-      // rules tools (in-process).
-      for (const sandboxName of SANDBOX_TOOL_NAMES) {
-        expect(names).toContain(sandboxName);
-      }
-      // Spot-check a rules tool that should also be present.
-      expect(names).toContain('firestore_lint_rules');
+      expect(names).toEqual([...DEFAULT_MCP_TOOL_NAMES].sort());
     } finally {
       await close();
       peer.disconnect();

@@ -1,6 +1,210 @@
 {
   "_readme": "Exposure decisions for the tool parity audit (scripts/tool-parity.mjs). Every tool visible on any surface (MCP bridge / playground agent / @pyric/cli registry) must be recorded here as 'gap' (absence is a defect to fix) or 'deliberate' (absence is design, with the reason). Unannotated tools fail `bun run tool:parity --check`. Seeded from docs/design/TOOL-SYSTEM.md's exposure matrix.",
   "tools": {
+    "auth_configure_provider": {
+      "decision": "deliberate",
+      "reason": "legacy production-control registry tool; excluded from local MCP and Playground and scheduled for removal from @pyric/cli"
+    },
+    "auth_get_config": {
+      "decision": "deliberate",
+      "reason": "legacy production-control registry tool; excluded from local MCP and Playground and scheduled for removal from @pyric/cli"
+    },
+    "auth_manage_domains": {
+      "decision": "deliberate",
+      "reason": "legacy production-control registry tool; excluded from local MCP and Playground and scheduled for removal from @pyric/cli"
+    },
+    "build_game_rules": {
+      "decision": "deliberate",
+      "reason": "Playground skill-specific authoring workflow, activated only by its skill; not a general MCP primitive"
+    },
+    "debug_firestore_rules": {
+      "decision": "deliberate",
+      "reason": "Playground orchestration wrapper; external agents compose the MCP rules and inspection primitives directly"
+    },
+    "firestore_add_document": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "firestore_batch_write": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "firestore_create_document": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "firestore_create_with_auto_id": {
+      "decision": "deliberate",
+      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
+    },
+    "firestore_delete_document": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "firestore_discover_paths": {
+      "decision": "deliberate",
+      "reason": "production-project discovery is excluded from the local MCP contract and is scheduled for removal from @pyric/cli"
+    },
+    "firestore_extract_indexes": {
+      "decision": "deliberate",
+      "reason": "artifact generation is exposed through `pyric firestore indexes generate`; external agents can invoke the CLI without a duplicate MCP tool"
+    },
+    "firestore_find_collection_group": {
+      "decision": "deliberate",
+      "reason": "production-project discovery is excluded from the local MCP contract and is scheduled for removal from @pyric/cli"
+    },
+    "firestore_get_document": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "firestore_inspect_rules": {
+      "decision": "deliberate",
+      "reason": "production rules inspection is excluded from the local MCP contract; Playground exposure remains explicitly project-gated"
+    },
+    "firestore_lint_rules": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive; the Playground reaches linting through its native authoring workflow rather than a duplicate top-level handler"
+    },
+    "firestore_list_documents": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "firestore_query_where": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "firestore_resolve_modules": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive; the Playground resolves modules inside its native authoring and write workflow"
+    },
+    "firestore_rules_stdlib_get": {
+      "decision": "deliberate",
+      "reason": "intentionally shared rules-authoring reference across MCP, Playground, and the composed registry"
+    },
+    "firestore_rules_stdlib_list": {
+      "decision": "deliberate",
+      "reason": "intentionally shared rules-authoring reference across MCP, Playground, and the composed registry"
+    },
+    "firestore_simulate_rules": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive; the Playground reaches simulation through its diagnostic workflow rather than a duplicate top-level handler"
+    },
+    "firestore_simulator_batch": {
+      "decision": "deliberate",
+      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
+    },
+    "firestore_simulator_create": {
+      "decision": "deliberate",
+      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
+    },
+    "firestore_simulator_events": {
+      "decision": "deliberate",
+      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
+    },
+    "firestore_simulator_execute": {
+      "decision": "deliberate",
+      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
+    },
+    "firestore_simulator_read": {
+      "decision": "deliberate",
+      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
+    },
+    "firestore_simulator_redo": {
+      "decision": "deliberate",
+      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
+    },
+    "firestore_simulator_transaction": {
+      "decision": "deliberate",
+      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
+    },
+    "firestore_simulator_undo": {
+      "decision": "deliberate",
+      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
+    },
+    "firestore_test_rules": {
+      "decision": "gap",
+      "reason": "Rules Test API verification is allowed but is not in the default credential-free MCP contract; it needs an explicit credential-aware adapter"
+    },
+    "firestore_update_document": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "inspect_auth_users": {
+      "decision": "deliberate",
+      "reason": "Playground session-inspection affordance; the default MCP contract currently exposes only ratified attached-sandbox tool families"
+    },
+    "pyric_derive_rules_test_cases": {
+      "decision": "deliberate",
+      "reason": "exposed as `pyric verify cases`; external agents can invoke the CLI without a duplicate MCP tool"
+    },
+    "pyric_verify_fixture": {
+      "decision": "deliberate",
+      "reason": "exposed as `pyric verify`; external agents can invoke the CLI without a duplicate MCP tool"
+    },
+    "rtdb_build_expression": {
+      "decision": "deliberate",
+      "reason": "legacy registry helper; public RTDB artifact generation is owned by `pyric database rules generate`"
+    },
+    "rtdb_crawl_structure": {
+      "decision": "deliberate",
+      "reason": "bounded attached-sandbox inspection belongs in MCP; the Playground reads its own session state directly"
+    },
+    "rtdb_delete": {
+      "decision": "deliberate",
+      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
+    },
+    "rtdb_deploy_rules": {
+      "decision": "deliberate",
+      "reason": "legacy deployment registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
+    },
+    "rtdb_get": {
+      "decision": "deliberate",
+      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
+    },
+    "rtdb_get_rules": {
+      "decision": "deliberate",
+      "reason": "production RTDB control-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
+    },
+    "rtdb_push": {
+      "decision": "deliberate",
+      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
+    },
+    "rtdb_set": {
+      "decision": "deliberate",
+      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
+    },
+    "rtdb_simulate_access": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox rules inspection belongs in MCP; the Playground uses its own session rules engine"
+    },
+    "rtdb_update": {
+      "decision": "deliberate",
+      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
+    },
+    "rtdb_validated_write": {
+      "decision": "deliberate",
+      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
+    },
+    "run_workspace_tests": {
+      "decision": "deliberate",
+      "reason": "Playground virtual-workspace operation; external agents run project tests through their native shell"
+    },
+    "sandbox_discover_paths": {
+      "decision": "deliberate",
+      "reason": "Playground session-navigation affordance; MCP already exposes bounded list, query, and inspect primitives"
+    },
+    "sandbox_inspect": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox diagnostic belongs in MCP; the Playground observes its session state directly"
+    },
+    "seed_auth_users": {
+      "decision": "deliberate",
+      "reason": "Playground fixture convenience; external MCP sessions operate on the attached application sandbox rather than a parallel seed API"
+    },
+    "seed_firestore_data_as_admin": {
+      "decision": "deliberate",
+      "reason": "Playground fixture convenience; MCP exposes explicit Firestore create and batch operations instead"
+    },
     "inspect_firestore_traffic": {
       "decision": "gap",
       "reason": "missing from MCP — an external agent debugging rules needs the same visibility the playground agent has"

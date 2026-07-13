@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
 import { silentServeLogger } from '../../src/serve/server.js';
+import { DEFAULT_MCP_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
 
 function fixtureProject(): string {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-bridge-'));
@@ -88,11 +89,10 @@ describe('pyric dev --bridge', () => {
 
     const list = await mcp(2, 'tools/list');
     expect(list.status).toBe(200); // was 500 with the shared transport
-    const names = ((list.json as { result: { tools: Array<{ name: string }> } }).result.tools).map((t) => t.name);
-    expect(names.length).toBeGreaterThan(0);
-    expect(names.some((n) => n.includes('inspect'))).toBe(true); // sandbox_inspect forwarded
-    expect(names).toContain('firebase_assurance_attach');
-    expect(names).toContain('firebase_assurance_run');
+    const names = ((list.json as { result: { tools: Array<{ name: string }> } }).result.tools)
+      .map((t) => t.name)
+      .sort();
+    expect(names).toEqual([...DEFAULT_MCP_TOOL_NAMES].sort());
   });
 
   it('accepts a WS sandbox peer on the serve origin', async () => {

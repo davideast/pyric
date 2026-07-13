@@ -34,7 +34,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { ToolHandler } from '@inbrowser/agent';
 import { createBridge, type Bridge, type BridgeToolEvent } from './bridge.js';
 import { buildMcpServer } from './mcp.js';
-import { getSandboxToolMetadata, getRulesToolHandlers } from './tool-metadata.js';
+import { getDefaultMcpToolSurface } from './mcp-contract.js';
 import { createAuditWriter, type AuditWriter } from './audit.js';
 import {
   createConsoleLogger,
@@ -198,10 +198,10 @@ export async function startServer(
   // Build the MCP server. In sandbox mode, forward sandbox tools to
   // the bridge and run rules tools in-process. In prod mode, run all
   // tools in-process (caller supplies them via `prodTools`).
-  const forwarded = mode === 'sandbox' ? getSandboxToolMetadata() : [];
-  const rulesTools = mode === 'sandbox' ? getRulesToolHandlers() : [];
+  const sandboxSurface = mode === 'sandbox' ? getDefaultMcpToolSurface() : null;
+  const forwarded = sandboxSurface?.forwarded ?? [];
   const inProcess: ToolHandler[] = [
-    ...rulesTools,
+    ...(sandboxSurface?.inProcess ?? []),
     ...(opts.prodTools ?? []),
   ];
 

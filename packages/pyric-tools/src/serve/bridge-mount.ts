@@ -22,7 +22,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { ToolHandler } from '@inbrowser/agent';
 import { createBridge, type BridgeToolEvent } from '../bridge/server/bridge.js';
 import { buildMcpServer } from '../bridge/server/mcp.js';
-import { getSandboxToolMetadata, getRulesToolHandlers } from '../bridge/server/tool-metadata.js';
+import { getDefaultMcpToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { attachPeer } from '../bridge/server/peer.js';
 import { pyricVersion } from './standalone-assets.js';
@@ -119,9 +119,10 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     session.transport.onclose = () => {
       if (session.sessionId) sessions.delete(session.sessionId);
     };
+    const surface = getDefaultMcpToolSurface();
     const server = buildMcpServer(bridge, {
-      forwarded: getSandboxToolMetadata(),
-      inProcess: [...getRulesToolHandlers(), ...(opts.extraTools ?? [])],
+      forwarded: surface.forwarded,
+      inProcess: [...surface.inProcess, ...(opts.extraTools ?? [])],
     });
     session.close = async () => {
       if (session.idle) clearTimeout(session.idle);

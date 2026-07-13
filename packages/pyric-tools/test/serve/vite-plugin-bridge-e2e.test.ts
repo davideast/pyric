@@ -25,6 +25,7 @@ import path, { join } from 'node:path';
 import { homedir } from 'node:os';
 import { initializeSandbox } from 'pyric/sandbox';
 import { connectBridge, type ConnectedBridge } from '../../src/bridge/client/bridge.js';
+import { DEFAULT_MCP_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
 import { defaultSdkEntries, bundleWorker, workerSourceHash } from '../../src/serve/bundler.js';
 import { pyricSandbox } from '../../src/serve/vite-plugin.js';
 
@@ -133,17 +134,46 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
   });
 
   const base = (): string => `http://localhost:${port}`;
-  // One stateless MCP-over-HTTP request (streamable HTTP replies as an SSE frame
-  // or bare JSON — handle both, exactly like the serve-side bridge test).
-  const mcp = async (id: number, method: string, params: Record<string, unknown> = {}) => {
-    const res = await fetchSafe(base() + '/__pyric/mcp', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
-    });
-    const text = await res.text();
-    const line = text.split('\n').find((l) => l.startsWith('data:')) ?? text;
-    return { status: res.status, json: JSON.parse(line.replace(/^data:\s*/, '')) as Record<string, any> };
+  const createMcpSession = () => {
+    let sessionId: string | null = null;
+    const request = async (
+      id: number | null,
+      method: string,
+      params: Record<string, unknown> = {},
+    ) => {
+      const headers: Record<string, string> = {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      };
+      if (sessionId) headers['mcp-session-id'] = sessionId;
+      const res = await fetchSafe(base() + '/__pyric/mcp', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(
+          id === null
+            ? { jsonrpc: '2.0', method, params }
+            : { jsonrpc: '2.0', id, method, params },
+        ),
+      });
+      sessionId = res.headers.get('mcp-session-id') ?? sessionId;
+      const text = await res.text();
+      if (!text) return { status: res.status, json: null as Record<string, any> | null };
+      const line = text.split('\n').find((entry) => entry.startsWith('data:')) ?? text;
+      return {
+        status: res.status,
+        json: JSON.parse(line.replace(/^data:\s*/, '')) as Record<string, any>,
+      };
+    };
+    const initialize = async () => {
+      const response = await request(1, 'initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'e2e', version: '0' },
+      });
+      await request(null, 'notifications/initialized');
+      return response;
+    };
+    return { initialize, request };
   };
 
   it('serves health + an absolute bridgeUrl carrying the bound port', async () => {
@@ -155,14 +185,15 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
   }, 30_000);
 
   it('answers a real MCP handshake over HTTP: initialize THEN tools/list', async () => {
-    const init = await mcp(1, 'initialize', {
-      protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'e2e', version: '0' },
-    });
+    const mcp = createMcpSession();
+    const init = await mcp.initialize();
     expect(init.status).toBe(200);
-    expect(init.json.result.serverInfo.name).toBe('pyric');
-    const list = await mcp(2, 'tools/list');
+    expect(init.json?.result.serverInfo.name).toBe('pyric');
+    const list = await mcp.request(2, 'tools/list');
     expect(list.status).toBe(200);
-    expect((list.json.result.tools as Array<{ name: string }>).length).toBeGreaterThan(0);
+    expect(
+      (list.json?.result.tools as Array<{ name: string }>).map((tool) => tool.name).sort(),
+    ).toEqual([...DEFAULT_MCP_TOOL_NAMES].sort());
   }, 30_000);
 
   it('round-trips a tool call MCP → bridge → real connectBridge sandbox peer → back', async () => {
@@ -181,13 +212,15 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
     await withTimeout(connected, 9000, 'peer connect');
 
     // Pick a forwarded sandbox tool from the live list (name may be prefixed).
-    const list = await mcp(10, 'tools/list');
-    const inspect = (list.json.result.tools as Array<{ name: string }>).find((t) => t.name.includes('inspect'));
+    const mcp = createMcpSession();
+    await mcp.initialize();
+    const list = await mcp.request(10, 'tools/list');
+    const inspect = (list.json?.result.tools as Array<{ name: string }>).find((t) => t.name.includes('inspect'));
     expect(inspect).toBeTruthy();
 
-    const call = await mcp(11, 'tools/call', { name: inspect!.name, arguments: {} });
+    const call = await mcp.request(11, 'tools/call', { name: inspect!.name, arguments: {} });
     expect(call.status).toBe(200);
-    expect(call.json.error).toBeUndefined(); // forwarded + executed, not "not connected"
-    expect(call.json.result).toBeTruthy();
+    expect(call.json?.error).toBeUndefined(); // forwarded + executed, not "not connected"
+    expect(call.json?.result).toBeTruthy();
   }, 30_000);
 });

@@ -365,6 +365,10 @@ check_bin_executable() {
 check_bin_executable "pyric"
 PYRIC_BIN="$WORK/consumer/node_modules/.bin/pyric"
 node "$ROOT/scripts/packed-cli-smoke.mjs" "$PYRIC_BIN" "$WORK/cli-smoke"
+node "$ROOT/scripts/packed-mcp-smoke.mjs" \
+  "$PYRIC_BIN" \
+  "$WORK/mcp-smoke" \
+  "$ROOT/packages/pyric-tools/dist/bridge/server/mcp-contract.js"
 
 # ─── Phase 5.5: serve smoke (init + serve from the packed bin) ─────────
 # The subpath + bin checks above prove imports resolve, but they never boot
