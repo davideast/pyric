@@ -1,6 +1,7 @@
 import { describe, test, expect, afterEach } from 'bun:test';
 import { CrawlStructureHandler } from '../../../src/database/crawl/handler.js';
 import type { RtdbHost } from '../../../src/database/host.js';
+import { UNSUPPORTED_DATA_TRANSPORT } from '../fixtures.js';
 
 const DATABASE_URL = 'https://test-db.firebaseio.com';
 
@@ -9,7 +10,7 @@ const HOST: RtdbHost = {
   databaseUrl: DATABASE_URL,
   resolveAdminToken: async () => 'mock-token',
   resolveUserToken: async () => 'mock-user-token',
-  getClientForUser: async () => { throw new Error('not implemented'); },
+  data: UNSUPPORTED_DATA_TRANSPORT,
 };
 
 const realFetch = global.fetch;

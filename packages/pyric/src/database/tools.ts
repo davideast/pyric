@@ -14,7 +14,7 @@ import type { RtdbHost } from './host.js';
 import type { RtdbIR, UserAuth } from './types.js';
 
 export interface RtdbAdminToolDeps {
-  /** Project identity + token resolvers + client-SDK factory. Factory
+  /** Project identity + token resolvers + data transport. Factory
    *  consumers (e.g. `composeMcpRegistry`) pass it directly. */
   host: RtdbHost;
 }
@@ -24,7 +24,7 @@ export type RtdbDataToolDeps = RtdbAdminToolDeps;
 
 /** JSON Schema for the optional per-call `auth` argument shared by
  *  every data tool. When supplied, the operation goes through
- *  `host.getClientForUser(auth)` so rules are enforced; when omitted,
+ *  `host.data` with that identity so rules are enforced; when omitted,
  *  admin access is used. */
 const AUTH_SCHEMA = {
   description:

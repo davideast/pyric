@@ -5,6 +5,7 @@ import {
   createRtdbRulesTools,
 } from '../../src/database/tools.js';
 import type { RtdbHost } from '../../src/database/host.js';
+import { UNSUPPORTED_DATA_TRANSPORT } from './fixtures.js';
 
 const VALID_RULES = { rules: { '.read': 'auth !== null', '.write': 'false' } };
 
@@ -14,7 +15,7 @@ function makeHost(): RtdbHost {
     databaseUrl: 'https://test-default-rtdb.firebaseio.com',
     resolveAdminToken: async () => 'mock-admin-token',
     resolveUserToken: async () => 'mock-user-token',
-    getClientForUser: async () => { throw new Error('not implemented'); },
+    data: UNSUPPORTED_DATA_TRANSPORT,
   };
 }
 

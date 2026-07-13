@@ -11,11 +11,23 @@ import admin from 'firebase-admin';
 import { initializeApp as initializeClientApp, initializeServerApp } from 'firebase/app';
 import { getAuth as getClientAuth, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore as getClientFirestore } from 'firebase/firestore';
-import { getDatabase as getClientDatabase } from 'firebase/database';
+import {
+  get as getClientData,
+  getDatabase as getClientDatabase,
+  push as pushClientData,
+  ref as clientDataRef,
+  remove as removeClientData,
+  set as setClientData,
+  update as updateClientData,
+  type Database,
+  type DatabaseReference,
+} from 'firebase/database';
+import { getDatabaseWithUrl } from 'firebase-admin/database';
 import { initializeDatabaseApp, type RtdbHost } from 'pyric/database';
 import type { ProjectScope } from '../credentials/core/types.js';
 import { projectScopeFromAdminApp } from '../credentials/node/admin-app-scope.js';
 import type { AdminAppDeps } from './compose.js';
+import { createFirebaseRtdbDataTransport } from './rtdb-data-transport.js';
 
 export interface AdminDepsResult {
   scope: ProjectScope;
@@ -47,6 +59,7 @@ export function adminDepsFromServiceAccount(opts: {
 
   const scope = projectScopeFromAdminApp(app);
   const apiKey = opts.apiKey ?? '';
+  const databaseUrl = `https://${cert.project_id}-default-rtdb.firebaseio.com`;
   const clientApp = initializeClientApp(
     { apiKey, projectId: cert.project_id, authDomain: `${cert.project_id}.firebaseapp.com` },
     'pyric-impersonation',
@@ -83,8 +96,22 @@ export function adminDepsFromServiceAccount(opts: {
         const cred = await signInWithCustomToken(getClientAuth(clientApp), customToken);
         return cred.user.getIdToken();
       },
-      getClientDatabase: async (auth: ImpersonationAuth, databaseUrl: string) =>
-        getClientDatabase(await getOrCreateServerApp(auth), databaseUrl),
-    }),
+      data: createFirebaseRtdbDataTransport({
+        databaseUrl,
+        getAdminDatabase: (url) => getDatabaseWithUrl(url, app),
+        getClientDatabase: async (auth: ImpersonationAuth, url: string) =>
+          getClientDatabase(await getOrCreateServerApp(auth), url),
+        client: {
+          ref: (database, path) => clientDataRef(database as Database, path),
+          get: (reference) => getClientData(reference as DatabaseReference),
+          set: (reference, value) => setClientData(reference as DatabaseReference, value),
+          update: (reference, values) =>
+            updateClientData(reference as DatabaseReference, values),
+          push: (reference, value) =>
+            pushClientData(reference as DatabaseReference, value),
+          remove: (reference) => removeClientData(reference as DatabaseReference),
+        },
+      }),
+    }, { databaseUrl }),
   };
 }

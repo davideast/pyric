@@ -1,17 +1,49 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { getRtdbTools } from '../../src/database/resolver.js';
 import type { RtdbHost } from '../../src/database/host.js';
+import type { RtdbDataTransport } from '../../src/database/data/transport.js';
 
 const VALID_RULES = { rules: { '.read': 'auth !== null', '.write': 'false' } };
 const DATABASE_URL = 'https://test-default-rtdb.firebaseio.com';
 
-function makeHost(): RtdbHost {
+const unsupported = async (): Promise<never> => {
+  throw new Error('data transport not implemented for this test');
+};
+
+function makeDataTransport(
+  overrides: Partial<RtdbDataTransport> = {},
+): RtdbDataTransport {
+  return {
+    get: unsupported,
+    set: unsupported,
+    update: unsupported,
+    push: unsupported,
+    remove: unsupported,
+    ...overrides,
+  };
+}
+
+function makeHost(data: RtdbDataTransport = makeDataTransport()): RtdbHost {
   return {
     projectId: 'test-project',
     databaseUrl: DATABASE_URL,
+    data,
     resolveAdminToken: async () => 'mock-admin-token',
     resolveUserToken: async () => 'mock-user-token',
-    getClientForUser: async () => { throw new Error('not implemented'); },
+  };
+}
+
+function hostWithDataFailure(error: Error): RtdbHost {
+  const fail = async (): Promise<never> => { throw error; };
+  return {
+    ...makeHost(),
+    data: makeDataTransport({
+      get: fail,
+      set: fail,
+      update: fail,
+      push: fail,
+      remove: fail,
+    }),
   };
 }
 
@@ -38,6 +70,230 @@ beforeEach(() => stubFetch());
 afterEach(() => { global.fetch = realFetch; });
 
 describe('getRtdbTools', () => {
+  test('readData preserves admin and user return shapes from the host data transport', async () => {
+    const host = makeHost(makeDataTransport({
+      get: async (_path, auth) => ({ name: auth?.uid ?? 'Admin' }),
+    }));
+
+    await expect(getRtdbTools(host).readData('/users/alice')).resolves.toEqual({
+      success: true,
+      data: { name: 'Admin' },
+    });
+    await expect(
+      getRtdbTools(host).readData('/users/alice', { auth: { uid: 'alice' } }),
+    ).resolves.toEqual({
+      success: true,
+      data: { name: 'alice' },
+    });
+  });
+
+  test('readData preserves null for a missing path', async () => {
+    const host = makeHost(makeDataTransport({ get: async () => null }));
+
+    await expect(getRtdbTools(host).readData('/missing')).resolves.toEqual({
+      success: true,
+      data: null,
+    });
+  });
+
+  test('setData preserves admin and user result shapes through the host data transport', async () => {
+    const values = new Map<string, unknown>();
+    const key = (path: string, uid = 'admin') => `${uid}:${path}`;
+    const host = makeHost(makeDataTransport({
+      get: async (path, auth) => values.get(key(path, auth?.uid)) ?? null,
+      set: async (path, value, auth) => { values.set(key(path, auth?.uid), value); },
+    }));
+    const tools = getRtdbTools(host);
+
+    await expect(tools.setData('/users/bob', { name: 'Bob' })).resolves.toEqual({
+      success: true,
+      data: null,
+    });
+    await expect(tools.readData('/users/bob')).resolves.toEqual({
+      success: true,
+      data: { name: 'Bob' },
+    });
+    await expect(
+      tools.setData('/users/alice', { name: 'Alice' }, { auth: { uid: 'alice' } }),
+    ).resolves.toEqual({ success: true, data: null });
+    await expect(
+      tools.readData('/users/alice', { auth: { uid: 'alice' } }),
+    ).resolves.toEqual({ success: true, data: { name: 'Alice' } });
+  });
+
+  test('updateData preserves admin and user result shapes through the host data transport', async () => {
+    const values = new Map<string, Record<string, unknown>>([
+      ['admin:/users/bob', { name: 'Bob' }],
+      ['alice:/users/alice', { name: 'Alice' }],
+    ]);
+    const key = (path: string, uid = 'admin') => `${uid}:${path}`;
+    const host = makeHost(makeDataTransport({
+      get: async (path, auth) => values.get(key(path, auth?.uid)) ?? null,
+      update: async (path, value, auth) => {
+        const target = key(path, auth?.uid);
+        values.set(target, { ...(values.get(target) ?? {}), ...value });
+      },
+    }));
+    const tools = getRtdbTools(host);
+
+    await expect(tools.updateData('/users/bob', { role: 'admin' })).resolves.toEqual({
+      success: true,
+      data: null,
+    });
+    await expect(tools.readData('/users/bob')).resolves.toEqual({
+      success: true,
+      data: { name: 'Bob', role: 'admin' },
+    });
+    await expect(
+      tools.updateData('/users/alice', { role: 'member' }, { auth: { uid: 'alice' } }),
+    ).resolves.toEqual({ success: true, data: null });
+    await expect(
+      tools.readData('/users/alice', { auth: { uid: 'alice' } }),
+    ).resolves.toEqual({
+      success: true,
+      data: { name: 'Alice', role: 'member' },
+    });
+  });
+
+  test('pushData preserves admin and user keys from the host data transport', async () => {
+    const host = makeHost(makeDataTransport({
+      push: async (_path, _value, auth) => ({
+        key: auth ? '-NuserTransportKey' : '-NadminTransportKey',
+      }),
+    }));
+
+    await expect(
+      getRtdbTools(host).pushData('/posts', { title: 'Transport owned' }),
+    ).resolves.toEqual({
+      success: true,
+      data: { key: '-NadminTransportKey' },
+    });
+    await expect(
+      getRtdbTools(host).pushData(
+        '/posts',
+        { title: 'User transport' },
+        { auth: { uid: 'alice' } },
+      ),
+    ).resolves.toEqual({
+      success: true,
+      data: { key: '-NuserTransportKey' },
+    });
+  });
+
+  test('removeData preserves admin and user result shapes through the host data transport', async () => {
+    const values = new Map<string, unknown>();
+    const key = (path: string, uid = 'admin') => `${uid}:${path}`;
+    const host = makeHost(makeDataTransport({
+      get: async (path, auth) => values.get(key(path, auth?.uid)) ?? null,
+      set: async (path, value, auth) => { values.set(key(path, auth?.uid), value); },
+      remove: async (path, auth) => { values.delete(key(path, auth?.uid)); },
+    }));
+    const tools = getRtdbTools(host);
+    await tools.setData('/users/bob', { name: 'Bob' });
+    await tools.setData('/users/alice', { name: 'Alice' }, { auth: { uid: 'alice' } });
+
+    await expect(tools.removeData('/users/bob')).resolves.toEqual({
+      success: true,
+      data: null,
+    });
+    await expect(tools.readData('/users/bob')).resolves.toEqual({
+      success: true,
+      data: null,
+    });
+    await expect(
+      tools.removeData('/users/alice', { auth: { uid: 'alice' } }),
+    ).resolves.toEqual({ success: true, data: null });
+    await expect(
+      tools.readData('/users/alice', { auth: { uid: 'alice' } }),
+    ).resolves.toEqual({ success: true, data: null });
+  });
+
+  test('readData passes user identity to the host data transport', async () => {
+    const host = makeHost(makeDataTransport({
+      get: async (_path, auth) => auth ?? null,
+    }));
+
+    await expect(
+      getRtdbTools(host).readData('/private', { auth: { uid: 'alice' } }),
+    ).resolves.toEqual({
+      success: true,
+      data: { uid: 'alice' },
+    });
+  });
+
+  test('readData normalizes transport failures as READ_FAILED', async () => {
+    const host = hostWithDataFailure(new Error('Connection refused'));
+
+    await expect(getRtdbTools(host).readData('/data')).resolves.toEqual({
+      success: false,
+      error: {
+        code: 'READ_FAILED',
+        message: 'Connection refused',
+        recoverable: false,
+      },
+    });
+  });
+
+  test('write methods normalize transport failures as WRITE_FAILED', async () => {
+    const host = hostWithDataFailure(new Error('Timeout'));
+    const tools = getRtdbTools(host);
+    const writes = [undefined, { auth: { uid: 'alice' } }].flatMap((options) => [
+      tools.setData('/data', { x: 1 }, options),
+      tools.updateData('/data', { x: 1 }, options),
+      tools.pushData('/data', { x: 1 }, options),
+      tools.removeData('/data', options),
+    ]);
+
+    for (const write of writes) {
+      await expect(write).resolves.toEqual({
+        success: false,
+        error: {
+          code: 'WRITE_FAILED',
+          message: 'Timeout',
+          recoverable: false,
+        },
+      });
+    }
+  });
+
+  test('every data method preserves uppercase PERMISSION_DENIED transport errors', async () => {
+    const error = new Error('PERMISSION_DENIED: Permission denied');
+    (error as Error & { code?: string }).code = 'PERMISSION_DENIED';
+    const host = hostWithDataFailure(error);
+
+    const tools = getRtdbTools(host);
+    const options = { auth: { uid: 'alice' } };
+    const operations = [
+      tools.readData('/private', options),
+      tools.setData('/private', { x: 1 }, options),
+      tools.updateData('/private', { x: 1 }, options),
+      tools.pushData('/private', { x: 1 }, options),
+      tools.removeData('/private', options),
+    ];
+
+    for (const operation of operations) {
+      const result = await operation;
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe('PERMISSION_DENIED');
+        expect(result.error.message).toBe('PERMISSION_DENIED: Permission denied');
+      }
+    }
+  });
+
+  test('lowercase permission_denied transport errors preserve PERMISSION_DENIED', async () => {
+    const host = hostWithDataFailure(new Error('permission_denied'));
+
+    const result = await getRtdbTools(host).setData('/private', { x: 1 }, {
+      auth: { uid: 'alice' },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('PERMISSION_DENIED');
+      expect(result.error.message).toBe('permission_denied');
+    }
+  });
+
   test('generateIR returns success with valid host', async () => {
     const analyzer = getRtdbTools(makeHost());
     const result = await analyzer.generateIR();

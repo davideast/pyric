@@ -1,43 +1,21 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 import { ValidatedWriteHandler } from '../../../src/database/data/validated.js';
 import type { RtdbTools } from '../../../src/database/types.js';
 import type { RtdbHost } from '../../../src/database/host.js';
 import type { StructureNode } from '../../../src/database/crawl/spec.js';
 
-// Mock firebase-admin/database for admin-mode writes
-const mockAdminRef = {
-  get: async () => ({ val: () => null }),
-  set: mock(async () => {}),
-  update: mock(async () => {}),
-  push: mock(async () => ({ key: '-Nkey' })),
-  remove: mock(async () => {}),
-};
-
-mock.module('firebase-admin/database', () => ({
-  getDatabase: () => ({
-    ref: (_path: string) => mockAdminRef,
-  }),
-  getDatabaseWithUrl: () => ({
-    ref: (_path: string) => mockAdminRef,
-  }),
-}));
-
-// Mock firebase/database for user-mode writes
-mock.module('firebase/database', () => ({
-  ref: (_db: unknown, _path: string) => ({}),
-  get: async () => ({ val: () => null }),
-  set: mock(async () => {}),
-  update: mock(async () => {}),
-  push: mock(async () => ({ key: '-NclientKey' })),
-  remove: mock(async () => {}),
-}));
-
 const BASE_APP: RtdbHost = {
   projectId: 'test-project',
   databaseUrl: 'https://test-db.firebaseio.com',
+  data: {
+    get: async () => null,
+    set: async () => {},
+    update: async () => {},
+    push: async () => ({ key: '-Nkey' }),
+    remove: async () => {},
+  },
   resolveAdminToken: async () => 'mock-token',
   resolveUserToken: async () => 'mock-user-token',
-  getClientForUser: async () => ({}) as never,
 };
 
 const userSchema: StructureNode = {

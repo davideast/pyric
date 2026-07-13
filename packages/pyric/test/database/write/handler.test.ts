@@ -3,6 +3,7 @@ import { WriteRulesHandler } from '../../../src/database/write/handler.js';
 import type { RtdbHost } from '../../../src/database/host.js';
 import type { RtdbIR, RtdbNode } from '../../../src/database/types.js';
 import { buildRuleExpression } from '../../../src/database/mapper.js';
+import { UNSUPPORTED_DATA_TRANSPORT } from '../fixtures.js';
 
 const DATABASE_URL = 'https://test-default-rtdb.firebaseio.com';
 
@@ -28,7 +29,7 @@ function mockApp(): RtdbHost {
     databaseUrl: DATABASE_URL,
     resolveAdminToken: async () => 'mock-token',
     resolveUserToken: async () => 'mock-user-token',
-    getClientForUser: async () => { throw new Error('not implemented'); },
+    data: UNSUPPORTED_DATA_TRANSPORT,
   };
 }
 

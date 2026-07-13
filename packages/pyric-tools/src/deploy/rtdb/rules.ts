@@ -38,8 +38,22 @@ function hostFor(scope: ProjectScope, databaseUrl: string): RtdbHost {
     resolveUserToken: async () => {
       throw new Error('RTDB deploy tools do not mint user tokens');
     },
-    getClientForUser: async () => {
-      throw new Error('RTDB deploy tools do not create client SDK handles');
+    data: {
+      get: async () => {
+        throw new Error('RTDB deploy tools do not perform data operations');
+      },
+      set: async () => {
+        throw new Error('RTDB deploy tools do not perform data operations');
+      },
+      update: async () => {
+        throw new Error('RTDB deploy tools do not perform data operations');
+      },
+      push: async () => {
+        throw new Error('RTDB deploy tools do not perform data operations');
+      },
+      remove: async () => {
+        throw new Error('RTDB deploy tools do not perform data operations');
+      },
     },
   };
 }

@@ -10,6 +10,7 @@ import {
   RtdbMapper,
 } from '../../src/rules/internal/rtdb.js';
 import type { RtdbHost } from '../../src/rules/internal/rtdb.js';
+import { UNSUPPORTED_DATA_TRANSPORT } from '../database/fixtures.js';
 
 function host(): RtdbHost {
   return {
@@ -17,9 +18,7 @@ function host(): RtdbHost {
     databaseUrl: 'https://demo-default-rtdb.firebaseio.com',
     resolveAdminToken: async () => 'token',
     resolveUserToken: async () => 'user-token',
-    getClientForUser: async () => {
-      throw new Error('not implemented');
-    },
+    data: UNSUPPORTED_DATA_TRANSPORT,
   };
 }
 

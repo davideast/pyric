@@ -1,6 +1,7 @@
 import { describe, test, expect, afterEach } from 'bun:test';
 import { GenerateIRHandler } from '../../../src/database/ir/handler.js';
 import type { RtdbHost } from '../../../src/database/host.js';
+import { UNSUPPORTED_DATA_TRANSPORT } from '../fixtures.js';
 
 const VALID_RULES = { rules: { '.read': 'auth !== null', '.write': 'false' } };
 const DATABASE_URL = 'https://test-project-default-rtdb.firebaseio.com';
@@ -11,7 +12,7 @@ function makeHost(): RtdbHost {
     databaseUrl: DATABASE_URL,
     resolveAdminToken: async () => 'mock-token',
     resolveUserToken: async () => 'mock-user-token',
-    getClientForUser: async () => { throw new Error('not implemented'); },
+    data: UNSUPPORTED_DATA_TRANSPORT,
   };
 }
 

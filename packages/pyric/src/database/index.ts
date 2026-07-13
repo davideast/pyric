@@ -1,5 +1,5 @@
 /**
- * `@pyric/rtdb` — Firebase Realtime Database toolkit. Public surface:
+ * `pyric/database` — Firebase Realtime Database toolkit. Public surface:
  *
  *   - `RtdbHost` + `fetchDatabase` — the host contract
  *   - `getRtdbTools(host)` — programmatic API (used by direct consumers)
@@ -11,6 +11,7 @@
  */
 export * from './types.js';
 export type { RtdbHost } from './host.js';
+export type { RtdbDataTransport } from './data/transport.js';
 export { fetchDatabase } from './host.js';
 export { getRtdbTools } from './resolver.js';
 export {

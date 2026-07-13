@@ -1,9 +1,9 @@
 /**
- * The `RtdbHost` contract — what `@pyric/rtdb` needs from its caller
+ * The `RtdbHost` contract — what `pyric/database` needs from its caller
  * to talk to a Realtime Database.
  *
  * Unlike `pyric/storage`'s `ProjectScope` (admin-token-only),
- * RTDB needs four things:
+ * RTDB needs five things:
  *
  *   - `projectId` + `databaseUrl` — identity
  *   - `resolveAdminToken()` — admin REST (rules bypassed): IR fetch,
@@ -11,25 +11,22 @@
  *   - `resolveUserToken(auth)` — mints a Firebase ID token for a
  *     specific `{ uid, claims }`. Used for REST paths that want
  *     rules enforced (crawl with `auth`).
- *   - `getClientForUser(auth)` — returns a `firebase/database`
- *     `Database` instance authenticated as the given user (rules
- *     enforced). Used by the data tools (`rtdb_get`/`set`/etc.)
- *     when an `auth` argument is supplied. The implementation
- *     typically wraps Firebase's `FirebaseServerApp`; keeping it on
- *     the host means `@pyric/rtdb` doesn't replicate that wiring.
+ *   - `data` — performs the five RTDB data operations. The transport
+ *     receives optional user identity and hides the concrete Firebase
+ *     client/admin SDK handles from this package.
  *
  * The factory path (`createRtdbAdminTools`) takes an `RtdbHost` directly;
  * `initialize-from-app.ts` builds one from an `AgentAppLike`.
  */
-import type { Database } from 'firebase/database';
+import type { RtdbDataTransport } from './data/transport.js';
 import type { UserAuth } from './types.js';
 
 export interface RtdbHost {
   readonly projectId: string;
   readonly databaseUrl: string;
+  readonly data: RtdbDataTransport;
   resolveAdminToken(): Promise<string>;
   resolveUserToken(auth: UserAuth): Promise<string>;
-  getClientForUser(auth: UserAuth): Promise<Database>;
 }
 
 /**

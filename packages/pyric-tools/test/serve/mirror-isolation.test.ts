@@ -15,6 +15,28 @@ import {
   pyricPackageRoot,
 } from '../../src/serve/bundler.js';
 
+function collectJavaScriptImports(root: string): string[] {
+  const pending = [root];
+  const imports: string[] = [];
+  const transpiler = new Bun.Transpiler({ loader: 'js' });
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    if (!directory) break;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) pending.push(path);
+      else if (entry.isFile() && entry.name.endsWith('.js')) {
+        imports.push(
+          ...transpiler.scan(readFileSync(path, 'utf8')).imports.map(
+            (moduleImport) => moduleImport.path,
+          ),
+        );
+      }
+    }
+  }
+  return imports;
+}
+
 const expected = JSON.parse(
   readFileSync(join(import.meta.dir, 'fixtures/client-firebase-bindings.json'), 'utf8'),
 ) as Record<string, string[]>;
@@ -27,6 +49,21 @@ test('the client mirror does not acquire new production Firebase bindings', () =
   );
 
   expect(actual).toEqual(expected);
+});
+
+test('the pyric package does not own the Firebase Admin SDK', () => {
+  const root = pyricPackageRoot();
+  const manifest = JSON.parse(
+    readFileSync(join(root, 'package.json'), 'utf8'),
+  ) as { dependencies?: Record<string, string> };
+
+  expect(manifest.dependencies?.['firebase-admin']).toBeUndefined();
+  expect(
+    collectJavaScriptImports(join(root, 'dist')).filter(
+      (specifier) =>
+        specifier === 'firebase-admin' || specifier.startsWith('firebase-admin/'),
+    ),
+  ).toEqual([]);
 });
 
 test('the isolated AI declarations do not require firebase/ai', () => {

@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from 'bun:test';
 import { fetchDatabase, type RtdbHost } from '../../src/database/host.js';
+import { UNSUPPORTED_DATA_TRANSPORT } from './fixtures.js';
 
 function makeHost(overrides: Partial<RtdbHost> = {}): RtdbHost {
   return {
@@ -7,7 +8,7 @@ function makeHost(overrides: Partial<RtdbHost> = {}): RtdbHost {
     databaseUrl: 'https://my-project-default-rtdb.firebaseio.com',
     resolveAdminToken: async () => 'admin-token',
     resolveUserToken: async () => 'user-token',
-    getClientForUser: async () => { throw new Error('not implemented'); },
+    data: UNSUPPORTED_DATA_TRANSPORT,
     ...overrides,
   };
 }
