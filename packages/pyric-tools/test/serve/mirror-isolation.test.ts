@@ -8,7 +8,7 @@
  * replaced by the packed-package isolation assertion.
  */
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   collectFirebaseBindings,
@@ -27,4 +27,17 @@ test('the client mirror does not acquire new production Firebase bindings', () =
   );
 
   expect(actual).toEqual(expected);
+});
+
+test('the isolated AI declarations do not require firebase/ai', () => {
+  const aiDist = join(pyricPackageRoot(), 'dist', 'ai');
+  const declarations = readdirSync(aiDist)
+    .filter((file) => file.endsWith('.d.ts'))
+    .map((file) => readFileSync(join(aiDist, file), 'utf8'))
+    .join('\n')
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('*'))
+    .join('\n');
+
+  expect(declarations).not.toMatch(/(?:from\s+|import\()["']firebase\/ai["']/);
 });

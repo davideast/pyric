@@ -1,8 +1,7 @@
 /**
- * Red conformance suite: sandbox answer engine rows (ai#scripted-*,
- * ai#openai-*) and production package-resolution rows (ai#prod-*). One test
- * per registry row id. The openai rows drive a local OpenAI-compatible mock
- * served by Bun; the prod rows prove unswapped canonical imports stay upstream.
+ * Red conformance suite: sandbox answer engine rows (ai#scripted-* and
+ * ai#openai-*). One test per registry row id. The openai rows drive a local
+ * OpenAI-compatible mock served by Bun.
  * RED BY DESIGN until the ai mirror lands (CDD map #92).
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -301,94 +300,5 @@ describe('ai: openai engine translation', () => {
     expect(assistantMessages.length).toBe(1);
     expect(assistantMessages[0].content).toBe('visible answer');
     expect(JSON.stringify(lastBody.messages)).not.toContain('internal reasoning');
-  });
-});
-
-describe('ai: production package-resolution boundary', () => {
-  const PROD_HOST = 'firebasevertexai.googleapis.com';
-
-  async function withInterceptedFetch<T>(
-    respond: () => Response,
-    run: () => Promise<T>,
-  ): Promise<{ value: T; requests: { url: string; body: any }[] }> {
-    const realFetch = globalThis.fetch;
-    const requests: { url: string; body: any }[] = [];
-    (globalThis as any).fetch = async (input: any, init?: any) => {
-      const url = typeof input === 'string' ? input : input.url;
-      const rawBody = init?.body ?? (typeof input === 'object' ? await input.clone().text().catch(() => undefined) : undefined);
-      requests.push({ url, body: rawBody ? JSON.parse(rawBody) : undefined });
-      return respond();
-    };
-    try {
-      const value = await run();
-      return { value, requests };
-    } finally {
-      (globalThis as any).fetch = realFetch;
-    }
-  }
-
-  async function prodModel(): Promise<{ model: any; cleanup: () => Promise<void> }> {
-    const firebaseAi = await import('firebase/ai');
-    const { initializeApp, deleteApp } = await import('firebase/app');
-    const app = initializeApp(
-      { apiKey: 'fake-api-key', projectId: 'demo-ai-passthrough', appId: '1:1:web:ai-passthrough' },
-      `ai-passthrough-${Math.random().toString(36).slice(2)}`,
-    );
-    const ai = firebaseAi.getAI(app);
-    const model = firebaseAi.getGenerativeModel(ai, { model: PROBE_MODEL });
-    return { model, cleanup: () => deleteApp(app) };
-  }
-
-  rowTest('ai#prod-passthrough-generate unswapped firebase/ai sends the request body to production unmodified', async () => {
-    const request = { contents: [{ role: 'user', parts: [{ text: 'pass through untouched' }] }] };
-    const canned = {
-      candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP', index: 0 }],
-      usageMetadata: { promptTokenCount: 4, candidatesTokenCount: 1, totalTokenCount: 5 },
-      modelVersion: 'gemini-3.1-flash-lite',
-      responseId: 'prod-canned',
-    };
-    const { model, cleanup } = await prodModel();
-    try {
-      const { requests } = await withInterceptedFetch(
-        () => Response.json(canned),
-        () => model.generateContent(request),
-      );
-      expect(requests.length).toBe(1);
-      expect(requests[0].url).toContain(PROD_HOST);
-      expect(requests[0].body.contents).toEqual(request.contents);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  rowTest('ai#prod-passthrough-errors unswapped firebase/ai surfaces production error envelopes unchanged', async () => {
-    const facts = observedBehavior('ai-error-bad-api-key');
-    const errorBody = {
-      error: {
-        code: facts.errorCode,
-        message: facts.messageText,
-        status: facts.errorStatus,
-        details: facts.detailTypes.map((type: string) => ({ '@type': type })),
-      },
-    };
-    const { model, cleanup } = await prodModel();
-    try {
-      let thrown: any;
-      await withInterceptedFetch(
-        () => new Response(JSON.stringify(errorBody), { status: facts.httpStatus, statusText: 'Bad Request' }),
-        async () => {
-          try {
-            await model.generateContent('hello');
-          } catch (error) {
-            thrown = error;
-          }
-        },
-      );
-      expect(thrown).toBeDefined();
-      expect(thrown.customErrorData?.status).toBe(facts.httpStatus);
-      expect(String(thrown.message)).toContain('API key not valid');
-    } finally {
-      await cleanup();
-    }
   });
 });

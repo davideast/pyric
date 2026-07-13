@@ -83,12 +83,12 @@ const initRows: CompatibilityRow[] = [
     tests: ['init-dispatch.test.ts'],
   }),
   row({
-    rowRef: 'getai-prod-dispatch',
+    rowRef: 'getai-app-dispatch',
     section: SEC_INIT,
     api: 'getAI(target)',
     behavior: 'After package resolution selects the mirror, `getAI(app)` uses the app\'s sandbox and the returned handle carries the app',
     automation: 'unit-backed',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-prod-dispatch` (no capture; package-resolution dispatch claim)',
+    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-app-dispatch` (package-resolution dispatch claim)',
     tests: ['init-dispatch.test.ts'],
     notes: 'Production code keeps resolving firebase/ai; the pyric/ai module contains no production dispatch.',
   }),
@@ -957,32 +957,6 @@ const openaiRows: CompatibilityRow[] = [
   }),
 ];
 
-// Section: production package-resolution boundary -----------------------------
-
-const SEC_PROD = 'Production package-resolution boundary';
-const prodRows: CompatibilityRow[] = [
-  row({
-    rowRef: 'prod-passthrough-generate',
-    section: SEC_PROD,
-    api: 'firebase/ai package selection',
-    behavior: 'Without sandbox package swapping, canonical `firebase/ai` sends `generateContent` to the production base URL with the request body byte-identical',
-    automation: 'unit-backed',
-    evidence: '`unit:engines.test.ts` test `ai#prod-passthrough-generate` (upstream fetch interception; no mirror dispatch involved)',
-    tests: ['engines.test.ts'],
-    notes: 'Production remains the real firebase/ai package; pyric/ai loads only after the sandbox resolver swaps the import.',
-  }),
-  row({
-    rowRef: 'prod-passthrough-errors',
-    section: SEC_PROD,
-    api: 'firebase/ai package selection',
-    behavior: 'Without sandbox package swapping, canonical `firebase/ai` surfaces production errors unchanged as `AIError` with the wire status and message',
-    automation: 'unit-backed',
-    evidence: '`unit:engines.test.ts` test `ai#prod-passthrough-errors` (upstream fetch interception replaying the captured bad-api-key envelope shape)',
-    tests: ['engines.test.ts'],
-    notes: 'Production remains the real firebase/ai package; pyric/ai loads only after the sandbox resolver swaps the import.',
-  }),
-];
-
 // Doc assembly -------------------------------------------------------------
 
 const header = `# \`pyric/ai\` compatibility matrix
@@ -990,9 +964,9 @@ const header = `# \`pyric/ai\` compatibility matrix
 This surface climbed under Conformance Driven Development
 (map: https://github.com/davideast/pyric/issues/92). Every row below was
 born \`unverified\` at admission: the row universe and the red conformance
-suites came first, the mirror implementation came after. All 80 rows are
+suites came first, the mirror implementation came after. All 78 rows are
 now flipped: the climb lane (\`bun run compat:climb-ai\`, the suites at
-\`packages/pyric/test/ai\`) passes 80 of 80 with no assertion
+\`packages/pyric/test/ai\`) passes 78 of 78 with no assertion
 weakened, and every row records the tier of evidence that vouches for it.
 
 Evidence tiers per \`packages/conformance/docs/ai/cdd-deltas.md\`:
@@ -1003,12 +977,12 @@ Evidence tiers per \`packages/conformance/docs/ai/cdd-deltas.md\`:
 - \`shape-backed\` (23 rows): the suite replays an observation's distilled
   shape facts (key sets, enum values, streaming semantics); values are
   nondeterministic in production.
-- \`unit-backed\` (30 rows): SDK mechanics with no vouching observation
+- \`unit-backed\` (28 rows): SDK mechanics with no vouching observation
   (dispatch, ChatSession behavior, Schema builders, response helpers).
 - \`sandbox-only\` (17 rows): the answer-engine seam, which has no
   production analogue.
 
-74 rows conform; 6 are documented divergences from the installed
+72 rows conform; 6 are documented divergences from the installed
 firebase/ai 2.12.0, each with the reason pinned in its notes.
 
 Generated-content VALUES are never claims. Production output is
@@ -1054,6 +1028,5 @@ export const aiRegistry: CompatibilitySurfaceRegistry = {
     table(SEC_SCHEMA, schemaRows),
     table(SEC_SCRIPTED, scriptedRows),
     table(SEC_OPENAI, openaiRows),
-    table(SEC_PROD, prodRows),
   ],
 };

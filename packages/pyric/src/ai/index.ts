@@ -83,11 +83,11 @@ export {
 } from './enums.js';
 export type { Role } from './enums.js';
 
-// ─── Re-exports: v1 type-only surface (upstream signatures verbatim) ──
+// ─── Re-exports: mirror-owned v1 type-only surface ────────────────────
 //
-// Pure data types re-exported from the installed `firebase/ai` typings so
-// consumer code sees the exact upstream declarations. Denied families
-// (Imagen, Live, templates, hybrid/on-device) are NOT re-exported.
+// These structural declarations preserve the canonical Firebase-shaped
+// surface without making `firebase/ai` a declaration dependency. Denied
+// families (Imagen, Live, templates, hybrid/on-device) are not exported.
 
 export type {
   Citation,
@@ -151,7 +151,7 @@ export type {
   UsageMetadata,
   VideoMetadata,
   WebGroundingChunk,
-} from 'firebase/ai';
+} from './public-types.js';
 
 // ─── getAI: one handle per sandbox/app target and backend ─────────────
 

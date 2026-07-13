@@ -28,11 +28,11 @@ describe('ai: initialization and dispatch', () => {
     expect(result.response.candidates.length).toBeGreaterThan(0);
   });
 
-  rowTest('ai#getai-prod-dispatch getAI(app) uses the sandbox selected by package resolution and carries the app', async () => {
+  rowTest('ai#getai-app-dispatch getAI(app) uses the app sandbox selected by package resolution and carries the app', async () => {
     const { initializeApp, deleteApp } = await import('pyric/app');
     const app = initializeApp(
       { sandbox },
-      'ai-prod-dispatch',
+      'ai-app-dispatch',
     );
     try {
       const ai = seam.ai.getAI(app);

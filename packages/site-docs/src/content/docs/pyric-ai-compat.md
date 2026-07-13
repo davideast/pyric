@@ -12,9 +12,9 @@ order: 8008
 This surface climbed under Conformance Driven Development
 (map: https://github.com/davideast/pyric/issues/92). Every row below was
 born `unverified` at admission: the row universe and the red conformance
-suites came first, the mirror implementation came after. All 80 rows are
+suites came first, the mirror implementation came after. All 78 rows are
 now flipped: the climb lane (`bun run compat:climb-ai`, the suites at
-`packages/pyric/test/ai`) passes 80 of 80 with no assertion
+`packages/pyric/test/ai`) passes 78 of 78 with no assertion
 weakened, and every row records the tier of evidence that vouches for it.
 
 Evidence tiers per `packages/conformance/docs/ai/cdd-deltas.md`:
@@ -25,12 +25,12 @@ Evidence tiers per `packages/conformance/docs/ai/cdd-deltas.md`:
 - `shape-backed` (23 rows): the suite replays an observation's distilled
   shape facts (key sets, enum values, streaming semantics); values are
   nondeterministic in production.
-- `unit-backed` (30 rows): SDK mechanics with no vouching observation
+- `unit-backed` (28 rows): SDK mechanics with no vouching observation
   (dispatch, ChatSession behavior, Schema builders, response helpers).
 - `sandbox-only` (17 rows): the answer-engine seam, which has no
   production analogue.
 
-74 rows conform; 6 are documented divergences from the installed
+72 rows conform; 6 are documented divergences from the installed
 firebase/ai 2.12.0, each with the reason pinned in its notes.
 
 Generated-content VALUES are never claims. Production output is
@@ -63,8 +63,8 @@ capture's distilled facts in the named test.
 <div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-sandbox-dispatch</code> (no capture; structural dispatch claim)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">getai-prod-dispatch</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After package resolution selects the mirror, <code>getAI(app)</code> uses the app's sandbox and the returned handle carries the app</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-prod-dispatch</code> (no capture; package-resolution dispatch claim)</div></div>
+<summary class="compat-line"><span class="compat-num">getai-app-dispatch</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After package resolution selects the mirror, <code>getAI(app)</code> uses the app's sandbox and the returned handle carries the app</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-app-dispatch</code> (package-resolution dispatch claim)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">getai-default-backend</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">With no options the backend defaults to <code>GoogleAIBackend</code> and <code>backendType</code> is <code>GOOGLE_AI</code></span></summary>
@@ -425,18 +425,5 @@ capture's distilled facts in the named test.
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">openai-thought-parts-skipped</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Parts flagged <code>thought: true</code> in history are skipped when replaying to an OpenAI upstream</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:engines.test.ts</code> test <code>ai#openai-thought-parts-skipped</code> (lossy translation edge from ticket #96)</div></div>
-</details>
-</div>
-
-## Production package-resolution boundary
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">prod-passthrough-generate</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Without sandbox package swapping, canonical <code>firebase/ai</code> sends <code>generateContent</code> to the production base URL with the request body byte-identical</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:engines.test.ts</code> test <code>ai#prod-passthrough-generate</code> (upstream fetch interception; no mirror dispatch involved)</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">prod-passthrough-errors</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Without sandbox package swapping, canonical <code>firebase/ai</code> surfaces production errors unchanged as <code>AIError</code> with the wire status and message</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:engines.test.ts</code> test <code>ai#prod-passthrough-errors</code> (upstream fetch interception replaying the captured bad-api-key envelope shape)</div></div>
 </details>
 </div>

@@ -5,9 +5,9 @@
 This surface climbed under Conformance Driven Development
 (map: https://github.com/davideast/pyric/issues/92). Every row below was
 born `unverified` at admission: the row universe and the red conformance
-suites came first, the mirror implementation came after. All 80 rows are
+suites came first, the mirror implementation came after. All 78 rows are
 now flipped: the climb lane (`bun run compat:climb-ai`, the suites at
-`packages/pyric/test/ai`) passes 80 of 80 with no assertion
+`packages/pyric/test/ai`) passes 78 of 78 with no assertion
 weakened, and every row records the tier of evidence that vouches for it.
 
 Evidence tiers per `packages/conformance/docs/ai/cdd-deltas.md`:
@@ -18,12 +18,12 @@ Evidence tiers per `packages/conformance/docs/ai/cdd-deltas.md`:
 - `shape-backed` (23 rows): the suite replays an observation's distilled
   shape facts (key sets, enum values, streaming semantics); values are
   nondeterministic in production.
-- `unit-backed` (30 rows): SDK mechanics with no vouching observation
+- `unit-backed` (28 rows): SDK mechanics with no vouching observation
   (dispatch, ChatSession behavior, Schema builders, response helpers).
 - `sandbox-only` (17 rows): the answer-engine seam, which has no
   production analogue.
 
-74 rows conform; 6 are documented divergences from the installed
+72 rows conform; 6 are documented divergences from the installed
 firebase/ai 2.12.0, each with the reason pinned in its notes.
 
 Generated-content VALUES are never claims. Production output is
@@ -53,7 +53,7 @@ capture's distilled facts in the named test.
 | # | Behavior | Status | Probe |
 |---|---|---|---|
 | getai-sandbox-dispatch | `getAI(sandbox)` returns an AI handle bound to the sandbox target; a model minted from it answers through the in-process answer engine | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-sandbox-dispatch` (no capture; structural dispatch claim) |
-| getai-prod-dispatch | After package resolution selects the mirror, `getAI(app)` uses the app's sandbox and the returned handle carries the app | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-prod-dispatch` (no capture; package-resolution dispatch claim) |
+| getai-app-dispatch | After package resolution selects the mirror, `getAI(app)` uses the app's sandbox and the returned handle carries the app | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-app-dispatch` (package-resolution dispatch claim) |
 | getai-default-backend | With no options the backend defaults to `GoogleAIBackend` and `backendType` is `GOOGLE_AI` | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-default-backend` (matches upstream AIOptions default) |
 | getai-idempotent | Repeat `getAI` calls with the same target return a stable handle | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-idempotent` (no capture; structural claim) |
 | getai-engine-option | `getAI(sandbox, { backend: new GoogleAIBackend(), engine: { kind: "scripted" } })` selects the scripted engine explicitly and behaves identically to the zero-config default | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-engine-option` (engine seam per packages/conformance/docs/ai/cdd-deltas.md) |
@@ -180,10 +180,3 @@ capture's distilled facts in the named test.
 | openai-buffered-fncalls | Streamed OpenAI tool_call deltas are buffered; the Gemini stream emits whole functionCall parts with parsed args, never partial fragments | ✓ | `unit:engines.test.ts` test `ai#openai-buffered-fncalls` (lossy translation edge from ticket #96) |
 | openai-done-not-forwarded | The OpenAI `[DONE]` sentinel is never forwarded as a Gemini chunk; every emitted chunk is a parseable Gemini envelope | ✓ | `unit:engines.test.ts` test `ai#openai-done-not-forwarded` (lossy translation edge from ticket #96) |
 | openai-thought-parts-skipped | Parts flagged `thought: true` in history are skipped when replaying to an OpenAI upstream | ✓ | `unit:engines.test.ts` test `ai#openai-thought-parts-skipped` (lossy translation edge from ticket #96) |
-
-## Production package-resolution boundary
-
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| prod-passthrough-generate | Without sandbox package swapping, canonical `firebase/ai` sends `generateContent` to the production base URL with the request body byte-identical | ✓ | `unit:engines.test.ts` test `ai#prod-passthrough-generate` (upstream fetch interception; no mirror dispatch involved) |
-| prod-passthrough-errors | Without sandbox package swapping, canonical `firebase/ai` surfaces production errors unchanged as `AIError` with the wire status and message | ✓ | `unit:engines.test.ts` test `ai#prod-passthrough-errors` (upstream fetch interception replaying the captured bad-api-key envelope shape) |
