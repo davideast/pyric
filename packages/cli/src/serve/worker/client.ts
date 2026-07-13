@@ -50,6 +50,7 @@ export * from './client/rules.js';
 export * from './client/admin-firestore.js';
 export * from './client/rtdb.js';
 export * from './client/studio.js';
+export * from './client/presence.js';
 export * from './client/auth.js';
 export * from './client/storage.js';
 export * from './client/ai.js';

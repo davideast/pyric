@@ -1,7 +1,7 @@
 /**
  * Shell status cluster (specs/shell.md): the bar's right region.
  *
- * Two chips, both global truths, both by exception or by presence:
+ * Chips, all global truths:
  *
  *  - SANDBOX HEALTH — rendered ONLY when degraded (status by exception;
  *    a healthy sandbox earns no pixels). Degraded means: the environment
@@ -9,6 +9,10 @@
  *    the live SharedWorker plane is unreachable — the surfaces are then
  *    mirrors, not the live sandbox. Links to Settings (diagnostics), the
  *    surface that resolves it.
+ *  - CONNECTED PAGES (#227) — how many logical pages share this sandbox
+ *    worker. Quiet for one page; prominent when multiple. An accessible
+ *    popover lists each client (app/Studio, route, visibility, freshness)
+ *    and states the visibility boundary honestly.
  *  - MCP PRESENCE — rendered while the bridge is AVAILABLE: the bridge
  *    endpoint answers `/__pyric/health` and a sandbox peer (ANY tab) is
  *    connected. Deliberately NOT Studio's own peer registration — the peer
@@ -22,15 +26,20 @@
  * geometry.
  */
 
+import { useEffect, useRef, useState } from 'react';
 import { useEnvironment } from './environment.js';
 import { useServeInit } from './serve-init.js';
 import { useBridgeAvailability } from './bridge-availability.js';
+import { usePresenceView } from './presence.js';
 import { hrefFor, pushPath } from './router.js';
 
 export function StatusCluster() {
   const env = useEnvironment();
   const serve = useServeInit();
   const bridgeAvailability = useBridgeAvailability();
+  const presence = usePresenceView();
+  const [presenceOpen, setPresenceOpen] = useState(false);
+  const presenceTriggerRef = useRef<HTMLButtonElement>(null);
 
   const served = serve.status === 'ready';
   const workerDown = served && env.status === 'ready' && !env.env.live;
@@ -42,6 +51,18 @@ export function StatusCluster() {
       : null;
 
   const connected = bridgeAvailability === 'available';
+
+  useEffect(() => {
+    if (!presenceOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setPresenceOpen(false);
+        presenceTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [presenceOpen]);
 
   return (
     <div className="studio__status" aria-label="Studio status">
@@ -62,6 +83,70 @@ export function StatusCluster() {
           <span className="studio-chip__dot" aria-hidden="true" />
           {degraded}
         </a>
+      ) : null}
+      {presence && presence.count > 0 ? (
+        <span className="studio-presence">
+          <button
+            ref={presenceTriggerRef}
+            type="button"
+            className={
+              presence.prominent
+                ? 'studio-chip studio-chip--live studio-presence__trigger'
+                : 'studio-chip studio-presence__trigger'
+            }
+            aria-haspopup="dialog"
+            aria-expanded={presenceOpen}
+            aria-controls="studio-presence-panel"
+            title={
+              presence.otherCount > 0
+                ? `${presence.chipLabel}. ${presence.otherCount} other page${presence.otherCount === 1 ? '' : 's'} can keep the worker alive.`
+                : `${presence.chipLabel}. Expand for details.`
+            }
+            onClick={() => setPresenceOpen((o) => !o)}
+          >
+            <span className="studio-chip__dot" aria-hidden="true" />
+            {presence.chipLabel}
+          </button>
+          {presenceOpen ? (
+            <>
+              <div
+                className="studio-presence__backdrop"
+                onMouseDown={() => setPresenceOpen(false)}
+              />
+              <div
+                id="studio-presence-panel"
+                className="studio-presence__panel"
+                role="dialog"
+                aria-label="Connected pages"
+              >
+                <p className="studio-presence__lead">
+                  {presence.count === 1
+                    ? 'This page is the only connection to the shared sandbox worker.'
+                    : `${presence.count} pages share this sandbox worker. Closing this page alone will not restart it.`}
+                </p>
+                <ul className="studio-presence__list">
+                  {presence.clients.map((c) => (
+                    <li key={c.clientId} className="studio-presence__item">
+                      <div className="studio-presence__item-head">
+                        <span className="studio-presence__kind">{c.kindLabel}</span>
+                        {c.isThisPage ? (
+                          <span className="studio-presence__this">This page</span>
+                        ) : null}
+                      </div>
+                      <div className="studio-presence__route" title={c.route}>
+                        {c.route}
+                      </div>
+                      <div className="studio-presence__meta">
+                        {c.visibilityLabel} · {c.freshnessLabel}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <p className="studio-presence__boundary">{presence.boundaryCopy}</p>
+              </div>
+            </>
+          ) : null}
+        </span>
       ) : null}
       {connected ? (
         <span

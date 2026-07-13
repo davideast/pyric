@@ -148,6 +148,16 @@ export {
   // Event stream (Pyric Studio keystone — onEvent/history over the port)
   subscribeEvents,
   eventHistory,
+  // Connected-page presence (#227)
+  startPresence,
+  subscribePresence,
+  mintPresenceClientId,
+  PRESENCE_HEARTBEAT_INTERVAL_MS,
+  PRESENCE_STALE_MS,
+  type PresenceSession,
+  type PresenceSnapshot,
+  type PresenceClientKind,
+  type PresenceVisibility,
   // Sandbox snapshot export (Pyric Studio rules re-run: fork + test edited rules)
   getSnapshot,
   // RTDB shared-worker preview bridge. Aliased to avoid colliding with Storage
