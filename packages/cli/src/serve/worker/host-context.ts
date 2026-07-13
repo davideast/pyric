@@ -17,7 +17,6 @@ import {
   serializeError,
   type OutboundMessage,
   type AuthPersistenceMode,
-  type PolicyRequest,
   type AiEngineConfigWire,
 } from './protocol.js';
 
@@ -153,19 +152,6 @@ export interface HostCtx {
    * (F2). Lazily populated by `lensDb`.
    */
   adminDb?: Firestore;
-  /**
-   * The latest runtime confirm-policy pushed by the Studio permission dial
-   * (F3) via the `set-policy` op. `undefined` until the dial sets one. This is
-   * the WORKER-SIDE governance store — the source of truth Studio reflects and a
-   * future in-worker agent runtime would consult.
-   *
-   * HONEST LIMITATION: the interactive policy that gates AGENT TOOL CALLS lives
-   * in the bridge — a SEPARATE node process whose handler is built once at
-   * startup. This store does NOT reach into a running bridge; pushing a live
-   * policy there is a separate transport (an HTTP control route or a restart).
-   * See `PolicyRequest` in protocol.ts for the full rationale.
-   */
-  policy?: PolicyRequest;
   /**
    * The sandbox's AiBroker (pyric/ai), lazily created on the first ai op /
    * ai stream sub via `getAI(ctx.sandbox, …)` — so the worker's broker IS the

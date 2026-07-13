@@ -5,8 +5,8 @@
  * to the in-page sandbox. The headless server has no page: the sandbox runs IN
  * this process, so the bridge's `dispatch` executes tools directly through
  * `buildSandboxDispatcher`. Everything else the `Bridge` contract needs is
- * trivial for a peerless, sandbox-mode bridge (always "connected", no confirm
- * gate, the tool set is the dispatcher's `SANDBOX_TOOL_NAMES`).
+ * trivial for a peerless bridge (always "connected", with the tool set from
+ * the dispatcher's `SANDBOX_TOOL_NAMES`).
  *
  * Because `buildSandboxDispatcher` is the SAME source the served bridge
  * advertises (pinned by `tool-parity.test.ts`), the headless tool surface is
@@ -40,7 +40,6 @@ export function createLocalBridge(sandbox: LocalSandbox, opts: LocalBridgeOption
   // three members that differ when the sandbox is in-process rather than a ws
   // peer. The peer machinery stays idle because `dispatch` never touches it.
   const base = createBridge({
-    mode: 'sandbox',
     project: opts.project ?? 'sandbox',
     version: opts.version ?? pyricVersion(),
   });

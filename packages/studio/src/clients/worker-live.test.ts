@@ -8,8 +8,8 @@
  *   - `connectWorkerLive()` returns null when no `SharedWorker` global exists
  *     (SSR / unsupported browser / tests): the HTTP-fallback contract.
  *   - the env factory omits `live` when there's no worker / `disableLive`, and
- *     surfaces a live plane (with an `EventFeed`-shaped feed + lens + policy
- *     setters) when a minimal `SharedWorker` is shimmed.
+ *     surfaces a live plane (with an `EventFeed`-shaped feed + lens controls)
+ *     when a minimal `SharedWorker` is shimmed.
  *   - the env never throws in `local` mode regardless of worker availability.
  */
 
@@ -64,7 +64,7 @@ describe('connectWorkerLive', () => {
     expect(connectWorkerLive()).toBeNull();
   });
 
-  it('returns a live plane with feed + lens + policy seams when SharedWorker exists', () => {
+  it('returns a live plane with feed + lens seams when SharedWorker exists', () => {
     restore = shimSharedWorker();
     const plane = connectWorkerLive();
     expect(plane).not.toBeNull();
@@ -73,11 +73,9 @@ describe('connectWorkerLive', () => {
     expect(typeof plane!.feed.history).toBe('function');
     expect(typeof plane!.feed.subscribe).toBe('function');
     expect(plane!.feed.history()).toEqual([]);
-    // Lens + policy seams are present (the F2/F3/F4 affordances).
+    // Lens controls remain available on the live plane.
     expect(typeof plane!.setLens).toBe('function');
     expect(typeof plane!.getLens).toBe('function');
-    expect(typeof plane!.setPolicy).toBe('function');
-    expect(typeof plane!.getPolicy).toBe('function');
   });
 
   it('lens setter round-trips through the worker client module state', () => {

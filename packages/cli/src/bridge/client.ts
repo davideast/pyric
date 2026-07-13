@@ -18,7 +18,6 @@
  */
 
 export type {
-  BridgeMode,
   BridgeMessage,
   HelloFromClient,
   HelloFromBridge,

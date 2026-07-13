@@ -364,60 +364,6 @@ export function serializeUser(
  */
 export type AuthPersistenceMode = 'LOCAL' | 'SESSION' | 'NONE';
 
-// ─── Runtime confirm-policy (Pyric Studio F3 — permission dial) ────────────
-
-/**
- * The four `ConfirmPolicy` levels the bridge's governance engine recognises.
- * Mirrors `packages/cli/src/bridge/server/confirm-policy.ts`'s `ConfirmPolicy`
- * and Studio's `permission-dial/policy.ts` — kept structurally identical so a
- * `PolicyRequest` produced by the dial crosses the port without translation.
- */
-export type ConfirmPolicy = 'never' | 'session' | 'always' | 'deny';
-
-/**
- * Per-tool override knobs. Structurally identical to the bridge's
- * `PolicyOverrides` (confirm-policy.ts) so `buildPolicyMap(base, overrides)`
- * consumes a wire `PolicyRequest.overrides` verbatim.
- */
-export interface PolicyOverrides {
-  autoApprove?: string[];
-  requireConfirm?: string[];
-  requireConfirmAll?: boolean;
-  fallback?: ConfirmPolicy;
-}
-
-/**
- * The confirm-policy descriptor the permission dial pushes (Pyric Studio F3).
- *
- * Structurally identical to `@pyric/studio`'s `permission-dial/policy.ts`
- * `PolicyRequest` — that module's `toPolicyRequest(mode)` produces exactly this
- * shape, and it crosses the MessagePort unchanged (all plain JSON, no class
- * instances). The worker stores the latest one (see the `set-policy` op + the
- * host's runtime policy store) so a consumer can read back the active governance
- * the served sandbox/agent runtime should honour.
- *
- * HONEST SCOPE NOTE (bridge-process limitation):
- * The interactive confirm-policy that gates AGENT TOOL CALLS lives in the bridge
- * — a SEPARATE node process (the MCP server), built once at bridge startup and
- * held in a closure (`createInteractiveConfirmHandler`). The SharedWorker is
- * browser-resident and does NOT host that handler, so `set-policy` here updates a
- * WORKER-SIDE store (the source of truth Studio reflects + a future in-worker
- * agent runtime would consult); it does NOT reach into a running bridge process.
- * Pushing a live policy to an already-running bridge is a separate transport
- * (an HTTP control route on `pyric dev`, or a bridge restart) and is out of
- * scope for the worker data-plane. This store is the additive, honest seam.
- */
-export interface PolicyRequest {
-  /** Which bridge mode the policy runs under. Studio v1 only emits `sandbox`. */
-  bridgeMode: 'sandbox' | 'prod';
-  /** Which base map the bridge builds from. */
-  base: 'sandbox' | 'prod-defaults';
-  /** Overrides merged onto the base. */
-  overrides: PolicyOverrides;
-  /** Fallback policy for tools not in the base map. */
-  fallback: ConfirmPolicy;
-}
-
 // ─── One-shot op messages (client → worker) ───────────────────────────────
 
 /**
@@ -541,14 +487,6 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'listBranches' }
   | { t: 'op'; id: string; method: 'switchBranch'; name: string }
   | { t: 'op'; id: string; method: 'deleteBranch'; name: string }
-  // ── Runtime confirm-policy (Pyric Studio F3 — permission dial) ───────────
-  // set-policy stores the dial's `PolicyRequest` in the worker-side policy
-  // store (the host's runtime governance the served sandbox/agent consults);
-  // get-policy reads the active one back (or null when the dial hasn't set one).
-  // NEVER lensed — these operate worker control state, not data. See the
-  // bridge-process limitation note on `PolicyRequest`.
-  | { t: 'op'; id: string; method: 'setPolicy'; policy: PolicyRequest }
-  | { t: 'op'; id: string; method: 'getPolicy' }
   // Export the sandbox snapshot (Pyric Studio rules re-run): Studio forks it
   // locally to test a denied op against edited rules / re-issue as the user, all
   // on a throwaway branch (no live mutation). The reply is the serializable

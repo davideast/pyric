@@ -8,20 +8,7 @@
  *
  * Bound to 127.0.0.1 only. Refuses to start if the port is occupied.
  *
- * Two modes:
- *  - sandbox: forwards data-plane tool calls to the WS-connected
- *    browser. Rules tools execute in-process.
- *  - prod: caller-supplied tools execute in-process. Every prod-write
- *    tool call goes through the
- *    confirmation handler (terminal y/n prompt by default) before
- *    execution. See design rationale
- *
  * Premortem fixes baked in:
- *  - #S1 — prod-mode tool calls require terminal confirmation
- *    (`/dev/tty` prompt) instead of a Bearer token. The token was
- *    security theater against the threats that mattered; the
- *    confirmation gate is the first defense that actually works
- *    against same-user malicious processes.
  *  - #A2 — per-session idle timeout (10 min default) + max-session cap.
  *  - #U1 — peer connect/disconnect logged; per-call logging behind
  *    PYRIC_VERBOSE=1.
@@ -31,7 +18,6 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { ToolHandler } from '@inbrowser/agent';
 import { createBridge, type Bridge, type BridgeToolEvent } from './bridge.js';
 import { buildMcpServer } from './mcp.js';
 import { getDefaultMcpToolSurface } from './mcp-contract.js';
@@ -42,24 +28,10 @@ import {
   type BridgeLogger,
 } from './logger.js';
 import {
-  createInteractiveConfirmHandler,
-  createDenyAllHandler,
-  createPolicyHandler,
-  hasInteractiveTTY,
-  type ConfirmHandler,
-} from './confirm.js';
-import {
-  DEFAULT_PROD_POLICIES,
-  DEFAULT_SANDBOX_POLICY,
-  buildPolicyMap,
-  type ConfirmPolicy,
-} from './confirm-policy.js';
-import {
   DEFAULT_BRIDGE_PORT,
   DEFAULT_HEALTH_PATH,
   DEFAULT_MCP_PATH,
   DEFAULT_SANDBOX_PATH,
-  type BridgeMode,
   type BridgeMessage,
   isBridgeMessage,
 } from '../protocol.js';
@@ -69,20 +41,12 @@ import { isAllowedUpgrade } from '../../serve/server.js';
 const BRIDGE_VERSION = pyricVersion();
 const DEFAULT_SESSION_IDLE_MS = 10 * 60 * 1000; // 10 minutes
 const DEFAULT_MAX_SESSIONS = 50;
-const DEFAULT_CONFIRM_TIMEOUT_MS = 45_000;
 
 export interface StartServerOptions {
-  /** Sandbox or prod. Default: sandbox. */
-  mode?: BridgeMode;
   /** Port to bind. Default: 5174. Env: PYRIC_PORT. */
   port?: number;
-  /** Project id (prod mode requires this; sandbox mode defaults to 'sandbox'). */
+  /** Sandbox label surfaced in health and audit metadata. */
   project?: string;
-  /**
-   * For prod mode: caller-supplied ToolHandlers to register.
-   * Required for prod mode; ignored in sandbox mode.
-   */
-  prodTools?: ToolHandler[];
   /** Disable the audit log writer (useful in tests). */
   disableAuditLog?: boolean;
   /** Extra hostnames allowed past the WS-upgrade rebinding/origin guard
@@ -100,35 +64,6 @@ export interface StartServerOptions {
   /** Convenience: install a silent logger (tests). */
   silent?: boolean;
 
-  // ── Prod-mode confirmation (premortem #S1 v2) ─────────────────────
-
-  /**
-   * Per-tool confirmation override: tools listed here drop to `never`
-   * (auto-approve without prompt). Use sparingly — every entry is a
-   * tool you've decided doesn't need the keystroke gate.
-   */
-  autoApproveTools?: string[];
-  /**
-   * Per-tool override: tools listed here force to `always` (prompt
-   * every time). Use to raise the default for read tools when paranoid.
-   */
-  requireConfirmTools?: string[];
-  /** Force EVERY tool to `always`, even reads. Paranoid mode. */
-  requireConfirmAll?: boolean;
-  /** Per-prompt timeout. Default 45_000 (45 s). */
-  confirmTimeoutMs?: number;
-  /**
-   * Run prod mode without an interactive TTY. Requires `autoApproveTools`
-   * to pre-approve any tool the caller wants invocable; everything not
-   * in the allow list denies silently. Throws at startup if mode==='prod'
-   * AND no TTY AND nonInteractive===false.
-   */
-  nonInteractive?: boolean;
-  /**
-   * Direct override of the confirm handler — testing escape hatch.
-   * When set, every other confirm-related option is ignored.
-   */
-  confirmHandler?: ConfirmHandler;
 }
 
 export interface ServerHandle {
@@ -136,56 +71,32 @@ export interface ServerHandle {
   readonly port: number;
   readonly url: string;
   readonly auditLogPath: string | null;
-  /** The active confirm handler (null in sandbox mode). */
-  readonly confirmHandler: ConfirmHandler | null;
   stop(): Promise<void>;
 }
 
 export async function startServer(
   opts: StartServerOptions = {},
 ): Promise<ServerHandle> {
-  const mode: BridgeMode = opts.mode ?? 'sandbox';
   // `??` doesn't short-circuit on NaN; Number(undefined) is NaN, which
   // would silently slip through to the http server and produce
   // "options.port should be >= 0 and < 65536. Received NaN."
   // Resolve the env var separately so the default actually wins.
   const envPort = process.env.PYRIC_PORT ? Number(process.env.PYRIC_PORT) : undefined;
   const port = opts.port ?? (Number.isFinite(envPort) ? envPort : undefined) ?? DEFAULT_BRIDGE_PORT;
-  const project =
-    opts.project ?? process.env.PYRIC_PROJECT ?? (mode === 'sandbox' ? 'sandbox' : undefined);
+  const project = opts.project ?? process.env.PYRIC_PROJECT ?? 'sandbox';
   const logger =
     opts.logger ?? (opts.silent ? createSilentLogger() : createConsoleLogger());
   const sessionIdleMs = opts.sessionIdleMs ?? DEFAULT_SESSION_IDLE_MS;
   const maxSessions = opts.maxSessions ?? DEFAULT_MAX_SESSIONS;
 
-  if (mode === 'prod' && !project) {
-    throw new Error(
-      'pyric bridge: --mode prod requires a project id (--project or PYRIC_PROJECT).',
-    );
-  }
-
-  // ── Prod-mode confirmation handler ──────────────────────────────
-  const confirmHandler = buildConfirmHandler({
-    mode,
-    nonInteractive: opts.nonInteractive ?? false,
-    autoApprove: opts.autoApproveTools ?? [],
-    requireConfirm: opts.requireConfirmTools ?? [],
-    requireConfirmAll: opts.requireConfirmAll ?? false,
-    confirmTimeoutMs: opts.confirmTimeoutMs ?? DEFAULT_CONFIRM_TIMEOUT_MS,
-    override: opts.confirmHandler,
-    logger,
-  });
-
   // Set up audit log writer (best-effort).
   const auditWriter = opts.disableAuditLog
     ? null
-    : opts.auditWriter ?? createAuditWriter(project!);
+    : opts.auditWriter ?? createAuditWriter(project);
 
   const bridge = createBridge({
-    mode,
-    project: project!,
+    project,
     version: BRIDGE_VERSION,
-    confirmHandler: confirmHandler ?? undefined,
     onToolEvent: (event: BridgeToolEvent) => {
       auditWriter?.write(event);
       logger.verbose(
@@ -194,27 +105,7 @@ export async function startServer(
     },
   });
 
-  // Build the MCP server. In sandbox mode, forward sandbox tools to
-  // the bridge and run rules tools in-process. In prod mode, run all
-  // tools in-process (caller supplies them via `prodTools`).
-  const sandboxSurface = mode === 'sandbox' ? getDefaultMcpToolSurface() : null;
-  const forwarded = sandboxSurface?.forwarded ?? [];
-  const inProcess: ToolHandler[] = [
-    ...(sandboxSurface?.inProcess ?? []),
-    ...(opts.prodTools ?? []),
-  ];
-
-  // Build the policy map ONCE up-front, factoring in any per-tool
-  // overrides the caller supplied. Passed through to buildMcpServer
-  // so the in-process tool wrapper can consult it per call.
-  const policies = buildPolicyMap(
-    mode === 'prod' ? DEFAULT_PROD_POLICIES : new Map<string, ConfirmPolicy>(),
-    {
-      autoApprove: opts.autoApproveTools,
-      requireConfirm: opts.requireConfirmTools,
-      requireConfirmAll: opts.requireConfirmAll,
-    },
-  );
+  const { forwarded, inProcess } = getDefaultMcpToolSurface();
 
   // Per-session transport+server map. Each MCP client connection
   // gets its own pair; cleared on DELETE / idle / transport close.
@@ -264,7 +155,7 @@ export async function startServer(
         logger.verbose(`session ${id.slice(0, 8)}… initialized`);
       },
     });
-    const server = buildMcpServer(bridge, { forwarded, inProcess, policies });
+    const server = buildMcpServer(bridge, { forwarded, inProcess });
     session.close = async () => {
       if (session.idleTimer) clearTimeout(session.idleTimer);
       session.idleTimer = null;
@@ -355,31 +246,17 @@ export async function startServer(
     });
   });
 
-  const url = `http://127.0.0.1:${port}`;
+  const address = http.address();
+  const boundPort = typeof address === 'object' && address ? address.port : port;
+  const url = `http://127.0.0.1:${boundPort}`;
 
-  logger.info(
-    `bridge ${BRIDGE_VERSION} listening on ${url} — mode: ${mode}, project: ${project}`,
-  );
-  if (mode === 'prod') {
-    if (opts.nonInteractive) {
-      logger.info(
-        `prod-mode NON-INTERACTIVE — auto-approved tools: ${(opts.autoApproveTools ?? []).join(', ') || '(none)'}`,
-      );
-    } else {
-      logger.info(
-        `prod-mode interactive — confirmation prompts appear in this terminal (timeout ${
-          opts.confirmTimeoutMs ?? DEFAULT_CONFIRM_TIMEOUT_MS
-        }ms → DENY)`,
-      );
-    }
-  }
+  logger.info(`bridge ${BRIDGE_VERSION} listening on ${url} — sandbox: ${project}`);
 
   return {
     bridge,
-    port,
+    port: boundPort,
     url,
     auditLogPath: auditWriter?.path ?? null,
-    confirmHandler: confirmHandler ?? null,
     async stop() {
       // Stop accepting new WebSocket upgrades…
       wss.close();
@@ -403,56 +280,9 @@ export async function startServer(
       }
       sessions.clear();
       pendingSessions.clear();
-      if (confirmHandler) confirmHandler.close();
       logger.info('bridge stopped');
     },
   };
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-interface BuildConfirmHandlerOptions {
-  mode: BridgeMode;
-  nonInteractive: boolean;
-  autoApprove: string[];
-  requireConfirm: string[];
-  requireConfirmAll: boolean;
-  confirmTimeoutMs: number;
-  override?: ConfirmHandler;
-  logger: BridgeLogger;
-}
-
-function buildConfirmHandler(opts: BuildConfirmHandlerOptions): ConfirmHandler | null {
-  if (opts.mode === 'sandbox') return null;
-
-  // Tests / callers can provide their own handler directly.
-  if (opts.override) return opts.override;
-
-  if (opts.nonInteractive) {
-    // CI-mode: explicit allow list; deny everything else.
-    return createPolicyHandler({
-      allow: new Set(opts.autoApprove),
-      default: 'deny',
-    });
-  }
-
-  if (!hasInteractiveTTY()) {
-    throw new Error(
-      'pyric bridge: prod mode requires either an interactive terminal or `nonInteractive: true` (CLI: --non-interactive). Refusing to start without a way to confirm tool calls.',
-    );
-  }
-
-  const policies = buildPolicyMap(DEFAULT_PROD_POLICIES, {
-    autoApprove: opts.autoApprove,
-    requireConfirm: opts.requireConfirm,
-    requireConfirmAll: opts.requireConfirmAll,
-  });
-
-  return createInteractiveConfirmHandler({
-    policies,
-    timeoutMs: opts.confirmTimeoutMs,
-    logger: opts.logger,
-  });
 }
 
 function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {

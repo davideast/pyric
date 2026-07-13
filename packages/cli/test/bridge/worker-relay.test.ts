@@ -189,7 +189,7 @@ function connectNode(bridge: Bridge, opts: { opTimeoutMs?: number } = {}) {
 }
 
 function makeRelayBridge(callTimeoutMs?: number): Bridge {
-  return createBridge({ mode: 'sandbox', version: 'test', callTimeoutMs });
+  return createBridge({ version: 'test', callTimeoutMs });
 }
 
 /** Minimal fake of the `ws` WebSocket surface `attachPeer` consumes. */

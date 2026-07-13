@@ -332,6 +332,21 @@ for (const sym of ['createBridge', 'startServer']) {
   if (typeof bridge[sym] === 'function') ok('@pyric/cli/bridge exports ' + sym + '()');
   else bad('@pyric/cli/bridge is MISSING ' + sym);
 }
+for (const sym of [
+  'createInteractiveConfirmHandler',
+  'createAutoApproveHandler',
+  'createDenyAllHandler',
+  'createPolicyHandler',
+  'hasInteractiveTTY',
+  'DEFAULT_PROD_POLICIES',
+  'DEFAULT_SANDBOX_POLICY',
+  'FALLBACK_PROD_POLICY',
+  'buildPolicyMap',
+  'policyFor',
+]) {
+  if (!(sym in bridge)) ok('@pyric/cli/bridge does NOT export retired ' + sym);
+  else bad('@pyric/cli/bridge STILL exports retired ' + sym);
+}
 
 // Production deployment is owned by firebase-tools. The old programmatic
 // subpath must fail resolution instead of lingering as a compatibility shim.
@@ -352,6 +367,80 @@ await assertNotExported('@pyric/cli/registry');
 if (failed) process.exit(1);
 SHAPEJS
 (cd "$WORK/consumer" && node __export-shape.mjs)
+
+# Start and exercise the installed bridge through its public package entry.
+# The fake WebSocket peer is the browser half of the sandbox relay; the MCP
+# client proves tools/list and a forwarded call work from the packed artifact.
+cat > "$WORK/consumer/__bridge-smoke.mjs" <<'BRIDGEJS'
+import WebSocket from 'ws';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { startServer } from '@pyric/cli/bridge';
+
+const server = await startServer({
+  port: 0,
+  project: 'packed-smoke',
+  disableAuditLog: true,
+  silent: true,
+});
+let socket;
+let client;
+try {
+  const healthBefore = await (await fetch(`${server.url}/health`)).json();
+  if (healthBefore.mode !== 'sandbox' || healthBefore.sandboxConnected !== false) {
+    throw new Error(`unexpected initial health: ${JSON.stringify(healthBefore)}`);
+  }
+
+  socket = new WebSocket(server.url.replace(/^http/, 'ws') + '/sandbox');
+  await new Promise((resolve, reject) => {
+    socket.once('error', reject);
+    socket.on('open', () => socket.send(JSON.stringify({
+      type: 'hello',
+      protocol: 1,
+      tools: ['sandbox_inspect'],
+      sandboxId: 'packed-smoke-peer',
+    })));
+    socket.on('message', (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type === 'hello-ack') resolve();
+      if (message.type === 'tool-call') {
+        socket.send(JSON.stringify({
+          type: 'tool-result',
+          id: message.id,
+          ok: true,
+          result: { ok: true, summary: 'packed sandbox peer responded' },
+        }));
+      }
+    });
+  });
+
+  const healthConnected = await (await fetch(`${server.url}/health`)).json();
+  if (healthConnected.mode !== 'sandbox' || healthConnected.sandboxConnected !== true) {
+    throw new Error(`unexpected connected health: ${JSON.stringify(healthConnected)}`);
+  }
+
+  client = new Client({ name: 'packed-bridge-smoke', version: '1' });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`)));
+  const listed = await client.listTools();
+  if (listed.tools.length !== 35) {
+    throw new Error(`packed bridge exposed ${listed.tools.length} tools, expected 35`);
+  }
+  const called = await client.callTool({ name: 'sandbox_inspect', arguments: {} });
+  const payload = JSON.parse(called.content[0].text);
+  if (!payload.ok || payload.summary !== 'packed sandbox peer responded') {
+    throw new Error(`unexpected forwarded result: ${JSON.stringify(payload)}`);
+  }
+  if (payload._pyric?.mode !== 'sandbox' || payload._pyric?.project !== 'packed-smoke') {
+    throw new Error(`unexpected bridge provenance: ${JSON.stringify(payload._pyric)}`);
+  }
+  console.log('  ✓ packed @pyric/cli bridge starts, lists 35 tools, and relays a sandbox call');
+} finally {
+  await client?.close().catch(() => {});
+  socket?.close();
+  await server.stop();
+}
+BRIDGEJS
+(cd "$WORK/consumer" && node __bridge-smoke.mjs)
 
 # ─── Phase 5: bin checks ───────────────────────────────────────────────
 echo ""

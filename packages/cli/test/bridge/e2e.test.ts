@@ -41,7 +41,7 @@ const PORT = 5179; // distinct from default 5174
 let server: ServerHandle;
 
 beforeAll(async () => {
-  server = await startServer({ mode: 'sandbox', port: PORT, disableAuditLog: true, silent: true });
+  server = await startServer({ port: PORT, disableAuditLog: true, silent: true });
 });
 
 afterAll(async () => {

@@ -232,7 +232,6 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
   let handle;
   try {
     handle = await startServer({
-      mode: 'sandbox',
       port,
       project,
     });
@@ -282,7 +281,7 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
 
   process.stdout.write(
     `\npyric bridge ${VERSION} ready\n` +
-      `  mode:    ${handle.bridge.mode}\n` +
+      `  target:  sandbox\n` +
       `  project: ${handle.bridge.project}\n` +
       `  health:  ${handle.url}/health\n` +
       `  mcp:     ${handle.url}/mcp\n` +

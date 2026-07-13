@@ -116,7 +116,7 @@ type WireError = Error & { code: string; denialContext?: DenialContext };
 
 describe('denialContext over the relay (spike gap 6)', () => {
   it('a denied write rejects with the structured denialContext, JSON legs and all', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     const ctx = await makeWorkerCtx();
     connectTab(bridge, ctx);
     const core = connectNode(bridge);
@@ -153,7 +153,7 @@ describe('denialContext over the relay (spike gap 6)', () => {
     // transports the serialized error verbatim, so fidelity here means the
     // remote error equals the local one: same code, same (absent) context.
     // If the sandbox ever stamps listener denials, the wire already carries it.
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     const ctx = await makeWorkerCtx();
     connectTab(bridge, ctx);
     const core = connectNode(bridge);
@@ -173,7 +173,7 @@ describe('denialContext over the relay (spike gap 6)', () => {
   });
 
   it('non-denial errors stay lean — no denialContext field', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     const ctx = await makeWorkerCtx();
     connectTab(bridge, ctx);
     const core = connectNode(bridge);

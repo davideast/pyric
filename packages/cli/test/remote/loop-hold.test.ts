@@ -127,7 +127,7 @@ async function captureStderr(fn: () => Promise<void>): Promise<string[]> {
 
 describe('remote core — event-loop hold (ref/unref transitions)', () => {
   it('attach + idle never refs; an op refs once and unrefs when it settles', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     connectTab(bridge, makeWorkerCtx());
     const node = connectNode(bridge);
     await node.core.ready;
@@ -138,7 +138,7 @@ describe('remote core — event-loop hold (ref/unref transitions)', () => {
   });
 
   it('overlapping ops hold ONE ref until the last settles (transition-edged)', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     connectTab(bridge, makeWorkerCtx());
     const node = connectNode(bridge);
     await node.core.ready;
@@ -152,7 +152,7 @@ describe('remote core — event-loop hold (ref/unref transitions)', () => {
   });
 
   it('a live subscription holds the ref; unsubscribe releases it', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     connectTab(bridge, makeWorkerCtx());
     const node = connectNode(bridge);
     await node.core.ready;
@@ -173,7 +173,7 @@ describe('remote core — event-loop hold (ref/unref transitions)', () => {
   });
 
   it('an op that times out releases the hold; dispose releases everything', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test', callTimeoutMs: 5000 });
+    const bridge = createBridge({ version: 'test', callTimeoutMs: 5000 });
     connectTab(bridge, makeWorkerCtx(), { dropOps: true }); // hung tab
     const node = connectNode(bridge, { opTimeoutMs: 30 });
     await node.core.ready;
@@ -192,7 +192,7 @@ describe('remote core — event-loop hold (ref/unref transitions)', () => {
 
 describe('remote core — a listener error is terminal (auto-unsubscribe)', () => {
   it('an __error snap releases the hold, tears down worker-side, and later snaps are dropped', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     const ctx = makeWorkerCtx();
     connectTab(bridge, ctx);
     const node = connectNode(bridge);
@@ -240,7 +240,7 @@ describe('remote core — a listener error is terminal (auto-unsubscribe)', () =
 
 describe('remote core — version-skew stamp on attach', () => {
   it('matched versions stay silent (the default in-process stack)', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     connectTab(bridge, makeWorkerCtx());
     const logged = await captureStderr(async () => {
       const node = connectNode(bridge); // real serveVersion == own version
@@ -251,7 +251,7 @@ describe('remote core — version-skew stamp on attach', () => {
   });
 
   it('an ABSENT stamp (old server) stays silent', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     connectTab(bridge, makeWorkerCtx());
     const logged = await captureStderr(async () => {
       const node = connectNode(bridge, {
@@ -269,7 +269,7 @@ describe('remote core — version-skew stamp on attach', () => {
   });
 
   it('a mismatched stamp warns ONCE and enriches timeout errors', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test', callTimeoutMs: 5000 });
+    const bridge = createBridge({ version: 'test', callTimeoutMs: 5000 });
     connectTab(bridge, makeWorkerCtx(), { dropOps: true }); // hung/skewed tab
     const logged = await captureStderr(async () => {
       const node = connectNode(bridge, {
@@ -304,7 +304,7 @@ describe('remote core — version-skew stamp on attach', () => {
 
 describe('remote core — version-skew guidance on Unknown method', () => {
   it('appends restart/reload guidance when the worker predates an op', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     connectTab(bridge, makeWorkerCtx());
     const node = connectNode(bridge);
     await node.core.ready;
@@ -324,7 +324,7 @@ describe('remote core — version-skew guidance on Unknown method', () => {
   });
 
   it('leaves other worker errors untouched', async () => {
-    const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+    const bridge = createBridge({ version: 'test' });
     connectTab(bridge, makeWorkerCtx());
     const node = connectNode(bridge);
     await node.core.ready;

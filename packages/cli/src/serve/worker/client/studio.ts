@@ -1,10 +1,10 @@
 /**
  * Pyric Studio cross-service surfaces over the worker port — the unified event
- * stream (`subscribeEvents`/`eventHistory`), the runtime confirm-policy dial,
- * and the sandbox snapshot export used by the rules re-run flow.
+ * stream (`subscribeEvents`/`eventHistory`) and the sandbox snapshot export
+ * used by the rules re-run flow.
  */
 
-import type { InboundMessage, PolicyRequest } from '../protocol.js';
+import type { InboundMessage } from '../protocol.js';
 import type { SandboxEvent, SandboxSnapshot } from 'pyric/sandbox';
 import { nextId, nextSubId, rpc, _eventSubs } from './core.js';
 import type { ClientDb, Unsubscribe } from './handles.js';
@@ -61,32 +61,6 @@ export function eventHistory(db: ClientDb): Promise<readonly SandboxEvent[]> {
       resolve(events);
     });
   });
-}
-
-// ════════════════════════════════════════════════════════════════════════
-//  RUNTIME CONFIRM-POLICY (Pyric Studio F3 — permission dial)
-// ════════════════════════════════════════════════════════════════════════
-//
-// The permission dial pushes a `PolicyRequest` describing the governance the
-// served sandbox/agent runtime should honour. `setPolicy` stores it on the
-// worker (the worker-side store); `getPolicy` reads the active one back (null
-// until the dial set one), so a freshly-connecting Studio tab hydrates the dial.
-//
-// HONEST LIMITATION (re-stated where the seam is used): this updates the
-// WORKER-SIDE store, NOT a running bridge process's confirm handler (built once
-// at bridge startup, in a separate node process). Pushing live to a running
-// bridge needs a separate transport. See `PolicyRequest` in protocol.ts.
-
-/** Push the active runtime confirm-policy to the worker (Pyric Studio F3). */
-export async function setPolicy(db: ClientDb, policy: PolicyRequest): Promise<void> {
-  await rpc(db.port, { t: 'op', id: nextId(), method: 'setPolicy', policy });
-}
-
-/** Read the active runtime confirm-policy back (null until the dial set one). */
-export async function getPolicy(db: ClientDb): Promise<PolicyRequest | null> {
-  return (await rpc(db.port, { t: 'op', id: nextId(), method: 'getPolicy' })) as
-    | PolicyRequest
-    | null;
 }
 
 /**

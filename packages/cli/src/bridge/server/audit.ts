@@ -1,5 +1,5 @@
 /**
- * Audit log writer. Every bridge tool call (sandbox or prod) appends
+ * Audit log writer. Every sandbox bridge tool call appends
  * one JSON line to the project's events.ndjson file.
  *
  * Audit events land at the project's conventional location:

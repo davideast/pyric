@@ -151,7 +151,7 @@ afterEach(() => {
 });
 
 function makeStack() {
-  const bridge = createBridge({ mode: 'sandbox', version: 'test' });
+  const bridge = createBridge({ version: 'test' });
   restoreWs = installLinkedWebSocket(bridge);
   return bridge;
 }

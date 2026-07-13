@@ -95,7 +95,7 @@ const ROUTABLE_METHODS = {
   ],
   rtdb: ['rtdb.get', 'rtdb.set', 'rtdb.update', 'rtdb.remove', 'rtdb.push', 'rtdb.adminSnapshot'],
   connection: ['getVersion', 'exportState', 'importState', 'saveBranch', 'listBranches', 'switchBranch', 'deleteBranch'],
-  studio: ['setPolicy', 'getPolicy', 'getSnapshot'],
+  studio: ['getSnapshot'],
   storage: [
     'storage.listAll',
     'storage.getMetadata',
@@ -144,10 +144,10 @@ describe('host dispatch table (frozen)', () => {
     ctx = await makeCtx();
   });
 
-  it('routes exactly 71 op methods across all families', () => {
-    expect(ALL_METHODS.length).toBe(71);
+  it('routes exactly 69 op methods across all families', () => {
+    expect(ALL_METHODS.length).toBe(69);
     // No duplicates in the frozen list.
-    expect(new Set(ALL_METHODS).size).toBe(71);
+    expect(new Set(ALL_METHODS).size).toBe(69);
   });
 
   for (const [family, methods] of Object.entries(ROUTABLE_METHODS)) {
