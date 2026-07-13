@@ -4,7 +4,6 @@
  *  port), and the /__pyric runtime surface by driving the captured connect
  *  middleware with mock req/res (NO real dev server — see the integration block's
  *  header for why). The full browser e2e lives in the M1 spike (plans/pyric-vite-plugin.md section 7b). */
-import 'fake-indexeddb/auto';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import path, { join } from 'node:path';
 import { Writable } from 'node:stream';
