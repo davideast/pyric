@@ -62,7 +62,7 @@ export const firestoreRegistry = {
           "riskReasons": ["structural / routing-only claim"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/firestore/package-resolution.test.ts", "packages/pyric-tools/test/register/register-child.test.ts"]
+          "conformanceTests": ["packages/pyric/test/firestore/package-resolution.test.ts", "packages/cli/test/register/register-child.test.ts"]
         },
         {
           "id": "firestore#4",
@@ -2268,7 +2268,7 @@ export const firestoreRegistry = {
           "riskReasons": ["asserts 1 specific value(s)"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/pyric-tools/test/serve/mirror-isolation.test.ts"],
+          "conformanceTests": ["packages/pyric/test/firestore/sandbox-target.test.ts", "packages/cli/test/serve/mirror-isolation.test.ts"],
           "exceptionReason": "structural / type shape — verified without a prod observation"
         },
         {
@@ -2536,7 +2536,7 @@ export const firestoreRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric-tools/test/register/register-child.test.ts", "packages/pyric-tools/test/serve/mirror-isolation.test.ts"]
+          "conformanceTests": ["packages/cli/test/register/register-child.test.ts", "packages/cli/test/serve/mirror-isolation.test.ts"]
         },
         {
           "id": "firestore#121",

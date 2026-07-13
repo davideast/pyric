@@ -131,6 +131,7 @@ export async function runMcpProxy(
     const shutdown = (code: number): void => {
       if (closing) return; // re-entrancy guard: close() fires onclose → shutdown → …
       closing = true;
+      process.stdin.off('end', onStdinEnd);
       for (const t of pending.values()) clearTimeout(t);
       pending.clear();
       void Promise.allSettled([stdio.close(), http.close()]).then(() => resolveExit(code));
@@ -181,6 +182,8 @@ export async function runMcpProxy(
       shutdown(0);
     };
     stdio.onclose = () => shutdown(0); // Claude Code disconnected
+    const onStdinEnd = (): void => shutdown(0);
+    process.stdin.once('end', onStdinEnd);
 
     process.once('SIGINT', () => shutdown(0));
     process.once('SIGTERM', () => shutdown(0));

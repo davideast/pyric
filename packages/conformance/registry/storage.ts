@@ -242,7 +242,7 @@ export const storageRegistry = {
           "riskReasons": [],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/conformance/entry-path/storage.ts", "packages/pyric-tools/test/serve/bundler.test.ts"],
+          "conformanceTests": ["packages/conformance/entry-path/storage.ts", "packages/cli/test/serve/bundler.test.ts"],
           "exceptionReason": "package-resolution behavior — production package selection is outside the mirror"
         },
       ],
@@ -981,7 +981,7 @@ export const storageRegistry = {
           "riskReasons": ["asserts 2 specific value(s)"],
           "automation": "oracle-backed",
           "oracleObservations": ["storage-upload-bytes-roundtrip"],
-          "conformanceTests": ["packages/pyric/test/storage/oracle-conformance.test.ts", "packages/pyric-tools/test/serve/worker/integration.test.ts"]
+          "conformanceTests": ["packages/pyric/test/storage/oracle-conformance.test.ts", "packages/cli/test/serve/worker/integration.test.ts"]
         },
         {
           "id": "storage#52",

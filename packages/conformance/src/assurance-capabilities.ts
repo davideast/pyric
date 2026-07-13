@@ -186,7 +186,7 @@ export const RUNTIME_TS_PATH = join(
   HERE,
   '..',
   '..',
-  'pyric-tools',
+  'cli',
   'src',
   'assurance',
   'generated-capabilities.ts',

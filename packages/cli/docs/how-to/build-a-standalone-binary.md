@@ -14,11 +14,11 @@ bun run compile:standalone        # clean build + all four cross-targets
 or, iterating inside the package (assumes `bun run build` already ran):
 
 ```bash
-bun run --cwd packages/pyric-tools compile        # all four targets
-bun run --cwd packages/pyric-tools compile host   # just this machine (fast)
+bun run --cwd packages/cli compile        # all four targets
+bun run --cwd packages/cli compile host   # just this machine (fast)
 ```
 
-Binaries land in `packages/pyric-tools/dist-bin/`:
+Binaries land in `packages/cli/dist-bin/`:
 
 | File | Platform |
 |---|---|
@@ -34,7 +34,7 @@ Binaries land in `packages/pyric-tools/dist-bin/`:
 Verify a build:
 
 ```bash
-bun run --cwd packages/pyric-tools smoke:standalone
+bun run --cwd packages/cli smoke:standalone
 ```
 
 ## How `dev` works in the binary
@@ -93,7 +93,7 @@ Smoke the whole chain (`init → bun install → vite build`, offline for
 pyric/pyric-tools) against a compiled binary:
 
 ```bash
-bun run --cwd packages/pyric-tools smoke:vendor
+bun run --cwd packages/cli smoke:vendor
 ```
 
 ## Contract

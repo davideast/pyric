@@ -30,7 +30,7 @@ NPM_CACHE="${TMPDIR:-/tmp}/npm-cache-pyric-packaging-test"
 PACKAGES=(
   "packages/pyric"         # pyric
   "packages/pyric-admin"   # pyric-admin
-  "packages/pyric-tools"   # @pyric/cli (bin: pyric)
+  "packages/cli"   # @pyric/cli (bin: pyric)
   "packages/ui"            # @pyric/ui
 )
 
@@ -56,7 +56,7 @@ exported_subpaths() {
 
 PYRIC_SUBPATHS=( $(exported_subpaths packages/pyric) )
 PYRIC_ADMIN_SUBPATHS=( $(exported_subpaths packages/pyric-admin) )
-PYRIC_CLI_SUBPATHS=( $(exported_subpaths packages/pyric-tools) )
+PYRIC_CLI_SUBPATHS=( $(exported_subpaths packages/cli) )
 PYRIC_UI_SUBPATHS=( $(exported_subpaths packages/ui) )
 
 # Tracks the backgrounded `pyric dev` (Phase 5.5) so a failure mid-smoke
@@ -137,7 +137,7 @@ pack_one() {
 }
 TARBALL_PYRIC=$(pack_one packages/pyric)
 TARBALL_PYRIC_ADMIN=$(pack_one packages/pyric-admin)
-TARBALL_PYRIC_CLI=$(pack_one packages/pyric-tools)
+TARBALL_PYRIC_CLI=$(pack_one packages/cli)
 TARBALL_UI=$(pack_one packages/ui)
 
 # ─── Phase 2.5: publish file-set + runtime-asset presence ──────────────
@@ -181,11 +181,11 @@ assert_tar_has() {
 }
 packset_check packages/pyric pyric
 packset_check packages/pyric-admin pyric-admin
-packset_check packages/pyric-tools @pyric/cli
+packset_check packages/cli @pyric/cli
 packset_check packages/ui @pyric/ui
 # Load-bearing runtime assets — pass import() but break at first use if dropped.
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/grammar/FirestoreRules\.ohm$' "pyric ships the Firestore rules grammar (.ohm)"
-assert_tar_has "$TARBALL_PYRIC" 'package/dist/database/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"
+assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/rtdb/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/modules/stdlib/.*\.rules$' "pyric ships the rules stdlib modules (.rules)"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli ships the pyric CLI bin"
 # The Vite plugin's `ui` option + `pyric dev --ui` resolve the Studio app from
@@ -373,7 +373,7 @@ node "$ROOT/scripts/packed-cli-smoke.mjs" "$PYRIC_BIN" "$WORK/cli-smoke"
 node "$ROOT/scripts/packed-mcp-smoke.mjs" \
   "$PYRIC_BIN" \
   "$WORK/mcp-smoke" \
-  "$ROOT/packages/pyric-tools/dist/bridge/server/mcp-contract.js"
+  "$ROOT/packages/cli/dist/bridge/server/mcp-contract.js"
 
 # ─── Phase 5.5: serve smoke (init + serve from the packed bin) ─────────
 # The subpath + bin checks above prove imports resolve, but they never boot

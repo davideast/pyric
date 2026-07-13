@@ -368,7 +368,7 @@ export type AuthPersistenceMode = 'LOCAL' | 'SESSION' | 'NONE';
 
 /**
  * The four `ConfirmPolicy` levels the bridge's governance engine recognises.
- * Mirrors `packages/pyric-tools/src/bridge/server/confirm-policy.ts`'s `ConfirmPolicy`
+ * Mirrors `packages/cli/src/bridge/server/confirm-policy.ts`'s `ConfirmPolicy`
  * and Studio's `permission-dial/policy.ts` — kept structurally identical so a
  * `PolicyRequest` produced by the dial crosses the port without translation.
  */

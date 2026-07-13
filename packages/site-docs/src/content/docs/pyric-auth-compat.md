@@ -482,7 +482,7 @@ means a Bun test in `packages/auth/test/<file>`.
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">76d</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Served-worker path (SharedWorker-backed auth, <code>pyric-tools</code>'s <code>serve/entries/auth.ts</code>): the worker owns the shared user pool and commits transitions on its own side of the port, so a page-local <code>beforeAuthStateChanged</code> registration can't actually gate a worker-driven sign-in. Rather than silently accept a callback that would never run, registering THROWS immediately (<code>auth/operation-not-supported-in-this-environment</code>) — same defensive pattern as <code>signInWithCredential</code> over the worker.</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>packages/pyric-tools/src/serve/worker/client.ts</code> (<code>beforeAuthStateChanged</code> throws <code>makeUnsupported</code>)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>packages/cli/src/serve/worker/client.ts</code> (<code>beforeAuthStateChanged</code> throws <code>makeUnsupported</code>)</div></div>
 </details>
 </div>
 

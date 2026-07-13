@@ -3,7 +3,7 @@ import { defineConfig } from '@playwright/test';
 // Manual repro for the served-mode auth bug (the worker over Tailscale / a
 // non-localhost http origin). Tests are named `*.pw.ts` so `bun test` (which
 // matches `*.test.ts` / `*.spec.ts`) never picks them up; Playwright finds them
-// via `testMatch` below. Requires the @pyric/cli dist (`bun run build:pyric-tools`).
+// via `testMatch` below. Requires the @pyric/cli dist (`bun run build:cli`).
 //
 // localhost: the webServer starts `pyric dev` on the fixture automatically.
 // Tailscale repro: run your own serve and set E2E_BASE=http://<tailnet-host>:<port>.

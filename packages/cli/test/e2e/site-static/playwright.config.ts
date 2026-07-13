@@ -6,7 +6,7 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 // Soak-style smoke check for the composed static site (`dist/site/`) built by
 // `scripts/build-site.sh`. Named `*.pw.ts` (not `*.test.ts`/`*.spec.ts`) so
 // `bun test` never picks it up — matches the convention in
-// packages/pyric-tools/test/e2e/playwright.config.ts.
+// packages/cli/test/e2e/playwright.config.ts.
 //
 // `webServer` serves the ALREADY-BUILT `dist/site/` with a plain static file
 // server (python3's http.server) — there is no `pyric dev` behind this site,

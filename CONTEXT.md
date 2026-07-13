@@ -271,7 +271,7 @@ Version `0.0.0`. "Firebase console for Pyric", served by `pyric dev --ui`.
 Exports `@pyric/studio/ports` and `@pyric/studio/env`.
 
 The root build produces it with base `/__pyric/ui/` and copies it into
-`packages/pyric-tools/dist/serve/studio-ui/`. Its CSS is split into
+`packages/cli/dist/serve/studio-ui/`. Its CSS is split into
 `src/styles/{index,tokens,update-lights}.css`.
 
 Feature surface under `packages/studio/src/features/`: History-API routing, a
@@ -357,20 +357,20 @@ Flags on `pyric dev` layer on top:
   existing state file, but does not clear browser IndexedDB.
 
 The coverage matrix lives in
-`packages/pyric-tools/docs/how-to/serve-persistence-and-multi-tab.md`.
+`packages/cli/docs/how-to/serve-persistence-and-multi-tab.md`.
 
 ### Sandbox-build mode
 
 The Vite plugin (`pyric-tools/vite`) swaps `firebase/*` imports for the Pyric
 sandbox shim always in `vite dev`, and in `vite build` whenever
 `mode != production` (or `swapInBuild` is set). Builds carry a marker
-(`packages/pyric-tools/src/serve/sandbox-marker.ts`). `pyric dev` hard-refuses to
+(`packages/cli/src/serve/sandbox-marker.ts`). `pyric dev` hard-refuses to
 serve a bundle that inlines the real Firebase SDK, and `pyric deploy hosting`
 refuses to deploy a marked sandbox build.
 
 ## CLI Surface
 
-The binary is `pyric` from `@pyric/cli` (published from `packages/pyric-tools`).
+The binary is `pyric` from `@pyric/cli` (published from `packages/cli`).
 Subcommands:
 
 - `pyric init [dir]`
@@ -398,12 +398,12 @@ is 3473, scanning forward when taken.
 `PYRIC_NO_CAPTURE`, `PYRIC_NO_CACHE`, `PYRIC_JSON`, `PYRIC_SEED`,
 `PYRIC_PERSIST`, `PYRIC_FRESH`.
 
-Current CLI docs: `packages/pyric-tools/docs/reference/cli.md`.
+Current CLI docs: `packages/cli/docs/reference/cli.md`.
 
 ## Packaging Contract
 
 Publishable packages in the packaging gate: `packages/pyric`,
-`packages/pyric-admin`, `packages/pyric-tools`, `packages/ui`. `@pyric/studio`
+`packages/pyric-admin`, `packages/cli`, `packages/ui`. `@pyric/studio`
 is embedded into `pyric-tools` as a runtime asset. `@pyric/playground`,
 `@pyric/conformance`, and `@pyric/site-docs` are private and never packed.
 
@@ -559,7 +559,7 @@ Root docs: `README.md`, `docs/agent-tools.md`, `docs/code-conventions.md`,
 `docs/conformance/cdd.md`, `docs/site-rewrite/` (the outcome-first guide).
 
 Package docs: `packages/pyric/docs`, `packages/pyric-admin/docs`,
-`packages/pyric-tools/docs`, `packages/ui/docs`,
+`packages/cli/docs`, `packages/ui/docs`,
 `packages/conformance/docs`, plus `packages/studio/README.md` and
 `packages/playground/README.md`.
 

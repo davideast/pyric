@@ -72,7 +72,7 @@ does not fetch or deploy production rules.
 ## Deploy — `createFirestoreDeployTools` / `createRtdbDeployTools` / `createHostingDeployTools` / `createFunctionsDeployTools` (`pyric-tools/deploy`)
 
 The Firebase control plane over REST — no `firebase-tools` CLI required.
-Docs: [`packages/pyric-tools/docs/deploy/`](../packages/pyric-tools/docs/deploy/README.md).
+Docs: [`packages/cli/docs/deploy/`](../packages/cli/docs/deploy/README.md).
 
 `firestore_get_rules` · `firestore_deploy_rules` · `firestore_ensure_rules` ·
 `firestore_provision_database` · `firestore_deploy_indexes` ·

@@ -25,7 +25,7 @@
  * concrete worker-protocol unions live in `@pyric/cli`, which `pyric`
  * cannot import; ops are spelled loosely (`{ method: 'getDoc', path,
  * actAs }`) and kept structurally identical to
- * `packages/pyric-tools/src/serve/worker/protocol.ts`.
+ * `packages/cli/src/serve/worker/protocol.ts`.
  *
  * IDENTITY: every op and every subscription pins an EXPLICIT `actAs` lens.
  * An ABSENT lens resolves worker-side to the browser tab's PORT SESSION —

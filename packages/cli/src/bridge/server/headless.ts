@@ -127,11 +127,26 @@ export async function runHeadlessMcp(cwd: string = process.cwd()): Promise<numbe
   const transport = new StdioServerTransport();
 
   return await new Promise<number>((resolve) => {
+    let stopping = false;
+    const onStdinEnd = (): void => stop(0);
     const stop = (code: number): void => {
+      if (stopping) return;
+      stopping = true;
+      process.stdin.off('end', onStdinEnd);
       flush();
-      resolve(code);
+      void server.close().then(
+        () => resolve(code),
+        (e) => {
+          log(`shutdown failed: ${e instanceof Error ? e.message : String(e)}`);
+          resolve(code === 0 ? 1 : code);
+        },
+      );
     };
     transport.onclose = () => stop(0);
+    // StdioServerTransport 1.29 no longer reports stdin EOF through onclose.
+    // Editors close the pipe to end an MCP session, so own that lifecycle
+    // signal explicitly and then close the server/transport above.
+    process.stdin.once('end', onStdinEnd);
     process.once('SIGINT', () => stop(0));
     process.once('SIGTERM', () => stop(0));
     void server.connect(transport).then(

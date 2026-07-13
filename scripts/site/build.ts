@@ -72,7 +72,7 @@ async function bundleSdkAndWorker(): Promise<void> {
   const bundlerModule = join(
     ROOT,
     'packages',
-    'pyric-tools',
+    'cli',
     'dist',
     'serve',
     'bundler.js',

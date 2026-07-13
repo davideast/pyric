@@ -48,7 +48,7 @@ echo ""
 echo "━━━ Phase 1: Declaration stubs ━━━"
 emit_stubs "pyric"
 emit_stubs "pyric-admin"
-emit_stubs "pyric-tools"
+emit_stubs "cli"
 emit_stubs "ui"
 
 # ── Phase 2: Full build (topological order) ────────────────────────────
@@ -56,7 +56,7 @@ echo ""
 echo "━━━ Phase 2: Full build ━━━"
 build_pkg "pyric"
 build_pkg "pyric-admin"
-build_pkg "pyric-tools"
+build_pkg "cli"
 build_pkg "ui"
 
 # ── Phase 3: Studio app (embedded into @pyric/cli for `pyric dev --ui`) ──
@@ -69,10 +69,10 @@ echo "━━━ Phase 3: Studio app ━━━"
 echo "▸ Building packages/studio (base /__pyric/ui/)"
 rm -rf packages/studio/dist
 STUDIO_BASE=/__pyric/ui/ bun run --cwd packages/studio build
-echo "▸ Embedding studio app → packages/pyric-tools/dist/serve/studio-ui/"
-rm -rf packages/pyric-tools/dist/serve/studio-ui
-mkdir -p packages/pyric-tools/dist/serve/studio-ui
-cp -R packages/studio/dist/app/. packages/pyric-tools/dist/serve/studio-ui/
+echo "▸ Embedding studio app → packages/cli/dist/serve/studio-ui/"
+rm -rf packages/cli/dist/serve/studio-ui
+mkdir -p packages/cli/dist/serve/studio-ui
+cp -R packages/studio/dist/app/. packages/cli/dist/serve/studio-ui/
 
 echo ""
 echo "━━━ Phase 4: Docs site ━━━"
@@ -84,10 +84,10 @@ echo "━━━ Phase 4: Docs site ━━━"
 echo "▸ Building packages/site-docs (base /__pyric/ui/)"
 rm -rf packages/site-docs/dist
 DOCS_BASE=/__pyric/ui/ bun run --cwd packages/site-docs build
-echo "▸ Embedding docs site → packages/pyric-tools/dist/serve/docs-ui/"
-rm -rf packages/pyric-tools/dist/serve/docs-ui
-mkdir -p packages/pyric-tools/dist/serve/docs-ui
-cp -R packages/site-docs/dist/. packages/pyric-tools/dist/serve/docs-ui/
+echo "▸ Embedding docs site → packages/cli/dist/serve/docs-ui/"
+rm -rf packages/cli/dist/serve/docs-ui
+mkdir -p packages/cli/dist/serve/docs-ui
+cp -R packages/site-docs/dist/. packages/cli/dist/serve/docs-ui/
 
 echo ""
 echo "✅ All packages built successfully"

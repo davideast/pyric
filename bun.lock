@@ -162,7 +162,7 @@
         "typescript": "^5.7.0",
       },
     },
-    "packages/pyric-tools": {
+    "packages/cli": {
       "name": "@pyric/cli",
       "version": "0.1.0-alpha.8",
       "bin": {
@@ -943,7 +943,7 @@
 
     "@publint/pack": ["@publint/pack@0.1.5", "", { "dependencies": { "tinyexec": "^1.2.4" } }, "sha512-edgyN2pP07uXiP4tJs0s8KVmU8M8i60YPbbI0/WDeok1mIJHRXz+CgD8I0nelwDkoCh3EWL/G5kGfbuHjsdbvw=="],
 
-    "@pyric/cli": ["@pyric/cli@workspace:packages/pyric-tools"],
+    "@pyric/cli": ["@pyric/cli@workspace:packages/cli"],
 
     "@pyric/conformance": ["@pyric/conformance@workspace:packages/conformance"],
 

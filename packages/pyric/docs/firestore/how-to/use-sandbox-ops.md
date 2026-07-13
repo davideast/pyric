@@ -89,4 +89,4 @@ have no production equivalents.
 ## Where to look next
 
 - For all four signatures and report fields, see [Sandbox-only operations](../reference/sandbox-ops.md).
-- For production rule deployments, see [`pyric-tools/deploy`'s Firestore namespace](../../../../pyric-tools/docs/deploy/reference/firestore-namespace.md).
+- For production rule deployments, see [`pyric-tools/deploy`'s Firestore namespace](../../../../cli/docs/deploy/reference/firestore-namespace.md).

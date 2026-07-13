@@ -25,7 +25,7 @@ export const authRegistry = {
           "riskReasons": ["structural / routing-only claim"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/auth/sandbox-anonymous.test.ts", "packages/pyric-tools/test/register/register-child.test.ts"]
+          "conformanceTests": ["packages/pyric/test/auth/sandbox-anonymous.test.ts", "packages/cli/test/register/register-child.test.ts"]
         },
         {
           "id": "auth#2",
@@ -80,7 +80,7 @@ export const authRegistry = {
           "riskReasons": ["asserts 1 specific value(s)", "asserts Firebase error code(s): `app/no-app`", "asserts a specific field/property value"],
           "automation": "oracle-backed",
           "oracleObservations": ["auth-bare-getauth-no-default-app"],
-          "conformanceTests": ["packages/pyric-tools/test/register/register-child.test.ts"],
+          "conformanceTests": ["packages/cli/test/register/register-child.test.ts"],
           "exceptionReason": "playground / preview behavior — no firebase-js-sdk counterpart to observe"
         },
         {
@@ -1642,7 +1642,7 @@ export const authRegistry = {
           "riskReasons": ["structural / routing-only claim"],
           "automation": "unit-backed",
           "oracleObservations": [],
-          "conformanceTests": ["packages/pyric/test/auth/sandbox-test-driver.test.ts", "packages/pyric/test/auth/sandbox-user-admin.test.ts", "packages/pyric/test/auth/package-resolution.test.ts", "packages/pyric-tools/test/serve/bundler.test.ts"],
+          "conformanceTests": ["packages/pyric/test/auth/sandbox-test-driver.test.ts", "packages/pyric/test/auth/sandbox-user-admin.test.ts", "packages/pyric/test/auth/package-resolution.test.ts", "packages/cli/test/serve/bundler.test.ts"],
           "exceptionReason": "sandbox-only behavior — no prod equivalent to observe"
         },
         {
@@ -1829,7 +1829,7 @@ export const authRegistry = {
           "api": "beforeAuthStateChanged(auth, callback, onAbort?)",
           "behavior": "Served-worker path (SharedWorker-backed auth, `pyric-tools`'s `serve/entries/auth.ts`): the worker owns the shared user pool and commits transitions on its own side of the port, so a page-local `beforeAuthStateChanged` registration can't actually gate a worker-driven sign-in. Rather than silently accept a callback that would never run, registering THROWS immediately (`auth/operation-not-supported-in-this-environment`) — same defensive pattern as `signInWithCredential` over the worker.",
           "status": "diverged-documented",
-          "evidence": "`packages/pyric-tools/src/serve/worker/client.ts` (`beforeAuthStateChanged` throws `makeUnsupported`)",
+          "evidence": "`packages/cli/src/serve/worker/client.ts` (`beforeAuthStateChanged` throws `makeUnsupported`)",
           "risk": ["error-code"],
           "riskScore": 3,
           "riskReasons": ["asserts Firebase error code(s): `auth/operation-not-supported-in-this-environment`"],

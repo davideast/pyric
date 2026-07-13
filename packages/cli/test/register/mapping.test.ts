@@ -62,7 +62,7 @@ describe('rewriteSpecifier (mirror-package exemption)', () => {
     join(repoRoot, 'packages/pyric-admin/src/database/index.ts'),
   ).href;
   const pyricParent = pathToFileURL(join(repoRoot, 'packages/pyric/src/app/index.ts')).href;
-  const cliParent = pathToFileURL(join(repoRoot, 'packages/pyric-tools/src/cli/index.ts')).href;
+  const cliParent = pathToFileURL(join(repoRoot, 'packages/cli/src/cli/index.ts')).href;
 
   it('does NOT rewrite Firebase imports made from within the pyric mirrors', () => {
     // The repro: pyric-admin/database's own prod-arm import — a rewrite

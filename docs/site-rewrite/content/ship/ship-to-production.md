@@ -80,7 +80,7 @@ Deploy commands resolve whichever credential is present, service account first:
 - **CI**: a service account via `FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`.
 - **Fallback**: ambient application-default credentials.
 
-The full precedence and flag list is in the [CLI reference](../../../../packages/pyric-tools/docs/reference/cli.md).
+The full precedence and flag list is in the [CLI reference](../../../../packages/cli/docs/reference/cli.md).
 
 ## Where to go next
 
