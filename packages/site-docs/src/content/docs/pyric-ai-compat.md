@@ -63,8 +63,8 @@ capture's distilled facts in the named test.
 <div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-sandbox-dispatch</code> (no capture; structural dispatch claim)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">getai-prod-dispatch</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getAI(app)</code> dispatches to the production <code>firebase/ai</code> backend; the returned handle carries the app</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-prod-dispatch</code> (no capture; pass-through claim)</div></div>
+<summary class="compat-line"><span class="compat-num">getai-prod-dispatch</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After package resolution selects the mirror, <code>getAI(app)</code> uses the app's sandbox and the returned handle carries the app</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-prod-dispatch</code> (no capture; package-resolution dispatch claim)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">getai-default-backend</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">With no options the backend defaults to <code>GoogleAIBackend</code> and <code>backendType</code> is <code>GOOGLE_AI</code></span></summary>
@@ -428,15 +428,15 @@ capture's distilled facts in the named test.
 </details>
 </div>
 
-## Production arm pass-through
+## Production package-resolution boundary
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">prod-passthrough-generate</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">With an app target the mirror passes <code>generateContent</code> through to <code>firebase/ai</code> unmodified: the request body reaches the production base URL byte-identical</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:engines.test.ts</code> test <code>ai#prod-passthrough-generate</code> (fetch interception; no capture needed for pass-through)</div></div>
+<summary class="compat-line"><span class="compat-num">prod-passthrough-generate</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Without sandbox package swapping, canonical <code>firebase/ai</code> sends <code>generateContent</code> to the production base URL with the request body byte-identical</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:engines.test.ts</code> test <code>ai#prod-passthrough-generate</code> (upstream fetch interception; no mirror dispatch involved)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">prod-passthrough-errors</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Production error envelopes surface unchanged through the prod arm as <code>AIError</code> with the wire status and message</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:engines.test.ts</code> test <code>ai#prod-passthrough-errors</code> (fetch interception replaying the captured bad-api-key envelope shape)</div></div>
+<summary class="compat-line"><span class="compat-num">prod-passthrough-errors</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Without sandbox package swapping, canonical <code>firebase/ai</code> surfaces production errors unchanged as <code>AIError</code> with the wire status and message</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:engines.test.ts</code> test <code>ai#prod-passthrough-errors</code> (upstream fetch interception replaying the captured bad-api-key envelope shape)</div></div>
 </details>
 </div>

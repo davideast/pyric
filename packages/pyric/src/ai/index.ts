@@ -4,37 +4,32 @@
  * Mirrors `firebase/ai`'s v1 surface (packages/conformance/docs/ai/surface-inventory.md:
  * exactly the 38 runtime value exports of the installed 2.12.0 that are
  * admitted to v1; the 17 denied runtime exports — Imagen, Live API, server
- * templates, hybrid/on-device — are intentionally NOT exported) with two
- * backends picked at init:
+ * templates, hybrid/on-device — are intentionally NOT exported) as a
+ * sandbox-only mirror. Production selection happens before this module loads:
+ * unmodified `firebase/ai` imports either remain Firebase or are swapped to
+ * this package by the Vite/import-map or Node register boundary.
  *
  *   - **Sandbox target** — `getAI(sandbox)` answers in-process through the
  *     {@link AiBroker} answer-engine seam (`scripted` default: zero-config,
  *     zero-I/O, deterministic; or `openai`: any OpenAI-compatible upstream).
  *     Scripting lives on the `pyric/ai/scripting` subpath.
- *   - **Prod target** — `getAI(app)` passes through to the installed
- *     `firebase/ai`; models minted from a prod handle ARE the installed
- *     SDK's models.
- *
- * Dual-target dispatch follows the house pattern (`pyric/auth`):
- * {@link TARGET_SYMBOL} brands every {@link AI} handle; free functions read
- * it via `targetOf` and switch on `target.kind`.
+ * A {@link TARGET_SYMBOL} brand binds every {@link AI} handle to its sandbox
+ * broker. There is no production target or runtime Firebase dispatch here.
  */
 
 import type { Sandbox } from 'pyric/sandbox';
-import type { FirebaseApp } from 'firebase/app';
+import { APP_TARGET, getApp, type PyricApp } from 'pyric/app';
 
 import { AiBroker } from './broker/index.js';
 import { Backend, BackendType, GoogleAIBackend, VertexAIBackend } from './backend.js';
 import { AIError, AIErrorCode } from './errors.js';
 import { GenerativeModel, type ModelParams, type RequestOptions } from './models.js';
-import { prodGetAI, prodGetGenerativeModel } from './prod-backend.js';
 import {
   TARGET_SYMBOL,
   isSandbox,
   targetOf,
   type AI,
   type AIOptions,
-  type ProdTarget,
   type SandboxTarget,
 } from './target.js';
 
@@ -158,9 +153,10 @@ export type {
   WebGroundingChunk,
 } from 'firebase/ai';
 
-// ─── getAI: one handle per target (sandbox+backend / upstream app) ────
+// ─── getAI: one handle per sandbox/app target and backend ─────────────
 
 const sandboxHandles = new WeakMap<Sandbox, Map<string, AI>>();
+const appHandles = new WeakMap<PyricApp, Map<string, AI>>();
 
 function backendKey(backend: Backend): string {
   return backend.backendType === BackendType.VERTEX_AI
@@ -169,16 +165,17 @@ function backendKey(backend: Backend): string {
 }
 
 /**
- * Construct an {@link AI} handle. Two overloads:
+ * Construct a sandbox-backed {@link AI} handle:
+ *   - `getAI()` — uses the default sandbox app initialized through the
+ *     package-resolution adapter.
  *   - `getAI(sandbox, options?)` — sandbox-backed; answers in-process
  *     through the answer engine (`scripted` default, or
  *     `options.engine: { kind: 'openai', baseUrl }`).
- *   - `getAI(app, options?)` — prod-backed; delegates to the installed
- *     `firebase/ai.getAI(app)` and returns ITS instance (`ai.app === app`).
+ *   - `getAI(app, options?)` — unwraps the sandbox app selected by package
+ *     resolution and preserves `ai.app === app`.
  *
- * Idempotent on both targets: repeat calls for the same target (and, on
- * sandboxes, the same backend) return a stable handle; the first call's
- * options win.
+ * Repeat calls for the same target and backend return a stable handle; the
+ * first call's options win.
  *
  * @example
  * ```ts
@@ -188,48 +185,68 @@ function backendKey(backend: Backend): string {
  * const sandbox = initializeSandbox();
  * const model = getGenerativeModel(getAI(sandbox), { model: 'gemini-flash-lite-latest' });
  *
- * // Prod.
+ * // Canonical imports are swapped to this mirror by pyric dev/register.
  * import { initializeApp } from 'firebase/app';
- * import { getAI } from 'pyric/ai';
+ * import { getAI } from 'firebase/ai';
  * const ai = getAI(initializeApp(userProjectConfig));
  * ```
  */
 export function getAI(sandbox: Sandbox, options?: AIOptions): AI;
-export function getAI(app: FirebaseApp, options?: AIOptions): AI;
-export function getAI(target: Sandbox | FirebaseApp, options?: AIOptions): AI {
+export function getAI(app?: PyricApp, options?: AIOptions): AI;
+export function getAI(target?: Sandbox | PyricApp, options?: AIOptions): AI {
+  if (target === undefined) {
+    return getAI(getApp(), options);
+  }
+  if (isPyricApp(target)) {
+    return sandboxAI(target.sandbox, options, target);
+  }
   if (isSandbox(target)) {
-    const backend = options?.backend ?? new GoogleAIBackend();
-    const key = backendKey(backend);
-    let handles = sandboxHandles.get(target);
+    return sandboxAI(target, options);
+  }
+  throw new TypeError(
+    'pyric/ai is a sandbox-only mirror. Package resolution must leave firebase/ai unchanged for production; activate pyric dev or @pyric/cli/register before importing to select the sandbox.',
+  );
+}
+
+function isPyricApp(target: Sandbox | PyricApp): target is PyricApp {
+  return target !== null && typeof target === 'object' && APP_TARGET in target;
+}
+
+function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: PyricApp): AI {
+  const backend = options?.backend ?? new GoogleAIBackend();
+  const key = backendKey(backend);
+  let handles: Map<string, AI> | undefined;
+  if (app === undefined) {
+    handles = sandboxHandles.get(sandbox);
     if (!handles) {
       handles = new Map();
-      sandboxHandles.set(target, handles);
+      sandboxHandles.set(sandbox, handles);
     }
-    const existing = handles.get(key);
-    if (existing) return existing;
-
-    const broker = new AiBroker({ engine: options?.engine, sandbox: target });
-    const handle: AI = { backend, ...(options !== undefined ? { options } : {}) };
-    const sandboxTarget: SandboxTarget = { kind: 'sandbox', sandbox: target, broker };
-    Object.defineProperty(handle, TARGET_SYMBOL, { value: sandboxTarget, enumerable: false });
-    handles.set(key, handle);
-    return handle;
+  } else {
+    handles = appHandles.get(app);
+    if (!handles) {
+      handles = new Map();
+      appHandles.set(app, handles);
+    }
   }
+  const existing = handles.get(key);
+  if (existing) return existing;
 
-  // Prod: the installed SDK's instance IS the handle (pass-through), branded
-  // so getGenerativeModel can dispatch. Upstream getAI is itself idempotent
-  // per app+backend, so the brand lands exactly once.
-  const upstream = prodGetAI(target, options);
-  if (!(TARGET_SYMBOL in (upstream as object))) {
-    const prodTarget: ProdTarget = { kind: 'prod', ai: upstream };
-    Object.defineProperty(upstream, TARGET_SYMBOL, { value: prodTarget, enumerable: false });
-  }
-  return upstream as unknown as AI;
+  const broker = new AiBroker({ engine: options?.engine, sandbox });
+  const handle: AI = {
+    ...(app !== undefined ? { app } : {}),
+    backend,
+    ...(options !== undefined ? { options } : {}),
+  };
+  const sandboxTarget: SandboxTarget = { kind: 'sandbox', sandbox, broker };
+  Object.defineProperty(handle, TARGET_SYMBOL, { value: sandboxTarget, enumerable: false });
+  handles.set(key, handle);
+  return handle;
 }
 
 /**
- * Returns a {@link GenerativeModel} with methods for inference (upstream
- * signature). Prod handles return the installed SDK's model instance.
+ * Returns a sandbox-backed {@link GenerativeModel} with the upstream method
+ * signatures.
  */
 export function getGenerativeModel(
   ai: AI,
@@ -237,9 +254,6 @@ export function getGenerativeModel(
   requestOptions?: RequestOptions,
 ): GenerativeModel {
   const target = targetOf(ai);
-  if (target.kind === 'prod') {
-    return prodGetGenerativeModel(target.ai, modelParams, requestOptions) as unknown as GenerativeModel;
-  }
   if (!modelParams?.model) {
     throw new AIError(
       AIErrorCode.NO_MODEL,

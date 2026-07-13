@@ -86,11 +86,11 @@ const initRows: CompatibilityRow[] = [
     rowRef: 'getai-prod-dispatch',
     section: SEC_INIT,
     api: 'getAI(target)',
-    behavior: '`getAI(app)` dispatches to the production `firebase/ai` backend; the returned handle carries the app',
+    behavior: 'After package resolution selects the mirror, `getAI(app)` uses the app\'s sandbox and the returned handle carries the app',
     automation: 'unit-backed',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-prod-dispatch` (no capture; pass-through claim)',
+    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-prod-dispatch` (no capture; package-resolution dispatch claim)',
     tests: ['init-dispatch.test.ts'],
-    notes: 'Prod arm is pass-through; the mirror adds no translation.',
+    notes: 'Production code keeps resolving firebase/ai; the pyric/ai module contains no production dispatch.',
   }),
   row({
     rowRef: 'getai-default-backend',
@@ -957,29 +957,29 @@ const openaiRows: CompatibilityRow[] = [
   }),
 ];
 
-// Section: production arm ------------------------------------------------------
+// Section: production package-resolution boundary -----------------------------
 
-const SEC_PROD = 'Production arm pass-through';
+const SEC_PROD = 'Production package-resolution boundary';
 const prodRows: CompatibilityRow[] = [
   row({
     rowRef: 'prod-passthrough-generate',
     section: SEC_PROD,
-    api: 'getAI(app) arm',
-    behavior: 'With an app target the mirror passes `generateContent` through to `firebase/ai` unmodified: the request body reaches the production base URL byte-identical',
+    api: 'firebase/ai package selection',
+    behavior: 'Without sandbox package swapping, canonical `firebase/ai` sends `generateContent` to the production base URL with the request body byte-identical',
     automation: 'unit-backed',
-    evidence: '`unit:engines.test.ts` test `ai#prod-passthrough-generate` (fetch interception; no capture needed for pass-through)',
+    evidence: '`unit:engines.test.ts` test `ai#prod-passthrough-generate` (upstream fetch interception; no mirror dispatch involved)',
     tests: ['engines.test.ts'],
-    notes: 'Prod arm adds no translation.',
+    notes: 'Production remains the real firebase/ai package; pyric/ai loads only after the sandbox resolver swaps the import.',
   }),
   row({
     rowRef: 'prod-passthrough-errors',
     section: SEC_PROD,
-    api: 'getAI(app) arm',
-    behavior: 'Production error envelopes surface unchanged through the prod arm as `AIError` with the wire status and message',
+    api: 'firebase/ai package selection',
+    behavior: 'Without sandbox package swapping, canonical `firebase/ai` surfaces production errors unchanged as `AIError` with the wire status and message',
     automation: 'unit-backed',
-    evidence: '`unit:engines.test.ts` test `ai#prod-passthrough-errors` (fetch interception replaying the captured bad-api-key envelope shape)',
+    evidence: '`unit:engines.test.ts` test `ai#prod-passthrough-errors` (upstream fetch interception replaying the captured bad-api-key envelope shape)',
     tests: ['engines.test.ts'],
-    notes: 'Prod arm adds no translation.',
+    notes: 'Production remains the real firebase/ai package; pyric/ai loads only after the sandbox resolver swaps the import.',
   }),
 ];
 

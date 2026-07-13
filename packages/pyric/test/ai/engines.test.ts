@@ -1,8 +1,8 @@
 /**
  * Red conformance suite: sandbox answer engine rows (ai#scripted-*,
- * ai#openai-*) and production arm rows (ai#prod-*). One test per registry
- * row id. The openai rows drive a local OpenAI-compatible mock served by
- * Bun; the prod rows intercept fetch and never leave the process.
+ * ai#openai-*) and production package-resolution rows (ai#prod-*). One test
+ * per registry row id. The openai rows drive a local OpenAI-compatible mock
+ * served by Bun; the prod rows prove unswapped canonical imports stay upstream.
  * RED BY DESIGN until the ai mirror lands (CDD map #92).
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -304,7 +304,7 @@ describe('ai: openai engine translation', () => {
   });
 });
 
-describe('ai: production arm pass-through', () => {
+describe('ai: production package-resolution boundary', () => {
   const PROD_HOST = 'firebasevertexai.googleapis.com';
 
   async function withInterceptedFetch<T>(
@@ -328,17 +328,18 @@ describe('ai: production arm pass-through', () => {
   }
 
   async function prodModel(): Promise<{ model: any; cleanup: () => Promise<void> }> {
+    const firebaseAi = await import('firebase/ai');
     const { initializeApp, deleteApp } = await import('firebase/app');
     const app = initializeApp(
       { apiKey: 'fake-api-key', projectId: 'demo-ai-passthrough', appId: '1:1:web:ai-passthrough' },
       `ai-passthrough-${Math.random().toString(36).slice(2)}`,
     );
-    const ai = seam.ai.getAI(app);
-    const model = seam.ai.getGenerativeModel(ai, { model: PROBE_MODEL });
+    const ai = firebaseAi.getAI(app);
+    const model = firebaseAi.getGenerativeModel(ai, { model: PROBE_MODEL });
     return { model, cleanup: () => deleteApp(app) };
   }
 
-  rowTest('ai#prod-passthrough-generate the request body reaches the production base URL unmodified', async () => {
+  rowTest('ai#prod-passthrough-generate unswapped firebase/ai sends the request body to production unmodified', async () => {
     const request = { contents: [{ role: 'user', parts: [{ text: 'pass through untouched' }] }] };
     const canned = {
       candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP', index: 0 }],
@@ -360,7 +361,7 @@ describe('ai: production arm pass-through', () => {
     }
   });
 
-  rowTest('ai#prod-passthrough-errors production error envelopes surface unchanged as AIError', async () => {
+  rowTest('ai#prod-passthrough-errors unswapped firebase/ai surfaces production error envelopes unchanged', async () => {
     const facts = observedBehavior('ai-error-bad-api-key');
     const errorBody = {
       error: {

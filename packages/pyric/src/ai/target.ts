@@ -1,18 +1,11 @@
 /**
- * Dispatch routing for `pyric/ai` — the house dual-target pattern
- * (`pyric/auth` / `pyric/firestore`): every {@link AI} handle carries a
- * hidden {@link Target} discriminator via {@link TARGET_SYMBOL}; free
- * functions read it through {@link targetOf} and switch on `target.kind`.
- *
- * Sandbox-side state is the per-handle {@link AiBroker} (engine + event
- * emission); prod-side state lives on the installed `firebase/ai` `AI`
- * instance itself — the prod handle IS the upstream instance, stamped with
- * the brand so `ai.app === app` pass-through holds.
+ * Sandbox routing for `pyric/ai`: every {@link AI} handle carries its broker
+ * and sandbox behind {@link TARGET_SYMBOL}. Production selection belongs to
+ * package resolution and never enters this module.
  */
 
 import type { Sandbox } from 'pyric/sandbox';
-import type { FirebaseApp } from 'firebase/app';
-import type * as fbai from 'firebase/ai';
+import type { PyricApp } from 'pyric/app';
 
 import type { AiBroker, AnswerEngine, EngineConfig } from './broker/index.js';
 import type { Backend } from './backend.js';
@@ -27,9 +20,9 @@ export interface AIOptions {
   engine?: EngineConfig | AnswerEngine;
 }
 
-/** An instance of the AI mirror. Sandbox handles have no `app`. */
+/** An instance of the AI mirror. Direct sandbox handles have no `app`. */
 export interface AI {
-  app?: FirebaseApp;
+  app?: PyricApp;
   backend: Backend;
   options?: AIOptions;
 }
@@ -41,13 +34,7 @@ export interface SandboxTarget {
   broker: AiBroker;
 }
 
-/** Prod dispatch target — wraps the installed `firebase/ai` AI instance. */
-export interface ProdTarget {
-  kind: 'prod';
-  ai: fbai.AI;
-}
-
-export type Target = SandboxTarget | ProdTarget;
+export type Target = SandboxTarget;
 
 /**
  * Recover the dispatch target for an {@link AI} handle. Throws if the handle
@@ -63,10 +50,10 @@ export function targetOf(ai: AI): Target {
 
 /**
  * Brand-based discriminator for `getAI`: a {@link Sandbox} carries
- * `onCurrentUserChanged` and `withAuth`, which a `FirebaseApp` never has
- * (same structural sniff as `pyric/auth`).
+ * `onCurrentUserChanged` and `withAuth`, which a {@link PyricApp} wrapper
+ * never has.
  */
-export function isSandbox(target: Sandbox | FirebaseApp): target is Sandbox {
+export function isSandbox(target: Sandbox | PyricApp): target is Sandbox {
   return (
     typeof target === 'object'
     && target !== null

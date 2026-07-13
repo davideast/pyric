@@ -1,8 +1,8 @@
 /**
  * Model classes for `pyric/ai` sandbox targets: {@link AIModel},
  * {@link GenerativeModel}, {@link ChatSessionBase}, {@link ChatSession}.
- * Prod targets never reach these — `getGenerativeModel(prodAi, ...)` returns
- * the installed `firebase/ai` model instance directly (pass-through).
+ * Production never reaches these — unswapped `firebase/ai` imports load the
+ * installed SDK before this sandbox-only package can enter the graph.
  *
  * Behavior tracks the installed `@firebase/ai@2.12.0` with two pinned
  * deltas (packages/conformance/docs/ai/cdd-deltas.md):
