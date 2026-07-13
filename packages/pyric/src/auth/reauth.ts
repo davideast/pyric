@@ -38,11 +38,6 @@
 
 import { makeAuthError } from './auth-errors.js';
 import { requireSandboxUser, userInternal } from './action-codes.js';
-import {
-  prodReauthenticateWithCredential,
-  prodReauthenticateWithPopup,
-  prodReauthenticateWithRedirect,
-} from './prod-backend.js';
 import { AuthCredential, EmailAuthCredential } from './credentials.js';
 import type { AuthProvider } from './providers.js';
 import type { AuthFlowRequest, AuthFlowResolver, User, UserCredential } from './types.js';
@@ -66,7 +61,6 @@ export async function reauthenticateWithCredential(
   credential: AuthCredential,
 ): Promise<UserCredential> {
   const t = userInternal(user, 'reauthenticateWithCredential').target;
-  if (t.kind === 'prod') return prodReauthenticateWithCredential(user, credential);
   const target = t;
   target.backend.assertProviderEnabled(credential.providerId);
 
@@ -123,8 +117,7 @@ export async function reauthenticateWithPopup(
   provider: AuthProvider,
   resolver?: AuthFlowResolver,
 ): Promise<UserCredential> {
-  const t = userInternal(user, 'reauthenticateWithPopup').target;
-  if (t.kind === 'prod') return prodReauthenticateWithPopup(user, provider);
+  userInternal(user, 'reauthenticateWithPopup');
   return reauthViaFlow(user, provider, resolver, 'popup', 'reauthenticateWithPopup');
 }
 
@@ -138,11 +131,7 @@ export async function reauthenticateWithRedirect(
   provider: AuthProvider,
   resolver?: AuthFlowResolver,
 ): Promise<UserCredential> {
-  const t = userInternal(user, 'reauthenticateWithRedirect').target;
-  if (t.kind === 'prod') {
-    await prodReauthenticateWithRedirect(user, provider);
-    return { user, providerId: provider.providerId, operationType: 'reauthenticate' };
-  }
+  userInternal(user, 'reauthenticateWithRedirect');
   return reauthViaFlow(user, provider, resolver, 'redirect', 'reauthenticateWithRedirect');
 }
 

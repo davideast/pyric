@@ -151,6 +151,13 @@ describe('load — the stub bodies', () => {
     expect(src).not.toContain('FirebaseError');
   });
 
+  it('does not synthesize firebase/auth bindings after auth isolation', () => {
+    const src = load('\0pyric:fb-stub:firebase/auth') as string;
+    expect(src).toContain('export default');
+    expect(src).not.toContain('getAuth');
+    expect(src).not.toContain('signInAnonymously');
+  });
+
   it('emits the node-builtin shim source', () => {
     expect(load('\0pyric:node-shim:fs') as string).toContain('readFileSync');
     expect(load('\0pyric:node-shim:path') as string).toContain('export const join');

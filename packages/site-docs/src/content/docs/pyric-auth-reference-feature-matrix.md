@@ -7,11 +7,11 @@ order: 16003
 ---
 # Feature matrix: `pyric/auth` coverage of `firebase/auth`
 
-Side-by-side coverage of the modular Web SDK Auth surface. Use this to decide what's safe to write in code that has to run against both the pyric sandbox and prod Firebase.
+Coverage of the modular Web SDK Auth surface when package resolution swaps canonical `firebase/auth` imports to the Pyric sandbox mirror. Production installs no swap and continues using Firebase.
 
 **Legend:**
 
-- ✅: exported by `pyric/auth` with the same name and signature as upstream. Works on both backends.
+- ✅: exported by `pyric/auth` with the same name and compatible signature as upstream.
 - ⚠️: exported, but with a caveat: signature subset, sandbox-only no-op, runtime parity gap, or similar. Read the note.
 - ❌: not exported. Code that imports it will fail to resolve when the sandbox-preview build aliases `firebase/auth` → `pyric/auth`.
 
@@ -25,8 +25,8 @@ The right column ("Use in agent-generated `appSource`?") is the deny-list / allo
 |---|---|---|---|
 | `getAuth(app)` | ✅ | Also accepts `Sandbox` overload (sandbox-only) | Yes |
 | `initializeAuth(app, deps?)` | ❌ | No custom dependency injection on sandbox backend | No |
-| `connectAuthEmulator(auth, url, options?)` | ✅ | No-op on sandbox handles; delegates on prod | Yes |
-| `setPersistence(auth, persistence)` | ✅ | Sandbox no-op; prod maps marker to upstream singleton | Yes |
+| `connectAuthEmulator(auth, url, options?)` | ✅ | Accepted no-op; the mirror is already a sandbox | Yes |
+| `setPersistence(auth, persistence)` | ✅ | Records the sandbox session storage mode; rejects unknown marker types | Yes |
 | `inMemoryPersistence` | ✅ | Marker `{type: 'NONE'}`; maps to upstream singleton | Yes |
 | `browserSessionPersistence` | ✅ | Marker `{type: 'SESSION'}` | Yes |
 | `browserLocalPersistence` | ✅ | Marker `{type: 'LOCAL'}` | Yes |
@@ -42,10 +42,10 @@ The right column ("Use in agent-generated `appSource`?") is the deny-list / allo
 | `signInAnonymously(auth)` | ✅ | Sandbox: auto-mints `anonymous-N` uid (recorded in the user DB; `sign_in_provider: 'anonymous'`) | Yes |
 | `signInWithEmailAndPassword(auth, email, pw)` | ✅ | Sandbox: lookup in in-memory DB. Disabled accounts (`sandbox.updateUser(…, {disabled: true})`) throw `auth/user-disabled` | Yes |
 | `createUserWithEmailAndPassword(auth, email, pw)` | ✅ | Sandbox: adds to in-memory DB with the `password` provider recorded | Yes |
-| `signInWithPopup(auth, provider, resolver?)` | ⚠️ | Sandbox: delegates to a configured `AuthFlowResolver` (per-call arg → `sandbox.setAuthFlowResolver` → one-shot `mockSignInResult` → throws `auth/argument-error`, matching upstream's no-resolver default). The `resolver` arg is sandbox-only; prod delegates to `firebase/auth`'s platform default. Sign-in records the provider on the identity (user DB upsert) and throws `auth/user-disabled` for disabled accounts | Yes |
+| `signInWithPopup(auth, provider, resolver?)` | ⚠️ | Delegates to a configured sandbox `AuthFlowResolver` (per-call arg → `sandbox.setAuthFlowResolver` → one-shot `mockSignInResult` → throws `auth/argument-error`, matching upstream's no-resolver default). The `resolver` arg is sandbox-only. Unswapped production imports remain on `firebase/auth` and its platform resolver. Sandbox sign-in records the provider on the identity (user DB upsert) and throws `auth/user-disabled` for disabled accounts | Yes |
 | `signInWithCredential(auth, credential)` | ⚠️ | Mock-or-throw, keyed on `credential.providerId` (not a popup/resolver flow, opens no UI); throws `auth/no-mock-configured` with none staged. Records the provider; disabled accounts throw `auth/user-disabled` | Yes |
-| `signInWithRedirect(auth, provider, resolver?)` | ⚠️ | Sandbox: resolves inline via the same `AuthFlowResolver` (no real navigation); signs in + stashes for `getRedirectResult`. Prod: delegates to `firebase/auth` (real navigation) | Yes |
-| `getRedirectResult(auth)` | ⚠️ | Sandbox: returns-and-clears the pending redirect credential (one-shot), or `null`. Prod: delegates to `firebase/auth` | Yes |
+| `signInWithRedirect(auth, provider, resolver?)` | ⚠️ | Resolves inline via the sandbox `AuthFlowResolver` (no real navigation); signs in + stashes for `getRedirectResult`. Unswapped production imports remain on `firebase/auth` (real navigation) | Yes |
+| `getRedirectResult(auth)` | ⚠️ | Returns-and-clears the pending sandbox redirect credential (one-shot), or `null`. Unswapped production imports remain on `firebase/auth` | Yes |
 | `signInWithCustomToken(auth, token)` | ❌ | Custom-token sign-in out of scope v0 | No |
 | `signInWithPhoneNumber(auth, phone, verifier)` | ❌ | Phone auth out of scope v0 | No |
 | `signInWithEmailLink(auth, email, link)` | ❌ | Email-link sign-in out of scope v0 | No |
@@ -162,7 +162,7 @@ The right column ("Use in agent-generated `appSource`?") is the deny-list / allo
 
 ## Sandbox-only additions
 
-These have no `firebase/auth` equivalent. They live under the `sandbox.*` namespace and throw `failed-precondition` if called against a prod-backed handle.
+These have no `firebase/auth` equivalent. They live under the `sandbox.*` namespace and require an `Auth` handle produced by this mirror.
 
 | Symbol | Status | Note | Use in `appSource`? |
 |---|---|---|---|

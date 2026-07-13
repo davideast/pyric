@@ -1,20 +1,12 @@
 /**
  * Dispatch routing for `pyric/auth`.
  *
- * Each {@link Auth} handle carries a hidden {@link Target} discriminator
- * via {@link TARGET_SYMBOL}. Free functions read it through
- * {@link targetOf} and switch on `target.kind`, mirroring the same
- * pattern `pyric/firestore` uses (see
- * `packages/firestore/src/index.ts`).
- *
- * Sandbox-side state (the in-memory user DB, listener set,
- * mock-result registry) lives on the {@link SandboxBackend} attached
- * to the sandbox target; the prod-side state lives on the upstream
- * `fb.Auth` handle. Both surfaces look the same to consumer code.
+ * Each {@link Auth} handle carries its sandbox backend behind
+ * {@link TARGET_SYMBOL}. Production selection happens before this package
+ * loads, at the Vite/import-map or Node register boundary.
  */
 
 import type { Sandbox } from 'pyric/sandbox';
-import type * as fb from 'firebase/auth';
 
 import type { SandboxBackend } from './sandbox-backend.js';
 import type { Auth } from './types.js';
@@ -30,13 +22,7 @@ export interface SandboxTarget {
   backend: SandboxBackend;
 }
 
-/** Prod dispatch target — wraps an upstream `firebase/auth.Auth`. */
-export interface ProdTarget {
-  kind: 'prod';
-  auth: fb.Auth;
-}
-
-export type Target = SandboxTarget | ProdTarget;
+export type Target = SandboxTarget;
 
 /**
  * Recover the dispatch target for an {@link Auth} handle. Throws if

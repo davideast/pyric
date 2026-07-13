@@ -36,20 +36,20 @@ means a Bun test in `packages/auth/test/<file>`.
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">1</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns a stable <code>Auth</code> handle for repeat calls with the same target — idempotent on BOTH the sandbox target (per-sandbox WeakMap) and the prod target (per-resolved-<code>fb.Auth</code> WeakMap; previously the prod wrapper was minted fresh per call)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code> (sandbox) + <code>unit:prod-getauth-memo.test.ts</code> (prod, locks AUTH-B6)</div></div>
+<summary class="compat-line"><span class="compat-num">1</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns a stable <code>Auth</code> handle for repeat calls with the same sandbox or sandbox-backed <code>PyricApp</code> — one backend and handle per sandbox</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code> + canonical Node register child (<code>register-child.test.ts</code>)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">2</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getAuth(sandbox)</code> dispatches to the sandbox backend</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-anonymous.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="unverified">
-<summary class="compat-line"><span class="compat-num">3</span><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-behavior"><code>getAuth(app)</code> dispatches to the production backend</span></summary>
-<div class="compat-evidence"><div class="compat-probe">(no prod test harness yet)</div></div>
+<summary class="compat-line"><span class="compat-num">3</span><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-behavior">Without sandbox package swapping, canonical <code>firebase/auth</code> imports remain Firebase and never enter this mirror</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Direct mirror rejection is locked by <code>unit:package-resolution.test.ts</code>; an unswapped production-resolution observation is still needed</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getAuth(undefined)</code> — wrapped in the playground preview to default to the sandbox; raw call delegates to prod which throws <code>app/no-app</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>playground:firestore-bare-getfirestore</code> (mirrors the <code>getFirestore</code> wrap from #397) + oracle: <code>packages/conformance/observations/auth/auth-bare-getauth-no-default-app.json</code> (<code>code: 'app/no-app'</code> against blockingfun, fb-js-sdk 12.13.0 — confirms prod throw shape)</div>
+<summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After package swapping, bare <code>getAuth()</code> resolves the registered default sandbox app; without swapping, Firebase retains its <code>app/no-app</code> behavior when no default app exists</span></summary>
+<div class="compat-evidence"><div class="compat-probe">canonical Node register child (<code>register-child.test.ts</code>) + oracle: <code>packages/conformance/observations/auth/auth-bare-getauth-no-default-app.json</code> (<code>code: 'app/no-app'</code> against blockingfun, fb-js-sdk 12.13.0 — confirms unswapped Firebase behavior)</div>
 <div class="compat-note">(wrap)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
@@ -266,7 +266,7 @@ means a Bun test in `packages/auth/test/<file>`.
 <div class="compat-evidence"><div class="compat-probe">divergence: sandbox is a no-op. Prod respects the marker.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">43a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">An unrecognized persistence marker (not one of the three) is rejected with <code>auth/argument-error</code> on the prod backend, rather than silently coerced to LOCAL</span></summary>
+<summary class="compat-line"><span class="compat-num">43a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">An unrecognized persistence marker is rejected with <code>auth/argument-error</code> rather than silently coerced to LOCAL</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-cluster-b9-b12.test.ts</code> (locks AUTH-B12)</div></div>
 </details>
 </div>
@@ -436,8 +436,8 @@ means a Bun test in `packages/auth/test/<file>`.
 <div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">66</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">All <code>sandbox.*</code> methods throw <code>failed-precondition</code> on prod-backed handles</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-test-driver.test.ts</code>, <code>unit:sandbox-user-admin.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">66</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">All <code>sandbox.*</code> methods operate only on the sandbox backend attached to a mirror-produced <code>Auth</code> handle; there is no production target or production branch</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-test-driver.test.ts</code>, <code>unit:sandbox-user-admin.test.ts</code> + compiled client-binding isolation</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">67</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.reset()</code> (host-side, via <code>Sandbox.reset()</code>) clears auth state and fires sign-out</span></summary>
@@ -512,7 +512,7 @@ means a Bun test in `packages/auth/test/<file>`.
 <div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — an out-of-band <code>sandbox.updateUser</code> displayName change is visible on the held user after <code>reload</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">87</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Sets the sandbox's current user (pass <code>null</code> to sign out), firing <code>onAuthStateChanged</code> — <code>auth.currentUser</code> reflects the passed user afterward. Real behavior. On prod targets, hands the underlying upstream user to <code>firebase/auth.updateCurrentUser</code></span></summary>
+<summary class="compat-line"><span class="compat-num">87</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Sets the sandbox's current user (pass <code>null</code> to sign out), firing <code>onAuthStateChanged</code> — <code>auth.currentUser</code> reflects the passed user afterward</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:fruit-aliases.test.ts</code> — <code>auth.currentUser</code> becomes the passed user; <code>null</code> signs out</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
@@ -674,7 +674,7 @@ the product, and needing an inbox is not the same as being unmodelable.
 | `setLanguageCode` (Auth method) | i18n surface. (`useDeviceLanguage` is mirrored as an accepted no-op.) |
 | `User.toJSON()` | Serialization the sandbox doesn't model (AUTH-GAP). (`User.reload()` / `User.delete()` are mirrored via the top-level `reload(user)` / `deleteUser(user)`.) |
 | `User.metadata` / `User.refreshToken` / `User.tenantId` | Not tracked by the sandbox; documented per AUTH-GAP. |
-| Positional listener `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Sandbox observers never error/complete (synchronous in-memory fan-out); pass the `{ next, error, complete }` observer object if you need those handlers. The prod backend forwards all three. |
+| Positional listener `error` / `complete` args on `onAuthStateChanged` / `onIdTokenChanged` | Sandbox observers never error/complete (synchronous in-memory fan-out); pass the `{ next, error, complete }` observer object if you need those handlers. Production listener behavior remains owned by the unchanged `firebase/auth` import. |
 
 ---
 
@@ -718,7 +718,7 @@ the `ActionCodeURL` parse contract, the `isSignInWithEmailLink` predicate, and t
 
 Rows currently marked **?** (need explicit probes):
 
-- #3 `getAuth(app)` prod-backend dispatch — landing once the
+- #3 canonical production package resolution — landing once the
   empirical oracle harness (`packages/conformance/src/run.ts`) captures the
   observation against a real Firebase project. Harness is in
   place; needs the `PYRIC_ORACLE_FIREBASE_CONFIG` env var pointed

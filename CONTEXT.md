@@ -150,7 +150,7 @@ Version `0.1.0-alpha.8`, published to npm. ESM-only, subpath-only, Node `>=22`.
 | Subpath | Purpose |
 |---|---|
 | `pyric/app` | Sandbox-only `initializeApp({ sandbox })` plus the mirrored client app registry: `getApp`, `getApps`, `deleteApp`, local `FirebaseError`, pinned `SDK_VERSION`, `onLog`, `setLogLevel`, `registerVersion`. It has no `firebase/app` runtime dependency; production imports stay on `firebase/app`. |
-| `pyric/auth` | Modular Auth mirror, sandbox identity, providers, popup/redirect resolver. |
+| `pyric/auth` | Sandbox-only modular Auth mirror, identity, providers, and popup/redirect resolver. It has no `firebase/auth` runtime dependency; production imports stay on `firebase/auth`. |
 | `pyric/firestore` | Modular Firestore mirror plus Firestore data/inspect tools. |
 | `pyric/firestore-values` | Firestore value helpers/wrappers. |
 | `pyric/database` | Realtime Database surface and RTDB tooling. |

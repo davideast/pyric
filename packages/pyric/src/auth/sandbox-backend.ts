@@ -1967,7 +1967,6 @@ export class SandboxBackend {
           this.reloadFor(user);
           return Promise.resolve();
         },
-        raw: user,
         // Routing rides on the user — see UserInternal.target. Built here
         // rather than injected because the backend predates the target
         // object that wraps it (`getAuth` constructs the target FROM the
@@ -2233,4 +2232,3 @@ export class SandboxBackend {
 /** Re-exported from {@link ./auth-errors.ts} so consumers importing
  *  `makeAuthError` from the `sandbox-backend` barrel keep working. */
 export { makeAuthError } from './auth-errors.js';
-

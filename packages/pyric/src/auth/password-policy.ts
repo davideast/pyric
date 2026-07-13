@@ -22,8 +22,6 @@
  */
 
 import { requireSandboxTarget } from './action-codes.js';
-import { targetOf } from './target.js';
-import { prodValidatePassword } from './prod-backend.js';
 import type { Auth } from './types.js';
 
 /** Mirror of `firebase/auth`'s `PasswordPolicy`. */
@@ -88,8 +86,6 @@ export async function validatePassword(
   auth: Auth,
   password: string,
 ): Promise<PasswordValidationStatus> {
-  const t = targetOf(auth);
-  if (t.kind === 'prod') return (await prodValidatePassword(t.auth, password)) as PasswordValidationStatus;
   requireSandboxTarget(auth, 'validatePassword');
   const opts = SANDBOX_PASSWORD_POLICY.customStrengthOptions;
   const min = opts.minPasswordLength ?? 0;

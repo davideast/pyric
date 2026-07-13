@@ -123,6 +123,7 @@ console.log('PROD_ARM_OK');
     join(fixtureDir, 'client.mjs'),
     `import assert from 'node:assert';
 import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getAI, getGenerativeModel } from 'firebase/ai';
 import { script } from 'pyric/ai/scripting';
@@ -131,6 +132,10 @@ assert.strictEqual(app[Symbol.for('pyric.app.target')], 'sandbox');
 assert.strictEqual(app.options.projectId, 'demo-project');
 const db = getFirestore(app);
 assert.strictEqual(typeof db, 'object');
+const auth = getAuth(app);
+assert.strictEqual(getAuth(), auth, 'bare getAuth() must use the registered default sandbox app');
+const credential = await signInAnonymously(auth);
+assert.strictEqual(auth.currentUser, credential.user, 'canonical auth imports must update sandbox auth state');
 const ai = getAI(app);
 assert.strictEqual(getAI(), ai, 'bare getAI() must use the registered default sandbox app');
 script(ai, [{ respond: { text: 'sandbox answer' } }]);
