@@ -5,15 +5,6 @@
     "getAI",
     "getGenerativeModel"
   ],
-  "firebase/app": [
-    "FirebaseError",
-    "SDK_VERSION",
-    "deleteApp",
-    "initializeApp",
-    "onLog",
-    "registerVersion",
-    "setLogLevel"
-  ],
   "firebase/auth": [
     "Auth",
     "AuthCredential",

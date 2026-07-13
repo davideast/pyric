@@ -9,14 +9,12 @@
  *
  * ── Default instance (the in-process degenerate case) ──────────────────────
  * `getMessaging()` with no app mirrors `firebase/messaging`'s default-app
- * form. `pyric/app` has no default-app registry yet, so the mirror keeps a
- * module-level default sandbox — but ONLY under `PYRIC_CLIMB=1` (the
- * conformance-climb flag). Outside the climb, the bare call throws with
- * remediation instead of silently minting a sandbox: this keeps the WIP
- * messaging surface isolated (owner's isolation decision) and preserves
- * the house rule that backend selection happens at `initializeApp` time.
+ * form. The mirror creates its climb-only default app lazily so importing the
+ * messaging package does not silently mint sandbox state. Outside
+ * `PYRIC_CLIMB=1`, the bare call throws with remediation; package resolution
+ * has already selected sandbox versus production before this module loads.
  */
-import { initializeApp, isSandboxApp, type PyricApp, type SandboxApp } from '../app/index.js';
+import { initializeApp, type PyricApp } from '../app/index.js';
 import { initializeSandbox } from '../sandbox/index.js';
 import type { Sandbox } from '../sandbox/types/service.js';
 import { DEFAULT_CLIENT_ID, getMessagingBroker, MessagingBroker } from './broker/index.js';
@@ -80,7 +78,7 @@ export function defaultRegistration(): SimulatedServiceWorkerRegistration {
 
 // ── Default app (climb-gated) ────────────────────────────────────────────────
 
-let defaultApp: SandboxApp | null = null;
+let defaultApp: PyricApp | null = null;
 
 function resolveDefaultApp(): PyricApp {
   if (defaultApp !== null) return defaultApp;
@@ -96,7 +94,7 @@ function resolveDefaultApp(): PyricApp {
         'default sandbox (WIP surface).',
     );
   }
-  defaultApp = initializeApp({ sandbox: initializeSandbox() }) as SandboxApp;
+  defaultApp = initializeApp({ sandbox: initializeSandbox() });
   return defaultApp;
 }
 
@@ -104,13 +102,6 @@ function resolveDefaultApp(): PyricApp {
 
 export function resolveMessaging(plane: MessagingPlane, app?: PyricApp): Messaging {
   const resolved = app ?? resolveDefaultApp();
-  if (!isSandboxApp(resolved)) {
-    throw new Error(
-      'pyric/messaging: the prod arm is not implemented in this slice — the FCM ' +
-        'receive plane requires a browser context. Pass a sandbox-backed app ' +
-        '(initializeApp({ sandbox })).',
-    );
-  }
   const bySandbox = instancesBySandbox.get(resolved.sandbox) ?? {};
   instancesBySandbox.set(resolved.sandbox, bySandbox);
   const existing = bySandbox[plane];

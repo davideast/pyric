@@ -1,19 +1,15 @@
 /**
- * Phase 3 dispatch tests for `pyric/app` (ADR-001 D5).
+ * Service-wrapper tests for a sandbox-backed `pyric/app` handle.
  *
- * The `getXxx(PyricApp)` overload on each adapter subpath inspects
- * the `APP_TARGET` brand and forwards to the existing direct-handle
- * factory (`getXxx(sandbox)` for sandbox apps, `getXxx(firebaseApp)`
- * for prod apps). These tests prove that dispatch works for the
- * sandbox branch — the prod branch goes through `firebase/*` and
- * needs real config to exercise, so it's covered separately by the
- * package-level conformance suites.
+ * The `getXxx(PyricApp)` overload on each adapter subpath recognizes the app
+ * wrapper and unwraps its Sandbox. Production selection is package-level and
+ * never enters these wrappers.
  *
  * Storage is intentionally not exercised here: its sandbox factory
  * opens an IndexedDB connection at `getStorage(sandbox)` time, which
  * needs `fake-indexeddb` (or a real browser env) wired up at the
  * test entry. The unified `getStorage(app: PyricApp)` overload itself
- * is a single-line forward to the existing direct-handle paths and is
+ * is a single-line sandbox unwrap and is
  * covered structurally by typecheck; the runtime IDB story belongs in
  * a storage-focused integration test.
  */
@@ -32,7 +28,7 @@ import { getFirestore } from '../firestore/index.js';
 import { getAuth } from '../auth/index.js';
 import { getDatabase } from '../database/index.js';
 
-describe('pyric/app — getXxx(PyricApp) dispatch (sandbox branch)', () => {
+describe('pyric/app — getXxx(PyricApp) sandbox unwrap', () => {
   // The app registry is a process-global singleton (mirroring firebase/app's
   // store), so clear it before each case: every test below initializes the
   // default '[DEFAULT]' app and would otherwise collide with the previous one

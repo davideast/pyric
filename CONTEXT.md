@@ -149,7 +149,7 @@ Version `0.1.0-alpha.8`, published to npm. ESM-only, subpath-only, Node `>=22`.
 
 | Subpath | Purpose |
 |---|---|
-| `pyric/app` | `initializeApp` plus the mirrored client app registry: `getApp`, `getApps`, `deleteApp`, `FirebaseError`, `SDK_VERSION`, `onLog`, `setLogLevel`, `registerVersion`. Duplicate-app semantics are faithful to `firebase/app`. |
+| `pyric/app` | Sandbox-only `initializeApp({ sandbox })` plus the mirrored client app registry: `getApp`, `getApps`, `deleteApp`, local `FirebaseError`, pinned `SDK_VERSION`, `onLog`, `setLogLevel`, `registerVersion`. It has no `firebase/app` runtime dependency; production imports stay on `firebase/app`. |
 | `pyric/auth` | Modular Auth mirror, sandbox identity, providers, popup/redirect resolver. |
 | `pyric/firestore` | Modular Firestore mirror plus Firestore data/inspect tools. |
 | `pyric/firestore-values` | Firestore value helpers/wrappers. |
@@ -296,7 +296,17 @@ roots: it is maintainer documentation for a private package, not product docs.
 
 ## Architecture
 
-Backend selection still happens once, at app initialization.
+Backend selection belongs to package resolution, not app initialization.
+
+- Browser sandbox processes use the Vite/import-map layer to map canonical
+  `firebase/*` imports to `pyric/*` mirrors.
+- Node sandbox processes activate the register hook, which performs the same
+  package swap before modules load.
+- Production processes do not activate the swap and continue loading Firebase.
+- Direct `pyric/*` imports mean sandbox behavior. `pyric/app` and
+  `pyric/storage` already enforce this invariant; the remaining client service
+  mirrors still have legacy production arms that are being removed behind the
+  compiled-binding ratchet.
 
 ```ts
 import { initializeApp } from 'pyric/app';
@@ -312,7 +322,8 @@ The same shape repeats across Auth, Firestore, RTDB, Storage, AI, Messaging,
 Admin, tools, UI, Studio, and Playground:
 
 - App code imports Firebase-shaped APIs.
-- Pyric dispatches on a target marker to sandbox or prod.
+- The resolver either keeps Firebase packages (production) or swaps them to
+  Pyric packages (sandbox) before application modules load.
 - The sandbox owns local state, rules, identities, event streams, replay, and
   branch/persistence semantics.
 - Tools and UI consume public handles rather than private implementation objects.

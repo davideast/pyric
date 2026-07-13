@@ -42,8 +42,8 @@ import * as fb from 'firebase/database';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import { SandboxContextImpl } from 'pyric/sandbox';
 
-// Phase 3 unified app handle. Adapter dispatch reads `APP_TARGET` and
-// routes to the existing direct-handle path (sandbox vs prod).
+// A PyricApp always wraps a sandbox. Direct FirebaseApp support remains a
+// temporary service-level production arm until the RTDB package migration.
 import { APP_TARGET, type PyricApp } from 'pyric/app';
 
 import { RtdbBackend } from './sandbox/backend.js';
@@ -395,13 +395,10 @@ export function getDatabase(app: PyricApp): Database;
 export function getDatabase(
   target: SandboxContext | Sandbox | FirebaseApp | PyricApp,
 ): Database {
-  // PyricApp dispatch: inspect the brand and forward to the existing
-  // direct-handle path. Ordered FIRST so a PyricApp's outer shell
-  // never falls through to a structural sniff for `Sandbox`.
+  // Package resolution already selected the sandbox mirror before this code
+  // loaded, so a PyricApp can only unwrap to its Sandbox.
   if (isPyricApp(target)) {
-    return target[APP_TARGET] === 'sandbox'
-      ? getDatabase(target.sandbox)
-      : getDatabase(target.firebaseApp);
+    return getDatabase(target.sandbox);
   }
   if (isSandboxContext(target)) {
     const backend = getOrCreateBackend(target.sandbox);
@@ -421,20 +418,13 @@ export function getDatabase(
 /**
  * Sandbox-only rules-bypass RTDB handle. Mirrors Firestore's
  * `getAdminFirestore(sandbox)` for Studio/Playground data browsers and
- * controlled admin tools. A prod-backed app has no client-side rules-bypass
- * equivalent and is rejected loudly.
+ * controlled admin tools.
  */
 export function getAdminDatabase(sandbox: Sandbox): Database;
 export function getAdminDatabase(ctx: SandboxContext): Database;
 export function getAdminDatabase(app: PyricApp): Database;
 export function getAdminDatabase(target: Sandbox | SandboxContext | PyricApp): Database {
   if (isPyricApp(target)) {
-    if (target[APP_TARGET] !== 'sandbox') {
-      throw new TypeError(
-        'getAdminDatabase: the admin (rules-bypass) lens is sandbox-only — ' +
-          'a prod-backed app has no way to bypass deployed security rules.',
-      );
-    }
     return getAdminDatabase(target.sandbox);
   }
   const sandbox = isSandboxContext(target) ? target.sandbox : target;
@@ -444,10 +434,8 @@ export function getAdminDatabase(target: Sandbox | SandboxContext | PyricApp): D
 }
 
 /**
- * Brand-based test for the {@link PyricApp} overload. Reads the
- * `APP_TARGET` symbol that `pyric/app`'s `initializeApp` stamps on
- * every handle. Cheap + collision-free: a `Sandbox` / `FirebaseApp`
- * / `SandboxContext` will never carry this symbol.
+ * Brand-based test for the {@link PyricApp} overload. Direct Sandbox,
+ * FirebaseApp, and SandboxContext handles never carry the app-wrapper symbol.
  */
 function isPyricApp(
   target: SandboxContext | Sandbox | FirebaseApp | PyricApp,

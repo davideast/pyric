@@ -70,14 +70,10 @@ export function getFirestore(sandbox: Sandbox): Firestore;
 export function getFirestore(app: FirebaseApp): Firestore;
 export function getFirestore(app: PyricApp): Firestore;
 export function getFirestore(target: SandboxContext | Sandbox | FirebaseApp | PyricApp): Firestore {
-  // PyricApp dispatch: inspect the brand and forward to the existing
-  // direct-handle path. Kept ABOVE the legacy probes so a sandbox-app
-  // handle (which structurally carries `sandbox` + the brand symbol)
-  // routes through the unified path, not the structural sandbox sniff.
+  // Package resolution already selected the sandbox mirror before this code
+  // loaded, so a PyricApp can only unwrap to its Sandbox.
   if (isPyricApp(target)) {
-    return target[APP_TARGET] === 'sandbox'
-      ? getFirestore(target.sandbox)
-      : getFirestore(target.firebaseApp);
+    return getFirestore(target.sandbox);
   }
   if (isSandboxContext(target)) {
     const chainable = getChainableFirestore(target);
@@ -140,8 +136,8 @@ export function actingAs(sandbox: Sandbox, identity: AuthState): Firestore {
  *
  * Sandbox-only. There is no prod analog (you cannot bypass deployed
  * security rules from a client), so this overload set accepts only a
- * `Sandbox` / `SandboxContext` / sandbox-backed `PyricApp` — never a
- * `FirebaseApp`. Admin ops are identity-agnostic (rules are off), so the
+ * `Sandbox` / `SandboxContext` / `PyricApp` — never a `FirebaseApp`.
+ * Admin ops are identity-agnostic (rules are off), so the
  * handle is a FROZEN `sandbox` target: it does not track
  * `sandbox.currentUser`.
  *
@@ -163,16 +159,7 @@ export function getAdminFirestore(sandbox: Sandbox): Firestore;
 export function getAdminFirestore(ctx: SandboxContext): Firestore;
 export function getAdminFirestore(app: PyricApp): Firestore;
 export function getAdminFirestore(target: Sandbox | SandboxContext | PyricApp): Firestore {
-  // Sandbox-backed PyricApp → unwrap to its Sandbox. A prod-backed app has
-  // no admin-bypass analog, so reject it loudly rather than silently
-  // returning a rules-enforced prod handle.
   if (isPyricApp(target)) {
-    if (target[APP_TARGET] !== 'sandbox') {
-      throw new TypeError(
-        'getAdminFirestore: the admin (rules-bypass) lens is sandbox-only — ' +
-          'a prod-backed app has no way to bypass deployed security rules.',
-      );
-    }
     return getAdminFirestore(target.sandbox);
   }
   const sandbox: Sandbox = isSandboxContext(target) ? target.sandbox : (target as Sandbox);
@@ -182,10 +169,8 @@ export function getAdminFirestore(target: Sandbox | SandboxContext | PyricApp): 
 }
 
 /**
- * Brand-based test for the {@link PyricApp} overload. Reads the
- * `APP_TARGET` symbol that `pyric/app`'s `initializeApp` stamps on
- * every handle. Cheap + collision-free: a `Sandbox` / `FirebaseApp`
- * / `SandboxContext` will never carry this symbol.
+ * Brand-based test for the {@link PyricApp} overload. Direct Sandbox,
+ * FirebaseApp, and SandboxContext handles never carry the app-wrapper symbol.
  */
 function isPyricApp(
   target: SandboxContext | Sandbox | FirebaseApp | PyricApp,
