@@ -242,10 +242,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { initializeApp } from 'pyric/app';
 import { initializeSandbox } from 'pyric/sandbox';
-import { getFirestore, collection, getDocs, sandbox as sandboxOps } from 'pyric/firestore';
+import { getFirestore, collection, getDocs } from 'pyric/firestore';
+import { setRules } from 'pyric/sandbox/firestore';
 import { seed } from './seed.js';
 
 const target = process.env.PYRIC_TARGET ?? 'sandbox';
+const sandbox = target === 'firebase' ? null : initializeSandbox();
 
 const app =
   target === 'firebase'
@@ -255,15 +257,15 @@ const app =
         projectId: process.env.FIREBASE_PROJECT_ID,
         appId: process.env.FIREBASE_APP_ID,
       })
-    : initializeApp({ sandbox: initializeSandbox() });
+    : initializeApp({ sandbox: sandbox! });
 const db = getFirestore(app);
 
-if (target !== 'firebase') {
+if (sandbox) {
   // Sandbox mode: deploy this project's rules into the sandbox so they
   // actually take effect during development. \`setRules\` throws if the
   // rules fail lint — surfacing problems at setup time is the point.
   const rulesPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'firestore.rules');
-  sandboxOps.setRules(db, readFileSync(rulesPath, 'utf8'));
+  setRules(sandbox, readFileSync(rulesPath, 'utf8'));
   await seed(db);
 }
 

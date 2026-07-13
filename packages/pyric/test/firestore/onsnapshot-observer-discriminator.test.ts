@@ -10,11 +10,11 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   doc,
   onSnapshot,
-  sandbox as sandboxOps,
 } from '../../src/firestore/index.js';
 
 const DENY_READ = `rules_version = '2';
@@ -28,8 +28,8 @@ service cloud.firestore {
 function setup() {
   const sandbox = initializeSandbox();
   const db = getFirestore(sandbox.withAuth({ uid: 'u' }));
-  sandboxOps.setRules(db, DENY_READ);
-  sandboxOps.seedDocuments(db, { 'open/o1': { v: 1 } });
+  setRules(sandbox, DENY_READ);
+  seedDocuments(sandbox, { 'open/o1': { v: 1 } });
   return db;
 }
 

@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, spyOn } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   doc,
@@ -16,7 +17,6 @@ import {
   query,
   where,
   collection,
-  sandbox as sandboxOps,
   type Firestore,
   type QuerySnapshot,
 } from '../../src/firestore/index.js';
@@ -36,7 +36,7 @@ const tick = (ms = 10): Promise<void> => new Promise((r) => setTimeout(r, ms));
 function setup(): { sandbox: ReturnType<typeof initializeSandbox>; live: Firestore } {
   const sandbox = initializeSandbox();
   const live = getFirestore(sandbox);
-  sandboxOps.setRules(live, OWNER_RULES);
+  setRules(sandbox, OWNER_RULES);
   return { sandbox, live };
 }
 

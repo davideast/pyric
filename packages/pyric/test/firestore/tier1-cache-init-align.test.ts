@@ -18,6 +18,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   doc,
@@ -38,7 +39,6 @@ import {
   onSnapshotsInSync,
   collection,
   query,
-  sandbox as sandboxOps,
 } from '../../src/firestore/index.js';
 
 const RULES = `rules_version = '2';
@@ -53,7 +53,7 @@ service cloud.firestore {
 function setup() {
   const sandbox = initializeSandbox();
   const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-  sandboxOps.setRules(db, RULES);
+  setRules(sandbox, RULES);
   return { sandbox, db };
 }
 
@@ -63,7 +63,7 @@ describe('real-app init sequence — tier-1 cache-init + get-from-* family', () 
     const db = initializeFirestore(sandbox.withAuth({ uid: 'alice' }) as never, {
       localCache: persistentLocalCache(persistentMultipleTabManager()),
     });
-    sandboxOps.setRules(db, RULES);
+    setRules(sandbox, RULES);
 
     const ref = doc(db, 'notes/n1');
     await setDoc(ref, { text: 'hello' });

@@ -20,8 +20,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getInternalEnv } from 'pyric/sandbox/internal';
+import { setRules as setInProcessFirestoreRules } from 'pyric/sandbox/firestore';
 import {
-  sandbox as firestoreSandbox,
   doc as inProcessDoc,
   setDoc as inProcessSetDoc,
   deleteDoc as inProcessDeleteDoc,
@@ -335,11 +335,11 @@ export function useStudioSetRules(): (source: string) => Promise<void> {
   const seed = useDevSeed();
   const env = useEnvironment();
   const live = env.status === 'ready' ? env.env.live : undefined;
-  const seedFirestore = seed.status === 'ready' ? seed.handles.firestore : null;
+  const seedSandbox = seed.status === 'ready' ? seed.handles.sandbox : null;
   return useCallback(
     async (source: string) => {
-      if (seedFirestore) {
-        firestoreSandbox.setRules(seedFirestore, source);
+      if (seedSandbox) {
+        setInProcessFirestoreRules(seedSandbox, source);
         return;
       }
       if (live) {
@@ -348,7 +348,7 @@ export function useStudioSetRules(): (source: string) => Promise<void> {
       }
       throw new Error('No sandbox available to deploy rules to.');
     },
-    [seedFirestore, live],
+    [seedSandbox, live],
   );
 }
 

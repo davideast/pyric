@@ -12,7 +12,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
-import { sandbox as sandboxOps, getFirestore } from 'pyric/firestore';
+import { getFirestore } from 'pyric/firestore';
+import { setRules } from 'pyric/sandbox/firestore';
 import { createLocalBridge } from '../../src/bridge/server/local-bridge.js';
 import {
   buildHeadlessMcpServer,
@@ -42,7 +43,7 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
 
   it('dispatches firestore tools in-process, acting as a distinct user with rules enforced', async () => {
     const sandbox = initializeSandbox();
-    sandboxOps.setRules(getFirestore(sandbox), RULES);
+    setRules(sandbox, RULES);
     const bridge = createLocalBridge(sandbox);
 
     // Acting as alice: her own message is allowed.

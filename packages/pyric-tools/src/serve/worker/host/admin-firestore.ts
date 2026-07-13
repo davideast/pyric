@@ -11,11 +11,8 @@
  * dispatcher.
  */
 
-import { sandbox as sandboxOps } from 'pyric/firestore';
-
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
-import { lensDb } from './core.js';
 
 /** The admin-lens op methods routed to {@link handleAdminFirestoreOp}. */
 const ADMIN_METHODS = new Set<string>([
@@ -70,7 +67,7 @@ export async function handleAdminFirestoreOp(
 
     case 'admin.readState': {
       try {
-        const snap = sandboxOps.snapshotState(ctx.adminDb ?? lensDb(ctx, { mode: 'admin' }));
+        const snap = ctx.sandbox.snapshot().firestore;
         const out: Record<string, unknown> = {};
         const prefix = msg.path ?? '';
         for (const [path, data] of Object.entries(snap)) {

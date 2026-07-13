@@ -555,7 +555,7 @@ export class SimulateFirestoreRulesHandler {
         error: {
           code: 'PARSE_FAILED',
           message:
-            'Empty rules source — call sandbox.setRules(rules) before operating, '
+            'Empty rules source — call setRules(sandbox, rules) from pyric/sandbox/firestore before operating, '
             + 'or initialize without rules to use the open-by-default ruleset. '
             + 'See pyric/sandbox docs.',
           recoverable: true,

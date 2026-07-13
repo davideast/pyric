@@ -27,7 +27,8 @@
  * loop than the per-tab in-page capture it replaces.
  */
 
-import { getFirestore, sandbox as sandboxOps } from 'pyric/firestore';
+import { getFirestore } from 'pyric/firestore';
+import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database/modular';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
@@ -72,7 +73,7 @@ export function setupWorkerHotReload(
   events.addEventListener('rules-changed', (ev) => {
     try {
       const { rules } = JSON.parse(ev.data) as { rules: string; rulesHash?: string };
-      const lint = sandboxOps.setRules(ctx.db, rules);
+      const lint = setRules(ctx.sandbox, rules);
       if (lint.parseError) throw new Error(JSON.stringify(lint.parseError));
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -123,7 +124,7 @@ export interface ServeInitResult {
  * restored.
  */
 function sandboxHasExistingData(ctx: HostCtx): boolean {
-  const docs = sandboxOps.snapshotState(ctx.db);
+  const docs = ctx.sandbox.snapshot().firestore;
   if (Object.keys(docs).length > 0) return true;
   const auth = ensureAuth(ctx);
   return authOps.exportUsers(auth).length > 0;
@@ -167,7 +168,7 @@ export function applyServeInit(
   //    `entry.ts` deployed at bootstrap. A parse error is defensive (the server
   //    lints before serving): keep the default rules, surface loudly.
   if (payload.rules) {
-    const lint = sandboxOps.setRules(ctx.db, payload.rules);
+    const lint = setRules(ctx.sandbox, payload.rules);
     if (lint.parseError) {
       result.rulesParseError = JSON.stringify(lint.parseError);
       console.error(
@@ -231,7 +232,7 @@ export function applyServeInit(
 
   // 3. Seed docs — admin-style fixture load (bypasses rules).
   if (!hasExistingData && payload.seed && Object.keys(payload.seed).length > 0) {
-    sandboxOps.seedDocuments(ctx.db, payload.seed);
+    seedDocuments(ctx.sandbox, payload.seed);
     result.seededDocs = Object.keys(payload.seed).length;
   }
 

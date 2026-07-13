@@ -42,10 +42,10 @@ import {
   getDocs,
   getFirestore,
   query,
-  sandbox as fsOps,
   setDoc,
   updateDoc,
 } from 'pyric/firestore';
+import { setRules } from 'pyric/sandbox/firestore';
 import { getAuth, sandbox as authOps, type User } from 'pyric/auth';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { FIRESTORE_METHODS, type FirestoreMethod, type TestIdentity } from 'pyric/rules/internal';
@@ -190,7 +190,7 @@ export async function runTestFile(
   const db = getFirestore(sbx);
   const auth = getAuth(sbx);
   try {
-    fsOps.setRules(db, rules);
+    setRules(sbx, rules);
   } catch (e) {
     report.error = `rules deploy failed: ${e instanceof Error ? e.message : String(e)}`;
     return report;

@@ -29,9 +29,9 @@ import {
 } from 'pyric/sandbox';
 import {
   getFirestore,
-  sandbox as sandboxOps,
   type Firestore,
 } from 'pyric/firestore';
+import { setRules } from 'pyric/sandbox/firestore';
 import {
   getAuth,
   onAuthStateChanged,
@@ -354,7 +354,7 @@ export class SandboxRunner {
    */
   deployRules(source: string): DeployResult {
     try {
-      const lint = sandboxOps.setRules(this.db, source);
+      const lint = setRules(this.sandbox, source);
       const messages: DeployResult['messages'] = [];
       if (lint.parseError) {
         const { line, column, expected, actual } = lint.parseError;
@@ -384,7 +384,7 @@ export class SandboxRunner {
    * `opts.path` when provided.
    */
   readState(opts: { path?: string; maxDepth?: number } = {}): Record<string, unknown> {
-    const snap = sandboxOps.snapshotState(this.db);
+    const snap = this.sandbox.snapshot().firestore;
     const out: Record<string, unknown> = {};
     const prefix = opts.path ?? '';
     for (const [path, data] of Object.entries(snap)) {

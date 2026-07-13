@@ -13,7 +13,7 @@
 import { describe, expect, test } from 'bun:test';
 import * as firestore from '../../src/firestore/index.js';
 
-/** The 74 value (runtime) exports of `pyric/firestore`, sorted. Frozen. */
+/** The 73 value (runtime) exports of `pyric/firestore`, sorted. Frozen. */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'Bytes', 'FieldPath', 'FieldValue', 'GeoPoint', 'SandboxError', 'TARGET_SYMBOL',
   'Timestamp', 'VectorValue', 'actingAs', 'addDoc', 'and', 'arrayRemove',
@@ -28,7 +28,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'memoryLocalCache', 'memoryLruGarbageCollector', 'onSnapshot', 'onSnapshotsInSync',
   'or', 'orderBy', 'persistentLocalCache', 'persistentMultipleTabManager',
   'persistentSingleTabManager', 'query', 'queryEqual', 'refEqual', 'runTransaction',
-  'sandbox', 'serverTimestamp', 'setDoc', 'setLogLevel', 'snapshotEqual', 'startAfter',
+  'serverTimestamp', 'setDoc', 'setLogLevel', 'snapshotEqual', 'startAfter',
   'startAt', 'sum', 'terminate', 'updateDoc', 'vector', 'waitForPendingWrites', 'where',
   'withConverter', 'writeBatch',
 ];

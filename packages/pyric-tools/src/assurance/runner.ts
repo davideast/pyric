@@ -32,7 +32,6 @@ import {
   limit,
   orderBy,
   query,
-  sandbox as firestoreSandbox,
   setDoc,
   updateDoc,
   where,
@@ -40,6 +39,7 @@ import {
   type Query,
   type QueryConstraint,
 } from "pyric/firestore";
+import { seedDocuments, setRules } from "pyric/sandbox/firestore";
 import {
   deleteObject,
   getBlob,
@@ -320,8 +320,8 @@ async function createRuntime(
 
   if (service === "firestore") {
     const firestore = getFirestore(context);
-    firestoreSandbox.setRules(firestore, target.rules.firestore!);
-    firestoreSandbox.seedDocuments(firestore, target.state.firestore ?? {});
+    setRules(sandbox, target.rules.firestore!);
+    seedDocuments(sandbox, target.state.firestore ?? {});
     runtime.firestore = firestore;
   } else if (service === "rtdb") {
     const rtdb = getDatabase(context);
@@ -612,7 +612,7 @@ async function readState(
   runtime: ServiceRuntime,
 ): Promise<unknown> {
   if (operation.service === "firestore") {
-    const state = firestoreSandbox.snapshotState(runtime.firestore!);
+    const state = runtime.sandbox.snapshot().firestore;
     if (operation.method === "list") {
       const prefix = `${operation.path.replace(/\/$/, "")}/`;
       return Object.fromEntries(

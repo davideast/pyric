@@ -26,7 +26,8 @@ import {
   deserializeFromBuckets,
   type Sandbox,
 } from 'pyric/sandbox';
-import { sandbox as sandboxOps, getFirestore } from 'pyric/firestore';
+import { getFirestore } from 'pyric/firestore';
+import { setRules } from 'pyric/sandbox/firestore';
 import { buildMcpServer } from './mcp.js';
 import { getSandboxToolMetadata, getRulesToolHandlers } from './tool-metadata.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
@@ -57,7 +58,7 @@ export function buildHeadlessMcpServer(sandbox: Sandbox, opts?: LocalBridgeOptio
 export function loadProjectRules(sandbox: Sandbox, cwd: string): string | null {
   const rulesPath = join(cwd, 'firestore.rules');
   if (!existsSync(rulesPath)) return null;
-  sandboxOps.setRules(getFirestore(sandbox), readFileSync(rulesPath, 'utf8'));
+  setRules(sandbox, readFileSync(rulesPath, 'utf8'));
   return rulesPath;
 }
 

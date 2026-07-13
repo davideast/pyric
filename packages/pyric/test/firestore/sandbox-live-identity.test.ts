@@ -20,6 +20,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   doc,
@@ -33,7 +34,6 @@ import {
   where,
   onSnapshot,
   refEqual,
-  sandbox as sandboxOps,
   SandboxError,
   type Firestore,
   type DocumentSnapshot,
@@ -68,7 +68,7 @@ service cloud.firestore {
 function setup(): { sandbox: ReturnType<typeof initializeSandbox>; db: Firestore } {
   const sandbox = initializeSandbox();
   const db = getFirestore(sandbox);
-  sandboxOps.setRules(db, RULES);
+  setRules(sandbox, RULES);
   return { sandbox, db };
 }
 
@@ -98,7 +98,7 @@ describe('per-op identity reads', () => {
     const { sandbox, db } = setup();
     sandbox.currentUser = { uid: 'alice' };
     await setDoc(doc(db, 'users/alice'), { name: 'Alice' });
-    const state = sandboxOps.snapshotState(db);
+    const state = sandbox.snapshot().firestore;
     expect(state['users/alice']).toEqual({ name: 'Alice' });
   });
 
@@ -110,7 +110,7 @@ describe('per-op identity reads', () => {
     sandbox.currentUser = { uid: 'bob' };
     await setDoc(doc(db, 'users/bob'), { name: 'Bob' });
 
-    const state = sandboxOps.snapshotState(db);
+    const state = sandbox.snapshot().firestore;
     expect(state['users/alice']).toEqual({ name: 'Alice' });
     expect(state['users/bob']).toEqual({ name: 'Bob' });
   });
@@ -163,7 +163,7 @@ describe('per-op identity reads', () => {
     sandbox.currentUser = { uid: 'bob' };
     // Same ref, different user. Now bob can write to bob's doc.
     await setDoc(ref, { name: 'Bob' });
-    const state = sandboxOps.snapshotState(db);
+    const state = sandbox.snapshot().firestore;
     expect(state['users/bob']).toEqual({ name: 'Bob' });
   });
 
@@ -294,7 +294,7 @@ describe('onSnapshot identity persistence', () => {
   it('listener registered as anonymous on /public keeps firing after sign-in', async () => {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox);
-    sandboxOps.setRules(db, RULES);
+    setRules(sandbox, RULES);
 
     // Seed a public doc anonymously.
     sandbox.currentUser = null;
@@ -340,25 +340,12 @@ describe('onSnapshot identity persistence', () => {
   });
 });
 
-describe('sandbox-only ops via live target', () => {
-  it('sandboxOps.setRules + seedDocuments + snapshotState work on a live handle', async () => {
-    const sandbox = initializeSandbox();
-    const db = getFirestore(sandbox);
-    sandboxOps.setRules(db, RULES);
-    sandboxOps.seedDocuments(db, {
-      'items/seeded': { n: 42 },
-    });
-    const state = sandboxOps.snapshotState(db);
-    expect(state['items/seeded']).toEqual({ n: 42 });
-  });
-});
-
 describe('query identity-equality across flavors', () => {
   it('cross-flavor refEqual via QuerySnapshot doc refs', async () => {
     const sandbox = initializeSandbox();
     const liveDb = getFirestore(sandbox);
     const frozenDb = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(liveDb, RULES);
+    setRules(sandbox, RULES);
     sandbox.currentUser = { uid: 'alice' };
     await setDoc(doc(liveDb, 'items/q1'), { n: 1 });
 

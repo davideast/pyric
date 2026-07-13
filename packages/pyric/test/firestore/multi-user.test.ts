@@ -8,12 +8,12 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import {
   actingAs,
   doc,
   setDoc,
   onSnapshot,
-  sandbox as sandboxOps,
   type DocumentSnapshot,
 } from '../../src/firestore/index.js';
 
@@ -43,7 +43,7 @@ describe('multi-user (programmatic): one sandbox, distinct identities', () => {
     const sandbox = initializeSandbox();
     const alice = actingAs(sandbox, { uid: 'alice' });
     const bob = actingAs(sandbox, { uid: 'bob' });
-    sandboxOps.setRules(alice, PERMISSIVE);
+    setRules(sandbox, PERMISSIVE);
 
     const seen: Array<Record<string, unknown> | undefined> = [];
     const unsub = onSnapshot(doc(bob, 'rooms/r1'), (snap: DocumentSnapshot) => {
@@ -61,7 +61,7 @@ describe('multi-user (programmatic): one sandbox, distinct identities', () => {
     const sandbox = initializeSandbox();
     const alice = actingAs(sandbox, { uid: 'alice' });
     const bob = actingAs(sandbox, { uid: 'bob' });
-    sandboxOps.setRules(alice, OWNER_WRITE);
+    setRules(sandbox, OWNER_WRITE);
 
     // Alice writes her own message — allowed.
     await expect(
@@ -82,7 +82,7 @@ describe('multi-user (programmatic): one sandbox, distinct identities', () => {
   it('the anonymous identity (withAuth null) is denied by an auth-gated rule', async () => {
     const sandbox = initializeSandbox();
     const anon = actingAs(sandbox, null);
-    sandboxOps.setRules(anon, PERMISSIVE);
+    setRules(sandbox, PERMISSIVE);
     await expect(setDoc(doc(anon, 'rooms/r2'), { x: 1 })).rejects.toThrow();
   });
 });

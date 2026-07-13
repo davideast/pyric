@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   collection,
@@ -7,7 +8,6 @@ import {
   setDoc,
   query,
   where,
-  sandbox as sandboxOps,
   type Query,
 } from 'pyric/firestore';
 import { useFirestoreCollection } from '../../../src/firestore/hooks/useFirestoreCollection.js';
@@ -23,7 +23,7 @@ service cloud.firestore {
 function makeFirestore() {
   const sandbox = initializeSandbox();
   const firestore = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-  sandboxOps.setRules(firestore, OPEN_RULES);
+  setRules(sandbox, OPEN_RULES);
   return firestore;
 }
 

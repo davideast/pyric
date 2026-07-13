@@ -10,7 +10,8 @@
  * (`db`, used by the firestore-rules deploy). Never imports the dispatcher.
  */
 
-import { sandbox as sandboxOps, type Firestore } from 'pyric/firestore';
+import type { Firestore } from 'pyric/firestore';
+import { setRules } from 'pyric/sandbox/firestore';
 import { sandbox as rtdbSandbox } from 'pyric/database/modular';
 
 import type { OpMessage } from '../protocol.js';
@@ -70,7 +71,7 @@ export function handleRulesOp(
     case 'setRules':
     case 'setFirestoreRules': {
       try {
-        const result = sandboxOps.setRules(db, msg.source);
+        const result = setRules(ctx.sandbox, msg.source);
         const messages = firestoreRuleMessages(result);
         const okDeploy = !messages.some((m) => m.severity === 'error');
         ctx.activeRules ??= {};

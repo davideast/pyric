@@ -5,8 +5,9 @@ import {
   getDatabase,
   sandbox as rtdbSandbox,
 } from "pyric/database";
-import { getFirestore, sandbox as firestoreSandbox } from "pyric/firestore";
+import { getFirestore } from "pyric/firestore";
 import { initializeSandbox } from "pyric/sandbox";
+import { seedDocuments, setRules } from "pyric/sandbox/firestore";
 import { createSandboxAttachmentProvider } from "../../src/assurance/attachment.js";
 import { AssuranceInputError } from "../../src/assurance/types.js";
 
@@ -28,8 +29,8 @@ const RTDB_RULES = {
 function seededSandbox() {
   const sandbox = initializeSandbox();
   const firestore = getFirestore(sandbox);
-  firestoreSandbox.setRules(firestore, FIRESTORE_RULES);
-  firestoreSandbox.seedDocuments(firestore, {
+  setRules(sandbox, FIRESTORE_RULES);
+  seedDocuments(sandbox, {
     "rooms/r1": { ownerId: "alice", title: "Room" },
   });
 

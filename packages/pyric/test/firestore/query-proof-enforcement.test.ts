@@ -26,6 +26,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import {
   getFirestore,
@@ -35,7 +36,6 @@ import {
   where,
   limit,
   onSnapshot,
-  sandbox as sandboxOps,
   type QuerySnapshot,
 } from '../../src/firestore/index.js';
 
@@ -91,8 +91,8 @@ service cloud.firestore {
 function setup(rules: string, uid: string | null = 'alice') {
   const sandbox = initializeSandbox();
   const db = getFirestore(uid ? sandbox.withAuth({ uid }) : sandbox);
-  sandboxOps.setRules(db, rules);
-  sandboxOps.seedDocuments(db, {
+  setRules(sandbox, rules);
+  seedDocuments(sandbox, {
     'posts/p1': { visibility: 'public', n: 1 },
     'posts/p2': { visibility: 'private', n: 2 },
     'posts/p3': { visibility: 'public', n: 3 },

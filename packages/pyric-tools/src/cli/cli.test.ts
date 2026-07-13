@@ -1157,8 +1157,11 @@ describe('runInit', () => {
     // App template: PYRIC_TARGET env picks sandbox vs firebase backend
     const appCall = writeFn.mock.calls.find((c) => c[0] === '/tmp/scaffold/src/app.ts');
     expect(appCall?.[1]).toContain("from 'pyric/sandbox'");
+    expect(appCall?.[1]).toContain("from 'pyric/sandbox/firestore'");
     expect(appCall?.[1]).toContain('PYRIC_TARGET');
-    expect(appCall?.[1]).toContain('initializeApp({ sandbox: initializeSandbox() })');
+    expect(appCall?.[1]).toContain('const sandbox = target === \'firebase\' ? null : initializeSandbox()');
+    expect(appCall?.[1]).toContain('initializeApp({ sandbox: sandbox! })');
+    expect(appCall?.[1]).toContain("setRules(sandbox, readFileSync(rulesPath, 'utf8'))");
   });
 
   it('honors --name override for the package name', async () => {

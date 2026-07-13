@@ -346,17 +346,17 @@ cross-listener sync signal.
 | 149 | Accepted no-op — the sandbox has no modular-SDK-style logger to wire a level into; it uses host-level `console` logging directly, gated by `pyric dev`'s own flags, not this call | ⚠ accepted no-op; no sandbox logger wired | `unit:firestore/tier1-cache-init-align.test.ts` |
 | 150 | Fires the callback once the current snapshot-delivery microtask queue settles — the closest honest approximation of "every active listener has delivered its latest state" available without a true cross-listener sync signal. Not scoped to real server round-trips like the real SDK's guarantee; scoped to local delivery only. Forwards to `fb.onSnapshotsInSync` on prod targets | ⚠ approximated from local snapshot-delivery settle, not a true global in-sync signal | `unit:firestore/tier1-cache-init-align.test.ts` |
 
-## `sandbox.*` — sandbox-only ops
+## `pyric/sandbox/firestore` — sandbox-only controls
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 122 | `sandbox.setRules(db, rules)` loads rules into the underlying `LocalEnvironment`; returns `LintResult` | ✓ | `unit:sandbox-target.test.ts`, `playground:rules-data-validation`, `playground:rules-cross-doc-get` |
-| 123 | `sandbox.seedDocuments(db, {path: data, ...})` bulk-loads bypassing rules | ✓ | `unit:sandbox-target.test.ts` |
-| 124 | `sandbox.snapshotState(db)` dumps every document the LocalEnvironment has stored | ✓ | `unit:sandbox-target.test.ts` |
-| 125 | All `sandbox.*` methods throw `SandboxError('failed-precondition')` on prod-target handles | ✓ | `unit:sandbox-target.test.ts` |
-| 126 | All `sandbox.*` methods work on a sandbox-live handle (route through `sandboxDb`) | ✓ | `unit:sandbox-live-identity.test.ts` ("sandboxOps.setRules + seedDocuments + snapshotState work on a live handle") |
+| 122 | `setRules(sandbox, rules)` loads rules into the owning sandbox's Firestore environment; returns `LintResult` | ✓ | `unit:sandbox/firestore-controls.test.ts`, `playground:rules-data-validation`, `playground:rules-cross-doc-get` |
+| 123 | `seedDocuments(sandbox, {path: data, ...})` bulk-loads Firestore data into the owning sandbox, bypassing rules | ✓ | `unit:sandbox/firestore-controls.test.ts` |
+| 124 | `sandbox.snapshot().firestore` returns every Firestore document the sandbox has stored | ✓ | `unit:sandbox/firestore-controls.test.ts` |
+| 125 | `pyric/firestore` does not export sandbox controls; `pyric/sandbox/firestore` controls require an owning `Sandbox`, not a prod Firestore handle | ✓ | `unit:firestore/entry-surface.test.ts`, `packaging:runtime-smoke` |
+| 126 | Firestore controls affect only the `Sandbox` passed to the operation; independent sandboxes remain isolated | ✓ | `unit:sandbox/firestore-controls.test.ts` ("applies controls only to the Sandbox passed to the operation") |
 
-## Rules engine (via `sandbox.setRules`)
+## Rules engine (via `setRules` from `pyric/sandbox/firestore`)
 
 Rules-engine behavior is technically `pyric-admin`'s `LocalEnvironment`,
 but it's the most-tested surface for divergence — `request.auth`,

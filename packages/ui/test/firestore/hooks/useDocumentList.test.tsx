@@ -2,13 +2,13 @@
  *  JSON-import "skip existing" guarantee lives here, not in any loaded page). */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   collection,
   doc,
   getDoc,
   setDoc,
-  sandbox as sandboxOps,
 } from 'pyric/firestore';
 import { useDocumentList } from '../../../src/firestore/hooks/useDocumentList.js';
 import { act, renderHook, waitFor } from '../../helpers/render-hook.js';
@@ -23,7 +23,7 @@ service cloud.firestore {
 function makeFirestore() {
   const sandbox = initializeSandbox();
   const firestore = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-  sandboxOps.setRules(firestore, OPEN_RULES);
+  setRules(sandbox, OPEN_RULES);
   return firestore;
 }
 

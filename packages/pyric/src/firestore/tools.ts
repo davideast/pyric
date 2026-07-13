@@ -13,6 +13,7 @@
  */
 
 import type { ToolHandler } from '@inbrowser/agent';
+import { inspectSandbox, type Sandbox } from 'pyric/sandbox';
 import type { Firestore } from './index.js';
 import {
   doc,
@@ -27,7 +28,6 @@ import {
   where,
   orderBy,
   limit,
-  sandbox as sandboxOps,
 } from './index.js';
 
 export interface UserAuth {
@@ -94,6 +94,11 @@ export interface FirestoreDataToolDeps {
    * confirm-gate admin writes (see the bridge's prod confirm-policy).
    */
   resolveDb(as?: As): Promise<Firestore> | Firestore;
+}
+
+export interface FirestoreInspectToolDeps {
+  /** Resolve the sandbox whose cross-service state should be inspected. */
+  resolveSandbox(): Promise<Sandbox> | Sandbox;
 }
 
 /**
@@ -338,11 +343,10 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
  * from sandbox.history(). Everything an agent needs to localize a
  * sandbox bug in one round-trip.
  *
- * Sandbox-only. `resolveDb(auth=undefined)` must return a Firestore
- * whose target is a sandbox; calling against a prod target throws.
+ * Sandbox-only. `resolveSandbox` must return the owning Sandbox.
  */
-export function createFirestoreInspectTools(deps: FirestoreDataToolDeps): ToolHandler[] {
-  const { resolveDb } = deps;
+export function createFirestoreInspectTools(deps: FirestoreInspectToolDeps): ToolHandler[] {
+  const { resolveSandbox } = deps;
   return [
     {
       name: 'sandbox_inspect',
@@ -360,8 +364,10 @@ export function createFirestoreInspectTools(deps: FirestoreDataToolDeps): ToolHa
       },
       async execute(args) {
         const a = args as { recentEventLimit?: number };
-        const db = await resolveDb();
-        const inspect = sandboxOps.inspect(db, { recentEventLimit: a.recentEventLimit });
+        const sandbox = await resolveSandbox();
+        const inspect = inspectSandbox(sandbox, {
+          recentEventLimit: a.recentEventLimit,
+        });
         // Punch up the summary so it's useful in tool-result previews
         // without forcing the agent to drill into `data`.
         const summary =

@@ -89,7 +89,7 @@ function buildSandboxHandlers(sandbox: Sandbox) {
   return [
     ...createFirestoreSimulatorTools({ resolveSandbox: () => env }),
     ...createFirestoreDataTools({ resolveDb }),
-    ...createFirestoreInspectTools({ resolveDb }),
+    ...createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
     ...createLazyAssuranceHandlers(sandbox),
   ];
 }
@@ -158,7 +158,7 @@ export const SANDBOX_TOOL_NAMES: string[] = (() => {
   return [
     ...createFirestoreSimulatorTools({ resolveSandbox: stub as never }),
     ...createFirestoreDataTools({ resolveDb: stub as never }),
-    ...createFirestoreInspectTools({ resolveDb: stub as never }),
+    ...createFirestoreInspectTools({ resolveSandbox: stub as never }),
     ...ASSURANCE_TOOL_NAMES.map((name) => ({ name })),
   ].map((h) => h.name);
 })();
