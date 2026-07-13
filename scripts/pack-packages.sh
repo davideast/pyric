@@ -178,6 +178,6 @@ echo ""
 ls -lh "$OUT_DIR" | tail -n +2 | awk '{print "  " $9 "  " $5}'
 
 echo ""
-echo "✓ All 4 publishable libraries packed into dist/packages/"
+echo "✓ All 5 publishable packages packed into dist/packages/"
 echo ""
 echo "See $OUT_DIR/manifest.json for exact tarball filenames."

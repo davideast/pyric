@@ -56,37 +56,7 @@ describe('getAuth — Phase 3 dispatch', () => {
       sandbox: {},
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
-    expect(() => getAuth(futureApp)).toThrow(/unrecognized ADMIN_APP_TARGET/);
-  });
-
-  it('dispatches to firebase-admin/auth for a prod-target PyricAdminApp', () => {
-    // We don't have ambient Firebase credentials in unit tests, so we
-    // assert dispatch by observing that the call reaches
-    // firebase-admin's own `getAuth` (which itself throws because our
-    // stub `App` isn't a real initialized one). The sandbox arm would
-    // have returned a handle synchronously and not thrown; any throw
-    // from inside firebase-admin proves we took the prod branch.
-    const prodApp = {
-      [ADMIN_APP_TARGET]: 'prod' as const,
-      adminApp: {
-        name: '[DEFAULT]',
-        options: { projectId: 'test-project' },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
-      name: 'auth-test-prod',
-    };
-    let err: unknown;
-    try {
-      getAuth(prodApp);
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toBeDefined();
-    // The sandbox arm would not throw here, so any error proves
-    // dispatch reached firebase-admin. We also check the error isn't a
-    // bare TypeError from our entry guard — that would mean we never
-    // hit the prod branch.
-    expect((err as Error).message).not.toMatch(/ADMIN_APP_TARGET brand/);
+    expect(() => getAuth(futureApp)).toThrow(/expected a sandbox admin app/);
   });
 
   it('returns a sandbox Auth handle for a sandbox-target PyricAdminApp', () => {

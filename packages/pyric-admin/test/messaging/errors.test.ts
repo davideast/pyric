@@ -11,7 +11,6 @@
  * Blocking unit suite (no PYRIC_CLIMB flag): real broker, real sandbox app.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import * as firebaseAdminMessaging from 'firebase-admin/messaging';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getMessagingBroker } from 'pyric/messaging/internal';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
@@ -31,16 +30,6 @@ function freshMessaging(): { svc: Messaging; broker: ReturnType<typeof getMessag
   const app = initializeApp({ sandbox }, `err-${Math.random().toString(36).slice(2)}`);
   return { svc: getMessaging(app), broker: getMessagingBroker(sandbox) };
 }
-
-describe('re-export identity', () => {
-  it('FirebaseMessagingError IS firebase-admin\'s own class', () => {
-    expect(FirebaseMessagingError).toBe(firebaseAdminMessaging.FirebaseMessagingError);
-  });
-
-  it('MessagingClientErrorCode IS firebase-admin\'s own object', () => {
-    expect(MessagingClientErrorCode).toBe(firebaseAdminMessaging.MessagingClientErrorCode);
-  });
-});
 
 describe('MessagingClientErrorCode static members', () => {
   it('exposes { code, message } members whose codes match production', () => {

@@ -25,12 +25,10 @@ import { initializeSandbox } from 'pyric/sandbox';
 
 import {
   DEFAULT_APP_NAME,
-  PyricAdminAppError,
   deleteApp,
   getApp,
   getApps,
   initializeApp,
-  isProdAdminApp,
   isSandboxAdminApp,
 } from '../../src/app/index.js';
 import { getDatabase } from '../../src/database/index.js';
@@ -135,54 +133,6 @@ describe('app registry — duplicate semantics (firebase-admin mirror)', () => {
     expect(getApp('b')).toBe(b);
   });
 
-  it("config'd init after a bare init throws app/invalid-app-options (autoInit mismatch)", () => {
-    // PYRIC_SANDBOX is unset — the bare call takes today's prod path.
-    initializeApp();
-    expectAppError(
-      () => initializeApp({ sandbox: initializeSandbox() }),
-      'app/invalid-app-options',
-      /already exists with a different configuration/,
-    );
-  });
-
-  it('bare init after a config’d init throws app/invalid-app-options (autoInit mismatch)', () => {
-    initializeApp({ sandbox: initializeSandbox() });
-    expectAppError(
-      () => initializeApp(),
-      'app/invalid-app-options',
-      /already exists with a different configuration/,
-    );
-  });
-
-  it('prod re-init with deep-equal options returns the same app (firebase-admin decides)', () => {
-    const first = initializeApp({ projectId: 'demo-registry' }, 'prod-dup');
-    expect(initializeApp({ projectId: 'demo-registry' }, 'prod-dup')).toBe(first);
-  });
-
-  it('prod re-init with different options throws firebase-admin’s app/duplicate-app', () => {
-    initializeApp({ projectId: 'demo-registry' }, 'prod-dup2');
-    expectAppError(
-      () => initializeApp({ projectId: 'something-else' }, 'prod-dup2'),
-      'app/duplicate-app',
-      /already exists with a different configuration/,
-    );
-  });
-});
-
-describe('app registry — bare initializeApp() (prod arm, PYRIC_SANDBOX unset)', () => {
-  it('delegates to firebase-admin autoInit and is idempotent', () => {
-    const app = initializeApp();
-    expect(isProdAdminApp(app)).toBe(true);
-    expect(app.name).toBe('[DEFAULT]');
-    // firebase-admin's own registry holds the delegated app under the
-    // same name.
-    if (isProdAdminApp(app)) {
-      expect(app.adminApp.name).toBe('[DEFAULT]');
-    }
-    // Repeat bare call → the SAME app (firebase-admin autoInit mirror).
-    expect(initializeApp()).toBe(app);
-    expect(getApps()).toHaveLength(1);
-  });
 });
 
 describe('app registry — deleteApp', () => {
@@ -197,15 +147,6 @@ describe('app registry — deleteApp', () => {
     expect(again).not.toBe(app);
   });
 
-  it('deleting a prod app frees firebase-admin’s slot too', async () => {
-    const app = initializeApp({ projectId: 'demo-delete' }, 'prod-del');
-    await deleteApp(app);
-    // Re-init with DIFFERENT options succeeds — proof the underlying
-    // firebase-admin app was deleted, not just our wrapper.
-    const again = initializeApp({ projectId: 'demo-delete-2' }, 'prod-del');
-    expect(isProdAdminApp(again)).toBe(true);
-  });
-
   it('unregistered app throws app/no-app; non-app values throw app/invalid-argument', async () => {
     const sandbox = initializeSandbox();
     const app = initializeApp({ sandbox });
@@ -215,7 +156,6 @@ describe('app registry — deleteApp', () => {
     expectAppError(() => deleteApp({} as any), 'app/invalid-argument', /^Invalid app argument\.$/);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expectAppError(() => deleteApp(null as any), 'app/invalid-argument', /^Invalid app argument\.$/);
-    expect(new PyricAdminAppError('no-app', 'x').code).toBe('app/no-app');
   });
 });
 
@@ -240,19 +180,4 @@ describe('no-arg getDatabase() / getAuth() — default-app resolution', () => {
     expect((await getAuth(app).getUser('ambient-user')).email).toBe('ambient@example.com');
   });
 
-  it('prod arm: no-arg handles delegate to firebase-admin for the default app', () => {
-    const app = initializeApp({
-      projectId: 'demo-prod-noarg',
-      databaseURL: 'https://demo-prod-noarg.firebaseio.com',
-    });
-    // No-arg resolves '[DEFAULT]' — the same firebase-admin service
-    // instance the explicit-app call returns. (Identity, not shape:
-    // database.test.ts mock.module's firebase-admin/database process-
-    // wide, so shape assertions here would be order-dependent.)
-    expect(getDatabase()).toBe(getDatabase(app));
-    const auth = getAuth();
-    expect(auth).toBe(getAuth(app));
-    expect(auth.app.name).toBe('[DEFAULT]');
-    expect(auth.app.options.projectId).toBe('demo-prod-noarg');
-  });
 });

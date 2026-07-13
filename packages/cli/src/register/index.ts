@@ -22,7 +22,7 @@ import Module from 'node:module';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { rewriteSpecifier } from './exempt.js';
+import { mapFirebaseSpecifier } from './mapping.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
 import { remoteSandbox } from '../remote/index.js';
 
@@ -91,11 +91,7 @@ function activate(): void {
   if (typeof moduleApi.registerHooks === 'function') {
     moduleApi.registerHooks({
       resolve(specifier, context, nextResolve) {
-        // The rewrite decision includes the mirror-package exemption:
-        // Firebase imports made FROM WITHIN pyric/pyric-admin
-        // are their prod arms and must keep resolving to real Firebase
-        // (see exempt.ts).
-        const mapped = rewriteSpecifier(specifier, context.parentURL);
+        const mapped = mapFirebaseSpecifier(specifier);
         if (mapped === null) return nextResolve(specifier, context);
         try {
           return nextResolve(mapped, context);

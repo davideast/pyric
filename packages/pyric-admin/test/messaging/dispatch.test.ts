@@ -35,15 +35,6 @@ describe('explicit-app resolution', () => {
     expect(getMessaging(app)).toBeInstanceOf(Messaging);
   });
 
-  it('a prod app delegates to firebase-admin (not our Messaging class)', () => {
-    const app = initializeApp({ projectId: 'demo-prod-msg' }, 'prod-explicit');
-    const svc = getMessaging(app);
-    expect(svc).not.toBeInstanceOf(Messaging);
-    // The genuine firebase-admin Messaging is bound to the underlying admin app.
-    expect((svc as unknown as { app: { name: string } }).app.name).toBe('prod-explicit');
-    expect(typeof (svc as unknown as { send: unknown }).send).toBe('function');
-  });
-
   it('caches one Messaging instance per app', () => {
     const app = initializeApp({ sandbox: initializeSandbox() });
     expect(getMessaging(app)).toBe(getMessaging(app));
@@ -60,12 +51,6 @@ describe('default-app resolution', () => {
     const app = initializeApp({ sandbox: initializeSandbox() });
     expect(getMessaging()).toBe(getMessaging(app));
     expect(getMessaging()).toBeInstanceOf(Messaging);
-  });
-
-  it('no-arg getMessaging resolves the registered [DEFAULT] prod app', () => {
-    const app = initializeApp({ projectId: 'demo-prod-default' });
-    // Same genuine firebase-admin service the explicit call returns (identity).
-    expect(getMessaging()).toBe(getMessaging(app));
   });
 
   it('throws firebase-admin\'s exact app/no-app when no default exists', () => {

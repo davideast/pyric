@@ -26,7 +26,7 @@ NPM_CACHE="${TMPDIR:-/tmp}/npm-cache-pyric-packaging-test"
 # - pyric is foundational (everyone else workspace:* it)
 # - pyric-admin depends on pyric
 # - create-pyric is standalone (scaffolder; no Firebase SDK deps)
-# - @pyric/cli depends on pyric + create-pyric
+# - @pyric/cli depends on pyric + pyric-admin + create-pyric
 # - @pyric/ui peer-depends on pyric
 PACKAGES=(
   "packages/pyric"         # pyric
@@ -143,6 +143,20 @@ TARBALL_CREATE_PYRIC=$(pack_one packages/create-pyric)
 TARBALL_PYRIC_CLI=$(pack_one packages/cli)
 TARBALL_UI=$(pack_one packages/ui)
 
+assert_no_sdk_runtime_deps() {
+  local tarball="$1" name="$2"
+  if ! tar -xzOf "$tarball" package/package.json | jq -e '
+    ((.dependencies // {}) | has("firebase") or has("firebase-admin")) | not
+  ' >/dev/null; then
+    echo "  ✗ $name packed manifest contains a Firebase SDK runtime dependency" >&2
+    exit 1
+  fi
+  echo "  ✓ $name packed manifest has no Firebase SDK runtime dependency"
+}
+assert_no_sdk_runtime_deps "$TARBALL_PYRIC" "pyric"
+assert_no_sdk_runtime_deps "$TARBALL_PYRIC_ADMIN" "pyric-admin"
+assert_no_sdk_runtime_deps "$TARBALL_PYRIC_CLI" "@pyric/cli"
+
 # ─── Phase 2.5: publish file-set + runtime-asset presence ──────────────
 # Hermetic (NO registry): `npm pack --dry-run --json` computes the exact file set
 # npm would publish and validates the manifest — assert it's non-trivial and ships
@@ -240,6 +254,30 @@ JSON
 
 echo "▸ npm install (resolving from local tarballs)"
 npm install --cache "$NPM_CACHE" --prefer-offline --no-audit --no-fund --loglevel=error
+
+# A second consumer owns the SDK-absence proof. The broad consumer above
+# deliberately installs Firebase for inactive-production and UI peer coverage;
+# using it for CLI smoke tests would mask a transitive dependency regression.
+SDK_FREE_CONSUMER="$WORK/sdk-free-consumer"
+mkdir -p "$SDK_FREE_CONSUMER"
+cat > "$SDK_FREE_CONSUMER/package.json" <<JSON
+{
+  "name": "pyric-sdk-free-cli-consumer",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "pyric": "file:${TARBALL_PYRIC}",
+    "pyric-admin": "file:${TARBALL_PYRIC_ADMIN}",
+    "create-pyric": "file:${TARBALL_CREATE_PYRIC}",
+    "@pyric/cli": "file:${TARBALL_PYRIC_CLI}"
+  }
+}
+JSON
+(cd "$SDK_FREE_CONSUMER" && npm install --cache "$NPM_CACHE" --prefer-offline --no-audit --no-fund --loglevel=error)
+test ! -e "$SDK_FREE_CONSUMER/node_modules/firebase"
+test ! -e "$SDK_FREE_CONSUMER/node_modules/firebase-admin"
+echo "  ✓ packed CLI dependency closure installs without firebase or firebase-admin"
 
 # ─── Phase 4: subpath resolution test ──────────────────────────────────
 # For each advertised subpath, write a tiny file that imports it and
@@ -387,7 +425,7 @@ SHAPEJS
 # Start and exercise the installed bridge through its public package entry.
 # The fake WebSocket peer is the browser half of the sandbox relay; the MCP
 # client proves tools/list and a forwarded call work from the packed artifact.
-cat > "$WORK/consumer/__bridge-smoke.mjs" <<'BRIDGEJS'
+cat > "$SDK_FREE_CONSUMER/__bridge-smoke.mjs" <<'BRIDGEJS'
 import WebSocket from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -456,7 +494,7 @@ try {
   await server.stop();
 }
 BRIDGEJS
-(cd "$WORK/consumer" && node __bridge-smoke.mjs)
+(cd "$SDK_FREE_CONSUMER" && node __bridge-smoke.mjs)
 
 # ─── Phase 5: bin checks ───────────────────────────────────────────────
 echo ""
@@ -464,7 +502,8 @@ echo "━━━ Phase 5: packed CLI smoke ━━━"
 
 check_bin_executable() {
   local bin="$1"
-  local path="$WORK/consumer/node_modules/.bin/$bin"
+  local consumer="${2:-$SDK_FREE_CONSUMER}"
+  local path="$consumer/node_modules/.bin/$bin"
   if [ ! -x "$path" ]; then
     echo "  ✗ $bin — missing or not executable"
     exit 1
@@ -473,14 +512,29 @@ check_bin_executable() {
 }
 
 check_bin_executable "pyric"
-check_bin_executable "create-pyric"
-PYRIC_BIN="$WORK/consumer/node_modules/.bin/pyric"
+check_bin_executable "create-pyric" "$WORK/consumer"
+PYRIC_BIN="$SDK_FREE_CONSUMER/node_modules/.bin/pyric"
 CREATE_PYRIC_BIN="$WORK/consumer/node_modules/.bin/create-pyric"
 node "$ROOT/scripts/packed-cli-smoke.mjs" "$PYRIC_BIN" "$WORK/cli-smoke"
 node "$ROOT/scripts/packed-mcp-smoke.mjs" \
   "$PYRIC_BIN" \
   "$WORK/mcp-smoke" \
   "$ROOT/packages/cli/dist/bridge/server/mcp-contract.js"
+
+# The packed Node register hook must intercept canonical imports before Node
+# searches for the absent production SDK packages.
+cat > "$SDK_FREE_CONSUMER/__register-smoke.mjs" <<'REGISTERSMOKE'
+import assert from 'node:assert/strict';
+const admin = await import('firebase-admin/database');
+const appModule = await import('firebase/app');
+const firestore = await import('firebase/firestore');
+assert.equal(typeof admin.getDatabase, 'function');
+const app = appModule.initializeApp({ projectId: 'packed-register-smoke' });
+assert.equal(app[Symbol.for('pyric.app.target')], 'sandbox');
+assert.equal(typeof firestore.getFirestore(app), 'object');
+console.log('  ✓ packed Node register redirects canonical imports without Firebase SDKs');
+REGISTERSMOKE
+(cd "$SDK_FREE_CONSUMER" && PYRIC_SANDBOX=local node --import @pyric/cli/register __register-smoke.mjs)
 
 # create-pyric smoke: scaffold a Vite web app into a fresh directory and
 # assert the load-bearing files exist (vite.config imports @pyric/cli/vite).
@@ -671,4 +725,4 @@ rm -rf "$WORK"
 
 trap - ERR
 echo ""
-echo "✓ packaging gate PASS — all 4 packages pack, install, and resolve every advertised subpath."
+echo "✓ packaging gate PASS — all 5 packages pack, install, and resolve every advertised subpath."
