@@ -3,7 +3,7 @@
  * `defineRtdbRules(...)` from `pyric/rules`) so the CLI and MCP
  * `generate` surfaces can turn it into static rules JSON without
  * reimplementing compilation — the loaded document's `.toJSON()` still
- * routes through `RtdbMapper.mapToRulesJSON`.
+ * routes through the pure RTDB rules compiler.
  *
  * The module may export the `RtdbRulesDocument` as its default export
  * or as a named `rules` export.

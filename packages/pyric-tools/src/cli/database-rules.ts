@@ -6,11 +6,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve as resolvePath } from 'node:path';
 import {
-  RtdbMapper,
-  SimulateHandler,
-  type RtdbIR,
+  compileRtdbRules,
+  simulateRtdbRules,
+  type CompiledRtdbRules,
   type RtdbNode,
   type SimulationInput,
+  type SimulateResult,
 } from 'pyric/rules/internal/rtdb';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
@@ -19,14 +20,12 @@ import {
   type LoadRtdbRulesDocumentResult,
 } from '../rtdb/load-rules-document.js';
 
-const LOCAL_DATABASE_URL = 'https://local-rtdb.firebaseio.com';
-
 export interface DatabaseRulesDeps {
   readFile?: typeof readFile;
   writeFile?: typeof writeFile;
   mkdir?: typeof mkdir;
   readFirebaseJson?: (cwd: string) => Promise<FirebaseJson>;
-  simulate?: (ir: RtdbIR, input: SimulationInput) => ReturnType<SimulateHandler['execute']>;
+  simulate?: (compiled: CompiledRtdbRules, input: SimulationInput) => SimulateResult;
   loadRulesDocument?: typeof loadRtdbRulesDocument;
   cwd?: string;
   readStdin?: () => Promise<string>;
@@ -53,8 +52,8 @@ function defaultReadStdin(): Promise<string> {
   });
 }
 
-function parseRulesJson(raw: string, databaseUrl = LOCAL_DATABASE_URL): RtdbIR {
-  return RtdbMapper.mapToIR(JSON.parse(raw), null, databaseUrl);
+function parseRulesJson(raw: string): CompiledRtdbRules {
+  return compileRtdbRules(JSON.parse(raw));
 }
 
 function collectFindings(node: RtdbNode, kind: 'errors' | 'warnings'): RuleFinding[] {
@@ -119,9 +118,8 @@ export async function runDatabaseRulesLint(
   }
 
   try {
-    const ir = parseRulesJson(file.raw);
-    const root = ir.rules as RtdbNode;
-    out.write(`${JSON.stringify({ warnings: collectFindings(root, 'warnings') }, null, 2)}\n`);
+    const compiled = parseRulesJson(file.raw);
+    out.write(`${JSON.stringify({ warnings: collectFindings(compiled, 'warnings') }, null, 2)}\n`);
     return 0;
   } catch (e) {
     out.write(`${JSON.stringify(jsonError('INVALID_RULES_JSON', e instanceof Error ? e.message : String(e)), null, 2)}\n`);
@@ -148,9 +146,8 @@ export async function runDatabaseRulesValidate(
   }
 
   try {
-    const ir = parseRulesJson(file.raw);
-    const root = ir.rules as RtdbNode;
-    out.write(`${JSON.stringify({ errors: collectFindings(root, 'errors') }, null, 2)}\n`);
+    const compiled = parseRulesJson(file.raw);
+    out.write(`${JSON.stringify({ errors: collectFindings(compiled, 'errors') }, null, 2)}\n`);
     return 0;
   } catch (e) {
     out.write(`${JSON.stringify(jsonError('INVALID_RULES_JSON', e instanceof Error ? e.message : String(e)), null, 2)}\n`);
@@ -162,7 +159,6 @@ interface SimulatePayload {
   rulesJson?: unknown;
   rules?: unknown;
   rulesPath?: string;
-  databaseUrl?: string;
   operation?: SimulationInput['operation'];
   path?: string;
   auth?: SimulationInput['auth'];
@@ -197,10 +193,9 @@ export async function runDatabaseRulesSimulate(
   const readFileFn = deps.readFile ?? readFile;
   const simulateFn =
     deps.simulate ??
-    ((ir: RtdbIR, input: SimulationInput) => new SimulateHandler().execute(ir, input));
+    simulateRtdbRules;
 
   let rulesJson: unknown;
-  let databaseUrl = LOCAL_DATABASE_URL;
   let input: SimulationInput;
 
   if (parsed.flags.get('stdin') === true) {
@@ -216,7 +211,6 @@ export async function runDatabaseRulesSimulate(
       err.write('pyric database rules simulate: stdin payload must include `operation` and `path`.\n');
       return 1;
     }
-    databaseUrl = payload.databaseUrl ?? databaseUrl;
     if (payload.rulesJson !== undefined || payload.rules !== undefined) {
       rulesJson = payload.rulesJson ?? payload.rules;
     } else if (payload.rulesPath) {
@@ -267,8 +261,8 @@ export async function runDatabaseRulesSimulate(
   }
 
   try {
-    const ir = RtdbMapper.mapToIR(rulesJson, null, databaseUrl);
-    const result = simulateFn(ir, input);
+    const compiled = compileRtdbRules(rulesJson);
+    const result = simulateFn(compiled, input);
     out.write(`${JSON.stringify(result, null, 2)}\n`);
     return result.success ? 0 : 2;
   } catch (e) {

@@ -1,12 +1,11 @@
 import { describe, test, expect } from 'bun:test';
 import { SimulateHandler } from '../../../../src/rules/rtdb/simulation/handler.js';
-import type { RtdbIR, RtdbNode } from '../../../../src/rules/rtdb/types.js';
+import type { RtdbNode } from '../../../../src/rules/rtdb/types.js';
 
-function makeIR(readRule: string): RtdbIR {
+function makeRules(readRule: string): RtdbNode {
   const rootNode: RtdbNode = {
     path: '/',
     pathVariables: [],
-    exists: true,
     read: {
       raw: readRule,
       parsed: {
@@ -19,33 +18,15 @@ function makeIR(readRule: string): RtdbIR {
     },
     children: [],
   };
-  return {
-    service: 'realtime-database',
-    databaseUrl: 'https://test-default-rtdb.firebaseio.com',
-    rules: rootNode,
-  };
+  return rootNode;
 }
 
 describe('SimulateHandler', () => {
   const handler = new SimulateHandler();
 
-  test('returns IR_NOT_GENERATED when ir is null', () => {
-    const result = handler.execute(null, {
-      operation: 'read',
-      path: '/',
-      auth: null,
-      mockData: {},
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.code).toBe('IR_NOT_GENERATED');
-      expect(result.error.recoverable).toBe(true);
-    }
-  });
-
   test('returns INVALID_INPUT for invalid input shape', () => {
-    const ir = makeIR('auth !== null');
-    const result = handler.execute(ir, { operation: 'DELETE', path: '/', auth: null, mockData: {} });
+    const compiled = makeRules('auth !== null');
+    const result = handler.execute(compiled, { operation: 'DELETE', path: '/', auth: null, mockData: {} });
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.code).toBe('INVALID_INPUT');
@@ -53,8 +34,8 @@ describe('SimulateHandler', () => {
   });
 
   test('returns allowed=true when auth matches rule', () => {
-    const ir = makeIR('auth !== null');
-    const result = handler.execute(ir, {
+    const compiled = makeRules('auth !== null');
+    const result = handler.execute(compiled, {
       operation: 'read',
       path: '/',
       auth: { uid: 'user123', token: {} },
@@ -67,8 +48,8 @@ describe('SimulateHandler', () => {
   });
 
   test('returns allowed=false when auth is null and rule requires auth', () => {
-    const ir = makeIR('auth !== null');
-    const result = handler.execute(ir, {
+    const compiled = makeRules('auth !== null');
+    const result = handler.execute(compiled, {
       operation: 'read',
       path: '/',
       auth: null,
@@ -81,8 +62,8 @@ describe('SimulateHandler', () => {
   });
 
   test('returns matchedPath and matchedRule in result', () => {
-    const ir = makeIR('auth !== null');
-    const result = handler.execute(ir, {
+    const compiled = makeRules('auth !== null');
+    const result = handler.execute(compiled, {
       operation: 'read',
       path: '/',
       auth: { uid: 'abc', token: {} },
@@ -100,31 +81,24 @@ describe('SimulateHandler', () => {
       raw,
       parsed: { raw, valid: true, errors: [], warnings: [], referencedIdentifiers: [] },
     });
-    const ir: RtdbIR = {
-      service: 'realtime-database',
-      databaseUrl: 'https://test.firebaseio.com',
-      rules: {
+    const compiled: RtdbNode = {
         path: '/',
         pathVariables: [],
-        exists: true,
         read: expr('false'),
         children: [
           {
             path: '/posts',
             pathVariables: [],
-            exists: true,
             read: expr('true'),
             children: [
               {
                 path: '/posts/$postId',
                 pathVariables: ['$postId'],
-                exists: false,
                 // No read rule on $postId itself
                 children: [
                   {
                     path: '/posts/$postId/likes',
                     pathVariables: ['$postId'],
-                    exists: false,
                     // No read rule on likes either
                     children: [],
                   },
@@ -133,11 +107,10 @@ describe('SimulateHandler', () => {
             ],
           },
         ],
-      },
     };
 
     // /posts has .read: true — this should cascade to /posts/post1/likes
-    const result = handler.execute(ir, {
+    const result = handler.execute(compiled, {
       operation: 'read',
       path: '/posts/post1/likes',
       auth: null,
@@ -156,26 +129,20 @@ describe('SimulateHandler', () => {
       raw,
       parsed: { raw, valid: true, errors: [], warnings: [], referencedIdentifiers: [] },
     });
-    const ir: RtdbIR = {
-      service: 'realtime-database',
-      databaseUrl: 'https://test.firebaseio.com',
-      rules: {
+    const compiled: RtdbNode = {
         path: '/',
         pathVariables: [],
-        exists: true,
         write: expr('auth !== null'),
         children: [
           {
             path: '/data',
             pathVariables: [],
-            exists: true,
             children: [],
           },
         ],
-      },
     };
 
-    const result = handler.execute(ir, {
+    const result = handler.execute(compiled, {
       operation: 'write',
       path: '/data',
       auth: { uid: 'user1', token: {} },
@@ -197,18 +164,13 @@ describe('SimulateHandler', () => {
       raw,
       parsed: { raw, valid, errors: [], warnings: [], referencedIdentifiers: [] },
     });
-    const badWriteIR: RtdbIR = {
-      service: 'realtime-database',
-      databaseUrl: 'https://test.firebaseio.com',
-      rules: {
+    const badWriteRules: RtdbNode = {
         path: '/',
         pathVariables: [],
-        exists: true,
         write: expr('!! not parseable @@', false),
-        children: [{ path: '/data', pathVariables: [], exists: true, children: [] }],
-      },
+        children: [{ path: '/data', pathVariables: [], children: [] }],
     };
-    const result = handler.execute(badWriteIR, {
+    const result = handler.execute(badWriteRules, {
       operation: 'write',
       path: '/data',
       auth: { uid: 'user1', token: {} },
@@ -242,21 +204,16 @@ describe('SimulateHandler — .validate (write path)', () => {
 
   const node = (partial: Partial<RtdbNode> & { path: string }): RtdbNode => ({
     pathVariables: [],
-    exists: true,
     children: [],
     ...partial,
   });
 
-  const ir = (rules: RtdbNode): RtdbIR => ({
-    service: 'realtime-database',
-    databaseUrl: 'https://test.firebaseio.com',
-    rules,
-  });
+  const compiled = (rules: RtdbNode): RtdbNode => rules;
 
   const authed = { uid: 'alice', token: {} };
 
   // A node-level `.validate` at the write location, granted by `.write`.
-  const structureIR = ir(
+  const structureRules = compiled(
     node({
       path: '/',
       write: expr('auth !== null'),
@@ -270,7 +227,7 @@ describe('SimulateHandler — .validate (write path)', () => {
   );
 
   test('denies a write whose value fails a node-level .validate', () => {
-    const result = handler.execute(structureIR, {
+    const result = handler.execute(structureRules, {
       operation: 'write',
       path: '/entry',
       auth: authed,
@@ -286,7 +243,7 @@ describe('SimulateHandler — .validate (write path)', () => {
   });
 
   test('allows a write whose value satisfies the .validate', () => {
-    const result = handler.execute(structureIR, {
+    const result = handler.execute(structureRules, {
       operation: 'write',
       path: '/entry',
       auth: authed,
@@ -299,7 +256,7 @@ describe('SimulateHandler — .validate (write path)', () => {
 
   test('.validate does not cascade-grant: a granting .write cannot rescue a failing .validate', () => {
     // The `.write` at root grants; the `.validate` at `/entry` still denies.
-    const result = handler.execute(structureIR, {
+    const result = handler.execute(structureRules, {
       operation: 'write',
       path: '/entry',
       auth: authed,
@@ -311,14 +268,14 @@ describe('SimulateHandler — .validate (write path)', () => {
   });
 
   test('reads ignore .validate entirely', () => {
-    const readIR = ir(
+    const readRules = compiled(
       node({
         path: '/',
         read: expr('true'),
         children: [node({ path: '/entry', validate: expr('false') })],
       }),
     );
-    const result = handler.execute(readIR, {
+    const result = handler.execute(readRules, {
       operation: 'read',
       path: '/entry',
       auth: authed,
@@ -329,7 +286,7 @@ describe('SimulateHandler — .validate (write path)', () => {
   });
 
   test('enforces a descendant .validate below the write location', () => {
-    const descendantIR = ir(
+    const descendantRules = compiled(
       node({
         path: '/',
         write: expr('auth !== null'),
@@ -341,7 +298,7 @@ describe('SimulateHandler — .validate (write path)', () => {
         ],
       }),
     );
-    const denied = handler.execute(descendantIR, {
+    const denied = handler.execute(descendantRules, {
       operation: 'write',
       path: '/room',
       auth: authed,
@@ -350,7 +307,7 @@ describe('SimulateHandler — .validate (write path)', () => {
     });
     expect(denied.success && denied.data.allowed).toBe(false);
 
-    const allowed = handler.execute(descendantIR, {
+    const allowed = handler.execute(descendantRules, {
       operation: 'write',
       path: '/room',
       auth: authed,
@@ -361,7 +318,7 @@ describe('SimulateHandler — .validate (write path)', () => {
   });
 
   test('binds a $pathVar when validating each child of the written value', () => {
-    const pathVarIR = ir(
+    const pathVarRules = compiled(
       node({
         path: '/',
         write: expr('auth !== null'),
@@ -381,7 +338,7 @@ describe('SimulateHandler — .validate (write path)', () => {
         ],
       }),
     );
-    const denied = handler.execute(pathVarIR, {
+    const denied = handler.execute(pathVarRules, {
       operation: 'write',
       path: '/users',
       auth: authed,
@@ -390,7 +347,7 @@ describe('SimulateHandler — .validate (write path)', () => {
     });
     expect(denied.success && denied.data.allowed).toBe(false);
 
-    const allowed = handler.execute(pathVarIR, {
+    const allowed = handler.execute(pathVarRules, {
       operation: 'write',
       path: '/users',
       auth: authed,
@@ -401,7 +358,7 @@ describe('SimulateHandler — .validate (write path)', () => {
   });
 
   test('a delete (null newData) is not validated', () => {
-    const result = handler.execute(structureIR, {
+    const result = handler.execute(structureRules, {
       operation: 'write',
       path: '/entry',
       auth: authed,
@@ -414,14 +371,14 @@ describe('SimulateHandler — .validate (write path)', () => {
   test('an ancestor .validate runs against its merged value on a deeper write', () => {
     // Production evaluates `/doc`'s rule against `{extra: 5}` and denies
     // because the merged ancestor value still lacks `title`.
-    const ancestorIR = ir(
+    const ancestorRules = compiled(
       node({
         path: '/',
         write: expr('auth !== null'),
         children: [node({ path: '/doc', validate: expr("newData.hasChildren(['title'])") })],
       }),
     );
-    const result = handler.execute(ancestorIR, {
+    const result = handler.execute(ancestorRules, {
       operation: 'write',
       path: '/doc/extra',
       auth: authed,
@@ -441,14 +398,14 @@ describe('SimulateHandler — .validate (write path)', () => {
     // silently pass either — production would still evaluate it and may
     // reject the write. It is a reported simulator gap: `allowed: false`,
     // `unsupported: true`, naming the rule path and the construct.
-    const badIR = ir(
+    const badRules = compiled(
       node({
         path: '/',
         write: expr('auth !== null'),
         children: [node({ path: '/entry', validate: expr('!! not parseable @@', false) })],
       }),
     );
-    const result = handler.execute(badIR, {
+    const result = handler.execute(badRules, {
       operation: 'write',
       path: '/entry',
       auth: authed,
@@ -468,7 +425,7 @@ describe('SimulateHandler — .validate (write path)', () => {
   test('a real deny elsewhere still wins over an unsupported .validate', () => {
     // AND-semantics: a confirmed failing .validate is stronger evidence
     // than an abstention, so it must be reported (not masked by the gap).
-    const mixedIR = ir(
+    const mixedRules = compiled(
       node({
         path: '/',
         write: expr('auth !== null'),
@@ -483,7 +440,7 @@ describe('SimulateHandler — .validate (write path)', () => {
         ],
       }),
     );
-    const result = handler.execute(mixedIR, {
+    const result = handler.execute(mixedRules, {
       operation: 'write',
       path: '/entry',
       auth: authed,
@@ -499,7 +456,7 @@ describe('SimulateHandler — .validate (write path)', () => {
   });
 
   test('a parseable failing .validate still denies as today', () => {
-    const result = handler.execute(structureIR, {
+    const result = handler.execute(structureRules, {
       operation: 'write',
       path: '/entry',
       auth: authed,
@@ -514,7 +471,7 @@ describe('SimulateHandler — .validate (write path)', () => {
   });
 
   test('a parseable passing .validate still allows as today', () => {
-    const result = handler.execute(structureIR, {
+    const result = handler.execute(structureRules, {
       operation: 'write',
       path: '/entry',
       auth: authed,
@@ -552,22 +509,17 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
 
   const node = (partial: Partial<RtdbNode> & { path: string }): RtdbNode => ({
     pathVariables: [],
-    exists: true,
     children: [],
     ...partial,
   });
 
-  const ir = (rules: RtdbNode): RtdbIR => ({
-    service: 'realtime-database',
-    databaseUrl: 'https://test.firebaseio.com',
-    rules,
-  });
+  const compiled = (rules: RtdbNode): RtdbNode => rules;
 
   test('an ancestor .write rooted with an owner-or-new-doc escape hatch denies writes under an EXISTING doc owned by someone else', () => {
     // `.write` at `/rooms/$roomId` — `data` must be the snapshot at
     // `/rooms/$roomId` (with `owner: 'bob'`), not at the deep write path
     // `/rooms/room1/title` (which has no value and so looks "not exists").
-    const ownerOrNewIR = ir(
+    const ownerOrNewRules = compiled(
       node({
         path: '/',
         children: [
@@ -588,7 +540,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
     const mockData = { rooms: { room1: { owner: 'bob', title: 'old' } } };
 
     // mallory is not the owner of the EXISTING room1 — must be denied.
-    const denied = handler.execute(ownerOrNewIR, {
+    const denied = handler.execute(ownerOrNewRules, {
       operation: 'write',
       path: '/rooms/room1/title',
       auth: { uid: 'mallory', token: {} },
@@ -599,7 +551,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
     if (denied.success) expect(denied.data.allowed).toBe(false);
 
     // bob IS the owner — allowed.
-    const allowed = handler.execute(ownerOrNewIR, {
+    const allowed = handler.execute(ownerOrNewRules, {
       operation: 'write',
       path: '/rooms/room1/title',
       auth: { uid: 'bob', token: {} },
@@ -611,7 +563,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
 
     // Nobody owns a room that doesn't exist yet — the `!data.exists()`
     // escape hatch still legitimately allows creating a brand-new room.
-    const created = handler.execute(ownerOrNewIR, {
+    const created = handler.execute(ownerOrNewRules, {
       operation: 'write',
       path: '/rooms/room2/title',
       auth: { uid: 'mallory', token: {} },
@@ -623,7 +575,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
   });
 
   test('a rule reading data.child(...) at the rule location sees the correct nested value regardless of write depth', () => {
-    const readIR = ir(
+    const readRules = compiled(
       node({
         path: '/',
         children: [
@@ -643,7 +595,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
 
     const mockData = { rooms: { room1: { visibility: 'private', messages: { m1: 'hi' } } } };
 
-    const denied = handler.execute(readIR, {
+    const denied = handler.execute(readRules, {
       operation: 'read',
       path: '/rooms/room1/messages/m1',
       auth: null,
@@ -653,7 +605,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
     if (denied.success) expect(denied.data.allowed).toBe(false);
 
     const publicMockData = { rooms: { room1: { visibility: 'public', messages: { m1: 'hi' } } } };
-    const allowed = handler.execute(readIR, {
+    const allowed = handler.execute(readRules, {
       operation: 'read',
       path: '/rooms/room1/messages/m1',
       auth: null,
@@ -668,7 +620,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
     // — the post-write value of the ROOM, which must still show
     // `locked: true` (untouched by a write to a sibling field) rather than
     // being computed from the raw write payload at the deep path.
-    const lockedIR = ir(
+    const lockedRules = compiled(
       node({
         path: '/',
         children: [
@@ -690,7 +642,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
 
     // Writing just `/title` on a locked room: the merged post-write room
     // still has `locked: true`, so the rule must deny.
-    const denied = handler.execute(lockedIR, {
+    const denied = handler.execute(lockedRules, {
       operation: 'write',
       path: '/rooms/room1/title',
       auth: { uid: 'anyone', token: {} },
@@ -702,7 +654,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
 
     // An unlocked room allows the same write.
     const unlockedMockData = { rooms: { room1: { locked: false, title: 'old' } } };
-    const allowed = handler.execute(lockedIR, {
+    const allowed = handler.execute(lockedRules, {
       operation: 'write',
       path: '/rooms/room1/title',
       auth: { uid: 'anyone', token: {} },
@@ -720,7 +672,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
       raw,
       parsed: { raw, valid: true, errors: [], warnings: [], referencedIdentifiers: [] },
     });
-    const parentIR = ir(
+    const parentRules = compiled(
       node({
         path: '/',
         write: expr('auth !== null'),
@@ -746,7 +698,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
     );
 
     const mockData = { rooms: { room1: { locked: true, title: 'old' } } };
-    const denied = handler.execute(parentIR, {
+    const denied = handler.execute(parentRules, {
       operation: 'write',
       path: '/rooms/room1/title',
       auth: { uid: 'anyone', token: {} },
@@ -779,23 +731,18 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
 
   const node = (partial: Partial<RtdbNode> & { path: string }): RtdbNode => ({
     pathVariables: [],
-    exists: true,
     children: [],
     ...partial,
   });
 
-  const ir = (rules: RtdbNode): RtdbIR => ({
-    service: 'realtime-database',
-    databaseUrl: 'https://test.firebaseio.com',
-    rules,
-  });
+  const compiled = (rules: RtdbNode): RtdbNode => rules;
 
   const authed = { uid: 'alice', token: {} };
 
   // `.write` on the messages path depends on a sibling `meta/count` under
   // the SAME room; the room's `/meta` subtree is write-open so the second
   // leaf lands on its own merit.
-  const siblingDepIR = ir(
+  const siblingDepRules = compiled(
     node({
       path: '/',
       children: [
@@ -831,7 +778,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
       { path: '/rooms/room1/messages', value: { m1: 'hi' } },
       { path: '/rooms/room1/meta/count', value: 1 },
     ];
-    const result = handler.execute(siblingDepIR, {
+    const result = handler.execute(siblingDepRules, {
       operation: 'write',
       path: '/rooms/room1/messages',
       auth: authed,
@@ -846,7 +793,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
   test('(b) DENIES the same path when the depended-on sibling is NOT part of the update', () => {
     // No `updates` (or a single-path update): the projection contains only
     // the messages write, `meta/count` is genuinely absent → correct DENY.
-    const result = handler.execute(siblingDepIR, {
+    const result = handler.execute(siblingDepRules, {
       operation: 'write',
       path: '/rooms/room1/messages',
       auth: authed,
@@ -862,7 +809,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
     // With no `updates` the handler projects only `path`/`newData`. This is
     // exactly what the pre-fix fan-out did for EVERY path, which is why the
     // legal cross-path write in (a) used to falsely deny.
-    const result = handler.execute(siblingDepIR, {
+    const result = handler.execute(siblingDepRules, {
       operation: 'write',
       path: '/rooms/room1/messages',
       auth: authed,
@@ -877,7 +824,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
       raw,
       parsed: { raw, valid: true, errors: [], warnings: [], referencedIdentifiers: [] },
     });
-    const validateIR = ir(
+    const validateRules = compiled(
       node({
         path: '/',
         write: expr('true'),
@@ -904,7 +851,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
       }),
     );
 
-    const allowed = handler.execute(validateIR, {
+    const allowed = handler.execute(validateRules, {
       operation: 'write',
       path: '/rooms/room1/messages',
       auth: authed,
@@ -917,7 +864,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
     });
     expect(allowed.success && allowed.data.allowed).toBe(true);
 
-    const denied = handler.execute(validateIR, {
+    const denied = handler.execute(validateRules, {
       operation: 'write',
       path: '/rooms/room1/messages',
       auth: authed,
@@ -931,7 +878,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
   test('(d) a denied path in the update returns allowed=false (caller rejects the whole atomic batch)', () => {
     // The fan-out throws on the first denied path so nothing applies; at the
     // handler level the denied path surfaces as allowed=false.
-    const ownedIR = ir(
+    const ownedRules = compiled(
       node({
         path: '/',
         children: [
@@ -952,7 +899,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
       { path: '/users/alice/name', value: 'Alice' },
       { path: '/users/bob/name', value: 'Bob' },
     ];
-    const ownPath = handler.execute(ownedIR, {
+    const ownPath = handler.execute(ownedRules, {
       operation: 'write',
       path: '/users/alice/name',
       auth: authed,
@@ -962,7 +909,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
     });
     expect(ownPath.success && ownPath.data.allowed).toBe(true);
 
-    const otherPath = handler.execute(ownedIR, {
+    const otherPath = handler.execute(ownedRules, {
       operation: 'write',
       path: '/users/bob/name',
       auth: authed,
@@ -978,7 +925,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
     // post-write room. Two deep paths under the common ancestor supply them
     // in one update; evaluating either deep path, the ancestor rule (rooted
     // at the room) must see both.
-    const ancestorIR = ir(
+    const ancestorRules = compiled(
       node({
         path: '/',
         children: [
@@ -1000,7 +947,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
       { path: '/rooms/room1/b', value: 2 },
     ];
     for (const target of ['/rooms/room1/a', '/rooms/room1/b']) {
-      const result = handler.execute(ancestorIR, {
+      const result = handler.execute(ancestorRules, {
         operation: 'write',
         path: target,
         auth: authed,
@@ -1013,7 +960,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
 
     // Without the sibling in the update, the ancestor rule denies — only one
     // of the two required children is present.
-    const partial = handler.execute(ancestorIR, {
+    const partial = handler.execute(ancestorRules, {
       operation: 'write',
       path: '/rooms/room1/a',
       auth: authed,

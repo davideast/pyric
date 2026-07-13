@@ -7,7 +7,7 @@
  *   - compiled `{ rules }` JSON
  *
  * Every input supports the full surface. Compiled `{ rules }` JSON is mapped
- * directly into the RTDB IR, so callers do not need a prior fetch/generate
+ * directly into the RTDB engine, so callers do not need a prior fetch/generate
  * step before simulation. `toJSON` always returns compiled `rules.json`.
  */
 
@@ -20,8 +20,11 @@ import type {
   RtdbRulesSimulationAuth,
   RtdbRulesSimulationInput,
 } from '../rtdb/constraints/document.js';
-import { RtdbMapper } from '../rtdb/mapper.js';
-import { SimulateHandler } from '../rtdb/simulation/handler.js';
+import {
+  compileRtdbRules,
+  simulateRtdbRules,
+  type CompiledRtdbRules,
+} from '../rtdb/compiled-rules.js';
 import type { SimulationInput, SimulateResult } from '../rtdb/simulation/spec.js';
 import type { RuleIssue } from './issue.js';
 import { rtdbFindingToIssue } from './issue.js';
@@ -162,30 +165,30 @@ function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInp
 
 /** Internal document adapter for already-compiled Firebase rules JSON. */
 class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
-  constructor(private readonly json: RtdbRulesJson) {}
+  private readonly compiled: CompiledRtdbRules;
+
+  constructor(private readonly json: RtdbRulesJson) {
+    this.compiled = compileRtdbRules(json);
+  }
 
   toJSON(): RtdbRulesJson {
     return this.json;
   }
 
-  toIR(databaseUrl = 'sandbox://rtdb') {
-    return RtdbMapper.mapToIR(this.json, null, databaseUrl);
+  compile(): CompiledRtdbRules {
+    return this.compiled;
   }
 
-  check(databaseUrl?: string) {
+  check() {
     return {
       ok: true,
       errors: [],
       warnings: [],
-      ir: this.toIR(databaseUrl),
     };
   }
 
-  simulate(
-    input: RtdbRulesSimulationInput,
-    opts: { databaseUrl?: string } = {},
-  ): SimulateResult {
-    return new SimulateHandler().execute(this.toIR(opts.databaseUrl), {
+  simulate(input: RtdbRulesSimulationInput): SimulateResult {
+    return simulateRtdbRules(this.compiled, {
       operation: input.operation,
       path: input.path,
       auth: normalizeAuth(input.auth),

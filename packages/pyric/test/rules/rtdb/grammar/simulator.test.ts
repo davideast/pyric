@@ -1,11 +1,8 @@
 import { describe, test, expect } from 'bun:test';
-import { DataSnapshot, evaluateExpression } from '../../../../src/rules/rtdb/grammar/simulator.js';
-import { grammar } from '../../../../src/rules/rtdb/grammar/RtdbExprParser.js';
+import { DataSnapshot, evaluateRtdbExpression } from '../../../../src/rules/rtdb/grammar/simulator.js';
 
-function evalExpr(raw: string, ctx: Parameters<typeof evaluateExpression>[1]) {
-  const match = grammar.match(raw.trim());
-  if (match.failed()) throw new Error(`Parse failed: ${raw}`);
-  return evaluateExpression(match, ctx);
+function evalExpr(raw: string, ctx: Parameters<typeof evaluateRtdbExpression>[1]) {
+  return evaluateRtdbExpression(raw, ctx);
 }
 
 const baseCtx = {
@@ -77,7 +74,7 @@ describe('DataSnapshot', () => {
   });
 });
 
-describe('evaluateExpression', () => {
+describe('evaluateRtdbExpression', () => {
   test('auth.uid === "abc" with matching auth returns true', () => {
     const ctx = {
       ...baseCtx,

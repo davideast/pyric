@@ -1,13 +1,13 @@
-import { buildRuleExpression } from '../mapper.js';
+import { buildRuleExpression } from '../compiled-rules.js';
+import type { CompiledRtdbRules } from '../compiled-rules.js';
 import { schemaRules } from './schema.js';
 import type { Expr, PathDef, RulesetContext } from './types.js';
-import type { RtdbIR, RtdbNode, RtdbRuleExpression } from '../types.js';
+import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 
-/** Build a complete RtdbIR from a declarative object or callback builder. */
+/** Compile a declarative rules definition into an environment-independent tree. */
 export function ruleset(
-  databaseUrl: string,
   input: Record<string, PathDef> | ((ctx: RulesetContext) => void),
-): RtdbIR {
+): CompiledRtdbRules {
   let pathDefs: Array<[string, PathDef]>;
 
   if (typeof input === 'function') {
@@ -29,7 +29,7 @@ export function ruleset(
   });
 
   // Pass 1: Build the path tree (nodes only, no rules)
-  const root: RtdbNode = { path: '/', pathVariables: [], exists: true, children: [] };
+  const root: RtdbNode = { path: '/', pathVariables: [], children: [] };
   for (const [pathStr] of flattened) {
     if (pathStr === '/') continue;
     ensurePath(root, pathStr);
@@ -42,7 +42,7 @@ export function ruleset(
     applyRules(root, node, def, pathStr);
   }
 
-  return { service: 'realtime-database', databaseUrl, rules: root };
+  return root;
 }
 
 // ---- Pass 1: Tree construction ----
@@ -57,7 +57,7 @@ function ensurePath(root: RtdbNode, pathStr: string): void {
 
     let child = current.children.find(c => c.path === partialPath);
     if (!child) {
-      child = { path: partialPath, pathVariables: varsUpToHere, exists: false, children: [] };
+      child = { path: partialPath, pathVariables: varsUpToHere, children: [] };
       current.children.push(child);
     }
     current = child;
@@ -84,7 +84,7 @@ function applyRules(root: RtdbNode, node: RtdbNode, def: PathDef, pathStr: strin
       const fieldPath = `${pathStr}/${fieldName}`;
       let fieldNode = node.children.find(c => c.path === fieldPath);
       if (!fieldNode) {
-        fieldNode = { path: fieldPath, pathVariables: pathVars, exists: false, children: [] };
+        fieldNode = { path: fieldPath, pathVariables: pathVars, children: [] };
         node.children.push(fieldNode);
       }
       fieldNode.validate = buildExpr(fieldDef.validate, 'validate', pathVars);
@@ -95,7 +95,7 @@ function applyRules(root: RtdbNode, node: RtdbNode, def: PathDef, pathStr: strin
           const nestedPath = `${fieldPath}/${nestedName}`;
           let nestedNode = fieldNode.children.find(c => c.path === nestedPath);
           if (!nestedNode) {
-            nestedNode = { path: nestedPath, pathVariables: pathVars, exists: false, children: [] };
+            nestedNode = { path: nestedPath, pathVariables: pathVars, children: [] };
             fieldNode.children.push(nestedNode);
           }
           nestedNode.validate = buildExpr(nestedDef.validate, 'validate', pathVars);

@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { GAME_SPECS } from '../../../../src/rules/rtdb/constraints/game.spec.js';
 import { turnGuard, flip, winCheckHelper } from '../../../../src/rules/rtdb/constraints/game.js';
-import { buildRuleExpression } from '../../../../src/rules/rtdb/mapper.js';
+import { buildRuleExpression } from '../../../../src/rules/rtdb/compiled-rules.js';
 
 describe('Game Primitives', () => {
   describe('turnGuard', () => {

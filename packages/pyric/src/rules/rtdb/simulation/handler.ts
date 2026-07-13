@@ -1,7 +1,6 @@
-import { grammar } from '../grammar/RtdbExprParser.js';
-import { DataSnapshot, evaluateExpression } from '../grammar/simulator.js';
+import { DataSnapshot, evaluateRtdbExpression } from '../grammar/simulator.js';
 import type { EvalContext } from '../grammar/simulator.js';
-import type { RtdbIR, RtdbNode, RtdbRuleExpression } from '../types.js';
+import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema } from './spec.js';
 import type { SimulateResult } from './spec.js';
 
@@ -86,8 +85,7 @@ function findFailingValidate(
           firstUnsupported = { node, rule, bindings, unsupported: true };
         }
       } else {
-        const match = grammar.match(rule.raw.trim());
-        const result = evaluateExpression(match, buildContext(data, newData, bindings));
+        const result = evaluateRtdbExpression(rule.raw, buildContext(data, newData, bindings));
         if (!result) return { node, rule, bindings };
       }
     }
@@ -245,18 +243,7 @@ function projectPostWriteTree(
 }
 
 export class SimulateHandler {
-  execute(ir: RtdbIR | null, rawInput: unknown): SimulateResult {
-    if (!ir) {
-      return {
-        success: false,
-        error: {
-          code: 'IR_NOT_GENERATED',
-          message: 'Call generateIR() before simulate()',
-          recoverable: true,
-        },
-      };
-    }
-
+  execute(compiled: RtdbNode, rawInput: unknown): SimulateResult {
     const parsed = SimulationInputSchema.safeParse(rawInput);
     if (!parsed.success) {
       return {
@@ -273,7 +260,7 @@ export class SimulateHandler {
 
     try {
       const pathSegments = path.split('/').filter(Boolean);
-      const rootNode = ir.rules as RtdbNode;
+      const rootNode = compiled;
 
       const ancestors = collectAncestors(rootNode, pathSegments, {});
 
@@ -336,9 +323,8 @@ export class SimulateHandler {
         const dataAtAncestor = rootData.child(ancestorSegments);
         const newDataAtAncestor = mergedRootData.child(ancestorSegments);
 
-        const match = grammar.match(ruleExpr.raw.trim());
-        const result = evaluateExpression(
-          match,
+        const result = evaluateRtdbExpression(
+          ruleExpr.raw,
           buildContext(dataAtAncestor, newDataAtAncestor, ancestor.pathVariableBindings),
         );
 

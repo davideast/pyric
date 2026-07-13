@@ -19,7 +19,6 @@ import { isJsonObject, jsonValuesEqual } from './sandbox/data-tree.js';
 export interface RtdbReplayOptions {
   rules: { rules: Record<string, unknown> };
   capturedState?: unknown;
-  databaseUrl?: string;
 }
 
 export interface RtdbReplayResult {

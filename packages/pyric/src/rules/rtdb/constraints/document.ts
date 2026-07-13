@@ -1,14 +1,14 @@
-import { RtdbMapper } from '../mapper.js';
-import { SimulateHandler } from '../simulation/handler.js';
+import {
+  serializeRtdbRules,
+  simulateRtdbRules,
+  type CompiledRtdbRules,
+} from '../compiled-rules.js';
 import type { SimulationInput, SimulateResult } from '../simulation/spec.js';
-import type { RtdbIR, RtdbNode, RtdbRuleExpression } from '../types.js';
+import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { ruleset } from './ruleset.js';
 import type { PathDef, RulesetContext } from './types.js';
 
-const LOCAL_DATABASE_URL = 'https://local-rtdb.firebaseio.com';
-
 export interface RtdbRulesDefinition {
-  databaseUrl?: string;
   paths: Record<string, PathDef> | ((ctx: RulesetContext) => void);
 }
 
@@ -27,7 +27,6 @@ export interface RtdbRulesCheckResult {
   ok: boolean;
   errors: RtdbRulesFinding[];
   warnings: RtdbRulesFinding[];
-  ir?: RtdbIR;
 }
 
 export type RtdbRulesSimulationAuth =
@@ -64,16 +63,9 @@ export interface RtdbRulesDocument {
  */
 export interface RtdbRulesDocumentInternal extends RtdbRulesDocument {
   toJSON(): RtdbRulesJson;
-  toIR(databaseUrl?: string): RtdbIR;
-  check(databaseUrl?: string): RtdbRulesCheckResult;
-  simulate(
-    input: RtdbRulesSimulationInput,
-    opts?: { databaseUrl?: string },
-  ): SimulateResult;
-}
-
-function resolveDatabaseUrl(definition: RtdbRulesDefinition, databaseUrl?: string): string {
-  return databaseUrl ?? definition.databaseUrl ?? LOCAL_DATABASE_URL;
+  compile(): CompiledRtdbRules;
+  check(): RtdbRulesCheckResult;
+  simulate(input: RtdbRulesSimulationInput): SimulateResult;
 }
 
 function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInput['auth'] {
@@ -123,24 +115,23 @@ function collectFindings(node: RtdbNode, kind: 'errors' | 'warnings'): RtdbRules
 class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
   constructor(private readonly definition: RtdbRulesDefinition) {}
 
-  toIR(databaseUrl?: string): RtdbIR {
-    return ruleset(resolveDatabaseUrl(this.definition, databaseUrl), this.definition.paths);
+  compile(): CompiledRtdbRules {
+    return ruleset(this.definition.paths);
   }
 
   toJSON(): RtdbRulesJson {
-    return RtdbMapper.mapToRulesJSON(this.toIR());
+    return serializeRtdbRules(this.compile());
   }
 
-  check(databaseUrl?: string): RtdbRulesCheckResult {
+  check(): RtdbRulesCheckResult {
     try {
-      const ir = this.toIR(databaseUrl);
-      const errors = collectFindings(ir.rules as RtdbNode, 'errors');
-      const warnings = collectFindings(ir.rules as RtdbNode, 'warnings');
+      const compiled = this.compile();
+      const errors = collectFindings(compiled, 'errors');
+      const warnings = collectFindings(compiled, 'warnings');
       return {
         ok: errors.length === 0,
         errors,
         warnings,
-        ir,
       };
     } catch (e) {
       return {
@@ -156,14 +147,8 @@ class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
     }
   }
 
-  simulate(
-    input: RtdbRulesSimulationInput,
-    opts: { databaseUrl?: string } = {},
-  ): SimulateResult {
-    return new SimulateHandler().execute(
-      this.toIR(opts.databaseUrl),
-      normalizeSimulationInput(input),
-    );
+  simulate(input: RtdbRulesSimulationInput): SimulateResult {
+    return simulateRtdbRules(this.compile(), normalizeSimulationInput(input));
   }
 }
 

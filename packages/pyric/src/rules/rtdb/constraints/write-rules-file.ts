@@ -7,7 +7,7 @@
  * `node:fs` / `node:path`, so it lives alongside the other Node-only
  * surfaces re-exported from `pyric/rules/node`. It does no compilation
  * of its own: it calls `doc.toJSON()`, which routes through
- * `RtdbMapper.mapToRulesJSON`, then writes the result.
+ * the pure RTDB rules serializer, then writes the result.
  *
  * Uses the SYNC `node:fs` / `node:path` specifiers (not `node:fs/promises`)
  * to match the module resolver's existing Node-builtin usage — `pyric/rules`

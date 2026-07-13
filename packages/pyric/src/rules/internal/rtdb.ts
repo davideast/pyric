@@ -2,7 +2,7 @@
  * Internal RTDB rules-engine seam.
  *
  * `pyric/database` is reserved for the Firebase-shaped sandbox mirror. This
- * unstable internal subpath exposes the pure rules parser, mapper, simulator,
+ * unstable internal subpath exposes the pure rules parser, simulator,
  * replay engine, and constraints DSL used by pyric's tooling packages.
  */
 export { replay } from '../../database/replay.js';
@@ -13,9 +13,6 @@ export type {
 } from '../../database/replay.js';
 export {
   buildRuleExpression,
-  RtdbMapper,
-} from '../rtdb/mapper.js';
-export {
   compileRtdbRules,
   serializeRtdbRules,
   simulateRtdbRules,
@@ -36,12 +33,9 @@ export type {
   SimulationResult,
   SimulateResult,
 } from '../rtdb/simulation/spec.js';
-export { SimulateHandler } from '../rtdb/simulation/handler.js';
-
 export type {
   ParsedExpression,
   ParsedExpression as RtdbExpressionParseResult,
-  RtdbIR,
   RtdbNode,
   RtdbRuleExpression,
   RuleError,

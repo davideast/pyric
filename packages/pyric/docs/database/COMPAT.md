@@ -6,7 +6,7 @@
 
 `pyric/database` is the sandbox-only modular mirror. Package resolution selects it during Pyric development; production code continues to import the unchanged `firebase/database` package. The mirror never dispatches to production at runtime.
 
-The pure RTDB rules engine remains on the unstable `pyric/rules/internal/rtdb` seam for simulator, replay, mapper, grammar, and constraints consumers. Production data access and deployment are intentionally absent.
+The pure RTDB rules engine remains on the unstable `pyric/rules/internal/rtdb` seam for simulator, replay, grammar, and constraints consumers. Its compiled rules tree carries no service or database environment metadata. Production data access and deployment are intentionally absent.
 
 ## Status legend
 
@@ -45,11 +45,11 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 | 46 | Historical rules deployment propagation timing for the removed production deploy handler. | — | Archived oracle observation; implementation removed. |
 | 58 | Historical shallow REST response shape for the removed production crawler. | — | Archived oracle observation; implementation removed. |
 
-## `SimulateHandler.execute(ir, input)` — in-process rule evaluator
+## `simulateRtdbRules(compiled, input)` — in-process rule evaluator
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 59 | Returns `{ success: false, error: { code: 'IR_NOT_GENERATED' } }` when the supplied `ir` is `null` | ✓ | `unit:simulation/handler.test.ts` |
+| 59 | The removed stateful simulator returned a generate-before-simulate error when no IR had been generated | — | The stateless `simulateRtdbRules(compiled, input)` API requires a compiled rules tree and has no generate-before-simulate lifecycle. |
 | 60 | Returns `{ success: false, error: { code: 'INVALID_INPUT' } }` when input doesn't parse against `SimulationInputSchema` (e.g. path missing leading slash, operation not in read / write / validate) | ✓ | `unit:simulation/handler.test.ts` |
 | 61 | Walks ancestors from root → target; the first ancestor whose rule expression evaluates to `true` grants access — matches RTDB's documented "rules cascade from root, true at any ancestor grants" semantics | ✓ | `unit:simulation/handler.test.ts` |
 | 62 | Path variables (`$userId`) are bound from the URL path and exposed in `pathVariableBindings` (also without the `$` prefix for ergonomic access in expressions) | ✓ | `unit:simulation/handler.test.ts` |
@@ -57,7 +57,7 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 | 64 | `mockData` becomes the value of `data` at every path during evaluation; `newData` is the proposed value for write/validate | ✓ | `unit:simulation/handler.test.ts` |
 | 65 | `data.child("…")`, `data.parent()`, `data.exists()`, `data.val()` evaluate against the in-process snapshot — matches the documented `DataSnapshot` rule-context surface | ✓ | `unit:grammar/simulator.test.ts` |
 | 66 | Cross-path `root.child(…).val()` reads return `null` for paths NOT present in `mockData` — divergence from real prod rules where the engine reads the live database | ⚠ | divergence: the simulator uses ONLY what's in `mockData`. Real rules engine reads from the live RTDB. Documented in `validated.ts` ("simulation uses empty mockData, so cross-path rule lookups … will evaluate as false") |
-| 67 | An expression that fails to parse (`parsed.valid === false`) is skipped — the simulator falls through to the next ancestor | ✓ | `unit:simulation/handler.test.ts` |
+| 67 | An expression that fails to parse (`parsed.valid === false`) produces an unsupported result rather than silently granting or fabricating a deny | ✓ | `unit:simulation/handler.test.ts` |
 | 68 | When no ancestor rule allows, the result is `{ allowed: false }` with `matchedPath` set to the deepest matched node | ✓ | `unit:simulation/handler.test.ts` |
 | 69 | When NO ancestor has a rule for the operation at all, returns `{ success: false, error: { code: 'NO_MATCHING_RULE' } }` | ✓ | `unit:simulation/handler.test.ts` |
 | 70 | Evaluation errors (grammar mismatch, unknown identifier) surface as `EVALUATION_ERROR` | ✓ | `unit:simulation/handler.test.ts` |
@@ -67,9 +67,9 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 79 | Returns a `RtdbRuleExpression` with `raw`, `parsed.valid`, `parsed.errors`, `parsed.warnings`, `parsed.referencedIdentifiers` | ✓ | `unit:mapper.test.ts` |
-| 80 | A syntactically valid expression sets `parsed.valid === true` and lists referenced identifiers (`auth`, `auth.uid`, `data`, etc.) | ✓ | `unit:mapper.test.ts` |
-| 81 | A syntactically invalid expression sets `parsed.valid === false` and populates `parsed.errors` with `{ code, message }` | ✓ | `unit:mapper.test.ts` |
+| 79 | Returns a `RtdbRuleExpression` with `raw`, `parsed.valid`, `parsed.errors`, `parsed.warnings`, `parsed.referencedIdentifiers` | ✓ | `unit:compiled-rules.test.ts` |
+| 80 | A syntactically valid expression sets `parsed.valid === true` and lists referenced identifiers (`auth`, `auth.uid`, `data`, etc.) | ✓ | `unit:compiled-rules.test.ts` |
+| 81 | A syntactically invalid expression sets `parsed.valid === false` and populates `parsed.errors` with `{ code, message }` | ✓ | `unit:compiled-rules.test.ts` |
 | 82 | Linter warnings (e.g. always-true expressions, missing `auth` checks) populate `parsed.warnings` | ✓ | `unit:grammar/linter.test.ts` |
 | 83 | The grammar accepts every documented RTDB rule operator: logical (`&&`, `or`, `!`), equality (`==`, `===`, `!=`), comparison (`<`, `<=`, `>`, `>=`), arithmetic (`+`, `-`, `*`, `/`, `%`), ternary `?:`, member access, function call, string/regex literals | ✓ | `unit:grammar/RtdbExprParser.test.ts` |
 
@@ -80,18 +80,18 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 | 84 | `atoms` exports the documented set of primitive predicates (`authenticated`, `ownPath`, `ownField`, `isNew`, `hasChildren`, `hasChild`, `fieldIsString/Number/Boolean`, `fieldEnum`, `immutable`, `immutableSelf`, `rootExists`, `rootEquals`) — each returns an `Expr` | ✓ | `unit:constraints/atoms.test.ts` |
 | 85 | `policies` exports composite predicates that compose atoms: `pathOwnerOnly`, `fieldOwnerOnly`, `ownerOrNew`, `hasRole`, `isMember`, `required`, `transition` | ✓ | `unit:constraints/policies.test.ts` |
 | 86 | `compose` exports the boolean combinators `all`, `any`, `not`, `deny`, `always`, plus the raw `expr` constructor | ✓ | `unit:constraints/compose.test.ts` |
-| 87 | `ruleset(...)` builds an RTDB rules JSON object from a tree of path definitions + expression objects | ✓ | `unit:constraints/ruleset.test.ts` |
+| 87 | `ruleset(...)` builds an environment-independent compiled RTDB rules tree from path definitions + expression objects | ✓ | `unit:constraints/ruleset.test.ts` |
 | 88 | Game-domain helpers (`turnGuard`, `flip`, `winCheckHelper`) compose into legal rule expressions | ✓ | `unit:constraints/game.test.ts` |
 
-## `RtdbMapper` — IR ↔ rules-JSON
+## Compiled RTDB rules tree ↔ rules JSON
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| 89 | `mapToIR(rulesJson, shallowData, databaseUrl)` produces an `RtdbIR` tree where each node carries its path, parsed expressions, and child nodes | ✓ | `unit:mapper.test.ts` |
-| 90 | `mapToRulesJSON(ir)` is the inverse: produces a rules-JSON payload accepted by the `/.settings/rules.json` PUT endpoint | ✓ | `unit:mapper.test.ts` |
-| 91 | Round-trip `mapToIR(mapToRulesJSON(ir))` produces an equivalent IR (locked path/expression-text equality, not object identity) | ✓ | `unit:mapper.test.ts` |
-| 92 | Path-variable segments (`$userId`, `$gameId`) preserved across the round-trip | ✓ | `unit:mapper.test.ts` |
-| 93 | `.indexOn` arrays preserved across the round-trip | ✓ | `unit:mapper.test.ts` |
+| 89 | `compileRtdbRules(rulesJson)` produces an environment-independent tree where each node carries its path, parsed expressions, and child nodes | ✓ | `unit:compiled-rules.test.ts` |
+| 90 | `serializeRtdbRules(compiled)` produces the Firebase rules-JSON payload for the compiled tree | ✓ | `unit:compiled-rules.test.ts` |
+| 91 | Round-trip `compileRtdbRules(serializeRtdbRules(compiled))` produces an equivalent rules tree (locked path/expression-text equality, not object identity) | ✓ | `unit:compiled-rules.test.ts` |
+| 92 | Path-variable segments (`$userId`, `$gameId`) preserved across the round-trip | ✓ | `unit:compiled-rules.test.ts` |
+| 93 | `.indexOn` arrays preserved across the round-trip | ✓ | `unit:compiled-rules.test.ts` |
 
 ---
 
@@ -465,7 +465,7 @@ The sandbox implementation has landed (`packages/pyric/src/database/modular.ts` 
 
 ## Probe coverage summary
 
-- **Pure rules engine:** simulator, mapper, grammar, and constraints tests under `packages/pyric/test/database/`.
+- **Pure rules engine:** compiler, simulator, grammar, and constraints tests under `packages/pyric/test/rules/rtdb/`.
 - **Modular mirror:** focused tests under `packages/pyric/test/database/modular/` plus frozen `rtdb-modular-*` production observations.
 - **Archived observations:** legacy `rtdb-*` captures remain immutable historical evidence but no longer contribute rows for the removed production toolkit.
 
@@ -504,4 +504,4 @@ rule modifications.
 
 ## Historical simulator-vs-production capture
 
-The frozen `rtdb-simulator-vs-prod-agreement.json` observation recorded 28 agreements and one historical `.validate` disagreement. The current `SimulateHandler` evaluates descendant validation rules on writes; row #71 and the simulator tests cover the repaired behavior without editing the frozen observation.
+The frozen `rtdb-simulator-vs-prod-agreement.json` observation recorded 28 agreements and one historical `.validate` disagreement. The current in-process RTDB rules engine evaluates descendant validation rules on writes; row #71 and the simulator tests cover the repaired behavior without editing the frozen observation.

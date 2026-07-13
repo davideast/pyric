@@ -57,7 +57,10 @@ import type {
   MatchBlock,
 } from '../../../packages/pyric/src/rules/grammar/FirestoreAST.ts';
 import { parseStorageRules } from '../../../packages/pyric/src/storage/rules.ts';
-import { grammar as rtdbGrammar } from '../../../packages/pyric/src/rules/rtdb/grammar/RtdbExprParser.ts';
+import {
+  createRtdbExpressionSemantics,
+  matchRtdbExpression,
+} from '../../../packages/pyric/src/rules/rtdb/expression-engine.ts';
 import { loadSnapshot, type RulesEngine } from '../rules-language/load.ts';
 import { surfaceRegistries } from '../registry/index.ts';
 import {
@@ -625,13 +628,11 @@ const RTDB_OP_CTOR: Record<string, string> = {
 };
 
 let _rtdbSemantics: ohm.Semantics | null = null;
-/** A semantics operation over the EXISTING RTDB grammar that collects the
- *  construct ids an expression exercises. Reuses the parser's grammar (no new
- *  parsing); mirrors how `identifiers`/`validate` semantics are defined on the
- *  same grammar in rules/rtdb/grammar/. */
+/** A semantics operation over the shared RTDB expression engine that collects
+ *  the construct ids an expression exercises. */
 function rtdbSemantics(): ohm.Semantics {
   if (_rtdbSemantics) return _rtdbSemantics;
-  const sem = rtdbGrammar.createSemantics();
+  const sem = createRtdbExpressionSemantics();
   sem.addOperation<void>('collectInto(acc)', {
     _nonterminal(...children) {
       const op = RTDB_OP_CTOR[this.ctorName];
@@ -685,7 +686,7 @@ function rtdbSemantics(): ohm.Semantics {
 }
 
 function rtdbWalkExpr(raw: string, out: AnalyzeResult): void {
-  const match = rtdbGrammar.match(raw.trim());
+  const match = matchRtdbExpression(raw);
   if (match.failed()) {
     out.unresolved.push({ what: `expr`, reason: `rtdb expression failed to parse: ${raw}` });
     return;

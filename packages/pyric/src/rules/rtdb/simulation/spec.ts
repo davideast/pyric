@@ -25,7 +25,6 @@ export const SimulationInputSchema = z.object({
 export type SimulationInput = z.infer<typeof SimulationInputSchema>;
 
 export const SimulateErrorCode = z.enum([
-  'IR_NOT_GENERATED',
   'INVALID_INPUT',
   'NO_MATCHING_RULE',
   'EVALUATION_ERROR',

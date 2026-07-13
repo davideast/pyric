@@ -13,10 +13,6 @@ import {
   pathOwnerOnly,
   ruleset,
 } from '../../../../src/rules/rtdb/constraints/index.js';
-import type { RtdbNode } from '../../../../src/rules/rtdb/types.js';
-
-const LOCAL_URL = 'https://local-rtdb.firebaseio.com';
-const EXPLICIT_URL = 'https://demo-default-rtdb.firebaseio.com';
 
 describe('defineRtdbRules', () => {
   test('compiles constraints to rules JSON', () => {
@@ -59,26 +55,17 @@ describe('defineRtdbRules', () => {
     });
   });
 
-  test('uses the local database URL by default and accepts explicit overrides', () => {
+  test('compiles without database or service metadata', () => {
     const rules = defineRtdbRules({
       paths: {
         '/': { read: deny(), write: deny() },
       },
     });
 
-    expect(rules.toIR().databaseUrl).toBe(LOCAL_URL);
-    expect(rules.toIR(EXPLICIT_URL).databaseUrl).toBe(EXPLICIT_URL);
-  });
-
-  test('uses the definition database URL before the local fallback', () => {
-    const rules = defineRtdbRules({
-      databaseUrl: EXPLICIT_URL,
-      paths: {
-        '/': { read: deny(), write: deny() },
-      },
-    });
-
-    expect(rules.toIR().databaseUrl).toBe(EXPLICIT_URL);
+    const compiled = rules.compile();
+    expect(compiled.path).toBe('/');
+    expect(compiled).not.toHaveProperty('databaseUrl');
+    expect(compiled).not.toHaveProperty('service');
   });
 
   test('check collects parser errors and lint warnings', () => {
@@ -157,7 +144,7 @@ describe('defineRtdbRules', () => {
   });
 
   test('low-level ruleset stays available', () => {
-    const ir = ruleset(EXPLICIT_URL, { '/': { read: deny() } });
-    expect((ir.rules as RtdbNode).read?.raw).toBe('false');
+    const compiled = ruleset({ '/': { read: deny() } });
+    expect(compiled.read?.raw).toBe('false');
   });
 });

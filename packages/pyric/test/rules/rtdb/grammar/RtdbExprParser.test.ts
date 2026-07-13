@@ -1,5 +1,10 @@
 import { describe, test, expect } from 'bun:test';
 import { parseExpression } from '../../../../src/rules/rtdb/grammar/RtdbExprParser.js';
+import * as parser from '../../../../src/rules/rtdb/grammar/RtdbExprParser.js';
+
+test('the parser seam does not expose the raw Ohm grammar', () => {
+  expect('grammar' in parser).toBe(false);
+});
 
 describe('parseExpression', () => {
   test('parses a simple auth check', () => {

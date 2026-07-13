@@ -31,17 +31,9 @@ export type RtdbRuleExpression = z.infer<typeof RtdbRuleExpressionSchema>;
 export type RtdbNode = {
   path: string;
   pathVariables: string[];
-  exists: boolean;
   read?: RtdbRuleExpression;
   write?: RtdbRuleExpression;
   validate?: RtdbRuleExpression;
   indexOn?: string[];
   children: RtdbNode[];
 };
-
-export const RtdbIRSchema = z.object({
-  service: z.literal('realtime-database'),
-  databaseUrl: z.string().url(),
-  rules: z.any(),
-});
-export type RtdbIR = z.infer<typeof RtdbIRSchema>;

@@ -266,7 +266,11 @@ Today's sideways edges, enumerated:
    permitted, because rule evaluation is a native engine capability rather than
    a database transport or state concern. The dependency stays private: the
    `pyric/database` barrel exports no rules-engine symbol. Encode this exception
-   narrowly (8.7 check 2).
+   narrowly (8.7 check 2). The engine's compiled tree contains only rule
+   structure and parsed expressions—never a database URL, service selector, or
+   cache lifecycle. Ohm grammar and semantics construction is lazy behind
+   `rules/rtdb/expression-engine.ts`, so importing `pyric/rules` does not compile
+   the RTDB grammar.
 
 2. **firestore-values -> rules/simulator/wrappers/*, deep leaf import.**
    `firestore-values/index.ts` imports the seven wrapper value classes (Timestamp,

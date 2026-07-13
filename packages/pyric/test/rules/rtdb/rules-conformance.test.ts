@@ -9,7 +9,7 @@
  * probe. The `rules-corpus/rtdb/` scenarios are a decomposition of that probe (one
  * ruleset per scenario), and every case's `expectation` IS the production verdict
  * that probe froze. This suite runs the SAME (ruleset, op) tuples through the
- * in-process `SimulateHandler` and asserts the simulator's allow/deny matches
+ * in-process RTDB rules engine and asserts the simulator's allow/deny matches
  * the recorded production verdict — verdict for verdict.
  *
  * Because the prod-derived expectations live in the corpus itself (baked from
@@ -34,7 +34,7 @@
 import { describe, it, expect } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { RtdbMapper } from '../../../src/rules/rtdb/mapper.js';
+import { compileRtdbRules } from '../../../src/rules/rtdb/compiled-rules.js';
 import {
   ALL_RULES_RTDB_SCENARIOS,
   RULES_RTDB_OBSERVATION_PREFIX,
@@ -46,8 +46,6 @@ import { replayRtdbScenario } from '../../../../../packages/conformance/src/rule
 // rules-rtdb-* observations live under the 'rtdb-rules' surface subdirectory
 // (surfaces/rtdb-rules.ts owns the prefix), NOT the SDK-plane 'rtdb' one.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb-rules');
-
-const DATABASE_URL = 'https://pyric-oracle.firebaseio.com';
 
 /**
  * Recorded simulator-vs-production divergences, pinned per the Firestore/Storage
@@ -89,14 +87,14 @@ function capturedObservationFiles(): string[] {
 }
 
 describe('oracle conformance (rules-rtdb)', () => {
-  // Corpus sanity: every scenario's subtree must map to IR. Runs regardless of
+  // Corpus sanity: every scenario's subtree must compile. Runs regardless of
   // captures, so a malformed ruleset is caught here, not only at capture.
-  it('every rtdb corpus scenario maps to IR', () => {
+  it('every rtdb corpus scenario compiles', () => {
     for (const scenario of ALL_RULES_RTDB_SCENARIOS) {
       const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
       expect(
-        () => RtdbMapper.mapToIR({ rules: { '.read': false, '.write': false, [scenario.id]: subtree } }, null, DATABASE_URL),
-        `scenario "${scenario.id}" must map to IR`,
+        () => compileRtdbRules({ rules: { '.read': false, '.write': false, [scenario.id]: subtree } }),
+        `scenario "${scenario.id}" must compile`,
       ).not.toThrow();
     }
   });

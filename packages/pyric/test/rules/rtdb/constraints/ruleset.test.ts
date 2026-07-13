@@ -4,40 +4,37 @@ import { ruleset } from '../../../../src/rules/rtdb/constraints/ruleset.js';
 import { all, any, deny, always, expr } from '../../../../src/rules/rtdb/constraints/compose.js';
 import { authenticated, ownPath, ownField, isNew } from '../../../../src/rules/rtdb/constraints/atoms.js';
 import { ownerOrNew, pathOwnerOnly, hasRole, required } from '../../../../src/rules/rtdb/constraints/policies.js';
-import type { RtdbNode } from '../../../../src/rules/rtdb/types.js';
-
-const URL = 'https://test-db.firebaseio.com';
 
 describe('ruleset()', () => {
   describe('declarative overload', () => {
-    test('produces valid RtdbIR', () => {
-      const ir = ruleset(URL, {
+    test('produces an environment-independent compiled tree', () => {
+      const compiled = ruleset({
         '/': { read: deny(), write: deny() },
       });
-      expect(ir.service).toBe('realtime-database');
-      expect(ir.databaseUrl).toBe(URL);
-      expect(ir.rules).toBeDefined();
+      expect(compiled.path).toBe('/');
+      expect(compiled).not.toHaveProperty('service');
+      expect(compiled).not.toHaveProperty('databaseUrl');
     });
 
     test('root node has read/write expressions', () => {
-      const ir = ruleset(URL, {
+      const compiled = ruleset({
         '/': { read: deny(), write: deny() },
       });
-      const root = ir.rules as RtdbNode;
+      const root = compiled;
       expect(root.path).toBe('/');
       expect(root.read?.raw).toBe('false');
       expect(root.write?.raw).toBe('false');
     });
 
     test('child paths become nested children', () => {
-      const ir = ruleset(URL, {
+      const compiled = ruleset({
         '/': { read: deny(), write: deny() },
         '/users/$uid': {
           read: authenticated(),
           write: pathOwnerOnly('$uid'),
         },
       });
-      const root = ir.rules as RtdbNode;
+      const root = compiled;
       const usersNode = root.children.find(c => c.path === '/users');
       expect(usersNode).toBeDefined();
       const uidNode = usersNode!.children.find(c => c.path === '/users/$uid');
@@ -47,7 +44,7 @@ describe('ruleset()', () => {
     });
 
     test('schema generates validate + child rules', () => {
-      const ir = ruleset(URL, {
+      const compiled = ruleset({
         '/': { read: deny(), write: deny() },
         '/users/$uid': {
           read: authenticated(),
@@ -58,7 +55,7 @@ describe('ruleset()', () => {
           }),
         },
       });
-      const root = ir.rules as RtdbNode;
+      const root = compiled;
       const uidNode = root.children.find(c => c.path === '/users')!.children[0];
       // Parent has validate from schema
       expect(uidNode.validate?.raw).toContain('newData.hasChildren()');
@@ -73,7 +70,7 @@ describe('ruleset()', () => {
     });
 
     test('fieldConstraints merge with schema', () => {
-      const ir = ruleset(URL, {
+      const compiled = ruleset({
         '/': { read: deny(), write: deny() },
         '/posts/$postId': {
           read: always(),
@@ -84,7 +81,7 @@ describe('ruleset()', () => {
           },
         },
       });
-      const root = ir.rules as RtdbNode;
+      const root = compiled;
       const postNode = root.children.find(c => c.path === '/posts')!.children[0];
       const authorChild = postNode.children.find(c => c.path.endsWith('/author'));
       expect(authorChild).toBeDefined();
@@ -94,7 +91,7 @@ describe('ruleset()', () => {
     });
 
     test('indexOn propagates to the collection node', () => {
-      const ir = ruleset(URL, {
+      const compiled = ruleset({
         '/': { read: deny(), write: deny() },
         '/posts/$postId': {
           read: always(),
@@ -102,13 +99,13 @@ describe('ruleset()', () => {
           indexOn: ['createdAt', 'author'],
         },
       });
-      const root = ir.rules as RtdbNode;
+      const root = compiled;
       const postsNode = root.children.find(c => c.path === '/posts');
       expect(postsNode?.indexOn).toEqual(['createdAt', 'author']);
     });
 
     test('explicit children nest correctly', () => {
-      const ir = ruleset(URL, {
+      const compiled = ruleset({
         '/': { read: deny(), write: deny() },
         '/posts/$postId': {
           read: always(),
@@ -121,7 +118,7 @@ describe('ruleset()', () => {
           },
         },
       });
-      const root = ir.rules as RtdbNode;
+      const root = compiled;
       const postNode = root.children.find(c => c.path === '/posts')!.children[0];
       const commentsNode = postNode.children.find(c => c.path.endsWith('/comments'));
       expect(commentsNode).toBeDefined();
@@ -134,16 +131,16 @@ describe('ruleset()', () => {
 
   describe('callback overload', () => {
     test('produces equivalent output', () => {
-      const irObj = ruleset(URL, {
+      const compiledObject = ruleset({
         '/': { read: deny(), write: deny() },
         '/users/$uid': { read: authenticated(), write: pathOwnerOnly('$uid') },
       });
-      const irCb = ruleset(URL, ({ path }) => {
+      const compiledCallback = ruleset(({ path }) => {
         path('/', { read: deny(), write: deny() });
         path('/users/$uid', { read: authenticated(), write: pathOwnerOnly('$uid') });
       });
-      const rootObj = irObj.rules as RtdbNode;
-      const rootCb = irCb.rules as RtdbNode;
+      const rootObj = compiledObject;
+      const rootCb = compiledCallback;
       expect(rootObj.read?.raw).toBe(rootCb.read?.raw);
       expect(rootObj.children.length).toBe(rootCb.children.length);
     });
@@ -151,16 +148,16 @@ describe('ruleset()', () => {
 
   describe('path variable extraction', () => {
     test('extracts $uid from /users/$uid', () => {
-      const ir = ruleset(URL, {
+      const compiled = ruleset({
         '/': { read: deny(), write: deny() },
         '/users/$uid': { read: authenticated() },
       });
-      const uidNode = (ir.rules as RtdbNode).children[0].children[0];
+      const uidNode = (compiled).children[0].children[0];
       expect(uidNode.pathVariables).toContain('$uid');
     });
 
     test('extracts multiple variables', () => {
-      const ir = ruleset(URL, {
+      const compiled = ruleset({
         '/': { read: deny(), write: deny() },
         '/posts/$postId': {
           read: always(),
@@ -169,7 +166,7 @@ describe('ruleset()', () => {
           },
         },
       });
-      const postNode = (ir.rules as RtdbNode).children[0].children[0];
+      const postNode = (compiled).children[0].children[0];
       const commentNode = postNode.children[0].children[0];
       expect(commentNode.pathVariables).toContain('$postId');
       expect(commentNode.pathVariables).toContain('$commentId');

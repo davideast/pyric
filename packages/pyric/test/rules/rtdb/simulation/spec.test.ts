@@ -1,5 +1,16 @@
 import { describe, test, expect } from 'bun:test';
-import { SimulationInputSchema } from '../../../../src/rules/rtdb/simulation/spec.js';
+import {
+  SimulateErrorCode,
+  SimulationInputSchema,
+} from '../../../../src/rules/rtdb/simulation/spec.js';
+
+test('simulation errors do not expose a generate-before-simulate lifecycle', () => {
+  expect(SimulateErrorCode.options).toEqual([
+    'INVALID_INPUT',
+    'NO_MATCHING_RULE',
+    'EVALUATION_ERROR',
+  ]);
+});
 
 const BASE = {
   operation: 'read' as const,
