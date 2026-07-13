@@ -105,7 +105,8 @@ non-React drivers.
 | `filter` | `string` | Picks the zero state: "No users for this project yet" vs "No results" (`data-pyric-no-results`). |
 | `onSelect` | `(user) => void` | Identifier cell becomes a button. |
 | `renderIdentifier` / `renderProviders` / `renderActions` | render props | Cell overrides; actions add a trailing column. |
-| `formatDate` | `(iso \| null) => ReactNode` | Default: locale date, em dash for null. |
+| `formatCreatedAt` | `(iso \| null) => ReactNode` | Created-time formatter. Default: locale date, em dash for null. |
+| `formatLastLoginAt` | `(iso \| null) => ReactNode` | Last-sign-in formatter. Kept separate so consumers can render a null login as "never". |
 | `emptyState` / `noResultsState` | `ReactNode` | Copy overrides. |
 | `virtualizeThreshold` / `rowHeight` / `virtualizedHeight` | | Virtualizes >100 rows via `<VirtualList>`. |
 

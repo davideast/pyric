@@ -8,8 +8,8 @@
  *     geopoint / timestamp / reference fields), plus `users` and `posts`.
  *     Writes go through the ADMIN handle (`getAdminFirestore`) so the seed
  *     bypasses rules; it's a fixture, not an app action.
- *   - Auth: a handful of users incl. a Google-style verified user and an
- *     anonymous user, via the `sandbox.createUser` admin seam.
+ *   - Auth: admin-created users via `sandbox.createUser`, plus an anonymous
+ *     account created through the client sign-in flow.
  *   - Storage: a couple of objects (an avatar PNG + a text note attachment).
  *
  * Everything here is import-gated behind `import.meta.env.DEV` at the call site
@@ -29,7 +29,13 @@ import {
   updateDoc,
   type Firestore,
 } from 'pyric/firestore';
-import { getAuth, sandbox as authSandbox, type Auth } from 'pyric/auth';
+import {
+  getAuth,
+  sandbox as authSandbox,
+  signInAnonymously,
+  signOut,
+  type Auth,
+} from 'pyric/auth';
 import { ref, uploadBytes, type FirebaseStorage } from 'pyric/storage';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
@@ -48,21 +54,22 @@ export interface SeededHandles {
   storage: FirebaseStorage;
 }
 
-/** Three sandbox users: a Google-style verified user, a password user, and an
- *  anonymous one, created through the admin user seam. */
-function seedAuth(auth: Auth): void {
+/** Three admin-created users plus one real anonymous sign-in. Provider
+ * provenance lives in Auth's provider fields, never in custom claims. */
+export async function seedAuth(auth: Auth): Promise<void> {
   authSandbox.createUser(auth, {
     uid: 'alice',
     email: 'alice@gmail.com',
     displayName: 'Alice Nguyen',
     emailVerified: true,
     photoUrl: 'https://lh3.googleusercontent.com/a/alice',
-    // Google-style sign-in is reflected by a verified Google email + photo.
-    customClaims: { provider: 'google.com', plan: 'pro' },
+    providerUserInfo: [{ providerId: 'google.com' }],
+    customClaims: { plan: 'pro' },
   });
   authSandbox.createUser(auth, {
     uid: 'bob',
     email: 'bob@example.com',
+    password: 'pyric-demo',
     displayName: 'Bob Carter',
     emailVerified: true,
     customClaims: { role: 'editor' },
@@ -73,10 +80,10 @@ function seedAuth(auth: Auth): void {
     displayName: 'Carol Diaz',
     emailVerified: false,
   });
-  // An anonymous user: no email, no display name (Firebase's anon shape).
-  authSandbox.createUser(auth, {
-    uid: 'anon-7Hk2',
-  });
+  // Anonymous accounts are born through sign-in. Admin createUser with no
+  // email is still a non-anonymous account and must not be presented as one.
+  await signInAnonymously(auth);
+  await signOut(auth);
 }
 
 /** A geopoint near SF, reused across the geo-tagged notes. */
@@ -263,7 +270,7 @@ export async function applySeed(
   handles: Pick<SeededHandles, 'adminFirestore' | 'auth' | 'storage'>,
 ): Promise<void> {
   await seedFirestore(handles.adminFirestore);
-  seedAuth(handles.auth);
+  await seedAuth(handles.auth);
   await seedStorage(handles.storage);
 }
 
