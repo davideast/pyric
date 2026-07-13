@@ -10,9 +10,8 @@ Headless components + hooks for browsing AND administering Firebase Storage —
 list/navigate/select (the read path), upload, inspect, metadata editing, and
 bulk delete (the write path), plus rules-aware affordances (the gate
 pre-evaluates rules so denied actions warn BEFORE the click). Same one-handle
-contract as the Firestore half: every hook takes a `FirebaseStorage` handle
-(`pyric/storage` sandbox or prod), so the same components work against the
-in-browser sandbox and a real bucket.
+contract as the Firestore half: every hook takes the sandbox
+`FirebaseStorage` handle from `pyric/storage`.
 ```ts
 import {
   // read path
@@ -95,7 +94,7 @@ function StorageAdmin({ storage }) {
 
 - [Rules-aware affordances](../ui-storage-rules-aware-affordances/) — how the gate's
   verdicts flow into `data-pyric-denied` rows and disabled-with-reason
-  states, and the advisory-on-prod caveat.
+  states.
 
 ## Hooks
 
@@ -118,13 +117,11 @@ also has a full page). Summary:
   uploads yet, so tasks complete in one tick — the type won't change when
   resumable lands). Optimistic insert + rollback through the `list` seam.
   Also `createFolder(name)` — writes the zero-byte `<path>/` placeholder
-  (GCS convention; sandbox-only until `pyric/storage` grows a prod
-  channel).
+  (the GCS convention) into the sandbox mirror.
 - **`useStorageObject(storage, path)`** — one object's metadata + lazy
   bytes: `{ status, metadata, error, refresh, blobStatus, blob, blobUrl,
-  blobError, loadBlob }`. `blobUrl` is a `URL.createObjectURL` handle
-  (there's no `getDownloadURL`), revoked automatically on path change and
-  unmount.
+  blobError, loadBlob }`. `blobUrl` is a `URL.createObjectURL` handle,
+  revoked automatically on path change and unmount.
 - **`useMetadataEditor(storage, path, { initial })`** — the
   `useDocumentEditor` reducer pattern over `updateMetadata`: contentType,
   cacheControl, customMetadata k/v rows (stable ids, empty/duplicate-key
@@ -141,24 +138,23 @@ also has a full page). Summary:
   writeResource? })`** — pre-flight rules verdicts (`{ read, write,
   delete, upload, reasons }`; delete/upload derive from write) via the
   pure evaluator. Sandbox handles need zero config (rules + identity come
-  off the handle); prod callers pass both explicitly and verdicts are
-  **advisory** — the server is authoritative. Fails open. Full page:
+  off the handle). Fails open. Full page:
   [useStorageRulesGate](../ui-storage-usestoragerulesgate/).
 
 ## Constraints worth knowing (from the storage COMPAT)
 
-- **`listAll` only, no pagination** — fine at sandbox scale; a very large
-  prod prefix arrives as one flat result. `<ObjectBrowser>` virtualizes, but
+- **`listAll` only, no pagination** — a very large sandbox prefix arrives
+  as one flat result. `<ObjectBrowser>` virtualizes, but
   the fetch itself is unpaginated. The recursive delete walks the same way.
 - **Read-via-get, not realtime** — lists and inspectors update on `refresh`,
   path change, or the optimistic seam.
-- **No `getDownloadURL`** — previews go through `getBlob` →
-  `URL.createObjectURL`, identical sandbox/prod.
+- **`getDownloadURL` is page-local** — it returns a blob URL backed by
+  the sandbox object; revoke it with `URL.revokeObjectURL` when done.
 - **No resumable uploads** — `useObjectUpload` is task-shaped for
   forward-compat; `onProgress` fires start + completion today.
-- **Create-folder is sandbox-only** — the `<path>/` placeholder name can't
-  be expressed through the JS-SDK-shaped `ref()`; prod support is a
-  `pyric/storage` follow-up.
+- **Create-folder uses a structural reference** — the `<path>/` placeholder
+  name cannot be expressed through the JS-SDK-shaped `ref()` because it
+  normalizes trailing slashes.
 
 ## See also
 

@@ -16,17 +16,9 @@ The operation has an authenticated user but rules denied it.
 
 `getBytes`, `getBlob`, `getMetadata`, `updateMetadata` against a path with no stored object.
 
-### `'storage/invalid-checksum'`
-
-The uploaded payload didn't match its declared checksum. Rare in the sandbox; mostly a prod-path code.
-
 ### `'storage/quota-exceeded'`
 
 `getBytes` / `getBlob` called with `maxDownloadSizeBytes` and the stored object is larger.
-
-### `'storage/canceled'`
-
-The operation was cancelled before completing. Currently sandbox doesn't generate this; the prod backend can.
 
 ### `'storage/invalid-argument'`
 
@@ -35,12 +27,10 @@ A function argument failed validation. Common cases: empty path, malformed strin
 ## Branching
 
 ```ts
-import { FirebaseError } from 'firebase/app';
-
 try {
   await getBlob(ref(storage, 'sessions/n1'));
 } catch (e) {
-  if (e instanceof FirebaseError) {
+  if (e && typeof e === 'object' && 'code' in e) {
     switch (e.code) {
       case 'storage/object-not-found':
         // missing
@@ -58,11 +48,10 @@ try {
 }
 ```
 
-Both backends throw `FirebaseError` for shape-consistency with the upstream `firebase/storage`. The sandbox's rule-denial errors are translated to `FirebaseError` with `storage/unauthorized` (or `storage/unauthenticated`) so consumers can write one catch.
+The sandbox throws `StorageError`, an `Error` subclass whose `.code` carries the Firebase-shaped value. Production code imports `firebase/storage` directly and receives Firebase's own error class; branching on `.code` works in both environments without coupling application code to either constructor.
 
-## What's different between backends
+## What the sandbox does not emit
 
-- **Sandbox**: only emits `unauthenticated`, `unauthorized`, `object-not-found`, `quota-exceeded`, `invalid-argument`. Network-bound codes don't apply.
-- **Prod**: can emit any code in the upstream `firebase/storage` set, including `canceled`, `retry-limit-exceeded`, `app-deleted`, `server-file-wrong-size`, etc.
+The sandbox emits only `unauthenticated`, `unauthorized`, `object-not-found`, `quota-exceeded`, `invalid-root-operation`, `invalid-format`, and `invalid-argument`. Network-bound codes such as `canceled`, `retry-limit-exceeded`, `app-deleted`, and `server-file-wrong-size` do not apply.
 
-If your error-handling code branches on a code only prod can emit, the branch will never fire in tests. That's the same situation as `metadata.fromCache` in Firestore: inert path on sandbox, real on prod.
+If application error handling branches on a network-only code, that branch will not fire while the package swap is active. Exercise it in a production-integration test against Firebase.

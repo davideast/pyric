@@ -6,7 +6,7 @@
 
 The bounded subset:
 
-- `getStorageSandbox`, `getStorageProd`.
+- `getStorage`, `getStorageSandbox`.
 - `ref` with both overloads.
 - `uploadBytes`, `uploadString`.
 - `getBytes`, `getBlob`, `getDownloadURL`.
@@ -20,7 +20,7 @@ End-to-end coverage: see `packages/pyric/test/storage/session-archive.test.ts`.
 
 ### The sandbox `getDownloadURL` boundary
 
-Prod handles return Firebase's token-signed HTTPS URL. Sandbox handles return a page-local `blob:` URL over the same rules-checked bytes:
+The sandbox mirror returns a page-local `blob:` URL over the rules-checked bytes. Production builds resolve `firebase/storage` directly and therefore receive Firebase's token-signed HTTPS URL:
 
 ```ts
 const url = await getDownloadURL(ref(storage, 'sessions/n1'));
@@ -74,9 +74,9 @@ Three questions:
 
 1. **Is your operation in the in-scope list above?** If yes, it works.
 2. **Does your rule use only the subset in [`Storage rules subset`](../reference/rules-subset.md)?** If yes, it'll parse and enforce correctly.
-3. **Are you on a sandbox handle (IndexedDB), or a prod handle (real Cloud Storage)?** The sandbox-only options affect only the sandbox path.
+3. **Are you running with the Pyric package swap active?** If yes, Storage is the IndexedDB-backed sandbox; a normal production build resolves Firebase directly.
 
-If your answer to any is "no", check the deferred list. Often there's a narrower API or a different backend (prod for unbounded features).
+If your answer to any is "no", check the deferred list. Production-only features remain available by running the normal build against Firebase.
 
 ## When to upgrade the v1 scope
 

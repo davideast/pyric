@@ -73,9 +73,8 @@ function Toolbar({ storage, path }) {
   folders as prefixes) and collect into the outcome.
 - **The gate check is per-entry and pre-flight** — folder entries evaluate
   the folder path itself (an approximation of the recursive walk; exact
-  under `{allPaths=**}`-shaped rules). On prod handles verdicts are
-  advisory — the server still decides, and a denial there surfaces through
-  the normal typed-code error toast.
+  under `{allPaths=**}`-shaped rules). A denial surfaces through the normal
+  typed-code error toast.
 - **The recursive default sweeps `<path>/` placeholders** after the walk, so
   folders created via `createFolder` actually disappear (`listAll` hides
   placeholders — without the sweep they'd ghost as empty prefixes).

@@ -148,10 +148,10 @@ The delete works under the `request.resource == null` carve-out: the rule's writ
 - `ref`, `uploadBytes`, `getBlob`, `listAll`, `deleteObject` are the building blocks.
 - The Storage rules grammar supports `request.auth`, `request.resource`, `resource`, and standard operators.
 - The `request.resource == null` carve-out is how delete rules co-exist with size/content-type checks.
-- Errors come through as `FirebaseError` with `storage/` codes; catch by code.
+- Errors come through as `StorageError` with `storage/` codes; catch by code.
 
 ## Where to go next
 
-- Swap the backend to real Firebase Storage: see [Switch between sandbox and prod backends](../how-to/switch-backends.md).
+- See how unchanged application imports select sandbox or Firebase: [Switch between sandbox and production](../how-to/switch-backends.md).
 - Round-trip custom metadata: see [Round-trip metadata](../how-to/round-trip-metadata.md).
 - Read about what's deferred from this v1 scope: see [Implementation scope and deferred features](../explanation/implementation-scope.md).

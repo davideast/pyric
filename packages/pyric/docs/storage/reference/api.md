@@ -6,13 +6,13 @@ Every symbol exported from `pyric/storage`.
 
 ## Entry points
 
-### `getStorage(app): FirebaseStorage`
+### `getStorage(app, bucketUrl?): FirebaseStorage`
 
 ```ts
-function getStorage(app: PyricApp): FirebaseStorage
+function getStorage(app: PyricApp, bucketUrl?: string): FirebaseStorage
 ```
 
-Unified entry point. Reads the target brand on the `pyric/app` handle and forwards to `getStorageSandbox(app.sandbox)` or `getStorageProd(app.firebaseApp)`. Takes no options: Storage's per-backend options (sandbox `bucket`/`dbName`/`rules`; prod `bucket`) don't collapse into a single no-coupling signature. Callers that need options use `getStorageSandbox` or `getStorageProd` directly.
+Firebase-shaped sandbox entry point. Package resolution selects this mirror before it loads, so it accepts only a sandbox-backed `PyricApp`. `bucketUrl` is accepted for call-site compatibility but ignored by the single-bucket sandbox. Direct tests that need `bucket`, `dbName`, or `rules` use `getStorageSandbox`.
 
 ### `getStorageSandbox(target, options?): FirebaseStorage`
 
@@ -20,13 +20,9 @@ Build a Storage handle backed by IndexedDB.
 
 `target` is either a `Sandbox` (anonymous identity wired internally) or a `SandboxContext`. The handle is idempotent: calling `getStorageSandbox` twice with the same context returns the same wrapper.
 
-### `getStorageProd(app, options?): FirebaseStorage`
-
-Build a Storage handle backed by the real Firebase Storage. Dispatches to `firebase/storage`.
-
 ### `const TARGET_SYMBOL: unique symbol`
 
-The discriminator that lets downstream functions tell the two backends apart. Consumers don't import this. Pass the handle to free functions.
+The private brand carrying the handle's sandbox service, identity, bucket, and admin-lens state. Consumers don't import this. Pass the handle to free functions.
 
 ## Errors
 
@@ -38,7 +34,7 @@ class StorageError extends Error {
 }
 ```
 
-Every sandbox operation that fails throws one of these, so `err.code === 'storage/...'` branching works the same against the sandbox and a real bucket. The sandbox raises only the codes in `StorageErrorCode` below; the prod backend delegates to `firebase/storage` and can throw any code in its larger set. See [Error codes](./error-codes.md) for the full branching table, sandbox and prod.
+Every sandbox operation that fails throws one of these, so consumer code can branch on `err.code === 'storage/...'`. Production code receives Firebase's own errors because it imports `firebase/storage` directly. See [Error codes](./error-codes.md).
 
 ### `StorageErrorCode`
 
@@ -115,7 +111,7 @@ Throws `storage/object-not-found` on missing path. Throws `storage/quota-exceede
 
 ### `getDownloadURL(ref): Promise<string>`
 
-Returns a URL that fetches the stored object. Prod handles delegate to Firebase and return its token-signed HTTPS URL. Sandbox handles return a `blob:` URL owned by the calling page:
+Returns a page-owned `blob:` URL that fetches the stored sandbox object:
 
 ```ts
 const url = await getDownloadURL(ref(storage, 'avatars/ada.png'));
@@ -268,13 +264,9 @@ interface StorageOptions {
 
 See [`StorageOptions`](./storage-options.md).
 
-### `ProdStorageOptions`
+### `Target`, `SandboxTarget`
 
-The options accepted by `getStorageProd`. Subset of `StorageOptions`: no `dbName` (there's no IndexedDB on the prod backend), no `rules` (rules are deployed via `firebase deploy --only storage:rules`, or via `deployStorageRules` below).
-
-### `Target`, `SandboxTarget`, `ProdTarget`
-
-Discriminated union for routing. Exported for callers writing instrumentation that wants to narrow on backend. Application code doesn't touch them.
+Sandbox handle state. Exported for instrumentation; application code does not touch it.
 
 ## Admin / control plane
 

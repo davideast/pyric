@@ -50,8 +50,8 @@ useStorageRulesGate(storage, {
 | Option | Type | Description |
 |---|---|---|
 | `paths` | `string \| readonly string[]` | Paths pre-evaluated into `verdicts` (keyed by normalized path). Ad-hoc paths go through `verdictFor` — same evaluation. |
-| `rules` | `string \| StorageRules` | Explicit rules source — raw text (parsed here; malformed → `status: 'error'`) or pre-parsed. Overrides the sandbox's deployed ruleset; **required for meaningful prod verdicts** (production rules live server-side). |
-| `identity` | `StorageAuth \| null` | Identity override. `null` = anonymous; **omit** to use the handle's own identity (the sandbox context's `auth`). Prod callers pass the signed-in `{ uid, token }` explicitly. |
+| `rules` | `string \| StorageRules` | Explicit rules source — raw text (parsed here; malformed → `status: 'error'`) or pre-parsed. Overrides the sandbox's deployed ruleset. |
+| `identity` | `StorageAuth \| null` | Identity override. `null` = anonymous; **omit** to use the handle's own identity (the sandbox context's `auth`). |
 | `writeResource` | `{ size: number; contentType?: string }` | Bound as `request.resource` for the WRITE evaluation — pass it when gating a specific upload so size/contentType-conditioned rules evaluate truthfully. Omitted = delete semantics (no inbound payload). |
 
 ### Result
@@ -60,7 +60,7 @@ useStorageRulesGate(storage, {
 |---|---|---|
 | `status` | `'idle' \| 'loading' \| 'ready' \| 'error'` | `'idle'` only when `storage` is null. Sandbox rules resolve async (one await). |
 | `source` | `'option' \| 'sandbox' \| 'none'` | Where the active ruleset came from. `'none'` = nothing reachable — everything allows (open-by-default, matching `pyric/storage` enforcement). |
-| `advisory` | `boolean` | `true` for prod handles — see the caveat below. |
+| `advisory` | `boolean` | Always `false`; `pyric/storage` handles are sandbox mirrors. |
 | `identity` | `StorageAuth \| null` | The identity verdicts evaluate under. |
 | `verdicts` | `Record<string, StorageGateVerdict>` | Pre-evaluated verdicts for `paths`. |
 | `verdictFor` | `(path: string) => StorageGateVerdict` | Evaluate any path — pure + synchronous once ready. |
@@ -79,19 +79,9 @@ false"`), ready for tooltips.
   `getStorageSandbox(ctx, { rules })` parsed at config time, and the
   context's `auth`. Pass nothing; verdicts are **truthful** (same
   evaluator, same bindings as enforcement).
-- **Prod handle** — neither is client-readable. Pass `rules` (a mirror of
-  your deployed `storage.rules`) + `identity` explicitly, and treat
-  verdicts as advisory.
 
-## The advisory-on-prod caveat
-
-On prod handles `advisory` is `true`: the verdicts come from a
-client-side evaluation of whatever rules text you supplied, which can
-drift from what is actually deployed — and the rules subset is smaller
-than the full CEL language. **The server is authoritative.** Use prod
-verdicts to improve affordances (hide/disable what will obviously fail),
-never as a security boundary. On the sandbox the gate and the enforcement
-layer are the same evaluator, so verdicts there are exact.
+Production applications select `firebase/storage` through package
+resolution, so this Pyric-only hook is not present in production bundles.
 
 ## Evaluation contract
 

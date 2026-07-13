@@ -7,7 +7,7 @@ order: 15001
 ---
 # `pyric/storage`
 
-Firebase Storage adapter for the Pyric sandbox. Modular Web-SDK shape (`getStorageSandbox`, `ref`, `uploadBytes`, `getBytes`, `listAll`, `deleteObject`) backed by IndexedDB. A `getStorageProd` factory dispatches the same call sites to real Firebase Storage.
+Firebase Storage mirror for the Pyric sandbox. Its modular Web-SDK shape (`getStorage`, `ref`, `uploadBytes`, `getBytes`, `getDownloadURL`, `listAll`, `deleteObject`) is backed by IndexedDB. Production selection happens outside this package: normal builds resolve `firebase/storage`, while Pyric development swaps that import to this sandbox mirror.
 
 Built for the agent-session-archive use case. The scope is bounded; the architecture validates the broader pattern for adding file-based services to `pyric/sandbox`.
 
@@ -61,7 +61,7 @@ This documentation follows the [Diataxis](https://diataxis.fr/) framework:
 
 ## Position in the Pyric stack
 
-`pyric/storage` is the **storage data-plane adapter** (plus a thin control plane). It depends on `pyric/sandbox` for identity (and lifecycle on the sandbox backend), `pyric-tools/deploy` for the bucket-provisioning calls, and `@inbrowser/agent` for the tool-factory contract. It exposes the modular Web SDK's Storage surface. Sibling to `pyric/firestore` and `pyric-admin` on the Firestore side.
+`pyric/storage` is the sandbox **storage data-plane adapter** (plus a thin control plane). It depends on `pyric/sandbox` for identity and lifecycle, `@pyric/cli` for package-level activation, and `@inbrowser/agent` for the tool-factory contract. It exposes the modular Web SDK's Storage surface without importing the production implementation.
 
 The package's rules engine is local to the package. Storage rules use a different DSL from Firestore rules, so unlike `pyric/firestore` (which depends on `pyric/rules`), this package keeps the Storage-specific parser and evaluator in-tree.
 
