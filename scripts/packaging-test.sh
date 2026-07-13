@@ -304,6 +304,19 @@ let failed = false;
 const ok = (m) => console.log('  ✓ ' + m);
 const bad = (m) => { console.error('  ✗ ' + m); failed = true; };
 
+async function assertNotExported(subpath) {
+  try {
+    await import(subpath);
+    bad(subpath + ' still resolves');
+  } catch (error) {
+    if (error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+      ok(subpath + ' is not exported');
+    } else {
+      bad(subpath + ' failed for an unexpected reason: ' + String(error));
+    }
+  }
+}
+
 // The Vite plugin entry exposes the swap+bridge plugin factory.
 const vite = await import('@pyric/cli/vite');
 if (typeof vite.pyricSandbox === 'function') ok('@pyric/cli/vite exports pyricSandbox()');
@@ -322,55 +335,19 @@ for (const sym of ['createBridge', 'startServer']) {
 
 // Production deployment is owned by firebase-tools. The old programmatic
 // subpath must fail resolution instead of lingering as a compatibility shim.
-try {
-  await import('@pyric/cli/deploy');
-  bad('@pyric/cli/deploy still resolves');
-} catch (error) {
-  if (error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
-    ok('@pyric/cli/deploy is not exported');
-  } else {
-    bad('@pyric/cli/deploy failed for an unexpected reason: ' + String(error));
-  }
-}
+await assertNotExported('@pyric/cli/deploy');
 
 // Pyric does not own a browser OAuth flow or persisted Google login. Hosted
 // Rules Test API verification resolves its non-interactive credentials inside
 // the CLI instead of publishing the former credential toolkit.
-try {
-  await import('@pyric/cli/credentials');
-  bad('@pyric/cli/credentials still resolves');
-} catch (error) {
-  if (error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
-    ok('@pyric/cli/credentials is not exported');
-  } else {
-    bad('@pyric/cli/credentials failed for an unexpected reason: ' + String(error));
-  }
-}
+await assertNotExported('@pyric/cli/credentials');
 
 // Auth administration is a production control-plane concern. The CLI does
 // not publish a programmatic adapter for Identity Toolkit operations.
-try {
-  await import('@pyric/cli/auth');
-  bad('@pyric/cli/auth still resolves');
-} catch (error) {
-  if (error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
-    ok('@pyric/cli/auth is not exported');
-  } else {
-    bad('@pyric/cli/auth failed for an unexpected reason: ' + String(error));
-  }
-}
+await assertNotExported('@pyric/cli/auth');
 
 // Production/admin tool composition is not part of the public CLI contract.
-try {
-  await import('@pyric/cli/registry');
-  bad('@pyric/cli/registry still resolves');
-} catch (error) {
-  if (error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
-    ok('@pyric/cli/registry is not exported');
-  } else {
-    bad('@pyric/cli/registry failed for an unexpected reason: ' + String(error));
-  }
-}
+await assertNotExported('@pyric/cli/registry');
 
 if (failed) process.exit(1);
 SHAPEJS
