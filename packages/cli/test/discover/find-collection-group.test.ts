@@ -21,12 +21,12 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import {
-  findCollectionGroup,
-  type CollectionGroupCapableFirestore,
-  type CollectionGroupQuery,
-  type CollectionGroupSnapshot,
-} from '../../src/discover/findCollectionGroup.js';
+import { findCollectionGroup } from '../../src/discover/findCollectionGroup.js';
+import type {
+  CollectionGroupCapableFirestore,
+  CollectionGroupQuery,
+  CollectionGroupSnapshot,
+} from '../../src/discover/firestore-source.js';
 
 // ─── Mock collection-group query ──────────────────────────────────────────
 

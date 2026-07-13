@@ -18,6 +18,7 @@
 
 import type { FieldObservation } from './merge.js';
 import { fieldTypeKey } from './merge.js';
+import type { WireDocumentSnapshot } from './firestore-source.js';
 import type {
   ExampleValue,
   FieldType,
@@ -247,18 +248,6 @@ function parseRefTargetCollectionPath(refPath: string): string {
 }
 
 // ─── Document snapshot → observations ─────────────────────────────────────
-
-/**
- * Minimal shape of the firebase-admin DocumentSnapshot needed by this
- * module. Defined here to avoid pulling firebase-admin types into a pure
- * data file — the crawler/handler layer is responsible for handing us
- * objects that satisfy this shape.
- */
-export interface WireDocumentSnapshot {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  _fieldsProto?: Record<string, any>;
-  ref?: { path?: string };
-}
 
 /**
  * Convert a Firestore document snapshot into a FieldObservation map.
