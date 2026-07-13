@@ -29,7 +29,7 @@ import { LocalEnvironment } from 'pyric/sandbox/internal';
 import {
   LocalEnvironmentCrawlerAdapter,
   createFirestoreDiscoverTools,
-} from '../../../../pyric-tools/src/discover/index.js';
+} from '../../../../cli/src/discover/index.js';
 import { parseToAST } from 'pyric/rules/internal';
 import type { MatchBlock } from 'pyric/rules/internal';
 

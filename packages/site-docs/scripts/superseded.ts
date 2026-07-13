@@ -13,7 +13,7 @@
  * that replaced it.
  */
 export const SUPERSEDED: Record<string, string> = {
-  'packages/pyric-tools/docs/tutorials/getting-started.md': 'start-building',
+  'packages/cli/docs/tutorials/getting-started.md': 'start-building',
   // Modernization pass, 2026-07-10: role duplicates the editors flagged
   // and the gate confirmed (whole job done by the guide, no unique depth
   // left behind). Pages with unique depth stay (server-adoption,

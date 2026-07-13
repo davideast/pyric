@@ -7,7 +7,7 @@
  * remembered:
  *
  *   1. MCP bridge (sandbox mode) — what
- *      packages/pyric-tools/src/bridge/server/tool-metadata.ts composes:
+ *      packages/cli/src/bridge/server/tool-metadata.ts composes:
  *      forwarded sandbox tools + in-process rules tools.
  *   2. Playground agent — what
  *      packages/playground/src/lib/tools/index.ts's buildToolRegistry()
@@ -101,7 +101,7 @@ function factoryNames(rel, factoryName) {
 // subset the composition actually registers.
 
 const PYRIC = 'packages/pyric/src';
-const TOOLS = 'packages/pyric-tools/src';
+const TOOLS = 'packages/cli/src';
 const PLAY = 'packages/playground/src/lib';
 
 /** MCP bridge, sandbox mode — mirrors bridge/server/tool-metadata.ts. */

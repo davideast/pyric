@@ -6,7 +6,7 @@
  * Sources — ALL of them, the full port:
  *   packages/pyric/docs         (per-service trees: firestore, rules, …)
  *   packages/pyric-admin/docs
- *   packages/pyric-tools/docs   (root tree + deploy + bridge)
+ *   packages/cli/docs   (root tree + deploy + bridge)
  *   packages/ui/docs            (per-category component pages)
  *
  * For each markdown file this writes src/content/docs/<slug>.md:
@@ -68,9 +68,10 @@ interface SectionSpec {
 }
 
 interface GroupSpec {
-  /** Package id — the slug prefix comes from the docs-root-relative
-   *  path, so this is only used to find the docs root. */
+  /** Local workspace directory used to find the docs root. */
   pkg: string;
+  /** Stable public slug prefix when it differs from the local directory. */
+  slugPrefix?: string;
   /** Nav group label. */
   label: string;
   /** Group dir relative to the package's docs root. */
@@ -90,7 +91,8 @@ const DIATAXIS: SectionSpec[] = [
 
 const GROUPS: GroupSpec[] = [
   {
-    pkg: 'pyric-tools',
+    pkg: 'cli',
+    slugPrefix: 'pyric-tools',
     label: 'pyric-tools',
     dir: '.',
     sections: [
@@ -101,7 +103,13 @@ const GROUPS: GroupSpec[] = [
       { label: 'Bridge', path: 'bridge/README.md' },
     ],
   },
-  { pkg: 'pyric-tools', label: 'pyric-tools / deploy', dir: 'deploy', sections: DIATAXIS },
+  {
+    pkg: 'cli',
+    slugPrefix: 'pyric-tools',
+    label: 'pyric-tools / deploy',
+    dir: 'deploy',
+    sections: DIATAXIS,
+  },
   {
     pkg: 'pyric',
     label: 'pyric',
@@ -248,11 +256,11 @@ function parseFrontmatter(raw: string): {
 
 /** Slug for a source file: pkg id + docs-root-relative path, lowercased,
  *  separators → '-', README segment dropped. Unique by assertion. */
-function slugFor(pkg: string, absFile: string): string {
+function slugFor(pkg: string, absFile: string, slugPrefix = pkg): string {
   const rel = relative(docsRoot(pkg), absFile).split(sep).join('/');
   const segs = rel.replace(/\.md$/, '').split('/');
   if (segs[segs.length - 1] === 'README') segs.pop();
-  return [pkg, ...segs].join('-').toLowerCase();
+  return [slugPrefix, ...segs].join('-').toLowerCase();
 }
 
 /**
@@ -447,7 +455,7 @@ function nextOrder(group: string): number {
 
 function addPage(src: string, group: GroupSpec, section: string) {
   if (supersededByAbs.has(src)) return; // replaced by a guide page
-  const slug = slugFor(group.pkg, src);
+  const slug = slugFor(group.pkg, src, group.slugPrefix);
   const title = titleOf(src);
   const clash = bySlug.get(slug);
   if (clash) throw new Error(`slug clash: ${slug} (${clash.src} vs ${src})`);
@@ -556,7 +564,7 @@ function* walkMd(dir: string): Generator<string> {
     else if (entry.name.endsWith('.md')) yield full;
   }
 }
-for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {
+for (const pkg of ['pyric', 'pyric-admin', 'cli', 'ui']) {
   for (const f of walkMd(docsRoot(pkg))) {
     if (!bySrc.has(f) && !supersededByAbs.has(f)) {
       throw new Error(`unclaimed source doc: ${f}`);

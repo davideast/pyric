@@ -17,7 +17,7 @@
  * Self-booting: spawns its own `pyric dev --port 0` on examples/ai-chat, so
  * it runs the same under this directory's shared playwright.config.ts or
  * standalone. `*.pw.ts` keeps it out of `bun test` (see README.md here).
- * Requires the built dist: `bun run build:pyric-tools`.
+ * Requires the built dist: `bun run build:cli`.
  */
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';

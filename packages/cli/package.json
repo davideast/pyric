@@ -6,7 +6,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/davideast/pyric.git",
-    "directory": "packages/pyric-tools"
+    "directory": "packages/cli"
   },
   "bugs": {
     "url": "https://github.com/davideast/pyric/issues"

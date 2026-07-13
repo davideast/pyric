@@ -5,7 +5,7 @@
  *
  * Checks, against dist/ and the content source:
  * 0. Every markdown file under every packages/<pkg>/docs tree (pyric,
- *    pyric-admin, pyric-tools, ui) is ported into the collection and
+ *    pyric-admin, cli, ui) is ported into the collection and
  *    built — the full multi-package port, nothing silently dropped.
  * 1. Every content page has an HTML route (`build.format: 'directory'`
  *    → `/docs/<slug>/index.html`) and a FLAT `.md` twin
@@ -87,7 +87,7 @@ function* walkMd(dir: string): Generator<string> {
   }
 }
 const slugSet = new Set(sources.map((s) => s.slug));
-for (const pkg of ['pyric', 'pyric-admin', 'pyric-tools', 'ui']) {
+for (const pkg of ['pyric', 'pyric-admin', 'cli', 'ui']) {
   const docsRoot = join(repoRoot, 'packages', pkg, 'docs');
   let count = 0;
   let missing = 0;

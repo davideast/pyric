@@ -5,7 +5,7 @@
 #
 # Prereq: `bun run build` (root) must have already built @pyric/cli's dist/ —
 # the SDK/worker bundler is imported directly from
-# packages/pyric-tools/dist/serve/bundler.js, not through a running server.
+# packages/cli/dist/serve/bundler.js, not through a running server.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

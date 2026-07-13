@@ -45,4 +45,4 @@ re-open the page.
 ## Status
 
 Pre-release. The MCP proxy + start skill are functional and tested in
-`packages/pyric-tools`.
+`packages/cli`.

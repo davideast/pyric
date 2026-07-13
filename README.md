@@ -113,7 +113,7 @@ await db.ref('rooms/lobby').set({ topic: 'launch day' });
 |---|---|---|
 | `pyric` | Web SDK mirror, rules tooling, sandbox runtime | [docs](packages/pyric/docs/) |
 | `pyric-admin` | `firebase-admin` mirror over sandbox or production | [docs](packages/pyric-admin/docs/firestore/) |
-| `pyric-tools` | The `pyric` CLI: `dev`, `init`, MCP bridge, deploy, verify | [docs](packages/pyric-tools/docs/) |
+| `pyric-tools` | The `pyric` CLI: `dev`, `init`, MCP bridge, deploy, verify | [docs](packages/cli/docs/) |
 | `@pyric/ui` | Headless React admin components and hooks | [docs](packages/ui/docs/) |
 | `@pyric/studio` | The local console behind `pyric dev --ui` | [README](packages/studio/README.md) |
 
@@ -131,7 +131,7 @@ Requires Bun and Node 22 or later.
 ```bash
 bun install
 bun run build
-bun test packages/pyric packages/pyric-admin packages/pyric-tools packages/ui
+bun test packages/pyric packages/pyric-admin packages/cli packages/ui
 npm run test:packaging
 ```
 

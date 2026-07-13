@@ -33,23 +33,23 @@ The CI guard for the fix is the unit test `test/serve/worker/random-uuid.test.ts
 
 ## Run (localhost — passes)
 ```sh
-bun run build:pyric-tools          # the webServer runs the built CLI
+bun run build:cli          # the webServer runs the built CLI
 bunx playwright install chromium   # once
-cd packages/pyric-tools
+cd packages/cli
 bunx playwright test --config test/e2e/playwright.config.ts
 ```
 
-Run from `packages/pyric-tools` (like `test:soak`): from the repo root the
+Run from `packages/cli` (like `test:soak`): from the repo root the
 runner and the test files resolve two different `@playwright/test` instances
 and collection fails with "did not expect test() to be called here".
 
 ## Run (Tailscale repro — fails on a build without the fix)
 Start a serve reachable on your tailnet, then point the test at it:
 ```sh
-node packages/pyric-tools/dist/cli/index.js dev --port 5190 --host 0.0.0.0 \
+node packages/cli/dist/cli/index.js dev --port 5190 --host 0.0.0.0 \
   --no-open --allowed-host <your-tailnet-host> &
 E2E_BASE=http://<your-tailnet-host>:5190 \
-  bunx playwright test --config packages/pyric-tools/test/e2e/playwright.config.ts
+  bunx playwright test --config packages/cli/test/e2e/playwright.config.ts
 ```
 Without the fix, `onAuthStateChanged` never fires (status stuck on `loading`).
 With the fix it fires `[null, "google.com:..."]`.

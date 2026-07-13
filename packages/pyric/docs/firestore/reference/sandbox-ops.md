@@ -85,4 +85,4 @@ Firebase SDK and Firebase services.
 
 - For a task-oriented example, see [How to use sandbox-only operations](../how-to/use-sandbox-ops.md).
 - For the lint result shape, see [`pyric/rules` lint rules reference](../../rules/reference/lint-rules.md).
-- For production rule deployments, see [`pyric-tools/deploy`'s Firestore namespace](../../../../pyric-tools/docs/deploy/reference/firestore-namespace.md).
+- For production rule deployments, see [`pyric-tools/deploy`'s Firestore namespace](../../../../cli/docs/deploy/reference/firestore-namespace.md).

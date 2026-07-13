@@ -2,7 +2,7 @@
  * Loose wire shapes — structural mirrors of the `@pyric/cli` worker
  * protocol. Spelled loosely (not imported from the protocol module)
  * because `pyric` cannot depend on `@pyric/cli`; ops are kept
- * structurally identical to `packages/pyric-tools/src/serve/worker/protocol.ts`.
+ * structurally identical to `packages/cli/src/serve/worker/protocol.ts`.
  */
 
 /** Wire form of a doc/collection/group/query target. Mirrors

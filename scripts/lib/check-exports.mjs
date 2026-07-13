@@ -19,7 +19,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const PUBLISHABLE = ['pyric', 'pyric-admin', 'pyric-tools', 'ui'].map((p) =>
+const PUBLISHABLE = ['pyric', 'pyric-admin', 'cli', 'ui'].map((p) =>
   join(REPO, 'packages', p),
 );
 

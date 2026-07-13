@@ -39,7 +39,7 @@ fi
 PACKAGES=(
   "packages/pyric"
   "packages/pyric-admin"
-  "packages/pyric-tools"
+  "packages/cli"
   "packages/ui"
 )
 

@@ -2,7 +2,7 @@
  * Permission dial: state machine + confirm-policy mapping (F3).
  *
  * The dial is a 2×2 front-end over the bridge's `confirm-policy`
- * (`packages/pyric-tools/src/bridge/server/confirm-policy.ts`). Two axes:
+ * (`packages/cli/src/bridge/server/confirm-policy.ts`). Two axes:
  *
  *   - **tier**   : `sandbox` | `prod` (blast radius)
  *   - **review** : `review` | `no-review` (does the agent pause for confirmation?)
@@ -34,7 +34,7 @@
 
 /**
  * Mirror of the bridge's confirm-policy types
- * (`packages/pyric-tools/src/bridge/server/confirm-policy.ts`). These are
+ * (`packages/cli/src/bridge/server/confirm-policy.ts`). These are
  * structurally identical and intentionally re-declared here rather than
  * imported: the bridge's `./bridge` export resolves to its *browser* condition
  * (`client.d.ts`) in Studio's Vite build, which does not re-export the policy
