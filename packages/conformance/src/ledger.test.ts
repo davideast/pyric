@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { allCompatibilityRows, surfaceRegistries, type CompatibilityRow } from '../registry/index.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { observationExceptions } from '../exceptions/load.ts';
-import { renderAllCompatibilityMarkdown } from './generate-docs.ts';
+import { renderAllCompatibilityMarkdown, SCOREBOARD_PATH } from './generate-docs.ts';
 import { loadObservations, REPO_ROOT } from './ledger.ts';
 import { validateCompatibilityRegistry } from './validate-registry.ts';
 import { loadRigManifests } from '../rigs/load.ts';
@@ -123,7 +123,12 @@ describe('single-source compatibility registry', () => {
 
   test('generated markdown covers every checked-in compat document', () => {
     const docs = renderAllCompatibilityMarkdown();
-    expect(docs.size).toBe(surfaceRegistries.length);
+    // One doc per registry surface, plus the central scoreboard.
+    expect(docs.size).toBe(surfaceRegistries.length + 1);
+    for (const surface of surfaceRegistries) {
+      expect(docs.has(surface.compatPath)).toBe(true);
+    }
+    expect(docs.get(SCOREBOARD_PATH)).toContain('Generated from packages/conformance/registry/*.ts');
     expect(docs.get('packages/pyric/docs/auth/COMPAT.md')).toContain('Generated from packages/conformance/registry/*.ts');
   });
 

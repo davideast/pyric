@@ -3,17 +3,23 @@ title: "pyric/database compatibility matrix"
 navLabel: "Realtime Database"
 group: "Compatibility"
 section: ""
-order: 8004
+order: 8005
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 # `pyric/database` compatibility matrix
 
+> **Surface coverage:** 64.8% of Firebase's public exports · 79.5% of what pyric intends to mirror
+>
+> **Fidelity:** 77% (154 of 200 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
+
 > ⚠ **EXPERIMENTAL — not v1-supported.** The v1-supported, conformance-held surface is **auth + firestore + rules**. The modular `firebase/database` mirror rows below are verified sandbox-side by unit probes, but most are not yet captured against a live production project. Do not depend on RTDB parity for a production swap yet.
 
 `pyric/database` is the sandbox-only modular mirror. Package resolution selects it during Pyric development; production code continues to import the unchanged `firebase/database` package. The mirror never dispatches to production at runtime.
 
-The pure RTDB rules engine remains on the unstable `pyric/rules/internal/rtdb` seam for simulator, replay, mapper, grammar, and constraints consumers. Production data access and deployment are intentionally absent.
+The pure RTDB rules engine remains on the unstable `pyric/rules/internal/rtdb` seam for simulator, replay, grammar, and constraints consumers. Its compiled rules tree carries no service or database environment metadata. Production data access and deployment are intentionally absent.
 
 ## Status legend
 
@@ -100,12 +106,12 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 </details>
 </div>
 
-## `SimulateHandler.execute(ir, input)` — in-process rule evaluator
+## `simulateRtdbRules(compiled, input)` — in-process rule evaluator
 
 <div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">59</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>{ success: false, error: { code: 'IR_NOT_GENERATED' } }</code> when the supplied <code>ir</code> is <code>null</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
+<details class="compat-row" data-status="unsupported">
+<summary class="compat-line"><span class="compat-num">59</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">The removed stateful simulator returned a generate-before-simulate error when no IR had been generated</span></summary>
+<div class="compat-evidence"><div class="compat-probe">The stateless <code>simulateRtdbRules(compiled, input)</code> API requires a compiled rules tree and has no generate-before-simulate lifecycle.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">60</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns <code>{ success: false, error: { code: 'INVALID_INPUT' } }</code> when input doesn't parse against <code>SimulationInputSchema</code> (e.g. path missing leading slash, operation not in read / write / validate)</span></summary>
@@ -136,7 +142,7 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 <div class="compat-evidence"><div class="compat-probe">divergence: the simulator uses ONLY what's in <code>mockData</code>. Real rules engine reads from the live RTDB. Documented in <code>validated.ts</code> ("simulation uses empty mockData, so cross-path rule lookups … will evaluate as false")</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">67</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">An expression that fails to parse (<code>parsed.valid === false</code>) is skipped — the simulator falls through to the next ancestor</span></summary>
+<summary class="compat-line"><span class="compat-num">67</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">An expression that fails to parse (<code>parsed.valid === false</code>) produces an unsupported result rather than silently granting or fabricating a deny</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:simulation/handler.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
@@ -153,32 +159,7 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">71</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Simulator's allow/deny decision matches the real RTDB rules engine for the same <code>{ rules, mockData, auth, operation, path, newData }</code> tuple, modulo the documented cross-path divergence on row #66</span></summary>
-<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-simulator-vs-prod-agreement.json</code> — 8 test rules × 29 (rule, op) tuples; 28 agreements, 1 disagreement at capture time (<code>r4-validate-structure</code>: the simulator did not evaluate <code>.validate</code> on writes). The <code>.validate</code> walk is now implemented (<code>src/database/simulation/handler.ts</code>, reached from all backend write sites; grammar array-literals + <code>hasChildren(keys)</code> fixed alongside), closing the recorded disagreement — replayed as prod-conforming denial in <code>oracle-conformance.test.ts</code>. The frozen capture documents the historical divergence</div></div>
-</details>
-</div>
-
-## `rtdb_build_expression` — rule expression authoring
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">79</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Returns a <code>RtdbRuleExpression</code> with <code>raw</code>, <code>parsed.valid</code>, <code>parsed.errors</code>, <code>parsed.warnings</code>, <code>parsed.referencedIdentifiers</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:mapper.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">80</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">A syntactically valid expression sets <code>parsed.valid === true</code> and lists referenced identifiers (<code>auth</code>, <code>auth.uid</code>, <code>data</code>, etc.)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:mapper.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">81</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">A syntactically invalid expression sets <code>parsed.valid === false</code> and populates <code>parsed.errors</code> with <code>{ code, message }</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:mapper.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">82</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Linter warnings (e.g. always-true expressions, missing <code>auth</code> checks) populate <code>parsed.warnings</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:grammar/linter.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">83</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The grammar accepts every documented RTDB rule operator: logical (<code>&amp;&amp;</code>, <code>or</code>, <code>!</code>), equality (<code>==</code>, <code>===</code>, <code>!=</code>), comparison (<code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>), arithmetic (<code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>), ternary <code>?:</code>, member access, function call, string/regex literals</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:grammar/RtdbExprParser.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe">oracle: <code>packages/conformance/observations/rtdb/rtdb-simulator-vs-prod-agreement.json</code> — 8 test rules × 29 (rule, op) tuples; 28 agreements, 1 disagreement at capture time (<code>r4-validate-structure</code>: the simulator did not evaluate <code>.validate</code> on writes). The <code>.validate</code> walk is now implemented (<code>src/rules/rtdb/simulation/handler.ts</code>, reached from all backend write sites; grammar array-literals + <code>hasChildren(keys)</code> fixed alongside), closing the recorded disagreement — replayed as prod-conforming denial in <code>oracle-conformance.test.ts</code>. The frozen capture documents the historical divergence</div></div>
 </details>
 </div>
 
@@ -198,7 +179,7 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 <div class="compat-evidence"><div class="compat-probe"><code>unit:constraints/compose.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">87</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>ruleset(...)</code> builds an RTDB rules JSON object from a tree of path definitions + expression objects</span></summary>
+<summary class="compat-line"><span class="compat-num">87</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>ruleset(...)</code> builds an environment-independent compiled RTDB rules tree from path definitions + expression objects</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:constraints/ruleset.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
@@ -207,28 +188,28 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 </details>
 </div>
 
-## `RtdbMapper` — IR ↔ rules-JSON
+## Compiled RTDB rules tree ↔ rules JSON
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">89</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>mapToIR(rulesJson, shallowData, databaseUrl)</code> produces an <code>RtdbIR</code> tree where each node carries its path, parsed expressions, and child nodes</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:mapper.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">89</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>compileRtdbRules(rulesJson)</code> produces an environment-independent tree where each node carries its path, parsed expressions, and child nodes</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:compiled-rules.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">90</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>mapToRulesJSON(ir)</code> is the inverse: produces a rules-JSON payload accepted by the <code>/.settings/rules.json</code> PUT endpoint</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:mapper.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">90</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>serializeRtdbRules(compiled)</code> produces the Firebase rules-JSON payload for the compiled tree</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:compiled-rules.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">91</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Round-trip <code>mapToIR(mapToRulesJSON(ir))</code> produces an equivalent IR (locked path/expression-text equality, not object identity)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:mapper.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">91</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Round-trip <code>compileRtdbRules(serializeRtdbRules(compiled))</code> produces an equivalent rules tree (locked path/expression-text equality, not object identity)</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:compiled-rules.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">92</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Path-variable segments (<code>$userId</code>, <code>$gameId</code>) preserved across the round-trip</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:mapper.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:compiled-rules.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">93</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>.indexOn</code> arrays preserved across the round-trip</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:mapper.test.ts</code></div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:compiled-rules.test.ts</code></div></div>
 </details>
 </div>
 
@@ -1002,27 +983,6 @@ Simulation and structure crawling are sandbox/CLI operations; rules authoring an
 </details>
 </div>
 
-### `sandbox.*` — sandbox-only test driver
-
-<div class="compat-list">
-<details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">167</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>sandbox.setData(db, {path: value, ...})</code> bulk-loads data, bypassing rules</span></summary>
-<div class="compat-evidence"><div class="compat-probe">Phase 3 — mirror of firestore's <code>sandbox.seedDocuments</code></div></div>
-</details>
-<details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">168</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>sandbox.setRules(db, rules)</code> loads rules into the underlying local environment; returns <code>LintResult</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe">Phase 3</div></div>
-</details>
-<details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">169</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>sandbox.snapshotState(db)</code> dumps every path the local store has stored</span></summary>
-<div class="compat-evidence"><div class="compat-probe">Phase 3</div></div>
-</details>
-<details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">170</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">A production target is intentionally absent, so every <code>sandbox.*</code> method operates on a mirror-produced sandbox handle</span></summary>
-<div class="compat-evidence"><div class="compat-probe">Phase 3</div></div>
-</details>
-</div>
-
 ### Modular SDK surface — deny-list (intentionally NOT shimmed)
 
 > `goOffline` / `goOnline` / `forceLongPolling` / `forceWebSockets` / `enableLogging` (honest no-ops) and `refFromURL` (a real alias to `ref`) were moved OUT of this deny-list and mirrored — see the tables above.
@@ -1106,7 +1066,7 @@ The sandbox implementation has landed (`packages/pyric/src/database/modular.ts` 
 
 ## Probe coverage summary
 
-- **Pure rules engine:** simulator, mapper, grammar, and constraints tests under `packages/pyric/test/database/`.
+- **Pure rules engine:** compiler, simulator, grammar, and constraints tests under `packages/pyric/test/rules/rtdb/`.
 - **Modular mirror:** focused tests under `packages/pyric/test/database/modular/` plus frozen `rtdb-modular-*` production observations.
 - **Archived observations:** legacy `rtdb-*` captures remain immutable historical evidence but no longer contribute rows for the removed production toolkit.
 
@@ -1141,4 +1101,4 @@ rule modifications.
 
 ## Historical simulator-vs-production capture
 
-The frozen `rtdb-simulator-vs-prod-agreement.json` observation recorded 28 agreements and one historical `.validate` disagreement. The current `SimulateHandler` evaluates descendant validation rules on writes; row #71 and the simulator tests cover the repaired behavior without editing the frozen observation.
+The frozen `rtdb-simulator-vs-prod-agreement.json` observation recorded 28 agreements and one historical `.validate` disagreement. The current in-process RTDB rules engine evaluates descendant validation rules on writes; row #71 and the simulator tests cover the repaired behavior without editing the frozen observation.

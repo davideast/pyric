@@ -2,6 +2,12 @@
 
 # `pyric/database` compatibility matrix
 
+> **Surface coverage:** 64.8% of Firebase's public exports · 79.5% of what pyric intends to mirror
+>
+> **Fidelity:** 77% (154 of 200 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
+
 > ⚠ **EXPERIMENTAL — not v1-supported.** The v1-supported, conformance-held surface is **auth + firestore + rules**. The modular `firebase/database` mirror rows below are verified sandbox-side by unit probes, but most are not yet captured against a live production project. Do not depend on RTDB parity for a production swap yet.
 
 `pyric/database` is the sandbox-only modular mirror. Package resolution selects it during Pyric development; production code continues to import the unchanged `firebase/database` package. The mirror never dispatches to production at runtime.
@@ -62,16 +68,6 @@ These unsupported tombstones preserve immutable oracle `rowIds` for the removed 
 | 69 | When NO ancestor has a rule for the operation at all, returns `{ success: false, error: { code: 'NO_MATCHING_RULE' } }` | ✓ | `unit:simulation/handler.test.ts` |
 | 70 | Evaluation errors (grammar mismatch, unknown identifier) surface as `EVALUATION_ERROR` | ✓ | `unit:simulation/handler.test.ts` |
 | 71 | Simulator's allow/deny decision matches the real RTDB rules engine for the same `{ rules, mockData, auth, operation, path, newData }` tuple, modulo the documented cross-path divergence on row #66 | ✓ | oracle: `packages/conformance/observations/rtdb/rtdb-simulator-vs-prod-agreement.json` — 8 test rules × 29 (rule, op) tuples; 28 agreements, 1 disagreement at capture time (`r4-validate-structure`: the simulator did not evaluate `.validate` on writes). The `.validate` walk is now implemented (`src/rules/rtdb/simulation/handler.ts`, reached from all backend write sites; grammar array-literals + `hasChildren(keys)` fixed alongside), closing the recorded disagreement — replayed as prod-conforming denial in `oracle-conformance.test.ts`. The frozen capture documents the historical divergence |
-
-## `rtdb_build_expression` — rule expression authoring
-
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 79 | Returns a `RtdbRuleExpression` with `raw`, `parsed.valid`, `parsed.errors`, `parsed.warnings`, `parsed.referencedIdentifiers` | ✓ | `unit:compiled-rules.test.ts` |
-| 80 | A syntactically valid expression sets `parsed.valid === true` and lists referenced identifiers (`auth`, `auth.uid`, `data`, etc.) | ✓ | `unit:compiled-rules.test.ts` |
-| 81 | A syntactically invalid expression sets `parsed.valid === false` and populates `parsed.errors` with `{ code, message }` | ✓ | `unit:compiled-rules.test.ts` |
-| 82 | Linter warnings (e.g. always-true expressions, missing `auth` checks) populate `parsed.warnings` | ✓ | `unit:grammar/linter.test.ts` |
-| 83 | The grammar accepts every documented RTDB rule operator: logical (`&&`, `or`, `!`), equality (`==`, `===`, `!=`), comparison (`<`, `<=`, `>`, `>=`), arithmetic (`+`, `-`, `*`, `/`, `%`), ternary `?:`, member access, function call, string/regex literals | ✓ | `unit:grammar/RtdbExprParser.test.ts` |
 
 ## Constraint authoring surface (`atoms` / `policies` / `compose` / `ruleset`)
 
@@ -372,15 +368,6 @@ Simulation and structure crawling are sandbox/CLI operations; rules authoring an
 | 172 | `forceWebSockets()` — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (see `forceLongPolling`) | ⚠ transport selection not applicable to the in-process/worker sandbox | `unit:modular/fruit-aliases.test.ts` |
 | 173 | `enableLogging(logger?, persistent?)` — accepted no-op: the sandbox has no modular-SDK-style logger to wire a level/sink into (it uses host-level `console` logging directly, matching `pyric/firestore`'s `setLogLevel`). Accepted so init code that calls it compiles + runs | ⚠ accepted no-op; no sandbox logger to wire into | `unit:modular/fruit-aliases.test.ts` |
 | 174 | `refFromURL(db, url)` — real alias: parses the path out of the absolute database URL and delegates to `ref(db, path)`, so the returned ref resolves + reads exactly like `ref(db, path)`. Divergence: the sandbox is single-database with no host/namespace, so the URL's HOST is NOT validated against the handle (the real SDK throws if the host doesn't match the db's namespace); only the path is honored | ⚠ path resolves like `ref`; URL host/namespace not validated (single-database sandbox) | `unit:modular/fruit-aliases.test.ts` |
-
-### `sandbox.*` — sandbox-only test driver
-
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 167 | `sandbox.setData(db, {path: value, ...})` bulk-loads data, bypassing rules | — | Phase 3 — mirror of firestore's `sandbox.seedDocuments` |
-| 168 | `sandbox.setRules(db, rules)` loads rules into the underlying local environment; returns `LintResult` | — | Phase 3 |
-| 169 | `sandbox.snapshotState(db)` dumps every path the local store has stored | — | Phase 3 |
-| 170 | A production target is intentionally absent, so every `sandbox.*` method operates on a mirror-produced sandbox handle | — | Phase 3 |
 
 ### Modular SDK surface — deny-list (intentionally NOT shimmed)
 

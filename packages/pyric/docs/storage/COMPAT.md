@@ -2,6 +2,12 @@
 
 # `pyric/storage` compatibility matrix
 
+> **Surface coverage:** 48.1% of Firebase's public exports · 72.2% of what pyric intends to mirror
+>
+> **Fidelity:** 83.8% (83 of 99 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
+
 > ⚠ **EXPERIMENTAL — not v1-supported.** `pyric/storage` is functional but
 > work-in-progress. The v1-supported, conformance-held surface is **auth +
 > firestore + rules**. The `✓` rows below are verified **sandbox-side** by unit
@@ -230,15 +236,6 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 | 106 | `getMetadata` against a denied path throws `storage/unauthorized` | ✓ | `unit:rules.test.ts` (operation-integration section) |
 | 107 | `updateMetadata` against a denied path throws `storage/unauthorized` | ✓ | `unit:rules.test.ts` |
 | 108 | `deleteObject` against a denied path throws `storage/unauthorized` | ✓ | `unit:rules.test.ts` |
-
-## `sandbox.*` (sandbox-only test driver)
-
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 109 | `getStorageService(storage)` returns the backing `StorageService` for sandbox handles (sandbox-only escape hatch for tests) | ✓ | `unit:service.test.ts` |
-| 110 | `getStorageService` rejects an unbranded handle through the public handle guard | ✓ | `unit:service.test.ts` ("rejects an object that was not produced by a factory") |
-| 111 | `targetOf(storage)` returns the mirror-owned sandbox state carried by the handle brand | ✓ | `unit:service.test.ts` |
-| 117 | `connectStorageEmulator(storage, host, port)` is an accepted no-op — pyric replaces the Firebase emulator, so the sandbox is already the local implementation | ⚠ pyric replaces the Firebase emulator; connectStorageEmulator is a no-op | `unit:connect-storage-emulator.test.ts` ("is a no-op on a sandbox handle — does not throw") |
 
 ## Visible gaps / open questions
 

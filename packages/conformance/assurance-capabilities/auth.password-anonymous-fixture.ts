@@ -20,8 +20,6 @@ export const capability: AssuranceCapabilityRecord = {
     { kind: 'registry-row', id: 'auth#15' },
     { kind: 'registry-row', id: 'auth#16' },
     { kind: 'registry-row', id: 'auth#69' },
-    { kind: 'registry-row', id: 'auth#63' },
-    { kind: 'registry-row', id: 'auth#73' },
     { kind: 'registry-row', id: 'auth#75' },
   ],
 };

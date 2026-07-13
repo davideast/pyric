@@ -503,6 +503,8 @@ for (const group of GUIDE_GROUPS) {
 // to agents especially, so they stay itemized in the nav rather than
 // folding into the Reference shelf. Slugs are unchanged (slugFor).
 const COMPAT_PAGES: { file: string; label: string }[] = [
+  // Scoreboard first: the two-number summary (behavior + surface coverage).
+  { file: 'conformance/SCORES.md', label: 'Scores' },
   { file: 'app/COMPAT.md', label: 'App' },
   { file: 'firestore/COMPAT.md', label: 'Firestore' },
   { file: 'auth/COMPAT.md', label: 'Auth' },

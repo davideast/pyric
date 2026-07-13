@@ -47,9 +47,13 @@ A user who never runs `npm dist-tag ls` still sees the claim, and sees the same 
 
 ## The claim links to numbers anyone can read
 
-"Tested against Firebase 12.16" is only honest if the result of that testing is inspectable. Pyric publishes its coverage openly: roughly 51% overall surface coverage, roughly 85% behavior conformance on the slice that is implemented, with per-service numbers in the generated COMPAT documents. The tag refers to those published numbers.
+"Tested against Firebase 12.16" is only honest if the result of that testing is inspectable. Pyric publishes three numbers openly, per service and overall, on the [conformance scoreboard](../pyric-conformance-scores/) and each COMPAT matrix:
 
-Surface coverage answers "will my app's calls exist against the mirror." Behavior conformance answers "of the calls that exist, do they behave like production." They are different questions and pyric reports them separately. A reader following the tag reaches the numbers, not a slogan. "Tested against" is a link, never a vibe.
+- **Surface coverage (total)** — mirrored exports / Firebase public exports.
+- **Surface coverage (intended)** — same numerator over the exports pyric intends to mirror.
+- **Fidelity** — of the discrete claims in the matrix, how many match production.
+
+They are different questions. Coverage is about whether the export exists. Fidelity is about whether each tracked interaction matches Firebase — it is not "percent of Firebase that works," and missing exports do not move it. The scoreboard explains the statuses behind the fidelity percentage in full. A reader following the tag reaches those numbers, not a slogan. "Tested against" is a link, never a vibe.
 
 ## Where the numbers stand today
 
