@@ -432,7 +432,9 @@ service cloud.firestore {
 // pyric — rules grammar (FirestoreRules.ohm asset) + sandbox core, no indexedDB.
 try {
   const { initializeSandbox } = await import('pyric/sandbox');
-  const { getFirestore, sandbox: sandboxOps } = await import('pyric/firestore');
+  const firestore = await import('pyric/firestore');
+  const { getFirestore } = firestore;
+  const { inspect, seedDocuments, setRules, snapshotDocuments } = await import('pyric/sandbox/firestore');
   const { firestoreRules, lint } = await import('pyric/rules');
   // firestoreRules() compiles the source — throws if the grammar asset is
   // missing, so a successful construct proves the .ohm asset shipped.
@@ -443,9 +445,21 @@ try {
     { description: 'owner reads own doc', expectation: 'ALLOW', method: 'get', path: 'users/alice', auth: { uid: 'alice' } },
   ]);
   if (sim.passed !== 1) throw new Error('simulate did not pass the owner case (grammar/simulator asset missing?)');
-  const db = getFirestore(initializeSandbox());
-  sandboxOps.setRules(db, GOOD_RULES);
-  ok(`pyric: firestoreRules().simulate() passed + getFirestore(sandbox).setRules ran (issues=${issues.length})`);
+  const sandbox = initializeSandbox();
+  getFirestore(sandbox);
+  setRules(sandbox, GOOD_RULES);
+  seedDocuments(sandbox, { 'users/alice': { role: 'owner' } });
+  const inspected = inspect(sandbox);
+  if (snapshotDocuments(sandbox)['users/alice']?.role !== 'owner') {
+    throw new Error('packed sandbox/firestore seed did not reach snapshotDocuments()');
+  }
+  if (inspected.documents.totalCount !== 1) {
+    throw new Error('packed sandbox/firestore inspect did not observe the seeded document');
+  }
+  if ('sandbox' in firestore) {
+    throw new Error('pyric/firestore still exposes the removed sandbox controls');
+  }
+  ok(`pyric: rules simulation + sandbox/firestore controls + inspect ran (issues=${issues.length})`);
 } catch (e) { bad('pyric runtime: ' + (e?.message ?? e)); }
 
 // pyric-admin — admin SDK ↔ pyric interop (resolves firebase-admin transitively).

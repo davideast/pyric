@@ -52,7 +52,7 @@
  */
 import {
   initializeSandbox,
-  type Sandbox,
+  type LocalSandbox,
   type SandboxEvent,
   type WriteSandboxEvent,
 } from '../index.js';
@@ -88,7 +88,7 @@ export interface ReplayOptions {
 
 export interface ReplayResult {
   /** Fresh sandbox with the captured writes re-applied. */
-  sandbox: Sandbox;
+  sandbox: LocalSandbox;
   /** Field- and path-level differences between original and replayed
    *  state, classified. */
   divergences: Divergence[];
@@ -160,7 +160,7 @@ export function replay(
     }
   }
 
-  const replayedState = sandbox.snapshot().firestore;
+  const replayedState = getInternalEnv(sandbox).snapshot();
   const divergences = originalState
     ? computeDivergences(writes, originalState, replayedState, pathAliases)
     : [];

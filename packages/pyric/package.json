@@ -90,6 +90,10 @@
       "types": "./dist/sandbox/index.d.ts",
       "import": "./dist/sandbox/index.js"
     },
+    "./sandbox/firestore": {
+      "types": "./dist/firestore/sandbox-controls.d.ts",
+      "import": "./dist/firestore/sandbox-controls.js"
+    },
     "./sandbox/internal": {
       "types": "./dist/sandbox/internal/index.d.ts",
       "import": "./dist/sandbox/internal/index.js"

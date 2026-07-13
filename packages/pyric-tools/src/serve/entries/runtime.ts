@@ -19,7 +19,8 @@ import {
   serializeToBuckets,
   bundleRecords,
 } from 'pyric/sandbox';
-import { getFirestore, sandbox as sandboxOps } from 'pyric/firestore';
+import { getFirestore } from 'pyric/firestore';
+import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database/modular';
 import { getAuth, onAuthStateChanged, signOut, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
@@ -224,8 +225,7 @@ if (!useWorker) try {
   // (one backend per sandbox) so a later rules/op call reuses it.
   getDatabase(sandbox);
   if (payload.rules) {
-    const db = getFirestore(sandbox);
-    const lint = sandboxOps.setRules(db, payload.rules);
+    const lint = setRules(sandbox, payload.rules);
     if (lint.parseError) {
       // The server lints before serving, so this is a defensive surface —
       // loud, but don't brick the page: the sandbox keeps its default rules.
@@ -433,7 +433,7 @@ if (!useWorker) try {
     // guard (serve/worker/serve-init.ts): by this point any --persist restore
     // above has already run, so an existing document means lived/restored
     // data, not a blank slate. Never stomp it with a fixture.
-    const existing = Object.keys(sandboxOps.snapshotState(getFirestore(sandbox))).length > 0;
+    const existing = Object.keys(snapshotDocuments(sandbox)).length > 0;
     if (existing) {
       diagnostics.seedSkipped = true;
       console.info(
@@ -443,7 +443,7 @@ if (!useWorker) try {
     } else {
       // Admin-style fixture load (bypasses rules) — runs before app code
       // (top-level await), so the app's first render sees the seeded state.
-      sandboxOps.seedDocuments(getFirestore(sandbox), payload.seed);
+      seedDocuments(sandbox, payload.seed);
       diagnostics.seededDocs = Object.keys(payload.seed).length;
     }
   }
@@ -643,7 +643,7 @@ if (!useWorker && typeof EventSource !== 'undefined') {
         rules: string;
         rulesHash: string;
       };
-      const lint = sandboxOps.setRules(getFirestore(sandbox), rules);
+      const lint = setRules(sandbox, rules);
       if (lint.parseError) throw new Error(JSON.stringify(lint.parseError));
       diagnostics.rulesDeployed = true;
       diagnostics.rulesHash = rulesHash;

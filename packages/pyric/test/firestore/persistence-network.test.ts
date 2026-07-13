@@ -26,6 +26,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   doc,
@@ -37,7 +38,6 @@ import {
   enableNetwork,
   disableNetwork,
   waitForPendingWrites,
-  sandbox as sandboxOps,
 } from '../../src/firestore/index.js';
 
 const RULES = `rules_version = '2';
@@ -52,7 +52,7 @@ service cloud.firestore {
 function setup() {
   const sandbox = initializeSandbox();
   const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-  sandboxOps.setRules(db, RULES);
+  setRules(sandbox, RULES);
   return { sandbox, db };
 }
 

@@ -32,7 +32,6 @@
  *   - `listeners`         onSnapshot
  *   - `transactions`      runTransaction / writeBatch
  *   - `field-values`      sentinels + scalar type re-exports
- *   - `sandbox-ops`       the sandbox-only `sandbox` lifecycle object
  *   - `tools`             tool factories
  *
  * The barrel IS the published `pyric/firestore` subpath surface. Each family
@@ -54,8 +53,11 @@ export * from './aggregates.js';
 export * from './listeners.js';
 export * from './transactions.js';
 export * from './field-values.js';
-export * from './sandbox-ops.js';
-
 // ─── Tool factories (Slice 10) ────────────────────────────────────────
 export { createFirestoreDataTools, createFirestoreInspectTools } from './tools.js';
-export type { FirestoreDataToolDeps, UserAuth, As } from './tools.js';
+export type {
+  FirestoreDataToolDeps,
+  FirestoreInspectToolDeps,
+  UserAuth,
+  As,
+} from './tools.js';

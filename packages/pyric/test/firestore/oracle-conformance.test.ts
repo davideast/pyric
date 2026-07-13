@@ -29,7 +29,8 @@
 import { describe, it, expect } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { initializeSandbox } from 'pyric/sandbox';
+import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
+import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   doc,
@@ -64,7 +65,6 @@ import {
   Timestamp,
   Bytes,
   GeoPoint,
-  sandbox as sandboxOps,
   type Firestore,
   type DocumentSnapshot,
   type QuerySnapshot,
@@ -114,11 +114,23 @@ service cloud.firestore {
   }
 }`;
 
+const sandboxByDb = new WeakMap<Firestore, Sandbox>();
+
 function freshDb(rules: string = PERMISSIVE): Firestore {
   const sandbox = initializeSandbox();
   const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-  sandboxOps.setRules(db, rules);
+  setRules(sandbox, rules);
+  sandboxByDb.set(db, sandbox);
   return db;
+}
+
+function seedDb(
+  db: Firestore,
+  documents: Record<string, Record<string, unknown>>,
+): void {
+  const sandbox = sandboxByDb.get(db);
+  if (!sandbox) throw new Error('freshDb() did not register its Sandbox');
+  seedDocuments(sandbox, documents);
 }
 
 /** Run `fn`, return the thrown error, fail if nothing threw. */
@@ -167,7 +179,7 @@ describe('oracle conformance (firestore)', () => {
   it('firestore-and-composite', async () => {
     const obs = load('firestore-and-composite.json');
     const db = freshDb();
-    sandboxOps.seedDocuments(db, {
+    seedDb(db, {
       'c/match-both': { x: 1, y: 2 },
       'c/match-x': { x: 1, y: 9 },
       'c/match-y': { x: 9, y: 2 },
@@ -183,7 +195,7 @@ describe('oracle conformance (firestore)', () => {
   it('firestore-or-composite', async () => {
     const obs = load('firestore-or-composite.json');
     const db = freshDb();
-    sandboxOps.seedDocuments(db, {
+    seedDb(db, {
       'c/match-both': { x: 1, y: 2 },
       'c/match-x': { x: 1, y: 9 },
       'c/match-y': { x: 9, y: 2 },
@@ -200,7 +212,7 @@ describe('oracle conformance (firestore)', () => {
     const obs = load('firestore-nested-or-and-composite.json');
     const db = freshDb();
     // or(and(x==1, y==2), z==3) — union of "x==1 AND y==2" with "z==3".
-    sandboxOps.seedDocuments(db, {
+    seedDb(db, {
       'c/both-branches': { x: 1, y: 2, z: 3 },
       'c/inner-and-match': { x: 1, y: 2, z: 0 },
       'c/outer-z-match': { x: 0, y: 0, z: 3 },
@@ -221,7 +233,7 @@ describe('oracle conformance (firestore)', () => {
   // ── cursors ──────────────────────────────────────────────────────────
 
   function seedPositions(db: Firestore): void {
-    sandboxOps.seedDocuments(db, {
+    seedDb(db, {
       'pos/pos-1': { pos: 1 },
       'pos/pos-2': { pos: 2 },
       'pos/pos-3': { pos: 3 },
@@ -279,7 +291,7 @@ describe('oracle conformance (firestore)', () => {
     const db = freshDb();
     // Three equal-valued docs; startAt(snapshot of "b") uses the implicit
     // __name__ tiebreak so "a" (the equal-valued predecessor) is excluded.
-    sandboxOps.seedDocuments(db, {
+    seedDb(db, {
       'c/a': { pos: 1 },
       'c/b': { pos: 1 },
       'c/c': { pos: 1 },
@@ -303,7 +315,7 @@ describe('oracle conformance (firestore)', () => {
     expect(obs.code).toBe('unimplemented'); // prod's code (the target)
 
     const db = freshDb();
-    sandboxOps.seedDocuments(db, { 'c/a': { pos: 1 }, 'c/b': { pos: 2 } });
+    seedDb(db, { 'c/a': { pos: 1 }, 'c/b': { pos: 2 } });
     // Sandbox today: invalid-argument, not unimplemented.
     const e = await caught(() => getDocs(query(collection(db, 'c'), limitToLast(2))));
     expect(e.code).toBe('invalid-argument');
@@ -327,7 +339,7 @@ describe('oracle conformance (firestore)', () => {
     expect(Object.keys(emptySnap.data())).toEqual(obs.emptyDataKeys as string[]);
 
     // Non-empty: 3 docs, 2 matching the filter.
-    sandboxOps.seedDocuments(db, {
+    seedDb(db, {
       'c/a': { status: 'open' },
       'c/b': { status: 'open' },
       'c/c': { status: 'closed' },
@@ -863,7 +875,7 @@ describe('oracle conformance (firestore)', () => {
     expect(obs.sameQueryBuiltTwice).toBe(true); // prod: structural (the target)
 
     const db = freshDb();
-    sandboxOps.seedDocuments(db, { 'c/x': { v: 1 } });
+    seedDb(db, { 'c/x': { v: 1 } });
     const q1 = query(collection(db, 'c'), where('v', '==', 1));
     const q2 = query(collection(db, 'c'), where('v', '==', 1));
     const q3 = query(collection(db, 'c'), where('v', '==', 2));
@@ -886,7 +898,7 @@ describe('oracle conformance (firestore)', () => {
     expect(obs.twoFetchesSameData).toBe(false); // prod: two fetches are not equal
 
     const db = freshDb();
-    sandboxOps.seedDocuments(db, { 'c/x': { v: 1 } });
+    seedDb(db, { 'c/x': { v: 1 } });
     const q = query(collection(db, 'c'), where('v', '==', 1));
     const s1 = (await getDocs(q)) as QuerySnapshot;
     const s2 = (await getDocs(q)) as QuerySnapshot;

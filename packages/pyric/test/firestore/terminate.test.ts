@@ -10,7 +10,8 @@
  */
 import { describe, it, expect, mock } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { getFirestore, doc, setDoc, sandbox as sandboxOps } from '../../src/firestore/index.js';
+import { setRules } from 'pyric/sandbox/firestore';
+import { getFirestore, doc, setDoc } from '../../src/firestore/index.js';
 import { terminate } from '../../src/firestore/index.js';
 
 const RULES = `rules_version = '2';
@@ -25,7 +26,7 @@ service cloud.firestore {
 function setup() {
   const sandbox = initializeSandbox();
   const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-  sandboxOps.setRules(db, RULES);
+  setRules(sandbox, RULES);
   return { sandbox, db };
 }
 

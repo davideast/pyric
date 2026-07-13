@@ -56,7 +56,8 @@
 
 import type { WriteSandboxEvent } from '../types/events.js';
 import type { SandboxSnapshot } from '../types/persistence.js';
-import type { Sandbox } from '../types/service.js';
+import type { LocalSandbox } from '../types/service.js';
+import { getInternalEnv } from '../internal/sandbox-impl.js';
 
 // ─── Public types ─────────────────────────────────────────────────────────
 
@@ -183,7 +184,7 @@ function generateOriginId(): string {
  * @param sandbox  The sandbox to sync. Must expose `onEvent`, `admin`, and `snapshot`.
  * @param options  Optional channel and origin override.
  */
-export function attachTabSync(sandbox: Sandbox, options: TabSyncOptions = {}): () => void {
+export function attachTabSync(sandbox: LocalSandbox, options: TabSyncOptions = {}): () => void {
   // ── Channel setup ────────────────────────────────────────────────────
   let channel: BroadcastChannelLike;
   let channelOwnedByUs = false; // track ownership so we close only our own channel
@@ -286,7 +287,7 @@ export function attachTabSync(sandbox: Sandbox, options: TabSyncOptions = {}): (
       if (msg.to !== originId) return;
       if (stateApplied) return;
 
-      const localFirestoreDocs = Object.keys(sandbox.snapshot().firestore);
+      const localFirestoreDocs = Object.keys(getInternalEnv(sandbox).snapshot());
       if (localFirestoreDocs.length > 0) {
         // Tab already has data — don't clobber it. We still mark
         // stateApplied so further state messages are ignored.

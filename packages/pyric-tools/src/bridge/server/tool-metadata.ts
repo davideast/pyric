@@ -69,7 +69,7 @@ export function getSandboxToolMetadata(): ToolMetadata[] {
     // that rules weren't loaded). Routes to the browser sandbox like
     // the other forwarded tools.
     ...createFirestoreInspectTools({
-      resolveDb: stubResolver as never,
+      resolveSandbox: stubResolver as never,
     }),
     // Local authorization campaigns execute in the connected SharedWorker.
     // This keeps attachment and visualization on the app's sandbox authority.

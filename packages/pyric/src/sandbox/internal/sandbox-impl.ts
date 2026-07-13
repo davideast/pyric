@@ -34,7 +34,8 @@ import type {
   SessionBoundaryEvent,
 } from '../types/events.js';
 import type { PersistableService, SandboxSnapshot } from '../types/persistence.js';
-import type { Sandbox, SandboxAdmin } from '../types/service.js';
+import type { LocalSandbox, Sandbox, SandboxAdmin } from '../types/service.js';
+import { LOCAL_SANDBOX } from './local-brand.js';
 import { SandboxContextImpl, validateAuthState } from '../sandbox-context.js';
 import {
   attachPersistence,
@@ -101,7 +102,8 @@ export function stampProvenance<E extends SandboxEvent>(
  * user registry; on swap, the adapter subscriptions get re-attached
  * to the new env while user callbacks stay put.
  */
-export class SandboxImpl implements Sandbox {
+export class SandboxImpl implements LocalSandbox {
+  declare readonly [LOCAL_SANDBOX]: true;
   private _env: LocalEnvironment;
   /** User callbacks; stable across `reset()`. */
   private eventSubs = new Set<(event: SandboxEvent) => void>();

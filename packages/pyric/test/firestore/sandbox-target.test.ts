@@ -9,6 +9,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import {
   // Construction
@@ -35,7 +36,6 @@ import {
   runTransaction,
   writeBatch,
   // Sandbox-only setup
-  sandbox as sandboxOps,
   // Sentinels
   serverTimestamp,
   increment,
@@ -78,8 +78,8 @@ service cloud.firestore {
 function setup() {
   const sandbox = initializeSandbox();
   const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-  sandboxOps.setRules(db, RULES);
-  sandboxOps.seedDocuments(db, {
+  setRules(sandbox, RULES);
+  seedDocuments(sandbox, {
     'tickets/T-1': { title: 'Set up CI', reporterId: 'alice', assigneeId: 'bob', status: 'open', priority: 1 },
     'tickets/T-2': { title: 'Fix login', reporterId: 'alice', assigneeId: 'alice', status: 'open', priority: 2 },
     'counters/views': { count: 0 },
@@ -106,8 +106,8 @@ service cloud.firestore {
 function querySetup() {
   const sandbox = initializeSandbox();
   const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-  sandboxOps.setRules(db, QUERY_RULES);
-  sandboxOps.seedDocuments(db, {
+  setRules(sandbox, QUERY_RULES);
+  seedDocuments(sandbox, {
     'tickets/T-1': { title: 'Set up CI', reporterId: 'alice', assigneeId: 'bob', status: 'open', priority: 1 },
     'tickets/T-2': { title: 'Fix login', reporterId: 'alice', assigneeId: 'alice', status: 'open', priority: 2 },
   });
@@ -171,8 +171,8 @@ describe('reads', () => {
   it('getDoc denies when rules reject the read', async () => {
     const sandbox = initializeSandbox();
     const dbCarol = getFirestore(sandbox.withAuth({ uid: 'carol' }));
-    sandboxOps.setRules(dbCarol, RULES);
-    sandboxOps.seedDocuments(dbCarol, {
+    setRules(sandbox, RULES);
+    seedDocuments(sandbox, {
       'tickets/T-1': { reporterId: 'alice', assigneeId: 'bob', status: 'open' },
     });
     let err: unknown;
@@ -212,12 +212,12 @@ describe('writes', () => {
   });
 
   it('deleteDoc removes a document', async () => {
-    const { db } = setup();
+    const { sandbox, db } = setup();
     await deleteDoc(doc(db, 'tickets/T-2'));
-    // Verify via the sandbox-only snapshotState — getDoc on the
+    // Verify via the owning sandbox snapshot — getDoc on the
     // deleted doc would fail rule eval (resource.data is null and
     // the read rule references resource.data.assigneeId).
-    const state = sandboxOps.snapshotState(db);
+    const state = snapshotDocuments(sandbox);
     expect(state['tickets/T-2']).toBeUndefined();
   });
 
@@ -233,35 +233,35 @@ describe('writes', () => {
   });
 
   it('setDoc default replaces the existing document', async () => {
-    const { db } = setup();
+    const { sandbox, db } = setup();
     // T-2 has title, reporterId, assigneeId, status, priority. Replace
     // with a minimal doc — dropped fields must NOT survive.
     await setDoc(doc(db, 'tickets/T-2'), {
       title: 'Reset', reporterId: 'alice', assigneeId: 'alice', status: 'open', priority: 9,
     });
-    const state = sandboxOps.snapshotState(db);
+    const state = snapshotDocuments(sandbox);
     expect(state['tickets/T-2']).toEqual({
       title: 'Reset', reporterId: 'alice', assigneeId: 'alice', status: 'open', priority: 9,
     });
   });
 
   it('setDoc with { merge: true } preserves fields not in data', async () => {
-    const { db } = setup();
+    const { sandbox, db } = setup();
     await setDoc(doc(db, 'tickets/T-2'), { priority: 99 }, { merge: true });
-    const state = sandboxOps.snapshotState(db);
+    const state = snapshotDocuments(sandbox);
     expect(state['tickets/T-2']).toEqual({
       title: 'Fix login', reporterId: 'alice', assigneeId: 'alice', status: 'open', priority: 99,
     });
   });
 
   it('setDoc with { mergeFields: [...] } merges only listed fields', async () => {
-    const { db } = setup();
+    const { sandbox, db } = setup();
     await setDoc(
       doc(db, 'tickets/T-2'),
       { priority: 42, status: 'closed', ignored: 'no' },
       { mergeFields: ['priority'] },
     );
-    const state = sandboxOps.snapshotState(db);
+    const state = snapshotDocuments(sandbox);
     expect(state['tickets/T-2']).toEqual({
       title: 'Fix login', reporterId: 'alice', assigneeId: 'alice',
       status: 'open',     // unchanged — not in mergeFields
@@ -313,8 +313,8 @@ service cloud.firestore {
   function listenerSetup() {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(db, LISTENER_RULES);
-    sandboxOps.seedDocuments(db, {
+    setRules(sandbox, LISTENER_RULES);
+    seedDocuments(sandbox, {
       'widgets/W-1': { name: 'first', priority: 1 },
       'widgets/W-2': { name: 'second', priority: 2 },
     });
@@ -368,8 +368,8 @@ describe('transactions + batches', () => {
   it('runTransaction reads and writes atomically', async () => {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'system' }));
-    sandboxOps.setRules(db, RULES);
-    sandboxOps.seedDocuments(db, { 'counters/views': { count: 0 } });
+    setRules(sandbox, RULES);
+    seedDocuments(sandbox, { 'counters/views': { count: 0 } });
 
     await runTransaction(db, async (tx) => {
       const snap = await tx.get(doc(db, 'counters/views'));
@@ -387,8 +387,8 @@ describe('transactions + batches', () => {
     // to demonstrate batching across both.
     const sandbox = initializeSandbox();
     const dbBob = getFirestore(sandbox.withAuth({ uid: 'bob' }));
-    sandboxOps.setRules(dbBob, RULES);
-    sandboxOps.seedDocuments(dbBob, {
+    setRules(sandbox, RULES);
+    seedDocuments(sandbox, {
       'tickets/T-1': { title: 'a', reporterId: 'alice', assigneeId: 'bob',   status: 'open', priority: 1 },
       'tickets/T-2': { title: 'b', reporterId: 'alice', assigneeId: 'bob',   status: 'open', priority: 2 },
     });
@@ -409,8 +409,8 @@ describe('sentinels', () => {
   it('serverTimestamp() resolves to a Timestamp', async () => {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'system' }));
-    sandboxOps.setRules(db, RULES);
-    sandboxOps.seedDocuments(db, { 'counters/views': { count: 0, lastBumpedAt: null } });
+    setRules(sandbox, RULES);
+    seedDocuments(sandbox, { 'counters/views': { count: 0, lastBumpedAt: null } });
 
     await updateDoc(doc(db, 'counters/views'), {
       lastBumpedAt: serverTimestamp(),
@@ -422,8 +422,8 @@ describe('sentinels', () => {
   it('increment(n) atomically bumps a numeric field', async () => {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'system' }));
-    sandboxOps.setRules(db, RULES);
-    sandboxOps.seedDocuments(db, { 'counters/views': { count: 0 } });
+    setRules(sandbox, RULES);
+    seedDocuments(sandbox, { 'counters/views': { count: 0 } });
 
     await updateDoc(doc(db, 'counters/views'), { count: increment(7) });
     await updateDoc(doc(db, 'counters/views'), { count: increment(3) });
@@ -434,8 +434,8 @@ describe('sentinels', () => {
   it('arrayUnion/arrayRemove de-dupe + remove members', async () => {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'system' }));
-    sandboxOps.setRules(db, RULES);
-    sandboxOps.seedDocuments(db, { 'counters/views': { tags: [] } });
+    setRules(sandbox, RULES);
+    seedDocuments(sandbox, { 'counters/views': { tags: [] } });
 
     await updateDoc(doc(db, 'counters/views'), { tags: arrayUnion('a', 'b') });
     await updateDoc(doc(db, 'counters/views'), { tags: arrayUnion('a') }); // no-op
@@ -445,21 +445,12 @@ describe('sentinels', () => {
   });
 });
 
-describe('snapshotState (sandbox-only)', () => {
-  it('returns the path-keyed view of stored docs', () => {
-    const { db } = setup();
-    const state = sandboxOps.snapshotState(db);
-    expect(state['tickets/T-1']).toBeDefined();
-    expect(state['tickets/T-2']).toBeDefined();
-  });
-});
-
 describe('collectionGroup (Tier 2)', () => {
   it('gathers documents across every parent collection with the same id', async () => {
     const { collectionGroup, getDocs, setDoc, doc } = await import('../../src/firestore/index.js');
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(db, `rules_version = '2';
+    setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} { allow read, write: if request.auth != null; }
@@ -489,7 +480,7 @@ service cloud.firestore {
     const { collectionGroup, getDocs, query, where, orderBy, limit, setDoc, doc } = await import('../../src/firestore/index.js');
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(db, `rules_version = '2';
+    setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} { allow read, write: if request.auth != null; }
@@ -514,7 +505,7 @@ service cloud.firestore {
     const { collectionGroup, getDocs } = await import('../../src/firestore/index.js');
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(db, `rules_version = '2';
+    setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} { allow read, write: if request.auth != null; }
@@ -530,7 +521,7 @@ describe('cursor pagination + limitToLast (Tier 3)', () => {
     const { setDoc, doc } = await import('../../src/firestore/index.js');
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(db, `rules_version = '2';
+    setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} { allow read, write: if request.auth != null; }
@@ -646,7 +637,7 @@ describe('composite filters (Tier 2)', () => {
     const { setDoc, doc } = await import('../../src/firestore/index.js');
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(db, `rules_version = '2';
+    setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} { allow read, write: if request.auth != null; }
@@ -741,7 +732,7 @@ describe('aggregates (Tier 2)', () => {
     const { setDoc, doc, collection: coll, getDocs } = await import('../../src/firestore/index.js');
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(db, `rules_version = '2';
+    setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} { allow read, write: if request.auth != null; }
@@ -791,7 +782,7 @@ service cloud.firestore {
     const { getAggregateFromServer, collection, average } = await import('../../src/firestore/index.js');
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(db, `rules_version = '2';
+    setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} { allow read, write: if request.auth != null; }
@@ -862,7 +853,7 @@ service cloud.firestore {
   function setupPermissive() {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(db, PERMISSIVE);
+    setRules(sandbox, PERMISSIVE);
     return { sandbox, db };
   }
 
@@ -993,22 +984,22 @@ describe('withConverter (typed refs) — Tier 1b', () => {
   function setupConv() {
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(db, `rules_version = '2';
+    setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
     match /{document=**} { allow read, write: if request.auth != null; }
   }
 }`);
-    return { db };
+    return { sandbox, db };
   }
 
   it('withConverter on a DocumentReference round-trips through toFirestore / fromFirestore', async () => {
-    const { db } = setupConv();
+    const { sandbox, db } = setupConv();
     const typedRef = withConverter(doc(db, 'users/u1'), userConverter);
     const when = new Date('2026-05-01T12:00:00.000Z');
     await setDoc(typedRef, { name: 'Alice', createdAt: when });
     // Underlying storage uses the DB shape — typed data() reconstructs Date.
-    const stored = sandboxOps.snapshotState(db);
+    const stored = snapshotDocuments(sandbox);
     expect(stored['users/u1']).toEqual({ name: 'Alice', createdAtIso: when.toISOString() });
     const snap = await getDoc(typedRef);
     const out = snap.data();

@@ -345,7 +345,7 @@ describe('pyric init output contract', () => {
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': 'fb36f8e6d6e6f5fd7365316fc929a1ad3f99eeff8d624cf6bada39c619501b47',
         'package.json': '389d67729f3848fa9a74515c98740a303e2324c950d3e743f8d80fffff4b7995',
-        'src/app.ts': '46e94dd60c6ab8ca32a3df234737780643a8826f352c448af311de190aaa3008',
+        'src/app.ts': '15409150912e5f482e303a6bfde91794ace41cb5cccedd247ff9fb7a50aa4ae9',
         'src/seed.ts': 'cf9a890fcc9e1f4a836bf5c150573978a0af454763077fcf4aaed5199d04ded8',
       },
       static: {

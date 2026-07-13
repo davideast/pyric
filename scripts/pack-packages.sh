@@ -109,7 +109,10 @@ pack_one() {
 
   # Post-process: rewrite workspace:* → ^<version> via the shared helper
   # so the tarball is installable by any non-workspace consumer.
-  if tar -xzOf "$full" package/package.json | grep -q 'workspace:'; then
+  # Do not use `grep -q` here. GNU tar reports SIGPIPE when grep exits after
+  # the first match; with `pipefail` that makes the condition falsely report
+  # that the manifest contains no workspace dependency.
+  if tar -xzOf "$full" package/package.json | grep 'workspace:' >/dev/null; then
     local tmp
     tmp=$(mktemp -d)
     tar -xzf "$full" -C "$tmp"

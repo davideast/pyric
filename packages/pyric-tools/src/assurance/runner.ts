@@ -32,7 +32,6 @@ import {
   limit,
   orderBy,
   query,
-  sandbox as firestoreSandbox,
   setDoc,
   updateDoc,
   where,
@@ -40,6 +39,7 @@ import {
   type Query,
   type QueryConstraint,
 } from "pyric/firestore";
+import { seedDocuments, setRules, snapshotDocuments } from "pyric/sandbox/firestore";
 import {
   deleteObject,
   getBlob,
@@ -55,7 +55,7 @@ import { getAdminStorageSandbox } from "pyric/storage/internal";
 import {
   initializeSandbox,
   type AuthState,
-  type Sandbox,
+  type LocalSandbox,
   type SandboxEvent,
 } from "pyric/sandbox";
 import { qualifyProbe } from "./capabilities.js";
@@ -92,7 +92,7 @@ interface ActorRuntime {
 }
 
 interface ServiceRuntime {
-  sandbox: Sandbox;
+  sandbox: LocalSandbox;
   actor: ActorRuntime;
   firestore?: Firestore;
   rtdb?: Database;
@@ -200,7 +200,7 @@ function authUsers(target: LocalFirebaseTarget): SeedUser[] {
 }
 
 function seedAuth(
-  sandbox: Sandbox,
+  sandbox: LocalSandbox,
   target: LocalFirebaseTarget,
 ): ReturnType<typeof getAuth> {
   const auth = getAuth(sandbox);
@@ -219,7 +219,7 @@ function seedAuth(
 }
 
 function acquireActor(
-  sandbox: Sandbox,
+  sandbox: LocalSandbox,
   target: LocalFirebaseTarget,
   actor: AssuranceActor,
 ): ActorRuntime {
@@ -320,8 +320,8 @@ async function createRuntime(
 
   if (service === "firestore") {
     const firestore = getFirestore(context);
-    firestoreSandbox.setRules(firestore, target.rules.firestore!);
-    firestoreSandbox.seedDocuments(firestore, target.state.firestore ?? {});
+    setRules(sandbox, target.rules.firestore!);
+    seedDocuments(sandbox, target.state.firestore ?? {});
     runtime.firestore = firestore;
   } else if (service === "rtdb") {
     const rtdb = getDatabase(context);
@@ -612,7 +612,7 @@ async function readState(
   runtime: ServiceRuntime,
 ): Promise<unknown> {
   if (operation.service === "firestore") {
-    const state = firestoreSandbox.snapshotState(runtime.firestore!);
+    const state = snapshotDocuments(runtime.sandbox);
     if (operation.method === "list") {
       const prefix = `${operation.path.replace(/\/$/, "")}/`;
       return Object.fromEntries(

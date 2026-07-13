@@ -13,6 +13,8 @@
  */
 
 import type { ToolHandler } from '@inbrowser/agent';
+import type { LocalSandbox } from 'pyric/sandbox';
+import { inspect } from './sandbox-controls.js';
 import type { Firestore } from './index.js';
 import {
   doc,
@@ -27,7 +29,6 @@ import {
   where,
   orderBy,
   limit,
-  sandbox as sandboxOps,
 } from './index.js';
 
 export interface UserAuth {
@@ -94,6 +95,11 @@ export interface FirestoreDataToolDeps {
    * confirm-gate admin writes (see the bridge's prod confirm-policy).
    */
   resolveDb(as?: As): Promise<Firestore> | Firestore;
+}
+
+export interface FirestoreInspectToolDeps {
+  /** Resolve the sandbox whose Firestore state should be inspected. */
+  resolveSandbox(): Promise<LocalSandbox> | LocalSandbox;
 }
 
 /**
@@ -338,11 +344,10 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
  * from sandbox.history(). Everything an agent needs to localize a
  * sandbox bug in one round-trip.
  *
- * Sandbox-only. `resolveDb(auth=undefined)` must return a Firestore
- * whose target is a sandbox; calling against a prod target throws.
+ * Sandbox-only. `resolveSandbox` must return the owning Sandbox.
  */
-export function createFirestoreInspectTools(deps: FirestoreDataToolDeps): ToolHandler[] {
-  const { resolveDb } = deps;
+export function createFirestoreInspectTools(deps: FirestoreInspectToolDeps): ToolHandler[] {
+  const { resolveSandbox } = deps;
   return [
     {
       name: 'sandbox_inspect',
@@ -360,18 +365,20 @@ export function createFirestoreInspectTools(deps: FirestoreDataToolDeps): ToolHa
       },
       async execute(args) {
         const a = args as { recentEventLimit?: number };
-        const db = await resolveDb();
-        const inspect = sandboxOps.inspect(db, { recentEventLimit: a.recentEventLimit });
+        const sandbox = await resolveSandbox();
+        const report = inspect(sandbox, {
+          recentEventLimit: a.recentEventLimit,
+        });
         // Punch up the summary so it's useful in tool-result previews
         // without forcing the agent to drill into `data`.
         const summary =
-          `rules: ${inspect.rules.isEmpty ? 'EMPTY (setRules has not been called)' : `${inspect.rules.sizeBytes}B, ${inspect.rules.lint.errors} errors / ${inspect.rules.lint.warnings} warnings`}`
-          + ` · docs: ${inspect.documents.totalCount} across ${Object.keys(inspect.documents.byCollection).length} collections`
-          + ` · events: ${inspect.events.totalCount} total, ${inspect.events.recentDenials.length} recent denials`;
+          `rules: ${report.rules.isEmpty ? 'EMPTY (setRules has not been called)' : `${report.rules.sizeBytes}B, ${report.rules.lint.errors} errors / ${report.rules.lint.warnings} warnings`}`
+          + ` · docs: ${report.documents.totalCount} across ${Object.keys(report.documents.byCollection).length} collections`
+          + ` · events: ${report.events.totalCount} total, ${report.events.recentDenials.length} recent denials`;
         return {
           ok: true,
           summary,
-          data: inspect,
+          data: report,
         };
       },
     },

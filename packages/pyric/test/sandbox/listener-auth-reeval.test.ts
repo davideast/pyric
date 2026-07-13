@@ -19,6 +19,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   doc,
@@ -27,7 +28,6 @@ import {
   query,
   where,
   collection,
-  sandbox as sandboxOps,
   SandboxError,
   type Firestore,
   type QuerySnapshot,
@@ -56,7 +56,7 @@ function setup(): {
 } {
   const sandbox = initializeSandbox();
   const live = getFirestore(sandbox);
-  sandboxOps.setRules(live, OWNER_RULES);
+  setRules(sandbox, OWNER_RULES);
   return { sandbox, live };
 }
 

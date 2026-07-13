@@ -24,7 +24,7 @@ import {
   type As,
 } from 'pyric/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
-import type { Sandbox } from 'pyric/sandbox';
+import type { LocalSandbox } from 'pyric/sandbox';
 import { ASSURANCE_TOOL_NAMES } from '../../assurance/tool-names.js';
 
 export interface DispatchResult {
@@ -39,7 +39,7 @@ export interface DispatchResult {
  * until a campaign tool is actually invoked. The store is created once per
  * sandbox so a campaign built by one call is visible to the next.
  */
-function createLazyAssuranceHandlers(sandbox: Sandbox) {
+function createLazyAssuranceHandlers(sandbox: LocalSandbox) {
   let handlersPromise:
     | Promise<Map<string, import('@inbrowser/agent').ToolHandler>>
     | undefined;
@@ -80,7 +80,7 @@ function createLazyAssuranceHandlers(sandbox: Sandbox) {
  * `request.auth.token` shape. This is a SANDBOX dispatcher, so the admin default
  * is intended; a dispatcher wired to a real backend must reject `'admin'`.
  */
-function buildSandboxHandlers(sandbox: Sandbox) {
+function buildSandboxHandlers(sandbox: LocalSandbox) {
   const env = getInternalEnv(sandbox);
   const resolveDb = (actor?: As) =>
     actor && actor !== 'admin'
@@ -89,7 +89,7 @@ function buildSandboxHandlers(sandbox: Sandbox) {
   return [
     ...createFirestoreSimulatorTools({ resolveSandbox: () => env }),
     ...createFirestoreDataTools({ resolveDb }),
-    ...createFirestoreInspectTools({ resolveDb }),
+    ...createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
     ...createLazyAssuranceHandlers(sandbox),
   ];
 }
@@ -100,7 +100,7 @@ function buildSandboxHandlers(sandbox: Sandbox) {
  * canonical handler. Throws `UnknownToolError` on unknown names.
  */
 export function buildSandboxDispatcher(
-  sandbox: Sandbox,
+  sandbox: LocalSandbox,
 ): (name: string, args: Record<string, unknown>) => Promise<DispatchResult> {
   const byName = new Map(buildSandboxHandlers(sandbox).map((h) => [h.name, h]));
   return async (name, args) => {
@@ -128,12 +128,12 @@ export function buildSandboxDispatcher(
  * assurance store across separate bridge requests.
  */
 const sandboxDispatchers = new WeakMap<
-  Sandbox,
+  LocalSandbox,
   ReturnType<typeof buildSandboxDispatcher>
 >();
 
 export async function dispatchSandboxTool(
-  sandbox: Sandbox,
+  sandbox: LocalSandbox,
   name: string,
   args: Record<string, unknown>,
 ): Promise<DispatchResult> {
@@ -158,7 +158,7 @@ export const SANDBOX_TOOL_NAMES: string[] = (() => {
   return [
     ...createFirestoreSimulatorTools({ resolveSandbox: stub as never }),
     ...createFirestoreDataTools({ resolveDb: stub as never }),
-    ...createFirestoreInspectTools({ resolveDb: stub as never }),
+    ...createFirestoreInspectTools({ resolveSandbox: stub as never }),
     ...ASSURANCE_TOOL_NAMES.map((name) => ({ name })),
   ].map((h) => h.name);
 })();

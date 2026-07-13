@@ -21,9 +21,9 @@
  *   - {@link targetOf} (internal) reads it and switches on
  *     `target.kind`.
  *
- * Sandbox-only test driver lives under {@link sandbox}, mirroring
- * `pyric/firestore`'s `sandbox.setRules` etc. — each method throws
- * `failed-precondition` if called against a prod-backed handle.
+ * The Pyric-specific sandbox test driver currently lives under
+ * {@link sandbox}; each method throws `failed-precondition` if called
+ * against a prod-backed handle.
  *
  * v0 scope is deliberately minimal. The deny-list is documented in
  * `docs/reference/feature-matrix.md`; agent `appSource` that imports

@@ -5,7 +5,7 @@
  * pass against a correct reference ruleset. False-failure rate = 0.
  */
 import { describe, expect, spyOn, test } from 'bun:test';
-import { sandbox as fsOps } from 'pyric/firestore';
+import * as firestoreSandboxControls from 'pyric/sandbox/firestore';
 import { parseWorkspaceTestFile, runTestFile, runWorkspaceTests } from './runner';
 
 const REFERENCE_RULES = `rules_version = '2';
@@ -131,7 +131,7 @@ describe('execution contract — per-case isolation', () => {
   });
 
   test('rules deploy happens exactly once per file (reset touches data only)', async () => {
-    const setRules = spyOn(fsOps, 'setRules');
+    const setRules = spyOn(firestoreSandboxControls, 'setRules');
     try {
       const r = await runTestFile(
         'deploy-once.test.json',

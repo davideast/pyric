@@ -14,6 +14,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import {
   getFirestore,
@@ -25,7 +26,6 @@ import {
   orderBy,
   limit,
   onSnapshot,
-  sandbox as sandboxOps,
   type QuerySnapshot,
 } from '../../src/firestore/index.js';
 
@@ -42,8 +42,8 @@ service cloud.firestore {
 function setup() {
   const sandbox = initializeSandbox();
   const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-  sandboxOps.setRules(db, RULES);
-  sandboxOps.seedDocuments(db, {
+  setRules(sandbox, RULES);
+  seedDocuments(sandbox, {
     'widgets/W-1': { name: 'a', status: 'open', priority: 3 },
     'widgets/W-2': { name: 'b', status: 'closed', priority: 1 },
     'widgets/W-3': { name: 'c', status: 'open', priority: 2 },

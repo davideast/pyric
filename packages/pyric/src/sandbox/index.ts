@@ -16,7 +16,7 @@
  */
 
 import { SandboxImpl } from './internal/sandbox-impl.js';
-import type { Sandbox, SandboxConfig } from './types/service.js';
+import type { LocalSandbox, SandboxConfig } from './types/service.js';
 
 export type {
   AuthLens,
@@ -27,6 +27,7 @@ export type {
   EventProvenance,
   EventService,
   ListenerLifecycleEvent,
+  LocalSandbox,
   PersistableService,
   RequestEvent,
   Sandbox,
@@ -108,8 +109,9 @@ export { attachTabSync } from './tab-sync/index.js';
  *
  * Identity is **not** part of init — call `sandbox.withAuth(...)` to
  * derive a {@link SandboxContext} for service operations. Service-
- * specific configuration (rules, seed data) happens through service
- * handles — for example, `getFirestore(ctx).setRules(...)`.
+ * specific configuration (rules, seed data) happens through service-specific
+ * sandbox controls — for example, `setRules(sandbox, source)` from
+ * `pyric/sandbox/firestore`.
  *
  * @example
  * ```ts
@@ -121,7 +123,7 @@ export { attachTabSync } from './tab-sync/index.js';
  * const dbAnon  = getFirestore(sandbox.withAuth(null));
  * ```
  */
-export function initializeSandbox(_config: SandboxConfig = {}): Sandbox {
+export function initializeSandbox(_config: SandboxConfig = {}): LocalSandbox {
   // `_config` is reserved for future service-agnostic options
   // (rules/documents bundled at init when the multi-service
   // architecture lands). Empty for now.

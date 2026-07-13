@@ -6,10 +6,7 @@
  *
  *   1. `getFirestore(app)` returns a branded `Firestore` handle
  *      with `target.kind === 'prod'`.
- *   2. Sandbox-only operations (`setRules`, `seedDocuments`,
- *      `snapshotState`) throw a clear `SandboxError(failed-precondition)`
- *      when invoked on a prod-target handle.
- *   3. Routing ops dispatch to `firebase/firestore`'s free functions —
+ *   2. Routing ops dispatch to `firebase/firestore`'s free functions —
  *      verified by stubbing the SDK and asserting the call shape.
  *
  * End-to-end behavior against a real Firestore is verified manually
@@ -20,11 +17,9 @@
 import { describe, it, expect } from 'bun:test';
 import {
   getFirestore,
-  sandbox,
   doc,
   collection,
   TARGET_SYMBOL,
-  SandboxError,
 } from '../../src/firestore/index.js';
 import type { FirebaseApp } from 'firebase/app';
 
@@ -58,57 +53,6 @@ describe('getFirestore', () => {
     }
     const target = (db as { [TARGET_SYMBOL]: { kind: string } })[TARGET_SYMBOL];
     expect(target.kind).toBe('prod');
-  });
-});
-
-describe('sandbox-only ops throw on prod-target handles', () => {
-  // Build a hand-rolled prod-target handle. This sidesteps the
-  // FirebaseApp validation in `getFirestore` — the routing logic
-  // only inspects `target.kind`, which is what we want to verify.
-  function fakeProdHandle() {
-    return {
-      [TARGET_SYMBOL]: {
-        kind: 'prod' as const,
-        db: {} as never,
-      },
-    };
-  }
-
-  it('setRules throws failed-precondition', () => {
-    const db = fakeProdHandle();
-    let err: unknown;
-    try {
-      sandbox.setRules(db, 'rules_version = "2";');
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toBeInstanceOf(SandboxError);
-    expect((err as SandboxError).code).toBe('failed-precondition');
-    expect((err as SandboxError).message).toMatch(/sandbox-only/);
-  });
-
-  it('seedDocuments throws failed-precondition', () => {
-    const db = fakeProdHandle();
-    let err: unknown;
-    try {
-      sandbox.seedDocuments(db, { 'x/y': { foo: 'bar' } });
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toBeInstanceOf(SandboxError);
-    expect((err as SandboxError).code).toBe('failed-precondition');
-  });
-
-  it('snapshotState throws failed-precondition', () => {
-    const db = fakeProdHandle();
-    let err: unknown;
-    try {
-      sandbox.snapshotState(db);
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toBeInstanceOf(SandboxError);
-    expect((err as SandboxError).code).toBe('failed-precondition');
   });
 });
 

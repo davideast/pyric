@@ -10,7 +10,7 @@
 
 import type { Firestore } from 'pyric/firestore';
 import type { Database } from 'pyric/database/modular';
-import type { Sandbox, PersistenceBackend } from 'pyric/sandbox';
+import type { LocalSandbox, PersistenceBackend } from 'pyric/sandbox';
 import type { Auth, MintedSession } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';
 import {
@@ -51,7 +51,7 @@ export interface HostCtx {
   /** The single shared Firestore handle (sandbox-live — reads currentUser per op). */
   db: Firestore;
   /** The underlying Sandbox, for setRules + direct sandbox ops. */
-  sandbox: Sandbox;
+  sandbox: LocalSandbox;
   /** Stable per-SharedWorker instance id (see {@link INSTANCE_ID_KEY}). Reported
    *  via `getVersion` so the UI can identify which sandbox instance this is. */
   instanceId: string;

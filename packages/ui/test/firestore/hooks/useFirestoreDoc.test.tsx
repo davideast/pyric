@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import {
   getFirestore,
   doc,
   setDoc,
   deleteDoc,
-  sandbox as sandboxOps,
   type DocumentReference,
 } from 'pyric/firestore';
 import { useFirestoreDoc } from '../../../src/firestore/hooks/useFirestoreDoc.js';
@@ -21,7 +21,7 @@ service cloud.firestore {
 function makeFirestore() {
   const sandbox = initializeSandbox();
   const firestore = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-  sandboxOps.setRules(firestore, OPEN_RULES);
+  setRules(sandbox, OPEN_RULES);
   return firestore;
 }
 
@@ -33,7 +33,7 @@ function makeFirestore() {
 //   test('b', () => { … setDoc(...) }); // <- fails
 // Reproduces against the *built* `pyric/firestore` dist. The
 // existing `packages/firestore/test/sandbox-target.test.ts` avoids
-// the issue by seeding via `sandboxOps.seedDocuments` and rarely
+// the issue by seeding in bulk and rarely
 // calling `setDoc` directly across tests — a workaround, not a fix.
 // Tracked separately; the hook implementation has been verified
 // against single-flight test cases and will be re-validated through
@@ -157,8 +157,8 @@ describe.skip('useFirestoreDoc', () => {
   it('surfaces permission-denied errors from rules', async () => {
     const sandbox = initializeSandbox();
     const firestore = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-    sandboxOps.setRules(
-      firestore,
+    setRules(
+      sandbox,
       `rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {

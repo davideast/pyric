@@ -11,7 +11,8 @@
 import { describe, it, expect } from 'bun:test';
 import { buildSandboxDispatcher } from '../../src/bridge/client/dispatch.js';
 import { initializeSandbox } from 'pyric/sandbox';
-import { sandbox as sandboxOps, getFirestore } from 'pyric/firestore';
+import { getFirestore } from 'pyric/firestore';
+import { setRules } from 'pyric/sandbox/firestore';
 
 const RULES = `rules_version = '2';
 service cloud.firestore {
@@ -30,7 +31,7 @@ service cloud.firestore {
 describe('agent-as-a-distinct-user via the tool dispatcher (Slice D)', () => {
   it('acts as distinct users with rules enforced; claims flow; admin bypasses', async () => {
     const sandbox = initializeSandbox();
-    sandboxOps.setRules(getFirestore(sandbox), RULES);
+    setRules(sandbox, RULES);
     const dispatch = buildSandboxDispatcher(sandbox);
 
     // Agent acting as alice creates her own message: allowed.
