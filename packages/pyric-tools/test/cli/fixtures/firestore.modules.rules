@@ -1,0 +1,10 @@
+import { isAuthenticated } from 'auth';
+
+rules_version = '2+modules';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{noteId} {
+      allow read: if isAuthenticated();
+    }
+  }
+}

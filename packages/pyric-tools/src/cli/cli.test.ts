@@ -50,6 +50,11 @@ function makeScope(projectId = 'test-project'): ProjectScope {
   };
 }
 
+function serviceArgs(argv: string[]) {
+  const parsed = parseArgs(argv);
+  return { ...parsed, positional: parsed.positional.slice(2) };
+}
+
 // ── parseArgs ─────────────────────────────────────────────────────────
 
 describe('parseArgs', () => {
@@ -61,12 +66,12 @@ describe('parseArgs', () => {
   });
 
   it('parses --flag=value syntax', () => {
-    const p = parseArgs(['rules:simulate', '--stdin=true']);
+    const p = parseArgs(['firestore', 'rules', 'simulate', '--stdin=true']);
     expect(p.flags.get('stdin')).toBe('true');
   });
 
   it('treats a flag without a value as boolean true', () => {
-    const p = parseArgs(['rules:simulate', '--stdin']);
+    const p = parseArgs(['firestore', 'rules', 'simulate', '--stdin']);
     expect(p.flags.get('stdin')).toBe(true);
   });
 
@@ -94,7 +99,7 @@ describe('parseArgs', () => {
 describe('runRulesLint', () => {
   it('errors out when no path given', async () => {
     const io = bufferIo();
-    const code = await runRulesLint(parseArgs(['rules:lint']), { ...io });
+    const code = await runRulesLint(serviceArgs(['firestore', 'rules', 'lint']), { ...io });
     expect(code).toBe(1);
     expect(io.getErr()).toContain('missing rules-file path');
   });
@@ -102,7 +107,7 @@ describe('runRulesLint', () => {
   it('passes the source to the linter and prints JSON', async () => {
     const io = bufferIo();
     const lintFn = mock(() => ({ warnings: [], metrics: { sourceSize: 5 } as never }));
-    const code = await runRulesLint(parseArgs(['rules:lint', 'firestore.rules']), {
+    const code = await runRulesLint(serviceArgs(['firestore', 'rules', 'lint', 'firestore.rules']), {
       ...io,
       cwd: '/tmp',
       readFile: (async () => 'source') as never,
@@ -119,13 +124,13 @@ describe('runRulesLint', () => {
 describe('runRulesValidate', () => {
   it('errors out when no path given', async () => {
     const io = bufferIo();
-    const code = await runRulesValidate(parseArgs(['rules:validate']), { ...io });
+    const code = await runRulesValidate(serviceArgs(['firestore', 'rules', 'validate']), { ...io });
     expect(code).toBe(1);
   });
 
   it('reports parse failure with exit 2 on invalid rules', async () => {
     const io = bufferIo();
-    const code = await runRulesValidate(parseArgs(['rules:validate', 'bad.rules']), {
+    const code = await runRulesValidate(serviceArgs(['firestore', 'rules', 'validate', 'bad.rules']), {
       ...io,
       cwd: '/tmp',
       readFile: (async () => 'not valid rules at all') as never,
@@ -142,7 +147,7 @@ describe('runRulesSimulate', () => {
       success: true,
       data: { results: [], passed: 0, failed: 0 },
     } as never));
-    const code = await runRulesSimulate(parseArgs(['rules:simulate']), {
+    const code = await runRulesSimulate(serviceArgs(['firestore', 'rules', 'simulate']), {
       ...io,
       cwd: '/tmp',
       readFirebaseJson: async () => ({ firestore: { rules: 'firestore.rules' } }),
@@ -159,7 +164,7 @@ describe('runRulesSimulate', () => {
   it('reads request from stdin when --stdin is set', async () => {
     const io = bufferIo();
     const simulateFn = mock(() => ({ success: true, data: { results: [], passed: 0, failed: 0 } } as never));
-    const code = await runRulesSimulate(parseArgs(['rules:simulate', '--stdin']), {
+    const code = await runRulesSimulate(serviceArgs(['firestore', 'rules', 'simulate', '--stdin']), {
       ...io,
       cwd: '/tmp',
       readStdin: async () =>
@@ -184,14 +189,14 @@ describe('runRulesSimulate', () => {
 describe('runDatabaseRulesLint', () => {
   it('errors out when no path given', async () => {
     const io = bufferIo();
-    const code = await runDatabaseRulesLint(parseArgs(['database:rules:lint']), { ...io });
+    const code = await runDatabaseRulesLint(serviceArgs(['database', 'rules', 'lint']), { ...io });
     expect(code).toBe(1);
     expect(io.getErr()).toContain('missing rules-file path');
   });
 
   it('prints RTDB expression lints as JSON', async () => {
     const io = bufferIo();
-    const code = await runDatabaseRulesLint(parseArgs(['database:rules:lint', 'database.rules.json']), {
+    const code = await runDatabaseRulesLint(serviceArgs(['database', 'rules', 'lint', 'database.rules.json']), {
       ...io,
       cwd: '/tmp',
       readFile: (async () => '{"rules":{".read":true,".write":false}}') as never,
@@ -208,7 +213,7 @@ describe('runDatabaseRulesLint', () => {
 describe('runDatabaseRulesValidate', () => {
   it('reports RTDB expression parse errors', async () => {
     const io = bufferIo();
-    const code = await runDatabaseRulesValidate(parseArgs(['database:rules:validate', 'database.rules.json']), {
+    const code = await runDatabaseRulesValidate(serviceArgs(['database', 'rules', 'validate', 'database.rules.json']), {
       ...io,
       cwd: '/tmp',
       readFile: (async () => '{"rules":{".read":"auth.uid =="}}') as never,
@@ -222,7 +227,7 @@ describe('runDatabaseRulesValidate', () => {
 describe('runDatabaseRulesSimulate', () => {
   it('simulates inline RTDB rules from stdin', async () => {
     const io = bufferIo();
-    const code = await runDatabaseRulesSimulate(parseArgs(['database:rules:simulate', '--stdin']), {
+    const code = await runDatabaseRulesSimulate(serviceArgs(['database', 'rules', 'simulate', '--stdin']), {
       ...io,
       readStdin: async () =>
         JSON.stringify({
@@ -249,7 +254,7 @@ describe('runDatabaseRulesGenerate', () => {
 
     const io = bufferIo();
     const writes: Array<{ path: unknown; contents: unknown }> = [];
-    const code = await runDatabaseRulesGenerate(parseArgs(['database:rules:generate']), {
+    const code = await runDatabaseRulesGenerate(serviceArgs(['database', 'rules', 'generate']), {
       ...io,
       cwd: '/project',
       loadRulesDocument: (async () => ({ ok: true, document: doc })) as never,
@@ -269,7 +274,7 @@ describe('runDatabaseRulesGenerate', () => {
 
   it('reports a clear error when no constraints module is found', async () => {
     const io = bufferIo();
-    const code = await runDatabaseRulesGenerate(parseArgs(['database:rules:generate']), {
+    const code = await runDatabaseRulesGenerate(serviceArgs(['database', 'rules', 'generate']), {
       ...io,
       cwd: '/project',
       loadRulesDocument: (async () => ({
@@ -290,7 +295,7 @@ describe('runDatabaseRulesGenerate', () => {
     let loadedPath: string | undefined;
     const writes: Array<{ path: unknown }> = [];
     const code = await runDatabaseRulesGenerate(
-      parseArgs(['database:rules:generate', '--config', 'rtdb.rules.ts', '--out', 'out/rules.json']),
+      serviceArgs(['database', 'rules', 'generate', '--config', 'rtdb.rules.ts', '--out', 'out/rules.json']),
       {
         ...io,
         cwd: '/project',

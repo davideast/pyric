@@ -9,13 +9,17 @@
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json] [--include-passwords]
  *   pyric mcp
- *   pyric rules:lint <path>
- *   pyric rules:validate <path>
- *   pyric rules:simulate [--stdin]
- *   pyric database:rules:lint <path>
- *   pyric database:rules:validate <path>
- *   pyric database:rules:simulate [--stdin]
- *   pyric database:rules:generate [--config <path>] [--out <path>]
+ *   pyric firestore rules lint <path>
+ *   pyric firestore rules validate <path>
+ *   pyric firestore rules simulate [--stdin]
+ *   pyric firestore rules resolve <path> [--out <path>]
+ *   pyric firestore indexes generate <path...> [--out <path>]
+ *   pyric storage rules lint <path>
+ *   pyric storage rules simulate [--stdin]
+ *   pyric database rules lint <path>
+ *   pyric database rules validate <path>
+ *   pyric database rules simulate [--stdin]
+ *   pyric database rules generate [--config <path>] [--out <path>]
  *   pyric auth:configure-provider <provider> <true|false>
  *   pyric auth:manage-domains <add|remove|list> [domain]
  *   pyric firestore:discover [collection]
@@ -45,13 +49,6 @@
 import { startServer, type BridgeMode } from '@pyric/cli/bridge';
 import { parseArgs, type ParsedArgs } from './parse-args.js';
 import { runLoginCommand, runLogoutCommand, runWhoamiCommand } from './login.js';
-import { runRulesLint, runRulesValidate, runRulesSimulate } from './rules.js';
-import {
-  runDatabaseRulesLint,
-  runDatabaseRulesValidate,
-  runDatabaseRulesSimulate,
-  runDatabaseRulesGenerate,
-} from './database-rules.js';
 import { runAuthConfigureProvider, runAuthManageDomains } from './auth.js';
 import { runFirestoreDiscover } from './discover.js';
 import { runInit, runVendor } from './init.js';
@@ -62,6 +59,7 @@ import { runMcpProxy } from './mcp-proxy.js';
 import { pyricVersion } from '../serve/standalone-assets.js';
 import { cliVersion } from '../pkg-version.js';
 import { FIREBASE_TESTED_AGAINST } from '../version/compat-target.js';
+import { dispatchServiceCommand } from './service-commands.js';
 
 // The standalone binary bakes the real `pyric` version onto the embedded-assets
 // global; the npm bin has no such global and falls back to '0.0.0'.
@@ -79,13 +77,17 @@ USAGE
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
-  pyric rules:lint <path>
-  pyric rules:validate <path>
-  pyric rules:simulate [--stdin]
-  pyric database:rules:lint <path>
-  pyric database:rules:validate <path>
-  pyric database:rules:simulate [--stdin]
-  pyric database:rules:generate [--config <path>] [--out <path>]
+  pyric firestore rules lint <path>
+  pyric firestore rules validate <path>
+  pyric firestore rules simulate [--stdin]
+  pyric firestore rules resolve <path> [--out <path>]
+  pyric firestore indexes generate <path...> [--out <path>]
+  pyric storage rules lint <path>
+  pyric storage rules simulate [--stdin]
+  pyric database rules lint <path>
+  pyric database rules validate <path>
+  pyric database rules simulate [--stdin]
+  pyric database rules generate [--config <path>] [--out <path>]
   pyric auth:configure-provider <anonymous|email|phone|google> <true|false>
   pyric auth:manage-domains <add|remove|list> [domain]
   pyric firestore:discover [collection]
@@ -130,13 +132,17 @@ COMMANDS
                              (repeat for mixed captures). --json. Exit 1 on divergence.
   verify cases [fixture]     Derive Firestore Rules Test API cases from a captured
                              fixture and print JSON, or write with --out FILE.
-  rules:lint                 Run Firestore rules linter against a file.
-  rules:validate             Validate Firestore rules structure against a file.
-  rules:simulate             Local rules simulator (smoke-test or --stdin scripted).
-  database:rules:lint        Run Realtime Database rules JSON expression linter.
-  database:rules:validate    Validate Realtime Database rules JSON expressions.
-  database:rules:simulate    Local RTDB rules simulator (smoke-test or --stdin scripted).
-  database:rules:generate    Compile a constraints module to database.rules.json.
+  firestore rules lint       Run the Firestore rules linter against a file.
+  firestore rules validate   Validate Firestore rules structure against a file.
+  firestore rules simulate   Run the local Firestore rules simulator.
+  firestore rules resolve    Resolve Firestore 2+modules imports to one ruleset.
+  firestore indexes generate Generate firestore.indexes.json from application source.
+  storage rules lint         Check Storage rules syntax locally.
+  storage rules simulate     Run the local Storage rules evaluator.
+  database rules lint        Run the Realtime Database rules expression linter.
+  database rules validate    Validate Realtime Database rules expressions.
+  database rules simulate    Run the local Realtime Database rules simulator.
+  database rules generate    Compile a constraints module to database.rules.json.
   auth:configure-provider    Identity Toolkit: enable/disable an auth provider.
   auth:manage-domains        Identity Toolkit: add/remove/list authorized domains.
   firestore:discover         Crawl a Firestore to infer schema.
@@ -427,6 +433,9 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
     return 0;
   }
 
+  const serviceCommand = await dispatchServiceCommand(parsed);
+  if (serviceCommand !== null) return serviceCommand;
+
   switch (parsed.subcommand) {
     case null:
     case undefined:
@@ -452,20 +461,6 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       return await runLogoutCommand();
     case 'whoami':
       return await runWhoamiCommand();
-    case 'rules:lint':
-      return await runRulesLint(parsed);
-    case 'rules:validate':
-      return await runRulesValidate(parsed);
-    case 'rules:simulate':
-      return await runRulesSimulate(parsed);
-    case 'database:rules:lint':
-      return await runDatabaseRulesLint(parsed);
-    case 'database:rules:validate':
-      return await runDatabaseRulesValidate(parsed);
-    case 'database:rules:simulate':
-      return await runDatabaseRulesSimulate(parsed);
-    case 'database:rules:generate':
-      return await runDatabaseRulesGenerate(parsed);
     case 'auth:configure-provider':
       return await runAuthConfigureProvider(parsed);
     case 'auth:manage-domains':

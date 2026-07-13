@@ -14,7 +14,7 @@
  *
  * The npm build never sets the global. `isStandalone()` is false there and
  * `serve` keeps its runtime esbuild path untouched. The heavy base64 blobs are
- * exposed behind lazy loaders so non-`serve` commands (rules:lint, deploy, …)
+ * exposed behind lazy loaders so commands such as `firestore rules lint`
  * never pay to parse them.
  */
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
