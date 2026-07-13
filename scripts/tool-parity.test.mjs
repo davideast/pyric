@@ -40,6 +40,8 @@ describe('tool-parity extraction against the real codebase', () => {
       'firestore_get_document',
       'firestore_batch_write',
       'sandbox_inspect',
+      'rtdb_simulate_access',
+      'rtdb_crawl_structure',
       'firestore_simulate_rules',
       'firestore_lint_rules',
       'firestore_rules_stdlib_list',
