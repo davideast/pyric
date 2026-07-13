@@ -5,7 +5,7 @@
  */
 
 import type { Sandbox } from '../sandbox/types/service.js';
-import type { AI, Target } from './types.js';
+import type { AI, SandboxTarget } from './types.js';
 
 export const TARGET_SYMBOL: unique symbol = Symbol('pyric/ai/target');
 
@@ -13,8 +13,8 @@ export const TARGET_SYMBOL: unique symbol = Symbol('pyric/ai/target');
  * Recover the dispatch target for an {@link AI} handle. Throws if the handle
  * wasn't produced by this package — the brand is the only way in.
  */
-export function targetOf(ai: AI): Target {
-  const target = (ai as { [TARGET_SYMBOL]?: Target })[TARGET_SYMBOL];
+export function targetOf(ai: AI): SandboxTarget {
+  const target = (ai as { [TARGET_SYMBOL]?: SandboxTarget })[TARGET_SYMBOL];
   if (!target) {
     throw new TypeError('pyric/ai: unrecognized AI handle — was it produced by getAI(...)?');
   }

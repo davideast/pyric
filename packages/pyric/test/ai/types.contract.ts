@@ -3,199 +3,71 @@ import type * as Mirror from '../../src/ai/types.js';
 
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
-type Names =
-  | 'Citation'
-  | 'CitationMetadata'
-  | 'CodeExecutionResult'
-  | 'CodeExecutionResultPart'
-  | 'CodeExecutionTool'
-  | 'Content'
-  | 'CountTokensRequest'
-  | 'CountTokensResponse'
-  | 'Date'
-  | 'EnhancedGenerateContentResponse'
-  | 'ErrorDetails'
-  | 'ExecutableCode'
-  | 'ExecutableCodePart'
-  | 'FileData'
-  | 'FileDataPart'
-  | 'FunctionCall'
-  | 'FunctionCallingConfig'
-  | 'FunctionCallPart'
-  | 'FunctionDeclaration'
-  | 'FunctionDeclarationsTool'
-  | 'FunctionResponse'
-  | 'FunctionResponsePart'
-  | 'GenerateContentCandidate'
-  | 'GenerateContentRequest'
-  | 'GenerateContentResponse'
-  | 'GenerationConfig'
-  | 'GenerativeContentBlob'
-  | 'GoogleMaps'
-  | 'GoogleMapsGroundingChunk'
-  | 'GoogleMapsTool'
-  | 'GoogleSearch'
-  | 'GoogleSearchTool'
-  | 'GroundingChunk'
-  | 'GroundingMetadata'
-  | 'GroundingSupport'
-  | 'ImageConfig'
-  | 'InlineDataPart'
-  | 'LatLng'
-  | 'ModalityTokenCount'
-  | 'ObjectSchemaRequest'
-  | 'Part'
-  | 'PromptFeedback'
-  | 'RetrievalConfig'
-  | 'SafetyRating'
-  | 'SafetySetting'
-  | 'SchemaInterface'
-  | 'SchemaRequest'
-  | 'SchemaShared'
-  | 'SearchEntrypoint'
-  | 'Segment'
-  | 'TextPart'
-  | 'ThinkingConfig'
-  | 'Tool'
-  | 'ToolConfig'
-  | 'URLContext'
-  | 'URLContextMetadata'
-  | 'URLContextTool'
-  | 'URLMetadata'
-  | 'UsageMetadata'
-  | 'VideoMetadata'
-  | 'WebGroundingChunk';
-
-type MirrorTypes = {
-  Citation: Mirror.Citation;
-  CitationMetadata: Mirror.CitationMetadata;
-  CodeExecutionResult: Mirror.CodeExecutionResult;
-  CodeExecutionResultPart: Mirror.CodeExecutionResultPart;
-  CodeExecutionTool: Mirror.CodeExecutionTool;
-  Content: Mirror.Content;
-  CountTokensRequest: Mirror.CountTokensRequest;
-  CountTokensResponse: Mirror.CountTokensResponse;
-  Date: Mirror.Date;
-  EnhancedGenerateContentResponse: Mirror.EnhancedGenerateContentResponse;
-  ErrorDetails: Mirror.ErrorDetails;
-  ExecutableCode: Mirror.ExecutableCode;
-  ExecutableCodePart: Mirror.ExecutableCodePart;
-  FileData: Mirror.FileData;
-  FileDataPart: Mirror.FileDataPart;
-  FunctionCall: Mirror.FunctionCall;
-  FunctionCallingConfig: Mirror.FunctionCallingConfig;
-  FunctionCallPart: Mirror.FunctionCallPart;
-  FunctionDeclaration: Mirror.FunctionDeclaration;
-  FunctionDeclarationsTool: Mirror.FunctionDeclarationsTool;
-  FunctionResponse: Mirror.FunctionResponse;
-  FunctionResponsePart: Mirror.FunctionResponsePart;
-  GenerateContentCandidate: Mirror.GenerateContentCandidate;
-  GenerateContentRequest: Mirror.GenerateContentRequest;
-  GenerateContentResponse: Mirror.GenerateContentResponse;
-  GenerationConfig: Mirror.GenerationConfig;
-  GenerativeContentBlob: Mirror.GenerativeContentBlob;
-  GoogleMaps: Mirror.GoogleMaps;
-  GoogleMapsGroundingChunk: Mirror.GoogleMapsGroundingChunk;
-  GoogleMapsTool: Mirror.GoogleMapsTool;
-  GoogleSearch: Mirror.GoogleSearch;
-  GoogleSearchTool: Mirror.GoogleSearchTool;
-  GroundingChunk: Mirror.GroundingChunk;
-  GroundingMetadata: Mirror.GroundingMetadata;
-  GroundingSupport: Mirror.GroundingSupport;
-  ImageConfig: Mirror.ImageConfig;
-  InlineDataPart: Mirror.InlineDataPart;
-  LatLng: Mirror.LatLng;
-  ModalityTokenCount: Mirror.ModalityTokenCount;
-  ObjectSchemaRequest: Mirror.ObjectSchemaRequest;
-  Part: Mirror.Part;
-  PromptFeedback: Mirror.PromptFeedback;
-  RetrievalConfig: Mirror.RetrievalConfig;
-  SafetyRating: Mirror.SafetyRating;
-  SafetySetting: Mirror.SafetySetting;
-  SchemaInterface: Mirror.SchemaInterface;
-  SchemaRequest: Mirror.SchemaRequest;
-  SchemaShared: Mirror.SchemaShared<unknown>;
-  SearchEntrypoint: Mirror.SearchEntrypoint;
-  Segment: Mirror.Segment;
-  TextPart: Mirror.TextPart;
-  ThinkingConfig: Mirror.ThinkingConfig;
-  Tool: Mirror.Tool;
-  ToolConfig: Mirror.ToolConfig;
-  URLContext: Mirror.URLContext;
-  URLContextMetadata: Mirror.URLContextMetadata;
-  URLContextTool: Mirror.URLContextTool;
-  URLMetadata: Mirror.URLMetadata;
-  UsageMetadata: Mirror.UsageMetadata;
-  VideoMetadata: Mirror.VideoMetadata;
-  WebGroundingChunk: Mirror.WebGroundingChunk;
+/** One admitted-name map: every entry must be mutually assignable. */
+type Parity = {
+  AILocation: Same<Mirror.AI['location'], Firebase.AI['location']>;
+  Citation: Same<Mirror.Citation, Firebase.Citation>;
+  CitationMetadata: Same<Mirror.CitationMetadata, Firebase.CitationMetadata>;
+  CodeExecutionResult: Same<Mirror.CodeExecutionResult, Firebase.CodeExecutionResult>;
+  CodeExecutionResultPart: Same<Mirror.CodeExecutionResultPart, Firebase.CodeExecutionResultPart>;
+  CodeExecutionTool: Same<Mirror.CodeExecutionTool, Firebase.CodeExecutionTool>;
+  Content: Same<Mirror.Content, Firebase.Content>;
+  CountTokensRequest: Same<Mirror.CountTokensRequest, Firebase.CountTokensRequest>;
+  CountTokensResponse: Same<Mirror.CountTokensResponse, Firebase.CountTokensResponse>;
+  Date: Same<Mirror.Date, Firebase.Date>;
+  EnhancedGenerateContentResponse: Same<Mirror.EnhancedGenerateContentResponse, Firebase.EnhancedGenerateContentResponse>;
+  ErrorDetails: Same<Mirror.ErrorDetails, Firebase.ErrorDetails>;
+  ExecutableCode: Same<Mirror.ExecutableCode, Firebase.ExecutableCode>;
+  ExecutableCodePart: Same<Mirror.ExecutableCodePart, Firebase.ExecutableCodePart>;
+  FileData: Same<Mirror.FileData, Firebase.FileData>;
+  FileDataPart: Same<Mirror.FileDataPart, Firebase.FileDataPart>;
+  FunctionCall: Same<Mirror.FunctionCall, Firebase.FunctionCall>;
+  FunctionCallingConfig: Same<Mirror.FunctionCallingConfig, Firebase.FunctionCallingConfig>;
+  FunctionCallPart: Same<Mirror.FunctionCallPart, Firebase.FunctionCallPart>;
+  FunctionDeclaration: Same<Mirror.FunctionDeclaration, Firebase.FunctionDeclaration>;
+  FunctionDeclarationsTool: Same<Mirror.FunctionDeclarationsTool, Firebase.FunctionDeclarationsTool>;
+  FunctionResponse: Same<Mirror.FunctionResponse, Firebase.FunctionResponse>;
+  FunctionResponsePart: Same<Mirror.FunctionResponsePart, Firebase.FunctionResponsePart>;
+  GenerateContentCandidate: Same<Mirror.GenerateContentCandidate, Firebase.GenerateContentCandidate>;
+  GenerateContentRequest: Same<Mirror.GenerateContentRequest, Firebase.GenerateContentRequest>;
+  GenerateContentResponse: Same<Mirror.GenerateContentResponse, Firebase.GenerateContentResponse>;
+  GenerationConfig: Same<Mirror.GenerationConfig, Firebase.GenerationConfig>;
+  GenerativeContentBlob: Same<Mirror.GenerativeContentBlob, Firebase.GenerativeContentBlob>;
+  GoogleMaps: Same<Mirror.GoogleMaps, Firebase.GoogleMaps>;
+  GoogleMapsGroundingChunk: Same<Mirror.GoogleMapsGroundingChunk, Firebase.GoogleMapsGroundingChunk>;
+  GoogleMapsTool: Same<Mirror.GoogleMapsTool, Firebase.GoogleMapsTool>;
+  GoogleSearch: Same<Mirror.GoogleSearch, Firebase.GoogleSearch>;
+  GoogleSearchTool: Same<Mirror.GoogleSearchTool, Firebase.GoogleSearchTool>;
+  GroundingChunk: Same<Mirror.GroundingChunk, Firebase.GroundingChunk>;
+  GroundingMetadata: Same<Mirror.GroundingMetadata, Firebase.GroundingMetadata>;
+  GroundingSupport: Same<Mirror.GroundingSupport, Firebase.GroundingSupport>;
+  ImageConfig: Same<Mirror.ImageConfig, Firebase.ImageConfig>;
+  InlineDataPart: Same<Mirror.InlineDataPart, Firebase.InlineDataPart>;
+  LatLng: Same<Mirror.LatLng, Firebase.LatLng>;
+  ModalityTokenCount: Same<Mirror.ModalityTokenCount, Firebase.ModalityTokenCount>;
+  ObjectSchemaRequest: Same<Mirror.ObjectSchemaRequest, Firebase.ObjectSchemaRequest>;
+  Part: Same<Mirror.Part, Firebase.Part>;
+  PromptFeedback: Same<Mirror.PromptFeedback, Firebase.PromptFeedback>;
+  RetrievalConfig: Same<Mirror.RetrievalConfig, Firebase.RetrievalConfig>;
+  SafetyRating: Same<Mirror.SafetyRating, Firebase.SafetyRating>;
+  SafetySetting: Same<Mirror.SafetySetting, Firebase.SafetySetting>;
+  SchemaInterface: Same<Mirror.SchemaInterface, Firebase.SchemaInterface>;
+  SchemaRequest: Same<Mirror.SchemaRequest, Firebase.SchemaRequest>;
+  SchemaShared: Same<Mirror.SchemaShared<unknown>, Firebase.SchemaShared<unknown>>;
+  SearchEntrypoint: Same<Mirror.SearchEntrypoint, Firebase.SearchEntrypoint>;
+  Segment: Same<Mirror.Segment, Firebase.Segment>;
+  TextPart: Same<Mirror.TextPart, Firebase.TextPart>;
+  ThinkingConfig: Same<Mirror.ThinkingConfig, Firebase.ThinkingConfig>;
+  Tool: Same<Mirror.Tool, Firebase.Tool>;
+  ToolConfig: Same<Mirror.ToolConfig, Firebase.ToolConfig>;
+  URLContext: Same<Mirror.URLContext, Firebase.URLContext>;
+  URLContextMetadata: Same<Mirror.URLContextMetadata, Firebase.URLContextMetadata>;
+  URLContextTool: Same<Mirror.URLContextTool, Firebase.URLContextTool>;
+  URLMetadata: Same<Mirror.URLMetadata, Firebase.URLMetadata>;
+  UsageMetadata: Same<Mirror.UsageMetadata, Firebase.UsageMetadata>;
+  VideoMetadata: Same<Mirror.VideoMetadata, Firebase.VideoMetadata>;
+  WebGroundingChunk: Same<Mirror.WebGroundingChunk, Firebase.WebGroundingChunk>;
 };
 
-type FirebaseTypes = {
-  Citation: Firebase.Citation;
-  CitationMetadata: Firebase.CitationMetadata;
-  CodeExecutionResult: Firebase.CodeExecutionResult;
-  CodeExecutionResultPart: Firebase.CodeExecutionResultPart;
-  CodeExecutionTool: Firebase.CodeExecutionTool;
-  Content: Firebase.Content;
-  CountTokensRequest: Firebase.CountTokensRequest;
-  CountTokensResponse: Firebase.CountTokensResponse;
-  Date: Firebase.Date;
-  EnhancedGenerateContentResponse: Firebase.EnhancedGenerateContentResponse;
-  ErrorDetails: Firebase.ErrorDetails;
-  ExecutableCode: Firebase.ExecutableCode;
-  ExecutableCodePart: Firebase.ExecutableCodePart;
-  FileData: Firebase.FileData;
-  FileDataPart: Firebase.FileDataPart;
-  FunctionCall: Firebase.FunctionCall;
-  FunctionCallingConfig: Firebase.FunctionCallingConfig;
-  FunctionCallPart: Firebase.FunctionCallPart;
-  FunctionDeclaration: Firebase.FunctionDeclaration;
-  FunctionDeclarationsTool: Firebase.FunctionDeclarationsTool;
-  FunctionResponse: Firebase.FunctionResponse;
-  FunctionResponsePart: Firebase.FunctionResponsePart;
-  GenerateContentCandidate: Firebase.GenerateContentCandidate;
-  GenerateContentRequest: Firebase.GenerateContentRequest;
-  GenerateContentResponse: Firebase.GenerateContentResponse;
-  GenerationConfig: Firebase.GenerationConfig;
-  GenerativeContentBlob: Firebase.GenerativeContentBlob;
-  GoogleMaps: Firebase.GoogleMaps;
-  GoogleMapsGroundingChunk: Firebase.GoogleMapsGroundingChunk;
-  GoogleMapsTool: Firebase.GoogleMapsTool;
-  GoogleSearch: Firebase.GoogleSearch;
-  GoogleSearchTool: Firebase.GoogleSearchTool;
-  GroundingChunk: Firebase.GroundingChunk;
-  GroundingMetadata: Firebase.GroundingMetadata;
-  GroundingSupport: Firebase.GroundingSupport;
-  ImageConfig: Firebase.ImageConfig;
-  InlineDataPart: Firebase.InlineDataPart;
-  LatLng: Firebase.LatLng;
-  ModalityTokenCount: Firebase.ModalityTokenCount;
-  ObjectSchemaRequest: Firebase.ObjectSchemaRequest;
-  Part: Firebase.Part;
-  PromptFeedback: Firebase.PromptFeedback;
-  RetrievalConfig: Firebase.RetrievalConfig;
-  SafetyRating: Firebase.SafetyRating;
-  SafetySetting: Firebase.SafetySetting;
-  SchemaInterface: Firebase.SchemaInterface;
-  SchemaRequest: Firebase.SchemaRequest;
-  SchemaShared: Firebase.SchemaShared<unknown>;
-  SearchEntrypoint: Firebase.SearchEntrypoint;
-  Segment: Firebase.Segment;
-  TextPart: Firebase.TextPart;
-  ThinkingConfig: Firebase.ThinkingConfig;
-  Tool: Firebase.Tool;
-  ToolConfig: Firebase.ToolConfig;
-  URLContext: Firebase.URLContext;
-  URLContextMetadata: Firebase.URLContextMetadata;
-  URLContextTool: Firebase.URLContextTool;
-  URLMetadata: Firebase.URLMetadata;
-  UsageMetadata: Firebase.UsageMetadata;
-  VideoMetadata: Firebase.VideoMetadata;
-  WebGroundingChunk: Firebase.WebGroundingChunk;
-};
-
-type Parity = { [K in Names]: Same<MirrorTypes[K], FirebaseTypes[K]> };
-type Forward = { [K in Names]: [MirrorTypes[K]] extends [FirebaseTypes[K]] ? true : false };
-type Reverse = { [K in Names]: [FirebaseTypes[K]] extends [MirrorTypes[K]] ? true : false };
 declare const parity: Parity;
-const allParity: { [K in Names]: true } = parity;
+const allParity: { [K in keyof Parity]: true } = parity;

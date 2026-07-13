@@ -44,8 +44,8 @@ import {
   APP_TARGET,
   installDefaultAppResolver,
 } from '../sandbox/internal/app-handle.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type { Sandbox } from '../sandbox/types/service.js';
-import { FirebaseError } from './firebase-error.js';
 import type { InitializeAppConfig, PyricApp } from './types.js';
 
 /** firebase/app's default app name — `'[DEFAULT]'`. */

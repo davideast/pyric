@@ -42,6 +42,7 @@ export interface AIOptions {
 export interface AI {
   app?: SandboxApp;
   backend: Backend;
+  location: string;
   options?: AIOptions;
 }
 
@@ -50,8 +51,6 @@ export interface SandboxTarget {
   sandbox: Sandbox;
   broker: AiBroker;
 }
-
-export type Target = SandboxTarget;
 
 export interface Date {
   year: number;

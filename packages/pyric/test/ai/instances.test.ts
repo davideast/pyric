@@ -46,6 +46,7 @@ describe('ai: initialization and dispatch', () => {
     const ai = seam.ai.getAI(sandbox);
     expect(ai.backend).toBeInstanceOf(seam.ai.GoogleAIBackend);
     expect(ai.backend.backendType).toBe(seam.ai.BackendType.GOOGLE_AI);
+    expect(ai.location).toBe('');
   });
 
   rowTest('ai#getai-idempotent repeat getAI calls with the same target return a stable handle', () => {
@@ -70,6 +71,8 @@ describe('ai: initialization and dispatch', () => {
     const backend = new seam.ai.VertexAIBackend();
     expect(backend.backendType).toBe(seam.ai.BackendType.VERTEX_AI);
     expect(backend.location).toBe('us-central1');
+    const ai = seam.ai.getAI(seam.sandboxMod.initializeSandbox(), { backend });
+    expect(ai.location).toBe('us-central1');
   });
 
   rowTest('ai#model-name-short a short model name normalizes to the models/ resource name', () => {

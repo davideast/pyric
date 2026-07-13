@@ -67,7 +67,7 @@ capture's distilled facts in the named test.
 <div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#getai-app-dispatch</code> (package-resolution dispatch claim)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">getai-default-backend</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">With no options the backend defaults to <code>GoogleAIBackend</code> and <code>backendType</code> is <code>GOOGLE_AI</code></span></summary>
+<summary class="compat-line"><span class="compat-num">getai-default-backend</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">With no options the backend defaults to <code>GoogleAIBackend</code>, <code>backendType</code> is <code>GOOGLE_AI</code>, and the AI handle location is the empty string</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#getai-default-backend</code> (matches upstream AIOptions default)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
@@ -79,7 +79,7 @@ capture's distilled facts in the named test.
 <div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#getai-engine-option</code> (engine seam per packages/conformance/docs/ai/cdd-deltas.md)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">backend-vertex</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>VertexAIBackend</code> carries <code>backendType</code> <code>VERTEX_AI</code> and its <code>location</code> defaults to <code>us-central1</code></span></summary>
+<summary class="compat-line"><span class="compat-num">backend-vertex</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>VertexAIBackend</code> carries <code>backendType</code> <code>VERTEX_AI</code>; its location and the resulting AI handle location default to <code>us-central1</code></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#backend-vertex</code> (matches upstream constructor default)</div></div>
 </details>
 <details class="compat-row" data-status="ok">

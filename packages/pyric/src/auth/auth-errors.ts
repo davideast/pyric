@@ -5,7 +5,7 @@
  * re-export chain.
  */
 
-import { FirebaseError } from '../app/firebase-error.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 
 /**
  * Build a Firebase-shaped `FirebaseError` from the sandbox-owned app mirror,
