@@ -3,9 +3,9 @@ dist/
 .dist/
 out-packages/
 
-# pyric-tools standalone binary artifacts.
-packages/pyric-tools/dist-bin/
-packages/pyric-tools/build/
+# @pyric/cli standalone binary artifacts.
+packages/cli/dist-bin/
+packages/cli/build/
 
 # Local package-manager caches.
 .bun-cache/
@@ -42,3 +42,4 @@ docs/design/
 
 # Claude Code worktrees — never repo content
 .claude/worktrees/
+.pyric-worktrees/
