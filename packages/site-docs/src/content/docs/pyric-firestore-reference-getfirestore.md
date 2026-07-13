@@ -1,82 +1,65 @@
 ---
-title: "getFirestore overloads"
+title: "getFirestore"
 group: "pyric / firestore"
 section: "Reference"
 order: 12011
 ---
-# `getFirestore` overloads
+# `getFirestore`
 
-The single factory dispatches by the shape of its argument.
+Constructs a Firestore handle owned by the Pyric sandbox mirror.
 
-## Sandbox backend
+## Signatures
 ```ts
-import { initializeSandbox } from 'pyric/sandbox';
-import { getFirestore } from 'pyric/firestore';
+function getFirestore(context: SandboxContext): Firestore;
+function getFirestore(sandbox: Sandbox): Firestore;
+function getFirestore(app: PyricApp): Firestore;
+```
+`PyricApp` is the sandbox app returned when package resolution has swapped
+canonical `firebase/app` imports to `pyric/app`.
 
-const sandbox = initializeSandbox();
+## `SandboxContext`
+```ts
 const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
 ```
-Pass a `SandboxContext` to get a sandbox-backed `Firestore`. The handle dispatches every operation through `pyric-admin`'s chainable adapter onto `pyric/sandbox`'s `LocalEnvironment`.
+The identity is frozen when the handle is constructed. Use this form for tests
+that name the acting identity explicitly.
 
-The sandbox-only operations (`sandbox.setRules`, `sandbox.seedDocuments`, `sandbox.snapshotState`) work on this handle.
+## `Sandbox`
+```ts
+const db = getFirestore(sandbox);
+```
+Each operation reads `sandbox.currentUser`. This form follows authentication
+changes made through the matching `pyric/auth` sandbox.
 
-## Prod backend
+## `PyricApp`
 ```ts
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'pyric/firestore';
+import { getFirestore } from 'firebase/firestore';
 
-const app = initializeApp({
-  projectId: 'your-project-id',
-  // ... other Firebase config
-});
+const app = initializeApp({ projectId: 'demo' });
 const db = getFirestore(app);
 ```
-Pass a `FirebaseApp` to get a prod-backed `Firestore`. The handle delegates every operation to `firebase/firestore`.
+When a Pyric activation seam is active, both canonical imports resolve to the
+sandbox packages and `app` owns a `Sandbox`. Without activation, both imports
+remain Firebase and Firebase's own `getFirestore` runs instead.
 
-The sandbox-only operations throw `SandboxError('failed-precondition')` on this handle: there's no `LocalEnvironment` to set rules against.
+## Invalid input
 
-## Dispatch rule
-
-Internally, `getFirestore` discriminates via `instanceof SandboxContextImpl`. The check is structural-but-class-based: a hand-rolled object with a `withAuth` method would not satisfy `instanceof` and would route to the prod backend, where `firebase/firestore`'s `getFirestore` would reject it.
-
-For application code this means: pass a `SandboxContext` derived from `initializeSandbox()` for sandbox; pass a `FirebaseApp` from `initializeApp` for prod. Anything else is an error.
-
-## Why one factory, not two
-
-We considered exporting two factories: `getFirestoreSandbox(ctx)` and `getFirestoreProd(app)`. Rejected because:
-
-- The swap-in contract for `firebase/firestore` is `getFirestore(app)`. Code written against the upstream SDK shouldn't need to rename its calls.
-- The two-factory version forces every consumer of the resulting `Firestore` to track which factory produced it. The single factory hides the choice behind one call site.
-
-## Type-level dispatch
-
-The two overloads narrow correctly:
-```ts
-function f(target: SandboxContext | FirebaseApp): Firestore {
-  return getFirestore(target);   // resolves to overload 1 or 2 by inference
-}
+A direct `pyric/firestore` call rejects real Firebase apps and unrecognised
+objects:
+```text
+TypeError: pyric/firestore is a sandbox-only mirror. Package resolution must
+leave firebase/firestore unchanged for production ...
 ```
-TypeScript picks the right overload from the argument's type. The runtime check is independent: even if a caller cast through `any`, the runtime branch still routes correctly.
+This error indicates that package selection happened at the wrong layer. Do
+not add a production branch to the direct mirror; import `firebase/firestore`
+without Pyric activation.
 
-## What's identical across backends
+## Related functions
 
-Once you have a `Firestore`, every other function in the package works identically:
-```ts
-const db = getFirestore(target);  // sandbox or prod — doesn't matter from here
-
-await setDoc(doc(db, 'notes', 'n1'), { title: 'hello' });
-const snap = await getDoc(doc(db, 'notes', 'n1'));
-```
-The same `setDoc` call routes to the simulator's `set` on sandbox and to Firebase's `setDoc` on prod. Differences are confined to:
-
-- Sandbox-only operations (`sandbox.*`): throw on prod.
-- Performance characteristics: sandbox is sub-millisecond, prod is network-latency-bound.
-- Error sources: sandbox throws `SandboxError`; prod throws `FirebaseError` from `firebase/firestore` (translated via the simulator's compat path on the sandbox side).
-
-## What's not identical across backends
-
-- **Some `metadata` fields**. Sandbox always reports `metadata.fromCache: false` and `metadata.hasPendingWrites: false`. Prod populates them per the real cache state.
-- **Network failures**. Only prod can throw `'unavailable'` or `'failed-precondition'` from contention. Sandbox is synchronous.
-- **Rule changes**. Sandbox re-evaluates listeners immediately after `sandbox.setRules`; prod's `firebase deploy --only firestore:rules` propagates over seconds to minutes and does not affect already-attached listeners.
-
-These divergences are documented and intentional. See [Why two backends behind one surface](../pyric-firestore-explanation-two-backends-one-surface/).
+- `actingAs(sandbox, identity)` constructs a frozen-identity handle.
+- `getAdminFirestore(sandbox)` constructs a rules-bypassing sandbox handle.
+- `initializeFirestore(owner, settings)` delegates to `getFirestore`; cache and
+  network settings are inert in the sandbox.
+- `connectFirestoreEmulator(db, host, port, options)` is a no-op because the
+  sandbox is already local.

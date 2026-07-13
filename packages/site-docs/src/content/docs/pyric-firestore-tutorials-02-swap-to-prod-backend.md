@@ -1,129 +1,91 @@
 ---
-title: "Swap the demo to the prod backend"
+title: "Run the same demo against production"
 navLabel: "Swap to prod backend"
 group: "pyric / firestore"
 section: "Tutorials"
 order: 12003
 ---
-# Swap the demo to the prod backend
+# Run the same demo against production
 
-Take the demo from [Write a sandbox-backed demo](../pyric-firestore-tutorials-01-write-a-sandbox-demo/) and point it at a real Firebase project. The only code change is one line.
+In this lesson you will take the canonical-import demo from the previous
+tutorial, remove sandbox activation, and observe Firebase becoming the backend
+without changing the Firestore calls.
 
-This tutorial assumes you have a Firebase project with Firestore enabled and a config object handy.
+You need a Firebase project with Firestore enabled and a Web app configuration.
 
-## Before you start
+## 1. Confirm the application uses canonical imports
 
-In the project folder from Tutorial 1:
-```bash
-bun add firebase
-```
-`firebase` is the upstream Web SDK. `pyric/firestore`'s prod backend dispatches through it.
-
-## Step 1: The one-line change
-
-Replace this:
-```ts
-import { initializeSandbox } from 'pyric/sandbox';
-
-const sandbox = initializeSandbox();
-const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-```
-With this:
+Your application module should import Firebase, not Pyric:
 ```ts
 import { initializeApp } from 'firebase/app';
+import { doc, getDoc, getFirestore, setDoc } from 'firebase/firestore';
 
 const app = initializeApp({
+  apiKey: 'your-api-key',
+  appId: 'your-app-id',
   projectId: 'your-project-id',
-  // ... rest of your Firebase config
 });
+
 const db = getFirestore(app);
+const ref = doc(db, 'notes/n1');
+await setDoc(ref, { title: 'hello from production' });
+console.log((await getDoc(ref)).data());
 ```
-That's the swap. Everything else in `demo.ts` (`setDoc`, `getDoc`, `query`, `onSnapshot`, the writes, the reads, the listener) stays unchanged.
+If the previous tutorial used direct `pyric/firestore` imports, change those
+imports to `firebase/firestore` now. The function calls stay the same.
 
-## Step 2: What won't work anymore
+## 2. Deploy rules that permit the exercise
 
-Three calls will fail:
-```ts
-sandboxOps.setRules(db, ...);     // throws 'failed-precondition'
-sandboxOps.seedDocuments(db, ...); // throws 'failed-precondition'
-sandboxOps.snapshotState(db);     // throws 'failed-precondition'
-```
-The sandbox namespace operations are sandbox-only by design. On prod, deploy rules through `pyric-tools/deploy`:
-```ts
-import { fromServiceAccount, firestore } from 'pyric-tools/deploy';
-
-const scope = await fromServiceAccount('./service-account.json');
-await firestore.rules.deploy(scope, `rules_version = '2'; ...`);
-```
-Seed data via writes, the same as any other production code. For dumping state there's no efficient API on the prod side, but you can iterate collections via `getDocs`.
-
-## Step 3: Make sure rules are deployed
-
-The sandbox-shaped tutorial deployed rules inline. On prod, you need rules deployed *before* you run the code, or every write will deny. Two options:
-
-### Deploy via the Firebase CLI
-```bash
-firebase deploy --only firestore:rules
-```
-The CLI reads your local `firestore.rules` and pushes it.
-
-### Deploy programmatically
-
-If you're running the demo as part of a larger script:
-```ts
-import { fromServiceAccount, firestore } from 'pyric-tools/deploy';
-
-const scope = await fromServiceAccount('./service-account.json');
-await firestore.rules.deploy(scope, `rules_version = '2';
+Create `firestore.rules`:
+```text
+rules_version = '2';
 service cloud.firestore {
-  match /databases/{db}/documents {
+  match /databases/{database}/documents {
     match /notes/{id} {
-      allow read: if request.auth != null;
-      allow write: if request.auth.uid == request.resource.data.ownerId;
+      allow read, write: if request.auth != null;
     }
   }
-}`);
+}
 ```
-## Step 4: Auth
+Deploy the rules using your normal Firebase deployment workflow.
 
-The sandbox version used `sandbox.withAuth({ uid: 'alice' })` to act as Alice. On prod, the user identity comes from Firebase Auth:
+## 3. Sign in before the write
+
+Add Firebase Auth to the application:
 ```ts
 import { getAuth, signInAnonymously } from 'firebase/auth';
 
 const auth = getAuth(app);
 await signInAnonymously(auth);
-// Now `auth.currentUser.uid` is the user identity rules will see.
 ```
-For server-side scripts, sign in with a custom token or run as a service account. The details depend on your project's auth setup.
+Place these lines before `setDoc`. Enable anonymous authentication in the
+Firebase console if the provider is not already enabled.
 
-## Step 5: Run it
+## 4. Run without Pyric activation
 
-With rules deployed and a user signed in:
+Do not set `PYRIC_SANDBOX`, preload `@pyric/cli/register`, or enable the Pyric
+Vite plugin for this run:
 ```bash
-bun run demo.ts
+node demo.mjs
 ```
-The same writes, the same reads, the same listener. The output will be similar, with two key differences:
+You should see the document read back from the real Firebase project. Notice
+that the application still imports `firebase/firestore`; only the environment
+changed.
 
-- Operations take tens to hundreds of milliseconds instead of sub-millisecond.
-- `snap.metadata.fromCache` and `snap.metadata.hasPendingWrites` reflect real cache state.
+## 5. Compare with the sandbox run
 
-The denied write from Step 6 of Tutorial 1 still denies, with a `FirebaseError('firestore/permission-denied')` instead of a `SandboxError`. That's the upstream SDK's error class.
+Run the same file through the Node activation seam:
+```bash
+PYRIC_SANDBOX=local node --import @pyric/cli/register demo.mjs
+```
+This time package resolution selects the sandbox mirror. The Firebase
+configuration is unused, the operation completes locally, and no production
+request is made.
 
-## What's actually under the hood
+You have now run one source file through both sides of the package boundary.
+There is no production dispatch inside `pyric/firestore`; the import resolver
+selected the implementation before `getFirestore` executed.
 
-`pyric/firestore`'s `getFirestore(app)` calls `firebase/firestore`'s `getFirestore(app)` and tags the result with a prod target. Every subsequent function call (`doc`, `setDoc`, etc.) dispatches to the upstream SDK's equivalent.
-
-There's no proxy, no wrapper, no overhead. The package is mostly the dispatch layer plus type re-exports.
-
-## What you have learned
-
-- The same demo code runs against two completely different backends.
-- The choice happens at `getFirestore(...)`, one line.
-- Sandbox-only operations throw on prod handles, surfacing the mistake immediately.
-- Auth, error types, and metadata fields are the main behavioural deltas.
-
-## Where to go next
-
-- For deploying rules to prod, see [`pyric-tools/deploy`'s firestore namespace](../pyric-tools-deploy-reference-firestore-namespace/).
-- For why the two-backend story works, see [Why two backends behind one surface](../pyric-firestore-explanation-two-backends-one-surface/).
-- To adopt `pyric/firestore` in an existing codebase, see [How to use `pyric/firestore` in existing code](../pyric-firestore-how-to-migrate-from-firebase-firestore/).
+Next, read
+[Why package resolution owns backend selection](../pyric-firestore-explanation-two-backends-one-surface/)
+for the architectural reasoning.

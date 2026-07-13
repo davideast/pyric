@@ -9,8 +9,8 @@ order: 8002
 
 # `pyric/firestore` compatibility matrix
 
-The single readable contract for "what this shim guarantees vs the
-production `firebase/firestore` SDK."
+The single readable contract for what the sandbox mirror guarantees compared
+with the production `firebase/firestore` SDK.
 
 See the design rationale for the methodology (vocabulary
 of conformance / oracle / matrix; how to add rows; how the runner
@@ -33,7 +33,10 @@ means a Bun test in `packages/pyric/test/firestore/<file>`.
 Targets:
 - **sandbox** — frozen-ctx target built via `getFirestore(ctx: SandboxContext)`. Identity baked in at handle-construction.
 - **sandbox-live** — live-identity target built via `getFirestore(sandbox: Sandbox)`. Every op re-reads `sandbox.currentUser`. The playground preview always uses this flavor.
-- **prod** — `firebase/firestore` target built via `getFirestore(app: FirebaseApp)`. Identity comes from `firebase/auth`'s `currentUser`.
+
+Production is not a target inside this mirror. With sandbox activation off,
+package resolution leaves `firebase/firestore` unchanged. With activation on,
+canonical Firebase imports resolve to this sandbox-only package.
 
 ---
 
@@ -49,11 +52,11 @@ Targets:
 <div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-live-identity.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">3</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getFirestore(app)</code> returns a tagged prod target</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">3</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Package resolution owns production selection: direct <code>pyric/firestore</code> rejects a real <code>FirebaseApp</code>, while inactive canonical <code>firebase/firestore</code> imports remain the real Firebase SDK</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:package-resolution.test.ts</code>, <code>node-register:register-child.test.ts</code> (inactive canonical imports are not rewritten)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getFirestore(undefined)</code> — wrapped in the playground preview to default to the sandbox; raw call delegates to prod which throws <code>app/no-app</code></span></summary>
+<summary class="compat-line"><span class="compat-num">4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getFirestore(undefined)</code> is wrapped in the playground preview to default to the sandbox; production's unactivated canonical SDK still throws <code>app/no-app</code>, while a direct mirror call rejects the missing sandbox owner</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>playground:firestore-bare-getfirestore</code> — fix from PR #397 + oracle: <code>packages/conformance/observations/firestore/firestore-bare-getfirestore-no-default-app.json</code> (<code>code: 'app/no-app'</code> against blockingfun, fb-js-sdk 12.13.0 — confirms prod throw shape)</div>
 <div class="compat-note">(wrap)</div></div>
 </details>
@@ -533,8 +536,8 @@ Targets:
 <div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code>, oracle: <code>packages/conformance/observations/firestore/firestore-row-96-batch-commit-atomic.json</code> — success path: a batch with <code>set</code> (fresh doc), <code>update</code> (existing doc), and <code>delete</code> (existing doc) all land in a single commit (<code>allApplied: true</code>). Failure path: a batch with one write targeting a path <strong>outside</strong> <code>pyric_oracle/*</code> rejects with <code>code: 'permission-denied'</code> and leaves the would-have-set doc absent and the would-have-updated doc at its original value (<code>noPartialApply: true</code>) — atomicity verified end-to-end.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">97</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Batch is tagged on construction — passing a prod-target batch into a sandbox op (or vice-versa) is a type error</span></summary>
-<div class="compat-evidence"><div class="compat-probe">(route table consistency)</div></div>
+<summary class="compat-line"><span class="compat-num">97</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Batch is tagged on construction and remains bound to the sandbox owner that created it</span></summary>
+<div class="compat-evidence"><div class="compat-probe">(implementation invariant; cross-sandbox ownership is not directly probed)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">98</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Batch identity is frozen at construction (per current implementation)</span></summary>
@@ -591,8 +594,8 @@ Targets:
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">106</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Constructors are re-exported from <code>firebase/firestore</code> — <code>new Bytes(…)</code>, <code>new GeoPoint(lat, lng)</code>, <code>new FieldPath(...)</code>, <code>documentId()</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code> ("Bytes / GeoPoint / FieldPath / documentId are re-exported")</div></div>
+<summary class="compat-line"><span class="compat-num">106</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The sandbox mirror owns compatible scalar constructors — <code>Bytes.fromUint8Array(...)</code>, <code>new GeoPoint(lat, lng)</code>, <code>new FieldPath(...)</code>, and <code>documentId()</code> — without importing <code>firebase/firestore</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code> (constructibility + round trips), <code>compiled-isolation:mirror-isolation.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">107</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>documentId()</code> works in <code>where(documentId(), 'in', [...])</code> against the sandbox</span></summary>
@@ -604,15 +607,15 @@ Targets:
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">109</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>Bytes</code> round-trip through the sandbox wire encoder — <code>Bytes</code> written via <code>setDoc</code> reads back as a <code>Bytes</code> instance with the same base64 representation</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:packages/pyric/test/sandbox/firestore/wire-encoder-bytes-geopoint.test.ts</code> + <code>unit:packages/pyric/test/firestore/sandbox-target.test.ts</code> ("Bytes + GeoPoint round-trip"), oracle: <code>packages/conformance/observations/firestore/firestore-row-109-bytes-roundtrip.json</code> — <code>setDoc({payload: Bytes.fromUint8Array([1,2,3,4])})</code> then <code>getDoc</code> yields <code>payload instanceof Bytes === true</code>, <code>payload.constructor.name === 'Bytes'</code>, <code>payload.toBase64() === 'AQIDBA=='</code>, and <code>payload.toUint8Array()</code> returns <code>[1,2,3,4]</code> against blockingfun. Sandbox converters at <code>packages/pyric/src/sandbox/firestore/converters/bytes-geopoint.ts</code> duck-type-detect <code>fb.Bytes</code> and store as the rules <code>Bytes</code> wrapper; <code>pyric/firestore</code> finalizes the read back to <code>fb.Bytes</code> so consumer code matches prod's <code>instanceof</code> semantics.</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:packages/pyric/test/sandbox/firestore/wire-encoder-bytes-geopoint.test.ts</code> + <code>unit:packages/pyric/test/firestore/sandbox-target.test.ts</code> ("Bytes + GeoPoint round-trip"), oracle: <code>packages/conformance/observations/firestore/firestore-row-109-bytes-roundtrip.json</code> — <code>setDoc({payload: Bytes.fromUint8Array([1,2,3,4])})</code> then <code>getDoc</code> yields <code>payload instanceof Bytes === true</code>, <code>payload.constructor.name === 'Bytes'</code>, <code>payload.toBase64() === 'AQIDBA=='</code>, and <code>payload.toUint8Array()</code> returns <code>[1,2,3,4]</code> against blockingfun. The sandbox converter stores the rules <code>Bytes</code> wrapper; <code>pyric/firestore</code> finalizes reads into its locally owned <code>Bytes</code> class with the same observed methods and values.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">110</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>GeoPoint</code> round-trip through the sandbox wire encoder — <code>GeoPoint</code> written via <code>setDoc</code> reads back as a <code>GeoPoint</code> instance with the same latitude / longitude</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:packages/pyric/test/sandbox/firestore/wire-encoder-bytes-geopoint.test.ts</code> + <code>unit:packages/pyric/test/firestore/sandbox-target.test.ts</code> ("Bytes + GeoPoint round-trip"), oracle: <code>packages/conformance/observations/firestore/firestore-row-110-geopoint-roundtrip.json</code> — <code>setDoc({loc: new GeoPoint(37.7749, -122.4194)})</code> then <code>getDoc</code> yields <code>loc instanceof GeoPoint === true</code>, <code>loc.constructor.name === 'GeoPoint'</code>, <code>loc.latitude === 37.7749</code>, <code>loc.longitude === -122.4194</code> against blockingfun. Sandbox storage uses the rules <code>LatLng</code> wrapper; <code>pyric/firestore</code> finalizes the read back to <code>fb.GeoPoint</code>.</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:packages/pyric/test/sandbox/firestore/wire-encoder-bytes-geopoint.test.ts</code> + <code>unit:packages/pyric/test/firestore/sandbox-target.test.ts</code> ("Bytes + GeoPoint round-trip"), oracle: <code>packages/conformance/observations/firestore/firestore-row-110-geopoint-roundtrip.json</code> — <code>setDoc({loc: new GeoPoint(37.7749, -122.4194)})</code> then <code>getDoc</code> yields <code>loc instanceof GeoPoint === true</code>, <code>loc.constructor.name === 'GeoPoint'</code>, <code>loc.latitude === 37.7749</code>, <code>loc.longitude === -122.4194</code> against blockingfun. Sandbox storage uses the rules <code>LatLng</code> wrapper; <code>pyric/firestore</code> finalizes reads into its locally owned <code>GeoPoint</code> class.</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">111</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Vector value type (<code>vector()</code> + <code>VectorValue</code>) round-trip: a vector written via <code>setDoc</code> reads back as a <code>VectorValue</code> with the same components</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code> ("Bytes + GeoPoint + VectorValue round-trip", top-level + nested). <code>vector()</code> / <code>VectorValue</code> re-exported from <code>firebase/firestore</code>; the sandbox converter at <code>converters/vector.ts</code> duck-types the VectorValue and stores the rules <code>Vector</code> wrapper; <code>pyric/firestore</code> finalizes the read back to <code>fb.VectorValue</code>. Oracle observation to follow (cf. #109/#110). <strong>CLIENT surface only:</strong> the web SDK exposes <code>vector()</code> + <code>VectorValue</code> (read/write) but has NO <code>findNearest</code> and NO <code>FieldValue.vector</code>; vector SEARCH is admin/server-only (<code>firebase-admin</code> <code>Query</code>/<code>CollectionReference.findNearest</code> + <code>FieldValue.vector()</code>), out of scope for this client matrix; the admin surface is tracked in the design rationale.</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code> ("Bytes + GeoPoint + VectorValue round-trip", top-level + nested). The locally owned <code>vector()</code> / <code>VectorValue</code> preserve Firebase's observable value shape; the sandbox converter stores the rules <code>Vector</code> wrapper and <code>pyric/firestore</code> finalizes reads back to <code>VectorValue</code>. Oracle observation to follow (cf. #109/#110). <strong>CLIENT surface only:</strong> the web SDK exposes <code>vector()</code> + <code>VectorValue</code> (read/write) but has NO <code>findNearest</code> and NO <code>FieldValue.vector</code>; vector SEARCH is admin/server-only (<code>firebase-admin</code> <code>Query</code>/<code>CollectionReference.findNearest</code> + <code>FieldValue.vector()</code>), out of scope for this client matrix; the admin surface is tracked in the design rationale.</div></div>
 </details>
 </div>
 
@@ -632,11 +635,11 @@ Targets:
 <div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-live-identity.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">115</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>refEqual(sandboxRef, prodRef)</code> throws <code>TypeError</code> — crossing targets is a programming error</span></summary>
-<div class="compat-evidence"><div class="compat-probe">(documented invariant in <code>targetMatch</code>)</div></div>
+<summary class="compat-line"><span class="compat-num">115</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>refEqual(sandboxRef, foreignRef)</code> throws <code>TypeError</code> — references not created by this sandbox mirror are unrecognized</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code> (foreign refs throw unrecognized-reference TypeError)</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">116</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>queryEqual(a, b)</code> — true on identity for sandbox; structural for prod via <code>fb.queryEqual</code></span></summary>
+<summary class="compat-line"><span class="compat-num">116</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>queryEqual(a, b)</code> is identity-only in the sandbox mirror; production's untouched Firebase SDK uses structural equality</span></summary>
 <div class="compat-evidence"><div class="compat-probe">divergence: sandbox does identity-only; prod does deep structural. Oracle-locked: <code>packages/conformance/observations/firestore/firestore-queryequal-structural.json</code> — two independently-built queries with the same <code>where('x','==',1)</code> constraint compare equal in prod (<code>sameQueryBuiltTwice: true</code>), confirming structural semantics. Common use case (caching the same returned query) works on both.</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
@@ -657,11 +660,11 @@ Targets:
 <div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">120</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Forwards to <code>fb.connectFirestoreEmulator</code> on prod-target handles</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:prod-target.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">120</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Production does not enter the mirror: inactive package resolution leaves Firebase's <code>connectFirestoreEmulator</code> implementation unchanged</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>node-register:register-child.test.ts</code> (inactive canonical Firestore is not rewritten), <code>compiled-isolation:mirror-isolation.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">121</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>mockUserToken</code> option pass-through on prod</span></summary>
+<summary class="compat-line"><span class="compat-num">121</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The sandbox mirror accepts Firebase's <code>mockUserToken</code> option shape as an inert compatibility argument; production uses Firebase's untouched implementation</span></summary>
 <div class="compat-evidence"><div class="compat-probe">type-only smoke</div></div>
 </details>
 </div>
@@ -670,58 +673,49 @@ Targets:
 
 `enableIndexedDbPersistence`, `enableMultiTabIndexedDbPersistence`,
 `clearIndexedDbPersistence`, `enableNetwork`, `disableNetwork`, and
-`waitForPendingWrites` are now exported from `pyric/firestore`. Before
-this, none of the six existed on the modular surface at all — an app
-that called any of them at init (a common pattern) crashed on a
-missing named export before it ever ran a read or write.
+`waitForPendingWrites` are exported by the sandbox mirror so unchanged
+application initialization code can run after package resolution selects
+Pyric.
 
 **Honest-mirror rationale**: the sandbox IS the backend, running
-local-first with IndexedDB persistence on by default (the
-SharedWorker/`pyric dev` path calls `Sandbox.enablePersistence(...)`
-before any app code runs). There is no separate cache tier to opt
-into and no network to gate. Each function below does the one
-honest thing available in that model — resolve because the promised
-behavior is already true, or resolve as a documented no-op because
-there is nothing local for it to mean. None of them simulate a
-capability the sandbox doesn't have; in particular, `disableNetwork`
-does NOT queue writes for later replay — writes still commit
-immediately, because there's no real connection to lose.
+local-first with persistence on by default. There is no separate cache tier
+to opt into and no network to gate. Each function resolves because its
+promise is already true or is a documented no-op because the concept has no
+local meaning. `disableNetwork` does not simulate an offline queue.
 
-`terminate` is also now exported from `pyric/firestore` — a genuine
-teardown-forward (not a pure no-op) to `Sandbox.dispose()` on sandbox
-targets, and to `fb.terminate` on prod targets. See its own row below
-for the scope caveat (it tears down the whole `Sandbox`, not a
-Firestore-only slice).
+`terminate` maps to `Sandbox.dispose()` and therefore tears down the whole
+sandbox rather than a Firestore-only slice. Production never enters these
+implementations; inactive package resolution leaves Firebase unchanged.
 
 ## Offline / persistence / network family (continued)
 
 <div class="compat-list">
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">140</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves on sandbox targets — persistence is already the default; does not reject with <code>'failed-precondition'</code> when called after other ops (deliberately more lenient than the real SDK — no cache-init race to protect). Forwards to <code>fb.enableIndexedDbPersistence</code> on prod targets</span></summary>
+<summary class="compat-line"><span class="compat-num">140</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves in the sandbox mirror — persistence is already the default; does not reject with <code>'failed-precondition'</code> when called after other ops (deliberately more lenient than the real SDK — no cache-init race to protect)</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
 <div class="compat-note">no failed-precondition</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">141</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves on sandbox targets — the SharedWorker path already is the one shared store every tab talks to. Forwards to <code>fb.enableMultiTabIndexedDbPersistence</code> on prod targets</span></summary>
+<summary class="compat-line"><span class="compat-num">141</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves in the sandbox mirror — the SharedWorker path already is the one shared store every tab talks to</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
 <div class="compat-note">no failed-precondition</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">142</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Maps to <code>Sandbox.clearPersistence()</code> on sandbox targets — actually wipes the persisted blob (honest, not a no-op); already a no-op when persistence was never enabled. Forwards to <code>fb.clearIndexedDbPersistence</code> on prod targets</span></summary>
+<summary class="compat-line"><span class="compat-num">142</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Maps to <code>Sandbox.clearPersistence()</code> — actually wipes the persisted blob (honest, not a no-op); already a no-op when persistence was never enabled</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">143</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolve on sandbox targets — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated). Forward to <code>fb.enableNetwork</code> / <code>fb.disableNetwork</code> on prod targets</span></summary>
+<summary class="compat-line"><span class="compat-num">143</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolve in the sandbox mirror — no network exists to toggle; writes issued while "disabled" still commit immediately (no offline queue is simulated)</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
 <div class="compat-note">no offline queue</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">144</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves immediately on sandbox targets — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip. Forwards to <code>fb.waitForPendingWrites</code> on prod targets</span></summary>
+<summary class="compat-line"><span class="compat-num">144</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Resolves immediately in the sandbox mirror — every accepted write is already committed locally by the time its own promise resolves, so there are never writes still pending a server round-trip</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/persistence-network.test.ts</code></div>
 <div class="compat-note">always resolves; prod can hang offline</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">152</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Genuinely tears the target down on sandbox targets — calls <code>Sandbox.dispose()</code>, which tears down listener registries on the sandbox's environment (idempotent, doesn't touch data). This differs from the real SDK in scope: <code>dispose()</code> operates on the whole <code>Sandbox</code>, not a Firestore-only slice, so if <code>pyric/database</code>/<code>pyric/storage</code> share the same <code>Sandbox</code> their listener registries are torn down too. Forwards to <code>fb.terminate</code> on prod targets, which only tears down the one Firestore instance</span></summary>
+<summary class="compat-line"><span class="compat-num">152</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Genuinely tears the sandbox target down by calling <code>Sandbox.dispose()</code>, which tears down listener registries on the sandbox's environment (idempotent, doesn't touch data). This differs from the real SDK in scope: <code>dispose()</code> operates on the whole <code>Sandbox</code>, not a Firestore-only slice, so if <code>pyric/database</code>/<code>pyric/storage</code> share the same <code>Sandbox</code> their listener registries are torn down too</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/terminate.test.ts</code></div>
 <div class="compat-note">tears down the whole Sandbox, not a Firestore-only slice</div></div>
 </details>
@@ -729,44 +723,21 @@ Firestore-only slice).
 
 ## Tier-1 cache-init + get-from-* family
 
-`initializeFirestore`, the six cache-factory tokens
-(`persistentLocalCache`, `memoryLocalCache`, `persistentSingleTabManager`,
-`persistentMultipleTabManager`, `memoryEagerGarbageCollector`,
-`memoryLruGarbageCollector`), `getDocFromServer` / `getDocsFromServer`,
-`getDocFromCache` / `getDocsFromCache`, `setLogLevel`, and
-`onSnapshotsInSync` are now exported from `pyric/firestore`. Before
-this, none of these existed on the modular surface — an app using the
-common explicit-init pattern```ts
-const db = initializeFirestore(app, {
-  localCache: persistentLocalCache(persistentMultipleTabManager()),
-});
-```crashed at IMPORT (a missing named export) before it ever ran a read
-or write.
+`initializeFirestore`, the cache-factory tokens, the explicit cache/server
+read variants, `setLogLevel`, and `onSnapshotsInSync` are exported from the
+sandbox mirror so canonical application code remains import-compatible.
 
-**Honest-mirror rationale**: these are aliases and honest no-op
-config tokens, not new feature work. `initializeFirestore` delegates
-to `getFirestore` and returns the same handle; it accepts the
-`settings` argument but no-ops the cache/network settings, because
-persistence is already the sandbox default — there is no separate
-cache tier to configure into existence. The six cache-factory tokens
-return small tagged objects so identity/usage doesn't crash; they are
-inert for the same reason. `getDocFromServer` / `getDocFromCache` and
-their plural forms delegate to the same read path as `getDoc` /
-`getDocs` on sandbox targets — the sandbox store IS the authoritative,
-always-fresh source, so there is no cache/server split to honor; on
-prod targets they forward to the real split, preserving prod's real
-cache-miss-throws behavior. `setLogLevel` is an accepted no-op — the
-sandbox has no modular-SDK-style logger to wire a level into.
-`onSnapshotsInSync` fires its callback once the current
-snapshot-delivery microtask queue settles, the closest honest
-approximation of "every listener delivered" available without a true
-cross-listener sync signal.
+These are honest sandbox mappings, not production forwarding. Cache settings
+are inert because persistence is already local; cache and server read variants
+share the authoritative local read path; `setLogLevel` is a no-op; and
+`onSnapshotsInSync` approximates local delivery settle. Inactive package
+resolution leaves Firebase's production implementations unchanged.
 
 ## Tier-1 cache-init + get-from-* family (continued)
 
 <div class="compat-list">
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">145</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Delegates to <code>getFirestore(app)</code> and returns the same handle. Accepts the <code>settings</code> argument (so the explicit-init pattern doesn't crash at import) but no-ops the cache/network settings — persistence is always on. Prod path forwards only to <code>getFirestore(app)</code>; a real settings pass-through for prod is out of scope for this tier-1 pass</span></summary>
+<summary class="compat-line"><span class="compat-num">145</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Delegates to sandbox <code>getFirestore(app)</code> and returns the same handle. Accepts the <code>settings</code> argument (so the explicit-init pattern doesn't crash at import) but no-ops the cache/network settings — persistence is always on</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div>
 <div class="compat-note">settings accepted but cache/network settings are no-ops</div></div>
 </details>
@@ -776,11 +747,11 @@ cross-listener sync signal.
 <div class="compat-note">inert config tokens; no cache tier to configure</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">147</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Delegates to <code>getDoc</code> / <code>getDocs</code> on sandbox targets — the sandbox store IS the authoritative source, so there is no separate server round-trip to force and no observable divergence from the default read. Forwards to <code>fb.getDocFromServer</code> / <code>fb.getDocsFromServer</code> on prod targets</span></summary>
+<summary class="compat-line"><span class="compat-num">147</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Delegates to <code>getDoc</code> / <code>getDocs</code> in the sandbox mirror — the sandbox store IS the authoritative source, so there is no separate server round-trip to force and no observable divergence from the default read</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">148</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Delegates to <code>getDoc</code> / <code>getDocs</code> on sandbox targets. Real Firebase THROWS <code>'unavailable'</code> here on a genuine cache miss; pyric never misses — the local store always has the answer (or a non-existent snapshot) — so it never throws for that reason. Forwards to <code>fb.getDocFromCache</code> / <code>fb.getDocsFromCache</code> on prod targets, which DO throw on a real cache miss</span></summary>
+<summary class="compat-line"><span class="compat-num">148</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Delegates to <code>getDoc</code> / <code>getDocs</code> in the sandbox mirror. Real Firebase THROWS <code>'unavailable'</code> here on a genuine cache miss; pyric never misses — the local store always has the answer (or a non-existent snapshot) — so it never throws for that reason</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div>
 <div class="compat-note">never throws unavailable; sandbox has no cache miss</div></div>
 </details>
@@ -790,38 +761,38 @@ cross-listener sync signal.
 <div class="compat-note">accepted no-op; no sandbox logger wired</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">150</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Fires the callback once the current snapshot-delivery microtask queue settles — the closest honest approximation of "every active listener has delivered its latest state" available without a true cross-listener sync signal. Not scoped to real server round-trips like the real SDK's guarantee; scoped to local delivery only. Forwards to <code>fb.onSnapshotsInSync</code> on prod targets</span></summary>
+<summary class="compat-line"><span class="compat-num">150</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Fires the callback once the current snapshot-delivery microtask queue settles — the closest honest approximation of "every active listener has delivered its latest state" available without a true cross-listener sync signal. Not scoped to real server round-trips like the real SDK's guarantee; scoped to local delivery only</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/tier1-cache-init-align.test.ts</code></div>
 <div class="compat-note">approximated from local snapshot-delivery settle, not a true global in-sync signal</div></div>
 </details>
 </div>
 
-## `sandbox.*` — sandbox-only ops
+## `pyric/sandbox/firestore` — sandbox-only controls
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">122</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.setRules(db, rules)</code> loads rules into the underlying <code>LocalEnvironment</code>; returns <code>LintResult</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code>, <code>playground:rules-data-validation</code>, <code>playground:rules-cross-doc-get</code></div></div>
+<summary class="compat-line"><span class="compat-num">122</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>setRules(sandbox, rules)</code> loads rules into the owning sandbox's Firestore environment; returns <code>LintResult</code></span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/sandbox-controls.test.ts</code>, <code>playground:rules-data-validation</code>, <code>playground:rules-cross-doc-get</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">123</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.seedDocuments(db, {path: data, ...})</code> bulk-loads bypassing rules</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">123</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>seedDocuments(sandbox, {path: data, ...})</code> replaces the owning sandbox's Firestore documents, bypassing rules without synthesizing listener callbacks or events</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/sandbox-controls.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">124</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.snapshotState(db)</code> dumps every document the LocalEnvironment has stored</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">124</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>snapshotDocuments(sandbox)</code> returns only Firestore documents without snapshotting other registered sandbox services</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/sandbox-controls.test.ts</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">125</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">All <code>sandbox.*</code> methods throw <code>SandboxError('failed-precondition')</code> on prod-target handles</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-target.test.ts</code></div></div>
+<summary class="compat-line"><span class="compat-num">125</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>pyric/firestore</code> does not export sandbox controls; synchronous <code>pyric/sandbox/firestore</code> controls accept <code>LocalSandbox</code>, and <code>RemoteSandbox</code> is not assignable</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/entry-surface.test.ts</code>, <code>typecheck:firestore/sandbox-controls.ts</code>, <code>packaging:runtime-smoke</code></div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">126</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">All <code>sandbox.*</code> methods work on a sandbox-live handle (route through <code>sandboxDb</code>)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-live-identity.test.ts</code> ("sandboxOps.setRules + seedDocuments + snapshotState work on a live handle")</div></div>
+<summary class="compat-line"><span class="compat-num">126</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Firestore controls affect only the <code>LocalSandbox</code> passed to the operation; independent sandboxes remain isolated</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:firestore/sandbox-controls.test.ts</code> ("applies controls only to the Sandbox passed to the operation")</div></div>
 </details>
 </div>
 
-## Rules engine (via `sandbox.setRules`)
+## Rules engine (via `setRules` from `pyric/sandbox/firestore`)
 
 Rules-engine behavior is technically `pyric-admin`'s `LocalEnvironment`,
 but it's the most-tested surface for divergence — `request.auth`,
@@ -895,68 +866,14 @@ shape consumer code depends on.
 </details>
 </div>
 
-## Deny-list (intentionally NOT shimmed)
+## Deny-list (intentionally not mirrored)
 
-These exist in `firebase/firestore` but the sandbox refuses to
-import/use them. The agent's writeApp prompt and the deploy
-bundle's metafile gate enforce the deny-list at build time.
+These Firebase exports have no honest sandbox equivalent and remain outside the mirror: persistent-cache index managers and mutation functions, `CACHE_SIZE_UNLIMITED`, `setIndexConfiguration`, `loadBundle`, and `namedQuery`. Production still receives them from the untouched Firebase SDK.
 
-| Name | Reason |
-|---|---|
-| `CACHE_SIZE_UNLIMITED` / `PersistentCacheIndexManager` / `getPersistentCacheIndexManager` / `deleteAllPersistentCacheIndexes` / `enablePersistentCacheIndexAutoCreation` / `disablePersistentCacheIndexAutoCreation` / `setIndexConfiguration` | Index-tuning / GC-policy admin surface; no sandbox equivalent knob. Distinct from the tier-1 cache-factory tokens (`persistentLocalCache` / `memoryLocalCache` / tab-managers / GC-collectors) and `getDoc*FromCache` / `getDoc*FromServer` / `setLogLevel` / `onSnapshotsInSync`, which are now mirrored (see the tier-1 cache-init + get-from-* section above tier-1 pass) |
-| `terminate` | Out of scope — `Sandbox.dispose()` covers teardown at the host level today |
-| `loadBundle` / `namedQuery` | Bundle-loading depends on server-side packaging not modeled in sandbox |
+## Evidence and remaining gaps
 
----
+Frozen production observations remain the answer key for error identity, auto-id format, aggregates, listener metadata, scalar round trips, and equality semantics. This repair does not edit those observations or change any row status, numerator, or denominator.
 
-## Visible gaps to address next
+The principal documented divergences remain error class identity, auto-id format, index validation, aggregate cost, listener metadata, transaction contention, and structural `queryEqual`.
 
-Rows currently marked **?** (need explicit probes): none — #132
-landed with `playground:rules-custom-claims` after the preview-scope
-expansion exposed `sandbox.seedUsers` via the `firebase/auth` virtual
-re-export.
-
-Rows **locked by the empirical oracle harness** (committed observations under `packages/conformance/observations/firestore/`, captured against the `blockingfun` project):
-
-- #21 rules-denied error class — oracle confirmed prod throws `FirebaseError` with `.code === 'permission-denied'`.
-- #39 `deleteDoc` on missing doc — oracle confirmed prod no-ops; sandbox fix landed (see below).
-- #45 `addDoc` auto-id format — oracle confirmed prod mints 20-char alphanumeric (mixed upper/lower/digits, no other chars).
-- #79 aggregate cost / shape — oracle confirmed `data()` returns `{ count: number }` only; empty query returns `count: 0`.
-- #85 `includeMetadataChanges` — oracle confirmed prod fires +1 extra time per write (the server-confirmed transition); default listener fires twice for one write (initial + pending).
-- #109 `Bytes` round-trip — oracle confirmed prod `setDoc`+`getDoc` round-trips as a `Bytes` instance with the same base64; sandbox now matches via the converter + read finalization (see row).
-- #110 `GeoPoint` round-trip — oracle confirmed prod `setDoc`+`getDoc` round-trips as a `GeoPoint` instance with the same lat/lng; sandbox now matches via the converter + read finalization (see row).
-- #116 `queryEqual` semantics — oracle confirmed structural in prod.
-- #117 `snapshotEqual` semantics — oracle showed identity-only in prod; row corrected from ⚠ to ✓.
-
-Rows currently marked **⚠** that we might want to upgrade to **✓**
-(by aligning the sandbox to prod or by formally documenting the
-divergence in `feature-matrix.md`):
-
-- #21 rules-denied error class (`SandboxError` vs `FirebaseError`)
-- #45 auto-id format
-- #66 index validation parity (sandbox would benefit from a strict mode that errors when no index would exist in prod)
-- #79 aggregate cost model
-- #85 `includeMetadataChanges`
-- #93 transaction retry / contention model
-- #116 `queryEqual` structural equality (sandbox identity-only; prod structural per oracle)
-
-Rows currently marked **—** that we might want to fill (rough priority):
-
-1. Admin/server vector surface: `FieldValue.vector()` write + `findNearest`
-   search live on `firebase-admin` / `pyric-admin`, NOT this client matrix (the
-   web client SDK has neither). The client value type (row #111) now conforms; the
-   admin surface has no COMPAT matrix yet, and vector search is staged for Phase
-   5b. See the design rationale.
-
-## Probe coverage summary
-
-- **Unit (`packages/pyric/test/firestore/`):** ~80 tests across 4 files cover the bulk of the surface. The two main files are `sandbox-target.test.ts` (frozen-ctx, the API-shape conformance suite) and `sandbox-live-identity.test.ts` (per-op identity behavior). `prod-target.test.ts` runs against an emulator; `prod-integration.test.ts` requires a real project (gated).
-- **Playground fixtures (`packages/playground/scripts/fixtures/`):** 8 firestore-related fixtures: `firestore-bare-getfirestore`, `firestore-onsnapshot`, `firestore-query`, `firestore-transaction`, `firestore-batch`, `firestore-sentinels`, `rules-cross-doc-get`, `rules-data-validation`. Run via `bun run debug:fixtures`.
-
-## Next refactors per the methodology
-
-Per the design rationale's "What's next" section:
-
-1. **Probe-per-matrix-row.** Today's fixtures + unit tests cover 3-5 behaviors each. Splitting into one probe per row makes failures point at exactly one violation. The current bundled probes stay as integration tests; the new probe-per-row set becomes the conformance gate.
-2. **Empirical oracle harness.** Several rows marked **?** are ambiguous from docs alone. The harness at `packages/conformance/src/run.ts` runs the probes against a real Firebase project and writes observations to `packages/conformance/observations/firestore/<name>.json`. Initial coverage locks #39, #116, #117 (above). Extend with additional probes for the remaining `?` and `⚠` rows.
-3. **CI gate.** `bun run debug:fixtures` becomes a required check on every PR that touches `packages/firestore`.
+The Firestore unit suite covers the sandbox surface. Canonical Node-register and Vite tests cover package selection, while the compiled-isolation test proves the sandbox artifact has no `firebase/firestore` dependency.

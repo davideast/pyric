@@ -1,10 +1,17 @@
-# Why rules tooling lives in a sibling package
+# Why rules tooling lives on a sibling subpath
 
-`pyric/firestore` is the data plane. It doesn't ship the rules parser, the linter, the simulator, the validator, the modules resolver, or the value wrappers. Those live in `pyric/rules`. The split looks bureaucratic. The reason is the swap-in contract.
+`pyric/firestore` is the Firebase-compatible sandbox data plane. The rules
+parser, linter, simulator, validator, modules resolver, and value wrappers live
+under `pyric/rules`. Firestore-specific sandbox controls live under
+`pyric/sandbox/firestore`. The separation preserves clear package ownership.
 
 ## The principle
 
-`pyric/firestore` is meant to be a drop-in for `firebase/firestore`. The upstream package's surface is the data plane: reads, writes, queries, listeners. It does not include rules tooling. If `pyric/firestore` exposed rules tooling, the swap-in would have a wider surface than the package it replaces, and the swap would no longer be "rename the import".
+During an activated Pyric development run, package resolution maps the canonical
+`firebase/firestore` import to `pyric/firestore`. In an inactive production run,
+the import remains Firebase. The mirror therefore needs the same data-plane
+shape: reads, writes, queries, and listeners. Rules tooling and sandbox controls
+must not appear as extra members on that surface.
 
 By keeping rules tooling in `pyric/rules`, the swap-in surface stays bit-faithful to the upstream. Code that imports from `pyric/firestore` looks exactly like code that imports from `firebase/firestore`. Code that needs rules tooling reaches one folder over.
 
@@ -13,8 +20,8 @@ By keeping rules tooling in `pyric/rules`, the swap-in surface stays bit-faithfu
 | Surface | Package |
 |---|---|
 | `getDoc`, `setDoc`, `collection`, `query`, `onSnapshot`, ... | `pyric/firestore` |
-| `FieldValue`, `Timestamp`, sentinels | `pyric/firestore` (re-exported from `pyric-admin`) |
-| Sandbox-only ops (`sandbox.setRules`, `sandbox.seedDocuments`) | `pyric/firestore` (sandbox-only namespace) |
+| `FieldValue`, `Timestamp`, sentinels | `pyric/firestore` |
+| `setRules`, `seedDocuments`, `snapshotDocuments`, `inspect` | `pyric/sandbox/firestore` |
 | `firestoreRules`, `lint`, `assertCase`, `explainCase` | `pyric/rules` (public front door) |
 | `parseToAST`, `lintFirestoreRules`, `validateFirestoreRules` | `pyric/rules/internal` |
 | `SimulateFirestoreRulesHandler`, `TestFirestoreRulesHandler` | `pyric/rules/internal` |
@@ -35,30 +42,28 @@ Three common cases:
 
 These belong to a different audience than the data-plane consumers. A web app rarely touches them; a CI pipeline or an agent does.
 
-## What the sandbox-only namespace bridges
+## What the sandbox-control subpath bridges
 
-`pyric/firestore`'s `sandbox.setRules(db, rules)` *does* deploy rules, but only to a sandbox-backed handle's underlying `LocalEnvironment`. The implementation under the hood:
+`setRules(sandbox, rules)` loads rules into the local Firestore environment owned
+by that sandbox. The implementation path is:
 
 ```ts
-sandbox.setRules(db, source) → pyric-admin's handle.setRules(source)
-                               → LocalEnvironment.deployRules(source)
-                               → lintFirestoreRules(source) (engine-internal, from pyric/rules/internal)
+setRules(sandbox, source) → LocalEnvironment.deployRules(source)
+                          → lintFirestoreRules(source)
 ```
 
-The lint result returned to the consumer comes from the rules-tooling package's internal engine. The data-plane package depends on the rules-tooling package transitively, but doesn't re-export it.
-
-## When the cycle matters
-
-`pyric/sandbox` imports the rules simulator from `pyric/rules/internal` to evaluate rules against operations. `pyric/rules` imports `LocalEnvironment` (type-only) from `pyric/sandbox` for its tool-factory shape. A runtime cycle.
-
-`pyric/firestore` sits on top of both. It depends on `pyric-admin` (which depends on `pyric/sandbox`) and indirectly on `pyric/rules` (through `pyric/sandbox`). It doesn't depend on `pyric/rules` directly. The sandbox-only namespace's lint output is whatever the underlying `LocalEnvironment.deployRules` returns.
-
-The cycle is benign. Documented loudly. The module direction is `rules` → `sandbox` → `admin` → `firestore`.
+The control receives the owner rather than a Firestore handle. This lets one
+sandbox own Firestore rules, documents, listeners, history, and diagnostics
+without widening the data-plane API.
 
 ## What we get from the split
 
-- `pyric/firestore` is small. The package wraps a few hundred functions over two backends; its dependency graph is bounded.
-- `pyric/rules` can evolve independently. New lint rules, new simulator features, new validator codes: none affect `pyric/firestore`'s surface.
+- `pyric/firestore` has one job: emulate Firebase's client Firestore surface
+  against a sandbox.
+- `pyric/rules` can evolve without adding exports to the package-selected data
+  plane.
+- `pyric/sandbox/firestore` makes controls discoverable while naming their
+  sandbox ownership at the import site.
 - `pyric-tools/deploy` deploys rules without depending on the data plane. CI pipelines pull only what they need.
 - Consumers reach for exactly the surface they want by package name. The package name is the documentation.
 

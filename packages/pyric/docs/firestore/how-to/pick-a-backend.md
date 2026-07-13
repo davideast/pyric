@@ -1,110 +1,83 @@
-# How to pick a backend at init time
+# How to select sandbox or production Firestore
 
-Choose between the sandbox and prod backends at init time, and switch between them without changing the rest of your code.
+Keep canonical Firebase imports in application source and select the backend by
+activating, or not activating, Pyric's package-resolution seam.
 
-## The choice happens once
+## Keep one application module
 
 ```ts
-import { getFirestore } from 'pyric/firestore';
-
-// Sandbox.
-import { initializeSandbox } from 'pyric/sandbox';
-const sandbox = initializeSandbox();
-const dbSandbox = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-
-// Prod.
 import { initializeApp } from 'firebase/app';
-const app = initializeApp({ /* config */ });
-const dbProd = getFirestore(app);
+import { getFirestore } from 'firebase/firestore';
+
+const app = initializeApp({ projectId: 'your-project-id' });
+export const db = getFirestore(app);
 ```
 
-Every other Firestore call in the package works against either handle without modification. The only divergence is the `sandbox.*` namespace and a handful of metadata fields.
+Do not add an environment conditional around `getFirestore`. The import
+resolver makes the choice before this module executes.
 
-## Run-time dispatch
+## Run against production
 
-For projects that want to switch backends based on environment:
+Run the application normally. Do not install a Pyric Vite plugin, preload the
+register hook, or set `PYRIC_SANDBOX`:
 
-```ts
-function makeDb() {
-  if (process.env.PYRIC_BACKEND === 'sandbox') {
-    const sandbox = initializeSandbox();
-    return getFirestore(sandbox.withAuth({ uid: 'test-user' }));
-  }
-  const app = initializeApp({ /* config */ });
-  return getFirestore(app);
-}
-
-const db = makeDb();
+```bash
+node app.mjs
 ```
 
-The same code paths run against both backends. Tests run against sandbox, production runs against prod, no code changes between them.
+`firebase/app` and `firebase/firestore` remain the real Firebase packages.
 
-## Compile-time dispatch
+## Run the same source in the Node sandbox
 
-For projects that want different bundles per environment, use a top-level conditional and let your bundler tree-shake:
+Build the Pyric packages, then preload the register hook:
+
+```bash
+PYRIC_SANDBOX=local node --import @pyric/cli/register app.mjs
+```
+
+The hook rewrites the canonical imports to `pyric/app` and
+`pyric/firestore`. The configuration object is retained for source
+compatibility but does not select a real project.
+
+## Run the same source through Vite
 
 ```ts
-// In a setup module that's only imported by tests.
+import { defineConfig } from 'vite';
+import { pyricSandbox } from '@pyric/cli/vite';
+
+export default defineConfig({
+  plugins: [pyricSandbox()],
+});
+```
+
+Use a non-production sandbox mode for builds. The plugin refuses the normal
+production build mode unless explicitly configured otherwise.
+
+## Construct an explicit test sandbox
+
+Use direct Pyric imports only when the test needs to control identity or
+sandbox state explicitly:
+
+```ts
+import { getFirestore } from 'pyric/firestore';
 import { initializeSandbox } from 'pyric/sandbox';
-import { getFirestore } from 'pyric/firestore';
 
-export function makeTestDb() {
-  const sandbox = initializeSandbox();
-  return getFirestore(sandbox.withAuth({ uid: 'test-user' }));
-}
-```
-
-```ts
-// In a setup module that's only imported by production.
-import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'pyric/firestore';
-
-export function makeProdDb() {
-  const app = initializeApp({ /* config */ });
-  return getFirestore(app);
-}
-```
-
-Each module imports only what it needs. The bundler keeps `firebase` out of the test bundle and `pyric/sandbox` out of the production bundle.
-
-## What changes between backends
-
-| Behaviour | Sandbox | Prod |
-|---|---|---|
-| Latency per op | Sub-millisecond | Network-latency-bound |
-| `metadata.fromCache` | Always `false` | Reflects real cache state |
-| `metadata.hasPendingWrites` | Always `false` | Reflects pending writes |
-| Listener after rule change | Immediate re-eval | Propagation, no listener effect |
-| `sandbox.setRules(db, ...)` | Works | Throws `failed-precondition` |
-| Network failures | None | `unavailable`, `aborted`, etc. |
-
-For most application code, none of these matter. For code that *depends* on cache state or propagation timing, sandbox can give misleading results. Those cases belong on live Firestore.
-
-## Both at once
-
-A single process can use both:
-
-```ts
 const sandbox = initializeSandbox();
-const app = initializeApp({ /* config */ });
-
-const sandboxDb = getFirestore(sandbox.withAuth({ uid: 'alice' }));
-const prodDb = getFirestore(app);
-
-// These two writes go to two different databases.
-await Promise.all([
-  setDoc(doc(sandboxDb, 'notes/n1'), { source: 'local' }),
-  setDoc(doc(prodDb, 'notes/n1'), { source: 'cloud' }),
-]);
+const aliceDb = getFirestore(sandbox.withAuth({ uid: 'alice' }));
 ```
 
-Sometimes useful for replication-style tests or for staging tools that compare sandbox state against production.
+Do not pass a real `FirebaseApp` to `pyric/firestore`. The direct module is a
+sandbox-only mirror and rejects that input.
 
-## What's not supported
+## Verify the selected backend
 
-You can't change a handle's backend after construction. If you need to switch mid-test, build a new handle. The handle's `TARGET_SYMBOL` is set at `getFirestore` time and never updates.
+Prefer behavioural verification over reading internal brands:
 
-## Where to look next
+- In the sandbox, a write and read complete without contacting Firebase.
+- Without activation, normal Firebase configuration and network behaviour
+  apply.
+- In CI, run both the inactive register probe and an active canonical-import
+  smoke test.
 
-- For why the two backends share one surface, see [Why two backends behind one surface](../explanation/two-backends-one-surface.md).
-- For the divergence list in detail, see [`getFirestore` overloads](../reference/getfirestore.md).
+For the reasoning behind this boundary, see
+[Why package resolution owns backend selection](../explanation/two-backends-one-surface.md).

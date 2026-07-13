@@ -13,7 +13,7 @@ Build a tiny notes app with `pyric/firestore` against the sandbox backend. By th
 ```bash
 mkdir notes-demo && cd notes-demo
 bun init -y
-bun add pyric/sandbox pyric/firestore
+bun add pyric
 ```
 ## Step 1: Boot the sandbox and a Firestore handle
 
@@ -29,8 +29,8 @@ import {
   query,
   where,
   onSnapshot,
-  sandbox as sandboxOps,
 } from 'pyric/firestore';
+import { setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 
 const sandbox = initializeSandbox();
 const db = getFirestore(sandbox.withAuth({ uid: 'alice' }));
@@ -41,7 +41,7 @@ Run with `bun run demo.ts`. You should see the line and nothing else.
 
 ## Step 2: Deploy rules
 ```ts
-const lint = sandboxOps.setRules(db, `rules_version = '2';
+const lint = setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
     match /notes/{id} {
@@ -56,7 +56,8 @@ if (lint.warnings.some((w) => w.severity === 'error')) {
 }
 console.log('Rules deployed.');
 ```
-We use `sandboxOps.setRules` (aliased from `sandbox` on import to avoid colliding with the local `sandbox` variable). Lint warnings are visible. Surface them if any are errors.
+Firestore controls receive the owning `Sandbox`, while data-plane functions
+receive `db`. Lint warnings are visible. Surface them if any are errors.
 
 ## Step 3: Write and read
 ```ts
@@ -148,7 +149,7 @@ Output: `Bob was denied: Rule #1 (write) → deny`. The write rule checks `reque
 
 ## Step 7: Dump the state
 ```ts
-console.log('Final state:', sandboxOps.snapshotState(db));
+console.log('Final state:', snapshotDocuments(sandbox));
 ```
 Every stored document, including Alice's writes and excluding Bob's denied one.
 
@@ -156,9 +157,11 @@ Every stored document, including Alice's writes and excluding Bob's denied one.
 
 - `getFirestore(sandbox.withAuth(...))` produces a sandbox-backed handle.
 - The function shape (`doc`, `setDoc`, `getDoc`, `onSnapshot`) matches `firebase/firestore`.
-- `sandbox.setRules`, `sandbox.seedDocuments`, and `sandbox.snapshotState` are sandbox-only and live under a namespace export.
+- Firestore controls such as `setRules` and `snapshotDocuments` are sandbox-only and live at `pyric/sandbox/firestore`.
 - `SandboxError` with `denialContext` is the same shape you see from `pyric-admin` and from `Sandbox.onDenial`.
 
 ## What to do next
 
-The same code runs against the prod backend with one line changed. Follow [Swap the demo to the prod backend](../pyric-firestore-tutorials-02-swap-to-prod-backend/) to see how.
+The same canonical Firebase imports can select this mirror in development and
+remain Firebase in production. Follow [Run the demo against production](../pyric-firestore-tutorials-02-swap-to-prod-backend/)
+to see how package resolution controls that boundary.
