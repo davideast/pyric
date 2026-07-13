@@ -160,6 +160,7 @@ export interface ChildListener {
 export class RtdbBackend {
   private readonly tree = new DataTree();
   private readonly rules = new RulesEvaluator();
+  private activeRules: { rules: Record<string, unknown> } | null = null;
   private readonly valueListeners = new Set<ValueListener>();
   private readonly childListeners = new Set<ChildListener>();
   private nextId = 0;
@@ -396,6 +397,11 @@ export class RtdbBackend {
 
   setRules(rulesJson: { rules: Record<string, unknown> } | null): void {
     this.rules.setRules(rulesJson);
+    this.activeRules = rulesJson === null ? null : structuredClone(rulesJson);
+  }
+
+  getActiveRules(): { rules: Record<string, unknown> } | null {
+    return this.activeRules === null ? null : structuredClone(this.activeRules);
   }
 
   snapshotState(): JsonValue {
