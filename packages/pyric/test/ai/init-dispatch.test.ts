@@ -28,10 +28,10 @@ describe('ai: initialization and dispatch', () => {
     expect(result.response.candidates.length).toBeGreaterThan(0);
   });
 
-  rowTest('ai#getai-prod-dispatch getAI(app) dispatches to the production backend and carries the app', async () => {
-    const { initializeApp, deleteApp } = await import('firebase/app');
+  rowTest('ai#getai-prod-dispatch getAI(app) uses the sandbox selected by package resolution and carries the app', async () => {
+    const { initializeApp, deleteApp } = await import('pyric/app');
     const app = initializeApp(
-      { apiKey: 'fake-api-key', projectId: 'demo-ai-prod', appId: '1:1:web:ai-prod-dispatch' },
+      { sandbox },
       'ai-prod-dispatch',
     );
     try {

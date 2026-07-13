@@ -1,10 +1,4 @@
 {
-  "firebase/ai": [
-    "GoogleAIBackend",
-    "VertexAIBackend",
-    "getAI",
-    "getGenerativeModel"
-  ],
   "firebase/auth": [
     "Auth",
     "AuthCredential",

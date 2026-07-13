@@ -124,11 +124,19 @@ console.log('PROD_ARM_OK');
     `import assert from 'node:assert';
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getAI, getGenerativeModel } from 'firebase/ai';
+import { script } from 'pyric/ai/scripting';
 const app = initializeApp({ apiKey: 'ignored', projectId: 'demo-project' });
 assert.strictEqual(app[Symbol.for('pyric.app.target')], 'sandbox');
 assert.strictEqual(app.options.projectId, 'demo-project');
 const db = getFirestore(app);
 assert.strictEqual(typeof db, 'object');
+const ai = getAI(app);
+assert.strictEqual(getAI(), ai, 'bare getAI() must use the registered default sandbox app');
+script(ai, [{ respond: { text: 'sandbox answer' } }]);
+const model = getGenerativeModel(ai, { model: 'gemini-flash-lite-latest' });
+const result = await model.generateContent('hello');
+assert.strictEqual(result.response.text(), 'sandbox answer');
 console.log('CLIENT_OK');
 `,
   );
@@ -167,7 +175,7 @@ describe('@pyric/cli/register (child process)', () => {
     expect(res.status).toBe(0);
   });
 
-  it('initializes unchanged client Firebase imports through the sandbox app adapter', () => {
+  it('initializes unchanged client Firebase service imports through the sandbox app adapter', () => {
     const res = runNode('client.mjs', { PYRIC_SANDBOX: 'local' });
     expect(res.stderr).toContain('@pyric/cli/register: active');
     expect(res.stdout).toContain('CLIENT_OK');

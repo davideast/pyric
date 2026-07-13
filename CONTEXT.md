@@ -157,7 +157,7 @@ Version `0.1.0-alpha.8`, published to npm. ESM-only, subpath-only, Node `>=22`.
 | `pyric/database/modular` | Tree-shakable RTDB modular SDK shim. |
 | `pyric/storage` | Modular Storage mirror and storage admin-style tools. |
 | `pyric/storage/internal` | Storage engine seam. |
-| `pyric/ai` | Firebase AI Logic mirror (`getAI`, `getGenerativeModel`, generateContent, streaming, chat, function calling, countTokens). |
+| `pyric/ai` | Sandbox-only Firebase AI Logic mirror (`getAI`, `getGenerativeModel`, generateContent, streaming, chat, function calling, countTokens). It has no `firebase/ai` runtime dependency; production imports stay on `firebase/ai`. |
 | `pyric/ai/scripting` | Scripted answer-engine seam for the AI sandbox. |
 | `pyric/messaging` | Cloud Messaging client mirror. |
 | `pyric/messaging/sw` | Service-worker messaging entry. |

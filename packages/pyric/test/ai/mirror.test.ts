@@ -1,13 +1,14 @@
 /**
  * `pyric/ai` mirror mechanics — unit coverage for the SDK plumbing BETWEEN
  * the conformance rows (messaging precedent): instance identity, input
- * validation, history cloning, error translation, prod-target dispatch, and
- * the scripting subpath's authoring guards. The registry rows themselves are
+ * validation, history cloning, error translation, app-target routing, and the
+ * scripting subpath's authoring guards. The registry rows themselves are
  * pinned by the oracle conformance suites in this directory; nothing here
  * weakens or repeats a row assertion.
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { deleteApp, initializeApp } from '../../src/app/index.js';
 
 import {
   AIError,
@@ -289,18 +290,14 @@ describe('sandbox error translation', () => {
   });
 });
 
-// ── Prod-target dispatch ─────────────────────────────────────────────────
+// ── App target selected by package resolution ───────────────────────────
 
-describe('prod-target dispatch (intercepted fetch, no network)', () => {
-  const config = {
-    apiKey: 'fake-api-key',
-    projectId: 'pyric-ai-mirror-test',
-    appId: '1:0:web:ai-mirror-test',
-  };
-
-  it('getAI(app) is pass-through and idempotent', async () => {
-    const { initializeApp, deleteApp } = await import('firebase/app');
-    const app = initializeApp(config, `ai-unit-${Math.random().toString(36).slice(2)}`);
+describe('sandbox app target', () => {
+  it('getAI(app) carries the app and is idempotent', async () => {
+    const app = initializeApp(
+      { sandbox: initializeSandbox() },
+      `ai-unit-${Math.random().toString(36).slice(2)}`,
+    );
     try {
       const ai = getAI(app);
       expect(ai.app).toBe(app);
@@ -310,30 +307,39 @@ describe('prod-target dispatch (intercepted fetch, no network)', () => {
     }
   });
 
-  it('models minted from a prod handle call the production base URL', async () => {
-    const { initializeApp, deleteApp } = await import('firebase/app');
-    const app = initializeApp(config, `ai-unit-${Math.random().toString(36).slice(2)}`);
-    const canned = {
-      candidates: [
-        { content: { role: 'model', parts: [{ text: 'prod says hi' }] }, finishReason: 'STOP', index: 0 },
-      ],
-    };
+  it('models minted from an app handle answer through its sandbox without network I/O', async () => {
+    const app = initializeApp(
+      { sandbox: initializeSandbox() },
+      `ai-unit-${Math.random().toString(36).slice(2)}`,
+    );
+    const ai = getAI(app);
+    script(ai, [{ respond: { text: 'sandbox says hi' } }]);
     const realFetch = globalThis.fetch;
-    const urls: string[] = [];
-    (globalThis as any).fetch = async (input: any) => {
-      urls.push(typeof input === 'string' ? input : input.url);
-      return Response.json(canned);
+    (globalThis as any).fetch = (input: unknown) => {
+      throw new Error(`unexpected production fetch: ${String(input)}`);
     };
     try {
-      const model = getGenerativeModel(getAI(app), { model: MODEL });
+      const model = getGenerativeModel(ai, { model: MODEL });
       const result = await model.generateContent('ping');
-      expect(result.response.text()).toBe('prod says hi');
-      expect(urls.length).toBe(1);
-      expect(urls[0]).toContain('firebasevertexai.googleapis.com');
-      expect(urls[0]).toContain(`models/${MODEL}`);
+      expect(result.response.text()).toBe('sandbox says hi');
     } finally {
       (globalThis as any).fetch = realFetch;
       await deleteApp(app);
+    }
+  });
+
+  it('rejects a real Firebase app with package-resolution remediation', async () => {
+    const firebaseApp = await import('firebase/app');
+    const app = firebaseApp.initializeApp(
+      { apiKey: 'k', projectId: 'p', appId: '1:0:web:wrong-package' },
+      `ai-unit-${Math.random().toString(36).slice(2)}`,
+    );
+    try {
+      expect(() => getAI(app as never)).toThrow(
+        /sandbox-only mirror.*package resolution.*firebase\/ai.*production.*select the sandbox/i,
+      );
+    } finally {
+      await firebaseApp.deleteApp(app);
     }
   });
 });
@@ -341,15 +347,16 @@ describe('prod-target dispatch (intercepted fetch, no network)', () => {
 // ── Scripting subpath guards and framing ─────────────────────────────────
 
 describe('pyric/ai/scripting', () => {
-  it('script() refuses a prod handle', async () => {
-    const { initializeApp, deleteApp } = await import('firebase/app');
+  it('script() accepts a sandbox app handle', async () => {
     const app = initializeApp(
-      { apiKey: 'k', projectId: 'p', appId: '1:0:web:scripting-guard' },
+      { sandbox: initializeSandbox() },
       `ai-unit-${Math.random().toString(36).slice(2)}`,
     );
     try {
       const ai = getAI(app);
-      expect(() => script(ai, [{ respond: { text: 'x' } }])).toThrow(AIError);
+      script(ai, [{ respond: { text: 'x' } }]);
+      const model = getGenerativeModel(ai, { model: MODEL });
+      expect((await model.generateContent('hello')).response.text()).toBe('x');
     } finally {
       await deleteApp(app);
     }

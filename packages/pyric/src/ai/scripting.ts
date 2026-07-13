@@ -87,12 +87,6 @@ function normalizeEntry(entry: ScriptingEntry): ScriptEntry {
  */
 export function script(ai: AI, entries: ScriptingEntry[]): void {
   const target = targetOf(ai);
-  if (target.kind !== 'sandbox') {
-    throw new AIError(
-      AIErrorCode.UNSUPPORTED,
-      'script(ai, entries) requires a sandbox-backed AI handle (getAI(sandbox)).',
-    );
-  }
   const engine = target.broker.engine;
   if (!(engine instanceof ScriptedEngine)) {
     throw new AIError(

@@ -26,6 +26,7 @@
  */
 import * as ipAi from 'pyric/ai';
 import { getAI as pyricGetAI } from 'pyric/ai';
+import type { PyricApp } from 'pyric/app';
 import type { AiEngineConfigWire } from '../worker/protocol.js';
 import { aiGenerateContent, aiCountTokens, aiStreamGenerateContent } from '../worker/client.js';
 import { sandbox, workerDb, useWorker } from './runtime.js';
@@ -197,16 +198,22 @@ function portEngine(engineWire: AiEngineConfigWire | undefined): EngineOption {
 }
 
 // ── getAI — worker-forwarded answering or whole-mirror in-page ─────────────
+function mirrorGetAI(app: unknown, options?: ipAi.AIOptions): ipAi.AI {
+  return app === undefined
+    ? pyricGetAI(sandbox, options)
+    : pyricGetAI(app as PyricApp, options);
+}
+
 export const getAI = (
   useWorker
-    ? (_app?: unknown, options?: ipAi.AIOptions) => {
+    ? (app?: unknown, options?: ipAi.AIOptions) => {
         const engine = options?.engine;
         if (engine && isAnswerEngine(engine)) {
           // A custom AnswerEngine is page code — it can't cross the port, so
           // the whole mirror (broker included) runs in-page against it.
-          return pyricGetAI(sandbox, options);
+          return mirrorGetAI(app, options);
         }
-        return pyricGetAI(sandbox, { ...(options ?? {}), engine: portEngine(toEngineWire(engine)) });
+        return mirrorGetAI(app, { ...(options ?? {}), engine: portEngine(toEngineWire(engine)) });
       }
-    : (_app?: unknown, options?: ipAi.AIOptions) => pyricGetAI(sandbox, withProxyDefault(options))
+    : (app?: unknown, options?: ipAi.AIOptions) => mirrorGetAI(app, withProxyDefault(options))
 ) as typeof pyricGetAI;
