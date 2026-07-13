@@ -6,6 +6,7 @@
  * RED BY DESIGN until the ai mirror lands (CDD map #92).
  */
 import { describe, expect, test } from 'bun:test';
+import { FirebaseError } from 'pyric/app';
 import { aiSeam, observedBehavior, PROBE_MODEL, type AiSeam } from './support.ts';
 
 let seam: AiSeam;
@@ -140,6 +141,7 @@ describe('ai: error envelopes', () => {
     const model = seam.ai.getGenerativeModel(freshAi(), { model: 'not-a-real-model' });
     const error = await rejectionFrom(model.generateContent('hello'));
     expect(error).toBeInstanceOf(seam.ai.AIError);
+    expect(error).toBeInstanceOf(FirebaseError);
     expect(typeof error.code).toBe('string');
     expect(Object.values(seam.ai.AIErrorCode)).toContain(error.code.replace(/^.*\//, ''));
     expect(error.customErrorData).toBeDefined();

@@ -303,7 +303,7 @@ Backend selection belongs to package resolution, not app initialization.
 - Node sandbox processes activate the register hook, which performs the same
   package swap before modules load.
 - Production processes do not activate the swap and continue loading Firebase.
-- Direct `pyric/*` imports mean sandbox behavior. `pyric/app` and
+- Direct `pyric/*` imports mean sandbox behavior. `pyric/app`, `pyric/ai`, and
   `pyric/storage` already enforce this invariant; the remaining client service
   mirrors still have legacy production arms that are being removed behind the
   compiled-binding ratchet.

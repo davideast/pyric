@@ -1,4 +1,4 @@
-import { FirebaseError } from './firebase-error.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 
 /**
  * Firebase JS SDK version whose public app behavior the current oracle records.

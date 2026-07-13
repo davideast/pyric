@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { FirebaseError } from './firebase-error.js';
+import { FirebaseError } from '../../../src/sandbox/internal/firebase-error.js';
 
 describe('FirebaseError mirror', () => {
   it('preserves the Firebase error shape for direct and subclass instances', () => {

@@ -4,9 +4,9 @@
  * `backendType`, with {@link GoogleAIBackend} (the default) and
  * {@link VertexAIBackend} (location defaults to `us-central1`).
  *
- * On sandbox targets the backend is a pure configuration marker (the broker
- * answers in-process either way); on prod targets it is translated to the
- * installed SDK's equivalent class (see prod-backend.ts).
+ * In the sandbox mirror the backend is a pure configuration marker; the
+ * broker answers in-process either way. Production imports load Firebase's
+ * own backend classes before this package enters the graph.
  */
 
 const DEFAULT_LOCATION = 'us-central1';

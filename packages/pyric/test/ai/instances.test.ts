@@ -1,5 +1,5 @@
 /**
- * Red conformance suite: `getAI(target)` and dispatch rows (ai#getai-*,
+ * Conformance suite for AI handle initialization and dispatch (ai#getai-*,
  * ai#backend-*, ai#model-name-*). One test per registry row id.
  * RED BY DESIGN until the ai mirror lands (CDD map #92).
  */
@@ -28,11 +28,11 @@ describe('ai: initialization and dispatch', () => {
     expect(result.response.candidates.length).toBeGreaterThan(0);
   });
 
-  rowTest('ai#getai-prod-dispatch getAI(app) uses the sandbox selected by package resolution and carries the app', async () => {
+  rowTest('ai#getai-app-dispatch getAI(app) uses the app sandbox selected by package resolution and carries the app', async () => {
     const { initializeApp, deleteApp } = await import('pyric/app');
     const app = initializeApp(
       { sandbox },
-      'ai-prod-dispatch',
+      'ai-app-dispatch',
     );
     try {
       const ai = seam.ai.getAI(app);
@@ -46,6 +46,7 @@ describe('ai: initialization and dispatch', () => {
     const ai = seam.ai.getAI(sandbox);
     expect(ai.backend).toBeInstanceOf(seam.ai.GoogleAIBackend);
     expect(ai.backend.backendType).toBe(seam.ai.BackendType.GOOGLE_AI);
+    expect(ai.location).toBe('');
   });
 
   rowTest('ai#getai-idempotent repeat getAI calls with the same target return a stable handle', () => {
@@ -70,6 +71,8 @@ describe('ai: initialization and dispatch', () => {
     const backend = new seam.ai.VertexAIBackend();
     expect(backend.backendType).toBe(seam.ai.BackendType.VERTEX_AI);
     expect(backend.location).toBe('us-central1');
+    const ai = seam.ai.getAI(seam.sandboxMod.initializeSandbox(), { backend });
+    expect(ai.location).toBe('us-central1');
   });
 
   rowTest('ai#model-name-short a short model name normalizes to the models/ resource name', () => {

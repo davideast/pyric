@@ -1,8 +1,9 @@
 /**
- * The public error primitive shared by the sandbox client mirrors.
+ * Firebase-shaped error primitive shared by the sandbox client mirrors.
  *
- * Its observable shape follows `firebase/app`'s `FirebaseError`, while living
- * entirely inside `pyric` so sandbox errors never load the production SDK.
+ * It lives below every service surface so mirrors can preserve cross-service
+ * `instanceof FirebaseError` identity without depending on the app composition
+ * root or loading the production SDK.
  */
 export class FirebaseError extends Error {
   readonly name = 'FirebaseError';

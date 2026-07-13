@@ -33,7 +33,7 @@ import {
   createEnhancedContentResponse,
   type EnhancedResponse,
 } from './response-helpers.js';
-import type { SandboxTarget } from './target.js';
+import type { SandboxTarget } from './types.js';
 
 export interface SingleRequestOptions {
   timeout?: number;

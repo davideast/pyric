@@ -4,44 +4,17 @@
  * package resolution and never enters this module.
  */
 
-import type { Sandbox } from 'pyric/sandbox';
-import type { PyricApp } from 'pyric/app';
-
-import type { AiBroker, AnswerEngine, EngineConfig } from './broker/index.js';
-import type { Backend } from './backend.js';
+import type { Sandbox } from '../sandbox/types/service.js';
+import type { AI, SandboxTarget } from './types.js';
 
 export const TARGET_SYMBOL: unique symbol = Symbol('pyric/ai/target');
-
-/** Initialization options; `engine` is the sandbox-only answer-engine seam. */
-export interface AIOptions {
-  backend?: Backend;
-  useLimitedUseAppCheckTokens?: boolean;
-  /** Sandbox targets only: engine config (`scripted` default) or a custom engine. */
-  engine?: EngineConfig | AnswerEngine;
-}
-
-/** An instance of the AI mirror. Direct sandbox handles have no `app`. */
-export interface AI {
-  app?: PyricApp;
-  backend: Backend;
-  options?: AIOptions;
-}
-
-/** Sandbox dispatch target — carries the per-handle broker. */
-export interface SandboxTarget {
-  kind: 'sandbox';
-  sandbox: Sandbox;
-  broker: AiBroker;
-}
-
-export type Target = SandboxTarget;
 
 /**
  * Recover the dispatch target for an {@link AI} handle. Throws if the handle
  * wasn't produced by this package — the brand is the only way in.
  */
-export function targetOf(ai: AI): Target {
-  const target = (ai as { [TARGET_SYMBOL]?: Target })[TARGET_SYMBOL];
+export function targetOf(ai: AI): SandboxTarget {
+  const target = (ai as { [TARGET_SYMBOL]?: SandboxTarget })[TARGET_SYMBOL];
   if (!target) {
     throw new TypeError('pyric/ai: unrecognized AI handle — was it produced by getAI(...)?');
   }
@@ -53,7 +26,7 @@ export function targetOf(ai: AI): Target {
  * `onCurrentUserChanged` and `withAuth`, which a {@link PyricApp} wrapper
  * never has.
  */
-export function isSandbox(target: Sandbox | PyricApp): target is Sandbox {
+export function isSandbox(target: unknown): target is Sandbox {
   return (
     typeof target === 'object'
     && target !== null

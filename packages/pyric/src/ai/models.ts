@@ -37,7 +37,8 @@ import {
   type GenerateContentStreamResult,
   type SingleRequestOptions,
 } from './sandbox-plane.js';
-import type { SandboxTarget } from './target.js';
+import { targetOf } from './target.js';
+import type { AI, SandboxTarget } from './types.js';
 import type { CountTokensResponse } from './broker/index.js';
 
 export interface RequestOptions {
@@ -324,4 +325,20 @@ export class ChatSession extends ChatSessionBase {
       return result;
     });
   }
+}
+
+/** Return a sandbox-backed model with the canonical Firebase method shape. */
+export function getGenerativeModel(
+  ai: AI,
+  modelParams: ModelParams,
+  requestOptions?: RequestOptions,
+): GenerativeModel {
+  const target = targetOf(ai);
+  if (!modelParams?.model) {
+    throw new AIError(
+      AIErrorCode.NO_MODEL,
+      `Must provide a model name. Example: getGenerativeModel({ model: 'my-model-name' })`,
+    );
+  }
+  return new GenerativeModel(target, modelParams, requestOptions);
 }

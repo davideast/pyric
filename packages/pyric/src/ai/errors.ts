@@ -11,9 +11,7 @@
  * same error from the wire envelope, with a production-shaped URL.
  */
 
-import { FirebaseError } from '../app/firebase-error.js';
-import type { AIError as FbAIError } from 'firebase/ai';
-
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { AiBrokerError, type WireErrorEnvelope } from './broker/index.js';
 
 const AI_TYPE = 'AI';
@@ -67,9 +65,6 @@ export class AIError extends FirebaseError {
     this.toString = () => fullMessage;
   }
 }
-
-/** Union type: sandbox ops raise OUR AIError; prod pass-through raises the installed SDK's. */
-export type AnyAIError = AIError | FbAIError;
 
 /** Minimal HTTP status text table for the statuses the sandbox mints. */
 export function statusTextOf(status: number): string {

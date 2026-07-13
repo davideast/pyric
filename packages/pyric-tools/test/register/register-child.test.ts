@@ -125,8 +125,6 @@ console.log('PROD_ARM_OK');
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import { getAI, getGenerativeModel } from 'firebase/ai';
-import { script } from 'pyric/ai/scripting';
 const app = initializeApp({ apiKey: 'ignored', projectId: 'demo-project' });
 assert.strictEqual(app[Symbol.for('pyric.app.target')], 'sandbox');
 assert.strictEqual(app.options.projectId, 'demo-project');
@@ -136,13 +134,24 @@ const auth = getAuth(app);
 assert.strictEqual(getAuth(), auth, 'bare getAuth() must use the registered default sandbox app');
 const credential = await signInAnonymously(auth);
 assert.strictEqual(auth.currentUser, credential.user, 'canonical auth imports must update sandbox auth state');
+console.log('CLIENT_OK');
+`,
+  );
+
+  // Canonical AI seam: only Firebase imports, no Pyric helper import. The
+  // zero-config scripted engine proves a real sandbox operation completed.
+  writeFileSync(
+    join(fixtureDir, 'ai-client.mjs'),
+    `import assert from 'node:assert';
+import { initializeApp } from 'firebase/app';
+import { getAI, getGenerativeModel } from 'firebase/ai';
+const app = initializeApp({ apiKey: 'ignored', projectId: 'demo-ai-project' });
 const ai = getAI(app);
 assert.strictEqual(getAI(), ai, 'bare getAI() must use the registered default sandbox app');
-script(ai, [{ respond: { text: 'sandbox answer' } }]);
 const model = getGenerativeModel(ai, { model: 'gemini-flash-lite-latest' });
 const result = await model.generateContent('hello');
-assert.strictEqual(result.response.text(), 'sandbox answer');
-console.log('CLIENT_OK');
+assert.ok(result.response.candidates.length > 0, 'zero-config sandbox engine must answer');
+console.log('AI_CLIENT_OK');
 `,
   );
 
@@ -184,6 +193,13 @@ describe('@pyric/cli/register (child process)', () => {
     const res = runNode('client.mjs', { PYRIC_SANDBOX: 'local' });
     expect(res.stderr).toContain('@pyric/cli/register: active');
     expect(res.stdout).toContain('CLIENT_OK');
+    expect(res.status).toBe(0);
+  });
+
+  it('executes canonical firebase/app + firebase/ai imports through the sandbox', () => {
+    const res = runNode('ai-client.mjs', { PYRIC_SANDBOX: 'local' });
+    expect(res.stderr).toContain('@pyric/cli/register: active');
+    expect(res.stdout).toContain('AI_CLIENT_OK');
     expect(res.status).toBe(0);
   });
 

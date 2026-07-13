@@ -79,27 +79,27 @@ const initRows: CompatibilityRow[] = [
     api: 'getAI(target)',
     behavior: '`getAI(sandbox)` returns an AI handle bound to the sandbox target; a model minted from it answers through the in-process answer engine',
     automation: 'unit-backed',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-sandbox-dispatch` (no capture; structural dispatch claim)',
-    tests: ['init-dispatch.test.ts'],
+    evidence: '`unit:instances.test.ts` test `ai#getai-sandbox-dispatch` (no capture; structural dispatch claim)',
+    tests: ['instances.test.ts'],
   }),
   row({
-    rowRef: 'getai-prod-dispatch',
+    rowRef: 'getai-app-dispatch',
     section: SEC_INIT,
     api: 'getAI(target)',
     behavior: 'After package resolution selects the mirror, `getAI(app)` uses the app\'s sandbox and the returned handle carries the app',
     automation: 'unit-backed',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-prod-dispatch` (no capture; package-resolution dispatch claim)',
-    tests: ['init-dispatch.test.ts'],
+    evidence: '`unit:instances.test.ts` test `ai#getai-app-dispatch` (package-resolution dispatch claim)',
+    tests: ['instances.test.ts'],
     notes: 'Production code keeps resolving firebase/ai; the pyric/ai module contains no production dispatch.',
   }),
   row({
     rowRef: 'getai-default-backend',
     section: SEC_INIT,
     api: 'getAI(target)',
-    behavior: 'With no options the backend defaults to `GoogleAIBackend` and `backendType` is `GOOGLE_AI`',
+    behavior: 'With no options the backend defaults to `GoogleAIBackend`, `backendType` is `GOOGLE_AI`, and the AI handle location is the empty string',
     automation: 'unit-backed',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-default-backend` (matches upstream AIOptions default)',
-    tests: ['init-dispatch.test.ts'],
+    evidence: '`unit:instances.test.ts` test `ai#getai-default-backend` (matches upstream AIOptions default)',
+    tests: ['instances.test.ts'],
   }),
   row({
     rowRef: 'getai-idempotent',
@@ -107,8 +107,8 @@ const initRows: CompatibilityRow[] = [
     api: 'getAI(target)',
     behavior: 'Repeat `getAI` calls with the same target return a stable handle',
     automation: 'unit-backed',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-idempotent` (no capture; structural claim)',
-    tests: ['init-dispatch.test.ts'],
+    evidence: '`unit:instances.test.ts` test `ai#getai-idempotent` (no capture; structural claim)',
+    tests: ['instances.test.ts'],
   }),
   row({
     rowRef: 'getai-engine-option',
@@ -116,8 +116,8 @@ const initRows: CompatibilityRow[] = [
     api: 'getAI(target, options)',
     behavior: '`getAI(sandbox, { backend: new GoogleAIBackend(), engine: { kind: "scripted" } })` selects the scripted engine explicitly and behaves identically to the zero-config default',
     automation: 'sandbox-only',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-engine-option` (engine seam per packages/conformance/docs/ai/cdd-deltas.md)',
-    tests: ['init-dispatch.test.ts'],
+    evidence: '`unit:instances.test.ts` test `ai#getai-engine-option` (engine seam per packages/conformance/docs/ai/cdd-deltas.md)',
+    tests: ['instances.test.ts'],
     exceptionReason: ENGINE_EXCEPTION,
     notes: ENGINE_NOTE,
   }),
@@ -125,10 +125,10 @@ const initRows: CompatibilityRow[] = [
     rowRef: 'backend-vertex',
     section: SEC_INIT,
     api: 'VertexAIBackend',
-    behavior: '`VertexAIBackend` carries `backendType` `VERTEX_AI` and its `location` defaults to `us-central1`',
+    behavior: '`VertexAIBackend` carries `backendType` `VERTEX_AI`; its location and the resulting AI handle location default to `us-central1`',
     automation: 'unit-backed',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#backend-vertex` (matches upstream constructor default)',
-    tests: ['init-dispatch.test.ts'],
+    evidence: '`unit:instances.test.ts` test `ai#backend-vertex` (matches upstream constructor default)',
+    tests: ['instances.test.ts'],
   }),
   row({
     rowRef: 'model-name-short',
@@ -136,8 +136,8 @@ const initRows: CompatibilityRow[] = [
     api: 'getGenerativeModel(ai, modelParams)',
     behavior: 'A short model name such as `gemini-flash-lite-latest` normalizes to the `models/` resource name on `GenerativeModel.model`',
     automation: 'unit-backed',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#model-name-short` (upstream AIModel normalization on the GoogleAI backend)',
-    tests: ['init-dispatch.test.ts'],
+    evidence: '`unit:instances.test.ts` test `ai#model-name-short` (upstream AIModel normalization on the GoogleAI backend)',
+    tests: ['instances.test.ts'],
   }),
   row({
     rowRef: 'model-name-prefixed',
@@ -147,8 +147,8 @@ const initRows: CompatibilityRow[] = [
     status: 'diverged-documented',
     statusNote: 'normalization',
     automation: 'unit-backed',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#model-name-prefixed` (no capture; normalization claim)',
-    tests: ['init-dispatch.test.ts'],
+    evidence: '`unit:instances.test.ts` test `ai#model-name-prefixed` (no capture; normalization claim)',
+    tests: ['instances.test.ts'],
     notes: 'Pinned delta vs installed 2.12.0: the installed AIModel double-prefixes an already `models/`-prefixed name; the mirror normalizes without the wart (packages/pyric/src/ai/models.ts).',
   }),
   row({
@@ -157,8 +157,8 @@ const initRows: CompatibilityRow[] = [
     api: 'getGenerativeModel(ai, modelParams)',
     behavior: '`getGenerativeModel` without `modelParams.model` throws an `AIError` with code `no-model`',
     automation: 'unit-backed',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#model-name-required` (upstream throw contract)',
-    tests: ['init-dispatch.test.ts'],
+    evidence: '`unit:instances.test.ts` test `ai#model-name-required` (upstream throw contract)',
+    tests: ['instances.test.ts'],
   }),
   row({
     rowRef: 'getai-sandbox-no-network',
@@ -166,8 +166,8 @@ const initRows: CompatibilityRow[] = [
     api: 'getAI(sandbox)',
     behavior: 'The sandbox target with the scripted engine performs no network I/O for generateContent',
     automation: 'sandbox-only',
-    evidence: '`unit:init-dispatch.test.ts` test `ai#getai-sandbox-no-network` (ruling 1 of the engine placement deltas: the scripted engine does no I/O anywhere)',
-    tests: ['init-dispatch.test.ts'],
+    evidence: '`unit:instances.test.ts` test `ai#getai-sandbox-no-network` (ruling 1 of the engine placement deltas: the scripted engine does no I/O anywhere)',
+    tests: ['instances.test.ts'],
     exceptionReason: ENGINE_EXCEPTION,
     notes: ENGINE_NOTE,
   }),
@@ -957,32 +957,6 @@ const openaiRows: CompatibilityRow[] = [
   }),
 ];
 
-// Section: production package-resolution boundary -----------------------------
-
-const SEC_PROD = 'Production package-resolution boundary';
-const prodRows: CompatibilityRow[] = [
-  row({
-    rowRef: 'prod-passthrough-generate',
-    section: SEC_PROD,
-    api: 'firebase/ai package selection',
-    behavior: 'Without sandbox package swapping, canonical `firebase/ai` sends `generateContent` to the production base URL with the request body byte-identical',
-    automation: 'unit-backed',
-    evidence: '`unit:engines.test.ts` test `ai#prod-passthrough-generate` (upstream fetch interception; no mirror dispatch involved)',
-    tests: ['engines.test.ts'],
-    notes: 'Production remains the real firebase/ai package; pyric/ai loads only after the sandbox resolver swaps the import.',
-  }),
-  row({
-    rowRef: 'prod-passthrough-errors',
-    section: SEC_PROD,
-    api: 'firebase/ai package selection',
-    behavior: 'Without sandbox package swapping, canonical `firebase/ai` surfaces production errors unchanged as `AIError` with the wire status and message',
-    automation: 'unit-backed',
-    evidence: '`unit:engines.test.ts` test `ai#prod-passthrough-errors` (upstream fetch interception replaying the captured bad-api-key envelope shape)',
-    tests: ['engines.test.ts'],
-    notes: 'Production remains the real firebase/ai package; pyric/ai loads only after the sandbox resolver swaps the import.',
-  }),
-];
-
 // Doc assembly -------------------------------------------------------------
 
 const header = `# \`pyric/ai\` compatibility matrix
@@ -990,9 +964,9 @@ const header = `# \`pyric/ai\` compatibility matrix
 This surface climbed under Conformance Driven Development
 (map: https://github.com/davideast/pyric/issues/92). Every row below was
 born \`unverified\` at admission: the row universe and the red conformance
-suites came first, the mirror implementation came after. All 80 rows are
+suites came first, the mirror implementation came after. All 78 rows are
 now flipped: the climb lane (\`bun run compat:climb-ai\`, the suites at
-\`packages/pyric/test/ai\`) passes 80 of 80 with no assertion
+\`packages/pyric/test/ai\`) passes 78 of 78 with no assertion
 weakened, and every row records the tier of evidence that vouches for it.
 
 Evidence tiers per \`packages/conformance/docs/ai/cdd-deltas.md\`:
@@ -1003,12 +977,12 @@ Evidence tiers per \`packages/conformance/docs/ai/cdd-deltas.md\`:
 - \`shape-backed\` (23 rows): the suite replays an observation's distilled
   shape facts (key sets, enum values, streaming semantics); values are
   nondeterministic in production.
-- \`unit-backed\` (30 rows): SDK mechanics with no vouching observation
+- \`unit-backed\` (28 rows): SDK mechanics with no vouching observation
   (dispatch, ChatSession behavior, Schema builders, response helpers).
 - \`sandbox-only\` (17 rows): the answer-engine seam, which has no
   production analogue.
 
-74 rows conform; 6 are documented divergences from the installed
+72 rows conform; 6 are documented divergences from the installed
 firebase/ai 2.12.0, each with the reason pinned in its notes.
 
 Generated-content VALUES are never claims. Production output is
@@ -1054,6 +1028,5 @@ export const aiRegistry: CompatibilitySurfaceRegistry = {
     table(SEC_SCHEMA, schemaRows),
     table(SEC_SCRIPTED, scriptedRows),
     table(SEC_OPENAI, openaiRows),
-    table(SEC_PROD, prodRows),
   ],
 };
