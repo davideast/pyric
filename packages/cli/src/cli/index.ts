@@ -86,10 +86,11 @@ COMMANDS
                              command (\`-- <cmd>\`, else the package.json \`dev\` script) with
                              unchanged firebase-admin/firebase imports routed to the
                              sandbox (PYRIC_SANDBOX + \`--import @pyric/cli/register\`).
-  init [dir]                 Scaffold a pyric project. --template=web (default; canonical
-                             firebase/* app served by \`pyric dev\`) or node (script-style).
+  init [dir]                 Scaffold a pyric project. --template=web (default; Vite app
+                             on \`@pyric/cli/vite\`), static (\`pyric dev\`), or node.
                              --name=NAME --force (overwrite scaffold files) --json (machine
                              output on stdout). Never prompts; rerunning is safe.
+                             Greenfield shortcut: \`npm create pyric [dir]\`.
   vendor [dir]               Retrofit: vendor pyric + @pyric/cli into an existing
                              project (lay file: tarballs into vendor/ + merge their
                              deps into package.json). Scaffolds nothing. Then run

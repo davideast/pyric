@@ -43,14 +43,16 @@ A backend that runs inside the app removes the infrastructure from the loop. A d
 
 ## Getting Started
 
-Install the CLI in an existing Firebase app or a new one:
+Install and scaffold a Vite app (or add Pyric to an existing one):
 
 ```bash
-npm i -g pyric-tools            # installs the `pyric` command
-pyric init --template web       # scaffold, or skip this in an existing app
-npm install                     # install the scaffolded app's deps
-pyric dev
+npm create pyric my-app
+cd my-app
+npm install
+npm run dev
 ```
+
+`npm create pyric` runs the `create-pyric` package and scaffolds a Vite app on `@pyric/cli/vite`. Equivalent: `npx create-pyric my-app`, or `pyric init` after installing `@pyric/cli`.
 
 `pyric dev` serves the app against the in-process sandbox. The app's own `firebase/*` imports resolve to the sandbox during development; nothing in the application source changes. The sandbox holds data, identities, and rules, and everything it does is observable through the mechanisms below.
 
@@ -133,7 +135,7 @@ bun test packages/pyric packages/pyric-admin packages/cli packages/ui
 npm run test:packaging
 ```
 
-Examples: [examples/vite-sandbox-app](examples/vite-sandbox-app/), the shape `pyric init --template web` generates, and [examples/admin-playground](examples/admin-playground/), a `@pyric/ui` showcase.
+Examples: [examples/vite-sandbox-app](examples/vite-sandbox-app/), the shape `npm create pyric` / `pyric init --template web` generates, and [examples/admin-playground](examples/admin-playground/), a `@pyric/ui` showcase.
 
 ## Stability
 
