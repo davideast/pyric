@@ -219,7 +219,7 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
             }}
             renderIdentifier={renderIdentifier}
             formatDate={clockTime}
-            renderActionsHeader={
+            renderSelectionHeader={
               <label className="auth-select" title="Select all shown users">
                 <input
                   type="checkbox"
@@ -229,7 +229,7 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
                 />
               </label>
             }
-            renderActions={(user) => (
+            renderSelection={(user) => (
               <label className="auth-select" title={`Select ${user.uid}`}>
                 <input
                   type="checkbox"

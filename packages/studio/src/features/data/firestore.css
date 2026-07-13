@@ -919,6 +919,12 @@
   position: relative;
   margin-left: auto;
 }
+/* When + New precedes the menu, its actions group already owns the trailing
+   auto margin. Keep the overflow trigger beside it instead of splitting the
+   spare header width between two auto margins. */
+.fs-phead-actions + .fs-overflow {
+  margin-left: 0;
+}
 .fs-overflow__trigger {
   appearance: none;
   border: none;

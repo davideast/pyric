@@ -234,12 +234,26 @@
 [data-pyric-ui='auth-user-list'] [data-pyric-user-header],
 [data-pyric-ui='auth-user-list'] [data-pyric-user-entry] {
   display: grid;
-  grid-template-columns: 1fr 200px 96px 100px 32px;
+  grid-template-columns: 1fr 200px 96px 100px;
   gap: 16px;
   align-items: baseline;
   padding: 10px var(--auth-gutter);
 }
 
+[data-pyric-ui='auth-user-list'][data-pyric-selection]
+  :is([data-pyric-user-header], [data-pyric-user-entry]) {
+  grid-template-columns: 32px 1fr 200px 96px 100px;
+}
+[data-pyric-ui='auth-user-list'][data-pyric-actions]
+  :is([data-pyric-user-header], [data-pyric-user-entry]) {
+  grid-template-columns: 1fr 200px 96px 100px 32px;
+}
+[data-pyric-ui='auth-user-list'][data-pyric-selection][data-pyric-actions]
+  :is([data-pyric-user-header], [data-pyric-user-entry]) {
+  grid-template-columns: 32px 1fr 200px 96px 100px 32px;
+}
+
+[data-pyric-user-cell='selection'],
 [data-pyric-user-cell='actions'] {
   display: grid;
   place-items: center;
@@ -649,8 +663,20 @@
   /* List collapses to identifier + created (provider / signed-in drop). */
   [data-pyric-ui='auth-user-list'] [data-pyric-user-header],
   [data-pyric-ui='auth-user-list'] [data-pyric-user-entry] {
-    grid-template-columns: 1fr auto 32px;
+    grid-template-columns: 1fr auto;
     gap: 10px;
+  }
+  [data-pyric-ui='auth-user-list'][data-pyric-selection]
+    :is([data-pyric-user-header], [data-pyric-user-entry]) {
+    grid-template-columns: 32px 1fr auto;
+  }
+  [data-pyric-ui='auth-user-list'][data-pyric-actions]
+    :is([data-pyric-user-header], [data-pyric-user-entry]) {
+    grid-template-columns: 1fr auto 32px;
+  }
+  [data-pyric-ui='auth-user-list'][data-pyric-selection][data-pyric-actions]
+    :is([data-pyric-user-header], [data-pyric-user-entry]) {
+    grid-template-columns: 32px 1fr auto 32px;
   }
   [data-pyric-ui='auth-user-list'] [data-pyric-user-cell='providers'],
   [data-pyric-ui='auth-user-list'] [data-pyric-user-cell='signed-in'] {
