@@ -80,8 +80,7 @@ export function enforceRules(
 
 /**
  * Build + emit the `SandboxOperationEvent` for one enforcement decision.
- * No-op for prod targets (rules are server-side; nothing to observe here)
- * and bare `StorageService` calls with no `target` (unit tests that drive
+ * No-op for bare `StorageService` calls with no `target` (unit tests that drive
  * `enforceRules` directly without a sandbox handle).
  */
 function emitOperation(
@@ -93,7 +92,7 @@ function emitOperation(
   evaluated: boolean,
   provenance: EventProvenance | undefined,
 ): void {
-  if (!target || target.kind !== 'sandbox') return;
+  if (!target) return;
   try {
     emitSandboxEvent(
       target.sandbox,
@@ -127,11 +126,11 @@ function emitOperation(
  * the enforcement seam stays synchronous AND the lookup is invoked lazily
  * during evaluation (honoring short-circuit) exactly like production.
  *
- * Prod targets and rules-less services get no lookup — a rule that reaches
- * for `firestore.*` there denies "unsupported" rather than false-allowing.
+ * Calls without a target get no lookup — a rule that reaches for
+ * `firestore.*` there denies "unsupported" rather than false-allowing.
  */
 function firestoreLookupFor(target?: Target): FirestoreLookup | undefined {
-  if (target?.kind !== 'sandbox') return undefined;
+  if (!target) return undefined;
   const admin = target.sandbox.admin;
   return {
     get: (path) => admin.getDocument(path) as Record<string, unknown> | null,

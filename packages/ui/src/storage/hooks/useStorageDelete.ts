@@ -60,9 +60,9 @@ export function createListAllDeleteImpl(): StorageRecursiveDeleteImpl {
         try {
           await deleteObject(folderPlaceholderRef(folder.storage, folder.fullPath));
         } catch {
-          // Best-effort: prod targets reject structural refs and a
-          // strict backend may throw not-found — neither should fail
-          // the delete that already succeeded.
+          // Best-effort: a strict backend may reject the structural
+          // placeholder or throw not-found. Neither should fail the
+          // recursive delete that already succeeded.
         }
       }
       yield { deletedCount, done: true };

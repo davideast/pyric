@@ -11,19 +11,16 @@
  *   - `storage/invalid-root-operation` when `fullPath` is empty —
  *     matches Firebase's pre-flight on root refs.
  *   - `storage/quota-exceeded` when the persisted blob is larger
- *     than the optional `maxDownloadSizeBytes` cap. (Prod uses
- *     `storage/invalid-argument` for the client-side cap; the
- *     sandbox keeps the descriptive `quota-exceeded` code — see
- *     COMPAT row 55.)
+ *     than the optional `maxDownloadSizeBytes` cap. The sandbox keeps
+ *     the descriptive `quota-exceeded` code — see COMPAT row 55.
  */
-import * as fb from 'firebase/storage';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored } from './rules.js';
 import { objectNotFound, quotaExceeded, invalidRootOperation } from './errors.js';
-import { fbRefOf, type StorageReference } from './reference.js';
+import type { StorageReference } from './reference.js';
 
 /**
  * Read the blob at `ref` and return its contents as an
@@ -34,10 +31,6 @@ export async function getBytes(
   maxDownloadSizeBytes?: number,
 ): Promise<ArrayBuffer> {
   guardNonRoot(ref, 'getBytes');
-  const target = targetOf(ref.storage);
-  if (target.kind === 'prod') {
-    return fb.getBytes(fbRefOf(ref), maxDownloadSizeBytes);
-  }
   const blob = await fetchBlob(ref, maxDownloadSizeBytes);
   return blob.arrayBuffer();
 }
@@ -55,26 +48,17 @@ export async function getBlob(
   maxDownloadSizeBytes?: number,
 ): Promise<Blob> {
   guardNonRoot(ref, 'getBlob');
-  const target = targetOf(ref.storage);
-  if (target.kind === 'prod') {
-    return fb.getBlob(fbRefOf(ref), maxDownloadSizeBytes);
-  }
   return fetchBlob(ref, maxDownloadSizeBytes);
 }
 
 /**
- * Return a URL the current page can use to read the object. Production
- * delegates to Firebase's token-signed HTTPS URL. The sandbox creates a
- * page-local object URL from the same rules-checked blob as {@link getBlob}.
- * The sandbox URL is a snapshot, cannot be shared outside the page, and stays
+ * Return a URL the current page can use to read the sandbox object. The URL is
+ * created from the same rules-checked blob as {@link getBlob}. It is a
+ * snapshot, cannot be shared outside the page, and stays
  * alive until the caller revokes it or the page unloads.
  */
 export async function getDownloadURL(ref: StorageReference): Promise<string> {
   guardNonRoot(ref, 'getDownloadURL');
-  const target = targetOf(ref.storage);
-  if (target.kind === 'prod') {
-    return fb.getDownloadURL(fbRefOf(ref));
-  }
   return URL.createObjectURL(await fetchBlob(ref, undefined));
 }
 
@@ -99,10 +83,6 @@ export async function deleteObject(
 ): Promise<void> {
   guardNonRoot(ref, 'deleteObject');
   const target = targetOf(ref.storage);
-  if (target.kind === 'prod') {
-    await fb.deleteObject(fbRefOf(ref));
-    return;
-  }
   const service = await getStorageService(ref.storage);
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
@@ -139,11 +119,6 @@ async function fetchBlob(
   maxDownloadSizeBytes: number | undefined,
 ): Promise<Blob> {
   const target = targetOf(ref.storage);
-  // Prod is handled at the caller (early-return) — this helper is
-  // sandbox-only after the dual-target refactor.
-  if (target.kind !== 'sandbox') {
-    throw new Error('fetchBlob: sandbox-only helper called with prod target');
-  }
   const service = await getStorageService(ref.storage);
   // Rule check uses the existing object's metadata (when present)
   // as `resource`. `unauthorized` supersedes `not-found`: the rule

@@ -33,8 +33,8 @@ export interface UseStorageListResult {
   entries: StorageListEntry[];
   /**
    * `StorageError` (with a typed `storage/<code>` on `.code`) from the
-   * sandbox, or whatever the prod backend threw. A denied list is
-   * `error.code === 'storage/unauthorized'` (ST-B2).
+   * sandbox. A denied list is `error.code === 'storage/unauthorized'`
+   * (ST-B2).
    */
   error: Error | undefined;
   /** Re-run `listAll` for the current path. */
@@ -93,15 +93,13 @@ function insertSorted(
 
 /**
  * List the objects + synthetic folders directly under `path` :
- * `listAll` over the package's single Storage handle prop (sandbox
- * or prod, same contract as the `firestore` prop). Read-via-get,
+ * `listAll` over the package's sandbox Storage handle. Read-via-get,
  * not realtime: the list updates on `refresh`, path change, or the
  * optimistic seam. Pass `''` (or the result of `usePathState`) for
  * the bucket root.
  *
- * `listAll` has no pagination, fine at sandbox scale; a very large
- * prod prefix arrives as one flat result (virtualize the rendering,
- * which `<ObjectBrowser>` does).
+ * `listAll` has no pagination; a very large prefix arrives as one flat
+ * result (virtualize the rendering, which `<ObjectBrowser>` does).
  */
 export function useStorageList(
   storage: FirebaseStorage | null | undefined,
@@ -138,9 +136,8 @@ export function useStorageList(
         if (cancelled) return;
         setState({
           status: 'success',
-          // Defensive copy + sort: the sandbox already returns both
-          // sorted; prod's REST pages are sorted per segment. The
-          // sort pins the invariant the optimistic seam relies on.
+          // Defensive copy + sort pins the invariant the optimistic seam
+          // relies on even if the backing implementation changes.
           items: [...result.items].sort(byFullPath),
           prefixes: [...result.prefixes].sort(byFullPath),
           error: undefined,

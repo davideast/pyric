@@ -1,8 +1,8 @@
 /**
  * `StorageError` — the sandbox's analog of `firebase/storage`'s
  * `StorageError`. Every sandbox operation that fails throws one of
- * these so `err.code === 'storage/...'` branching works identically
- * against the sandbox and a real bucket (ST-B1).
+ * these so `err.code === 'storage/...'` branching matches the canonical
+ * Firebase-shaped application contract (ST-B1).
  *
  * Shape parity with upstream (`clones/firebase-js-sdk/packages/
  * storage/src/implementation/error.ts`):
@@ -24,8 +24,7 @@
 /**
  * The unprefixed storage error codes the sandbox can raise. Mirrors
  * the subset of `StorageErrorCode` the implemented operations use;
- * the deny-listed surface (download URLs, resumable, checksums) is
- * out of scope per the v1 scope.
+ * resumable uploads and checksums remain out of scope.
  */
 export type StorageErrorCode =
   | 'unknown'

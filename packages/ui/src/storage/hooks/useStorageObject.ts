@@ -13,7 +13,7 @@ export interface UseStorageObjectResult {
   status: StorageObjectStatus;
   metadata: FullMetadata | undefined;
   /** Typed `StorageError` (`storage/object-not-found`,
-   *  `storage/unauthorized`, …) or whatever prod threw. */
+   *  `storage/unauthorized`, …). */
   error: Error | undefined;
   /** Re-read the metadata (also resets the blob, the object may
    *  have been overwritten). */
@@ -23,10 +23,9 @@ export interface UseStorageObjectResult {
   blobStatus: StorageObjectStatus;
   blob: Blob | undefined;
   /**
-   * `URL.createObjectURL` handle for the loaded blob, the preview
-   * channel (no `getDownloadURL` in `pyric/storage`; blob URLs work
-   * identically sandbox/prod). Revoked automatically when the blob
-   * is replaced, the path changes, or the hook unmounts.
+   * `URL.createObjectURL` handle for the loaded blob, used as the local
+   * preview channel. Revoked automatically when the blob is replaced,
+   * the path changes, or the hook unmounts.
    */
   blobUrl: string | undefined;
   blobError: Error | undefined;

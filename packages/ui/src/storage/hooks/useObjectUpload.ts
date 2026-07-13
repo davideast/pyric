@@ -33,8 +33,7 @@ export interface UploadTask {
   metadata?: FullMetadata;
   /** Populated on `'error'` — a typed `StorageError` from the
    *  sandbox (`.code` is `storage/<code>`, e.g.
-   *  `storage/unauthorized` for a rules-denied write) or whatever
-   *  the prod backend threw. */
+   *  `storage/unauthorized` for a rules-denied write). */
   error?: Error;
 }
 
@@ -93,13 +92,10 @@ export interface UseObjectUploadResult {
    * at every level (it only surfaces as a prefix), so the folder
    * appears in the browser with no phantom file inside.
    *
-   * Sandbox-only today: the JS-SDK-shaped `ref()` normalizes the
-   * trailing slash away, so the placeholder is written through a
-   * structural value-object reference the sandbox accepts; prod
-   * targets reject it (the `pyric/storage` follow-up is a
-   * first-class placeholder API routing prod through the REST
-   * `name=<path>/` upload). Throws the underlying error after
-   * rolling back the optimistic prefix insert.
+   * `ref()` normalizes the trailing slash away, so the placeholder is
+   * written through a structural value-object reference the sandbox
+   * accepts. Throws the underlying error after rolling back the
+   * optimistic prefix insert.
    *
    * ALTERNATIVE: when the store must stay free of placeholder
    * objects (Pyric Studio's choice), use the client-side

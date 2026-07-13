@@ -23,8 +23,7 @@
  * folder-like references for ANY path with descendants; we match
  * that semantic exactly.
  */
-import * as fb from 'firebase/storage';
-import { fbRefOf, ref, type StorageReference } from './reference.js';
+import { ref, type StorageReference } from './reference.js';
 import { getStorageService, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 
@@ -46,13 +45,6 @@ export interface ListResult {
 export async function listAll(refIn: StorageReference): Promise<ListResult> {
   const storage = refIn.storage;
   const target = targetOf(storage);
-  if (target.kind === 'prod') {
-    const result = await fb.listAll(fbRefOf(refIn));
-    return {
-      items: result.items.map((it) => ref(storage, it.fullPath)),
-      prefixes: result.prefixes.map((p) => ref(storage, p.fullPath)),
-    };
-  }
   const service = await getStorageService(storage);
   // ST-B2: enforce rules on the listed prefix. Firebase Storage's
   // `read` permission governs both download AND list, so a `listAll`

@@ -5,7 +5,7 @@ import { useStorageObject } from '../hooks/useStorageObject.js';
 import { selectStoragePreview, type StoragePreview } from '../previews.js';
 
 export interface ObjectInspectorProps {
-  /** The package's single Storage handle prop (sandbox or prod). */
+  /** The package's sandbox Storage handle. */
   storage: FirebaseStorage | null | undefined;
   /** Object path to inspect. `null` renders the idle shell — keep
    *  the inspector mounted and swap paths as the user selects rows. */

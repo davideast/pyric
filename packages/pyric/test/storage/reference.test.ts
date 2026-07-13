@@ -71,6 +71,13 @@ describe('StorageReference', () => {
     expect(r.fullPath).toBe('sessions/s1.json');
   });
 
+  it('ref(parent, child) rejects a structural parent with an unbranded storage handle', () => {
+    const fakeParent = { fullPath: 'sessions', storage: {} };
+    expect(() => ref(fakeParent as never, 's1.json')).toThrow(
+      /not a FirebaseStorage handle/,
+    );
+  });
+
   it('parent traversal walks back to root', () => {
     const storage = freshStorage('parent-chain');
     const r = ref(storage, 'a/b/c/d.json');

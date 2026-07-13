@@ -10,6 +10,8 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { initializeApp } from '../../src/app/index.js';
+import { getStorage } from '../../src/storage/index.js';
 import { getStorageSandbox, getStorageService, targetOf } from '../../src/storage/service.js';
 
 function uniqueDbName(label: string): string {
@@ -17,6 +19,17 @@ function uniqueDbName(label: string): string {
 }
 
 describe('getStorageSandbox', () => {
+  it('getStorage accepts a sandbox app and ignores Firebase bucket routing', () => {
+    const sandbox = initializeSandbox({});
+    const app = initializeApp(
+      { sandbox },
+      `storage-app-${Math.random().toString(36).slice(2, 10)}`,
+    );
+    const storage = getStorage(app, 'gs://production-bucket');
+
+    expect(targetOf(storage).bucket).toBe('pyric-default');
+  });
+
   it('accepts a bare Sandbox and wires up an anonymous context', () => {
     const sandbox = initializeSandbox({});
     const storage = getStorageSandbox(sandbox, { dbName: uniqueDbName('bare-sandbox') });
