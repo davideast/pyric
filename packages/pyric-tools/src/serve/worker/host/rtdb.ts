@@ -19,7 +19,7 @@ import {
   serverTimestamp as rtdbServerTimestamp,
   sandbox as rtdbSandbox,
   type DataSnapshot,
-} from 'pyric/database/modular';
+} from 'pyric/database';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';

@@ -1,6 +1,6 @@
 /**
  * RTDB rules evaluation — adapter from the modular SDK's sandbox
- * backend to `@pyric/rtdb`'s existing simulator.
+ * backend to the existing internal RTDB simulator.
  *
  * The hard part of an RTDB sandbox is the rules engine; the package
  * already ships one (`SimulateHandler` + the Ohm grammar). This module

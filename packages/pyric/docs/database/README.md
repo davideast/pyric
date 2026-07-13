@@ -1,14 +1,20 @@
 # Realtime Database
 
-Pyric's Realtime Database surface has two parts:
+Pyric's Realtime Database surface has three deliberately separate parts:
 
-- `pyric/database` mirrors the Firebase Database modular SDK and exposes
-  host-backed data tools.
+- `pyric/database` is the sandbox-only mirror of the Firebase Database modular
+  SDK. Production builds keep resolving the unchanged `firebase/database`
+  package; the mirror never dispatches to it at runtime.
+- `pyric/sandbox/database` exposes owner controls for installing rules,
+  seeding data, and reading detached snapshots.
 - `pyric/rules` exposes the RTDB rules constraints DSL (`defineRtdbRules`
   and the combinators) plus `rtdbRules(...)`, the deep handle for linting
   and simulating a ruleset. The engine underneath (rule JSON mapping,
   expression parsing and linting, local simulation, and rules-focused agent
   tools) is internal, on `pyric/rules/internal/rtdb`.
+
+Simulation and structure crawling for agents belong to the sandbox and CLI
+tooling, not to the Firebase-shaped `pyric/database` mirror.
 
 ## Where to go next
 

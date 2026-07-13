@@ -1,5 +1,5 @@
 /**
- * Entry-path conformance program — `pyric/app` + `pyric/database/modular`.
+ * Entry-path conformance program — `pyric/app` + `pyric/database`.
  *
  * Adapted from Firebase's official web quickstart shape:
  *   - https://firebase.google.com/docs/database/web/start
@@ -13,7 +13,7 @@
  */
 import { initializeApp } from 'pyric/app';
 import { initializeSandbox } from 'pyric/sandbox';
-import { getDatabase, ref, set, child, get } from 'pyric/database/modular';
+import { getDatabase, ref, set, child, get } from 'pyric/database';
 
 export async function run(): Promise<void> {
   const app = initializeApp({ sandbox: initializeSandbox() });

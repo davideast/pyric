@@ -9,7 +9,7 @@
  */
 
 import type { Firestore } from 'pyric/firestore';
-import type { Database } from 'pyric/database/modular';
+import type { Database } from 'pyric/database';
 import type { LocalSandbox, PersistenceBackend } from 'pyric/sandbox';
 import type { Auth, MintedSession } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';

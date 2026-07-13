@@ -1,17 +1,30 @@
 /**
- * RTDB rules tooling facade.
+ * Transitional legacy RTDB toolkit seam.
  *
- * Firestore rules live under `pyric/rules`; this subpath gives
- * Realtime Database rules the same first-class packaging without
- * moving the existing implementation out of `pyric/database`.
+ * `pyric/database` is reserved for the Firebase-shaped sandbox mirror. This
+ * unstable internal subpath keeps existing rules, host, data-tool, resolver,
+ * and replay consumers working until the legacy production/stateful toolkit
+ * is removed. New code must not depend on it.
  */
 export type { RtdbHost } from '../../database/host.js';
 export { fetchDatabase } from '../../database/host.js';
 export {
+  createRtdbAdminTools,
+  createRtdbDataTools,
   createRtdbRulesTools,
+  type RtdbAdminToolDeps,
+  type RtdbDataToolDeps,
   type RtdbRulesToolDeps,
 } from '../../database/tools.js';
 export { getRtdbTools } from '../../database/resolver.js';
+export { initializeDatabaseApp } from '../../database/initialize-from-app.js';
+export type { AgentAppLike } from '../../database/initialize-from-app.js';
+export { replay } from '../../database/replay.js';
+export type {
+  RtdbReplayDivergence,
+  RtdbReplayOptions,
+  RtdbReplayResult,
+} from '../../database/replay.js';
 export {
   buildRuleExpression,
   RtdbMapper,

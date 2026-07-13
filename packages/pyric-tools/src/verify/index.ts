@@ -6,7 +6,7 @@ import {
 import {
   replay as replayRtdb,
   type RtdbReplayDivergence,
-} from 'pyric/database';
+} from 'pyric/rules/internal/rtdb';
 import {
   SimulateFirestoreRulesHandler,
   TestFirestoreRulesHandler,

@@ -21,7 +21,7 @@ import {
   ref as rtdbRef,
   onValue as rtdbOnValue,
   type DatabaseReference,
-} from 'pyric/database/modular';
+} from 'pyric/database';
 
 import type { FirestoreSubMessage, RtdbValueSubMessage, UnsubMessage } from '../protocol.js';
 import { serializeError, isRtdbSub } from '../protocol.js';

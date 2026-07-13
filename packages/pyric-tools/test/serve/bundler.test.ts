@@ -35,7 +35,7 @@ describe('resolveDocsUiDir (embed fallback)', () => {
 });
 
 describe('firebase stub generation (drift-proof list)', () => {
-  it('collects only the production bindings that sandbox mirrors still use', () => {
+  it('collects only the remaining transitional production bindings', () => {
     const bindings = collectFirebaseBindings(join(pyricPackageRoot(), 'dist'));
     // These are sandbox-only mirrors: package resolution chooses Firebase or
     // Pyric before either module loads.
@@ -43,8 +43,41 @@ describe('firebase stub generation (drift-proof list)', () => {
     expect(bindings.has('firebase/auth')).toBe(false);
     expect(bindings.has('firebase/firestore')).toBe(false);
     expect(bindings.has('firebase/storage')).toBe(false);
-    // `import { get, set, … } from 'firebase/database'`
+    // The legacy RTDB host/toolkit remains on an unstable internal seam until
+    // its dedicated retirement. This package-wide scan sees that code even
+    // though the public database mirror does not import it.
     expect(bindings.get('firebase/database')?.has('ref')).toBe(true);
+  });
+
+  it('bundles the public database mirror without a firebase/database runtime', async () => {
+    const manifest = JSON.parse(
+      readFileSync(join(pyricPackageRoot(), 'package.json'), 'utf8'),
+    ) as { exports: Record<string, unknown> };
+    expect(manifest.exports['./database']).toEqual({
+      types: './dist/database/index.d.ts',
+      import: './dist/database/index.js',
+    });
+    expect(manifest.exports['./database/modular']).toBeUndefined();
+
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-database-isolation-'));
+    const entry = join(dir, 'database.ts');
+    writeFileSync(
+      entry,
+      `export * from 'pyric/database';`,
+    );
+    const result = await bundleSdk({
+      entries: { database: entry },
+      cacheRoot: join(dir, 'cache'),
+      minify: false,
+    });
+    const source = readFileSync(
+      result.files.find((file) => file.endsWith('/database.js'))!,
+      'utf8',
+    );
+    // Any imported Firebase binding is replaced by this deny proxy. Its
+    // absence proves the public entry graph never reached the stub plugin.
+    expect(source).not.toContain('var deny = new Proxy');
+    expect(source).not.toMatch(/from\s*['"]firebase\//);
   });
 
   it('stub module is INERT — exports every name as a non-throwing deny proxy', () => {

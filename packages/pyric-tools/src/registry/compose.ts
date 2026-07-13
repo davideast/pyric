@@ -27,8 +27,11 @@ import { createAuthAdminTools } from '../auth/index.js';
 import { createVerifyTools } from '../verify/index.js';
 import { createAssuranceTools } from '../assurance/index.js';
 import { createRtdbRulesGenerationTools } from '../rtdb/rules-generation-tool.js';
-import { createRtdbDataTools } from 'pyric/database';
-import { createRtdbRulesTools, type RtdbHost } from 'pyric/rules/internal/rtdb';
+import {
+  createRtdbDataTools,
+  createRtdbRulesTools,
+  type RtdbHost,
+} from 'pyric/rules/internal/rtdb';
 
 /**
  * Admin SDK deps for the Firestore admin-mode + user-mode dispatch factories.
@@ -92,7 +95,7 @@ export interface ComposeOptions {
   adminDeps?: AdminAppDeps;
   /**
    * RTDB host — when supplied, RTDB admin tools register. Construct
-   * via `initializeDatabaseApp(...)` from `@pyric/rtdb`. Passed
+   * via the transitional RTDB host seam. Passed
    * separately from `adminDeps` so RTDB and Firestore admin surfaces
    * opt in independently. Skipped in `browser-parity` profile.
    */

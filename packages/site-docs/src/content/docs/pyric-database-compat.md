@@ -1,5 +1,5 @@
 ---
-title: "@pyric/rtdb compatibility matrix"
+title: "pyric/database compatibility matrix"
 navLabel: "Realtime Database"
 group: "Compatibility"
 section: ""
@@ -7,89 +7,25 @@ order: 8004
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
-# `@pyric/rtdb` compatibility matrix
+# `pyric/database` compatibility matrix
 
-> ⚠ **EXPERIMENTAL — not v1-supported.** `@pyric/rtdb` is functional but
-> work-in-progress. The v1-supported, conformance-held surface is **auth +
-> firestore + rules**. The modular `firebase/database` shim rows below are
-> verified **sandbox-side** by unit probes — they are NOT wrong — but most are
-> **not yet captured against a live prod project** (no `oracle:` citation), so
-> conformance is best-effort, not guaranteed. Don't depend on RTDB parity for a
-> production swap yet.
+> ⚠ **EXPERIMENTAL — not v1-supported.** The v1-supported, conformance-held surface is **auth + firestore + rules**. The modular `firebase/database` mirror rows below are verified sandbox-side by unit probes, but most are not yet captured against a live production project. Do not depend on RTDB parity for a production swap yet.
 
-The single readable contract for "what this package guarantees vs the
-production Firebase Realtime Database surface."
+`pyric/database` is the sandbox-only modular mirror. Package resolution selects it during Pyric development; production code continues to import the unchanged `firebase/database` package. The mirror never dispatches to production at runtime.
 
-`@pyric/rtdb` covers **two surfaces** that share the package:
-
-1. **Agent-tool surface (shipped today).** The factory +
-   rule-authoring DSL — the 11 agent tools returned by
-   `createRtdbAdminTools({ host })` (`rtdb_get`, `rtdb_set`,
-   `rtdb_update`, `rtdb_push`, `rtdb_delete`, `rtdb_get_rules`,
-   `rtdb_deploy_rules`, `rtdb_crawl_structure`,
-   `rtdb_simulate_access`, `rtdb_validated_write`,
-   `rtdb_build_expression`); the lower-level `getRtdbTools(host)`
-   programmatic API; the `RtdbHost` contract and `fetchDatabase`
-   REST helper; the constraint authoring surface (`atoms`,
-   `policies`, `compose`, `ruleset`); the IR / simulator / mapper
-   internals.
-2. **Modular SDK surface.** A `firebase/database`
-   modular shim — `getDatabase`, `ref`, `get`, `set`, `update`,
-   `remove`, `push`, `onValue`, `runTransaction`, `query` constraints,
-   sentinels, etc. — mirroring how `pyric/auth`, `pyric/firestore`,
-   `pyric/storage` ship both an agent-tool surface AND a modular
-   SDK surface in one package. The sandbox implementation lives in
-   `packages/pyric/src/database/modular.ts` + `packages/pyric/src/database/sandbox/`;
-   the matrix below tracks which rows the sandbox locks (✓) vs. those
-   still pending implementation (—). Oracle probes capture prod
-   behavior so the sandbox is correct by construction.
-
-The package wraps two real services:
-
-- The **RTDB REST API** for admin-mode data ops and rules deploy
-  (`fetchDatabase` → `${databaseUrl}<path>.json?…`).
-- The **`firebase/database` modular SDK** for user-mode data ops
-  (via `host.getClientForUser(auth)`).
-- The **`firebase-admin/database` SDK** for admin-mode data ops in
-  the data handler.
-
-The conformance oracle for this package therefore observes a
-mixture: REST-shape claims (status codes, response bodies) and
-`firebase/database` SDK-shape claims (ref/get/set/onValue/push
-semantics). The sandbox-vs-prod axis is much smaller here than in
-`pyric/auth` or `pyric/firestore` because there is no in-process
-RTDB sandbox — the package goes directly to the real service. The
-relevant divergence axis is **simulator-vs-prod-rules-engine** for
-the rule-evaluation surface.
-
-See the design rationale for the methodology
-(vocabulary of conformance / oracle / matrix; how to add rows;
-how the runner attributes failures).
+This registry temporarily also contains the older host, REST, handler, and stateful resolver rows. Those implementations are reachable only through the unstable `pyric/rules/internal/rtdb` seam while they are being retired. They are not exports of `pyric/database` and must not be read as part of its public Firebase-shaped contract.
 
 ## Status legend
 
 <div class="compat-key">
-<span class="compat-key-item"><span class="compat-dot" data-status="ok"></span><strong>Conforming</strong> — observable behavior matches the wrapped service, locked by a passing probe</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="ok"></span><strong>Conforming</strong> — observable behavior matches Firebase, locked by a passing probe</span>
 <span class="compat-key-item"><span class="compat-dot" data-status="diverged"></span><strong>Diverged (documented)</strong> — intentional difference with a written reason</span>
-<span class="compat-key-item"><span class="compat-dot" data-status="bug"></span><strong>Bug</strong> — should match the wrapped service but doesn't; failing probe pins it</span>
-<span class="compat-key-item"><span class="compat-dot" data-status="unsupported"></span><strong>Unsupported</strong> — not implemented yet (deliberately or pending)</span>
-<span class="compat-key-item"><span class="compat-dot" data-status="unverified"></span><strong>Unverified</strong> — claim from docs / source that we haven't yet observed against the live service</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="bug"></span><strong>Bug</strong> — should match Firebase but does not</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="unsupported"></span><strong>Unsupported</strong> — not implemented or intentionally outside the mirror</span>
+<span class="compat-key-item"><span class="compat-dot" data-status="unverified"></span><strong>Unverified</strong> — not yet backed by sufficient evidence</span>
 </div>
 
-Probe references: `unit:<file>` means a Bun test in
-`packages/pyric/test/database/<file>`. `oracle:<obs>` means an observation
-under `packages/conformance/observations/<obs>.json`.
-
-Targets:
-- **admin** — operations run via `firebase-admin/database` or the
-  REST `access_token=…` path. Rules bypassed.
-- **user** — operations run via `host.getClientForUser(auth)`
-  (`firebase/database` modular SDK) or REST `auth=…`. Rules
-  enforced.
-- **simulator** — the in-process rule evaluator
-  (`SimulateHandler` + the Ohm-based RTDB expression grammar).
-  Acts as the oracle for "would prod allow this?" questions
-  without round-tripping.
+Probe references: `unit:<file>` means a Bun test under `packages/pyric/test/database/`; `oracle:<name>` cites a recorded observation under `packages/conformance/observations/`.
 
 ---
 
@@ -542,31 +478,27 @@ Targets:
 
 ---
 
-## Modular SDK surface (Phase 3)
+## Modular SDK surface
 
-The modular surface mirrors `firebase/database`'s tree-shakable
-free-function shape (`getDatabase`, `ref`, `child`, `get`, `set`,
-`update`, `remove`, `push`, `onValue`, `serverTimestamp`,
-`connectDatabaseEmulator`). Three backends dispatch on what's passed
-to `getDatabase`:
+`pyric/database` is the sandbox-only mirror of `firebase/database`'s
+tree-shakable free-function shape (`getDatabase`, `ref`, `child`, `get`,
+`set`, `update`, `remove`, `push`, listeners, queries, transactions, and
+sentinels). Package resolution selects production or sandbox before either
+module loads; this mirror has no production target or runtime dependency on
+`firebase/database`.
 
-- **Sandbox** — `getDatabase(ctx: SandboxContext)`. Frozen identity
-  baked into the handle at construction; ops route to `RtdbBackend`
-  (in-memory JSON tree + the `@pyric/rtdb` rule simulator).
-- **Sandbox-live** — `getDatabase(sandbox: Sandbox)`. Identity read
-  per-op from `sandbox.currentUser`; `pyric/auth` sign-ins flip the
-  next op's `request.auth` without re-binding the handle.
-- **Prod** — `getDatabase(app: FirebaseApp)`. Delegates to
-  `firebase/database`.
+Two sandbox identity modes are selected by the value passed to
+`getDatabase`:
 
-Dispatch lives in `packages/pyric/src/database/modular.ts`; the sandbox backend
-in `packages/pyric/src/database/sandbox/` (data-tree, rules-eval glue, sentinel
-resolver, push-ID generator). The sandbox backend reuses the existing
-`SimulateHandler` for rule evaluation — no separate engine.
+- **Sandbox** — `getDatabase(ctx: SandboxContext)`. Frozen identity baked into
+  the handle at construction.
+- **Sandbox-live** — `getDatabase(sandbox: Sandbox)`. Identity read per
+  operation from `sandbox.currentUser`.
 
-Rows below are scoped to the modular surface; the agent-tool rows
-above (#1–#93) describe the IR / handler / rules-DSL surface that
-remains unchanged.
+The implementation lives in `packages/pyric/src/database/modular.ts`; the
+in-process backend lives in `packages/pyric/src/database/sandbox/`. Rows below
+are scoped to the modular mirror. The legacy toolkit rows above (#1–#93) are
+transitional internal coverage and are not exports of `pyric/database`.
 
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
@@ -578,8 +510,8 @@ remains unchanged.
 <div class="compat-evidence"><div class="compat-probe"><code>unit:modular/sandbox-target.test.ts</code> ("reads sandbox.currentUser at op time, not at getDatabase time")</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">M3</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>getDatabase(app)</code> builds a prod target; delegates to <code>firebase/database.getDatabase(app)</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe">not yet locked by a prod-target integration test (firestore template covers the pattern; rtdb-side defers to Tier 5)</div></div>
+<summary class="compat-line"><span class="compat-num">M3</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">An in-module production target is intentionally absent; direct calls with a real <code>FirebaseApp</code> reject with package-resolution guidance</span></summary>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:modular.test.ts</code>; production remains the responsibility of the unchanged <code>firebase/database</code> package</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">M4</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>ref(db, path?)</code> returns a path-tagged <code>DatabaseReference</code>; default is root</span></summary>
@@ -907,93 +839,17 @@ remains unchanged.
 </details>
 </div>
 
-### Deferred behaviors (Tier 3+ — out of scope for the current phase unless time permits)
+### Deferred mirror behaviors
 
-- **Child listeners (`onChildAdded` / `onChildChanged` / `onChildRemoved` / `onChildMoved`) — DONE in Tier 2.**
-  Sandbox implementation lives in `packages/pyric/src/database/sandbox/backend.ts`
-  (per-child diff against the parent's prior children snapshot, captured
-  before every write). Plain-ref subscriptions are fully aligned with
-  the oracle observations under `packages/conformance/observations/rtdb-modular/rtdb-modular-onchild*.json`.
-  `onChildMoved` only fires under ordered queries (per the upstream
-  contract); the plain-ref no-fire case is locked. Ordered-query
-  `onChildMoved` lands with Tier 3's `query` / `orderBy*` surface.
-- **Queries + constraints (`query`, `orderByChild`, `equalTo`, `limit*`).**
-  Tier 3. Requires sort/filter pipeline over the in-memory tree at
-  read + listener-fire time. Defer until a consumer needs it.
-- **Transactions (`runTransaction`).** Tier 4 — **DONE.** RTDB
-  transactions retry-on-conflict against the server's local snapshot,
-  with abort-by-returning-`undefined`. Sandbox match is straightforward
-  (no concurrency to conflict on) and the semantics are locked by
-  oracle observations
-  `rtdb-modular-runtransaction-{success,abort-undefined,current-value-arg,returns-committed-snapshot,options-applylocally,on-rules-denied-path}.json`.
-  See M37 / M37a–M37h above for the full claim breakdown. The
-  retry-on-conflict path (row #161) stays unmodeled — single-client
-  harness, nothing to conflict with.
-- **Playground integration (`firebase/database` virtual-imports
-  re-export).** Tier 5 — **shipped**. App code that imports
-  `firebase/database` inside the playground preview iframe is
-  aliased to `@pyric/rtdb`'s modular surface. Three-file scope
-  expansion:
-  - `packages/playground/src/lib/preview/virtual-imports-plugin.ts`
-    adds a `firebase/database` entry to the `ALIASES` map listing the
-    exports the synthetic re-export module surfaces.
-  - `packages/playground/src/lib/preview/preview-scope.ts` adds
-    a `'firebase/database'` slot to `PreviewModuleId` and the
-    `PreviewScope` interface, constrained via `Pick<typeof PyricRtdbModular, ...>`.
-  - `packages/playground/src/components/AppPreview.tsx` installs
-    the slot at runtime: imports the modular surface from `@pyric/rtdb`,
-    wraps `getDatabase` so a bare-arg call defaults to the runner's
-    sandbox (mirrors the `getAuth` / `getFirestore` wrap), and supplies
-    the rest of the read/write family unchanged.
+- Ordered-query `onChildMoved` is accepted but does not yet fire on reorder.
+- `onDisconnect` has no in-process socket lifecycle to model yet.
+- Priority ordering is not modeled.
 
-  The `sandbox.*` test-driver namespace (`setRules`, `setData`,
-  `snapshotState`) is deliberately omitted from the alias — it's
-  runner-side only, not app code. The deploy bundler at
-  `packages/playground/src/lib/deploy/bundleApp.ts` already lists
-  `firebase/database` as `external` and resolves it to esm.sh's
-  upstream module; the metafile gate (`assertNoPyricLeak`) still trips
-  on any direct `@pyric/rtdb` import in deployed app code, so the
-  preview-only alias is not a deploy-time leak vector.
+The playground and `pyric dev` map canonical `firebase/database` imports to `pyric/database` before the mirror loads. A bare preview `getDatabase()` call is wrapped to receive the active sandbox. Production bundling leaves `firebase/database` unchanged.
 
-## Agent-tool surface — deny-list (intentionally NOT shimmed)
-
-The agent-tool surface deliberately excludes the parts of
-`firebase/database` that don't translate to a tool-call shape or
-that would require background state the host can't supply. The
-**modular SDK surface** documented below DOES cover most of these —
-the deny-list here is scoped to the agent-tool surface only.
-
-| Name | Reason |
-|---|---|
-| `onValue` / `onChildAdded` / `onChildChanged` / `onChildRemoved` / `onChildMoved` / `onDisconnect` | Long-lived listeners don't fit the request-response tool-call shape. Live data streaming is out of scope for v0; consumers needing real-time updates use `firebase/database` directly with a host-supplied `Database` handle. |
-| `query` + ordering constraints (`orderByChild`, `orderByKey`, `orderByValue`, `equalTo`, `startAt`, `endAt`, `limitToFirst`, `limitToLast`) | The tool surface today only does whole-path reads; filtered reads would require either constraint-shaped tool parameters or query objects threaded through the tool boundary. Worth revisiting if agent workflows need filtering. |
-| `runTransaction` | Transactional client semantics (read-modify-write with retry) don't model cleanly as a single tool call; deferred. |
-| `serverTimestamp()` / `increment(n)` sentinels in the data tools | Not yet wired through; would require sentinel-aware serialization on the REST + admin paths. |
-| `goOnline` / `goOffline` / `Database.useEmulator` | No persistent client state for the data tools (admin REST + on-demand user clients); not modeled. |
-| `connectDatabaseEmulator` | Out of scope; the package targets real RTDB. |
-| `Database.app` / `getDatabase()` | Lifecycle is owned by the host (`host.getClientForUser`); package consumers don't construct `Database` directly. |
+The older agent-tool rows in this registry describe a transitional internal implementation, not the public mirror. New simulation and structure-crawling flows belong to sandbox/CLI tooling, and rules authoring/analysis belongs to `pyric/rules`.
 
 ---
-
-## Modular SDK surface
-
-The `firebase/database` modular shim — the surface a consumer
-imports as `getDatabase`, `ref`, `set`, `onValue`, etc. The sandbox
-implementation lives under `packages/pyric/src/database/` (dispatch in
-`modular.ts`, backend in `sandbox/`); see the "Modular SDK surface
-(Phase 3)" section above for the per-row detail. The oracle probes
-lock prod behavior so the sandbox is correct by construction.
-
-Targets (same flavors as `pyric/firestore`):
-
-- **sandbox** — frozen-ctx target built via `getDatabase(ctx: SandboxContext)`. Identity baked in at handle-construction.
-- **sandbox-live** — live-identity target built via `getDatabase(sandbox: Sandbox)`. Every op re-reads `sandbox.currentUser`. The playground preview always uses this flavor.
-- **prod** — `firebase/database` target built via `getDatabase(app: FirebaseApp)`. Identity comes from `firebase/auth`'s `currentUser`.
-
-Sandbox rows lift from **—** to **✓** as the implementation lands;
-prod rows sit at **?** unless an oracle observation under
-`packages/conformance/observations/` locks them. The matrix is the spec;
-the oracle locks it.
 
 ### `getDatabase(target)` — initializer
 
@@ -1007,12 +863,12 @@ the oracle locks it.
 <div class="compat-evidence"><div class="compat-probe">Phase 3</div></div>
 </details>
 <details class="compat-row" data-status="unverified">
-<summary class="compat-line"><span class="compat-num">96</span><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-behavior"><code>getDatabase(app)</code> returns a tagged prod target</span></summary>
-<div class="compat-evidence"><div class="compat-probe">upstream <code>firebase/database</code> contract; not currently probed in isolation</div></div>
+<summary class="compat-line"><span class="compat-num">96</span><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-behavior">Inactive canonical <code>firebase/database</code> imports remain the upstream package; the mirror does not create tagged production targets</span></summary>
+<div class="compat-evidence"><div class="compat-probe">package-resolution boundary; inactive RTDB canonical-import isolation is not yet claimed by this row</div></div>
 </details>
 <details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">97</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getDatabase()</code> (no argument) — wrapped in the playground preview to default to the sandbox; raw call delegates to prod</span></summary>
-<div class="compat-evidence"><div class="compat-probe">Phase 3 Tier 5: virtualized in the playground preview scope. Wired at <code>packages/playground/src/components/AppPreview.tsx</code> (slot install with bare-call wrap), <code>packages/playground/src/lib/preview/virtual-imports-plugin.ts</code> (alias map), and <code>packages/playground/src/lib/preview/preview-scope.ts</code> (type-level slot). Mirrors the <code>getAuth</code> / <code>getFirestore</code> wrap pattern. Demo fixture: <code>packages/playground/scripts/fixtures/rtdb-set-get-roundtrip.tsx</code> (bare <code>getDatabase()</code> + <code>set</code>/<code>get</code>/<code>remove</code> round-trip with anon sign-in) — passes end-to-end through the <code>bun run debug:fixtures</code> Playwright suite (revived in the playground rtdb-fixture follow-up; the suite previously couldn't load <code>@pyric/rtdb</code> in the client because its top-level re-export of <code>DataHandler</code> pulled <code>firebase-admin</code>, now stubbed via <code>packages/playground/src/lib/node-shims/firebase-admin.ts</code>).</div>
+<summary class="compat-line"><span class="compat-num">97</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getDatabase()</code> (no argument) — wrapped in the playground preview to supply the sandbox; a raw mirror call rejects with package-resolution guidance</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Phase 3 Tier 5: virtualized in the playground preview scope. Wired at <code>packages/playground/src/components/AppPreview.tsx</code> (slot install with bare-call wrap), <code>packages/playground/src/lib/preview/virtual-imports-plugin.ts</code> (alias map), and <code>packages/playground/src/lib/preview/preview-scope.ts</code> (type-level slot). Mirrors the <code>getAuth</code> / <code>getFirestore</code> wrap pattern. Demo fixture: <code>packages/playground/scripts/fixtures/rtdb-set-get-roundtrip.tsx</code> (bare <code>getDatabase()</code> + <code>set</code>/<code>get</code>/<code>remove</code> round-trip with anonymous sign-in) passes end-to-end through the <code>bun run debug:fixtures</code> Playwright suite.</div>
 <div class="compat-note">(wrap, fixture passing)</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
@@ -1341,12 +1197,12 @@ the oracle locks it.
 
 <div class="compat-list">
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">163</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOffline(db)</code> — accepted no-op on sandbox handles: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and <code>get()</code> keep working). Forwards to <code>firebase/database</code>'s <code>goOffline</code> on prod handles</span></summary>
+<summary class="compat-line"><span class="compat-num">163</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOffline(db)</code> — accepted no-op: there is no network connection in the local sandbox to toggle, so nothing is disconnected (we deliberately do NOT simulate a disconnect — pending writes, listeners, and <code>get()</code> keep working)</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
 <div class="compat-note">no network connection in the local sandbox to toggle</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">164</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOnline(db)</code> — accepted no-op on sandbox handles: there is no connection to reopen (see <code>goOffline</code>). Forwards to <code>firebase/database</code>'s <code>goOnline</code> on prod handles</span></summary>
+<summary class="compat-line"><span class="compat-num">164</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>goOnline(db)</code> — accepted no-op: there is no connection to reopen (see <code>goOffline</code>)</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
 <div class="compat-note">no network connection in the local sandbox to toggle</div></div>
 </details>
@@ -1360,7 +1216,7 @@ the oracle locks it.
 <div class="compat-evidence"><div class="compat-probe">Phase 3</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">166</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Forwards to <code>firebase/database</code>'s <code>connectDatabaseEmulator</code> on prod-target handles</span></summary>
+<summary class="compat-line"><span class="compat-num">166</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">A production target is intentionally absent; production code continues to use <code>connectDatabaseEmulator</code> from the unchanged <code>firebase/database</code> package</span></summary>
 <div class="compat-evidence"><div class="compat-probe">Phase 3</div></div>
 </details>
 </div>
@@ -1369,7 +1225,7 @@ the oracle locks it.
 
 <div class="compat-list">
 <details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">171</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>forceLongPolling()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs. Process-global setter with no <code>db</code> handle, so there is no prod handle to forward through</span></summary>
+<summary class="compat-line"><span class="compat-num">171</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>forceLongPolling()</code> — accepted no-op: transport selection is not applicable to the in-process/worker sandbox (it never opens a real socket). Accepted so init code that calls it compiles + runs</span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:modular/fruit-aliases.test.ts</code></div>
 <div class="compat-note">transport selection not applicable to the in-process/worker sandbox</div></div>
 </details>
@@ -1406,7 +1262,7 @@ the oracle locks it.
 <div class="compat-evidence"><div class="compat-probe">Phase 3</div></div>
 </details>
 <details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">170</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">All <code>sandbox.*</code> methods throw on prod-target handles with <code>failed-precondition</code></span></summary>
+<summary class="compat-line"><span class="compat-num">170</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">A production target is intentionally absent, so every <code>sandbox.*</code> method operates on a mirror-produced sandbox handle</span></summary>
 <div class="compat-evidence"><div class="compat-probe">Phase 3</div></div>
 </details>
 </div>

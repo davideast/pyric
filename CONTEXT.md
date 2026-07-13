@@ -152,8 +152,8 @@ Version `0.1.0-alpha.8`, published to npm. ESM-only, subpath-only, Node `>=22`.
 | `pyric/auth` | Sandbox-only modular Auth mirror, identity, providers, and popup/redirect resolver. It has no `firebase/auth` runtime dependency; production imports stay on `firebase/auth`. |
 | `pyric/firestore` | Sandbox-only modular Firestore mirror plus Firestore data/inspect tools. It has no `firebase/firestore` runtime dependency; production imports stay on `firebase/firestore`. |
 | `pyric/firestore-values` | Firestore value helpers/wrappers. |
-| `pyric/database` | Realtime Database surface and RTDB tooling. |
-| `pyric/database/modular` | Tree-shakable RTDB modular SDK shim. |
+| `pyric/database` | Sandbox-only modular Realtime Database mirror. It has no `firebase/database` runtime dependency; production imports stay on `firebase/database`. |
+| `pyric/sandbox/database` | Owner controls for installing RTDB rules, seeding data, and reading detached snapshots. |
 | `pyric/storage` | Modular Storage mirror and storage admin-style tools. |
 | `pyric/storage/internal` | Storage engine seam. |
 | `pyric/ai` | Sandbox-only Firebase AI Logic mirror (`getAI`, `getGenerativeModel`, generateContent, streaming, chat, function calling, countTokens). It has no `firebase/ai` runtime dependency; production imports stay on `firebase/ai`. |
@@ -562,9 +562,9 @@ Repo-local skills: `.agents/skills/playground-prompts`,
 
 - `.agents/skills/playground-prompts/SKILL.md` still references
   `examples/playground-next`; the tracked playground is `packages/playground`.
-- The RTDB compat registry prose still uses dissolved old names such as
-  `@pyric/rtdb`. The real export paths are `pyric/database`,
-  `pyric/database/modular`, and the rules API at `pyric/rules`.
+- The RTDB compat registry still contains transitional rows for the legacy
+  host/toolkit implementation under `pyric/rules/internal/rtdb`. They are not
+  part of the public `pyric/database` mirror and are pending retirement.
 - `scripts/build.sh` comments still list four packages even though the build
   also builds/embeds Studio, Playground, and the docs site.
 - **The rules-language reports have no freshness gate.** `COMPAT.md` and the

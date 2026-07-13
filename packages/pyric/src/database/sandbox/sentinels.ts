@@ -95,7 +95,7 @@ export function resolveSentinels(value: unknown, now: number, current?: unknown)
 /**
  * Factory used by the modular SDK's `serverTimestamp()` export. Returns
  * the same `{ ".sv": "timestamp" }` shape `firebase/database` emits so
- * the prod target's wire encoder accepts it unchanged.
+ * the upstream SDK's wire encoder accepts the same shape unchanged.
  */
 export function serverTimestampSentinel(): ServerTimestampSentinel {
   return { '.sv': 'timestamp' };
@@ -104,7 +104,7 @@ export function serverTimestampSentinel(): ServerTimestampSentinel {
 /**
  * Factory used by the modular SDK's `increment(delta)` export. Returns
  * the same `{ ".sv": { increment: delta } }` shape `firebase/database`
- * emits so the prod target's wire encoder accepts it unchanged.
+ * emits so the upstream SDK's wire encoder accepts the same shape unchanged.
  */
 export function incrementSentinel(delta: number): IncrementSentinel {
   return { '.sv': { increment: delta } };

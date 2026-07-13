@@ -11,12 +11,16 @@ Exact signatures of every public export, grouped by purpose. Sandbox-only behavi
 
 > **Experimental.** Realtime Database is not part of Pyric's v1-supported surface (that is auth, Firestore, and rules). The modular functions below are verified sandbox-side by unit probes, and the semantics marked with an oracle observation are pinned to recorded production behavior, but most rows are not yet captured against a live project. See the [compatibility matrix](../pyric-database-compat/) before depending on parity.
 
-The package has two surfaces that share one barrel:
+`pyric/database` is the canonical sandbox-only mirror of
+`firebase/database`. It never imports or dispatches to the production SDK.
+Package resolution selects the backend before either module loads: production
+keeps `firebase/database`, while Pyric activation maps that canonical import to
+this mirror.
 
-1. **The modular SDK mirror.** Free functions shaped like `firebase/database` (`getDatabase`, `ref`, `get`, `set`, `onValue`, `query`, ...) that route to an in-process sandbox backend or a real Firebase backend depending on what you pass to `getDatabase`. Also importable on its own as `pyric/database/modular`.
-2. **The agent-tool and rules toolkit.** The `RtdbHost` contract, `getRtdbTools`, the `createRtdb*Tools` factories, and the handler and schema exports behind them.
-
-The rules constraint DSL (`atoms`, `policies`, `compose`, `ruleset`) lives on a separate subpath, `pyric/database/constraints`, and is documented in [rules-tooling.md](../pyric-database-reference-rules-tooling/).
+Sandbox owner controls live at `pyric/sandbox/database`. RTDB rules authoring
+and analysis live at `pyric/rules`. Agent simulation and structure crawling
+are provided by the sandbox/CLI tool layer; they are not exports of this
+Firebase-shaped package.
 
 ---
 
@@ -26,15 +30,16 @@ The rules constraint DSL (`atoms`, `policies`, `compose`, `ruleset`) lives on a 
 ```ts
 function getDatabase(ctx: SandboxContext): Database;
 function getDatabase(sandbox: Sandbox): Database;
-function getDatabase(app: FirebaseApp): Database;
 function getDatabase(app: PyricApp): Database;
 ```
-Build a `Database` handle. Four overloads dispatch by input shape:
+Build a sandbox `Database` handle. Three overloads select its identity mode:
 
 - `SandboxContext` (from `sandbox.withAuth(...)`): sandbox-backed with a frozen identity.
 - `Sandbox`: sandbox-backed with a live identity. Each operation reads `sandbox.currentUser` at call time, so a `pyric/auth` sign-in flips the next operation's `request.auth` without re-binding.
-- `FirebaseApp`: prod-backed, delegates to `firebase/database`.
-- `PyricApp`: unwraps to the sandbox or prod path above based on the app's target.
+- `PyricApp`: unwraps its sandbox target.
+
+A real `FirebaseApp`, a missing argument, or any foreign value throws a
+`TypeError` explaining that package resolution owns production selection.
 
 One backend per `Sandbox`: repeat calls for the same sandbox return handles that share data, matching `firebase/database`'s singleton-per-app behavior. The sandbox tree also registers as a persistable service, so `enablePersistence` includes RTDB data in the serialized blob and restores it on reload.
 
@@ -44,7 +49,9 @@ function getAdminDatabase(sandbox: Sandbox): Database;
 function getAdminDatabase(ctx: SandboxContext): Database;
 function getAdminDatabase(app: PyricApp): Database;
 ```
-Sandbox-only rules-bypass handle, the RTDB counterpart of `getAdminFirestore`. Reads and writes through it skip rule evaluation. A prod-backed `PyricApp` throws a `TypeError`: a client-side app has no way to bypass deployed security rules.
+Rules-bypass handle for sandbox setup and inspection, the RTDB counterpart of
+`getAdminFirestore`. Reads and writes through it skip rule evaluation. Foreign
+or non-sandbox app values throw a `TypeError`.
 
 ### `connectDatabaseEmulator(db, host, port, options?)`
 ```ts
@@ -55,7 +62,7 @@ function connectDatabaseEmulator(
   options?: { mockUserToken?: string | EmulatorMockTokenOptions },
 ): void;
 ```
-Sandbox: no-op. The call is accepted so wiring code compiles and runs against both targets, but it changes nothing, because the sandbox already runs in-process. Prod: delegates to `firebase/database.connectDatabaseEmulator`.
+Accepted as a no-op because the selected backend already runs in-process.
 
 ### `TARGET_SYMBOL`
 ```ts
@@ -224,7 +231,7 @@ Returns the `{ '.sv': { increment: delta } }` sentinel that atomically adds `del
 ```ts
 function query(refOrQuery: DatabaseReference | Query, ...constraints: QueryConstraint[]): Query;
 ```
-Wrap a ref in an immutable constraint chain, then pass the result to `get`, `onValue`, or the `onChild*` listeners. Chaining folds: `query(query(ref, orderByChild('x')), limitToFirst(2))` merges both constraints into one spec. On prod the chain delegates to `firebase/database.query()`, so wire encoding and index checks happen upstream exactly as usual.
+Wrap a ref in an immutable constraint chain, then pass the result to `get`, `onValue`, or the `onChild*` listeners. Chaining folds: `query(query(ref, orderByChild('x')), limitToFirst(2))` merges both constraints into one spec.
 
 ### Ordering constraints
 ```ts
@@ -263,7 +270,8 @@ The brand on every `Query`, used internally to dispatch `get` / `onValue` betwee
 
 ## The sandbox namespace
 
-Sandbox lifecycle operations the prod target does not ship. Every method throws a plain `Error` when called with a prod-backed handle.
+Sandbox lifecycle operations retained as mirror extensions for compatibility.
+Prefer the owner-oriented `pyric/sandbox/database` entry for new code.
 ```ts
 const sandbox: {
   setRules(db: Database, rulesJson: { rules: Record<string, unknown> } | null): void;
@@ -276,248 +284,60 @@ const sandbox: {
 - `snapshotState(db)` reads the full tree bypassing rules. Usually a keyed object; a primitive when the root holds one.
 
 ---
+## Connection compatibility helpers
 
-## Host contract and tool factories
-
-This is the surface agents and MCP registries consume. Deep tool semantics (arguments, result shapes, workflows) live in the repository's `docs/agent-tools.md`.
-
-### `RtdbHost`
+These Firebase-shaped calls are accepted by the in-process mirror:
 ```ts
-interface RtdbHost {
-  readonly projectId: string;
-  readonly databaseUrl: string;
-  resolveAdminToken(): Promise<string>;
-  resolveUserToken(auth: UserAuth): Promise<string>;
-  getClientForUser(auth: UserAuth): Promise<Database>; // firebase/database Database
-}
+function goOffline(db: Database): void;
+function goOnline(db: Database): void;
+function forceLongPolling(): void;
+function forceWebSockets(): void;
+function enableLogging(
+  logger?: boolean | ((message: string) => void),
+  persistent?: boolean,
+): void;
+function refFromURL(db: Database, url: string): DatabaseReference;
 ```
-What the toolkit needs from its caller to talk to a real Realtime Database. `resolveAdminToken` backs the admin REST paths (IR fetch, rule deploy, crawl without `auth`). `resolveUserToken` mints a Firebase ID token for a `{ uid, claims }` so REST paths can run with rules enforced. `getClientForUser` returns a `firebase/database` instance authenticated as that user, used by the data tools when an `auth` argument is supplied.
-
-### `fetchDatabase(host, path, params?, userToken?)`
-```ts
-function fetchDatabase(
-  host: RtdbHost,
-  path: string,
-  params?: Record<string, string>,
-  userToken?: string,
-): Promise<Response>;
-```
-REST fetch helper for handlers that talk to the RTDB REST API directly. With `userToken`, the request signs as that user via the `auth` query param; otherwise the admin OAuth token rides in an `Authorization: Bearer` header. The path is resolved through the URL API and pinned to the database origin, so inputs like `@evil.com/x` or `//evil.com/x` cannot redirect the request (or the admin credential) off-origin. Redirects are refused (`redirect: 'error'`); a path resolving outside the origin throws.
-
-### `initializeDatabaseApp(agentApp, options?)`
-```ts
-interface AgentAppLike {
-  readonly projectId: string;
-  getRestToken(): Promise<string>;
-  getUserToken(auth: UserAuth): Promise<string>;
-  getClientDatabase(auth: UserAuth, databaseUrl: string): Promise<Database>;
-}
-
-function initializeDatabaseApp(
-  agentApp: AgentAppLike,
-  options?: { databaseUrl?: string },
-): RtdbHost;
-```
-Build an `RtdbHost` from an app-shaped object. The shape is structural, so any credential bundle with these four members works. `databaseUrl` defaults to `https://<projectId>-default-rtdb.firebaseio.com`.
-
-### `getRtdbTools(host)`
-```ts
-function getRtdbTools(host: RtdbHost): RtdbTools;
-
-interface RtdbTools {
-  generateIR(): Promise<GenerateIRResult>;
-  simulate(input: unknown): SimulateResult;
-  writeRules(ir: RtdbIR): Promise<WriteRulesResult>;
-  crawlStructure(options?: CrawlOptions & DataAuthOptions): Promise<CrawlStructureResult>;
-  readData(path: string, options?: DataAuthOptions): Promise<DataResult>;
-  setData(path: string, data: unknown, options?: DataAuthOptions): Promise<DataResult>;
-  updateData(path: string, data: Record<string, unknown>, options?: DataAuthOptions): Promise<DataResult>;
-  pushData(path: string, data: unknown, options?: DataAuthOptions): Promise<DataResult>;
-  removeData(path: string, options?: DataAuthOptions): Promise<DataResult>;
-  validatedWrite(input: ValidatedWriteInput): Promise<ValidatedWriteResult>;
-}
-```
-The programmatic API for direct consumers. `generateIR()` fetches and parses the deployed rules and caches the IR; `simulate(input)` evaluates against that cached IR and fails with `IR_NOT_GENERATED` if you have not called `generateIR()` first. The data methods run as admin unless `options.auth` supplies a `UserAuth`, in which case the operation goes through `host.getClientForUser(auth)` with rules enforced. `DataResult` resolves to `{ success: true; data: unknown }` or `{ success: false; error: { code; message; recoverable } }`; the `DataResult` name itself is not exported from the barrel.
-
-### `createRtdbRulesTools(deps)`
-```ts
-type RtdbRulesToolDeps = { host: RtdbHost };
-function createRtdbRulesTools(deps: RtdbRulesToolDeps): ToolHandler[];
-```
-The four rules tools as agent-callable `ToolHandler`s: `rtdb_build_expression` (parse, validate, and lint a rule expression), `rtdb_get_rules` (fetch and parse deployed rules into the IR tree), `rtdb_simulate_access` (evaluate a read/write/validate against the loaded rules locally, no network to the database), and `rtdb_deploy_rules` (write a complete rules IR over REST).
-
-### `createRtdbDataTools(deps)`
-```ts
-type RtdbDataToolDeps = { host: RtdbHost };
-function createRtdbDataTools(deps: RtdbDataToolDeps): ToolHandler[];
-```
-The seven data tools: `rtdb_crawl_structure` (shape discovery without downloading values), `rtdb_get`, `rtdb_set`, `rtdb_update` (merge, or atomic multi-location fan-out when path is `/` with root-relative keys), `rtdb_push`, `rtdb_delete`, and `rtdb_validated_write` (schema inference plus rules simulation before the write commits). Every data tool takes an optional `auth: { uid, claims? }`; with it the operation runs as that user with rules enforced, without it the operation uses admin access. Crawl paths are rejected up front when they contain `//`, backslashes, whitespace, or control characters, with `fetchDatabase`'s origin pinning as the backstop.
-
-### `createRtdbAdminTools(deps)`
-```ts
-type RtdbAdminToolDeps = { host: RtdbHost };
-function createRtdbAdminTools(deps: RtdbAdminToolDeps): ToolHandler[];
-```
-All eleven tools: the concatenation of `createRtdbRulesTools(deps)` and `createRtdbDataTools(deps)`. This is the factory `composeMcpRegistry` consumes.
-
----
-
-## Handlers
-
-Exported for direct-handler integration tests. The barrel marks them as not part of the stable public API; prefer `getRtdbTools` or the factories.
-```ts
-class GenerateIRHandler {
-  execute(host: RtdbHost): Promise<GenerateIRResult>;
-}
-class SimulateHandler {
-  execute(ir: RtdbIR | null, rawInput: unknown): SimulateResult;
-}
-class WriteRulesHandler {
-  execute(host: RtdbHost, ir: RtdbIR): Promise<WriteRulesResult>;
-}
-class CrawlStructureHandler {
-  execute(host: RtdbHost, options?: CrawlOptions, userToken?: string): Promise<CrawlStructureResult>;
-}
-class DataHandler {
-  execute(
-    host: RtdbHost,
-    operation: 'get' | 'set' | 'update' | 'push' | 'remove',
-    path: string,
-    data?: unknown,
-    auth?: UserAuth,
-  ): Promise<DataResult>;
-}
-```
-Each handler is the implementation behind the matching `RtdbTools` method. `SimulateHandler.execute` is synchronous and takes the IR explicitly (returning `IR_NOT_GENERATED` on `null`); the rest talk to the database through the host.
-
----
-
-## Rules IR mapper
-
-### `buildRuleExpression(raw, context, pathVariables?)`
-```ts
-function buildRuleExpression(
-  raw: string,
-  context: 'read' | 'write' | 'validate',
-  pathVariables?: string[],
-): RtdbRuleExpression;
-```
-Parse, validate, and lint one rule expression. The result carries the raw string plus parse validity, errors, warnings, and the identifiers the expression references.
-
-### `RtdbMapper`
-```ts
-class RtdbMapper {
-  static mapToRulesJSON(ir: RtdbIR): { rules: Record<string, unknown> };
-  static mapToIR(
-    rulesJson: unknown,
-    shallowData: Record<string, true | 1> | null,
-    databaseUrl: string,
-  ): RtdbIR;
-}
-```
-Round-trip between deployable rules JSON and the parsed IR tree (`RtdbNode` nodes with per-node `read`/`write`/`validate` expressions, `indexOn`, and path variables). `shallowData` is a shallow root fetch used to mark which top-level paths exist. Both directions throw on malformed input.
-
----
-
-## Replay
-
-### `replay(events, opts)`
-```ts
-function replay(
-  events: readonly SandboxEvent[],
-  opts: RtdbReplayOptions,
-): Promise<RtdbReplayResult>;
-
-interface RtdbReplayOptions {
-  rules: { rules: Record<string, unknown> };
-  capturedState?: unknown;
-  databaseUrl?: string;
-}
-
-interface RtdbReplayResult {
-  ok: boolean;
-  sandbox: Sandbox;
-  checkedEvents: number;
-  replayedState: unknown;
-  divergences: RtdbReplayDivergence[];
-}
-```
-Re-issue captured RTDB commits (`set`, `remove`, `update`, `transaction`) against a fresh sandbox running a candidate ruleset, and report divergence. With `capturedState`, the tree is rewound to the pre-session state first and final state drift is diffed path by path. `RtdbReplayDivergence` is a union of `now-denied` (a previously allowed write the candidate rules reject), `state-drift` (final values differ), and `unsupported` (a commit shape replay cannot re-issue). Admin-flagged commits replay through the rules-bypass handle and do not count toward `checkedEvents`.
-
----
-
-## Schemas and error codes
-
-Runtime values, mostly Zod schemas, exported for input validation at the tool boundary.
-
-| Export | What it is |
-|---|---|
-| `GenerateIRInputSchema` | `{ databaseUrl: string (url) }` |
-| `RtdbIRErrorCode` | enum: `RULES_FETCH_FAILED`, `RULES_PARSE_FAILED`, `INVALID_RULES_JSON`, `SHALLOW_FETCH_FAILED` |
-| `SimulationInputSchema` | `{ operation: 'read' \| 'write' \| 'validate', path (leading `/`), auth: { uid, token } \| null, mockData, newData? }` |
-| `SimulateErrorCode` | enum: `IR_NOT_GENERATED`, `INVALID_INPUT`, `NO_MATCHING_RULE`, `EVALUATION_ERROR` |
-| `SimulationResultSchema` | `{ allowed, matchedPath, matchedRule, reason, pathVariableBindings }` |
-| `ValidatedWriteInputSchema` | `{ path, data (nullish coerced to null), operation: 'set' \| 'update' \| 'push', auth: { uid, token } \| null }` |
-| `WriteRulesErrorCode` | enum: `WRITE_FAILED`, `PERMISSION_DENIED`, `INVALID_RULES_JSON` |
-| `CrawlErrorCode` | enum: `CRAWL_FAILED`, `PERMISSION_DENIED` |
-| `CRAWL_DEFAULTS` | `{ path: '/', maxDepth: 10, maxChildren: 100, maxConcurrency: 5 }` |
-| `RtdbIRSchema` | `{ service: 'realtime-database', databaseUrl, rules }` |
-| `RuleErrorSchema`, `RuleLintSchema` | `{ code, message }` |
-| `ParsedExpressionSchema` | `{ raw, valid, errors, warnings, referencedIdentifiers }` |
-| `RtdbRuleExpressionSchema` | `{ raw, parsed }` |
+The connection and transport controls are no-ops because the sandbox has no
+network connection to configure. `refFromURL` parses the URL locally and
+returns a reference owned by the supplied sandbox database.
 
 ---
 
 ## Types
 
-Modular SDK types:
-
 | Type | Shape |
 |---|---|
-| `Database` | Opaque handle branded with `TARGET_SYMBOL`. |
-| `DatabaseReference` | `key` (last segment, `null` at root), `parent` (`null` at root), `root`, `toString()` (sandbox refs stub a `sandbox://rtdb/...` URL). |
-| `DataSnapshot` | `key`, `ref`, `size` (child count, a getter, not a `numChildren()` method), `priority` (always `null` on sandbox), `exists()`, `val()`, `child(path)`, `hasChild(path)`, `hasChildren()`, `exportVal()`, `toJSON()`, `forEach(cb)` (return `true` to stop early; query snaps iterate in window order). |
+| `Database` | Opaque sandbox handle branded with `TARGET_SYMBOL`. |
+| `DatabaseReference` | `key`, `parent`, `root`, `toString()`, and the owning sandbox path. |
+| `DataSnapshot` | `key`, `ref`, `size`, `priority`, `exists()`, `val()`, `child()`, `hasChild()`, `hasChildren()`, `exportVal()`, `toJSON()`, and `forEach()`. |
 | `TransactionResult` | `{ committed: boolean, snapshot: DataSnapshot }`. |
-| `ThenableReference` | A `DatabaseReference` with `then`/`catch` attached; `push`'s return type. |
-| `Query` | A ref plus an immutable constraint chain, branded with `QUERY_SYMBOL`. |
-| `QueryConstraint` | Opaque constraint; `type` is the constraint name string (`'orderByChild'`, `'limitToFirst'`, ...). |
+| `ThenableReference` | A `DatabaseReference` with `then` and `catch`; returned by `push`. |
+| `Query` | A reference plus an immutable constraint chain, branded with `QUERY_SYMBOL`. |
+| `QueryConstraint` | Opaque ordering, bound, or limit constraint. |
 | `Unsubscribe` | `() => void`. |
-
-Toolkit types:
-
-| Type | Shape |
-|---|---|
-| `UserAuth` | `{ uid: string, claims?: Record<string, unknown> }`. Identity for user-mode operations; omit for admin. |
-| `DataAuthOptions` | `{ auth?: UserAuth }`. |
-| `RtdbIR` | `{ service: 'realtime-database', databaseUrl, rules }`. |
-| `RtdbNode` | Rule-tree node: `path`, `pathVariables`, `exists`, optional `read`/`write`/`validate` expressions, `indexOn`, `children`. |
-| `RtdbRuleExpression`, `ParsedExpression`, `RuleError`, `RuleLint` | Expression parse results, per the schemas above. |
-| `RtdbTools` | Return type of `getRtdbTools`, listed in full above. |
-| `RtdbAdminToolDeps`, `RtdbDataToolDeps`, `RtdbRulesToolDeps` | All `{ host: RtdbHost }`. |
-| `GenerateIRInput`, `GenerateIRResult`, `GenerateIRSpec` | IR generation input, result union, and handler interface. |
-| `SimulationInput`, `SimulationResult`, `SimulateResult` | Simulation input, verdict, and result union. |
-| `ValidatedWriteInput`, `ValidatedWriteResult` | Validated-write input and result (with `schemaWarnings` and `simulationResult`). |
-| `WriteRulesResult`, `WriteRulesSpec` | Deploy result union and handler interface. |
-| `CrawlOptions`, `CrawlStructureResult`, `CrawlStructureSpec`, `StructureNode` | Crawl input, result union, handler interface, and the structure tree node. |
-| `AgentAppLike` | Structural input to `initializeDatabaseApp`, listed above. |
-| `RtdbReplayOptions`, `RtdbReplayResult`, `RtdbReplayDivergence` | Replay input, result, and divergence union. |
-
-`pyric/database/modular` additionally re-exports the types `Sandbox`, `SandboxContext`, `AuthState`, `FirebaseApp`, and `JsonValue` for convenience.
+| `Sandbox`, `SandboxContext`, `AuthState`, `JsonValue` | Sandbox convenience types re-exported by the mirror. |
 
 ---
 
 ## Boundaries
 
-- **The whole service is experimental.** Sandbox behavior is verified by unit probes; only the semantics with an oracle citation are pinned to recorded production behavior. See the [compatibility matrix](../pyric-database-compat/) for the row-by-row state.
-- `onChildMoved` on a sandbox query registers but never fires on reorder; production fires. Pinned divergence, held pending new oracle captures.
-- The sandbox does not enforce `.indexOn`. An `orderByValue()` query that throws `Index not defined` in production succeeds in the sandbox.
-- Priority is not modeled: `DataSnapshot.priority` is always `null` and `exportVal()` equals `val()`.
-- `DataSnapshot.size` is a getter; there is no `numChildren()` method (that was the legacy namespaced API).
-- Sandbox transactions run the update function once. There is no concurrent writer, so the retry-on-conflict path never engages.
-- Two distinct denial shapes, both matching production: `get`/`set`/`update`/`remove`/`onValue` throw a plain `Error` with `code: 'PERMISSION_DENIED'`; `runTransaction` rejects with message `'permission_denied'` and no `code`.
-- `connectDatabaseEmulator` is a no-op on sandbox handles.
-- `getAdminDatabase` throws a `TypeError` for a prod-backed app, and every `sandbox.*` method throws on a prod handle.
-- Passing a ref that was not produced by this package throws a `TypeError` from the routing layer.
-- The handler classes (`DataHandler`, `GenerateIRHandler`, `WriteRulesHandler`, `CrawlStructureHandler`, `SimulateHandler`) are exported for integration tests and are not a stable API.
+- **The whole service is experimental.** Sandbox behavior is verified by unit
+  probes; only semantics with an oracle citation are pinned to recorded
+  production behavior. See the [compatibility matrix](../pyric-database-compat/).
+- Production selection happens at package resolution. Direct
+  `pyric/database` calls reject real Firebase apps and foreign references.
+- `onChildMoved` registers but does not yet fire on reorder.
+- The sandbox does not enforce `.indexOn`.
+- Priority is not modeled: `DataSnapshot.priority` is always `null`.
+- Sandbox transactions run the update function once because there is no
+  concurrent writer.
+- `connectDatabaseEmulator`, connection-state calls, transport selection,
+  and logging configuration are accepted no-ops.
+- Owner setup and inspection should use `pyric/sandbox/database`.
+- Rules authoring and local analysis should use `pyric/rules`; agent
+  simulation and crawling belong to the sandbox/CLI tool layer.
 
-For the rules constraint DSL and deploy workflow, see [rules-tooling.md](../pyric-database-reference-rules-tooling/). For coverage against `firebase/database`'s full surface, see the [compatibility matrix](../pyric-database-compat/).
+For the RTDB rules workflow, see
+[rules-tooling.md](../pyric-database-reference-rules-tooling/). For row-by-row Firebase compatibility,
+see the [compatibility matrix](../pyric-database-compat/).
