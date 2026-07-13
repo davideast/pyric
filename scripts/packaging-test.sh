@@ -193,22 +193,11 @@ assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli sh
 # entries from dist/serve/entries. Both are `files:["dist"]`-whitelisted assets that
 # import fine but 404 / break the swap for installed users if the build drops them.
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/studio-ui/index\.html$' "@pyric/cli ships the Studio app shell (vite plugin ui + dev --ui)"
-assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/playground-ui/index\.html$' "@pyric/cli ships the embedded Playground app shell (Studio Playground tab)"
 # index.html hard-references hashed assets/*.{js,css}; without them the served app
 # renders a blank root that 404s its own bundle. The index.html fallback only fires
 # for extension-less paths, so a dropped assets/ dir would pass an index-only check.
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/studio-ui/assets/.*\.js$' "@pyric/cli ships the Studio app JS bundle"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/studio-ui/assets/.*\.css$' "@pyric/cli ships the Studio app CSS bundle"
-assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/playground-ui/_astro/.*\.js$' "@pyric/cli ships the embedded Playground JS bundle"
-assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/playground-ui/_astro/.*\.css$' "@pyric/cli ships the embedded Playground CSS bundle"
-if ! grep -R "Shared sandbox" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1 ||
-   ! grep -R "Isolated session" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1 ||
-   ! grep -R "sandboxMode" packages/pyric-tools/dist/serve/playground-ui/_astro >/dev/null 2>&1; then
-  echo "  ✗ stale embedded Playground bundle: missing per-session sandbox mode code" >&2
-  echo "    Run: PLAYGROUND_BASE=/__pyric/playground/ bun run --cwd packages/playground build" >&2
-  echo "         cp -R packages/playground/dist/client/. packages/pyric-tools/dist/serve/playground-ui/" >&2
-  exit 1
-fi
 # All swap/boot entries are load-bearing: defaultSdkEntries() throws at plugin
 # construction if any is missing. Guard each, not just firestore.
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/serve/entries/app\.js$' "@pyric/cli ships the firebase/app swap entry"

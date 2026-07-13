@@ -55,7 +55,6 @@ export const STUDIO_TABS = [
   { id: 'rtdb', label: 'RTDB', path: '/rtdb' },
   { id: 'storage', label: 'Storage', path: '/storage' },
   { id: 'traffic', label: 'Traffic', path: '/traffic' },
-  { id: 'prototype', label: 'Prototype', path: '/prototype' },
   { id: 'settings', label: 'Settings', path: '/settings' },
   { id: 'docs', label: 'Docs', path: '/docs' },
 ] as const;

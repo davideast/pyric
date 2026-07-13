@@ -240,7 +240,6 @@ for (const file of htmlFiles) {
     '/rtdb',
     '/storage',
     '/traffic',
-    '/prototype',
     '/settings',
   ]);
   for (const href of hrefs) {

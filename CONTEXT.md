@@ -49,9 +49,9 @@ The strategy is still the Firebase mirror:
   surfaces.
 - `@pyric/studio` is the local data-management and debugging console served by
   `pyric dev --ui`.
-- `@pyric/playground` is a private in-browser agent playground package. It is
-  built into `pyric-tools` for `pyric dev`/embedded playground use, but it is
-  not a public npm package.
+- `@pyric/playground` is a private in-browser agent playground package. It is a
+  standalone local development surface (`npm run playground`), not part of
+  Studio or a public npm package.
 - `@pyric/conformance` is the private workspace package that holds the trust
   proof: the compatibility registry, the frozen production observations, the
   capture rigs, and the gates that turn them into the published number.
@@ -284,8 +284,8 @@ sub-expression evaluation trace, and `?inspect=<id>` deep links.
 
 Both `0.0.1`, private. Playground is the Astro/React in-browser agent shell
 (BYOK/inference, virtual preview bundling, sessions, GitHub import/export,
-fixtures, evals, embedded Studio); it builds with base `/__pyric/playground/`
-into `pyric-tools`' dist.
+fixtures, and evals). It runs independently with `npm run playground`; the root
+build does not embed it into Studio or `pyric-tools`.
 
 `site-docs` composes every `packages/<pkg>/docs` tree into one browsable site
 with flat `.md` twins, `/llms.txt`, and `/docs/index.json`. Its port
@@ -390,8 +390,8 @@ is 3473, scanning forward when taken. Current CLI docs:
 
 Publishable packages in the packaging gate: `packages/pyric`,
 `packages/pyric-admin`, `packages/pyric-tools`, `packages/ui`. `@pyric/studio`
-and `@pyric/playground` are embedded into `pyric-tools` as runtime assets.
-`@pyric/conformance` and `@pyric/site-docs` are private and never packed.
+is embedded into `pyric-tools` as a runtime asset. `@pyric/playground`,
+`@pyric/conformance`, and `@pyric/site-docs` are private and never packed.
 
 Release gates: `bash scripts/build.sh`, `bash scripts/manifest-lint.sh`,
 `bash scripts/packaging-test.sh`, `bash scripts/install-matrix.sh`.
@@ -566,7 +566,7 @@ Repo-local skills: `.agents/skills/playground-prompts`,
   host/toolkit implementation under `pyric/rules/internal/rtdb`. They are not
   part of the public `pyric/database` mirror and are pending retirement.
 - `scripts/build.sh` comments still list four packages even though the build
-  also builds/embeds Studio, Playground, and the docs site.
+  also builds/embeds Studio and the docs site.
 - **The rules-language reports have no freshness gate.** `COMPAT.md` and the
   assurance artifacts each have a `--check` gate; the three
   `packages/conformance/rules-language/*-report.json` files do not. A change that

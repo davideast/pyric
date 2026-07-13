@@ -215,7 +215,6 @@ const TILE_IDS: readonly RouteId[] = [
   'rtdb',
   'storage',
   'traffic',
-  'prototype',
 ];
 
 function Tiles() {

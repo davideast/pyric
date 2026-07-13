@@ -19,9 +19,7 @@ describe('Studio Vite development config', () => {
     expect(names).toContain('pyric:sandbox');
   });
 
-  it('serves the embedded Playground instead of recursing into Studio', () => {
-    // `ui: true` owns /__pyric/playground/. With it disabled, Vite's SPA
-    // fallback serves Studio at that URL, and Studio embeds itself forever.
+  it('serves Studio while retaining the shared sandbox runtime', () => {
     expect(studioSandboxOptions.ui).toBe(true);
   });
 });

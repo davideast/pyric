@@ -3,10 +3,8 @@
  * `pyric dev` process.
  *
  * Regression scope (owner-observed, live): the dev server died during
- * browser-driven Studio use — once on navigating to the Prototype tab
- * (which mounts the playground iframe: its own SharedWorker connection and
- * possibly a second bridge peer), and once during a plain browsing session
- * across the data tabs. Static curls of the same routes survive; the crash
+ * browser-driven Studio use, including a plain browsing session across the
+ * data tabs. Static curls of the same routes survive; the crash
  * class is an error surfacing at the event-loop level (unhandled rejection,
  * unhandled 'error' event on a stream/watcher/socket) from a real browser's
  * connection churn. `installServeProcessGuard` + the per-path hardening in
@@ -71,7 +69,7 @@ async function clickTab(page: Page, name: string): Promise<void> {
   await page.waitForTimeout(500);
 }
 
-test('a full Studio session (prototype route + tab browsing + writes) never kills the serve process', async () => {
+test('a full Studio session (tab browsing + writes) never kills the serve process', async () => {
   const serve = await startSoakServe();
   const browser = await chromium.launch({ headless: true });
   try {
@@ -86,23 +84,7 @@ test('a full Studio session (prototype route + tab browsing + writes) never kill
     await studio.goto(serve.info.uiUrl!, { waitUntil: 'load' });
     await waitFor('bridge health after Studio load', async () => (await health(serve.info.url)) !== null);
 
-    // 1. The known trigger: navigate to the Prototype route (mounts the
-    //    playground iframe → its own SharedWorker plane / bridge peering).
-    await clickTab(studio, 'Prototype');
-    await waitFor(
-      'the playground iframe mounted',
-      () => studio.frames().some((f) => f.url().includes('/__pyric/playground/')),
-      { timeoutMs: 15_000 },
-    );
-    await studio.waitForTimeout(3_000); // let the embed boot fully
-    assertServeAlive(serve, 'after prototype navigation');
-
-    // Direct full-page load of the prototype route too (History-API deep link).
-    await studio.goto(`${serve.info.uiUrl}prototype`, { waitUntil: 'load' });
-    await studio.waitForTimeout(2_000);
-    assertServeAlive(serve, 'after direct /prototype load');
-
-    // 2. A browsing pass: click through the data tabs while MCP writes land
+    // A browsing pass: click through the data tabs while MCP writes land
     //    through the bridge relay (import-style traffic), with a mid-pass
     //    reload (peer churn: sockets die mid-flight).
     const mcp = { sid: null as string | null, id: 1 };

@@ -52,7 +52,6 @@ import {
   collectFirebaseBindings,
   stubModuleSource,
   defaultSdkEntries,
-  resolvePlaygroundUiDir,
   resolveStudioUiDir,
   pyricPackageRoot,
   bundleWorker,
@@ -513,19 +512,11 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
           }
         : undefined;
       let studioUiDir: string | undefined;
-      let playgroundUiDir: string | undefined;
       if (uiEnabled) {
         studioUiDir = resolveStudioUiDir() ?? undefined;
-        playgroundUiDir = resolvePlaygroundUiDir() ?? undefined;
         if (!studioUiDir) {
           server.config.logger.warn(
             '[pyric] ui: built Studio app not found; /__pyric/ui/ will 404 ' +
-              '(run the full build, or reinstall @pyric/cli).',
-          );
-        }
-        if (!playgroundUiDir) {
-          server.config.logger.warn(
-            '[pyric] ui: built Playground app not found; /__pyric/playground/ will 404 ' +
               '(run the full build, or reinstall @pyric/cli).',
           );
         }
@@ -538,7 +529,6 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
         capture,
         studio,
         studioUiDir,
-        playgroundUiDir,
       });
 
       // DNS-rebinding guard for the /__pyric/* surface. Vite has its own host

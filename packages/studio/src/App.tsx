@@ -1,9 +1,8 @@
 /**
  * Pyric Studio shell (specs/shell.md): ONE bar — identity | nav | status —
  * plus one active surface. The bar navigates and reports; it does not act
- * (N1/N2): contextual controls live in the surface they act on (the Prototype
- * model cluster lives in the Prototype surface), and global settings,
- * metadata, and maintenance live in Settings.
+ * (N1/N2): contextual controls live in the surface they act on, and global
+ * settings, metadata, and maintenance live in Settings.
  */
 
 import './shell/shell.css';
@@ -21,7 +20,6 @@ import { AuthSurface } from './features/auth/index.js';
 import { TrafficSurface } from './features/traffic/index.js';
 import { HomeSurface } from './features/home/HomeSurface.js';
 import { RtdbSurface } from './features/rtdb/RtdbSurface.js';
-import { PlaygroundSurface } from './features/playground/PlaygroundSurface.js';
 import { SettingsSurface } from './features/settings/SettingsSurface.js';
 import { AssuranceSurface } from './features/assurance/index.js';
 
@@ -206,18 +204,9 @@ function Shell() {
       </header>
 
       <main className="studio__content" data-surface={active}>
-        <div
-          className="studio__surface-slot studio__surface-slot--playground"
-          data-active={active === 'prototype' ? 'true' : 'false'}
-          aria-hidden={active === 'prototype' ? undefined : true}
-        >
-          <PlaygroundSurface onNavigateSettings={() => navigate('settings')} />
+        <div className="studio__surface-slot" data-active="true">
+          <Surface id={active} />
         </div>
-        {active !== 'prototype' ? (
-          <div className="studio__surface-slot" data-active="true">
-            <Surface id={active} />
-          </div>
-        ) : null}
       </main>
 
       {commandOpen ? <CommandOverlay onClose={() => setCommandOpen(false)} /> : null}

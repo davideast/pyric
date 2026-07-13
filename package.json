@@ -46,7 +46,8 @@
     "release:standalone": "bun run build && bun packages/pyric-tools/scripts/release.ts",
     "smoke:standalone": "bun packages/pyric-tools/scripts/standalone-smoke.ts",
     "smoke:vendor": "bun packages/pyric-tools/scripts/standalone-vendor-smoke.ts",
-    "build:studio": "bun run --cwd packages/studio build"
+    "build:studio": "bun run --cwd packages/studio build",
+    "playground": "bun run --cwd packages/playground dev"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.3",

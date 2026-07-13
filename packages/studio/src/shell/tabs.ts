@@ -18,7 +18,6 @@ const AREA_BY_ROUTE: Record<RouteId, UiArea> = {
   rtdb: null,
   traffic: 'traffic',
   assurance: null,
-  prototype: null,
   settings: null,
 };
 

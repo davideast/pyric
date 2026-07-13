@@ -26,7 +26,6 @@
  *                                            mobile nav, theme switch,
  *                                            command palette overlay mount)
  *                                           — imported by App.tsx
- *   - `features/playground/playground.css` — imported by PlaygroundSurface
  *   - `features/settings/settings.css`     — imported by SettingsSurface
  *   - `features/data/data-feature.css`     — imported by DataFeature
  *   - `features/home/home.css` (appended)  — imported by HomeSurface

@@ -195,43 +195,6 @@ test('the curated demo seed (__pyric/init.json) is applied on first worker boot'
   expect(seeded?.title).toBe('Welcome to Pyric Studio');
 });
 
-test('the playground static client loads at /playground/', async ({ page }) => {
-  const res = await page.goto('/playground/');
-  expect(res?.ok()).toBeTruthy();
-  await expect(page).toHaveTitle(/./);
-});
-
-test('the Studio Prototype embed (/playground/?embed=studio) lands on the session HomePage, not a redirect loop', async ({
-  page,
-}) => {
-  // Regression guard for the compose bug where only client/playground/ (the
-  // workspace) was copied to /playground/ and client/index.html (HomePage) was
-  // dropped: a sessionless workspace page redirects to playgroundHomeHref()
-  // (/playground/), which — without HomePage there — resolved back to the
-  // workspace and looped forever, showing only "Loading session…". The embed
-  // src the Studio Prototype tab uses is /playground/?embed=studio; it must
-  // reach the HomePage (its "New session" composer), which is the session list
-  // where a user starts a prototype.
-  await page.goto('/playground/?embed=studio');
-  // HomePage's new-session prompt is the tell it rendered (not the workspace's
-  // "Loading session…" placeholder, and not a blank looping frame).
-  await expect(page.getByLabel('New session prompt')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Loading session…')).toHaveCount(0);
-});
-
-test('the static build hides the GitHub import/create options (no BYOPAT in v1)', async ({
-  page,
-}) => {
-  // GitHub import/create needs a PAT + github.com network calls the static
-  // deploy doesn't ship (issue #72: "No GitHub features in v1"). Both option
-  // rows must be gone from the HomePage composer there; the Enhance/Start flow
-  // (a plain local session) stays.
-  await page.goto('/playground/?embed=studio');
-  await expect(page.getByLabel('New session prompt')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Import an existing GitHub repository')).toHaveCount(0);
-  await expect(page.getByText('Create a GitHub repo for this project')).toHaveCount(0);
-});
-
 test('DIAGNOSTIC: full request log for /__pyric/* on first load (not an assertion — informational)', async ({
   page,
 }) => {

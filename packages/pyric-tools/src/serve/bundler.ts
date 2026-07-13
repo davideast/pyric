@@ -92,21 +92,6 @@ export function resolveStudioUiDir(): string | null {
 }
 
 /**
- * Resolve the built playground app dir. `pyric dev --ui` embeds this as the
- * first-class Studio Playground tab under `/__pyric/playground/`.
- */
-export function resolvePlaygroundUiDir(): string | null {
-  const candidates = [
-    new URL('./playground-ui/', import.meta.url),
-  ];
-  for (const candidate of candidates) {
-    const dir = fileURLToPath(candidate);
-    if (existsSync(dir)) return dir;
-  }
-  return null;
-}
-
-/**
  * Resolve the built docs site dir (site-docs). `pyric dev --ui` embeds it so
  * the Studio Docs tab has local docs without the hosted site. Built with base
  * `/__pyric/ui/` (see scripts/build.sh) so every page/asset/twin URL resolves

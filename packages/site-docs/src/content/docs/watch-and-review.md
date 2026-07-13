@@ -11,15 +11,15 @@ description: "See every operation your agent performs, live, with the verdict th
 
 An agent you cannot see is an agent you cannot trust. Pyric makes the agent's work visible two ways: live, in Studio, while it happens, and after the fact, in the event stream, where every operation carries its own receipt.
 
-## Watch it live in the Prototype tab
+## Watch it live in Studio
 
 Start the sandbox with Studio on:
 ```bash
 pyric dev --ui
 ```
-Studio opens at `/__pyric/ui/`, and its Prototype tab is an agent playground running against the shared sandbox. The same sandbox your app tab uses, the same one your MCP client drives.
+Studio opens at `/__pyric/ui/` against the same sandbox your app tab and MCP client use.
 
-Ask for a feature and watch the documents appear in the Firestore tab as the agent writes them, because there is one backend and everyone is looking at it. When the agent claims it seeded ten users, the Auth tab either shows ten users or it does not.
+Ask your connected agent for a feature and watch documents appear in the Firestore tab as it writes them, because there is one backend and everyone is looking at it. When the agent claims it seeded ten users, the Auth tab either shows ten users or it does not.
 
 ## Review it through the event stream
 

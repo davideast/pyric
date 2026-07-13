@@ -2,8 +2,10 @@
  * Pyric Studio routes. This is the single route registry used by the shell,
  * Home navigation, and tests, so top-level scope cannot drift across files.
  *
- * Tab set: Home, Firestore, Auth, RTDB, Storage, Traffic, Assurance, Prototype,
- * Settings. The shell spec also names Rules; no approved Rules surface
+ * Published tab set: Home, Firestore, Auth, RTDB, Storage, Traffic, Settings.
+ * Assurance remains available in local Vite development while it is being
+ * tested, but is intentionally omitted from published builds. The shell spec
+ * also names Rules; no approved Rules surface
  * exists yet (the assist-era one was deliberately de-mounted, PRINCIPLES P4/M9),
  * so the tab is left out rather than shipping a placeholder.
  */
@@ -16,7 +18,6 @@ export type RouteId =
   | 'storage'
   | 'traffic'
   | 'assurance'
-  | 'prototype'
   | 'settings';
 
 export interface StudioRoute {
@@ -26,7 +27,7 @@ export interface StudioRoute {
   status?: 'coming-soon';
 }
 
-export const ROUTES: readonly StudioRoute[] = [
+const ROUTES_WITH_DEFERRED_SURFACES: readonly StudioRoute[] = [
   {
     id: 'home',
     label: 'Home',
@@ -63,16 +64,24 @@ export const ROUTES: readonly StudioRoute[] = [
     description: 'Compare intended access with qualified local sandbox behavior.',
   },
   {
-    id: 'prototype',
-    label: 'Prototype',
-    description: 'Prototype and preview an app against the shared sandbox.',
-  },
-  {
     id: 'settings',
     label: 'Settings',
     description: 'Configure models, keys, theme, sandbox maintenance, and diagnostics.',
   },
 ];
+
+export function createStudioRoutes({
+  assuranceEnabled = false,
+}: {
+  assuranceEnabled?: boolean;
+} = {}): readonly StudioRoute[] {
+  return ROUTES_WITH_DEFERRED_SURFACES.filter(
+    (route) => route.id !== 'assurance' || assuranceEnabled,
+  );
+}
+
+/** Vite dev is the private test surface; production builds publish core paths only. */
+export const ROUTES = createStudioRoutes({ assuranceEnabled: import.meta.env?.DEV === true });
 
 export const ROUTE_IDS: readonly RouteId[] = ROUTES.map((r) => r.id);
 
