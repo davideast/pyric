@@ -3,11 +3,17 @@ title: "pyric/storage compatibility matrix"
 navLabel: "Storage"
 group: "Compatibility"
 section: ""
-order: 8005
+order: 8006
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 # `pyric/storage` compatibility matrix
+
+> **Surface coverage:** 48.1% of Firebase's public exports · 72.2% of what pyric intends to mirror
+>
+> **Fidelity:** 83.8% (83 of 99 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
 > ⚠ **EXPERIMENTAL — not v1-supported.** `pyric/storage` is functional but
 > work-in-progress. The v1-supported, conformance-held surface is **auth +
@@ -537,28 +543,6 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">108</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>deleteObject</code> against a denied path throws <code>storage/unauthorized</code></span></summary>
 <div class="compat-evidence"><div class="compat-probe"><code>unit:rules.test.ts</code></div></div>
-</details>
-</div>
-
-## `sandbox.*` (sandbox-only test driver)
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">109</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorageService(storage)</code> returns the backing <code>StorageService</code> for sandbox handles (sandbox-only escape hatch for tests)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">110</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getStorageService</code> rejects an unbranded handle through the public handle guard</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code> ("rejects an object that was not produced by a factory")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">111</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>targetOf(storage)</code> returns the mirror-owned sandbox state carried by the handle brand</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:service.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="diverged">
-<summary class="compat-line"><span class="compat-num">117</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior"><code>connectStorageEmulator(storage, host, port)</code> is an accepted no-op — pyric replaces the Firebase emulator, so the sandbox is already the local implementation</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:connect-storage-emulator.test.ts</code> ("is a no-op on a sandbox handle — does not throw")</div>
-<div class="compat-note">pyric replaces the Firebase emulator; connectStorageEmulator is a no-op</div></div>
 </details>
 </div>
 

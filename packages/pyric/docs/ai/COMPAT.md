@@ -2,6 +2,12 @@
 
 # `pyric/ai` compatibility matrix
 
+> **Surface coverage:** 69.1% of Firebase's public exports · 80.9% of what pyric intends to mirror
+>
+> **Fidelity:** 92.3% (72 of 78 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
+
 This surface climbed under Conformance Driven Development
 (map: https://github.com/davideast/pyric/issues/92). Every row below was
 born `unverified` at admission: the row universe and the red conformance

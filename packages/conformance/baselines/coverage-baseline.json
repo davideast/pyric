@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-13T15:59:47.455Z",
+  "generatedAt": "2026-07-13T19:05:15.987Z",
   "services": {
     "ai": {
       "surfaceCoveragePct": {
@@ -15,8 +15,8 @@
     },
     "auth": {
       "surfaceCoveragePct": {
-        "total": 37.6,
-        "intended": 37.6
+        "total": 82.4,
+        "intended": 83.3
       }
     },
     "firestore": {
@@ -51,12 +51,15 @@
     },
     "storage-rules": {
       "native": true
+    },
+    "rtdb-rules": {
+      "native": true
     }
   },
   "overall": {
     "surfaceCoveragePct": {
-      "total": 53.5,
-      "intended": 62.9
+      "total": 64.1,
+      "intended": 75.6
     }
   },
   "rowStatuses": {
@@ -232,16 +235,6 @@
     "auth#75": "conforms",
     "auth#61": "unsupported",
     "auth#62": "unsupported",
-    "auth#63": "conforms",
-    "auth#63a": "conforms",
-    "auth#64": "conforms",
-    "auth#65": "conforms",
-    "auth#66": "conforms",
-    "auth#67": "conforms",
-    "auth#71": "conforms",
-    "auth#72": "conforms",
-    "auth#73": "conforms",
-    "auth#74": "conforms",
     "auth#76": "conforms",
     "auth#76a": "conforms",
     "auth#76b": "conforms",
@@ -254,6 +247,34 @@
     "auth#86": "conforms",
     "auth#87": "conforms",
     "auth#88": "diverged-documented",
+    "auth#150": "conforms",
+    "auth#151": "conforms",
+    "auth#152": "conforms",
+    "auth#153": "conforms",
+    "auth#154": "conforms",
+    "auth#155": "conforms",
+    "auth#156": "conforms",
+    "auth#157": "conforms",
+    "auth#158": "conforms",
+    "auth#159": "conforms",
+    "auth#163": "diverged-documented",
+    "auth#160": "conforms",
+    "auth#161": "conforms",
+    "auth#162": "conforms",
+    "auth#164": "conforms",
+    "auth#170": "conforms",
+    "auth#176": "diverged-documented",
+    "auth#177": "conforms",
+    "auth#171": "conforms",
+    "auth#172": "conforms",
+    "auth#173": "diverged-documented",
+    "auth#174": "conforms",
+    "auth#175": "unsupported",
+    "auth#178": "diverged-documented",
+    "auth#179": "diverged-documented",
+    "auth#180": "conforms",
+    "auth#181": "conforms",
+    "auth#182": "conforms",
     "firestore#1": "conforms",
     "firestore#2": "conforms",
     "firestore#3": "conforms",
@@ -399,11 +420,6 @@
     "firestore#148": "diverged-documented",
     "firestore#149": "diverged-documented",
     "firestore#150": "diverged-documented",
-    "firestore#122": "conforms",
-    "firestore#123": "conforms",
-    "firestore#124": "conforms",
-    "firestore#125": "conforms",
-    "firestore#126": "conforms",
     "firestore#127": "conforms",
     "firestore#128": "conforms",
     "firestore#129": "conforms",
@@ -449,11 +465,6 @@
     "rtdb#69": "conforms",
     "rtdb#70": "conforms",
     "rtdb#71": "conforms",
-    "rtdb#79": "conforms",
-    "rtdb#80": "conforms",
-    "rtdb#81": "conforms",
-    "rtdb#82": "conforms",
-    "rtdb#83": "conforms",
     "rtdb#84": "conforms",
     "rtdb#85": "conforms",
     "rtdb#86": "conforms",
@@ -547,7 +558,7 @@
     "rtdb-modular#M73": "conforms",
     "rtdb-modular#M74": "conforms",
     "rtdb-modular#M75": "diverged-documented",
-    "rtdb-modular#M76": "diverged-documented",
+    "rtdb-modular#M76": "conforms",
     "rtdb-modular#94": "unsupported",
     "rtdb-modular#95": "unsupported",
     "rtdb-modular#96": "unverified",
@@ -625,10 +636,6 @@
     "rtdb-modular#172": "diverged-documented",
     "rtdb-modular#173": "diverged-documented",
     "rtdb-modular#174": "diverged-documented",
-    "rtdb-modular#167": "unsupported",
-    "rtdb-modular#168": "unsupported",
-    "rtdb-modular#169": "unsupported",
-    "rtdb-modular#170": "unsupported",
     "storage#1": "conforms",
     "storage#2": "conforms",
     "storage#3": "conforms",
@@ -728,10 +735,6 @@
     "storage#106": "conforms",
     "storage#107": "conforms",
     "storage#108": "conforms",
-    "storage#109": "conforms",
-    "storage#110": "conforms",
-    "storage#111": "conforms",
-    "storage#117": "diverged-documented",
     "messaging#1": "conforms",
     "messaging#2": "conforms",
     "messaging#3": "conforms",
@@ -806,6 +809,13 @@
     "firestore-rules#175": "conforms",
     "firestore-rules#176": "conforms",
     "firestore-rules#177": "conforms",
+    "firestore-rules#178": "conforms",
+    "firestore-rules#179": "conforms",
+    "firestore-rules#180": "conforms",
+    "firestore-rules#181": "conforms",
+    "firestore-rules#182": "conforms",
+    "firestore-rules#183": "conforms",
+    "firestore-rules#184": "conforms",
     "storage-rules#94": "conforms",
     "storage-rules#95": "conforms",
     "storage-rules#96": "conforms",
@@ -821,7 +831,24 @@
     "storage-rules#113": "conforms",
     "storage-rules#114": "conforms",
     "storage-rules#115": "conforms",
-    "storage-rules#116": "conforms"
+    "storage-rules#116": "conforms",
+    "storage-rules#117": "conforms",
+    "storage-rules#118": "diverged-documented",
+    "rtdb-rules#1": "conforms",
+    "rtdb-rules#2": "conforms",
+    "rtdb-rules#3": "conforms",
+    "rtdb-rules#4": "conforms",
+    "rtdb-rules#5": "conforms",
+    "rtdb-rules#6": "conforms",
+    "rtdb-rules#7": "conforms",
+    "rtdb-rules#8": "conforms",
+    "rtdb-rules#9": "conforms",
+    "rtdb-rules#10": "conforms",
+    "rtdb-rules#11": "conforms",
+    "rtdb-rules#12": "conforms",
+    "rtdb-rules#13": "conforms",
+    "rtdb-rules#14": "conforms",
+    "rtdb-rules#15": "conforms"
   },
   "highRiskUnverified": [
     "storage#67",
@@ -833,8 +860,8 @@
   "orphanObservations": [],
   "entryPathVerdicts": {
     "auth": "green",
-    "database": "red",
-    "firestore": "red",
-    "storage": "red"
+    "database": "green",
+    "firestore": "green",
+    "storage": "green"
   }
 }

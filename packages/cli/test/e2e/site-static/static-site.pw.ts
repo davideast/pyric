@@ -195,6 +195,30 @@ test('the curated demo seed (__pyric/init.json) is applied on first worker boot'
   expect(seeded?.title).toBe('Welcome to Pyric Studio');
 });
 
+test('Auth rows align selection controls and distinguish never-signed-in users', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Auth', exact: true }).click();
+
+  const table = page.getByRole('table', { name: 'Authentication users' });
+  await expect(table).toBeVisible();
+  const signal = await table.evaluate((root) => {
+    const rows = Array.from(root.querySelectorAll('[role="row"]'));
+    const checkboxCenters = rows.map((row) => {
+      const checkbox = row.querySelector('input[type="checkbox"]');
+      if (!(checkbox instanceof HTMLInputElement)) throw new Error('selection checkbox missing');
+      const rect = checkbox.getBoundingClientRect();
+      return rect.left + rect.width / 2;
+    });
+    const signedIn = rows.slice(1).map(
+      (row) => row.querySelector('[data-pyric-user-cell="signed-in"]')?.textContent?.trim(),
+    );
+    return { checkboxCenters, signedIn };
+  });
+
+  expect(new Set(signal.checkboxCenters).size).toBe(1);
+  expect(signal.signedIn).toEqual(['never', 'never']);
+});
+
 test('DIAGNOSTIC: full request log for /__pyric/* on first load (not an assertion — informational)', async ({
   page,
 }) => {

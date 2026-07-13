@@ -3,11 +3,17 @@ title: "pyric/auth compatibility matrix"
 navLabel: "Auth"
 group: "Compatibility"
 section: ""
-order: 8003
+order: 8004
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
 # `pyric/auth` compatibility matrix
+
+> **Surface coverage:** 82.4% of Firebase's public exports · 83.3% of what pyric intends to mirror
+>
+> **Fidelity:** 80.7% (96 of 119 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
 The single readable contract for "what this shim guarantees vs the
 production `firebase/auth` SDK."
@@ -413,51 +419,6 @@ means a Bun test in `packages/auth/test/<file>`.
 <details class="compat-row" data-status="unsupported">
 <summary class="compat-line"><span class="compat-num">62</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior"><code>updateProfile(user, {displayName, photoURL})</code></span></summary>
 <div class="compat-evidence"><div class="compat-probe">not implemented</div></div>
-</details>
-</div>
-
-## `sandbox.*` (sandbox-only test driver)
-
-<div class="compat-list">
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">63</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.seedUsers(auth, [{uid, email, password, displayName?, customClaims?, providerId?}])</code> seeds the user DB; <code>providerId</code> defaults to <code>'password'</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-test-driver.test.ts</code>, <code>unit:sandbox-user-admin.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">63a</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Re-seeding an existing uid OVERWRITES it: a new email drops the stale email→record mapping (the old email no longer signs in), and re-seeded <code>customClaims</code> are LIVE — a held <code>User</code>'s <code>getIdToken(true)</code> reflects the new claims rather than the claims frozen at mint time</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-cluster-b9-b12.test.ts</code> (locks AUTH-B9 + AUTH-B10)</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">64</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.setUser(auth, user)</code> / <code>sandbox.setUser(auth, null)</code> directly switches identity. Bypasses the <code>disabled</code> check and does NOT bump <code>lastLoginAt</code> (not a real sign-in)</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-test-driver.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">65</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.mockSignInResult(auth, {providerId, user, …})</code> pre-stages a popup/credential result</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-providers.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">66</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">All <code>sandbox.*</code> methods operate only on the sandbox backend attached to a mirror-produced <code>Auth</code> handle; there is no production target or production branch</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-test-driver.test.ts</code>, <code>unit:sandbox-user-admin.test.ts</code> + compiled client-binding isolation</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">67</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.reset()</code> (host-side, via <code>Sandbox.reset()</code>) clears auth state and fires sign-out</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-listeners.test.ts</code></div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">71</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.listIdentities(auth)</code> returns the REAL provider per identity — <code>providerId</code> primary label (<code>'anonymous'</code> for anonymous users) + emulator-shaped <code>providerUserInfo</code> array; anonymous users included</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> ("provider tracking") — fixes the pre-epic mislabeling (<code>'password'</code>/<code>'anonymous'</code> only)</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">72</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.createSignInCredential(auth, {providerId, uid | spec})</code> mints backend-owned credentials for host-driven flows: <code>{uid}</code> picks an existing identity (<code>auth/user-not-found</code> for unknown uids); <code>{spec}</code> upserts (same-email reuse; default uid <code>'&lt;providerId&gt;:&lt;email&gt;'</code>; no password). Tokens route through the backend token cache</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> ("sandbox.createSignInCredential")</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">73</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">User-admin CRUD: <code>sandbox.listUsers</code> / <code>createUser</code> (no sign-in; <code>auth/uid-already-exists</code>, <code>auth/email-already-in-use</code>, <code>auth/invalid-email</code>, <code>auth/weak-password</code>) / <code>updateUser</code> (displayName incl. null-clear, email re-key, password + provider link, customClaims wholesale replace, disabled, emailVerified) / <code>deleteUser</code> / <code>clearUsers</code>. Deletion/clear/disable do NOT terminate active sessions (prod parity). Record shape: <code>{uid, email, displayName, phoneNumber, photoUrl, customClaims, providerUserInfo, isAnonymous, disabled, emailVerified, createdAt, lastLoginAt}</code> with ISO timestamps</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> (CRUD describes)</div></div>
-</details>
-<details class="compat-row" data-status="ok">
-<summary class="compat-line"><span class="compat-num">74</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>sandbox.subscribeUsers(auth, cb)</code> fires a coarse no-payload callback on every user-DB mutation (seed/create/update/delete/clear, provider links, lastLoginAt bumps); no initial fire; throwing listeners isolated; unsubscribe stops fires</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:sandbox-user-admin.test.ts</code> ("sandbox.subscribeUsers")</div></div>
 </details>
 </div>
 

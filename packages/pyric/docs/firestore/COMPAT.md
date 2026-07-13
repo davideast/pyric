@@ -2,6 +2,12 @@
 
 # `pyric/firestore` compatibility matrix
 
+> **Surface coverage:** 55.5% of Firebase's public exports · 63.5% of what pyric intends to mirror
+>
+> **Fidelity:** 87.6% (141 of 161 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../conformance/SCORES.md) for what that percentage does and does not mean.
+
 The single readable contract for what the sandbox mirror guarantees compared
 with the production `firebase/firestore` SDK.
 
@@ -312,16 +318,6 @@ resolution leaves Firebase's production implementations unchanged.
 | 148 | Delegates to `getDoc` / `getDocs` in the sandbox mirror. Real Firebase THROWS `'unavailable'` here on a genuine cache miss; pyric never misses — the local store always has the answer (or a non-existent snapshot) — so it never throws for that reason | ⚠ never throws unavailable; sandbox has no cache miss | `unit:firestore/tier1-cache-init-align.test.ts` |
 | 149 | Accepted no-op — the sandbox has no modular-SDK-style logger to wire a level into; it uses host-level `console` logging directly, gated by `pyric dev`'s own flags, not this call | ⚠ accepted no-op; no sandbox logger wired | `unit:firestore/tier1-cache-init-align.test.ts` |
 | 150 | Fires the callback once the current snapshot-delivery microtask queue settles — the closest honest approximation of "every active listener has delivered its latest state" available without a true cross-listener sync signal. Not scoped to real server round-trips like the real SDK's guarantee; scoped to local delivery only | ⚠ approximated from local snapshot-delivery settle, not a true global in-sync signal | `unit:firestore/tier1-cache-init-align.test.ts` |
-
-## `pyric/sandbox/firestore` — sandbox-only controls
-
-| # | Behavior | Status | Probe |
-|---|---|---|---|
-| 122 | `setRules(sandbox, rules)` loads rules into the owning sandbox's Firestore environment; returns `LintResult` | ✓ | `unit:firestore/sandbox-controls.test.ts`, `playground:rules-data-validation`, `playground:rules-cross-doc-get` |
-| 123 | `seedDocuments(sandbox, {path: data, ...})` replaces the owning sandbox's Firestore documents, bypassing rules without synthesizing listener callbacks or events | ✓ | `unit:firestore/sandbox-controls.test.ts` |
-| 124 | `snapshotDocuments(sandbox)` returns only Firestore documents without snapshotting other registered sandbox services | ✓ | `unit:firestore/sandbox-controls.test.ts` |
-| 125 | `pyric/firestore` does not export sandbox controls; synchronous `pyric/sandbox/firestore` controls accept `LocalSandbox`, and `RemoteSandbox` is not assignable | ✓ | `unit:firestore/entry-surface.test.ts`, `typecheck:firestore/sandbox-controls.ts`, `packaging:runtime-smoke` |
-| 126 | Firestore controls affect only the `LocalSandbox` passed to the operation; independent sandboxes remain isolated | ✓ | `unit:firestore/sandbox-controls.test.ts` ("applies controls only to the Sandbox passed to the operation") |
 
 ## Rules engine (via `setRules` from `pyric/sandbox/firestore`)
 

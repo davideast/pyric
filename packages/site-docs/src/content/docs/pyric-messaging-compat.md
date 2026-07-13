@@ -3,7 +3,7 @@ title: "pyric messaging compatibility matrix"
 navLabel: "Messaging"
 group: "Compatibility"
 section: ""
-order: 8007
+order: 8008
 ---
 <!-- Generated from packages/conformance/registry/*.ts. Do not edit by hand; run bun run compat:generate. -->
 
@@ -12,6 +12,12 @@ order: 8007
 > A `?` row below is a target with a derived failing test, not a guarantee.
 
 # `pyric` messaging compatibility matrix
+
+> **Surface coverage:** 100% of Firebase's public exports · 100% of what pyric intends to mirror
+>
+> **Fidelity:** 100% (56 of 56 tracked claims match production)
+>
+> Coverage is about whether the export exists. Fidelity is about whether each claimed interaction matches production Firebase — see the [scoreboard](../pyric-conformance-scores/) for what that percentage does and does not mean.
 
 > **Conformance-held; not yet in published packages.** Every row below is
 > replayed by conformance suites that run in blocking CI, so the statuses are
