@@ -92,6 +92,29 @@ expect(help.code === 0, 'pyric --help must exit 0', help);
 expect(!help.stdout.includes('pyric deploy'), 'pyric --help must not advertise production deployment', help);
 expect(!help.stdout.includes('hosting:channel:deploy'), 'pyric --help must not advertise Hosting deployment', help);
 for (const command of [
+  'login',
+  'logout',
+  'whoami',
+  'auth:configure-provider',
+  'auth:manage-domains',
+  'firestore:discover',
+]) {
+  expect(
+    !new RegExp(`^\\s+(?:pyric )?${command}\\b`, 'm').test(help.stdout),
+    `pyric --help must not advertise ${command}`,
+    help,
+  );
+  const removed = run([command]);
+  expect(removed.code === 1, `pyric ${command} must be rejected`, removed);
+  expect(
+    removed.stderr.includes(`unknown command '${command}'`),
+    `pyric ${command} must fail without a compatibility path`,
+    removed,
+  );
+}
+expect(!help.stdout.includes('--mode'), 'pyric bridge help must not advertise backend selection', help);
+expect(!help.stdout.includes('PROD-MODE'), 'pyric bridge help must not advertise production policy controls', help);
+for (const command of [
   'firestore rules lint',
   'firestore rules validate',
   'firestore rules simulate',
@@ -131,7 +154,18 @@ expect(
   'pyric rules:lint must fail without a compatibility alias',
   removedColonCommand,
 );
-process.stdout.write('  ✓ packed pyric exposes no production deployment commands\n');
+const removedBridgeMode = run(['bridge', '--mode', 'prod']);
+expect(
+  removedBridgeMode.code === 1,
+  'pyric bridge --mode prod must be rejected before a server starts',
+  removedBridgeMode,
+);
+expect(
+  removedBridgeMode.stderr.includes("unknown option '--mode' for pyric bridge"),
+  'pyric bridge must not retain a backend-selection compatibility path',
+  removedBridgeMode,
+);
+process.stdout.write('  ✓ packed pyric exposes no production or credential-management commands\n');
 
 // The one fixture shared by both retained `verify` commands captures an
 // anonymous request and its committed write. Keeping auth null is intentional:

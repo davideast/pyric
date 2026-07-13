@@ -9,8 +9,6 @@
  * Conventions:
  *   - `bufferIo()` returns `{ stdout, stderr, getOut, getErr }`
  *     suitable for handing to any subcommand's `deps`.
- *   - Helper `makeScope()` returns a structurally-valid ProjectScope
- *     without hitting the JWT flow.
  *   - Argv is parsed via the real `parseArgs` to exercise the CLI's
  *     flag handling end-to-end (no shortcuts).
  */
@@ -25,10 +23,7 @@ import {
   runDatabaseRulesSimulate,
   runDatabaseRulesGenerate,
 } from './database-rules.js';
-import { runAuthConfigureProvider, runAuthManageDomains } from './auth.js';
-import { runFirestoreDiscover } from './discover.js';
 import { runInit } from './init.js';
-import type { ProjectScope } from '../credentials/core/types.js';
 
 // ── Test helpers ──────────────────────────────────────────────────────
 
@@ -43,13 +38,6 @@ function bufferIo() {
   };
 }
 
-function makeScope(projectId = 'test-project'): ProjectScope {
-  return {
-    projectId,
-    resolveToken: async () => 'test-token',
-  };
-}
-
 function serviceArgs(argv: string[]) {
   const parsed = parseArgs(argv);
   return { ...parsed, positional: parsed.positional.slice(2) };
@@ -59,9 +47,9 @@ function serviceArgs(argv: string[]) {
 
 describe('parseArgs', () => {
   it('captures subcommand + positionals + long flags', () => {
-    const p = parseArgs(['firestore:discover', 'users', '--project', 'my-proj']);
-    expect(p.subcommand).toBe('firestore:discover');
-    expect(p.positional).toEqual(['users']);
+    const p = parseArgs(['verify', 'capture.json', '--project', 'my-proj']);
+    expect(p.subcommand).toBe('verify');
+    expect(p.positional).toEqual(['capture.json']);
     expect(p.flags.get('project')).toBe('my-proj');
   });
 
@@ -313,161 +301,6 @@ describe('runDatabaseRulesGenerate', () => {
     expect(code).toBe(0);
     expect(loadedPath).toBe('rtdb.rules.ts');
     expect(writes[0]?.path).toBe('/project/out/rules.json');
-  });
-});
-
-// ── auth ──────────────────────────────────────────────────────────────
-
-describe('runAuthConfigureProvider', () => {
-  it('requires both provider + enabled args', async () => {
-    const io = bufferIo();
-    const code = await runAuthConfigureProvider(parseArgs(['auth:configure-provider']), { ...io });
-    expect(code).toBe(1);
-    expect(io.getErr()).toContain('missing args');
-  });
-
-  it('rejects unknown providers', async () => {
-    const io = bufferIo();
-    const code = await runAuthConfigureProvider(
-      parseArgs(['auth:configure-provider', 'apple', 'true']),
-      { ...io },
-    );
-    expect(code).toBe(1);
-    expect(io.getErr()).toContain('unknown provider');
-  });
-
-  it('calls configureProvider with parsed args', async () => {
-    const io = bufferIo();
-    const configureProvider = mock(async () => ({ success: true, provider: 'google', enabled: true } as never));
-    const code = await runAuthConfigureProvider(
-      parseArgs(['auth:configure-provider', 'google', 'true']),
-      {
-        ...io,
-        resolveScope: async () => ({ scope: makeScope(), source: 'FIREBASE_SA_BASE64' }),
-        readFirebaseRc: async () => null,
-        getAuthTools: () =>
-          ({
-            generateIR: async () => ({}) as never,
-            configureProvider: configureProvider as never,
-            manageDomains: async () => ({ success: true, authorizedDomains: [] } as never),
-          }),
-      },
-    );
-    expect(code).toBe(0);
-    expect(configureProvider).toHaveBeenCalledTimes(1);
-    expect(configureProvider).toHaveBeenCalledWith({ provider: 'google', enabled: true });
-  });
-});
-
-describe('runAuthManageDomains', () => {
-  it('requires an action arg', async () => {
-    const io = bufferIo();
-    const code = await runAuthManageDomains(parseArgs(['auth:manage-domains']), { ...io });
-    expect(code).toBe(1);
-  });
-
-  it('requires a domain for add/remove', async () => {
-    const io = bufferIo();
-    const code = await runAuthManageDomains(parseArgs(['auth:manage-domains', 'add']), { ...io });
-    expect(code).toBe(1);
-    expect(io.getErr()).toContain('requires a domain');
-  });
-
-  it('lists domains without a domain arg', async () => {
-    const io = bufferIo();
-    const manageDomains = mock(async () => ({
-      success: true,
-      authorizedDomains: ['localhost', 'example.com'],
-    } as never));
-    const code = await runAuthManageDomains(parseArgs(['auth:manage-domains', 'list']), {
-      ...io,
-      resolveScope: async () => ({ scope: makeScope(), source: 'FIREBASE_SA_BASE64' }),
-      readFirebaseRc: async () => null,
-      getAuthTools: () =>
-        ({
-          generateIR: async () => ({}) as never,
-          configureProvider: async () => ({ success: true, provider: 'google', enabled: true } as never),
-          manageDomains: manageDomains as never,
-        }),
-    });
-    expect(code).toBe(0);
-    expect(manageDomains).toHaveBeenCalledWith({ action: 'list' });
-  });
-
-  it('passes the domain arg through for add', async () => {
-    const io = bufferIo();
-    const manageDomains = mock(async () => ({
-      success: true,
-      authorizedDomains: ['example.com'],
-    } as never));
-    const code = await runAuthManageDomains(
-      parseArgs(['auth:manage-domains', 'add', 'example.com']),
-      {
-        ...io,
-        resolveScope: async () => ({ scope: makeScope(), source: 'FIREBASE_SA_BASE64' }),
-        readFirebaseRc: async () => null,
-        getAuthTools: () =>
-          ({
-            generateIR: async () => ({}) as never,
-            configureProvider: async () => ({ success: true, provider: 'google', enabled: true } as never),
-            manageDomains: manageDomains as never,
-          }),
-      },
-    );
-    expect(code).toBe(0);
-    expect(manageDomains).toHaveBeenCalledWith({ action: 'add', domain: 'example.com' });
-  });
-});
-
-// ── discover ──────────────────────────────────────────────────────────
-
-describe('runFirestoreDiscover', () => {
-  it('crawls with no filter when no positional given', async () => {
-    const io = bufferIo();
-    const crawlFn = mock(async () => ({
-      events: [],
-      discovered: new Map(),
-      listOps: 1,
-      readOps: 0,
-      finalizedSchemas: new Map(),
-      complete: true,
-    } as never));
-    const createFirestore = mock(() => ({ listCollections: async () => [] }) as never);
-    const code = await runFirestoreDiscover(parseArgs(['firestore:discover']), {
-      ...io,
-      resolveScope: async () => ({ scope: makeScope(), source: 'FIREBASE_SA_BASE64' }),
-      readFirebaseRc: async () => null,
-      createFirestore: createFirestore as never,
-      crawl: crawlFn as never,
-    });
-    expect(code).toBe(0);
-    const callArgs = (crawlFn.mock.calls[0] ?? []) as [unknown, { rootFilter?: unknown }];
-    expect(callArgs[1]?.rootFilter).toBeUndefined();
-  });
-
-  it('passes a rootFilter when a positional collection is given', async () => {
-    const io = bufferIo();
-    const crawlFn = mock(async () => ({
-      events: [],
-      discovered: new Map(),
-      listOps: 1,
-      readOps: 0,
-      finalizedSchemas: new Map(),
-      complete: true,
-    } as never));
-    const createFirestore = mock(() => ({ listCollections: async () => [] }) as never);
-    const code = await runFirestoreDiscover(parseArgs(['firestore:discover', 'users']), {
-      ...io,
-      resolveScope: async () => ({ scope: makeScope(), source: 'FIREBASE_SA_BASE64' }),
-      readFirebaseRc: async () => null,
-      createFirestore: createFirestore as never,
-      crawl: crawlFn as never,
-    });
-    expect(code).toBe(0);
-    const callArgs = (crawlFn.mock.calls[0] ?? []) as [unknown, { rootFilter?: (id: string) => boolean }];
-    expect(typeof callArgs[1]?.rootFilter).toBe('function');
-    expect(callArgs[1]?.rootFilter?.('users')).toBe(true);
-    expect(callArgs[1]?.rootFilter?.('orders')).toBe(false);
   });
 });
 
