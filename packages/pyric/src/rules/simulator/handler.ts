@@ -480,11 +480,11 @@ function buildContext(
       query: buildRequestQuery(tc),
       time: serverTime,
     },
-    // `resource` is the PRE-WRITE stored document. On a `create` the target
-    // does not exist yet, so production makes `resource` null — reading
-    // `resource.data`/`.id`/`.__name__` then errors → DENY. Synthesizing a
-    // resource here (the previous behavior) was a FALSE-ALLOW for the common
-    // ownership/existence idioms (`resource.data.owner == request.auth.uid`).
+    // `resource` is the PRE-WRITE stored document. When the request target does
+    // not exist, production makes `resource` a null error value — reading or
+    // comparing it then errors → DENY. Synthesizing a resource here (the
+    // previous behavior) was a FALSE-ALLOW for common ownership/existence
+    // idioms (`resource.data.owner == request.auth.uid`, `resource != null`).
     //
     // RULES-B12: for get/list/update/delete the resource carries `data` ONLY.
     // Production builds `resource` from the stored document alone and does NOT
@@ -498,9 +498,9 @@ function buildContext(
     // keys hands the evaluator's absent-key error path the same verdict prod
     // gives. Note: `request.resource` (proposed data) is built separately above
     // and is likewise `{ data }` only — `request.resource.id` errors in prod too.
-    resource: tc.method === 'create'
+    resource: tc.method === 'create' || existing === null
       ? null
-      : { data: existing ?? {} },  // NOT resolved — resource is pre-write, no sentinels
+      : { data: existing },  // NOT resolved — resource is pre-write, no sentinels
     mockDocuments: mockDocs,
     getDoc,
     pathVariables,

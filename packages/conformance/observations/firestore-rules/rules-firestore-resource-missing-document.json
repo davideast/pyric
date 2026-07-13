@@ -1,0 +1,22 @@
+{
+  "name": "rules-firestore-resource-missing-document",
+  "matrixRow": "firestore-rules#184",
+  "rowIds": [
+    "firestore-rules#184"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"resource-missing-document\" (RULES-B13). A missing request target makes resource a null error value. The simulator constructed a non-null empty resource for get/update/delete, so `resource != null` ALLOWed where production DENIES.",
+  "observedAt": "2026-07-13T00:00:01.625Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "missing document get with resource != null → DENY": "DENY",
+    "missing document update with resource != null → DENY": "DENY",
+    "missing document delete with resource != null → DENY": "DENY",
+    "existing document get with resource != null → ALLOW": "ALLOW",
+    "existing document update with resource != null → ALLOW": "ALLOW",
+    "existing document delete with resource != null → ALLOW": "ALLOW",
+    "missing document resource == null → DENY (comparison errors)": "DENY",
+    "missing document resource.data.value touch → DENY": "DENY",
+    "existing document resource.data.value touch → ALLOW": "ALLOW"
+  }
+}
