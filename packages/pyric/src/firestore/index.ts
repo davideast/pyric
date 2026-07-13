@@ -4,12 +4,9 @@
  *
  * Mirrors `firebase/firestore`'s tree-shakable free-function shape
  * (`getDoc`, `setDoc`, `addDoc`, `query`, `where`, `orderBy`, `limit`,
- * `onSnapshot`, `runTransaction`, …). Every operation routes to one of two
- * backends picked at init time: a no-network sandbox target (wrapping
- * `pyric-admin`'s chainable adapter over `pyric/sandbox`) or a prod target
- * (wrapping `firebase/firestore` against a real project). Same call surface
- * across both, so agent code written against the sandbox runs unmodified
- * against prod.
+ * `onSnapshot`, `runTransaction`, …). Every operation routes to the
+ * no-network sandbox. Production selection happens before this module loads:
+ * package resolution leaves `firebase/firestore` unchanged when inactive.
  *
  * This module is a re-export barrel over the per-family modules in this
  * directory — it holds no implementation. The families mirror the

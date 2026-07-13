@@ -2,9 +2,8 @@
  * `pyric/firestore` — Firestore handle construction.
  *
  * The `getFirestore` / `getAdminFirestore` / `actingAs` entry points that
- * mint a {@link Firestore} handle for a sandbox or prod backend, the
- * private backend-shape predicates they dispatch on, and the prod-only
- * emulator connect.
+ * mint a {@link Firestore} handle for a sandbox backend and the private
+ * backend-shape predicates they dispatch on.
  */
 import {
   getFirestore as getChainableFirestore,
@@ -13,17 +12,13 @@ import {
 } from 'pyric/sandbox/admin-firestore';
 import { SandboxContextImpl } from 'pyric/sandbox';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
-import type { FirebaseApp } from 'firebase/app';
-import * as fb from 'firebase/firestore';
 import { APP_TARGET, type PyricApp } from 'pyric/app';
 
 import {
   TARGET_SYMBOL,
   targetOf,
-  isSandboxKind,
   type SandboxTarget,
   type SandboxLiveTarget,
-  type ProdTarget,
 } from './state.js';
 import type { Firestore } from './types.js';
 
@@ -39,9 +34,6 @@ import type { Firestore } from './types.js';
  *     `sandbox.currentUser` per-call. Best for app code that drives
  *     identity through `pyric/auth` — every Firestore op evaluates
  *     rules under whatever user is currently signed in.
- *   - `FirebaseApp` → prod-backed Firestore (delegates to
- *     `firebase/firestore`'s `getFirestore(app)`).
- *
  * @example
  * ```ts
  * // Sandbox, frozen identity (runner / explicit tests).
@@ -58,18 +50,18 @@ import type { Firestore } from './types.js';
  * const db = getFirestore(sandbox); // reads sandbox.currentUser per op
  * await signInAnonymously(auth);    // subsequent db ops use the new identity
  *
- * // Prod.
+ * // Canonical imports are swapped to this mirror in a sandbox process.
  * import { initializeApp } from 'firebase/app';
- * import { getFirestore } from 'pyric/firestore';
- * const app = initializeApp(userProjectConfig);
+ * import { getFirestore } from 'firebase/firestore';
+ * const app = initializeApp({ projectId: 'demo-project' });
  * const db = getFirestore(app);
  * ```
  */
 export function getFirestore(ctx: SandboxContext): Firestore;
 export function getFirestore(sandbox: Sandbox): Firestore;
-export function getFirestore(app: FirebaseApp): Firestore;
 export function getFirestore(app: PyricApp): Firestore;
-export function getFirestore(target: SandboxContext | Sandbox | FirebaseApp | PyricApp): Firestore {
+export function getFirestore(target: SandboxContext | Sandbox | PyricApp): Firestore;
+export function getFirestore(target: SandboxContext | Sandbox | PyricApp): Firestore {
   // Package resolution already selected the sandbox mirror before this code
   // loaded, so a PyricApp can only unwrap to its Sandbox.
   if (isPyricApp(target)) {
@@ -88,9 +80,9 @@ export function getFirestore(target: SandboxContext | Sandbox | FirebaseApp | Py
     };
     return { [TARGET_SYMBOL]: t };
   }
-  const fbDb = fb.getFirestore(target);
-  const t: ProdTarget = { kind: 'prod', db: fbDb };
-  return { [TARGET_SYMBOL]: t };
+  throw new TypeError(
+    'pyric/firestore is a sandbox-only mirror. Package resolution must leave firebase/firestore unchanged for production; activate pyric dev or @pyric/cli/register before importing to select the sandbox.',
+  );
 }
 
 /**
@@ -170,10 +162,10 @@ export function getAdminFirestore(target: Sandbox | SandboxContext | PyricApp): 
 
 /**
  * Brand-based test for the {@link PyricApp} overload. Direct Sandbox,
- * FirebaseApp, and SandboxContext handles never carry the app-wrapper symbol.
+ * SandboxContext handles never carry the app-wrapper symbol.
  */
 function isPyricApp(
-  target: SandboxContext | Sandbox | FirebaseApp | PyricApp,
+  target: SandboxContext | Sandbox | PyricApp,
 ): target is PyricApp {
   return (
     target !== null
@@ -191,7 +183,7 @@ function isPyricApp(
  * Internal — consumers always call `getFirestore` and let the
  * dispatch figure it out.
  */
-function isSandboxContext(target: SandboxContext | Sandbox | FirebaseApp): target is SandboxContext {
+function isSandboxContext(target: SandboxContext | Sandbox | PyricApp): target is SandboxContext {
   return target instanceof SandboxContextImpl;
 }
 
@@ -206,7 +198,7 @@ function isSandboxContext(target: SandboxContext | Sandbox | FirebaseApp): targe
  * because every member of this set has been on `Sandbox` since v0
  * and `FirebaseApp` would have to grow all four to collide.
  */
-function isSandbox(target: SandboxContext | Sandbox | FirebaseApp): target is Sandbox {
+function isSandbox(target: SandboxContext | Sandbox | PyricApp): target is Sandbox {
   if (target === null || typeof target !== 'object') return false;
   const o = target as unknown as Record<string, unknown>;
   return (
@@ -238,29 +230,29 @@ function makeGetDb(sandbox: Sandbox): () => SandboxFirestore {
   };
 }
 
-// ─── Tier 1: emulator connect (prod-target only) ─────────────────────
+// ─── Emulator-connect compatibility ──────────────────────────────────────
 
 /**
- * Point the prod-target Firestore handle at the Firestore emulator.
- * Must be called BEFORE any operation runs against `db`. No-op on
- * sandbox-target handles (the sandbox IS a local emulator).
+ * No-op in the sandbox mirror because the sandbox already runs locally.
  *
- * `options` mirrors `firebase/firestore`'s shape — pass
- * `{ mockUserToken: '…' }` to bypass auth checks under the emulator,
- * matching how the JS SDK lets tests skip Firebase Auth.
+ * The option shape remains source-compatible with Firebase so canonical
+ * initialization code can call it unconditionally.
  */
 export function connectFirestoreEmulator(
   db: Firestore,
   host: string,
   port: number,
-  options?: { mockUserToken?: string | fb.EmulatorMockTokenOptions },
+  options?: {
+    mockUserToken?: string | {
+      sub?: string;
+      user_id?: string;
+      firebase?: { sign_in_provider?: string; identities?: Record<string, string[]> };
+      [claim: string]: unknown;
+    };
+  },
 ): void {
-  const target = targetOf(db);
-  if (isSandboxKind(target)) {
-    // The sandbox already runs locally; pointing it at an emulator
-    // host is a no-op rather than an error so consumer code that
-    // does the wiring unconditionally compiles against both targets.
-    return;
-  }
-  fb.connectFirestoreEmulator(target.db, host, port, options);
+  targetOf(db);
+  void host;
+  void port;
+  void options;
 }
