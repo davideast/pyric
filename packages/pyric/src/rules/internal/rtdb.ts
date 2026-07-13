@@ -15,6 +15,12 @@ export {
   buildRuleExpression,
   RtdbMapper,
 } from '../../database/mapper.js';
+export {
+  compileRtdbRules,
+  serializeRtdbRules,
+  simulateRtdbRules,
+} from '../rtdb/compiled-rules.js';
+export type { CompiledRtdbRules } from '../rtdb/compiled-rules.js';
 
 export { parseExpression } from '../../database/grammar/RtdbExprParser.js';
 export { validateExpression } from '../../database/grammar/validator.js';
