@@ -20,13 +20,13 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import {
-  crawl,
-  type CrawlerCollectionRef,
-  type CrawlerDocumentRef,
-  type CrawlerFirestore,
-} from '../../src/discover/crawler.js';
-import type { WireDocumentSnapshot } from '../../src/discover/wire.js';
+import { crawl } from '../../src/discover/crawler.js';
+import type {
+  CrawlerCollectionRef,
+  CrawlerDocumentRef,
+  CrawlerFirestore,
+  WireDocumentSnapshot,
+} from '../../src/discover/firestore-source.js';
 import { buildMockFirestore, type DocSpec } from './helpers/mock-firestore.js';
 
 // ─── Stream factories ─────────────────────────────────────────────────────

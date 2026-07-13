@@ -34,13 +34,11 @@ import type {
   CrawlerCollectionRef,
   CrawlerDocumentRef,
   CrawlerFirestore,
-} from '@pyric/cli/discover';
-import type {
   CollectionGroupCapableFirestore,
   CollectionGroupQuery,
   CollectionGroupSnapshot,
-} from '@pyric/cli/discover';
-import type { WireDocumentSnapshot } from '@pyric/cli/discover';
+  WireDocumentSnapshot,
+} from './firestore-source.js';
 import { encodeFieldsProto } from 'pyric/sandbox/internal';
 
 /**

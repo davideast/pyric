@@ -1,8 +1,8 @@
 /**
  * Shared mock-Firestore builder for `firestore/discover/*` tests.
  *
- * Implements the structural `CrawlerFirestore` contract from
- * `crawler.ts` so tests don't need a real `firebase-admin` import. The
+ * Implements the credential-neutral `CrawlerFirestore` seam so tests don't
+ * need a real `firebase-admin` import. The
  * mock records call counts and peak in-flight RPCs into a `metrics`
  * object so concurrency caps and read-cost claims can be asserted
  * directly.
@@ -20,7 +20,7 @@ import type {
   CrawlerCollectionRef,
   CrawlerDocumentRef,
   CrawlerFirestore,
-} from '../../../../src/firestore/firestore/discover/crawler.js';
+} from '../../../src/discover/firestore-source.js';
 
 export type TreeSpec = Record<string, DocSpec[]>;
 export type DocSpec = {

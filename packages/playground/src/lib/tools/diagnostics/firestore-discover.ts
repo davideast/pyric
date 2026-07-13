@@ -18,10 +18,10 @@
  * agent never sees their declarations.
  */
 import {
-  createRestCrawlerFirestore,
   createFirestoreDiscoverTools,
   type DiscoverPathsToolResult,
 } from '@pyric/cli/discover';
+import { createRestCrawlerFirestore } from '@pyric/cli/discover/production';
 import type { ToolContext, ToolHandler, ToolResult } from '@inbrowser/agent';
 
 /**
@@ -250,4 +250,3 @@ function thinFieldType(
   // scalar / reference / vector — already small, pass through.
   return t;
 }
-

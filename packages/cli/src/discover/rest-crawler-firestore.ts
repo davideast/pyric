@@ -30,8 +30,8 @@ import type {
   CrawlerCollectionRef,
   CrawlerDocumentRef,
   CrawlerFirestore,
-} from './crawler.js';
-import type { WireDocumentSnapshot } from './wire.js';
+  WireDocumentSnapshot,
+} from './firestore-source.js';
 
 const FIRESTORE_REST = 'https://firestore.googleapis.com/v1';
 

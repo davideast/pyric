@@ -22,11 +22,13 @@ import {
   crawlStructure,
   inferTemplateVariable,
   toTemplatePath,
-  type CrawlerCollectionRef,
-  type CrawlerDocumentRef,
-  type CrawlerFirestore,
 } from '../../src/discover/crawler.js';
-import type { WireDocumentSnapshot } from '../../src/discover/wire.js';
+import type {
+  CrawlerCollectionRef,
+  CrawlerDocumentRef,
+  CrawlerFirestore,
+  WireDocumentSnapshot,
+} from '../../src/discover/firestore-source.js';
 import { buildMockFirestore, type TreeSpec } from './helpers/mock-firestore.js';
 
 // ─── inferTemplateVariable ────────────────────────────────────────────────

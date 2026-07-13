@@ -29,41 +29,8 @@
  */
 'use strict';
 
-import { toTemplatePath, type CrawlerCollectionRef } from './crawler.js';
-import type { WireDocumentSnapshot } from './wire.js';
-
-// ─── Structural Firestore contract for collection-group queries ─────────
-
-/**
- * Minimal collection-group query contract — structurally satisfied by
- * `firebase-admin/firestore` `Query` (returned by `db.collectionGroup`).
- * Defined here (not in `crawler.ts`) so consumers can pass a richer
- * mock for `findCollectionGroup` tests without touching the crawler's
- * existing `CrawlerFirestore` interface.
- */
-export interface CollectionGroupQuery {
-  select(...fields: string[]): CollectionGroupQuery;
-  limit(n: number): CollectionGroupQuery;
-  get(): Promise<{ docs: CollectionGroupSnapshot[] }>;
-}
-
-/**
- * Subset of `firebase-admin/firestore` `QueryDocumentSnapshot` we use:
- * just the parent collection ref. Field data is intentionally ignored
- * — `.select()` with no args returns refs only.
- */
-export interface CollectionGroupSnapshot {
-  ref: { parent: { path: string } };
-}
-
-/**
- * Firestore root contract extension — adds `collectionGroup(id)`. Kept
- * separate from `CrawlerFirestore` so the crawler doesn't pick up an
- * unused method. firebase-admin's `Firestore` satisfies both natively.
- */
-export interface CollectionGroupCapableFirestore {
-  collectionGroup(collectionId: string): CollectionGroupQuery;
-}
+import { toTemplatePath } from './crawler.js';
+import type { CollectionGroupCapableFirestore } from './firestore-source.js';
 
 // ─── Tool surface ────────────────────────────────────────────────────────
 
@@ -162,7 +129,3 @@ export async function findCollectionGroup(
     limitWasReached: docs.length === limit,
   };
 }
-
-// Re-export the snapshot type alias for tests that need to construct
-// fixtures without importing the underlying wire type.
-export type { CrawlerCollectionRef, WireDocumentSnapshot };

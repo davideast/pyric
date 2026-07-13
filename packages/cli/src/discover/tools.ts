@@ -30,9 +30,12 @@ import type { ToolHandler } from '@inbrowser/agent';
 import { crawl, type FullCrawlResult } from './crawler.js';
 import { findCollectionGroup } from './findCollectionGroup.js';
 import { SessionStore } from './session.js';
-import type { CrawlerFirestore, PersistedCrawlState } from './crawler.js';
+import type { PersistedCrawlState } from './crawler.js';
 import type { CollectionSchema, DiscoverEvent } from './types.js';
-import type { CollectionGroupCapableFirestore } from './findCollectionGroup.js';
+import type {
+  CollectionGroupCapableFirestore,
+  CrawlerFirestore,
+} from './firestore-source.js';
 
 export interface FirestoreDiscoverToolDeps {
   /**

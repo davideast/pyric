@@ -12,4 +12,9 @@ describe('@pyric/cli package manifest', () => {
     expect(Object.keys(manifest.exports)).not.toContain('./auth');
     expect(Object.keys(manifest.exports)).not.toContain('./registry');
   });
+
+  it('isolates production discovery from the credential-free entry', () => {
+    expect(Object.keys(manifest.exports)).toContain('./discover');
+    expect(Object.keys(manifest.exports)).toContain('./discover/production');
+  });
 });

@@ -26,57 +26,18 @@
 import { runWithLimit } from './concurrency.js';
 import { emptySchema, mergeDoc } from './merge.js';
 import { SessionStore, type SessionError } from './session.js';
-import { snapshotToObservations, type WireDocumentSnapshot } from './wire.js';
+import { snapshotToObservations } from './wire.js';
+import type {
+  CrawlerCollectionRef,
+  CrawlerDocumentRef,
+  CrawlerFirestore,
+} from './firestore-source.js';
 import type {
   CollectionSchema,
   DiscoverEvent,
   FieldSchema,
   SamplingComplete,
 } from './types.js';
-
-// ─── Structural Firestore contract ────────────────────────────────────────
-
-/**
- * Minimal collection-reference contract the crawler depends on. Structurally
- * compatible with `firebase-admin/firestore`'s `CollectionReference` so the
- * crawler can be passed a real `Firestore` *and* mocked in unit tests with
- * no firebase-admin import.
- */
-export interface CrawlerCollectionRef {
-  readonly id: string;
-  readonly path: string;
-  listDocuments(): Promise<CrawlerDocumentRef[]>;
-}
-
-/** Minimal document-reference contract — structural twin of admin SDK. */
-export interface CrawlerDocumentRef {
-  readonly id: string;
-  readonly path: string;
-  listCollections(): Promise<CrawlerCollectionRef[]>;
-  /**
-   * Fetch the document snapshot. Item 2.3+ uses this to feed wire values
-   * into the merge layer. Returns a `WireDocumentSnapshot` (the structural
-   * shape `wire.ts` expects) — admin SDK's `DocumentSnapshot` satisfies it
-   * by virtue of exposing `_fieldsProto` and `ref.path`.
-   */
-  get(): Promise<WireDocumentSnapshot>;
-}
-
-/**
- * Minimal Firestore root contract.
- *
- * `listCollections` is required for any crawl. `collection(path)` and
- * `doc(path)` are only required when continuations are in play (Item 4.2):
- * resuming a paused crawl reconstructs frontier/sample refs from
- * persisted paths via these factories. firebase-admin's `Firestore`
- * provides both natively; the `CrawlOptions.continuation` code path
- * fails loud if they're absent.
- */
-export interface CrawlerFirestore {
-  listCollections(): Promise<CrawlerCollectionRef[]>;
-  collection?(path: string): CrawlerCollectionRef;
-  doc?(path: string): CrawlerDocumentRef;
-}
 
 // ─── Crawl options ────────────────────────────────────────────────────────
 
