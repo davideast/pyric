@@ -30,7 +30,7 @@ interface PersistedSettings {
    *  A/B comparisons of agent quality without pyric's enhancements. */
   pyricDiagnosticsEnabled?: boolean;
   /** Per-tool toggles for entries in the diagnostic-tool manifest.
-   *  Keyed by manifest `key` (e.g. `firestore_discover`). Absent keys
+   *  Keyed by manifest `key` (e.g. `simulate_firestore_write`). Absent keys
    *  default to enabled — the agent sees a new tool the first time it
    *  ships unless the user has explicitly turned it off. The outer
    *  `pyricDiagnosticsEnabled` master gate still has to be on for any

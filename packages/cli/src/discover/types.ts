@@ -131,8 +131,7 @@ export type SamplingComplete =
 
 /**
  * Schema for a single collection as surfaced in the tool output's
- * `finalizedSchemas`. `templatePath` is the cross-reference key against
- * `firestore_inspect_rules` output (Phase 3.2 lock).
+ * `finalizedSchemas`.
  */
 export interface CollectionSchema {
   templatePath: string; // e.g. "users/{userId}/posts"

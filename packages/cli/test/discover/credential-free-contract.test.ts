@@ -9,7 +9,6 @@ import {
   crawl,
   findCollectionGroup,
 } from '../../src/discover/index.js';
-import { createRestCrawlerFirestore } from '../../src/discover/production.js';
 
 const ALLOW_ALL_RULES =
   "rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /{document=**} { allow read, write: if true; }}}";
@@ -79,8 +78,7 @@ describe('credential-free discovery contract', () => {
     }
   });
 
-  test('production discovery remains available as an isolated adapter for issue #265', () => {
-    expect(typeof createRestCrawlerFirestore).toBe('function');
+  test('public discovery exposes no production adapter', () => {
     expect('createRestCrawlerFirestore' in credentialFreeDiscovery).toBe(false);
     expect('RestCrawlerFirestoreError' in credentialFreeDiscovery).toBe(false);
   });

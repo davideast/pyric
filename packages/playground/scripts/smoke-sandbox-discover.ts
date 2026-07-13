@@ -13,7 +13,7 @@
  * Exit 0 = adapter wires up; exit 1 = empty schemas (regression).
  */
 import { createSandboxCrawlerFirestore } from '../src/lib/sandbox/crawler-firestore.ts';
-import { trimDiscoverResult } from '../src/lib/tools/diagnostics/firestore-discover.ts';
+import { trimDiscoverResult } from '../src/lib/tools/core/sandboxDiscover.ts';
 import { createFirestoreDiscoverTools } from '@pyric/cli/discover';
 
 // `gameConfig` mimics the production failure mode: a config doc that

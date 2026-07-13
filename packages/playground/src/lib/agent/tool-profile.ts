@@ -24,5 +24,5 @@ export function selectToolProfileForPrompt({
 }
 
 export function promptNeedsDiagnosticTools(prompt: string): boolean {
-  return /\b(debug|diagnos|investigate|denied?|denials?|traffic|deployed rules?|live project|real project|firestore_get_rules|discover paths?|collection group|simulate|regression|permission|security rules?)\b/i.test(prompt);
+  return /\b(debug|diagnos|investigate|denied?|denials?|traffic|simulate|regression|permission|security rules?)\b/i.test(prompt);
 }

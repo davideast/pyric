@@ -162,16 +162,10 @@ THE LOOP (building or changing a feature)
      inspect_denial as a tool (vs. reasoning silently) keeps the
      investigation visible to the user.
 
-SANDBOX vs REAL PROJECT
+SANDBOX DATA
   sandbox_discover_paths, simulate_firestore_write, seed-/inspect-*
   talk to the IN-BROWSER sandbox. Route "my data / my collections /
   my schema" about the sandbox to sandbox_discover_paths.
-  firestore_discover_paths, firestore_find_collection_group and
-  firestore_get_rules read the user's SIGNED-IN Firebase project —
-  never answer real-project questions with sandbox_* tools or vice
-  versa. For a large database, firestore_discover_paths({ dryRun:
-  true }) previews crawl cost. Results are returned in-turn only —
-  nothing is cached between turns; re-call when you need fresh data.
 
 AUTH IDENTITIES
   seed_auth_users bulk-creates sandbox test identities (custom claims

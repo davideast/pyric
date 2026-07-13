@@ -5,8 +5,7 @@
  * `~/lib/sessions/`).
  *
  * The same icon serves both pages (home + playground). Google sign-in
- * supplies the `cloud-platform` access token used by opt-in live
- * project diagnostics.
+ * supplies the account used by connected Firebase workflows.
  */
 import { useCallback, useState } from 'react';
 import {
@@ -32,8 +31,8 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             Account
           </h2>
           <p className="mt-1 text-[12px] text-slate-gray leading-relaxed">
-            Sign in with Google when live project diagnostics need access. Sessions are
-            stored locally in your browser — no sign-in is required to save.
+            Sign in with Google to connect external workflows. Sessions are stored
+            locally in your browser — no sign-in is required to save.
           </p>
         </header>
         {loading ? (
