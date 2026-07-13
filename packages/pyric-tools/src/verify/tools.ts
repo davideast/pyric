@@ -1,5 +1,5 @@
 import type { ToolHandler } from '@inbrowser/agent';
-import type { ProjectScope } from '../deploy/index.js';
+import type { ProjectScope } from '../credentials/core/types.js';
 import {
   deriveRulesTestCases,
   verifyFixture,

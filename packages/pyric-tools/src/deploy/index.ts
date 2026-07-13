@@ -28,7 +28,8 @@
 
 // ─── Foundation (Slice 1) ────────────────────────────────────────────
 
-export type { ProjectScope, Outcome } from './scope.js';
+export type { ProjectScope } from '../credentials/core/types.js';
+export type { Outcome } from './scope.js';
 export { AdminApiError } from './scope.js';
 export { fromServiceAccount } from '../credentials/node/from-service-account.js';
 export { getDeploy } from './from-admin-app.js';

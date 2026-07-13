@@ -22,7 +22,7 @@
  * FIREBASE_SA_BASE64 the live-integration tests use).
  */
 import { cert } from 'firebase-admin/app';
-import type { ProjectScope } from '@pyric/cli/deploy';
+import type { ProjectScope } from '../../../src/project-scope.js';
 import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
 import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
 import type { TestCase, TestFirestoreRulesResult } from '../../../src/rules/test/spec.js';

@@ -29,7 +29,7 @@
  * when the secret is absent (external PRs, unit-suite CI).
  */
 import { describe, test, beforeAll, afterAll } from 'bun:test';
-import type { ProjectScope } from '@pyric/cli/deploy';
+import type { ProjectScope } from '../../../src/project-scope.js';
 import {
   type Scenario,
   type CaseRow,

@@ -13,7 +13,8 @@ import { getAuth as getClientAuth, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore as getClientFirestore } from 'firebase/firestore';
 import { getDatabase as getClientDatabase } from 'firebase/database';
 import { initializeDatabaseApp, type RtdbHost } from 'pyric/database';
-import { getDeploy, type ProjectScope } from '../deploy/index.js';
+import type { ProjectScope } from '../credentials/core/types.js';
+import { projectScopeFromAdminApp } from '../credentials/node/admin-app-scope.js';
 import type { AdminAppDeps } from './compose.js';
 
 export interface AdminDepsResult {
@@ -44,7 +45,7 @@ export function adminDepsFromServiceAccount(opts: {
         projectId: cert.project_id,
       });
 
-  const scope = getDeploy(app);
+  const scope = projectScopeFromAdminApp(app);
   const apiKey = opts.apiKey ?? '';
   const clientApp = initializeClientApp(
     { apiKey, projectId: cert.project_id, authDomain: `${cert.project_id}.firebaseapp.com` },

@@ -4,9 +4,16 @@
  * seams the tests fake and the env adapters implement (node/ loopback + file,
  * browser/ popup + IndexedDB).
  */
-import type { ProjectScope } from '../../deploy/scope.js';
-
-export type { ProjectScope };
+/**
+ * Project identity plus a fresh-enough Google OAuth token resolver.
+ *
+ * The identity is stable for the lifetime of an operation while token
+ * acquisition remains lazy so long-running commands can refresh credentials.
+ */
+export interface ProjectScope {
+  readonly projectId: string;
+  resolveToken(): Promise<string>;
+}
 
 /** A Google OAuth client (a "Desktop" installed-app client). The secret is
  *  bundled, not confidential — PKCE is the real protection. */

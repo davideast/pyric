@@ -15,7 +15,7 @@ import {
   type TestResult,
 } from 'pyric/rules/internal';
 import type { RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
-import type { ProjectScope } from '../deploy/index.js';
+import type { ProjectScope } from '../credentials/core/types.js';
 import {
   isRtdbRulesDocument,
   parseRtdbRulesJson,

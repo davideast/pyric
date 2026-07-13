@@ -29,7 +29,7 @@ import {
 import { runAuthConfigureProvider, runAuthManageDomains } from './auth.js';
 import { runFirestoreDiscover } from './discover.js';
 import { runInit } from './init.js';
-import type { ProjectScope } from '../deploy/index.js';
+import type { ProjectScope } from '../credentials/core/types.js';
 
 // ── Test helpers ──────────────────────────────────────────────────────
 

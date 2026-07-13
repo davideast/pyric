@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { WriteFirestoreRulesHandler } from '../../../src/rules/write/handler.js';
-import type { ProjectScope } from '@pyric/cli/deploy';
+import type { ProjectScope } from '../../../src/project-scope.js';
 
 const MOCK_SCOPE: ProjectScope = {
   projectId: 'test-project',

@@ -18,7 +18,7 @@
  *   bun scripts/authorize-domain.ts --domain=staging.example.com
  *   bun scripts/authorize-domain.ts --list   # just print current list
  */
-import { fromServiceAccount } from '@pyric/cli/deploy';
+import { fromServiceAccount } from '@pyric/cli/credentials/node';
 import { ManageDomainsHandler } from '@pyric/cli/auth';
 
 const DEFAULT_DOMAIN = 'pyric-playground.web.app';
