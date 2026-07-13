@@ -29,7 +29,7 @@ import { getAI as pyricGetAI } from 'pyric/ai';
 import type { PyricApp } from 'pyric/app';
 import type { AiEngineConfigWire } from '../worker/protocol.js';
 import { aiGenerateContent, aiCountTokens, aiStreamGenerateContent } from '../worker/client.js';
-import { sandbox, workerDb, useWorker } from './runtime.js';
+import { workerDb, useWorker } from './runtime.js';
 
 // ── Mirror surface — path-independent (the mirror always runs in-page) ────
 export {
@@ -199,9 +199,7 @@ function portEngine(engineWire: AiEngineConfigWire | undefined): EngineOption {
 
 // ── getAI — worker-forwarded answering or whole-mirror in-page ─────────────
 function mirrorGetAI(app: unknown, options?: ipAi.AIOptions): ipAi.AI {
-  return app === undefined
-    ? pyricGetAI(sandbox, options)
-    : pyricGetAI(app as PyricApp, options);
+  return pyricGetAI(app as PyricApp | undefined, options);
 }
 
 export const getAI = (

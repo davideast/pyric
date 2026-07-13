@@ -25,7 +25,8 @@ import {
   type WireResponse,
 } from './broker/index.js';
 import { AIError, AIErrorCode } from './errors.js';
-import { targetOf, type AI } from './target.js';
+import { targetOf } from './target.js';
+import type { AI } from './types.js';
 
 export type { ScriptEntry, ScriptMatcher, ScriptRespond } from './broker/index.js';
 

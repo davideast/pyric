@@ -60,44 +60,44 @@ capture's distilled facts in the named test.
 <div class="compat-list">
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">getai-sandbox-dispatch</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getAI(sandbox)</code> returns an AI handle bound to the sandbox target; a model minted from it answers through the in-process answer engine</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-sandbox-dispatch</code> (no capture; structural dispatch claim)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#getai-sandbox-dispatch</code> (no capture; structural dispatch claim)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">getai-app-dispatch</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">After package resolution selects the mirror, <code>getAI(app)</code> uses the app's sandbox and the returned handle carries the app</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-app-dispatch</code> (package-resolution dispatch claim)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#getai-app-dispatch</code> (package-resolution dispatch claim)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">getai-default-backend</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">With no options the backend defaults to <code>GoogleAIBackend</code> and <code>backendType</code> is <code>GOOGLE_AI</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-default-backend</code> (matches upstream AIOptions default)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#getai-default-backend</code> (matches upstream AIOptions default)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">getai-idempotent</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Repeat <code>getAI</code> calls with the same target return a stable handle</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-idempotent</code> (no capture; structural claim)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#getai-idempotent</code> (no capture; structural claim)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">getai-engine-option</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getAI(sandbox, { backend: new GoogleAIBackend(), engine: { kind: "scripted" } })</code> selects the scripted engine explicitly and behaves identically to the zero-config default</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-engine-option</code> (engine seam per packages/conformance/docs/ai/cdd-deltas.md)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#getai-engine-option</code> (engine seam per packages/conformance/docs/ai/cdd-deltas.md)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">backend-vertex</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>VertexAIBackend</code> carries <code>backendType</code> <code>VERTEX_AI</code> and its <code>location</code> defaults to <code>us-central1</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#backend-vertex</code> (matches upstream constructor default)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#backend-vertex</code> (matches upstream constructor default)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">model-name-short</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">A short model name such as <code>gemini-flash-lite-latest</code> normalizes to the <code>models/</code> resource name on <code>GenerativeModel.model</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#model-name-short</code> (upstream AIModel normalization on the GoogleAI backend)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#model-name-short</code> (upstream AIModel normalization on the GoogleAI backend)</div></div>
 </details>
 <details class="compat-row" data-status="diverged">
 <summary class="compat-line"><span class="compat-num">model-name-prefixed</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">A <code>models/</code>-prefixed name is accepted without double prefixing</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#model-name-prefixed</code> (no capture; normalization claim)</div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#model-name-prefixed</code> (no capture; normalization claim)</div>
 <div class="compat-note">normalization</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">model-name-required</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior"><code>getGenerativeModel</code> without <code>modelParams.model</code> throws an <code>AIError</code> with code <code>no-model</code></span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#model-name-required</code> (upstream throw contract)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#model-name-required</code> (upstream throw contract)</div></div>
 </details>
 <details class="compat-row" data-status="ok">
 <summary class="compat-line"><span class="compat-num">getai-sandbox-no-network</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">The sandbox target with the scripted engine performs no network I/O for generateContent</span></summary>
-<div class="compat-evidence"><div class="compat-probe"><code>unit:init-dispatch.test.ts</code> test <code>ai#getai-sandbox-no-network</code> (ruling 1 of the engine placement deltas: the scripted engine does no I/O anywhere)</div></div>
+<div class="compat-evidence"><div class="compat-probe"><code>unit:instances.test.ts</code> test <code>ai#getai-sandbox-no-network</code> (ruling 1 of the engine placement deltas: the scripted engine does no I/O anywhere)</div></div>
 </details>
 </div>
 

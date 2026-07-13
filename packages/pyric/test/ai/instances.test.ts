@@ -1,5 +1,5 @@
 /**
- * Red conformance suite: `getAI(target)` and dispatch rows (ai#getai-*,
+ * Conformance suite for AI handle initialization and dispatch (ai#getai-*,
  * ai#backend-*, ai#model-name-*). One test per registry row id.
  * RED BY DESIGN until the ai mirror lands (CDD map #92).
  */

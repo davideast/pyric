@@ -1,5 +1,5 @@
 /**
- * Firebase AI-shaped public data types owned by the sandbox mirror.
+ * Firebase AI-shaped public types owned by the sandbox mirror.
  *
  * These interfaces deliberately describe values rather than importing the
  * production SDK's declarations. Package resolution decides whether an
@@ -18,16 +18,40 @@ import type {
   HarmSeverity,
   ImageConfigAspectRatio,
   ImageConfigImageSize,
-  Language,
   Modality,
-  Outcome,
   ResponseModality,
   Role,
   SchemaType,
-  ThinkingLevel,
-  URLRetrievalStatus,
 } from './enums.js';
-import type { ObjectSchema, TypedSchema } from './schema.js';
+import type { SandboxApp } from '../sandbox/internal/app-handle.js';
+import type { Sandbox } from '../sandbox/types/service.js';
+import type { AiBroker } from './broker/broker.js';
+import type { AnswerEngine, EngineConfig } from './broker/types.js';
+import type { Backend } from './backend.js';
+import type { TypedSchema } from './schema.js';
+
+/** Initialization options; `engine` is the sandbox-only answer-engine seam. */
+export interface AIOptions {
+  backend?: Backend;
+  useLimitedUseAppCheckTokens?: boolean;
+  /** Sandbox targets only: engine config (`scripted` default) or a custom engine. */
+  engine?: EngineConfig | AnswerEngine;
+}
+
+/** Sandbox AI handle. Direct sandbox handles have no `app`. */
+export interface AI {
+  app?: SandboxApp;
+  backend: Backend;
+  options?: AIOptions;
+}
+
+/** Per-handle sandbox dispatch state. */
+export interface SandboxTarget {
+  sandbox: Sandbox;
+  broker: AiBroker;
+}
+
+export type Target = SandboxTarget;
 
 export interface Date {
   year: number;
@@ -49,12 +73,12 @@ export interface CitationMetadata {
 }
 
 export interface CodeExecutionResult {
-  outcome?: Outcome;
+  outcome?: string;
   output?: string;
 }
 
 export interface ExecutableCode {
-  language?: Language;
+  language?: string;
   code?: string;
 }
 
@@ -200,7 +224,7 @@ export interface FunctionCallingConfig {
 export interface FunctionDeclaration {
   name: string;
   description: string;
-  parameters?: ObjectSchema | ObjectSchemaRequest;
+  parameters?: ObjectSchemaInstance | ObjectSchemaRequest;
   functionReference?: Function;
 }
 
@@ -256,7 +280,7 @@ export interface ToolConfig {
 
 export interface ThinkingConfig {
   thinkingBudget?: number;
-  thinkingLevel?: ThinkingLevel;
+  thinkingLevel?: string;
   includeThoughts?: boolean;
 }
 
@@ -295,6 +319,15 @@ export interface SchemaRequest extends SchemaShared<SchemaRequest> {
 export interface ObjectSchemaRequest extends SchemaRequest {
   type: 'object';
   optionalProperties?: never;
+}
+
+interface SchemaInstance extends SchemaInterface {
+  nullable: boolean;
+}
+
+interface ObjectSchemaInstance extends SchemaInstance {
+  properties: Record<string, SchemaInstance>;
+  optionalProperties: string[];
 }
 
 export interface GenerationConfig {
@@ -380,7 +413,7 @@ export interface GroundingMetadata {
 
 export interface URLMetadata {
   retrievedUrl?: string;
-  urlRetrievalStatus?: URLRetrievalStatus;
+  urlRetrievalStatus?: string;
 }
 
 export interface URLContextMetadata {

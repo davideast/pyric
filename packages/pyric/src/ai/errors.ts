@@ -11,8 +11,7 @@
  * same error from the wire envelope, with a production-shaped URL.
  */
 
-import { FirebaseError } from '../app/firebase-error.js';
-
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { AiBrokerError, type WireErrorEnvelope } from './broker/index.js';
 
 const AI_TYPE = 'AI';

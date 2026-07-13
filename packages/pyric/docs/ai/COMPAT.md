@@ -52,16 +52,16 @@ capture's distilled facts in the named test.
 
 | # | Behavior | Status | Probe |
 |---|---|---|---|
-| getai-sandbox-dispatch | `getAI(sandbox)` returns an AI handle bound to the sandbox target; a model minted from it answers through the in-process answer engine | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-sandbox-dispatch` (no capture; structural dispatch claim) |
-| getai-app-dispatch | After package resolution selects the mirror, `getAI(app)` uses the app's sandbox and the returned handle carries the app | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-app-dispatch` (package-resolution dispatch claim) |
-| getai-default-backend | With no options the backend defaults to `GoogleAIBackend` and `backendType` is `GOOGLE_AI` | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-default-backend` (matches upstream AIOptions default) |
-| getai-idempotent | Repeat `getAI` calls with the same target return a stable handle | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-idempotent` (no capture; structural claim) |
-| getai-engine-option | `getAI(sandbox, { backend: new GoogleAIBackend(), engine: { kind: "scripted" } })` selects the scripted engine explicitly and behaves identically to the zero-config default | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-engine-option` (engine seam per packages/conformance/docs/ai/cdd-deltas.md) |
-| backend-vertex | `VertexAIBackend` carries `backendType` `VERTEX_AI` and its `location` defaults to `us-central1` | ✓ | `unit:init-dispatch.test.ts` test `ai#backend-vertex` (matches upstream constructor default) |
-| model-name-short | A short model name such as `gemini-flash-lite-latest` normalizes to the `models/` resource name on `GenerativeModel.model` | ✓ | `unit:init-dispatch.test.ts` test `ai#model-name-short` (upstream AIModel normalization on the GoogleAI backend) |
-| model-name-prefixed | A `models/`-prefixed name is accepted without double prefixing | ⚠ normalization | `unit:init-dispatch.test.ts` test `ai#model-name-prefixed` (no capture; normalization claim) |
-| model-name-required | `getGenerativeModel` without `modelParams.model` throws an `AIError` with code `no-model` | ✓ | `unit:init-dispatch.test.ts` test `ai#model-name-required` (upstream throw contract) |
-| getai-sandbox-no-network | The sandbox target with the scripted engine performs no network I/O for generateContent | ✓ | `unit:init-dispatch.test.ts` test `ai#getai-sandbox-no-network` (ruling 1 of the engine placement deltas: the scripted engine does no I/O anywhere) |
+| getai-sandbox-dispatch | `getAI(sandbox)` returns an AI handle bound to the sandbox target; a model minted from it answers through the in-process answer engine | ✓ | `unit:instances.test.ts` test `ai#getai-sandbox-dispatch` (no capture; structural dispatch claim) |
+| getai-app-dispatch | After package resolution selects the mirror, `getAI(app)` uses the app's sandbox and the returned handle carries the app | ✓ | `unit:instances.test.ts` test `ai#getai-app-dispatch` (package-resolution dispatch claim) |
+| getai-default-backend | With no options the backend defaults to `GoogleAIBackend` and `backendType` is `GOOGLE_AI` | ✓ | `unit:instances.test.ts` test `ai#getai-default-backend` (matches upstream AIOptions default) |
+| getai-idempotent | Repeat `getAI` calls with the same target return a stable handle | ✓ | `unit:instances.test.ts` test `ai#getai-idempotent` (no capture; structural claim) |
+| getai-engine-option | `getAI(sandbox, { backend: new GoogleAIBackend(), engine: { kind: "scripted" } })` selects the scripted engine explicitly and behaves identically to the zero-config default | ✓ | `unit:instances.test.ts` test `ai#getai-engine-option` (engine seam per packages/conformance/docs/ai/cdd-deltas.md) |
+| backend-vertex | `VertexAIBackend` carries `backendType` `VERTEX_AI` and its `location` defaults to `us-central1` | ✓ | `unit:instances.test.ts` test `ai#backend-vertex` (matches upstream constructor default) |
+| model-name-short | A short model name such as `gemini-flash-lite-latest` normalizes to the `models/` resource name on `GenerativeModel.model` | ✓ | `unit:instances.test.ts` test `ai#model-name-short` (upstream AIModel normalization on the GoogleAI backend) |
+| model-name-prefixed | A `models/`-prefixed name is accepted without double prefixing | ⚠ normalization | `unit:instances.test.ts` test `ai#model-name-prefixed` (no capture; normalization claim) |
+| model-name-required | `getGenerativeModel` without `modelParams.model` throws an `AIError` with code `no-model` | ✓ | `unit:instances.test.ts` test `ai#model-name-required` (upstream throw contract) |
+| getai-sandbox-no-network | The sandbox target with the scripted engine performs no network I/O for generateContent | ✓ | `unit:instances.test.ts` test `ai#getai-sandbox-no-network` (ruling 1 of the engine placement deltas: the scripted engine does no I/O anywhere) |
 
 ## `GenerativeModel.generateContent` envelope
 
