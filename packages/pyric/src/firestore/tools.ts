@@ -13,7 +13,8 @@
  */
 
 import type { ToolHandler } from '@inbrowser/agent';
-import { inspectSandbox, type Sandbox } from 'pyric/sandbox';
+import type { Sandbox } from 'pyric/sandbox';
+import { inspect } from './sandbox-controls.js';
 import type { Firestore } from './index.js';
 import {
   doc,
@@ -365,19 +366,19 @@ export function createFirestoreInspectTools(deps: FirestoreInspectToolDeps): Too
       async execute(args) {
         const a = args as { recentEventLimit?: number };
         const sandbox = await resolveSandbox();
-        const inspect = inspectSandbox(sandbox, {
+        const report = inspect(sandbox, {
           recentEventLimit: a.recentEventLimit,
         });
         // Punch up the summary so it's useful in tool-result previews
         // without forcing the agent to drill into `data`.
         const summary =
-          `rules: ${inspect.rules.isEmpty ? 'EMPTY (setRules has not been called)' : `${inspect.rules.sizeBytes}B, ${inspect.rules.lint.errors} errors / ${inspect.rules.lint.warnings} warnings`}`
-          + ` · docs: ${inspect.documents.totalCount} across ${Object.keys(inspect.documents.byCollection).length} collections`
-          + ` · events: ${inspect.events.totalCount} total, ${inspect.events.recentDenials.length} recent denials`;
+          `rules: ${report.rules.isEmpty ? 'EMPTY (setRules has not been called)' : `${report.rules.sizeBytes}B, ${report.rules.lint.errors} errors / ${report.rules.lint.warnings} warnings`}`
+          + ` · docs: ${report.documents.totalCount} across ${Object.keys(report.documents.byCollection).length} collections`
+          + ` · events: ${report.events.totalCount} total, ${report.events.recentDenials.length} recent denials`;
         return {
           ok: true,
           summary,
-          data: inspect,
+          data: report,
         };
       },
     },

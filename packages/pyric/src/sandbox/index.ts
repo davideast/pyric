@@ -48,8 +48,6 @@ export type {
 } from './types/index.js';
 export { SandboxError } from './types/index.js';
 export { SandboxContextImpl } from './sandbox-context.js';
-export { inspectSandbox } from './inspect.js';
-export type { InspectSandboxOptions, SandboxInspect } from './inspect.js';
 
 // Remote sandbox (slice 1) — the brand + minimal channel contract that
 // lets `pyric-admin` recognize a Node-side handle onto the browser-hosted

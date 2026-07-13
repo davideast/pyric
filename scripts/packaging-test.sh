@@ -431,10 +431,10 @@ service cloud.firestore {
 
 // pyric — rules grammar (FirestoreRules.ohm asset) + sandbox core, no indexedDB.
 try {
-  const { initializeSandbox, inspectSandbox } = await import('pyric/sandbox');
+  const { initializeSandbox } = await import('pyric/sandbox');
   const firestore = await import('pyric/firestore');
   const { getFirestore } = firestore;
-  const { seedDocuments, setRules } = await import('pyric/sandbox/firestore');
+  const { inspect, seedDocuments, setRules } = await import('pyric/sandbox/firestore');
   const { firestoreRules, lint } = await import('pyric/rules');
   // firestoreRules() compiles the source — throws if the grammar asset is
   // missing, so a successful construct proves the .ohm asset shipped.
@@ -449,17 +449,17 @@ try {
   getFirestore(sandbox);
   setRules(sandbox, GOOD_RULES);
   seedDocuments(sandbox, { 'users/alice': { role: 'owner' } });
-  const inspected = inspectSandbox(sandbox);
+  const inspected = inspect(sandbox);
   if (sandbox.snapshot().firestore['users/alice']?.role !== 'owner') {
     throw new Error('packed sandbox/firestore seed did not reach Sandbox.snapshot()');
   }
   if (inspected.documents.totalCount !== 1) {
-    throw new Error('packed inspectSandbox did not observe the seeded document');
+    throw new Error('packed sandbox/firestore inspect did not observe the seeded document');
   }
   if ('sandbox' in firestore) {
     throw new Error('pyric/firestore still exposes the removed sandbox controls');
   }
-  ok(`pyric: rules simulation + sandbox/firestore controls + inspectSandbox ran (issues=${issues.length})`);
+  ok(`pyric: rules simulation + sandbox/firestore controls + inspect ran (issues=${issues.length})`);
 } catch (e) { bad('pyric runtime: ' + (e?.message ?? e)); }
 
 // pyric-admin — admin SDK ↔ pyric interop (resolves firebase-admin transitively).
