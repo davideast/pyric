@@ -1,11 +1,8 @@
-import { RtdbMapper } from '../../pyric/src/database/mapper.ts';
-import { SimulateHandler } from '../../pyric/src/database/simulation/handler.ts';
-import type { SimulationInput } from '../../pyric/src/database/simulation/spec.ts';
+import { compileRtdbRules, simulateRtdbRules } from '../../pyric/src/rules/rtdb/compiled-rules.ts';
+import type { SimulationInput } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
 import type { RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
 
 const REPLAY_UID = 'THP041EPnYbzh9c8GGBniSDoUKc2';
-const DATABASE_URL = 'https://pyric-oracle.firebaseio.com';
-
 export type RtdbVerdict = 'ALLOW' | 'DENY';
 
 export interface RtdbReplayResult {
@@ -64,7 +61,7 @@ function buildSimMock(
 
 function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbVerdict {
   const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
-  const ir = RtdbMapper.mapToIR(
+  const compiled = compileRtdbRules(
     {
       rules: {
         '.read': false,
@@ -72,8 +69,6 @@ function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbV
         [scenario.id]: subtree,
       },
     },
-    null,
-    DATABASE_URL,
   );
   const uid = testCase.authPresent ? REPLAY_UID : '';
   const opPath = substituteUid(testCase.opPath, uid);
@@ -93,7 +88,7 @@ function simulatorVerdict(scenario: RtdbScenario, testCase: RtdbTestCase): RtdbV
       : undefined,
   };
 
-  const result = new SimulateHandler().execute(ir, input);
+  const result = simulateRtdbRules(compiled, input);
   if (!result.success) return 'DENY';
   return result.data.allowed ? 'ALLOW' : 'DENY';
 }

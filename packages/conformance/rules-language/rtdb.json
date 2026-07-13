@@ -4,7 +4,7 @@
   "sources": [
     "Firebase Realtime Database Security Rules language reference (firebase.google.com/docs/reference/security/database)",
     "RTDB security rules core-syntax + conditions guides",
-    "Repo ground truth: src/database/grammar/RtdbExpr.ohm, src/database/grammar/validator.ts (DATASNAPSHOT_METHODS, STRING_METHODS, ALLOWED_IDENTIFIERS), src/database/types.ts (RtdbNode)"
+    "Repo ground truth: src/rules/rtdb/grammar/RtdbExpr.ohm, src/rules/rtdb/grammar/validator.ts (DATASNAPSHOT_METHODS, STRING_METHODS, ALLOWED_IDENTIFIERS), src/rules/rtdb/types.ts (RtdbNode)"
   ],
   "constructs": [
     {
@@ -198,7 +198,7 @@
       "reference": "https://firebase.google.com/docs/reference/security/database/string#toUpperCase",
       "status": "unprobed",
       "receiverType": "string",
-      "note": "Discrepancy: toUpperCase() is in the official RTDB String method set, but the parser validator's ALL_KNOWN_METHODS (database/grammar/validator.ts) lists toLowerCase without toUpperCase — the parser would reject it as UNKNOWN_METHOD."
+      "note": "Discrepancy: toUpperCase() is in the official RTDB String method set, but the parser validator's ALL_KNOWN_METHODS (rules/rtdb/grammar/validator.ts) lists toLowerCase without toUpperCase — the parser would reject it as UNKNOWN_METHOD."
     },
     {
       "id": "rtdb.method.string.length",
@@ -207,7 +207,7 @@
       "reference": "https://firebase.google.com/docs/reference/security/database/string#length",
       "status": "unprobed",
       "receiverType": "string",
-      "note": "Discrepancy: length is a String PROPERTY in the official language (`ref.val().length`, accessed as member, no call), but the validator lists it inside STRING_METHODS alongside the callable methods (database/grammar/validator.ts)."
+      "note": "Discrepancy: length is a String PROPERTY in the official language (`ref.val().length`, accessed as member, no call), but the validator lists it inside STRING_METHODS alongside the callable methods (rules/rtdb/grammar/validator.ts)."
     },
     {
       "id": "rtdb.operator.strictEq",

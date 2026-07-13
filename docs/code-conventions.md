@@ -258,13 +258,19 @@ surface barrels from outside the package (8.5).
 
 Today's sideways edges, enumerated:
 
-1. **rules -> database, re-export at the barrel.** `rules/index.ts`,
-   `rules/rtdb.ts`, and `rules/node.ts` re-export the RTDB constraints authoring
-   DSL and host contract from `database/*`. This is intentional composition:
-   `pyric/rules` presents the rtdb constraints surface as siblings. Ruling:
-   permitted, because it is re-export-only at a native aggregation barrel and
-   carries no logic. A mirror surface reaching sideways into another surface's
-   families is still banned. Encode the carve-out narrowly (8.7 check 2).
+1. **database -> rules/rtdb, rule evaluation only.** The database mirror owns
+   RTDB state, listeners, and Firebase-shaped operations. The native rules
+   surface owns the environment-independent RTDB parser, constraints compiler,
+   compiled rules tree, and simulator under `rules/rtdb/`. The database sandbox
+   reaches that engine only from its `sandbox/rules-eval.ts` adapter. Ruling:
+   permitted, because rule evaluation is a native engine capability rather than
+   a database transport or state concern. The dependency stays private: the
+   `pyric/database` barrel exports no rules-engine symbol. Encode this exception
+   narrowly (8.7 check 2). The engine's compiled tree contains only rule
+   structure and parsed expressions—never a database URL, service selector, or
+   cache lifecycle. Ohm grammar and semantics construction is lazy behind
+   `rules/rtdb/expression-engine.ts`, so importing `pyric/rules` does not compile
+   the RTDB grammar.
 
 2. **firestore-values -> rules/simulator/wrappers/*, deep leaf import.**
    `firestore-values/index.ts` imports the seven wrapper value classes (Timestamp,
@@ -285,7 +291,7 @@ Today's sideways edges, enumerated:
    violation.
 
 No mirror surface imports another mirror surface's family or backend files. The
-direction rule holds today except for the two documented native-surface edges
+direction rule holds today except for the two documented native-engine edges
 above.
 
 ## 8.4 Native (non-mirror) surfaces
@@ -294,10 +300,10 @@ A native surface reproduces no prod backend, so it has no dual-target split and
 no `X/sandbox/`. It still obeys the barrel, family, size, and direction rules.
 
 - **rules.** In-process engine. `rules/index.ts` is the barrel; the engine
-  (`simulator/`, `grammar/`, `linter/`, `modules/`) is engine-internal and is
+  (`simulator/`, `grammar/`, `linter/`, `modules/`, `rtdb/`) is engine-internal and is
   reached by package-internal consumers through the published `rules/internal`
-  subpaths. No prod/sandbox split. Its only external dependency is the
-  re-export-only edge to `database` (8.3 case 1).
+  subpaths. No prod/sandbox split. The database sandbox consumes the RTDB engine
+  through the private adapter described in 8.3 case 1.
 - **firestore-values.** A leaf value codec with two consumers (the sandbox
   persistence serializer and the serve worker client). It is a single-file
   native surface by design: it must stay small so the per-page bundle does not
@@ -348,11 +354,11 @@ its own commit, export path unchanged).
 |---|---|---|---|---|
 | firestore | engine + Admin face in central `sandbox/firestore/`, `sandbox/admin-firestore/`, `sandbox/admin-compat.ts` | `firestore/sandbox/` (engine) + the Admin face under firestore (see 8.8) | the firestore behavior climb already in flight (composite queries over worker, tier-1 cache-init) | `sandbox/firestore/*` -> `firestore/sandbox/*`; split `local-environment.ts` in the same move; Admin face per 8.8; package.json subpaths `pyric/sandbox/admin-firestore` and `pyric/sandbox/admin-compat` remap to the new dist path so the export contract is unchanged |
 | auth | one file `auth/sandbox-backend.ts`, 2173 lines (over the 600 trigger) | `auth/sandbox/backend.ts` facade + one concept per file | the next auth climb (blocking-function / before-state work) | `auth/sandbox-backend.ts` splits into `auth/sandbox/*`. Location is already correct (surface-local); the split only deepens it. The `auth-backend-split` branch target conforms (8.8) |
-| database | `database/sandbox/*`, one concept per file | unchanged. this is the reference example | no move | nothing |
+| database | `database/sandbox/*`, one concept per file | unchanged. this is the reference example | no move | RTDB rule evaluation delegates through `database/sandbox/rules-eval.ts` to the native engine; no parser/compiler lives under the mirror |
 | storage | backend inlined across `storage/{service,enforce,rules,persistence,internal}.ts`, no `sandbox/` subdir | extract the backend into `storage/sandbox/` (StorageService, IDB store, rules-eval), keep `storage/internal` as the host seam | the next storage climb (metadata / list / rules slices) | the non-public backend logic in those files moves to `storage/sandbox/*`; the family and `internal` files stay; `pyric/storage/internal` subpath unchanged |
 | messaging | `messaging/broker/*` | unchanged. reference example | no move | nothing |
 | ai | `ai/broker/*` + `ai/backend.ts` + `ai/sandbox-plane.ts` | conforms. optional tidy: fold `backend.ts` and `sandbox-plane.ts` under `ai/sandbox/` for symmetry | opportunistic, next time ai backend is touched | low priority; not blocking |
-| rules | native engine behind `rules/internal` | unchanged, except keep the `database` edge re-export-only | no move | nothing; 8.3 case 1 is a lint carve-out, not a move |
+| rules | Firestore engine under `rules/*`; RTDB engine historically under `database/{grammar,constraints,simulation}` | both native engines under `rules/`, with RTDB isolated in `rules/rtdb/` | RTDB pure-engine relocation | move the RTDB grammar, constraints compiler, compiled tree, simulator, and their tests under `rules/rtdb/`; keep `pyric/rules` and `pyric/rules/internal/rtdb` import paths stable |
 | firestore-values | leaf codec, deep-imports rules wrappers | unchanged near-term; long-term host the wrapper leaf here (8.3 case 2) | deferred, no climb blocks on it | eventually the wrapper value classes move to a shared leaf; not scheduled |
 
 New code rule, restated for the table: from ratification day, any firestore
@@ -372,8 +378,8 @@ every rule in this section mechanically.
 
 2. **No sideways surface imports.** For any file under `src/<A>/`, a relative
    import that crosses into another surface `src/<B>/` fails, with two
-   whitelisted exceptions: (a) importing `<B>/index.js` (the barrel) from a
-   native aggregation surface, which today is only `rules -> database`; (b) the
+   whitelisted exceptions: (a) `database/sandbox/rules-eval.ts` importing the
+   private `rules/rtdb` engine described in 8.3; (b) the
    `firestore-values -> rules/simulator/wrappers/*` leaf edge, listed explicitly
    so it is visible and removable. Any other cross-surface deep import fails.
 

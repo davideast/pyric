@@ -4,10 +4,11 @@ import { resolve } from 'node:path';
 import {
   allow,
   buildRuleExpression,
+  compileRtdbRules,
   defineRtdbRules,
   parseExpression,
-  RtdbMapper,
-  SimulateHandler,
+  serializeRtdbRules,
+  simulateRtdbRules,
 } from '../../src/rules/internal/rtdb.js';
 import * as rtdb from '../../src/rules/internal/rtdb.js';
 
@@ -15,7 +16,6 @@ describe('pyric/rules/rtdb facade', () => {
   test('exports only the pure RTDB rules engine', () => {
     expect(parseExpression('auth !== null').valid).toBe(true);
     expect(buildRuleExpression('auth.uid === $uid', 'read', ['$uid']).parsed.valid).toBe(true);
-    expect(SimulateHandler).toBeDefined();
 
     const productionOrStatefulExports = [
       'fetchDatabase',
@@ -26,15 +26,39 @@ describe('pyric/rules/rtdb facade', () => {
       'initializeDatabaseApp',
       'GenerateIRHandler',
       'WriteRulesHandler',
+      'RtdbMapper',
+      'SimulateHandler',
     ];
     expect(productionOrStatefulExports.filter((name) => name in rtdb)).toEqual([]);
   });
 
-  test('maps Firebase RTDB rules JSON to IR through the facade', () => {
-    const databaseUrl = 'https://demo-default-rtdb.firebaseio.com';
-    const ir = RtdbMapper.mapToIR({ rules: { users: { '$uid': { '.read': 'auth.uid === $uid' } } } }, null, databaseUrl);
-    expect(ir.service).toBe('realtime-database');
-    expect(ir.databaseUrl).toBe(databaseUrl);
+  test('compiles, serializes, and simulates a rules tree without environment metadata', () => {
+    const source = {
+      rules: {
+        users: {
+          '$uid': {
+            '.read': 'auth.uid === $uid',
+          },
+        },
+      },
+    };
+
+    const compiled = compileRtdbRules(source);
+
+    expect(compiled.path).toBe('/');
+    expect(serializeRtdbRules(compiled)).toEqual(source);
+
+    const result = simulateRtdbRules(compiled, {
+      operation: 'read',
+      path: '/users/alice',
+      auth: { uid: 'alice', token: {} },
+      mockData: {},
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.allowed).toBe(true);
+      expect(result.data.matchedPath).toBe('/users/$uid');
+    }
   });
 
   test('exports the constraints document API through the facade', () => {

@@ -164,9 +164,9 @@ import {
 } from 'firebase-admin/app';
 import { getDatabaseWithUrl as getAdminDatabase } from 'firebase-admin/database';
 import {
-  SimulateHandler,
-  RtdbMapper,
-  type RtdbIR,
+  compileRtdbRules,
+  simulateRtdbRules,
+  type CompiledRtdbRules,
   type SimulationInput,
 } from 'pyric/rules/internal/rtdb';
 
@@ -7041,13 +7041,13 @@ const probes: Probe[] = [
   // ─── A3: Simulator-vs-prod allow/deny agreement audit ──────────────
   //
   // The package's central oracle claim (row #71): the in-process
-  // SimulateHandler's allow/deny decision matches the live RTDB rules
+  // The in-process engine's allow/deny decision matches the live RTDB rules
   // engine for the same `{ rules, mockData, auth, operation, path,
   // newData }` tuple.
   //
   // Methodology: deploy each test rule to a unique sub-namespace,
   // run M ops against the live service (capturing allow/deny), then
-  // run the SAME ops through SimulateHandler with mockData=null/{} and
+  // run the SAME ops through the in-process engine with mockData=null/{} and
   // compare. Disagreements get listed in the observation file and
   // surfaced into a new section of COMPAT.md.
   //
@@ -7057,7 +7057,7 @@ const probes: Probe[] = [
     name: 'rtdb-simulator-vs-prod-agreement',
     matrixRow: 'rtdb #71',
     rowIds: ['rtdb#71'],
-    description: 'Simulator-vs-prod allow/deny agreement audit — deploy N rules to live RTDB, run M ops per rule against prod and through SimulateHandler, report per-op agreement / disagreement. Lists every divergence so the matrix can call them out.',
+    description: 'Simulator-vs-prod allow/deny agreement audit — deploy N rules to live RTDB, run M ops per rule against prod and through the in-process engine, report per-op agreement / disagreement. Lists every divergence so the matrix can call them out.',
     async observe() {
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
       if (!config.databaseURL || !rtdbAdminToken || !serviceAccount) {
@@ -7128,7 +7128,7 @@ const probes: Probe[] = [
       const testRules: Array<{
         id: string;
         subtree: Record<string, unknown>;
-        // The IR rules JSON form that mapToIR will accept. We build it
+        // The rules JSON form that compileRtdbRules accepts. We build it
         // by wrapping the subtree under `{ '.read': false, '.write': false, ... }`
         // so a deny-all root forces the simulator to descend into the
         // rule we want to test.
@@ -7295,11 +7295,10 @@ const probes: Probe[] = [
       // propagation) so we're not racing the rules-update.
       await new Promise((r) => setTimeout(r, 8_000));
       // For each (rule, op), execute the op against prod RTDB,
-      // capture allow/deny. Then build a SimulateHandler IR for the
+      // capture allow/deny. Then compile the same rules for the
       // SAME rule subtree (wrapped in a deny-all root for safety),
       // and run the same op through the simulator with the same
       // auth context.
-      const sh = new SimulateHandler();
       type DivergenceRow = {
         ruleId: string;
         opLabel: string;
@@ -7321,12 +7320,12 @@ const probes: Probe[] = [
       // separately, but the test rules interleave them.)
       // Strategy: run authed ops first while signed in, then sign
       // out and run anon ops, then sign back in.
-      // ── Build a per-rule IR for the simulator. Mount the rule at
+      // ── Build a compiled tree per rule for the simulator. Mount the rule at
       // a top-level key (mirroring how it'll be evaluated at the
-      // probe path). The simulator's mapToIR needs a `{ rules: { …
+      // probe path). The compiler needs a `{ rules: { …
       // root … } }` shape. We deny-all at root so the simulator
       // descends into our test rule.
-      const ruleIRs = new Map<string, RtdbIR>();
+      const compiledRules = new Map<string, CompiledRtdbRules>();
       for (const r of testRules) {
         // The simulator descends from root. Build a rules JSON where
         // the root has deny-all and ALL rule subtrees are mounted by
@@ -7344,22 +7343,21 @@ const probes: Probe[] = [
           },
         };
         try {
-          const ir = RtdbMapper.mapToIR(simRulesJson, null, config.databaseURL!);
-          ruleIRs.set(r.id, ir);
+          compiledRules.set(r.id, compileRtdbRules(simRulesJson));
         } catch (e) {
           // Skip this rule's simulator evaluation; mark its ops as
           // un-comparable.
           // Continue — we'll capture the build error in the prod-only
           // path.
-          console.log(`[oracle] simulator IR build failed for ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
+          console.log(`[oracle] simulator rules compile failed for ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
       // ── Execute ops. For each (rule, op):
       //   - prod path: write/read against `${auditKey}/<r.id>${opPath}`
       //     under the appropriate auth context.
-      //   - sim path: run handler.execute(ir, { operation, path: /<r.id><opPath>, auth, mockData, newData })
+      //   - sim path: run simulateRtdbRules(compiled, { operation, path: /<r.id><opPath>, auth, mockData, newData })
       for (const r of testRules) {
-        const ir = ruleIRs.get(r.id);
+        const compiled = compiledRules.get(r.id);
         for (const op of r.ops) {
           // Switch auth context if needed. Capture the LIVE uid after
           // re-signing in so paths/newData with `<UID>` substitute
@@ -7424,7 +7422,7 @@ const probes: Probe[] = [
           let simAllowed: boolean | null = null;
           let simReason: string | null = null;
           let simErrorCode: string | null = null;
-          if (ir) {
+          if (compiled) {
             const simPath = `/${r.id}${opPathSubst}`;
             // The simulator's mockData is a root-relative snapshot.
             // For `data.exists()` at `/<r.id><opPath>` to be true,
@@ -7462,13 +7460,13 @@ const probes: Probe[] = [
               mockData: coercedMock,
               newData: newDataSubst,
             };
-            const simRes = sh.execute(ir, simInput);
+            const simRes = simulateRtdbRules(compiled, simInput);
             if (simRes.success) {
               simAllowed = simRes.data.allowed;
               simReason = simRes.data.reason ?? null;
             } else {
               simErrorCode = simRes.error.code;
-              // Treat NO_MATCHING_RULE / IR_NOT_GENERATED as "deny
+              // Treat NO_MATCHING_RULE / RULES_NOT_COMPILED as "deny
               // by default" for comparison purposes — but capture
               // the actual code so we can see it in the observation.
               simAllowed = false;

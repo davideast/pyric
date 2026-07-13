@@ -4,7 +4,7 @@
  * For every construct in each language snapshot, GENERATE a micro-scenario
  * that exercises just that construct and run it through the corresponding
  * simulator (the Firestore evaluator, the Storage evaluator, the RTDB
- * SimulateHandler). Classify the result:
+ * rules engine). Classify the result:
  *
  *   - `implemented`  — the evaluator evaluated the construct (any ALLOW/DENY
  *                      verdict that is not an abstain and not a probe error).
@@ -31,9 +31,12 @@ import {
   evaluateStorageRules,
   type EvaluationInput,
 } from '../../../packages/pyric/src/storage/rules.ts';
-import { RtdbMapper } from '../../../packages/pyric/src/database/mapper.ts';
-import { SimulateHandler } from '../../../packages/pyric/src/database/simulation/handler.ts';
-import type { SimulationInput } from '../../../packages/pyric/src/database/simulation/spec.ts';
+import {
+  compileRtdbRules,
+  simulateRtdbRules,
+  type CompiledRtdbRules,
+} from '../../../packages/pyric/src/rules/rtdb/compiled-rules.ts';
+import type { SimulationInput } from '../../../packages/pyric/src/rules/rtdb/simulation/spec.ts';
 import { loadSnapshot, type LanguageConstruct, type RulesEngine } from '../rules-language/load.ts';
 
 export type Classification = 'implemented' | 'unsupported' | 'error' | 'unprobeable';
@@ -533,9 +536,6 @@ service firebase.storage {
 // RTDB
 // ════════════════════════════════════════════════════════════════════
 
-const RT_URL = 'https://probe.firebaseio.com';
-const rtSim = new SimulateHandler();
-
 type RtProbe =
   | { read: string; op?: 'read' | 'write'; newData?: unknown; mockData?: unknown }
   | { subtree: Record<string, unknown>; op: 'read' | 'write'; opPath?: string; newData?: unknown; mockData?: unknown }
@@ -562,11 +562,11 @@ function rtRun(probe: RtProbe): { classification: Classification; detail: string
     mockData = probe.mockData ?? {};
   }
   const rules = { rules: { '.read': false, '.write': false, ...subtree } };
-  let ir;
+  let compiled: CompiledRtdbRules;
   try {
-    ir = RtdbMapper.mapToIR(rules, null, RT_URL);
+    compiled = compileRtdbRules(rules);
   } catch (e) {
-    return { classification: 'error', detail: `mapToIR threw: ${(e as Error).message}` };
+    return { classification: 'error', detail: `compileRtdbRules threw: ${(e as Error).message}` };
   }
   const input: SimulationInput = {
     operation: op,
@@ -577,7 +577,7 @@ function rtRun(probe: RtProbe): { classification: Classification; detail: string
   };
   let res;
   try {
-    res = rtSim.execute(ir, input);
+    res = simulateRtdbRules(compiled, input);
   } catch (e) {
     return { classification: 'error', detail: `execute threw: ${(e as Error).message}` };
   }

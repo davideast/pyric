@@ -133,7 +133,7 @@ export {
   schemaRules,
   ruleset,
   defineRtdbRules,
-} from '../database/constraints/index.js';
+} from './rtdb/constraints/index.js';
 export type {
   Expr,
   PathDef,
@@ -148,4 +148,4 @@ export type {
   RtdbRulesFindingRule,
   RtdbRulesSimulationAuth,
   RtdbRulesSimulationInput,
-} from '../database/constraints/index.js';
+} from './rtdb/constraints/index.js';

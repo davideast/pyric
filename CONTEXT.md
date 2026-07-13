@@ -165,7 +165,7 @@ Version `0.1.0-alpha.8`, published to npm. ESM-only, subpath-only, Node `>=22`.
 | `pyric/rules/internal` | Engine internals seam. |
 | `pyric/rules/internal/node` | Node-only filesystem-backed module resolution. |
 | `pyric/rules/internal/extract` | Composite-index extraction. |
-| `pyric/rules/internal/rtdb` | RTDB rules engine internals. |
+| `pyric/rules/internal/rtdb` | Pure RTDB rules engine internals: environment-independent compile/serialize/simulate seams plus replay and constraints. |
 | `pyric/sandbox` | Sandbox lifecycle, events, persistence, replay, branches. |
 | `pyric/sandbox/firestore` | Firestore-specific sandbox controls: rules, seeding, snapshots, and inspection. Controls receive the owning local `Sandbox`. |
 | `pyric/sandbox/internal` | Adapter-only internal protocol. |
@@ -562,9 +562,9 @@ Repo-local skills: `.agents/skills/playground-prompts`,
 
 - `.agents/skills/playground-prompts/SKILL.md` still references
   `examples/playground-next`; the tracked playground is `packages/playground`.
-- The RTDB compat registry still contains transitional rows for the legacy
-  host/toolkit implementation under `pyric/rules/internal/rtdb`. They are not
-  part of the public `pyric/database` mirror and are pending retirement.
+- The RTDB compat registry preserves unsupported tombstones for removed
+  production/stateful toolkit row IDs. They are historical provenance, not
+  current API claims and not exports of the public `pyric/database` mirror.
 - `scripts/build.sh` comments still list four packages even though the build
   also builds/embeds Studio and the docs site.
 - **The rules-language reports have no freshness gate.** `COMPAT.md` and the

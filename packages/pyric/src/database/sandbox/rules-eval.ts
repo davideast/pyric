@@ -3,9 +3,9 @@
  * backend to the existing internal RTDB simulator.
  *
  * The hard part of an RTDB sandbox is the rules engine; the package
- * already ships one (`SimulateHandler` + the Ohm grammar). This module
+ * already ships one (the compiled-rules seam plus the Ohm grammar). This module
  * is the thin glue that lets a path-based read / write op consult that
- * engine without the modular backend needing to know about IR shapes.
+ * engine without the modular backend needing to know its compiled tree shape.
  *
  * Permission semantics mirror the empirical oracle observations
  * (`rtdb-rules-denied-error-code.json`):
@@ -20,9 +20,11 @@
  * is `{ ".read": "auth != null", ".write": "auth != null" }`; an
  * unconfigured DB allows everything until rules deploy).
  */
-import { RtdbMapper } from '../mapper.js';
-import { SimulateHandler } from '../simulation/handler.js';
-import type { RtdbIR } from '../types.js';
+import {
+  compileRtdbRules,
+  simulateRtdbRules,
+  type CompiledRtdbRules,
+} from '../../rules/rtdb/compiled-rules.js';
 import type { AuthState } from 'pyric/sandbox';
 
 /**
@@ -42,8 +44,8 @@ export function permissionDenied(): Error {
 }
 
 /**
- * Wrapper around the existing `SimulateHandler` that:
- *   - parses freshly-deployed rules JSON into an IR (cached per
+ * Wrapper around the pure rules engine that:
+ *   - compiles freshly-deployed rules JSON into a tree (cached per
  *     `RulesEvaluator` instance);
  *   - exposes a `check(op, path, auth, mockData?, newData?)` that
  *     returns `'allow' | 'deny' | 'no-rule'`.
@@ -94,24 +96,21 @@ export interface EvalContext {
 }
 
 export class RulesEvaluator {
-  private ir: RtdbIR | null = null;
-  private readonly handler = new SimulateHandler();
+  private compiled: CompiledRtdbRules | null = null;
 
   /** Replace the deployed rules. `null` clears (sandbox returns to
    *  default-allow). */
   setRules(rulesJson: { rules: Record<string, unknown> } | null): void {
     if (rulesJson === null) {
-      this.ir = null;
+      this.compiled = null;
       return;
     }
-    // shallowData is irrelevant here — used only by the IR for crawl
-    // metadata. Pass null so we don't synthesize fake-exists flags.
-    this.ir = RtdbMapper.mapToIR(rulesJson, null, 'sandbox://rtdb');
+    this.compiled = compileRtdbRules(rulesJson);
   }
 
   /** True when rules have been deployed via `setRules`. */
   hasRules(): boolean {
-    return this.ir !== null;
+    return this.compiled !== null;
   }
 
   /**
@@ -137,7 +136,7 @@ export class RulesEvaluator {
     path: string,
     ctx: EvalContext,
   ): RuleEvaluationDetails {
-    if (this.ir === null) {
+    if (this.compiled === null) {
       return {
         check: 'allow',
         reasons: ['No RTDB rules loaded; default allow.'],
@@ -153,7 +152,7 @@ export class RulesEvaluator {
       ctx.auth === null
         ? null
         : { uid: ctx.auth.uid, token: ctx.auth.token ?? {} };
-    const result = this.handler.execute(this.ir, {
+    const result = simulateRtdbRules(this.compiled, {
       operation,
       path: path === '/' ? '/' : path,
       auth: normalisedAuth,
@@ -170,7 +169,7 @@ export class RulesEvaluator {
           errorMessage: result.error.message,
         };
       }
-      // INVALID_INPUT / IR_NOT_GENERATED / EVALUATION_ERROR — treat as
+      // INVALID_INPUT / EVALUATION_ERROR — treat as
       // no-rule (user-mode callers fold to deny).
       return {
         check: 'no-rule',
