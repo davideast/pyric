@@ -1,8 +1,8 @@
 # Pyric - Context Document
 
-Last updated: 2026-07-13. Refreshed after package resolution became the sole
-production/sandbox boundary for App, Auth, Firestore, Storage, and AI, and after
-the conformance system moved into its own workspace package.
+Last updated: 2026-07-13. Refreshed after `@pyric/cli` package rename,
+new CLI commands and env vars, and after the conformance system moved into its
+own workspace package.
 
 This is a Bun-managed monorepo for **Pyric: Firebase for agents**. `pyric`,
 `pyric-admin`, `pyric-tools`, and `@pyric/ui` published their first npm alpha
@@ -199,13 +199,16 @@ Node `>=22`. Exports: `pyric-admin/app`, `/auth`, `/firestore`, `/database`,
 It depends on `pyric` and `firebase-admin`. Sandbox backends route into
 `pyric/sandbox`; prod backends delegate to real `firebase-admin`.
 
-### `pyric-tools`
+### `@pyric/cli`
 
 Version `0.1.0-alpha.8` (lockstep). ESM-only, Node `>=22`, binary name `pyric`.
 
-Exports: `pyric-tools/deploy`, `/register`, `/registry`, `/credentials`,
-`/credentials/node`, `/verify`, `/bridge`, `/bridge/client`, `/discover`,
-`/auth`, `/remote`, `/vite`, `/serve/worker`.
+Exports: `@pyric/cli/verify`, `@pyric/cli/assurance`, `@pyric/cli/bridge`,
+`@pyric/cli/discover`, `@pyric/cli/vite`, `@pyric/cli/serve`,
+`@pyric/cli/credentials`, `@pyric/cli/credentials/node`,
+`@pyric/cli/deploy`, `@pyric/cli/register`, `@pyric/cli/registry`,
+`@pyric/cli/auth`, `@pyric/cli/remote`, `@pyric/cli/rtdb`,
+`@pyric/cli/serve/worker`, plus the CLI entry at `@pyric/cli`.
 
 The `bridge` export has `node`, `browser`, and `default` import conditions, but
 no CommonJS `require` condition.
@@ -367,24 +370,35 @@ refuses to deploy a marked sandbox build.
 
 ## CLI Surface
 
-The binary is `pyric` from `pyric-tools`. Subcommands:
+The binary is `pyric` from `@pyric/cli` (published from `packages/pyric-tools`).
+Subcommands:
 
 - `pyric init [dir]`
-- `pyric bridge`
+- `pyric bridge` — MCP bridge for Claude Code
 - `pyric dev [--port N] [--host H] [--ui] [--bridge] [--seed FILE] [--persist]
   [--fresh] [--no-run] [--no-watch] [--no-open] [--no-capture] [--no-cache]
   [--json] [-- <cmd>]`
 - `pyric snapshot [--out=FILE]`
 - `pyric verify [fixture|dir]` / `pyric verify cases [fixture]`
+- `pyric mcp`
+- `pyric vendor`
 - `pyric deploy <rules|indexes|database|hosting|functions>`
-- `pyric rules:lint|rules:validate|rules:simulate`
+- `pyric firestore:rules:lint|firestore:rules:validate|firestore:rules:simulate`
+- `pyric storage:rules:lint|storage:rules:validate|storage:rules:simulate`
 - `pyric database:rules:lint|database:rules:validate|database:rules:simulate|database:rules:generate`
 - `pyric auth:configure-provider <id> <enabled>`
 - `pyric auth:manage-domains <add|remove|list> [domain]`
 
 `pyric serve` was renamed `pyric dev`; there is no `serve` alias. Default port
-is 3473, scanning forward when taken. Current CLI docs:
-`packages/pyric-tools/docs/reference/cli.md`.
+is 3473, scanning forward when taken.
+
+`pyric dev` reads these env vars (all opt-in booleans except `PYRIC_PORT`,
+`PYRIC_HOST`, `PYRIC_SEED`): `PYRIC_PORT`, `PYRIC_HOST`, `PYRIC_SANDBOX`,
+`PYRIC_UI`, `PYRIC_BRIDGE`, `PYRIC_NO_RUN`, `PYRIC_NO_WATCH`, `PYRIC_NO_OPEN`,
+`PYRIC_NO_CAPTURE`, `PYRIC_NO_CACHE`, `PYRIC_JSON`, `PYRIC_SEED`,
+`PYRIC_PERSIST`, `PYRIC_FRESH`.
+
+Current CLI docs: `packages/pyric-tools/docs/reference/cli.md`.
 
 ## Packaging Contract
 
