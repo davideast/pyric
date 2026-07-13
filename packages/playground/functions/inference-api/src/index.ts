@@ -1,8 +1,8 @@
 /**
  * Cloud Function Gen 2 entry — production host for the playground's
  * resumable inference server. Deployed to the `digame-mas` project,
- * called cross-origin at its raw Cloud Run URL (the deploy writes
- * that URL to `/inference-endpoint.json`; the client fetches it on
+ * called cross-origin at its direct Cloud Function URL (the deploy
+ * writes that URL to `/inference-endpoint.json`; the client fetches it on
  * load). The Firebase Hosting rewrite path is intentionally bypassed:
  * Hosting buffers SSE end-to-end (proven by debug-stream probes in
  * PR #327).
@@ -15,10 +15,11 @@
  * Bundled to `lib/index.js` by `scripts/build-fn.ts` (Bun, target
  * node). Workspace packages (@inbrowser/relay, @inbrowser/resumable,
  * @inbrowser/agent) are bundled in; the only runtime dep is
- * `@google-cloud/functions-framework`.
+ * `firebase-functions`.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createExpressHandlers } from '@inbrowser/relay';
+import { onRequest } from 'firebase-functions/v2/https';
 import { relay } from '../../../src/lib/server/relay';
 import {
   corsHeaders,
@@ -98,12 +99,10 @@ type FfRequest = IncomingMessage & {
 };
 
 /**
- * Functions-Framework auto-registers the named export matching the
- * deploy target. We don't use Express here, so the dispatcher does
- * the URL → handler routing inline (small enough to inline; saves
- * the dep).
+ * The dispatcher stays framework-light: firebase-functions owns the
+ * endpoint metadata while this handler routes URL paths directly.
  */
-export async function inferenceApi(req: FfRequest, res: ServerResponse): Promise<void> {
+async function handleInferenceApi(req: FfRequest, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const path = url.pathname;
   const method = (req.method ?? 'GET').toUpperCase();
@@ -128,3 +127,25 @@ export async function inferenceApi(req: FfRequest, res: ServerResponse): Promise
   res.statusCode = 404;
   res.end('not found');
 }
+
+export const inferenceApi = onRequest(
+  {
+    region: 'us-central1',
+    // Keep the manually configured no-CPU-throttling service setting;
+    // firebase-functions does not currently expose that Cloud Run knob.
+    preserveExternalChanges: true,
+    // One warm 1 GiB instance removes the cold-start penalty while the
+    // max keeps this single-user Playground's cost bounded. Concurrency
+    // 80 prevents simultaneous agent/stream requests from making the
+    // single instance behave as a single-flight service.
+    memory: '1GiB',
+    timeoutSeconds: 300,
+    minInstances: 1,
+    maxInstances: 1,
+    concurrency: 80,
+    // A full CPU is required for Gen 2 concurrency.
+    cpu: 1,
+    invoker: 'public',
+  },
+  (req, res) => handleInferenceApi(req as FfRequest, res),
+);

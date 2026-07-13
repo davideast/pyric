@@ -40,8 +40,8 @@ describe('W2.2 environment brief', () => {
       // write_file semantics — the invariant that prevents damage.
       expect(p).toContain('replaces the whole file');
       expect(p).toContain('edit_file');
-      // Deploy-bundle + preview deny-lists (PyricLeakError class of bug).
-      expect(p).toContain('@pyric/*');
+      // Generated app source stays on canonical Firebase imports.
+      expect(p).toContain('pyric/*');
       expect(p).toContain('signInWithCustomToken');
     }
     // Diag-gated pyric wisdom: pitfalls stay terse but present.

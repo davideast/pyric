@@ -18,7 +18,7 @@ describe('Playground workbench layout helpers', () => {
     ]);
   });
 
-  test('app-builder Firebase workbench keeps the full subtab set', () => {
+  test('app-builder Firebase workbench has no production deploy surface', () => {
     expect(firebaseSubTabsForProfile('app-builder').map((tab) => tab.id)).toEqual([
       'sandbox',
       'data',
@@ -28,7 +28,6 @@ describe('Playground workbench layout helpers', () => {
       'seed',
       'ideas',
       'suggestions',
-      'deploy',
     ]);
   });
 

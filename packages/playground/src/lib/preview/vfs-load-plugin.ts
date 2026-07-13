@@ -1,8 +1,8 @@
 /**
  * esbuild plugin that resolves relative imports against the OPFS VFS.
  *
- * Used by both the preview compile and the deploy bundle so a
- * multi-file App TSX project — `App.tsx` plus its `./components/*.tsx`,
+ * Used by the preview compiler so a multi-file App TSX project —
+ * `App.tsx` plus its `./components/*.tsx`,
  * `./lib/*.ts`, etc. — bundles cleanly without a real on-disk tree.
  *
  * Bare specifiers (`react`, `firebase/firestore`, user-installed
@@ -102,7 +102,7 @@ export function vfsLoadPlugin(): Plugin {
       // which carries the abs path of the file it stands in for).
       build.onResolve({ filter: /^[./]/ }, async (args) => {
         const importer = args.importer ?? '';
-        // The virtual `./firebase` deploy hook gets its own resolver
+        // The virtual `./firebase` preview hook gets its own resolver
         // upstream; leave that one alone so it stays in the virtual
         // namespace and isn't shadowed by an absent /workspace/firebase.
         if (args.path === './firebase') return null;

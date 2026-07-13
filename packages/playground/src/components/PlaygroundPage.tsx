@@ -875,7 +875,7 @@ export function PlaygroundPage() {
           {/* Ambient-autosave indicator — driven by the real save
               lifecycle reported from useSessionRouting. Its popover
               carries the persistence truth copy + the sign-in step. */}
-          <AutosaveStatus onOpenAccount={handleOpenAccount} />
+          <AutosaveStatus />
         </TopBar>
       ) : null}
 
@@ -927,8 +927,6 @@ export function PlaygroundPage() {
               },
               subTab: firebaseSubTab,
               onSubTabChange: setFirebaseSubTab,
-              sessionId: sessionRouting.sessionId,
-              contextWindow,
               sandboxMode: sessionRouting.sandboxMode,
               sandboxModeDisabled: !sessionRouting.isWriter,
               onSandboxModeChange: handleSandboxModeChange,

@@ -5,7 +5,7 @@
  * inside a `PreviewErrorBoundary`.
  *
  * The user's `appSource` uses canonical `firebase/firestore` +
- * `react` imports — the same shape the deploy build sees. The
+ * `react` imports — the same shape a production build sees. The
  * preview compiles via `esbuild-wasm` and aliases those imports
  * to pyric-flavored values exposed on
  * `globalThis.__pyricPreview__`. `sandbox.*` is deliberately not
@@ -129,7 +129,7 @@ interface AppPreviewProps {
 /**
  * Build the agent-facing prompt the Fix button submits. Keeps the
  * model focused on the App TSX and reminds it of the canonical
- * import shape the preview + deploy bundlers expect. Same prompt
+ * import shape the preview and a production build expect. Same prompt
  * shape for compile and runtime errors.
  */
 function buildFixPrompt(kind: 'compile' | 'runtime', body: string): string {
@@ -151,11 +151,11 @@ function buildFixPrompt(kind: 'compile' | 'runtime', body: string): string {
     '- Export the component as `export default function App() { … }`.',
     '- Use the MODULAR Firestore shape (`collection(db, "users")`, `getDoc(ref)`,',
     '  `setDoc(ref, data)`) — not `db.collection(...).get()`.',
-    '- `firebase/auth` IS available in app code (aliased to `@pyric/auth` in',
-    '  sandbox preview, real `firebase/auth` in deploy). Call `getAuth()` inside',
+    '- `firebase/auth` IS available in app code (aliased to `pyric/auth` in',
+    '  sandbox preview, real `firebase/auth` in a production build). Call `getAuth()` inside',
     '  hooks; subscribe with `onAuthStateChanged(getAuth(), …)` in a `useEffect`.',
     '- The `sandbox` global is NOT available in app code — only in runner `code`.',
-    '- The `@pyric/*` namespace is NOT importable in app code; the deploy bundler refuses any bundle that contains it.',
+    '- Import from canonical `firebase/*` paths; the Playground compiler owns the sandbox mapping.',
     'After editing, call runOnce to make sure rules still pass.',
   ].join('\n');
 }
@@ -282,20 +282,17 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
         // `getFirestore` is wrapped so a bare `getFirestore()` call
         // in app code (the canonical
         // `import { getFirestore } from "firebase/firestore"` shape)
-        // defaults to the runner's sandbox — otherwise
-        // `@pyric/firestore.getFirestore(undefined)` falls through to
-        // real `firebase/firestore.getFirestore()`, which requires
-        // `initializeApp()` and throws `app/no-app` in the sandbox.
-        // Mirrors the `getAuth` wrap below; both keep app code
-        // portable between sandbox preview and deploy without app
-        // code knowing which world it's in. The agent reliably
+        // defaults to the runner's sandbox. Mirrors the `getAuth`
+        // wrap below; both keep canonical app code portable while
+        // package resolution chooses the sandbox implementation in
+        // the Playground and Firebase in production. The agent reliably
         // drifts into bare `getFirestore()` calls (see
         // `packages/playground/scripts/playground-debug.ts`
         // replay against a saved session), so the wrap is the load-
         // bearing safety net even though the system prompt also
         // tells the agent to prefer `import { db } from "./firebase"`.
         // Inner cast picks one overload at TS-check time — runtime
-        // dispatch happens inside `@pyric/firestore.getFirestore`.
+        // dispatch happens inside `pyric/firestore.getFirestore`.
         getFirestore: shared
           ? ((target?: unknown) => (target && typeof target === 'object' ? target : workerDb)) as typeof getFirestore
           : ((target?: Parameters<typeof getFirestore>[0]) =>
@@ -334,20 +331,16 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
         queryEqual,
         snapshotEqual,
       },
-      // `firebase/auth` is aliased to `@pyric/auth` at preview-bundle
-      // time. AppPreview supplies the real surface so the runner's
+      // `firebase/auth` is aliased to `pyric/auth` at preview-bundle
+      // time. AppPreview supplies the mirror surface so the runner's
       // sandbox sees identity changes (paired with runner.ts's
       // `getFirestore(this.sandbox)` per-call overload).
       //
       // `getAuth` is wrapped so a `getAuth()` call with no args
       // (the canonical `import { getAuth } from "firebase/auth"`
-      // shape) defaults to the runner's sandbox in the preview —
-      // otherwise `@pyric/auth.getAuth(undefined)` falls through to
-      // real `firebase/auth.getAuth()`, which requires
-      // `initializeApp()` and throws `app/no-app` in the sandbox.
-      // In deploy the same `getAuth()` defaults to `getApp()` from
-      // the entry-source's `initializeApp(firebaseConfig)`, so app
-      // code stays portable between worlds.
+      // shape) defaults to the runner's sandbox in the preview. In a
+      // production build the canonical import resolves directly to
+      // Firebase, so app code stays portable between worlds.
       'firebase/auth': {
         getAuth: shared
           ? (((target?: unknown) => sharedWorkerRuntime.getAuth(
@@ -381,22 +374,18 @@ function PreviewMount({ evaluate, resetKey, onOpenDenials, onRefresh }: PreviewM
         inMemoryPersistence,
         // Preview-only sandbox driver — `seedUsers`, `setUser`,
         // `mockSignInResult`. Lets preview tests pre-stage
-        // test users with customClaims. Deploy bundles never see
-        // this (firebase/auth is external + resolves to esm.sh,
-        // which has no `sandbox` export); see preview-scope.ts for
-        // the safety analysis.
+        // test users with customClaims. Generated application source
+        // must not use this host-only testing capability.
         sandbox: authSandbox,
       },
-      // `firebase/database` is aliased to `@pyric/rtdb` at preview-
-      // bundle time (Phase 3 Tier 5). Same wrap rationale as
+      // `firebase/database` is aliased to `pyric/database` at preview-
+      // bundle time. Same wrap rationale as
       // `getAuth` / `getFirestore` above: a bare `getDatabase()`
       // call with no args defaults to the runner's sandbox so app
-      // code stays portable between sandbox preview and deploy.
-      // The `sandbox.*` test-driver namespace from `@pyric/rtdb`
+      // code stays portable between sandbox preview and production.
+      // The `sandbox.*` test-driver namespace from `pyric/database`
       // is intentionally NOT exposed to app code — that's runner-
-      // side only. The deploy bundler's metafile gate
-      // (`bundleApp.ts::assertNoPyricLeak`) still trips on any
-      // direct `@pyric/rtdb` import in deployed app code.
+      // side only.
       'firebase/database': {
         getDatabase: shared
           ? ((() => sharedWorkerRuntime.rtdbGetDatabase(workerDb!)) as unknown as typeof getDatabase)

@@ -6,12 +6,11 @@
  *   2. Record the package + canonical CDN URL in a registry file in
  *      the VFS (`/packages/registry.json`).
  *   3. Maintain a mirrored import map (`/packages/import-map.json`)
- *      that the esbuild CDN plugin (preview + deploy) reads at build
- *      time and the preview iframe injects at runtime.
+ *      that the preview's esbuild CDN plugin reads at build time and
+ *      the preview iframe injects at runtime.
  *
  * No package source is downloaded — the browser fetches the module
- * from esm.sh on demand the same way the deploy import map already
- * does for `react` / `firebase/*`.
+ * from esm.sh on demand through the preview import map.
  */
 
 import { getVFS, type OPFSPromisesAPI } from '~/lib/vfs';

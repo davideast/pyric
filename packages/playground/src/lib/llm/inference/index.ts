@@ -11,8 +11,8 @@
  * wrappers in ../{gemini,openrouter}.ts) don't know which transport
  * is live.
  *
- * `server` mode hits the deployed Cloud Function at its raw Cloud Run
- * URL — the deploy writes that URL to `/inference-endpoint.json`. The
+ * `server` mode hits the deployed Cloud Function at its direct
+ * endpoint — the deploy writes that URL to `/inference-endpoint.json`. The
  * Hosting rewrite path is intentionally bypassed: Firebase Hosting
  * buffers SSE end-to-end. Locally, `/inference-endpoint.json` is
  * absent and same-origin `/api/...` hits the Astro endpoints.
@@ -154,7 +154,7 @@ function resolveApiBase(): Promise<string> {
 let publicClient: InferenceClient | null = null;
 let fallbackInner: InferenceClient | null = null;
 /** One server client per base URL — '' (same-origin: Astro routes)
- *  and the published Cloud Run URL coexist. */
+ *  and the published Cloud Function URL coexist. */
 const serverClients = new Map<string, InferenceClient>();
 
 export function createInference(): InferenceClient {

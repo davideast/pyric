@@ -2,7 +2,7 @@
  * In-browser TSX → JS compile for the App preview. Uses
  * `esbuild-wasm` with a virtual-imports plugin so the user's
  * `appSource` can use canonical `firebase/firestore` / `react`
- * imports — the same shape the deploy build sees — while the
+ * imports — the same shape a production build sees — while the
  * preview routes those imports to pyric values supplied through
  * `globalThis.__pyricPreview__`.
  *

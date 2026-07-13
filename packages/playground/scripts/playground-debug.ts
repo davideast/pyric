@@ -540,13 +540,10 @@ async function scrapeChat(page: Page): Promise<ChatTranscriptItem[]> {
 
 async function scrapeWorkspace(page: Page): Promise<unknown> {
   // The workspace store doesn't currently mirror its full state to
-  // localStorage — only `deployTarget`. Read what we can; the chat
-  // scraper above covers the conversation side.
+  // localStorage. Read the durable model selection; the chat scraper
+  // above covers the conversation side.
   return await page.evaluate(() => {
-    const keys = [
-      'pyric.playground.llm.selection',
-      'pyric:deployTarget',
-    ];
+    const keys = ['pyric.playground.llm.selection'];
     const out: Record<string, unknown> = {};
     for (const k of keys) {
       try {

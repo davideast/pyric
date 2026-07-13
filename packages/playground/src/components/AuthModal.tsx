@@ -1,22 +1,19 @@
 /**
  * Auth modal — opens from the TopBar account icon and from the
- * "Sign in for deploys" step in the autosave popover. Surface is
- * intentionally narrow: sign in with Google, or sign out. No project
- * picker, no session list — sessions live locally in the sandbox now
- * (see `~/lib/sessions/`), and deploy uses a separate project picker
- * on the Deploy tab.
+ * account button. Surface is intentionally narrow: sign in with
+ * Google, or sign out. Sessions live locally in the sandbox (see
+ * `~/lib/sessions/`).
  *
- * The same icon serves both pages (home + playground). One sign-in
- * covers everything that needs a `cloud-platform` access token
- * (Hosting deploy, Firestore rules deploy, IAM, future promote).
+ * The same icon serves both pages (home + playground). Google sign-in
+ * supplies the `cloud-platform` access token used by opt-in live
+ * project diagnostics.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   signInWithGoogle,
   signOutCurrentUser,
   useSignedInUser,
 } from '~/lib/firebase/auth';
-import { LOCAL_AUTH_ENABLED, probeLocalAuth } from '~/lib/auth/access-strategy';
 import { Modal } from './Modal';
 
 interface AuthModalProps {
@@ -24,31 +21,8 @@ interface AuthModalProps {
   onClose: () => void;
 }
 
-type LocalAuth = { email: string | null; source: string };
-
 export function AuthModal({ open, onClose }: AuthModalProps) {
   const { user, loading } = useSignedInUser();
-  // When local-credential auth is enabled (dev, or a local prod preview built
-  // with PUBLIC_ENABLE_LOCAL_AUTH), deploys authenticate with the machine's own
-  // credentials (pyric login / ADC / service account) — no Google sign-in
-  // needed. Probe for that when the modal opens; when present, show it instead
-  // of the GIS sign-in button (which fails with origin_mismatch anyway).
-  // `undefined` = still checking; `null` = no local credential / deployed.
-  const [localAuth, setLocalAuth] = useState<LocalAuth | null | undefined>(
-    LOCAL_AUTH_ENABLED ? undefined : null,
-  );
-  useEffect(() => {
-    if (!open || !LOCAL_AUTH_ENABLED) return;
-    let cancelled = false;
-    void probeLocalAuth().then((id) => {
-      if (!cancelled) setLocalAuth(id);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
-
-  const checkingLocal = LOCAL_AUTH_ENABLED && localAuth === undefined;
 
   return (
     <Modal open={open} onClose={onClose} ariaLabel="Sign in">
@@ -58,16 +32,11 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
             Account
           </h2>
           <p className="mt-1 text-[12px] text-slate-gray leading-relaxed">
-            {localAuth
-              ? 'Local development authenticates deploys with your machine’s own credentials. Sessions are stored locally in your browser.'
-              : 'Sign in with Google to deploy your app to your own Firebase project. Sessions are stored locally in your browser — no sign-in required for save.'}
+            Sign in with Google when live project diagnostics need access. Sessions are
+            stored locally in your browser — no sign-in is required to save.
           </p>
         </header>
-        {checkingLocal ? (
-          <p className="text-[12px] text-slate-gray">Checking local credentials…</p>
-        ) : localAuth ? (
-          <LocalAuthPanel email={localAuth.email} source={localAuth.source} />
-        ) : loading ? (
+        {loading ? (
           <p className="text-[12px] text-slate-gray">Loading…</p>
         ) : user ? (
           <SignedInPanel
@@ -80,39 +49,6 @@ export function AuthModal({ open, onClose }: AuthModalProps) {
         )}
       </div>
     </Modal>
-  );
-}
-
-function sourceLabel(source: string): string {
-  if (source === 'login') return 'pyric login';
-  if (source === 'adc') return 'gcloud ADC';
-  if (source === 'service-account') return 'service account';
-  return source;
-}
-
-function LocalAuthPanel({ email, source }: LocalAuth) {
-  const label = sourceLabel(source);
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3 rounded-md border border-[#2a2a35] bg-[#0f0f17] px-3 py-2.5">
-        <span className="material-symbols-outlined text-[26px] text-[#a4d4a8]">
-          verified_user
-        </span>
-        <div className="min-w-0">
-          <div className="text-[13px] text-soft-white truncate">
-            Authenticated locally
-          </div>
-          <div className="text-[11px] font-mono text-slate-gray truncate">
-            {email ? `${email} · ${label}` : label}
-          </div>
-        </div>
-      </div>
-      <p className="text-[11px] text-slate-gray leading-relaxed">
-        Deploys use your machine&rsquo;s credentials ({label}) — no Google
-        sign-in needed. To switch accounts: <code>pyric login</code> or{' '}
-        <code>gcloud auth application-default login</code>.
-      </p>
-    </div>
   );
 }
 
