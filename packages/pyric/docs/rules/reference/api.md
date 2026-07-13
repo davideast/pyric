@@ -136,7 +136,7 @@ The lower-level engine still exists, but only on internal seams. These are not p
 
 - `pyric/rules/internal`: parser (`parseToAST`), linter (`lintFirestoreRules`), validator (`validateFirestoreRules`), simulator (`SimulateFirestoreRulesHandler`), value-wrapper classes, browser resolver (`resolveModulesBrowser`), stdlib, trace/test types, network handlers (`TestFirestoreRulesHandler`, `WriteFirestoreRulesHandler`, `InspectFirestoreRulesHandler`), stdlib tools, inspect tools.
 - `pyric/rules/internal/node`: the Node fs module resolver (`resolveModules`, `loadModule`, ...) and agent-tool factories (`createFirestoreRulesTools`, `createFirestoreSimulatorTools`, `createFirestoreRulesStdlibTools`).
-- `pyric/rules/internal/rtdb`: the RTDB engine (`RtdbMapper`, `GenerateIRHandler`, `SimulateHandler`, `WriteRulesHandler`, `RtdbHost`, `RtdbIR`, `RtdbNode`, `getRtdbTools`, `createRtdbRulesTools`, and related types).
+- `pyric/rules/internal/rtdb`: the pure RTDB engine (`RtdbMapper`, `SimulateHandler`, replay, grammar helpers, `RtdbIR`, `RtdbNode`, the constraints DSL, and related types).
 - `pyric/rules/internal/extract`: the composite-index extractor (`extractIndexes`, `ExtractFirestoreIndexesHandler`, `createFirestoreExtractTool`).
 
 The subpaths that used to hold these (`pyric/rules/node`, `pyric/rules/extract`, `pyric/rules/rtdb`, `pyric/rules/rtdb/constraints`, `pyric/rules/rtdb-constraints`) no longer exist.

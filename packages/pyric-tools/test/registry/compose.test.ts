@@ -12,7 +12,10 @@
 
 import { describe, it, expect } from 'bun:test';
 import { createDispatch } from '@inbrowser/agent';
-import { composeMcpRegistry } from '../../src/registry/compose.js';
+import {
+  composeMcpRegistry,
+  type ComposeOptions,
+} from '../../src/registry/compose.js';
 
 const fakeScope = {
   projectId: 'p',
@@ -50,6 +53,39 @@ describe('composeMcpRegistry', () => {
         expect(registry.has(tool)).toBe(false);
       }
     }
+  });
+
+  it('does not accept a legacy RTDB host as a back door to production tools', async () => {
+    const legacyOptions = {
+      profile: 'full',
+      scope: fakeScope,
+      rtdbHost: {
+        projectId: 'p',
+        databaseUrl: 'https://p-default-rtdb.firebaseio.com',
+        resolveAdminToken: async () => 'token',
+        resolveUserToken: async () => 'user-token',
+        getClientForUser: async () => {
+          throw new Error('not implemented');
+        },
+      },
+    } as unknown as ComposeOptions;
+
+    const registry = await composeMcpRegistry(legacyOptions);
+    for (const tool of [
+      'rtdb_get_rules',
+      'rtdb_deploy_rules',
+      'rtdb_read',
+      'rtdb_set',
+      'rtdb_update',
+      'rtdb_push',
+      'rtdb_remove',
+      'rtdb_crawl_structure',
+      'rtdb_simulate_access',
+      'rtdb_build_expression',
+    ]) {
+      expect(registry.has(tool)).toBe(false);
+    }
+    expect(registry.has('rtdb_generate_rules')).toBe(true);
   });
 
   it('dispatches a tool end-to-end through the assembled registry (X5)', async () => {

@@ -5,7 +5,7 @@
  * (`startServer({ prodTools })`), the project-audit skill, and
  * firestore-path discovery against a real project.
  *
- * Construct the `adminDeps` / `scope` / `rtdbHost` inputs from a service
+ * Construct the `adminDeps` / `scope` inputs from a service
  * account via `adminDepsFromServiceAccount` (./admin-deps).
  */
 
@@ -27,11 +27,6 @@ import { createAuthAdminTools } from '../auth/index.js';
 import { createVerifyTools } from '../verify/index.js';
 import { createAssuranceTools } from '../assurance/index.js';
 import { createRtdbRulesGenerationTools } from '../rtdb/rules-generation-tool.js';
-import {
-  createRtdbDataTools,
-  createRtdbRulesTools,
-  type RtdbHost,
-} from 'pyric/rules/internal/rtdb';
 
 /**
  * Admin SDK deps for the Firestore admin-mode + user-mode dispatch factories.
@@ -93,13 +88,6 @@ export interface ComposeOptions {
    * profile flow).
    */
   adminDeps?: AdminAppDeps;
-  /**
-   * RTDB host — when supplied, RTDB admin tools register. Construct
-   * via the transitional RTDB host seam. Passed
-   * separately from `adminDeps` so RTDB and Firestore admin surfaces
-   * opt in independently. Skipped in `browser-parity` profile.
-   */
-  rtdbHost?: RtdbHost;
 }
 
 /**
@@ -133,7 +121,7 @@ export async function composeMcpRegistry(
     // network:'forbid' independently of the registry profile.
     createAssuranceTools(),
     createRtdbRulesGenerationTools(),
-    // Admin SDK + RTDB tools — only when `adminDeps` is supplied and
+    // Admin SDK tools — only when `adminDeps` is supplied and
     // we're not in a profile that explicitly excludes Node-only paths.
     // `extract` is pure static analysis so it lands regardless of
     // `adminDeps` when not in `browser-parity` (it reads from disk).
@@ -142,12 +130,6 @@ export async function composeMcpRegistry(
       ? [
           createFirestoreAdminDataTools(opts.adminDeps),
           createFirestoreAdminDiscoverTools(opts.adminDeps),
-        ]
-      : []),
-    ...(opts.rtdbHost && profile !== 'browser-parity'
-      ? [
-          createRtdbRulesTools({ host: opts.rtdbHost }),
-          createRtdbDataTools({ host: opts.rtdbHost }),
         ]
       : []),
   ];

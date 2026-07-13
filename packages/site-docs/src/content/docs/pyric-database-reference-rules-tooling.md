@@ -8,15 +8,14 @@ order: 17005
 
 The RTDB constraints DSL (`defineRtdbRules` and the combinators) is public,
 re-exported directly from `pyric/rules`. The engine underneath it (the rule
-mapper, expression parser, validator, linter, simulation handler, write
-handler, and the rules-focused tool factory) is engine-internal, on the
+mapper, expression parser, validator, linter, simulation handler, and replay
+engine) is engine-internal, on the
 `pyric/rules/internal/rtdb` subpath. That subpath isn't covered by the
 public `pyric/rules` contract and may change without notice.
 ```ts
 import { defineRtdbRules } from 'pyric/rules';
 import {
   RtdbMapper,
-  createRtdbRulesTools,
   SimulateHandler,
 } from 'pyric/rules/internal/rtdb';
 ```
@@ -255,62 +254,13 @@ type SimulationInput = {
   newData?: unknown;
 };
 ```
-## Rules write handler
+## Production deployment
 
-### `class WriteRulesHandler`
-
-Write a complete `RtdbIR` to the RTDB rules endpoint through an `RtdbHost`.
-```ts
-const result = await new WriteRulesHandler().execute(host, ir);
-```
-The handler returns `WriteRulesResult` rather than throwing for Firebase rule
-write failures.
-
-## Host-backed tool factories
-
-### `createRtdbRulesTools({ host }): ToolHandler[]`
-
-Rules-focused RTDB tools.
-
-| Tool | Purpose |
-|---|---|
-| `rtdb_build_expression` | Parse, validate, and lint one RTDB rule expression. |
-| `rtdb_get_rules` | Fetch and map deployed RTDB rules into IR. |
-| `rtdb_simulate_access` | Evaluate rules locally against mock data. |
-| `rtdb_deploy_rules` | Deploy a complete RTDB rule IR. |
-
-### `createRtdbDataTools({ host }): ToolHandler[]`
-
-Data-focused RTDB tools.
-
-| Tool | Purpose |
-|---|---|
-| `rtdb_crawl_structure` | Inspect RTDB path structure. |
-| `rtdb_get` | Read data at a path. |
-| `rtdb_set` | Replace data at a path. |
-| `rtdb_update` | Merge data or run a multi-location update. |
-| `rtdb_push` | Create a child with an auto-generated key. |
-| `rtdb_delete` | Delete data at a path. |
-| `rtdb_validated_write` | Check schema and simulate rules before writing. |
-
-### `createRtdbAdminTools({ host }): ToolHandler[]`
-
-Backwards-compatible union of `createRtdbRulesTools({ host })` and
-`createRtdbDataTools({ host })`.
-
-## `RtdbHost`
-```ts
-interface RtdbHost {
-  readonly projectId: string;
-  readonly databaseUrl: string;
-  resolveAdminToken(): Promise<string>;
-  resolveUserToken(auth: UserAuth): Promise<string>;
-  getClientForUser(auth: UserAuth): Promise<Database>;
-}
-```
-`resolveAdminToken` is used for rule fetch/deploy and admin REST paths.
-`resolveUserToken` and `getClientForUser` are used for rules-enforcing
-user-mode data operations.
+The rules engine performs no production reads or writes. Generate and inspect
+rules locally, then use `pyric deploy database` or the explicit
+`createRtdbDeployTools({ scope })` factory from `pyric-tools/deploy` when a
+production deployment is intended. Production operations never live on the
+Firebase-shaped `pyric/database` mirror or this internal engine seam.
 
 ## Constraint helpers
 

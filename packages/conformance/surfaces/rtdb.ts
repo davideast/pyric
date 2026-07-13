@@ -2,14 +2,10 @@ import type { SurfaceDescriptorRecord } from './types.ts';
 
 export const surface: SurfaceDescriptorRecord = {
   order: 4,
-  // The legacy RTDB toolkit is the agent-tools / host surface — the
-  // `createRtdbAdminTools` / `getRtdbTools` factories, the `RtdbHost` contract
-  // and `fetchDatabase` REST helper, and the constraint-authoring DSL. It has
-  // no `firebase/*` upstream to mirror (the modular `firebase/database` shim is
-  // the `rtdb-modular` surface), so it is NATIVE: its claimable universe is its
-  // own internal API, not an upstream export set. The public `pyric/database`
-  // entry is now exclusively the `firebase/database` mirror; this descriptor
-  // remains temporarily attached to the legacy toolkit until its retirement.
+  // The pure RTDB rules engine has no `firebase/*` upstream to mirror (the
+  // modular `firebase/database` shim is the `rtdb-modular` surface), so it is
+  // NATIVE: its claimable universe is its own simulator, mapper, grammar,
+  // replay, and constraints API under the unstable rules-internal seam.
   kind: 'native',
   registry: 'rtdb',
   symbolSource: 'pyric/rules/internal/rtdb',
@@ -21,6 +17,6 @@ export const surface: SurfaceDescriptorRecord = {
   observationPrefixes: ['rtdb-'],
   coverage: true,
   scopeNote:
-    'native (no upstream): transitional legacy RTDB toolkit under the unstable rules-internal seam. Deferred: onDisconnect (no live socket in an in-memory sandbox today), legacy priority ordering.',
+    'native (no upstream): pure RTDB rules engine under the unstable rules-internal seam. Production data access and deployment are intentionally absent.',
   captureRigs: ['oracle-run'],
 };

@@ -17,7 +17,7 @@
  *      flag-gated, skill tools skill-gated. Profile filtering
  *      (AUTHORING_TOOL_NAMES) is parsed from source, not restated here.
  *   3. @pyric/cli registry — the maximal composeMcpRegistry() surface
- *      (profile 'full', scope + adminDeps + rtdbHost all supplied), with
+ *      (profile 'full', scope + adminDeps supplied), with
  *      per-tool gates recorded.
  *
  * Extraction is static: tool `name: '...'` literals are read out of the
@@ -130,7 +130,7 @@ const MCP_CONTRIBUTIONS = [
 ];
 
 /** @pyric/cli registry — mirrors registry/compose.ts (maximal: profile
- *  'full' with scope + adminDeps + rtdbHost). */
+ *  'full' with scope + adminDeps). */
 const REGISTRY_CONTRIBUTIONS = [
   { file: `${PYRIC}/rules/tools.ts`, factory: 'createFirestoreRulesTools', gate: 'always' },
   { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'always' },
@@ -141,8 +141,6 @@ const REGISTRY_CONTRIBUTIONS = [
   { file: `${PYRIC}/rules/indexes/extractTool.ts`, factory: 'createFirestoreExtractTool', gate: 'full profile' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'adminDeps' },
   { file: `${TOOLS}/discover/tools.ts`, factory: 'createFirestoreDiscoverTools', gate: 'adminDeps' },
-  { file: `${PYRIC}/database/tools.ts`, factory: 'createRtdbRulesTools', gate: 'rtdbHost' },
-  { file: `${PYRIC}/database/tools.ts`, factory: 'createRtdbDataTools', gate: 'rtdbHost' },
 ];
 
 /**

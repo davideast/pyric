@@ -150,9 +150,11 @@ Placement semantics worth knowing:
 - `indexOn` on a path that ends in a `$wildcard` is hoisted to the parent container node (`'/posts/$postId'` places `.indexOn` on `posts`). On a non-wildcard path it is silently dropped, so put it on the wildcard path.
 - Every expression is parsed, validated, and linted at build time; findings attach to the IR and surface through `rtdbRules(doc).lint()`.
 
-## The two deploy tool pairs
+## Deployment boundary
 
-Two different tools share the names `rtdb_get_rules` and `rtdb_deploy_rules`. The host-backed pair from `createRtdbRulesTools` (this package) works in IR: `rtdb_get_rules` fetches deployed rules into a cached IR, `rtdb_simulate_access` evaluates against that cache, and `rtdb_deploy_rules` takes a full `RtdbIR`. The scope-backed pair in `pyric-tools`' deploy factories takes raw `rulesJson` and a `ProjectScope`. They do not interchange; pick by which input you hold.
+Constraint helpers compile locally and never contact production. Deploy the
+result explicitly through `pyric deploy database` or
+`createRtdbDeployTools({ scope })` from `pyric-tools/deploy`.
 
 ## Exported types
 

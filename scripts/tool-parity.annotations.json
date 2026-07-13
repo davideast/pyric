@@ -141,49 +141,13 @@
       "decision": "deliberate",
       "reason": "exposed as `pyric verify`; external agents can invoke the CLI without a duplicate MCP tool"
     },
-    "rtdb_build_expression": {
-      "decision": "deliberate",
-      "reason": "legacy registry helper; public RTDB artifact generation is owned by `pyric database rules generate`"
-    },
     "rtdb_crawl_structure": {
       "decision": "deliberate",
       "reason": "bounded attached-sandbox inspection belongs in MCP; the Playground reads its own session state directly"
     },
-    "rtdb_delete": {
-      "decision": "deliberate",
-      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
-    },
-    "rtdb_deploy_rules": {
-      "decision": "deliberate",
-      "reason": "legacy deployment registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
-    },
-    "rtdb_get": {
-      "decision": "deliberate",
-      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
-    },
-    "rtdb_get_rules": {
-      "decision": "deliberate",
-      "reason": "production RTDB control-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
-    },
-    "rtdb_push": {
-      "decision": "deliberate",
-      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
-    },
-    "rtdb_set": {
-      "decision": "deliberate",
-      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
-    },
     "rtdb_simulate_access": {
       "decision": "deliberate",
       "reason": "attached-sandbox rules inspection belongs in MCP; the Playground uses its own session rules engine"
-    },
-    "rtdb_update": {
-      "decision": "deliberate",
-      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
-    },
-    "rtdb_validated_write": {
-      "decision": "deliberate",
-      "reason": "production RTDB data-plane registry tool; excluded from local MCP and scheduled for removal from @pyric/cli"
     },
     "run_workspace_tests": {
       "decision": "deliberate",

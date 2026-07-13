@@ -1,7 +1,7 @@
 /**
  * `createAuthAdminTools({ scope })` — Identity Toolkit-driven auth
  * tooling as `ToolHandler[]`, consumable by `@inbrowser/agent`'s
- * registry. Mirrors `@pyric/rtdb`'s `createRtdbAdminTools` shape: a
+ * registry. Follows the shared domain tool-factory shape: a
  * scope in, JSON-Schema-typed `ToolHandler`s out.
  *
  * Three tools:
@@ -9,10 +9,8 @@
  *   - `auth_configure_provider` — enable/disable a provider
  *   - `auth_manage_domains` — add/remove/list authorized domains
  *
- * For the legacy `getAgentTools(app)` path (which wraps these as
- * `AgentTool[]` via sdk-side `defineTool` + zod), use
- * `getAuthTools(scope)` instead — same backing handlers, different
- * surface.
+ * For the programmatic `getAuthTools(scope)` path, use
+ * the resolver directly — same backing handlers, different surface.
  */
 import type { ToolHandler } from '@inbrowser/agent';
 import type { ProjectScope } from '../credentials/core/types.js';

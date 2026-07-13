@@ -24,7 +24,7 @@ The data plane is the app's own surface, and the agent uses it as a specific ide
 
 - **Firestore**: create, read, update, and delete documents, and run queries with filters and ordering.
 - **Realtime Database**: get, set, update, and push.
-- **`rtdb_validated_write`**: checks the payload against the inferred schema and simulates the rules verdict before committing anything.
+- **RTDB inspection**: crawls the active sandbox snapshot and reports its local structure without production access.
 
 ## See what exists before guessing
 

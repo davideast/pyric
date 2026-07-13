@@ -57,19 +57,21 @@ await update(ref(db), {
 ```
 Either both paths change or neither does. Queries take one `orderBy`, so multi-field filters want a precomputed composite key (`"lang_level": "en_5"`) rather than a clever query.
 
-## Guard writes before they land
+## Inspect and simulate locally
 
-Nothing in RTDB stops a typo'd field name or a mistyped value. The tree accepts what you write. `rtdb_validated_write` closes that gap with three checks before anything commits:
-
-- It infers the schema at the target path from the data already there and validates your payload against it.
-- It simulates the security-rules verdict for the write.
-- Only then does it commit, with the schema warnings and the simulation result attached.
-
-A wrong type, a misspelled key, or a write your rules would deny is reported before it lands. The tool sits on Pyric's agent surface alongside `rtdb_get`, `rtdb_set`, `rtdb_push`, `rtdb_update`, and the crawl and rules tools, and the same factories are callable from your own code through `getRtdbTools`.
+Pyric keeps RTDB inspection and rules checks inside the sandbox. Studio and the
+CLI can crawl the current sandbox snapshot, while `rtdbRules(...).simulate()`
+evaluates reads and writes without contacting a production database. Production
+access happens only when the canonical Firebase package is selected outside the
+sandbox swap.
 
 ## And from an agent
 
-The `rtdb-data-model` skill designs the tree the way this page describes, starting from an inventory of reads. On an existing database, `rtdb_crawl_structure` maps the actual shape first, and `rtdb_validated_write` guards every write the agent makes. Install the skill from the [catalog](../skills/), and see [set up your agent](../set-up-your-agent/) for the wiring.
+The `rtdb-data-model` skill designs the tree the way this page describes,
+starting from an inventory of reads. In a Pyric session, local inspection tools
+map the sandbox snapshot without reaching production. Install the skill from the
+[catalog](../skills/), and see [set up your agent](../set-up-your-agent/)
+for the wiring.
 
 ## Where to go next
 

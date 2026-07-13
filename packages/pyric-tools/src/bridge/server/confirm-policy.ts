@@ -34,11 +34,8 @@ export const DEFAULT_PROD_POLICIES: ReadonlyMap<string, ConfirmPolicy> = new Map
   ['firestore_test_rules', 'never'],
   ['firestore_rules_stdlib_list', 'never'],
   ['firestore_rules_stdlib_get', 'never'],
-  ['rtdb_get', 'never'],
-  ['rtdb_get_rules', 'never'],
   ['rtdb_generate_rules', 'never'],
   ['rtdb_simulate_access', 'never'],
-  ['rtdb_build_expression', 'never'],
   ['rtdb_crawl_structure', 'never'],
   // Assurance tools execute only against explicit local targets with
   // network forbidden. They never dispatch to the prod backend.
@@ -50,11 +47,6 @@ export const DEFAULT_PROD_POLICIES: ReadonlyMap<string, ConfirmPolicy> = new Map
   ['firestore_update_document', 'always'],
   ['firestore_delete_document', 'always'],
   ['firestore_batch_write', 'always'],
-  ['rtdb_set', 'always'],
-  ['rtdb_update', 'always'],
-  ['rtdb_push', 'always'],
-  ['rtdb_delete', 'always'],
-  ['rtdb_validated_write', 'always'],
 ]);
 
 /** Sandbox mode bypasses confirmation entirely. */

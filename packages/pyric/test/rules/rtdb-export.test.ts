@@ -4,41 +4,37 @@ import { resolve } from 'node:path';
 import {
   allow,
   buildRuleExpression,
-  createRtdbRulesTools,
   defineRtdbRules,
   parseExpression,
   RtdbMapper,
+  SimulateHandler,
 } from '../../src/rules/internal/rtdb.js';
-import type { RtdbHost } from '../../src/rules/internal/rtdb.js';
-
-function host(): RtdbHost {
-  return {
-    projectId: 'demo',
-    databaseUrl: 'https://demo-default-rtdb.firebaseio.com',
-    resolveAdminToken: async () => 'token',
-    resolveUserToken: async () => 'user-token',
-    getClientForUser: async () => {
-      throw new Error('not implemented');
-    },
-  };
-}
+import * as rtdb from '../../src/rules/internal/rtdb.js';
 
 describe('pyric/rules/rtdb facade', () => {
-  test('exports the RTDB rules helpers and factory', () => {
+  test('exports only the pure RTDB rules engine', () => {
     expect(parseExpression('auth !== null').valid).toBe(true);
     expect(buildRuleExpression('auth.uid === $uid', 'read', ['$uid']).parsed.valid).toBe(true);
-    expect(createRtdbRulesTools({ host: host() }).map((t) => t.name).sort()).toEqual([
-      'rtdb_build_expression',
-      'rtdb_deploy_rules',
-      'rtdb_get_rules',
-      'rtdb_simulate_access',
-    ]);
+    expect(SimulateHandler).toBeDefined();
+
+    const productionOrStatefulExports = [
+      'fetchDatabase',
+      'createRtdbAdminTools',
+      'createRtdbDataTools',
+      'createRtdbRulesTools',
+      'getRtdbTools',
+      'initializeDatabaseApp',
+      'GenerateIRHandler',
+      'WriteRulesHandler',
+    ];
+    expect(productionOrStatefulExports.filter((name) => name in rtdb)).toEqual([]);
   });
 
   test('maps Firebase RTDB rules JSON to IR through the facade', () => {
-    const ir = RtdbMapper.mapToIR({ rules: { users: { '$uid': { '.read': 'auth.uid === $uid' } } } }, null, host().databaseUrl);
+    const databaseUrl = 'https://demo-default-rtdb.firebaseio.com';
+    const ir = RtdbMapper.mapToIR({ rules: { users: { '$uid': { '.read': 'auth.uid === $uid' } } } }, null, databaseUrl);
     expect(ir.service).toBe('realtime-database');
-    expect(ir.databaseUrl).toBe(host().databaseUrl);
+    expect(ir.databaseUrl).toBe(databaseUrl);
   });
 
   test('exports the constraints document API through the facade', () => {

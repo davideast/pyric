@@ -96,9 +96,7 @@ describe('tool-parity extraction against the real codebase', () => {
       'pyric_verify_fixture',
       'firestore_extract_indexes',
       'firestore_discover_paths',
-      'rtdb_simulate_access',
       'rtdb_generate_rules',
-      'rtdb_validated_write',
       'firebase_assurance_start',
       'firebase_assurance_export',
     ]) {
