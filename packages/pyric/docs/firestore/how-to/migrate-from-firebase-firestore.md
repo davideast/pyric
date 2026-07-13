@@ -1,99 +1,86 @@
-# How to use `pyric/firestore` in existing code
+# How to run an existing Firebase application in the Firestore sandbox
 
-Point an existing codebase at the sandbox by importing `pyric/firestore` where it imports `firebase/firestore`. Your Firestore code stays your Firestore code.
+Keep the application's Firebase imports unchanged. Add a Pyric activation seam
+around the application instead of replacing imports with `pyric/firestore`.
 
-## Two import changes
+## Node applications
 
-The minimum change is two import edits.
-
-### Before
+Given existing code such as:
 
 ```ts
 import { initializeApp } from 'firebase/app';
-import {
-  getFirestore,
-  doc,
-  setDoc,
-  getDoc,
-  collection,
-  query,
-  where,
-  onSnapshot,
-} from 'firebase/firestore';
+import { doc, getDoc, getFirestore } from 'firebase/firestore';
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const snapshot = await getDoc(doc(db, 'notes/n1'));
 ```
 
-### After
+run it through the register hook:
+
+```bash
+PYRIC_SANDBOX=local node --import @pyric/cli/register app.mjs
+```
+
+The hook resolves `firebase/app` and `firebase/firestore` to the sandbox
+mirrors. Without the environment variable and preload, Node resolves the real
+Firebase packages.
+
+## Vite applications
+
+Add the plugin to the development configuration:
 
 ```ts
-import { initializeApp } from 'firebase/app';   // unchanged
-import {
-  getFirestore,
-  doc,
-  setDoc,
-  getDoc,
-  collection,
-  query,
-  where,
-  onSnapshot,
-} from 'pyric/firestore';
+import { defineConfig } from 'vite';
+import { pyricSandbox } from '@pyric/cli/vite';
+
+export default defineConfig({
+  plugins: [pyricSandbox()],
+});
 ```
 
-The function names and signatures match. Application code calling these functions does not change.
+The plugin swaps canonical Firebase specifiers for application code and its
+dependencies. Production builds remain Firebase unless sandbox build swapping
+is explicitly enabled.
 
-## What is identical
+## Sandbox controls
 
-- All free functions: `doc`, `collection`, `getDoc`, `setDoc`, `updateDoc`, `deleteDoc`, `addDoc`, `query`, `where`, `or`, `and`, `orderBy`, `limit`, `limitToLast`, `startAt`, `startAfter`, `endAt`, `endBefore`, `getDocs`, `getCountFromServer`, `getAggregateFromServer`, `count`, `sum`, `average`, `onSnapshot`, `runTransaction`, `writeBatch`, `refEqual`, `queryEqual`, `snapshotEqual`, `connectFirestoreEmulator`.
-- All sentinels: `serverTimestamp`, `increment`, `arrayUnion`, `arrayRemove`, `deleteField`, `FieldValue`, `Timestamp`.
-- All types: `Firestore`, `DocumentReference`, `CollectionReference`, `Query`, `DocumentSnapshot`, `QueryDocumentSnapshot`, `QuerySnapshot`, `DocumentChange`, `DocumentChangeType`, `SnapshotMetadata`, `WriteBatch`, `Transaction`, `Unsubscribe`.
-- Converters: `withConverter`.
-
-If your existing code imports a name from `firebase/firestore` and it's not in the list, file an issue. The surface should be complete.
-
-## What is different
-
-### `Firestore` is opaque
-
-`pyric/firestore`'s `Firestore` is `{ readonly [TARGET_SYMBOL]: Target }`. Don't read or modify properties on it directly. Pass it to free functions instead. Application code that only calls `getFirestore(app)` and forwards the handle is fine.
-
-### Sandbox-only operations exist
-
-`sandbox.setRules`, `sandbox.seedDocuments`, `sandbox.snapshotState` are not in `firebase/firestore`. They throw `failed-precondition` on prod handles, so adding `pyric/firestore` to a codebase that only ever calls `getFirestore(app)` doesn't risk accidental use.
-
-### Metadata on sandbox
-
-`snap.metadata.fromCache` and `snap.metadata.hasPendingWrites` are always `false` on the sandbox backend. Code that branches on these flags will see one branch only when running against the sandbox.
-
-This matters for code that displays "syncing..." or "offline" UI. The branches don't fire in tests. That's not a regression, only an inert path.
-
-### Listener semantics
-
-Sandbox listeners re-evaluate when rules change (via `sandbox.setRules`). Prod listeners don't; they keep their original rule context until detached and re-attached. Tests that exercise this difference need to choose which behaviour they want to assert.
-
-## Side-by-side imports
-
-Two strategies for codebases that want both surfaces at once.
-
-### Strategy 1: aliased import
+Rules, fixtures, and state inspection are intentionally separate from the
+Firebase-shaped data plane:
 
 ```ts
-import * as upstream from 'firebase/firestore';
-import { getFirestore, doc, setDoc } from 'pyric/firestore';
+import { initializeSandbox } from 'pyric/sandbox';
+import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 
-const upstreamDb = upstream.getFirestore(app);  // unchanged upstream code path
-const wrapped = getFirestore(app);              // new path through pyric/firestore
+const sandbox = initializeSandbox();
+setRules(sandbox, rulesSource);
+seedDocuments(sandbox, {
+  'notes/n1': { title: 'fixture' },
+});
 ```
 
-### Strategy 2: module-level swap
+Use direct sandbox construction in tests that need these controls. Application
+modules should continue using canonical Firebase imports.
 
-Swap one file at a time. Each file imports exclusively from one source. Less mixing, less risk of confusion.
+## Unsupported imports
 
-## What to do about the bundle
+The mirror does not implement every Firebase Firestore export. In particular,
+bundle loading, named queries, and persistent-cache index management remain
+outside the sandbox surface. The compatibility matrix is the authoritative
+list of supported and diverged behaviour.
 
-Adding `pyric/firestore` adds the package's own surface plus `pyric/sandbox` and `pyric-admin` (transitively). The prod-backend code path still bottoms out at `firebase/firestore`, so the upstream SDK is still in the bundle.
+Do not work around a missing export by importing the real Firebase module from
+inside sandbox code. That would bypass the package boundary and make the test
+capable of reaching production.
 
-For browser bundles where size matters, the bundler will tree-shake the sandbox-side code if your build only ever reaches the prod backend. Modern bundlers handle this correctly, but it's worth confirming with a bundle analysis for production builds.
+## Verify the migration
 
-## Where to look next
+Run three checks:
 
-- For the choice between sandbox and prod at runtime, see [Pick a backend at init time](./pick-a-backend.md).
-- For the two-backend design rationale, see [Why two backends behind one surface](../explanation/two-backends-one-surface.md).
+1. An active Node or Vite smoke test completes a write and read through
+   canonical Firebase imports.
+2. The same Node import without activation remains real Firebase.
+3. The built `pyric/firestore` artifact has no `firebase/firestore` import.
+
+These checks prove both sides of the switch and guard against internal
+production dispatch returning later.

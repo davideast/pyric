@@ -1,9 +1,8 @@
 # Pyric - Context Document
 
-Last updated: 2026-07-12. Refreshed against current `main` after the
-conformance system moved into its own workspace package, the `pyric/rules`
-public API was replaced in one clean break, and the AI, messaging, and rules
-surfaces were admitted to the compatibility registry.
+Last updated: 2026-07-13. Refreshed after package resolution became the sole
+production/sandbox boundary for App, Auth, Firestore, Storage, and AI, and after
+the conformance system moved into its own workspace package.
 
 This is a Bun-managed monorepo for **Pyric: Firebase for agents**. `pyric`,
 `pyric-admin`, `pyric-tools`, and `@pyric/ui` published their first npm alpha
@@ -151,7 +150,7 @@ Version `0.1.0-alpha.8`, published to npm. ESM-only, subpath-only, Node `>=22`.
 |---|---|
 | `pyric/app` | Sandbox-only `initializeApp({ sandbox })` plus the mirrored client app registry: `getApp`, `getApps`, `deleteApp`, local `FirebaseError`, pinned `SDK_VERSION`, `onLog`, `setLogLevel`, `registerVersion`. It has no `firebase/app` runtime dependency; production imports stay on `firebase/app`. |
 | `pyric/auth` | Sandbox-only modular Auth mirror, identity, providers, and popup/redirect resolver. It has no `firebase/auth` runtime dependency; production imports stay on `firebase/auth`. |
-| `pyric/firestore` | Modular Firestore mirror plus Firestore data/inspect tools. |
+| `pyric/firestore` | Sandbox-only modular Firestore mirror plus Firestore data/inspect tools. It has no `firebase/firestore` runtime dependency; production imports stay on `firebase/firestore`. |
 | `pyric/firestore-values` | Firestore value helpers/wrappers. |
 | `pyric/database` | Realtime Database surface and RTDB tooling. |
 | `pyric/database/modular` | Tree-shakable RTDB modular SDK shim. |
@@ -168,6 +167,7 @@ Version `0.1.0-alpha.8`, published to npm. ESM-only, subpath-only, Node `>=22`.
 | `pyric/rules/internal/extract` | Composite-index extraction. |
 | `pyric/rules/internal/rtdb` | RTDB rules engine internals. |
 | `pyric/sandbox` | Sandbox lifecycle, events, persistence, replay, branches. |
+| `pyric/sandbox/firestore` | Firestore-specific sandbox controls: rules, seeding, snapshots, and inspection. Controls receive the owning local `Sandbox`. |
 | `pyric/sandbox/internal` | Adapter-only internal protocol. |
 | `pyric/sandbox/admin-compat` | Chainable admin-Firestore-shaped sandbox wrapper. |
 | `pyric/sandbox/admin-firestore` | Internals backing the admin-compat layer. |
@@ -303,10 +303,10 @@ Backend selection belongs to package resolution, not app initialization.
 - Node sandbox processes activate the register hook, which performs the same
   package swap before modules load.
 - Production processes do not activate the swap and continue loading Firebase.
-- Direct `pyric/*` imports mean sandbox behavior. `pyric/app`, `pyric/ai`, and
-  `pyric/storage` already enforce this invariant; the remaining client service
-  mirrors still have legacy production arms that are being removed behind the
-  compiled-binding ratchet.
+- Direct `pyric/*` imports mean sandbox behaviour. `pyric/app`, `pyric/auth`,
+  `pyric/firestore`, `pyric/storage`, and `pyric/ai` enforce this invariant.
+  Remaining client service mirrors with legacy production arms are removed one
+  service at a time behind the compiled-binding ratchet.
 
 ```ts
 import { initializeApp } from 'pyric/app';
@@ -535,7 +535,7 @@ should not be assumed hermetic. The gates above are all offline.
 Recent structural work that follows it: the worker client and host split into
 per-family modules, the Firestore entry split (`aggregates`, `equality`,
 `field-values`, `instances`, `listeners`, `persistence`, `query-constraints`,
-`reads`, `refs`, `sandbox-ops`, `snapshots`), the sandbox `types` split
+`reads`, `refs`, `sandbox-controls`, `snapshots`), the sandbox `types` split
 (`auth-state`, `context`, `errors`, `events`, `persistence`, `service`), the
 admin-Firestore de-junk-drawering, and the Studio CSS split.
 

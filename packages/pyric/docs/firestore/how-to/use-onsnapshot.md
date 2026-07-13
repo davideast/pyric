@@ -64,24 +64,29 @@ Returning the unsubscribe from the effect tells React to call it on unmount or r
 
 The error callback fires once when a listener is silently terminated, typically a rule denial during initial read or re-evaluation after a `setRules`. Once-per-stream: after the error, no further callbacks happen on this listener.
 
-On sandbox, rule denials are the only stream-error path. On prod, the upstream Firestore can also fire `unavailable` (network), `aborted` (contention), and other transport-level codes.
+In the sandbox mirror, rule denials are the only stream-error path. In an
+inactive production run, Firebase can also fire `unavailable` (network),
+`aborted` (contention), and other transport-level codes.
 
-For host-level error handling without each listener registering its own callback, subscribe to `sandbox.onSnapshotError(cb)` on the sandbox backend. The prod backend has no equivalent: listener errors are per-listener.
+For host-level error handling without each listener registering its own callback,
+subscribe to `sandbox.onSnapshotError(cb)`. Firebase has no equivalent:
+listener errors are per-listener.
 
 ## Sandbox-backend listener behaviour
 
-Two divergences from prod, both intentional:
+Two divergences from Firebase's behaviour, both intentional:
 
 - **Filter / order on chained queries**: a query with `where`/`orderBy`/`limit` routed through `onSnapshot` currently fires for any change in the collection, and the callback receives every document. Filter-aware listeners are in a later slice.
-- **Rule changes re-evaluate listeners**: after `sandbox.setRules(db, ...)`, every active listener re-evaluates under the new rules. Prod doesn't do this; listeners keep their original rule context.
+- **Rule changes re-evaluate listeners**: after `setRules(sandbox, ...)`, every active listener re-evaluates under the new rules. Firebase listeners do not expose this local control.
 
-For one-shot reads (`getDoc`, `getDocs`), filters apply correctly on both backends.
+For one-shot sandbox reads (`getDoc`, `getDocs`), filters apply correctly.
 
 ## What `metadata.fromCache` means
 
 On sandbox: always `false`. There's no offline cache.
 
-On prod: reflects whether the snapshot was served from the local cache. Useful for "show pending" UI states.
+With the unchanged Firebase SDK: reflects whether the snapshot was served from
+the local cache. Useful for "show pending" UI states.
 
 If you wrap snapshots in a generic UI component that branches on `metadata.fromCache`, the branch never fires on sandbox. That's fine for most code. The cache-was-stale path is rare in tests, and tests that need to exercise it run against live Firestore.
 

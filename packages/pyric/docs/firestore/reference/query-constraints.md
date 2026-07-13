@@ -102,7 +102,9 @@ const secondPage = await getDocs(query(
 
 Chained queries (`.where`, `.orderBy`, `.limit`) currently route to the underlying `LocalEnvironment` as whole-collection listeners when used with `onSnapshot`. The simulator fires for any change in the collection and the callback receives every document. Filter / order honouring at the listener layer is in a later slice. For `getDocs` calls, the constraints apply normally.
 
-This matters only for `onSnapshot`. One-shot `getDocs` evaluates the filters correctly on both backends.
+This matters only for the sandbox mirror's `onSnapshot`. One-shot `getDocs`
+evaluates the filters correctly. In an inactive production run, the canonical
+import remains Firebase and uses Firebase's listener behaviour.
 
 ## Combining everything
 

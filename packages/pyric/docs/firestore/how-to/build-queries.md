@@ -124,7 +124,8 @@ Useful for nested structures like `rooms/{roomId}/messages/{messageId}`. The col
 
 ## What works on the sandbox
 
-`getDocs` evaluates every constraint correctly on both backends. The sandbox runs the query against its `LocalEnvironment`, applying filters, ordering, and limits in memory.
+The sandbox mirror's `getDocs` evaluates every constraint against its
+`LocalEnvironment`, applying filters, ordering, and limits in memory.
 
 `onSnapshot` on the sandbox currently fires for any change in the underlying collection. Filters at the listener layer are in a later slice. For now, filter the results in your callback if you need filtered streaming:
 
@@ -136,7 +137,8 @@ onSnapshot(query(collection(db, 'notes'), where('owner', '==', 'alice')), (snap)
 });
 ```
 
-This is a sandbox-only caveat. On the prod backend, the filter is enforced server-side.
+This is a sandbox-mirror caveat. In an inactive production run, the canonical
+import remains Firebase and the filter is enforced server-side.
 
 ## Aggregations
 

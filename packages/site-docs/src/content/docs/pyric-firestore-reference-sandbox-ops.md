@@ -6,15 +6,22 @@ order: 12013
 ---
 # Sandbox-only operations
 
-Three operations live under the `sandbox` namespace export and only work against sandbox-backed `Firestore` handles. Calling them on a prod-backed handle throws `SandboxError('failed-precondition')`.
+Firestore-specific controls are top-level exports from
+`pyric/sandbox/firestore`. They operate on the owning local `Sandbox`, not on a
+Firestore data-plane handle.
 ```ts
-import { sandbox } from 'pyric/firestore';
+import {
+  inspect,
+  seedDocuments,
+  setRules,
+  snapshotDocuments,
+} from 'pyric/sandbox/firestore';
 ```
-## `sandbox.setRules(db, rules): LintResult`
+## `setRules(sandbox, source): LintResult`
 
-Replace the active ruleset in the sandbox's `LocalEnvironment`.
+Replace the sandbox's active Firestore ruleset.
 ```ts
-sandbox.setRules(db, `rules_version = '2';
+const lint = setRules(sandbox, `rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
     match /notes/{id} {
@@ -23,60 +30,55 @@ service cloud.firestore {
   }
 }`);
 ```
-Returns the `LintResult` from `pyric/rules`. Source with parse-level errors is not swapped; check the warnings.
+The result contains the rules linter's findings. Source with parse-level errors
+is not installed. After a successful change, active snapshot listeners
+re-evaluate under the new rules.
 
-After a successful swap, every active snapshot listener re-evaluates under the new rules. See [Listener re-evaluation on `deployRules`](../pyric-sandbox-explanation-listener-re-evaluation/).
+## `seedDocuments(sandbox, documents): LintResult`
 
-On prod, import `firestore` from `pyric-tools/deploy` and call `firestore.rules.deploy(...)`. That hits Firebase's rules API.
-
-## `sandbox.seedDocuments(db, documents): LintResult`
-
-Bulk-load documents into the sandbox state, bypassing rules.
+Replace the sandbox's Firestore documents in bulk while preserving the current
+rules. Seeding bypasses rules evaluation and does not synthesise request events
+or listener callbacks.
 ```ts
-sandbox.seedDocuments(db, {
+seedDocuments(sandbox, {
   'notes/n1': { ownerId: 'alice', title: 'first' },
   'notes/n2': { ownerId: 'bob', title: 'second' },
 });
 ```
-The active ruleset is preserved. Return value is the lint of the existing rules for shape consistency with `setRules`.
+## `snapshotDocuments(sandbox): Record<string, DocumentData>`
 
-On prod, populate data via writes. There's no bulk-seed API.
-
-## `sandbox.snapshotState(db): Record<string, DocumentData>`
-
-Capture every stored document as a `{ [path]: data }` map. Reads the live state independent of rules.
+Return a structural clone of every Firestore document without snapshotting any
+other sandbox service.
 ```ts
-const state = sandbox.snapshotState(db);
-console.log(state['notes/n1']);  // { ownerId: 'alice', title: 'first' }
+const documents = snapshotDocuments(sandbox);
+console.log(documents['notes/n1']);
 ```
-The returned object is a structural clone. Mutating it does not affect the sandbox.
+Mutating the result does not affect the sandbox.
 
-On prod, this surface doesn't exist. There's no efficient "dump every doc" API in Firebase's data plane.
+## `inspect(sandbox, options?): FirestoreInspectReport`
 
-## Why a namespace export
-
-The three operations could have been top-level exports (`setSandboxRules`, `seedSandboxDocuments`, etc.). We chose the namespace because:
-
-- They're sandbox-only by contract. Grouping them under `sandbox.*` makes "this won't work on prod" visible at the call site.
-- A code reader scanning imports sees `sandbox` and knows the file is doing sandbox-flavoured operations. Three separate prefixed exports would scatter that signal.
-- Future sandbox-only additions slot in without further import-list churn.
-
-The local-variable collision (you might already have `const sandbox = initializeSandbox()`) is annoying but rare in practice. When it happens, alias on import:
+Return a JSON-serialisable report containing the current rules and lint
+findings, document counts, and recent Firestore requests and denials.
 ```ts
-import { sandbox as sandboxOps } from 'pyric/firestore';
-const sandbox = initializeSandbox();
-sandboxOps.setRules(db, RULES);
+const report = inspect(sandbox, { recentEventLimit: 5 });
+console.log(report.documents.totalCount);
+console.log(report.events.recentDenials);
 ```
-## Why `setRules` lives here, not on the handle
+`recentEventLimit` defaults to `10`.
 
-The `pyric-admin` handle exposes `setRules` directly: `db.setRules(...)`. `pyric/firestore`'s handle is opaque (the only public property is `TARGET_SYMBOL`), so the same shape would mean adding a method. We didn't because:
+## Ownership contract
 
-- The handle's shape is the *upstream-SDK* shape. Adding a `setRules` method would deviate from `firebase/firestore`'s `Firestore` type and break the swap-in contract.
-- A free function `sandbox.setRules(db, rules)` keeps the handle pure and surfaces the sandbox-only nature through the namespace name.
+All four functions accept a local `Sandbox`. A Firestore handle and a
+`RemoteSandbox` are rejected by the type contract. The control subpath therefore
+makes ownership explicit and keeps sandbox lifecycle operations off the
+`firebase/firestore`-compatible data-plane surface.
 
-Both styles work. The chosen tradeoff in `pyric/firestore` is "stay shape-faithful to upstream"; in `pyric-admin` it's "match the admin SDK's method-on-handle style". Each package picks the convention that matches its target SDK.
+For production rules deployment, use the deployment API rather than this
+sandbox subpath. Production data remains the responsibility of the unchanged
+Firebase SDK and Firebase services.
 
 ## Where to look next
 
+- For a task-oriented example, see [How to use sandbox-only operations](../pyric-firestore-how-to-use-sandbox-ops/).
 - For the lint result shape, see [`pyric/rules` lint rules reference](../pyric-rules-reference-lint-rules/).
-- For prod rule deploys, see [`pyric-tools/deploy`'s firestore namespace](../pyric-tools-deploy-reference-firestore-namespace/).
+- For production rule deployments, see [`pyric-tools/deploy`'s Firestore namespace](../pyric-tools-deploy-reference-firestore-namespace/).

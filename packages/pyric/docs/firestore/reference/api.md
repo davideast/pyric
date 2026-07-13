@@ -9,13 +9,19 @@
 Two overloads:
 
 - `getFirestore(ctx: SandboxContext)`: sandbox backend via `pyric-admin`.
-- `getFirestore(app: FirebaseApp)`: prod backend via `firebase/firestore`.
+- `getFirestore(app: PyricApp)`: sandbox owned by the package-selected Pyric app.
+
+Direct `pyric/firestore` imports do not accept real Firebase apps. Without
+sandbox activation, canonical `firebase/firestore` imports remain Firebase and
+use Firebase's own signatures.
 
 The returned `Firestore` is opaque. It carries the target via `TARGET_SYMBOL` and is consumed only by other functions in this package. See [`getFirestore` overloads](./getfirestore.md).
 
 ### `connectFirestoreEmulator(db, host, port)`
 
-Mirrors the upstream `connectFirestoreEmulator`. No-op on sandbox-backed handles; delegates to `firebase/firestore` on prod-backed handles.
+Mirrors the upstream signature and is a no-op because the sandbox is already
+local. Production uses Firebase's untouched implementation through package
+resolution.
 
 ## Reference types
 
@@ -149,12 +155,22 @@ Mirrors `firebase/firestore`'s `withConverter`. Apply to a `DocumentReference`, 
 ## Sandbox-only operations
 
 ```ts
-sandbox.setRules(db, rules)
-sandbox.seedDocuments(db, documents)
-sandbox.snapshotState(db)
+import {
+  inspect,
+  seedDocuments,
+  setRules,
+  snapshotDocuments,
+} from 'pyric/sandbox/firestore';
+
+setRules(sandbox, rules)
+seedDocuments(sandbox, documents)
+snapshotDocuments(sandbox)
+inspect(sandbox)
 ```
 
-Only callable against a sandbox-backed `Firestore`. Throws `SandboxError('failed-precondition')` if called against a prod-backed handle.
+These controls accept the owning local `Sandbox`, not a `Firestore` handle. They
+are deliberately separate from the `firebase/firestore`-compatible data-plane
+surface. Remote sandboxes are rejected by the type contract.
 
 See [Sandbox-only operations](./sandbox-ops.md).
 
