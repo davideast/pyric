@@ -711,3 +711,63 @@ human would have clicked — the analog of `mockSignInResult` for the email fami
 IS fully observable, and is oracle-pinned exactly, is the pure client-side half:
 the `ActionCodeURL` parse contract, the `isSignInWithEmailLink` predicate, and the
 `ActionCodeSettings` validation — none of which touch a network at all.
+
+---
+
+## Visible gaps to address next
+
+Rows currently marked **?** (need explicit probes):
+
+- #3 `getAuth(app)` prod-backend dispatch — landing once the
+  empirical oracle harness (`packages/conformance/src/run.ts`) captures the
+  observation against a real Firebase project. Harness is in
+  place; needs the `PYRIC_ORACLE_FIREBASE_CONFIG` env var pointed
+  at a dedicated oracle project before observations can be
+  committed. See `packages/conformance/docs/oracle-project-setup.md` for project setup.
+- #69 (ordering only) — disabled-vs-wrong-password precedence on
+  `signInWithEmailAndPassword`. Sandbox checks disabled BEFORE the
+  password compare (anti-probing best-known semantics); needs an
+  oracle capture against a disabled prod account to lock the order.
+- #68 (prod side) — `IdTokenResult.signInProvider` values per flow are
+  documented SDK behavior but not yet oracle-captured.
+
+Rows **locked by the empirical oracle harness** (committed observations under `packages/conformance/observations/auth/`, captured against the `blockingfun` project):
+
+- #10 `onAuthStateChanged` exactly-one-per-transition — oracle confirmed signIn → signOut → signIn each produced exactly 1 fire (in addition to the initial null fire on subscribe); sandbox matches.
+- #14 `signInWithEmailAndPassword` user-not-found — oracle confirmed prod still emits `auth/user-not-found` (not the newer `auth/invalid-credential`); sandbox matches.
+- #17 `signInWithEmailAndPassword` fires once with the new user — oracle confirmed `firesForSignIn: 1` with the signed-in uid against prod; sandbox matches.
+- #18 `auth/invalid-email` format-validation — oracle confirmed `createUserWithEmailAndPassword(auth, 'not-an-email', …)` throws `auth/invalid-email` against prod; sandbox now matches (validation lives in `sandbox-backend.ts` and runs before user-DB lookup on both `signIn` and `createUser` paths).
+- #19 `auth/weak-password` strength-validation — oracle confirmed prod rejects 3-char passwords with `auth/weak-password` and message `Password should be at least 6 characters`; sandbox now matches the same 6-char threshold (validated on `createUser` only — `signIn` lets in previously-seeded weak passwords, mirroring prod).
+- #24 `createUserWithEmailAndPassword` fires once with the new user — oracle confirmed `firesForCreate: 1` with the newly-created uid against prod; sandbox matches.
+- #26 `signOut` fires null exactly once — oracle confirmed the signOut transition produced exactly 1 fire with `uid === null`; sandbox matches.
+- #30 `onAuthStateChanged` on every subsequent identity change — oracle confirmed signIn → signOut → signIn → signOut all 4 fired exactly once; sandbox matches.
+- #32 `Unsubscribe` removes the observer — oracle confirmed post-unsubscribe signOut+signIn+signOut produced zero further fires; sandbox matches.
+- #33 multiple subscribers all fire — oracle confirmed two listeners registered back-to-back both fire on each transition; sandbox matches.
+- #36 observer object form (`{next, error, complete}`) — oracle confirmed prod accepts both forms; both fire on every transition; sandbox matches.
+- #21 `createUserWithEmailAndPassword` `operationType` — oracle confirmed prod returns `'signIn'` (NOT `'register'`); sandbox matches.
+- #22 `createUserWithEmailAndPassword` duplicate email — oracle confirmed prod emits `auth/email-already-in-use`; sandbox matches.
+- #25 `signOut` synchronous-null — oracle confirmed prod sets `auth.currentUser` to `null` in the synchronous continuation immediately after `await signOut(auth)` resolves; sandbox matches.
+- #27 `signOut` idempotent — oracle confirmed prod is a no-op, no listener fire on the redundant call.
+- #29 `onAuthStateChanged` initial-fire timing — oracle confirmed prod fires the initial value on the microtask after subscribe, not synchronously; sandbox matches.
+- #31 `onAuthStateChanged` no-dup on sync transition — oracle baseline: prod has no synchronous state-change API, so the dedup case is sandbox-only. Async subscribe + signIn produces two natural fires (initial null, then user).
+- #35 `onAuthStateChanged` throwing-observer isolation — oracle confirmed a throwing observer does not block subsequent observers; sandbox matches.
+- #37 `onAuthStateChanged` same-user no-double-fire — oracle confirmed calling `signInAnonymously` twice in a row returns the same uid and the second call does NOT produce a fresh listener fire; sandbox matches.
+- #38 `onIdTokenChanged` user-change fires — oracle confirmed every signIn/signOut transition produces exactly one fire; sandbox matches.
+- #39 `onIdTokenChanged` on forced refresh — oracle confirmed prod fires the listener after `getIdToken(true)`; sandbox matches (divergence closed).
+- #40 `onIdTokenChanged` initial-fire parity with `onAuthStateChanged` — oracle confirmed both listeners share the microtask-deferred initial-fire timing; sandbox matches.
+- #55 `getIdToken(forceRefresh)` — oracle confirmed prod returns a different token string after a forced refresh and a subsequent non-forced read returns the cached new token; sandbox matches (divergence closed).
+
+Rows currently marked **—** that we might want to fill (rough priority):
+
+1. #20-23 `updateProfile` — common app pattern, agent code often calls it
+2. #57 `user.emailVerified` — used by gating logic in real apps
+3. #58-61 `user.metadata` / `reload` / `delete` — full User shape parity
+
+Rows currently marked **⚠** that we might want to upgrade to **✓**
+(by aligning the sandbox to prod or by formally documenting the
+divergence in `feature-matrix.md`):
+
+- #7 anonymous uid format
+- #12, #28 persistence story
+- #43 setPersistence respect
+- #48 popup window

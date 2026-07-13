@@ -43,9 +43,9 @@ describe('firebase stub generation (drift-proof list)', () => {
     for (const n of ['Bytes', 'GeoPoint', 'documentId', 'FieldPath']) {
       expect(fs!.has(n)).toBe(true);
     }
-    // `import { initializeApp as initializeFirebaseApp } from 'firebase/app'`
-    // — alias form must record the EXPORT name.
-    expect(bindings.get('firebase/app')?.has('initializeApp')).toBe(true);
+    // App and Storage are sandbox-only mirrors: package resolution chooses
+    // Firebase or Pyric before either module loads.
+    expect(bindings.has('firebase/app')).toBe(false);
     // `import { get, set, … } from 'firebase/database'`
     expect(bindings.get('firebase/database')?.has('ref')).toBe(true);
     // Storage is the first sandbox-only mirror: package resolution chooses
@@ -79,35 +79,11 @@ describe('firebase stub generation (drift-proof list)', () => {
     expect(mod.anything.deep).toBe(mod); // get → deny
   });
 
-  it('firebase/app stub emits a REAL FirebaseError (pyric subclasses it at runtime)', () => {
+  it('firebase/app needs no special runtime class after app isolation', () => {
     const src = stubModuleSource('firebase/app', new Set(['FirebaseError', 'initializeApp']));
-    // Subclassing the inert proxy is broken (super() returns the SHARED proxy,
-    // own fields like `.code` are unreadable) — pyric/ai's AIError and
-    // pyric/auth's sandbox backend extend/throw FirebaseError, so this ONE
-    // binding must be a real class; everything else stays inert.
-    expect(src).toContain('export class FirebaseError extends Error');
-    expect(src).not.toContain('export const FirebaseError = deny;');
+    expect(src).not.toContain('export class FirebaseError extends Error');
+    expect(src).toContain('export const FirebaseError = deny;');
     expect(src).toContain('export const initializeApp = deny;');
-    // Prove subclass instances carry their own fields (the AIError contract).
-    const FirebaseError = (0, eval)(
-      '(function(){' +
-        src
-          .replace(/export default deny;?/, '')
-          .replace(/export const \w+ = deny;/g, '')
-          .replace('export class', 'class') +
-        ';return FirebaseError;})()',
-    ) as new (code: string, message: string) => Error & { code: string };
-    class Sub extends FirebaseError {}
-    const a = new Sub('fetch-error', 'boom');
-    const b = new Sub('other', 'x');
-    expect(a).not.toBe(b);
-    expect(a.code).toBe('fetch-error');
-    expect(a.message).toBe('boom');
-    expect(a instanceof Error).toBe(true);
-    // A non-firebase/app module never gets the real class.
-    expect(stubModuleSource('firebase/firestore', new Set(['FirebaseError']))).toContain(
-      'export const FirebaseError = deny;',
-    );
   });
 });
 

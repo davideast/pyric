@@ -5,14 +5,14 @@
  *   - `User.photoURL` / `emailVerified` / `phoneNumber` / `providerId` /
  *     `providerData` present on sandbox-minted users;
  *   - `auth.signOut()` method form (alongside the free function);
- *   - sandbox auth errors are real `FirebaseError` instances with the
+ *   - sandbox auth errors are Firebase-shaped `FirebaseError` instances with the
  *     `Firebase: … (auth/…)` message wrapper.
  * (The heavier surface — metadata / refreshToken / tenantId / reload /
  * delete / toJSON — is documented in COMPAT, not synthesized.)
  */
 import { describe, expect, it } from 'bun:test';
-import { FirebaseError } from 'firebase/app';
 import { initializeSandbox } from 'pyric/sandbox';
+import { FirebaseError } from '../../src/app/index.js';
 import {
   getAuth,
   sandbox as authSandbox,
@@ -58,7 +58,7 @@ describe('AUTH-GAP: auth.signOut() method form', () => {
 });
 
 describe('AUTH-GAP: FirebaseError instances + message wrapper', () => {
-  it('a sandbox auth error is a real FirebaseError with the Firebase wrapper', async () => {
+  it('a sandbox auth error is a FirebaseError with the Firebase wrapper', async () => {
     const auth = getAuth(initializeSandbox());
     try {
       await signInWithEmailAndPassword(auth, 'not-an-email', 'pw123456');

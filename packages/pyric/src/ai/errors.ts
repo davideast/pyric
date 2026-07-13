@@ -11,7 +11,7 @@
  * same error from the wire envelope, with a production-shaped URL.
  */
 
-import { FirebaseError } from 'firebase/app';
+import { FirebaseError } from '../app/firebase-error.js';
 import type { AIError as FbAIError } from 'firebase/ai';
 
 import { AiBrokerError, type WireErrorEnvelope } from './broker/index.js';

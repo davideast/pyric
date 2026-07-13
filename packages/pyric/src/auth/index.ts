@@ -35,8 +35,8 @@ import { SandboxError, type Sandbox } from 'pyric/sandbox';
 import type { FirebaseApp } from 'firebase/app';
 import * as fb from 'firebase/auth';
 
-// Phase 3 unified app handle. Adapter dispatch reads `APP_TARGET` and
-// routes to the existing direct-handle path (sandbox vs prod).
+// A PyricApp always wraps a sandbox. Direct FirebaseApp support remains a
+// temporary service-level production arm until the Auth package migration.
 import { APP_TARGET, type PyricApp } from 'pyric/app';
 
 import {
@@ -312,15 +312,10 @@ export function getAuth(sandbox: Sandbox): Auth;
 export function getAuth(app: FirebaseApp): Auth;
 export function getAuth(app: PyricApp): Auth;
 export function getAuth(target: Sandbox | FirebaseApp | PyricApp): Auth {
-  // PyricApp dispatch: inspect the brand and forward to the existing
-  // direct-handle path. Ordered ABOVE the structural `isSandbox`
-  // sniff so a PyricApp's outer object (which doesn't itself carry
-  // `withAuth`) doesn't accidentally match either branch — and so a
-  // sandbox-app routes into the cached sandbox handle.
+  // Package resolution already selected the sandbox mirror before this code
+  // loaded, so a PyricApp can only unwrap to its Sandbox.
   if (isPyricApp(target)) {
-    return target[APP_TARGET] === 'sandbox'
-      ? getAuth(target.sandbox)
-      : getAuth(target.firebaseApp);
+    return getAuth(target.sandbox);
   }
   if (isSandbox(target)) {
     let handle = sandboxHandles.get(target);
@@ -362,10 +357,8 @@ export function initializeAuth(
 }
 
 /**
- * Brand-based test for the {@link PyricApp} overload. Reads the
- * `APP_TARGET` symbol that `pyric/app`'s `initializeApp` stamps on
- * every handle. Cheap + collision-free: a `Sandbox` / `FirebaseApp`
- * will never carry this symbol.
+ * Brand-based test for the {@link PyricApp} overload. A direct Sandbox or
+ * FirebaseApp never carries the app-wrapper symbol.
  */
 function isPyricApp(target: Sandbox | FirebaseApp | PyricApp): target is PyricApp {
   return (

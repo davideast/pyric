@@ -1,6 +1,6 @@
 /**
  * Unit coverage for the register seam's pure pieces: the specifier map
- * (firebase → pyric, all subpaths 1:1, non-Firebase untouched), the
+ * (firebase → pyric, with a register-only app adapter, non-Firebase untouched), the
  * mirror-package exemption (Firebase imports FROM WITHIN the pyric mirrors
  * stay Firebase — their prod arms), and the ESM-only exports walker behind
  * the CJS require() fallback.
@@ -20,13 +20,13 @@ describe('mapFirebaseSpecifier', () => {
     expect(mapFirebaseSpecifier('firebase')).toBe('pyric');
   });
 
-  it('maps every subpath 1:1', () => {
+  it('maps service subpaths and routes app through the register adapter', () => {
     expect(mapFirebaseSpecifier('firebase-admin/app')).toBe('pyric-admin/app');
     expect(mapFirebaseSpecifier('firebase-admin/firestore')).toBe('pyric-admin/firestore');
     expect(mapFirebaseSpecifier('firebase-admin/auth')).toBe('pyric-admin/auth');
     expect(mapFirebaseSpecifier('firebase-admin/database')).toBe('pyric-admin/database');
     expect(mapFirebaseSpecifier('firebase-admin/storage')).toBe('pyric-admin/storage');
-    expect(mapFirebaseSpecifier('firebase/app')).toBe('pyric/app');
+    expect(mapFirebaseSpecifier('firebase/app')).toBe('pyric/app/register');
     expect(mapFirebaseSpecifier('firebase/firestore')).toBe('pyric/firestore');
     expect(mapFirebaseSpecifier('firebase/auth')).toBe('pyric/auth');
   });
@@ -81,7 +81,7 @@ describe('rewriteSpecifier (mirror-package exemption)', () => {
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'user-app' }));
       const userParent = pathToFileURL(join(dir, 'server.mjs')).href;
       expect(rewriteSpecifier('firebase-admin/database', userParent)).toBe('pyric-admin/database');
-      expect(rewriteSpecifier('firebase/app', userParent)).toBe('pyric/app');
+      expect(rewriteSpecifier('firebase/app', userParent)).toBe('pyric/app/register');
       expect(rewriteSpecifier('firebase-admin/app', undefined)).toBe('pyric-admin/app');
       expect(rewriteSpecifier('firebase-admin/app', 'data:text/javascript,')).toBe(
         'pyric-admin/app',

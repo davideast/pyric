@@ -18,6 +18,10 @@
       "types": "./dist/app/index.d.ts",
       "import": "./dist/app/index.js"
     },
+    "./app/register": {
+      "types": "./dist/app/register.d.ts",
+      "import": "./dist/app/register.js"
+    },
     "./firestore": {
       "types": "./dist/firestore/index.d.ts",
       "import": "./dist/firestore/index.js"

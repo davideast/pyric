@@ -26,9 +26,7 @@
 import { getStorageSandbox } from './service.js';
 import type { FirebaseStorage } from './service.js';
 
-// Phase 3 unified app handle. `APP_TARGET` temporarily guards the boundary
-// while `pyric/app` still carries its legacy production target.
-import { APP_TARGET, type PyricApp } from 'pyric/app';
+import type { PyricApp } from 'pyric/app';
 
 export { getStorageSandbox, TARGET_SYMBOL } from './service.js';
 export type { FirebaseStorage, StorageOptions, Target, SandboxTarget } from './service.js';
@@ -37,15 +35,7 @@ export type { FirebaseStorage, StorageOptions, Target, SandboxTarget } from './s
 //
 // Package resolution chooses Firebase or Pyric before this module loads.
 // Therefore a Pyric Storage entry accepts only a sandbox-backed PyricApp.
-// The temporary prod-app guard stays loud while `pyric/app` itself still has
-// its legacy dual-target shape; that arm disappears in the app migration.
 export function getStorage(app: PyricApp, _bucketUrl?: string): FirebaseStorage {
-  if (app[APP_TARGET] !== 'sandbox') {
-    throw new TypeError(
-      'pyric/storage: production selection happens by importing firebase/storage; ' +
-        'the pyric/storage mirror accepts sandbox apps only.',
-    );
-  }
   return getStorageSandbox(app.sandbox);
 }
 

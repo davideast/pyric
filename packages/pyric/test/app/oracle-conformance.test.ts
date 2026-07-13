@@ -191,8 +191,8 @@ describe('oracle conformance (client app registry)', () => {
 
   it('app-registry-sdk-version', () => {
     const obs = load('app-registry-sdk-version');
-    // pyric re-exports firebase/app's SDK_VERSION — it IS the version the rig
-    // captured against, so type, semver shape, AND value all match.
+    // The mirror pins the SDK version whose observations it replays, so type,
+    // semver shape, and exact value all stay aligned with the oracle envelope.
     expect(typeof SDK_VERSION).toBe(obs.type as string); // 'string'
     expect(/^\d+\.\d+\.\d+/.test(SDK_VERSION)).toBe(obs.isSemver as boolean);
     expect(SDK_VERSION).toBe(obs.value as string);

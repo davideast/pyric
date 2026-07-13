@@ -5,10 +5,10 @@
  * one definition rather than a re-export chain.
  */
 
-import { FirebaseError } from 'firebase/app';
+import { FirebaseError } from '../app/firebase-error.js';
 
 /**
- * Build a real `FirebaseError` (the same class `firebase/auth` throws),
+ * Build a Firebase-shaped `FirebaseError` from the sandbox-owned app mirror,
  * with the prod message wrapper `Firebase: <message> (<code>).`
  * (`clones/.../util/src/errors.ts:121` — `${serviceName}: ${message}
  * (${fullCode}).`, serviceName `Firebase`). So consumer code that does

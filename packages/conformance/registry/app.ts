@@ -226,7 +226,7 @@ export const appRegistry = {
           section: '`FirebaseError` / `SDK_VERSION` / logger seam',
           api: 'SDK_VERSION',
           behavior:
-            "`SDK_VERSION` is the firebase client SDK semver string pyric mirrors — re-exported from `firebase/app`, so it IS the version the rig captured against (currently `12.13.0`)",
+            "`SDK_VERSION` is the Firebase client SDK semver string whose behavior pyric currently mirrors, pinned to the oracle version (`12.13.0`)",
           status: 'conforms',
           evidence: 'oracle: `app-registry-sdk-version` (firebase 12.13.0) + replay: `oracle-conformance.test.ts`',
           risk: ['specific-value'],
@@ -245,7 +245,7 @@ export const appRegistry = {
           section: '`FirebaseError` / `SDK_VERSION` / logger seam',
           api: 'FirebaseError',
           behavior:
-            "`FirebaseError` is `firebase/app`'s own error class (re-exported): `instanceof Error`, `constructor.name` is `'FirebaseError'`, and it preserves `.code` and `.message` — so mirror throws match prod on `instanceof` and code",
+            "`FirebaseError` is an app-owned Error subclass: `instanceof Error`, `constructor.name` is `'FirebaseError'`, and it preserves `.code` and `.message` without loading `firebase/app`",
           status: 'conforms',
           evidence:
             'oracle: `app-registry-firebaseerror-shape` (firebase 12.13.0) + replay: `oracle-conformance.test.ts`',
@@ -265,9 +265,8 @@ export const appRegistry = {
           section: '`FirebaseError` / `SDK_VERSION` / logger seam',
           api: 'onLog / setLogLevel',
           behavior:
-            "`onLog(cb)` / `setLogLevel(level)` are the firebase diagnostic-logger seam (re-exported functioning implementations, not inert tokens): registering a handler returns undefined, raising the threshold takes effect, and a malformed `registerVersion` emits a `warn` entry (type `@firebase/app`) to the handler",
+            "`onLog(cb)` / `setLogLevel(level)` are a functioning app-owned diagnostic-logger seam: registering a handler returns undefined, raising the threshold takes effect, and a malformed `registerVersion` emits a `warn` entry (type `@firebase/app`) to the handler",
           status: 'conforms',
-          statusNote: '(re-export)',
           evidence: 'oracle: `app-registry-onlog-setloglevel` (firebase 12.13.0) + replay: `oracle-conformance.test.ts`',
           risk: ['structural'],
           riskScore: 0,
@@ -276,7 +275,7 @@ export const appRegistry = {
           oracleObservations: ['app-registry-onlog-setloglevel'],
           conformanceTests: [CONFORMANCE_TEST],
           notes:
-            'onLog/setLogLevel bind the firebase SDK global logger — the SAME logger the prod path emits through. In pure-sandbox mode firebase itself logs nothing, but the functions behave identically to prod (observable register+emit), so this is a functioning implementation rather than an inert token.',
+            'The sandbox logger is process-local and independent from Firebase. Package resolution ensures production code receives the real Firebase logger, while the mirror reproduces the observed register, threshold, and emission contract without a production runtime dependency.',
         },
         {
           id: 'app#14',
@@ -287,9 +286,8 @@ export const appRegistry = {
           section: '`FirebaseError` / `SDK_VERSION` / logger seam',
           api: 'registerVersion',
           behavior:
-            '`registerVersion(library, version)` registers a platform-logger version component (re-exported functioning implementation); a well-formed call returns undefined without throwing',
+            '`registerVersion(library, version)` accepts a well-formed registration and returns undefined without throwing; malformed values emit the observed warning through the app-owned logger',
           status: 'conforms',
-          statusNote: '(re-export)',
           evidence: 'oracle: `app-registry-registerversion` (firebase 12.13.0) + replay: `oracle-conformance.test.ts`',
           risk: ['structural'],
           riskScore: 0,

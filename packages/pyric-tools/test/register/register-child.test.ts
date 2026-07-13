@@ -89,6 +89,10 @@ assert.ok(process.env.PYRIC_SANDBOX, 'PYRIC_SANDBOX must be set in the child');
 const app = require('firebase-admin/app');
 assert.strictEqual(app.ADMIN_APP_TARGET, Symbol.for('pyric.admin.app.target'), 'require(firebase-admin/app) must be pyric-admin/app');
 assert.strictEqual(typeof globalThis[Symbol.for('pyric.remote.sandboxFactory')], 'function');
+const clientApp = require('firebase/app').initializeApp({ projectId: 'cjs-demo' });
+assert.strictEqual(clientApp[Symbol.for('pyric.app.target')], 'sandbox');
+assert.strictEqual(clientApp.options.projectId, 'cjs-demo');
+assert.strictEqual(typeof require('firebase/firestore').getFirestore(clientApp), 'object');
 console.log('CJS_OK');
 `,
   );
@@ -109,6 +113,23 @@ assert.strictEqual(db, direct, 'user import of firebase-admin/database must BE p
 assert.strictEqual(db.getDatabaseWithUrl, undefined, 'surface must be pyric-admin, not real firebase-admin');
 assert.strictEqual(typeof db.getDatabase, 'function');
 console.log('PROD_ARM_OK');
+`,
+  );
+
+  // Canonical client fixture: unchanged Firebase imports must initialize the
+  // process sandbox through the register-only app adapter, then thread that
+  // app into another swapped client service.
+  writeFileSync(
+    join(fixtureDir, 'client.mjs'),
+    `import assert from 'node:assert';
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+const app = initializeApp({ apiKey: 'ignored', projectId: 'demo-project' });
+assert.strictEqual(app[Symbol.for('pyric.app.target')], 'sandbox');
+assert.strictEqual(app.options.projectId, 'demo-project');
+const db = getFirestore(app);
+assert.strictEqual(typeof db, 'object');
+console.log('CLIENT_OK');
 `,
   );
 
@@ -143,6 +164,13 @@ describe('@pyric/cli/register (child process)', () => {
     // The success line is only reachable when pyric-admin/database loaded,
     // i.e. its internal firebase-admin/database import stayed unrewritten.
     expect(res.stdout).toContain('PROD_ARM_OK');
+    expect(res.status).toBe(0);
+  });
+
+  it('initializes unchanged client Firebase imports through the sandbox app adapter', () => {
+    const res = runNode('client.mjs', { PYRIC_SANDBOX: 'local' });
+    expect(res.stderr).toContain('@pyric/cli/register: active');
+    expect(res.stdout).toContain('CLIENT_OK');
     expect(res.status).toBe(0);
   });
 
