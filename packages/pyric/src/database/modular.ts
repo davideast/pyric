@@ -47,6 +47,7 @@ import { SandboxContextImpl } from 'pyric/sandbox';
 import { APP_TARGET, type PyricApp } from 'pyric/app';
 
 import { RtdbBackend } from './sandbox/backend.js';
+import { getOrCreateBackend } from './sandbox/backend-for.js';
 import { generatePushId } from './sandbox/push-id.js';
 import {
   serverTimestampSentinel,
@@ -92,51 +93,6 @@ function isSandboxKind(t: Target): t is SandboxTarget | SandboxLiveTarget {
 function authFor(t: SandboxTarget | SandboxLiveTarget): AuthState {
   if (t.admin) return null;
   return t.kind === 'sandbox' ? t.auth : t.sandbox.currentUser;
-}
-
-/**
- * One backend per `Sandbox`. The modular surface tracks the binding
- * here so successive `getDatabase(sandbox)` calls return handles that
- * share data (matches `firebase/database`'s singleton-per-`FirebaseApp`).
- */
-const backendBySandbox = new WeakMap<Sandbox, RtdbBackend>();
-
-function getOrCreateBackend(sandbox: Sandbox): RtdbBackend {
-  let backend = backendBySandbox.get(sandbox);
-  if (!backend) {
-    // Pass the owning sandbox so the backend can land RTDB write activity
-    // on the unified Studio `onEvent`/`history()` stream (keystone T1).
-    backend = new RtdbBackend(sandbox);
-    backendBySandbox.set(sandbox, backend);
-    // Register the RTDB tree as a persistable service on the sandbox — the
-    // same durability mechanism auth uses (see auth/index.ts:backendFor).
-    // This makes `enablePersistence` include the tree in the serialized blob
-    // and restore it on reload (worker death / browser restart), instead of
-    // the old memory-only behavior where RTDB data was lost while Firestore
-    // docs + auth users came back.
-    //
-    // Guarded by the WeakMap memoization above: we only reach this branch
-    // ONCE per sandbox, so double-registration is impossible in practice
-    // (registerPersistableService throws on duplicates anyway).
-    //
-    //   - snapshot: serialize the tree as a plain JSON value.
-    //   - restore : REPLACE the tree AND fire listeners so a live RTDB view
-    //               (Studio's RTDB tab) converges on the restored data.
-    //   - subscribe: notify the controller on ANY write so a mutation
-    //               schedules a debounced flush. RTDB writes emit
-    //               `service_mutation` events, which the controller's
-    //               `isPersistableEvent` does NOT cover — so this hook is the
-    //               sole flush trigger, exactly as auth does it.
-    const capturedBackend = backend;
-    sandbox.registerPersistableService('rtdb', {
-      snapshot: () => capturedBackend.exportTree(),
-      restore: (data: unknown) => {
-        capturedBackend.restoreTree(data as JsonValue);
-      },
-      subscribe: (onChange: () => void) => capturedBackend.subscribeWrites(onChange),
-    });
-  }
-  return backend;
 }
 
 const refToTarget = new WeakMap<object, Target>();
