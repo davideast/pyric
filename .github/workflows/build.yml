@@ -66,6 +66,9 @@ jobs:
         # CI and local can't drift.
         run: bash scripts/build.sh
 
+      - name: Install Chromium for documentation rhythm audit
+        run: bunx playwright install --with-deps chromium
+
       - name: Documentation generation, drift, links, and site build
         # API markdown is generated from the declarations named by each
         # package export map. The site test re-ports authored sources, builds
