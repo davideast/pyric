@@ -181,7 +181,7 @@ export interface ExtractionWarning {
 /**
  * Final extractor output. The `config` field is shaped exactly like
  * `firestore.indexes.json` so it can be passed directly to
- * `firestore_deploy_indexes`.
+ * written to `firestore.indexes.json` for the Firebase CLI.
  */
 export type ExtractResult =
   | {

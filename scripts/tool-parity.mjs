@@ -131,17 +131,12 @@ const MCP_CONTRIBUTIONS = [
 /** @pyric/cli registry — mirrors registry/compose.ts (maximal: profile
  *  'full' with scope + adminDeps + rtdbHost). */
 const REGISTRY_CONTRIBUTIONS = [
-  { file: `${TOOLS}/deploy/tools.ts`, factory: 'createFirestoreDeployTools', gate: 'always' },
-  // Skipped when rtdbHost is supplied (createRtdbRulesTools carries the
-  // same rtdb_get_rules / rtdb_deploy_rules names).
-  { file: `${TOOLS}/deploy/tools.ts`, factory: 'createRtdbDeployTools', gate: 'when no rtdbHost' },
-  { file: `${TOOLS}/deploy/tools.ts`, factory: 'createHostingDeployTools', gate: 'always' },
-  { file: `${TOOLS}/deploy/tools.ts`, factory: 'createFunctionsDeployTools', gate: 'always' },
-  { file: `${PYRIC}/rules/tools.ts`, factory: 'createFirestoreRulesTools', gate: 'not control-plane-only' },
-  { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'not control-plane-only' },
-  { file: `${TOOLS}/auth/tools.ts`, factory: 'createAuthAdminTools', gate: 'not control-plane-only' },
-  { file: `${TOOLS}/verify/tools.ts`, factory: 'createVerifyTools', gate: 'not control-plane-only' },
-  { file: `${TOOLS}/assurance/tools.ts`, factory: 'createAssuranceTools', gate: 'not control-plane-only, local-only' },
+  { file: `${PYRIC}/rules/tools.ts`, factory: 'createFirestoreRulesTools', gate: 'always' },
+  { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'always' },
+  { file: `${TOOLS}/auth/tools.ts`, factory: 'createAuthAdminTools', gate: 'always' },
+  { file: `${TOOLS}/verify/tools.ts`, factory: 'createVerifyTools', gate: 'always' },
+  { file: `${TOOLS}/assurance/tools.ts`, factory: 'createAssuranceTools', gate: 'local-only' },
+  { file: `${TOOLS}/rtdb/rules-generation-tool.ts`, factory: 'createRtdbRulesGenerationTools', gate: 'local-only' },
   { file: `${PYRIC}/rules/indexes/extractTool.ts`, factory: 'createFirestoreExtractTool', gate: 'full profile' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'adminDeps' },
   { file: `${TOOLS}/discover/tools.ts`, factory: 'createFirestoreDiscoverTools', gate: 'adminDeps' },

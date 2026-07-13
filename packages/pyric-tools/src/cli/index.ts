@@ -9,8 +9,6 @@
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json] [--include-passwords]
  *   pyric mcp
- *   pyric deploy <rules|indexes|database|hosting|functions>
- *   pyric hosting:channel:deploy <channelId> [--expires <ttl>]
  *   pyric rules:lint <path>
  *   pyric rules:validate <path>
  *   pyric rules:simulate [--stdin]
@@ -32,9 +30,8 @@
  *   PYRIC_PORT                       — bridge port (default 5174)
  *   PYRIC_PROJECT                    — project id (sandbox: any; prod: Firebase project id)
  *   PYRIC_VERBOSE                    — set to 1 for per-tool-call logging
- *   FIREBASE_SA_BASE64               — base64-encoded service-account JSON (deploy / auth / discover)
- *   GOOGLE_APPLICATION_CREDENTIALS   — path to service-account JSON (deploy / auth / discover)
- *   FIREBASE_DATABASE_URL            — Realtime Database URL for deploy database
+ *   FIREBASE_SA_BASE64               — base64-encoded service-account JSON (verify / auth / discover)
+ *   GOOGLE_APPLICATION_CREDENTIALS   — path to service-account JSON (verify / auth / discover)
  *   PYRIC_OAUTH_CLIENT_ID            — Google "Desktop app" OAuth client id (pyric login)
  *   PYRIC_OAUTH_CLIENT_SECRET        — its client secret (pyric login; required by Google)
  *   PYRIC_REFRESH_TOKEN              — CI refresh token from `pyric login --ci`
@@ -47,7 +44,6 @@
 
 import { startServer, type BridgeMode } from '@pyric/cli/bridge';
 import { parseArgs, type ParsedArgs } from './parse-args.js';
-import { runDeploy, runHostingChannelDeploy } from './deploy.js';
 import { runLoginCommand, runLogoutCommand, runWhoamiCommand } from './login.js';
 import { runRulesLint, runRulesValidate, runRulesSimulate } from './rules.js';
 import {
@@ -83,8 +79,6 @@ USAGE
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
-  pyric deploy <rules|indexes|database|hosting|functions>
-  pyric hosting:channel:deploy <channelId> [--expires <ttl>]
   pyric rules:lint <path>
   pyric rules:validate <path>
   pyric rules:simulate [--stdin]
@@ -131,33 +125,11 @@ COMMANDS
                              (.pyric/last-session.json). --service filters services.
                              --engine sandbox (default), rules-test-api, or both.
                              Hosted Rules Test API verification is Firestore-only
-                             and uses --project plus the same credentials as deploy.
+                             and uses --project plus the configured Google credentials.
                              --rules service=path overrides firebase.json resolution
                              (repeat for mixed captures). --json. Exit 1 on divergence.
   verify cases [fixture]     Derive Firestore Rules Test API cases from a captured
                              fixture and print JSON, or write with --out FILE.
-  deploy [target]            Deploy rules / indexes / database / hosting / functions.
-                             hosting: deploys the firebase.json hosting block
-                             (rewrites/redirects/headers/cleanUrls/trailingSlash/
-                             appAssociation/i18n + ignore globs). --only
-                             hosting:<siteOrTarget> picks an entry (default:
-                             first); --project accepts a .firebaserc alias.
-                             --channel <id|auto> releases to a preview channel
-                             instead of live (auto = current git branch,
-                             sanitized); --channel-ttl/--expires <30m|12h|7d>
-                             caps its lifetime (default 7d, max 30d).
-                             Agent I/O (hosting): --schema prints the deploy
-                             tool's JSON Schema; --json '<payload>' validates
-                             against it and feeds the tool directly (bypasses
-                             firebase.json); bare --json = machine output for
-                             a normal deploy (results to stdout, errors to
-                             stderr, as JSON).
-                             database: deploys firebase.json database.rules.
-                             URL precedence: --database-url,
-                             FIREBASE_DATABASE_URL, firebase.json
-                             database.url, then default instance discovery.
-  hosting:channel:deploy     Mirror of \`deploy hosting --channel <channelId>\`
-                             (firebase-tools spelling) — identical behavior.
   rules:lint                 Run Firestore rules linter against a file.
   rules:validate             Validate Firestore rules structure against a file.
   rules:simulate             Local rules simulator (smoke-test or --stdin scripted).
@@ -168,7 +140,7 @@ COMMANDS
   auth:configure-provider    Identity Toolkit: enable/disable an auth provider.
   auth:manage-domains        Identity Toolkit: add/remove/list authorized domains.
   firestore:discover         Crawl a Firestore to infer schema.
-  login [--ci]               Google sign-in for deploy / auth / discover (loopback
+  login [--ci]               Google sign-in for verify / auth / discover (loopback
                              OAuth + PKCE). Stores a refresh token at
                              ~/.pyric/credentials.json. --ci prints the token to
                              stdout to set as PYRIC_REFRESH_TOKEN in CI. Requires
@@ -251,14 +223,13 @@ CREDENTIALS
     PYRIC_OAUTH_CLIENT_SECRET        its client secret (required — Google's token
                                      exchange needs it even with PKCE)
 
-  deploy / auth / discover resolve a credential in this precedence order:
+  verify / auth / discover resolve a credential in this precedence order:
     1. FIREBASE_SA_BASE64            base64-encoded service-account JSON (CI)
     2. GOOGLE_APPLICATION_CREDENTIALS  path to a service-account JSON file
     3. PYRIC_REFRESH_TOKEN           CI refresh token from \`pyric login --ci\`
     4. ~/.pyric/credentials.json     the \`pyric login\` user (granted scopes only)
     5. ADC                           \`gcloud auth application-default login\` (ambient)
   PYRIC_PROJECT / --project          project id for user/ADC creds (else .firebaserc default)
-  FIREBASE_DATABASE_URL              Realtime Database URL for \`pyric deploy database\`
 `);
 }
 
@@ -475,16 +446,12 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       return await runInit(parsed);
     case 'vendor':
       return await runVendor(parsed);
-    case 'deploy':
-      return await runDeploy(parsed);
     case 'login':
       return await runLoginCommand({ ci: parsed.flags.get('ci') === true });
     case 'logout':
       return await runLogoutCommand();
     case 'whoami':
       return await runWhoamiCommand();
-    case 'hosting:channel:deploy':
-      return await runHostingChannelDeploy(parsed);
     case 'rules:lint':
       return await runRulesLint(parsed);
     case 'rules:validate':
@@ -522,7 +489,7 @@ export { parseArgs } from './parse-args.js';
 
 // Always run `main()` — this file IS the bin entry. Tests in
 // `cli.test.ts` import individual helpers (`./parse-args.js`,
-// `./init.js`, `./deploy.js`, etc.) and never touch this module, so
+// `./init.js`, `./rules.js`, etc.) and never touch this module, so
 // there's nothing to gate against. The previous `isDirectRun` check
 // matched `process.argv[1]` against a `/cli/index.js` regex — on Linux,
 // npm bin symlinks leave `argv[1]` as `node_modules/.bin/pyric` (NOT

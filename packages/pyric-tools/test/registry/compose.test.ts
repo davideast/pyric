@@ -30,27 +30,25 @@ describe('composeMcpRegistry', () => {
     expect(registry.has('auth_configure_provider')).toBe(true);
     expect(registry.has('firebase_assurance_start')).toBe(true);
     expect(registry.has('firebase_assurance_run')).toBe(true);
+    expect(registry.has('rtdb_generate_rules')).toBe(true);
     // No duplicate names — `register` throws on conflict (F6), so
     // a duplicate would have already failed assembly.
     const names = tools.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it('control-plane-only profile drops rules tooling', async () => {
-    const fullRegistry = await composeMcpRegistry({ profile: 'full', scope: fakeScope });
-    const controlOnly = await composeMcpRegistry({ profile: 'control-plane-only', scope: fakeScope });
-    expect(controlOnly.list().length).toBeLessThan(fullRegistry.list().length);
-    // The lint tool (rules-tooling) should be absent from control-plane-only.
-    expect(controlOnly.has('firestore_lint_rules')).toBe(false);
-    expect(fullRegistry.has('firestore_lint_rules')).toBe(true);
-    expect(controlOnly.has('firebase_assurance_start')).toBe(false);
-  });
-
-  it('always includes the deploy primitives across every profile', async () => {
-    for (const profile of ['full', 'control-plane-only', 'browser-parity'] as const) {
+  it('never registers CLI-owned production deployment tools', async () => {
+    for (const profile of ['full', 'browser-parity'] as const) {
       const registry = await composeMcpRegistry({ profile, scope: fakeScope });
-      expect(registry.has('firestore_deploy_rules')).toBe(true);
-      expect(registry.has('hosting_deploy')).toBe(true);
+      for (const tool of [
+        'firestore_deploy_rules',
+        'firestore_deploy_indexes',
+        'rtdb_deploy_rules',
+        'hosting_deploy',
+        'functions_deploy',
+      ]) {
+        expect(registry.has(tool)).toBe(false);
+      }
     }
   });
 
@@ -80,5 +78,6 @@ describe('composeMcpRegistry', () => {
     expect(registry.has('firestore_extract_indexes')).toBe(false);
     // browser-parity still has rules tooling
     expect(registry.has('firestore_lint_rules')).toBe(true);
+    expect(registry.has('rtdb_generate_rules')).toBe(true);
   });
 });

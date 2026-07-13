@@ -18,9 +18,7 @@ import type { ProjectScope } from '../core/types.js';
 
 const GOOGLE_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 const SCOPE = [
-  // Broad scopes covering everything `@pyric/cli/deploy` touches:
-  // Firebase Hosting, Cloud Functions, Firestore Admin, Storage,
-  // Identity Toolkit, Cloud Resource Manager.
+  // Project verification and inspection use Firebase and Google Cloud APIs.
   'https://www.googleapis.com/auth/firebase',
   'https://www.googleapis.com/auth/cloud-platform',
 ].join(' ');

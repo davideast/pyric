@@ -274,6 +274,28 @@ describe('pyric init v2 — CLI surface', () => {
     expect(pkg.scripts.start).toBe('bun src/app.ts');
   });
 });
+
+describe('pyric init v2 — production handoff', () => {
+  for (const template of ['web', 'node', 'static'] as const) {
+    it(`${template} delegates production deployment to firebase-tools`, async () => {
+      const dir = tmp();
+      expect(
+        await runInit(args([], { template, json: true }), capture().deps(dir)),
+      ).toBe(0);
+
+      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+        scripts: Record<string, string>;
+      };
+      expect(Object.keys(pkg.scripts).some((name) => name.startsWith('deploy'))).toBe(false);
+      expect(Object.values(pkg.scripts).some((command) => command.includes('pyric deploy'))).toBe(false);
+
+      const readme = readFileSync(join(dir, 'README.md'), 'utf8');
+      expect(readme).toContain('npx firebase-tools deploy');
+      expect(readme).not.toContain('pyric deploy');
+    });
+  }
+});
+
 type Template = 'web' | 'node' | 'static';
 
 const contractRoots: string[] = [];
@@ -326,12 +348,12 @@ describe('pyric init output contract', () => {
       web: {
         '.env.example': '28dfe95f880d2ef18c36d150760286eee88c09054cb5341466f3b22c0f5ff297',
         '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
-        'README.md': '4433e7e5c8c82c1f18cc9a31ca352a880619edce012fa2387cf60da2ec5862c6',
+        'README.md': '7237e0dc51e7aa1432278a53cc06cb5c611e1d2da02f9d513740480c6bac6d83',
         'firebase.json': '06ed33d14b46379011c4a805299016f8c03adf5f47994624fde82b794f09ec2b',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '5251fb08767a1a8ae2242eb6784cd96838311499bd888fe5a975f65d3a0247ac',
         'index.html': '12f621f10493b0556d5f38acc3a0625c97646e32bd2bca740098ec5715f50aad',
-        'package.json': '992a082645627845cdedf2538f4b0a265b7abc4fd39a50f265248440d99304a3',
+        'package.json': 'f53371163698b81268f95d899c298d84c2f9bbf597909e77af430d71cef8eb10',
         'src/main.ts': '3e165d28c4d22df0b868d26cd4071950a6c47cfd0c8944d01c2dadc66c0dfab2',
         'src/vite-env.d.ts': '65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5',
         'tsconfig.json': '5bb892360953642d2644a442a81abbad91e62be2f7fcb646505cc7f33a6bcc08',
@@ -340,22 +362,22 @@ describe('pyric init output contract', () => {
       node: {
         '.env.example': 'e60553a1045edd51d9df5f4057e9f920fa21fcf0742e0df945628f6958e67ddf',
         '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
-        'README.md': '540111de9092df7c858a65f1dca76803e469dc4c9c43cd2d8ab58926d3419d8f',
+        'README.md': '150bd778e17e4c5a1b3ab87f8e234290f52f67d63a5965e5f501477e93399543',
         'firebase.json': 'e817f89d2f9776ba460ec062be7d40f827b8f910d740cff2522b72232f1cdf5a',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
-        'firestore.rules': 'fb36f8e6d6e6f5fd7365316fc929a1ad3f99eeff8d624cf6bada39c619501b47',
-        'package.json': '389d67729f3848fa9a74515c98740a303e2324c950d3e743f8d80fffff4b7995',
-        'src/app.ts': '15409150912e5f482e303a6bfde91794ace41cb5cccedd247ff9fb7a50aa4ae9',
+        'firestore.rules': '9028ecbf9580fee3a04afae28223bad887df81c814d14d2ebe983d30f3a49080',
+        'package.json': '96524aef187496ccda772db4378f642b7fc20656862c71f785b9163b7e6664c2',
+        'src/app.ts': '93d6c24bbea61702e9cc23cc5e3a8ae5c8aaef785e098b18d53ae95b4f353a75',
         'src/seed.ts': 'cf9a890fcc9e1f4a836bf5c150573978a0af454763077fcf4aaed5199d04ded8',
       },
       static: {
         '.env.example': '18c3e06dc3745d958ab69b314618808d7b0d0f31fad4db05552bf5c9c6613c92',
         '.gitignore': '0e07b9adae44651462c122657555ef50ebd683db263aac4681417088e1a321dd',
-        'README.md': 'a7535b643e8b21d4c862352f91e50f70aeb8f61f28b1fa632f7b0f995f12700b',
+        'README.md': '448d17c5c58fa1f300693d5b35db23d201ac230af1290fc17a0b2b54a7a56194',
         'firebase.json': 'da40b786caed050b30a5bb108c6e369376477e89a8e08e09c105445ef01bd0fd',
         'firestore.indexes.json': '6742255415c36daf631b52f233039190af819205cc41fa58d07dd7d9e180c2b9',
         'firestore.rules': '75a93ddd7994180a083b2f3337538eb0bcff8fa775c2edd72a13bce051dbc9f3',
-        'package.json': '8d2885c4be73d9901cffa294697aa796132c2ad2f78f7ae57b93e25c0d2a7e14',
+        'package.json': '0daea34dba4cabb58b1dd8172dd166b44d21108cad0894f396caab4a21c9e571',
         'public/app.js': '6e6b85c76d17e3f5d637afd8162233822b21c311a6f7d33ae02996d5565a3ed7',
         'public/index.html': 'a878cd6b5508217014e966a8f18ffb8be7789118602acc1c8108df244d2bef4e',
         'seed.json': 'd7d4bed7b5b88e4c30720647f630a83769edbb7eb379e5bcec05403e15148935',

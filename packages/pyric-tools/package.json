@@ -11,13 +11,9 @@
   "bugs": {
     "url": "https://github.com/davideast/pyric/issues"
   },
-  "description": "Pyric CLI binary (`pyric`) + programmatic deploy / bridge / discover / auth-config helpers. Mirrors firebase-tools.",
+  "description": "Pyric CLI for local sandbox development, verification, artifact generation, and agent bridges.",
   "type": "module",
   "exports": {
-    "./deploy": {
-      "types": "./dist/deploy/index.d.ts",
-      "import": "./dist/deploy/index.js"
-    },
     "./registry": {
       "types": "./dist/registry/index.d.ts",
       "import": "./dist/registry/index.js"
@@ -115,7 +111,6 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "esbuild": "^0.28.0",
     "fake-indexeddb": "^6.0.0",
-    "fflate": "^0.8.2",
     "firebase": "^12.12.0",
     "firebase-admin": "^13.0.0",
     "pyric": "workspace:*",

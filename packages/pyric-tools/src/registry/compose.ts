@@ -1,6 +1,6 @@
 /**
  * Composes the prod/admin tool registry from the per-domain factories
- * (deploy / rules / firestore data + discover / rtdb). Returns a registry
+ * (rules / firestore data + discover / rtdb). Returns a registry
  * callers iterate and dispatch against: the bridge's prod mode
  * (`startServer({ prodTools })`), the project-audit skill, and
  * firestore-path discovery against a real project.
@@ -15,12 +15,6 @@ import type { Firestore as WebFirestore } from 'firebase/firestore';
 import { createToolRegistry, type ToolHandler, type ToolRegistry } from '@inbrowser/agent';
 import type { ProjectScope } from '../credentials/core/types.js';
 import { fromServiceAccount } from '../credentials/node/from-service-account.js';
-import {
-  createFirestoreDeployTools,
-  createRtdbDeployTools,
-  createHostingDeployTools,
-  createFunctionsDeployTools,
-} from '../deploy/index.js';
 import { createFirestoreRulesTools } from 'pyric/rules/internal/node';
 import { createFirestoreExtractTool } from 'pyric/rules/internal/extract';
 import {
@@ -32,6 +26,7 @@ import { createFirestoreDiscoverTools } from '../discover/index.js';
 import { createAuthAdminTools } from '../auth/index.js';
 import { createVerifyTools } from '../verify/index.js';
 import { createAssuranceTools } from '../assurance/index.js';
+import { createRtdbRulesGenerationTools } from '../rtdb/rules-generation-tool.js';
 import { createRtdbDataTools } from 'pyric/database';
 import { createRtdbRulesTools, type RtdbHost } from 'pyric/rules/internal/rtdb';
 
@@ -82,7 +77,7 @@ function createFirestoreAdminDiscoverTools(deps: AdminAppDeps): ToolHandler[] {
   });
 }
 
-export type Profile = 'full' | 'browser-parity' | 'control-plane-only';
+export type Profile = 'full' | 'browser-parity';
 
 export interface ComposeOptions {
   profile?: Profile;
@@ -91,7 +86,7 @@ export interface ComposeOptions {
    * Admin SDK deps for Firestore admin-mode + user-mode dispatch.
    * When supplied, `composeMcpRegistry` wires the Firestore data /
    * discover / extract factories. Without it, only the scope-based
-   * control-plane + rules tooling is registered (`browser-parity`
+   * credential-backed rules tooling is registered (`browser-parity`
    * profile flow).
    */
   adminDeps?: AdminAppDeps;
@@ -110,12 +105,10 @@ export interface ComposeOptions {
  * dispatches against.
  *
  * Profile gates the tool surface:
- *   - `full` (default): control-plane + rules tooling.
+ *   - `full` (default): rules, verification, and configured admin tooling.
  *   - `browser-parity`: skips Node-only Admin SDK tools so a human
  *     running the MCP server locally previews what the browser
  *     playground sees.
- *   - `control-plane-only`: just the deploy primitives — useful
- *     for sandboxed Deployment Agent runs.
  */
 export async function composeMcpRegistry(
   opts: ComposeOptions = {},
@@ -130,32 +123,18 @@ export async function composeMcpRegistry(
   // Surfaces shape drift at the call site if a factory's return
   // type ever stops being ToolHandler-compatible.
   const factories: ToolHandler[][] = [
-    // Control plane — every profile.
-    createFirestoreDeployTools({ scope }),
-    ...(opts.rtdbHost && profile !== 'browser-parity' ? [] : [createRtdbDeployTools({ scope })]),
-    createHostingDeployTools({ scope }),
-    createFunctionsDeployTools({ scope }),
-    // Rules tooling — full + browser-parity.
-    ...(profile !== 'control-plane-only'
-      ? [createFirestoreRulesTools({ scope })]
-      : []),
-    // Auth configuration (Identity Toolkit) — full + browser-parity.
-    ...(profile !== 'control-plane-only'
-      ? [createAuthAdminTools({ scope })]
-      : []),
-    ...(profile !== 'control-plane-only'
-      ? [createVerifyTools({ scope })]
-      : []),
+    createFirestoreRulesTools({ scope }),
+    createAuthAdminTools({ scope }),
+    createVerifyTools({ scope }),
     // Explicit local targets only; every assurance campaign enforces
     // network:'forbid' independently of the registry profile.
-    ...(profile !== 'control-plane-only' ? [createAssuranceTools()] : []),
+    createAssuranceTools(),
+    createRtdbRulesGenerationTools(),
     // Admin SDK + RTDB tools — only when `adminDeps` is supplied and
     // we're not in a profile that explicitly excludes Node-only paths.
     // `extract` is pure static analysis so it lands regardless of
     // `adminDeps` when not in `browser-parity` (it reads from disk).
-    ...(profile !== 'control-plane-only' && profile !== 'browser-parity'
-      ? [[createFirestoreExtractTool()]]
-      : []),
+    ...(profile !== 'browser-parity' ? [[createFirestoreExtractTool()]] : []),
     ...(opts.adminDeps && profile !== 'browser-parity'
       ? [
           createFirestoreAdminDataTools(opts.adminDeps),

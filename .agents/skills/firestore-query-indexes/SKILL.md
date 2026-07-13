@@ -42,10 +42,11 @@ documents, not scan too many.
    annotation trims shapes enumerated from mutually exclusive branches.
    Complete when extraction succeeds with reviewed warnings.
 
-6. **Deploy and confirm.** `firestore_deploy_indexes` to apply,
-   `firestore_get_index_status` until indexes are ready (`firestore_create_index`
-   for a one-off addition). Complete when every composite query has a ready
-   index.
+6. **Deploy and confirm.** Write the reviewed config to
+   `firestore.indexes.json`, then apply it with
+   `npx firebase-tools deploy --only firestore:indexes`. Confirm each build is
+   ready in Firebase before exercising the query. Complete when every
+   composite query has a ready index.
 
 7. **Verify against data.** Run representative queries with
    `firestore_query_where` (seed via `firestore_batch_write` if needed) and

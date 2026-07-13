@@ -1,7 +1,7 @@
 /**
  * `firestore_get_rules` wired against the user's signed-in Firebase
- * project. Read-path half of Tier 2 (write-path `firestore_deploy_rules`
- * lands later, behind a UI-confirmation gate).
+ * project. This is intentionally read-only; production changes are owned by
+ * the Firebase CLI.
  *
  * Browser-safe — uses `@pyric/firestore-rules`'
  * `createFirestoreInspectTool({ scope })` factory to get a single

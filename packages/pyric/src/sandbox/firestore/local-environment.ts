@@ -1696,10 +1696,9 @@ export class LocalEnvironment {
     // `errors.length === 0` and silently no-op'd otherwise — that
     // caused a 51-tool-call debug session where an agent couldn't
     // figure out why its rules weren't applied (CLAUDE_DEBUG_SESSION.md).
-    // Lint is *diagnosis*, not enforcement. The dev-loop sandbox
-    // installs whatever the caller asks for; the production deploy
-    // gate (`pyric deploy rules`) re-lints at stricter severity and
-    // refuses to ship genuinely bad rules. Callers that care about
+    // Lint is *diagnosis*, not enforcement. The dev-loop sandbox installs
+    // whatever the caller asks for; CI or a release workflow can enforce a
+    // stricter policy before shipping. Callers that care about
     // the lint result still get it back; the `sandbox_inspect`
     // MCP tool surfaces it for agents.
     this.rulesSource = source;

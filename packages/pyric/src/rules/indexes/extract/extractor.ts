@@ -3,8 +3,8 @@
  * → composite-detect → dedupe) over a bag of files and produces an
  * `ExtractResult` carrying:
  *
- *   - `config` — `firestore.indexes.json`-shaped, ready for
- *     `firestore_deploy_indexes`.
+ *   - `config` — ready to write to `firestore.indexes.json` for the
+ *     Firebase CLI.
  *   - `signals` — per-collection over-shoot hints the agent layer can
  *     act on (Layer 2: add `@firestore-mutex` annotations).
  *   - `warnings` — per-file diagnostics (partial-base, unknown-callee,

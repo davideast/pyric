@@ -352,9 +352,9 @@ ${lets}
 
     // Lint is diagnosis, not enforcement — the sandbox installs whatever
     // the caller asks for so the dev loop never silently no-ops (the
-    // CLAUDE_DEBUG_SESSION.md failure mode). Production deploy gates
-    // (pyric deploy rules) catch lint errors at ship time. So the
-    // installed source DOES include `check()` here; what we care about
+    // CLAUDE_DEBUG_SESSION.md failure mode). CI or a release workflow can
+    // enforce lint policy before shipping. So the installed source DOES
+    // include `check()` here; what we care about
     // is that the LintResult surfaced the problem to the caller.
     expect(env.getRules()).toContain('check()');
   });

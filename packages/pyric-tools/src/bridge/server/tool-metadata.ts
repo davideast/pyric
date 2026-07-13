@@ -83,16 +83,14 @@ export function getSandboxToolMetadata(): ToolMetadata[] {
  * (no browser needed). Returned as live ToolHandlers — the bridge
  * registers each handler's `execute` directly.
  *
- * `scope` is forwarded to the factory so deploy-gated tools that
- * need a `ProjectScope` work in prod-mode bridges too.
+ * `scope` is forwarded so the Rules Test API tool can authenticate in
+ * prod-mode bridges too.
  */
 export function getRulesToolHandlers(scope?: unknown): ToolHandler[] {
   // Factory accepts { scope } per packages/pyric/src/rules/tools.ts.
-  // The cast is because pyric/rules's ProjectScope type is re-exported
-  // from @pyric/cli/deploy and we'd otherwise force a type-only import
-  // here. Bridge level we don't need the type.
+  // The bridge does not need to own the structurally compatible type.
   // Includes simulate / lint / resolve_modules / stdlib_list /
-  // stdlib_get + (when scope is supplied) extract + deploy gates —
+  // stdlib_get + (when scope is supplied) Rules Test API verification —
   // the full in-process rules tooling surface. No browser needed.
   return createFirestoreRulesTools({ scope } as never);
 }

@@ -21,8 +21,6 @@ describe('credential ownership', () => {
 
     for (const file of sourceFiles(SOURCE_ROOT)) {
       const name = relative(SOURCE_ROOT, file);
-      if (name.startsWith('deploy/') || name === 'cli/deploy.ts') continue;
-
       const source = readFileSync(file, 'utf8');
       for (const match of source.matchAll(STATIC_DEPENDENCY)) {
         const [, bindings = '', specifier = ''] = match;
