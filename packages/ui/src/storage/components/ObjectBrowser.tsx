@@ -41,6 +41,9 @@ export interface ObjectBrowserProps {
    * component — the slot only owns the label content.
    */
   renderEntry?: (entry: StorageListEntry) => ReactNode;
+  /** Optional per-row action rendered as a sibling of the navigation/select
+   *  button. Use this for independent controls such as selection checkboxes. */
+  renderRowAction?: (entry: StorageListEntry) => ReactNode;
   emptyState?: ReactNode;
   className?: string;
   /**
@@ -76,6 +79,7 @@ export interface ObjectBrowserProps {
  *   (rules gate; reason on `data-pyric-denied-reason`)
  * - `[data-pyric-entry-select]` — the row button
  * - `[data-pyric-entry-select][data-pyric-selected]` — the selected object
+ * - `[data-pyric-storage-action]` — optional sibling row action
  */
 export function ObjectBrowser({
   entries,
@@ -86,6 +90,7 @@ export function ObjectBrowser({
   selectedPath,
   gate,
   renderEntry,
+  renderRowAction,
   emptyState,
   className,
   virtualizeThreshold = 100,
@@ -138,19 +143,24 @@ export function ObjectBrowser({
   const renderRow = (entry: StorageListEntry) => {
     const selected = entry.kind === 'object' && entry.fullPath === selectedPath;
     return (
-      <button
-        type="button"
-        onClick={() =>
-          entry.kind === 'folder'
-            ? onNavigate?.(entry.fullPath)
-            : onSelect?.(entry.ref)
-        }
-        data-pyric-entry-select
-        data-pyric-selected={selected ? '' : undefined}
-        aria-selected={selected || undefined}
-      >
-        {renderEntry ? renderEntry(entry) : entry.name}
-      </button>
+      <>
+        <button
+          type="button"
+          onClick={() =>
+            entry.kind === 'folder'
+              ? onNavigate?.(entry.fullPath)
+              : onSelect?.(entry.ref)
+          }
+          data-pyric-entry-select
+          data-pyric-selected={selected ? '' : undefined}
+          aria-selected={selected || undefined}
+        >
+          {renderEntry ? renderEntry(entry) : entry.name}
+        </button>
+        {renderRowAction ? (
+          <span data-pyric-storage-action>{renderRowAction(entry)}</span>
+        ) : null}
+      </>
     );
   };
 

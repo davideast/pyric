@@ -85,3 +85,16 @@ export function makeRecursiveDeleteImpl(
     },
   };
 }
+
+/** Run a recursive implementation to completion and let failures reject.
+ *  The generic UI hook intentionally captures errors as state; Studio's
+ *  destructive flows need a rejecting promise so they only navigate away
+ *  after the subtree is actually gone. */
+export async function deleteRecursively(
+  impl: RecursiveDeleteImpl,
+  target: DocumentReference | CollectionReference,
+): Promise<void> {
+  for await (const progress of impl.start(target)) {
+    if (progress.done) return;
+  }
+}

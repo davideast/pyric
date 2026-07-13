@@ -52,6 +52,7 @@ describe('<AuthUserList>', () => {
     const { container } = render(
       <AuthUserList
         users={[user({ uid: 'u1' })]}
+        renderActionsHeader={<span data-actions-header>Select</span>}
         renderActions={(u) => <button data-row-action>{u.uid}</button>}
       />,
     );
@@ -59,6 +60,7 @@ describe('<AuthUserList>', () => {
     expect(
       (container.querySelector('[data-row-action]') as HTMLElement).textContent,
     ).toBe('u1');
+    expect(container.querySelector('[data-actions-header]')?.textContent).toBe('Select');
   });
 
   it('renders one row per user with identifier fallbacks + provider labels', () => {

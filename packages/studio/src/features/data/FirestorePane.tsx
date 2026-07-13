@@ -18,7 +18,6 @@ import {
   useFirestoreApi,
   type FirestoreApi,
 } from '@pyric/ui/firestore';
-import { useRecursiveDelete } from '@pyric/ui/firestore/hooks';
 import type {
   CollectionReference,
   DocumentReference,
@@ -31,11 +30,11 @@ import { ConfirmProvider, useConfirm, useContainerSize } from '@pyric/ui/primiti
 import { useDataNav, parseDocPath, type NavigationPathSegment } from './navigation.js';
 import { PANEL_BREAKPOINTS, panelWindow } from './panelLayout.js';
 import type { StudioDataHandles } from './sandbox.js';
-import { ImportJsonPanel } from './FirestoreImportPanel.js';
 import { FirestoreCreateModal, type FirestoreCreateSubmit } from './FirestoreCreateModal.js';
 import { FirestoreDocumentTree, SubcollectionsSection } from './FirestoreDocumentTree.js';
 import { OverflowMenu } from './OverflowMenu.js';
-import { makeRecursiveDeleteImpl } from './recursiveDelete.js';
+import { deleteRecursively, makeRecursiveDeleteImpl } from './recursiveDelete.js';
+import { confirmDocumentDelete } from './document-delete.js';
 import './firestore.css';
 
 /**
@@ -382,7 +381,6 @@ function DocumentColumn({
     hasMore,
     loadMore,
     createDocument,
-    deleteDocument,
   } = useDocumentList({ collection, mode: 'live' });
   // "Missing" parents come from the phantom-inclusive listDocuments seam —
   // the paged getDocs above can't see them (queries match stored docs only).
@@ -416,31 +414,23 @@ function DocumentColumn({
     ];
   }, [documents, phantomIds, api, firestore, collectionPath]);
   const collId = collectionPath.split('/').pop() ?? collectionPath;
-  // Per-row delete: plain click arms an inline confirm; shift-click deletes
-  // immediately (rapid bulk delete). Only one row arms at a time.
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<Error | null>(null);
-  // "+ New" opens the create-document MODAL (the same composable modal the
-  // collection flow uses, opened at the document step — the collection is
-  // fixed). Import JSON stays an inline disclosure: bulk paste wants room.
+  // "+ New" opens the create-document modal (the collection is fixed).
   const [creating, setCreating] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const doDelete = useCallback(
-    async (r: DocumentReference) => {
-      setDeleteError(null);
-      try {
-        await deleteDocument(r);
-        setConfirmingId((id) => (id === r.id ? null : id));
-      } catch (e) {
-        setDeleteError(e instanceof Error ? e : new Error(String(e)));
-      }
-    },
-    [deleteDocument],
-  );
 
   const confirm = useConfirm();
   const recursiveImpl = useMemo(() => makeRecursiveDeleteImpl(api, handles), [api, handles]);
-  const { delete: runCollectionDelete } = useRecursiveDelete(recursiveImpl);
+  const doDelete = useCallback(
+    async (ref: DocumentReference) => {
+      setDeleteError(null);
+      try {
+        await confirmDocumentDelete({ confirm, ref, api, recursiveImpl });
+      } catch (error) {
+        setDeleteError(error instanceof Error ? error : new Error(String(error)));
+      }
+    },
+    [api, confirm, recursiveImpl],
+  );
   const onDeleteCollection = useCallback(async () => {
     const ok = await confirm({
       title: `Delete collection "${collId}"?`,
@@ -449,24 +439,24 @@ function DocumentColumn({
       confirmLabel: 'Delete collection',
     });
     if (!ok) return;
-    await runCollectionDelete(collection);
-    onCollectionDeleted();
-  }, [confirm, runCollectionDelete, collection, collId, onCollectionDeleted]);
+    setDeleteError(null);
+    try {
+      await deleteRecursively(recursiveImpl, collection);
+      onCollectionDeleted();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }, [confirm, recursiveImpl, collection, collId, onCollectionDeleted]);
 
   return (
     <section data-pyric-ui="fs-documents" className="fs-pane fs-col">
       <div className="fs-phead">
         <span className="fs-phead-title">{collId}</span>
-        {!importing ? (
-          <span className="fs-phead-actions">
-            <button type="button" className="fs-add" onClick={() => setCreating(true)}>
-              + New
-            </button>
-            <button type="button" className="fs-add" onClick={() => setImporting(true)}>
-              Import JSON
-            </button>
-          </span>
-        ) : null}
+        <span className="fs-phead-actions">
+          <button type="button" className="fs-add" onClick={() => setCreating(true)}>
+            + New
+          </button>
+        </span>
         <OverflowMenu
           items={[
             { label: 'Delete collection', onSelect: () => void onDeleteCollection(), destructive: true },
@@ -488,17 +478,7 @@ function DocumentColumn({
           onClose={() => setCreating(false)}
         />
       ) : null}
-      {importing ? (
-        <ImportJsonPanel
-          existingIds={documents.map((d) => d.id)}
-          createDocument={createDocument}
-          onDone={() => setImporting(false)}
-          onCancel={() => setImporting(false)}
-        />
-      ) : null}
-
-      {!importing ? (
-        <DocumentList
+      <DocumentList
         documents={rows}
         isLoading={isLoading}
         error={error}
@@ -526,46 +506,15 @@ function DocumentColumn({
           // Its subtree deletes through the detail column / delete-collection.
           if (isPhantomRow(snap)) return null;
           const r = (snap as unknown as { ref: DocumentReference }).ref;
-          if (confirmingId === r.id) {
-            return (
-              <span className="fs-doc-del-confirm">
-                <button
-                  type="button"
-                  className="fs-doc-del-yes"
-                  title="Confirm delete"
-                  aria-label={`Confirm delete ${r.id}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void doDelete(r);
-                  }}
-                >
-                  ✓
-                </button>
-                <button
-                  type="button"
-                  className="fs-doc-del-no"
-                  title="Cancel"
-                  aria-label="Cancel delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirmingId(null);
-                  }}
-                >
-                  ✕
-                </button>
-              </span>
-            );
-          }
           return (
             <button
               type="button"
               className="fs-doc-del"
-              title="Delete document (shift-click to skip confirmation)"
-              aria-label={`Delete ${r.id} (shift-click to skip confirmation)`}
+              title="Delete document"
+              aria-label={`Delete ${r.id}`}
               onClick={(e) => {
                 e.stopPropagation();
-                if (e.shiftKey) void doDelete(r);
-                else setConfirmingId(r.id);
+                void doDelete(r);
               }}
             >
               ×
@@ -573,8 +522,7 @@ function DocumentColumn({
           );
         }}
         emptyState={<p className="fs-empty">No documents.</p>}
-        />
-      ) : null}
+      />
       {deleteError ? <p className="fs-empty fs-doc-del-err">{deleteError.message}</p> : null}
     </section>
   );
@@ -618,18 +566,16 @@ function DocumentDetailColumn({
 
   const confirm = useConfirm();
   const recursiveImpl = useMemo(() => makeRecursiveDeleteImpl(api, handles), [api, handles]);
-  const { delete: runDocDelete } = useRecursiveDelete(recursiveImpl);
+  const [deleteError, setDeleteError] = useState<Error | null>(null);
   const onDeleteDocument = useCallback(async () => {
-    const ok = await confirm({
-      title: `Delete document "${ref.id}"?`,
-      body: 'This also deletes its subcollections.',
-      destructive: true,
-      confirmLabel: 'Delete document',
-    });
-    if (!ok) return;
-    await runDocDelete(ref);
-    onDeleted();
-  }, [confirm, runDocDelete, ref, onDeleted]);
+    setDeleteError(null);
+    try {
+      const deleted = await confirmDocumentDelete({ confirm, ref, api, recursiveImpl });
+      if (deleted) onDeleted();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error : new Error(String(error)));
+    }
+  }, [api, confirm, recursiveImpl, ref, onDeleted]);
 
   const onDeleteDocumentFields = useCallback(async () => {
     await api.setDoc(ref, {});
@@ -683,6 +629,7 @@ function DocumentDetailColumn({
           />
         </>
       )}
+      {deleteError ? <p className="fs-empty fs-doc-del-err">{deleteError.message}</p> : null}
     </section>
   );
 }

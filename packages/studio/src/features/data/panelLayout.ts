@@ -8,7 +8,7 @@
  * so the same policy holds whether Studio is full-screen or embedded in a
  * split view. Breakpoints (see `PANEL_BREAKPOINTS`) are chosen from content,
  * not device sizes: a context column needs ~240px before its header row
- * ("collection name + ⋮ + New + Import JSON") stops wrapping/clipping, and
+ * ("collection name + ⋮ + New") stops wrapping/clipping, and
  * the detail column carries a 1.7x flex share — three readable panels
  * therefore need ≈ 240×3.7/1 ≈ 900px, two need ≈ 240×2.7 ≈ 650px.
  *

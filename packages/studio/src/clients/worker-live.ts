@@ -42,6 +42,7 @@ import {
   getMetadata as workerStorageGetMetadata,
   getBlob as workerStorageGetBlob,
   uploadBytes as workerStorageUploadBytes,
+  deleteObject as workerStorageDeleteObject,
   getSnapshot as workerGetSnapshot,
   getWorkerInstanceId,
   exportWorkerState,
@@ -388,6 +389,7 @@ export function connectWorkerLive(
       getMetadata: workerStorageGetMetadata,
       getBlob: workerStorageGetBlob,
       uploadBytes: workerStorageUploadBytes,
+      deleteObject: workerStorageDeleteObject,
     } as unknown as StorageApi,
     getSnapshot: () => workerGetSnapshot(db),
   };

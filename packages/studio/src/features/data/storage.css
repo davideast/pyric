@@ -214,17 +214,43 @@
 
 /* ── ObjectBrowser: column header + folders-first rows ───────────────── */
 .storage__lhead {
+  position: relative;
   display: grid;
   grid-template-columns: var(--storage-cols);
   gap: 16px;
   align-items: baseline;
-  padding: 10px var(--storage-gutter);
+  padding: 10px var(--storage-gutter) 10px calc(var(--storage-gutter) + 34px);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   font-size: 10.5px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--faint);
+}
+.storage__lhead,
+.storage [data-pyric-entry-select] {
+  padding-left: calc(var(--storage-gutter) + 34px);
+}
+.storage__select-all,
+.storage [data-pyric-storage-action] {
+  position: absolute;
+  left: var(--storage-gutter);
+  top: 50%;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  transform: translateY(-50%);
+}
+.storage [data-pyric-storage-entry] {
+  position: relative;
+}
+.storage__select-all input,
+.storage__select-row input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .storage [data-pyric-ui="object-browser"] [data-pyric-object-browser-items] {
@@ -245,7 +271,7 @@
   border: none;
   border-bottom: 1px solid var(--line);
   border-left: 2px solid transparent;
-  padding: 10px var(--storage-gutter);
+  padding: 10px var(--storage-gutter) 10px calc(var(--storage-gutter) + 34px);
   font: inherit;
   text-align: left;
   cursor: pointer;
