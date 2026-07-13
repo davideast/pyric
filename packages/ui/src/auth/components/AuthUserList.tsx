@@ -21,6 +21,12 @@ export interface AuthUserListProps {
    *  per linked provider with its text label (`anonymous` for anonymous
    *  users) — hook icons off the attribute. */
   renderProviders?: (user: AuthUserRecord) => ReactNode;
+  /** Per-row selection control. Rendered in the leading cell so bulk
+   *  selection stays visually separate from trailing row actions. */
+  renderSelection?: (user: AuthUserRecord) => ReactNode;
+  /** Optional content for the leading selection column header (for example,
+   *  a select-all checkbox). Only rendered with `renderSelection`. */
+  renderSelectionHeader?: ReactNode;
   /** Per-row action slot (edit / disable / delete menu). Rendered in a
    *  trailing cell; column header is added when this is provided. */
   renderActions?: (user: AuthUserRecord) => ReactNode;
@@ -83,6 +89,8 @@ export function AuthUserList({
   onSelect,
   renderIdentifier,
   renderProviders,
+  renderSelection,
+  renderSelectionHeader,
   renderActions,
   renderActionsHeader,
   formatDate = defaultFormatDate,
@@ -129,6 +137,11 @@ export function AuthUserList({
       data-pyric-user-uid={user.uid}
       data-pyric-user-disabled={user.disabled ? '' : undefined}
     >
+      {renderSelection ? (
+        <span role="cell" data-pyric-user-cell="selection">
+          {renderSelection(user)}
+        </span>
+      ) : null}
       <span role="cell" data-pyric-user-cell="identifier">
         {onSelect ? (
           <button type="button" data-pyric-user-select onClick={() => onSelect(user)}>
@@ -165,8 +178,15 @@ export function AuthUserList({
       aria-label="Authentication users"
       data-pyric-ui="auth-user-list"
       data-pyric-virtualized={virtualized ? '' : undefined}
+      data-pyric-selection={renderSelection ? '' : undefined}
+      data-pyric-actions={renderActions ? '' : undefined}
     >
       <div role="row" data-pyric-user-header>
+        {renderSelection ? (
+          <span role="columnheader" data-pyric-user-cell="selection" aria-label="Selection">
+            {renderSelectionHeader}
+          </span>
+        ) : null}
         <span role="columnheader" data-pyric-user-cell="identifier">Identifier</span>
         <span role="columnheader" data-pyric-user-cell="providers">Provider</span>
         <span role="columnheader" data-pyric-user-cell="created">Created</span>

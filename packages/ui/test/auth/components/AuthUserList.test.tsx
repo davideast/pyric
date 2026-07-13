@@ -63,6 +63,36 @@ describe('<AuthUserList>', () => {
     expect(container.querySelector('[data-actions-header]')?.textContent).toBe('Select');
   });
 
+  it('renders selection before identifiers while keeping actions trailing', () => {
+    const { container } = render(
+      <AuthUserList
+        users={[user({ uid: 'u1' })]}
+        renderSelectionHeader={<span data-selection-header>Select all</span>}
+        renderSelection={(u) => <input data-row-selection aria-label={`Select ${u.uid}`} />}
+        renderActions={(u) => <button data-row-action>{u.uid}</button>}
+      />,
+    );
+
+    const headerCells = Array.from(
+      container.querySelectorAll('[data-pyric-user-header] [data-pyric-user-cell]'),
+    ).map((cell) => cell.getAttribute('data-pyric-user-cell'));
+    const rowCells = Array.from(
+      container.querySelectorAll('[data-pyric-user-entry] [data-pyric-user-cell]'),
+    ).map((cell) => cell.getAttribute('data-pyric-user-cell'));
+
+    expect(headerCells).toEqual([
+      'selection',
+      'identifier',
+      'providers',
+      'created',
+      'signed-in',
+      'uid',
+      'actions',
+    ]);
+    expect(rowCells).toEqual(headerCells);
+    expect(container.querySelector('[data-selection-header]')?.textContent).toBe('Select all');
+  });
+
   it('renders one row per user with identifier fallbacks + provider labels', () => {
     const users = [
       user({ uid: 'u1', email: 'a@example.com', providerUserInfo: [{ providerId: 'google.com' }] }),
