@@ -7,7 +7,8 @@
 # After ADR-001 cutover (Wave 9), packages are:
 #   pyric           — modular SDK adapters + sandbox + rules (umbrella)
 #   pyric-admin     — admin-shape adapters (umbrella)
-#   @pyric/cli     — CLI + bridge + discover + local sandbox tooling
+#   create-pyric    — `npm create pyric` scaffolder (no Firebase SDK deps)
+#   @pyric/cli      — CLI + bridge + discover + local sandbox tooling
 #   @pyric/ui       — headless React components
 set -euo pipefail
 
@@ -48,6 +49,7 @@ echo ""
 echo "━━━ Phase 1: Declaration stubs ━━━"
 emit_stubs "pyric"
 emit_stubs "pyric-admin"
+emit_stubs "create-pyric"
 emit_stubs "cli"
 emit_stubs "ui"
 
@@ -56,6 +58,7 @@ echo ""
 echo "━━━ Phase 2: Full build ━━━"
 build_pkg "pyric"
 build_pkg "pyric-admin"
+build_pkg "create-pyric"
 build_pkg "cli"
 build_pkg "ui"
 

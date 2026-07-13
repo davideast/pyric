@@ -25,12 +25,14 @@ NPM_CACHE="${TMPDIR:-/tmp}/npm-cache-pyric-packaging-test"
 # Publishable packages, in dependency order (dependencies first).
 # - pyric is foundational (everyone else workspace:* it)
 # - pyric-admin depends on pyric
-# - @pyric/cli depends on pyric
+# - create-pyric is standalone (scaffolder; no Firebase SDK deps)
+# - @pyric/cli depends on pyric + create-pyric
 # - @pyric/ui peer-depends on pyric
 PACKAGES=(
   "packages/pyric"         # pyric
   "packages/pyric-admin"   # pyric-admin
-  "packages/cli"   # @pyric/cli (bin: pyric)
+  "packages/create-pyric"  # create-pyric (bin: create-pyric)
+  "packages/cli"           # @pyric/cli (bin: pyric)
   "packages/ui"            # @pyric/ui
 )
 
@@ -137,6 +139,7 @@ pack_one() {
 }
 TARBALL_PYRIC=$(pack_one packages/pyric)
 TARBALL_PYRIC_ADMIN=$(pack_one packages/pyric-admin)
+TARBALL_CREATE_PYRIC=$(pack_one packages/create-pyric)
 TARBALL_PYRIC_CLI=$(pack_one packages/cli)
 TARBALL_UI=$(pack_one packages/ui)
 
@@ -181,12 +184,14 @@ assert_tar_has() {
 }
 packset_check packages/pyric pyric
 packset_check packages/pyric-admin pyric-admin
+packset_check packages/create-pyric create-pyric
 packset_check packages/cli @pyric/cli
 packset_check packages/ui @pyric/ui
 # Load-bearing runtime assets — pass import() but break at first use if dropped.
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/grammar/FirestoreRules\.ohm$' "pyric ships the Firestore rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/rtdb/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"
 assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/modules/stdlib/.*\.rules$' "pyric ships the rules stdlib modules (.rules)"
+assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/dist/bin\.js$' "create-pyric ships the create-pyric bin"
 assert_tar_has "$TARBALL_PYRIC_CLI" 'package/dist/cli/index\.js$' "@pyric/cli ships the pyric CLI bin"
 # The Vite plugin's `ui` option + `pyric dev --ui` resolve the Studio app from
 # dist/serve/studio-ui (build-embedded). The plugin's firebase swap resolves the
@@ -222,6 +227,7 @@ cat > package.json <<JSON
   "dependencies": {
     "pyric": "file:${TARBALL_PYRIC}",
     "pyric-admin": "file:${TARBALL_PYRIC_ADMIN}",
+    "create-pyric": "file:${TARBALL_CREATE_PYRIC}",
     "@pyric/cli": "file:${TARBALL_PYRIC_CLI}",
     "@pyric/ui": "file:${TARBALL_UI}",
     "firebase": "^12.12.0",
@@ -473,12 +479,27 @@ check_bin_executable() {
 }
 
 check_bin_executable "pyric"
+check_bin_executable "create-pyric"
 PYRIC_BIN="$WORK/consumer/node_modules/.bin/pyric"
+CREATE_PYRIC_BIN="$WORK/consumer/node_modules/.bin/create-pyric"
 node "$ROOT/scripts/packed-cli-smoke.mjs" "$PYRIC_BIN" "$WORK/cli-smoke"
 node "$ROOT/scripts/packed-mcp-smoke.mjs" \
   "$PYRIC_BIN" \
   "$WORK/mcp-smoke" \
   "$ROOT/packages/cli/dist/bridge/server/mcp-contract.js"
+
+# create-pyric smoke: scaffold a Vite web app into a fresh directory and
+# assert the load-bearing files exist (vite.config imports @pyric/cli/vite).
+echo "▸ create-pyric smoke"
+CREATE_OUT="$WORK/create-smoke-app"
+rm -rf "$CREATE_OUT"
+"$CREATE_PYRIC_BIN" "$CREATE_OUT"
+test -f "$CREATE_OUT/vite.config.ts"
+grep -q "@pyric/cli/vite" "$CREATE_OUT/vite.config.ts"
+grep -q "pyricSandbox" "$CREATE_OUT/vite.config.ts"
+test -f "$CREATE_OUT/package.json"
+grep -q '"dev": "vite"' "$CREATE_OUT/package.json"
+echo "  ✓ create-pyric scaffolds Vite + @pyric/cli/vite"
 
 # ─── Phase 5.5: serve smoke (init + serve from the packed bin) ─────────
 # The subpath + bin checks above prove imports resolve, but they never boot

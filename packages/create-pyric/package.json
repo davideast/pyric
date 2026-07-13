@@ -1,0 +1,45 @@
+{
+  "name": "create-pyric",
+  "version": "0.1.0-alpha.8",
+  "license": "Apache-2.0",
+  "homepage": "https://pyric.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davideast/pyric.git",
+    "directory": "packages/create-pyric"
+  },
+  "bugs": {
+    "url": "https://github.com/davideast/pyric/issues"
+  },
+  "description": "Scaffold a Pyric + Vite app — `npm create pyric`.",
+  "type": "module",
+  "bin": {
+    "create-pyric": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc && chmod +x dist/bin.js",
+    "test": "bun test",
+    "typecheck": "bun x tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22.15"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

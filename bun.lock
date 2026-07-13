@@ -54,6 +54,38 @@
         "vite": "^6.0.0",
       },
     },
+    "packages/cli": {
+      "name": "@pyric/cli",
+      "version": "0.1.0-alpha.8",
+      "bin": {
+        "pyric": "./dist/cli/index.js",
+      },
+      "dependencies": {
+        "@inbrowser/agent": "0.4.1",
+        "@modelcontextprotocol/sdk": "^1.0.0",
+        "create-pyric": "workspace:*",
+        "esbuild": "^0.28.0",
+        "fake-indexeddb": "^6.0.0",
+        "firebase": "^12.12.0",
+        "firebase-admin": "^13.0.0",
+        "pyric": "workspace:*",
+        "ws": "^8.18.0",
+        "zod": "^3.23.0",
+      },
+      "devDependencies": {
+        "@playwright/test": "^1.61.1",
+        "@types/bun": "latest",
+        "@types/ws": "^8.5.0",
+        "typescript": "^5.7.0",
+        "vite": "^5.0.0",
+      },
+      "peerDependencies": {
+        "vite": "^5.0.0 || ^6.0.0 || ^7.0.0",
+      },
+      "optionalPeers": [
+        "vite",
+      ],
+    },
     "packages/conformance": {
       "name": "@pyric/conformance",
       "version": "0.0.1",
@@ -67,6 +99,17 @@
       },
       "devDependencies": {
         "fake-indexeddb": "^6.0.0",
+        "typescript": "^5.7.0",
+      },
+    },
+    "packages/create-pyric": {
+      "name": "create-pyric",
+      "version": "0.1.0-alpha.8",
+      "bin": {
+        "create-pyric": "./dist/bin.js",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
         "typescript": "^5.7.0",
       },
     },
@@ -161,37 +204,6 @@
         "fake-indexeddb": "^6.0.0",
         "typescript": "^5.7.0",
       },
-    },
-    "packages/cli": {
-      "name": "@pyric/cli",
-      "version": "0.1.0-alpha.8",
-      "bin": {
-        "pyric": "./dist/cli/index.js",
-      },
-      "dependencies": {
-        "@inbrowser/agent": "0.4.1",
-        "@modelcontextprotocol/sdk": "^1.0.0",
-        "esbuild": "^0.28.0",
-        "fake-indexeddb": "^6.0.0",
-        "firebase": "^12.12.0",
-        "firebase-admin": "^13.0.0",
-        "pyric": "workspace:*",
-        "ws": "^8.18.0",
-        "zod": "^3.23.0",
-      },
-      "devDependencies": {
-        "@playwright/test": "^1.61.1",
-        "@types/bun": "latest",
-        "@types/ws": "^8.5.0",
-        "typescript": "^5.7.0",
-        "vite": "^5.0.0",
-      },
-      "peerDependencies": {
-        "vite": "^5.0.0 || ^6.0.0 || ^7.0.0",
-      },
-      "optionalPeers": [
-        "vite",
-      ],
     },
     "packages/site-docs": {
       "name": "@pyric/site-docs",
@@ -1444,6 +1456,8 @@
     "crc-32": ["crc-32@1.2.2", "", { "bin": { "crc32": "bin/crc32.njs" } }, "sha512-ROmzCKrTnOwybPcJApAA6WBWij23HVfGVNKqqrZpuyZOHqK2CwHSvpGuyt/UNNvaIjEd8X5IFGp4Mh+Ie1IHJQ=="],
 
     "crc32-stream": ["crc32-stream@6.0.0", "", { "dependencies": { "crc-32": "^1.2.0", "readable-stream": "^4.0.0" } }, "sha512-piICUB6ei4IlTv1+653yq5+KoqfBYmj9bw6LqXoOneTMDXk5nM1qt12mFW1caG3LlJXEKW1Bp0WggEmIfQB34g=="],
+
+    "create-pyric": ["create-pyric@workspace:packages/create-pyric"],
 
     "crelt": ["crelt@1.0.7", "", {}, "sha512-aK6BbWfhf4U/wCcLHKPJl/xa6VkVstRaPywWtMKGwuOLc/wZTyQYuoxgvZnNsBvv7Kg3YTBQYYBCggcviQczuA=="],
 
