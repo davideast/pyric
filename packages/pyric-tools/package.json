@@ -14,10 +14,6 @@
   "description": "Pyric CLI for local sandbox development, verification, artifact generation, and agent bridges.",
   "type": "module",
   "exports": {
-    "./registry": {
-      "types": "./dist/registry/index.d.ts",
-      "import": "./dist/registry/index.js"
-    },
     "./credentials/node": {
       "types": "./dist/credentials/node/index.d.ts",
       "import": "./dist/credentials/node/index.js"
@@ -56,10 +52,6 @@
     "./discover": {
       "types": "./dist/discover/index.d.ts",
       "import": "./dist/discover/index.js"
-    },
-    "./auth": {
-      "types": "./dist/auth/index.d.ts",
-      "import": "./dist/auth/index.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",

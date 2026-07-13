@@ -2,8 +2,8 @@
  * Unit coverage for the register seam's pure pieces: the specifier map
  * (firebase → pyric, with a register-only app adapter, non-Firebase untouched), the
  * mirror-package exemption (Firebase imports FROM WITHIN the pyric mirrors
- * stay Firebase — their prod arms), and the ESM-only exports walker behind
- * the CJS require() fallback.
+ * stay Firebase — their prod arms), CLI imports still rewrite like consumer
+ * imports, and the ESM-only exports walker behind the CJS require() fallback.
  */
 import { describe, it, expect } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -62,9 +62,7 @@ describe('rewriteSpecifier (mirror-package exemption)', () => {
     join(repoRoot, 'packages/pyric-admin/src/database/index.ts'),
   ).href;
   const pyricParent = pathToFileURL(join(repoRoot, 'packages/pyric/src/app/index.ts')).href;
-  const cliParent = pathToFileURL(
-    join(repoRoot, 'packages/pyric-tools/src/registry/compose.ts'),
-  ).href;
+  const cliParent = pathToFileURL(join(repoRoot, 'packages/pyric-tools/src/cli/index.ts')).href;
 
   it('does NOT rewrite Firebase imports made from within the pyric mirrors', () => {
     // The repro: pyric-admin/database's own prod-arm import — a rewrite
@@ -72,7 +70,12 @@ describe('rewriteSpecifier (mirror-package exemption)', () => {
     expect(rewriteSpecifier('firebase-admin/database', pyricAdminParent)).toBeNull();
     expect(rewriteSpecifier('firebase-admin/app', pyricAdminParent)).toBeNull();
     expect(rewriteSpecifier('firebase/app', pyricParent)).toBeNull();
-    expect(rewriteSpecifier('firebase-admin/firestore', cliParent)).toBeNull();
+  });
+
+  it('rewrites Firebase imports made from within the CLI package', () => {
+    expect(rewriteSpecifier('firebase-admin/firestore', cliParent)).toBe(
+      'pyric-admin/firestore',
+    );
   });
 
   it('rewrites from user modules, entry points, and non-file parents', () => {

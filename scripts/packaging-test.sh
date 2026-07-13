@@ -347,6 +347,31 @@ try {
   }
 }
 
+// Auth administration is a production control-plane concern. The CLI does
+// not publish a programmatic adapter for Identity Toolkit operations.
+try {
+  await import('@pyric/cli/auth');
+  bad('@pyric/cli/auth still resolves');
+} catch (error) {
+  if (error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+    ok('@pyric/cli/auth is not exported');
+  } else {
+    bad('@pyric/cli/auth failed for an unexpected reason: ' + String(error));
+  }
+}
+
+// Production/admin tool composition is not part of the public CLI contract.
+try {
+  await import('@pyric/cli/registry');
+  bad('@pyric/cli/registry still resolves');
+} catch (error) {
+  if (error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+    ok('@pyric/cli/registry is not exported');
+  } else {
+    bad('@pyric/cli/registry failed for an unexpected reason: ' + String(error));
+  }
+}
+
 if (failed) process.exit(1);
 SHAPEJS
 (cd "$WORK/consumer" && node __export-shape.mjs)

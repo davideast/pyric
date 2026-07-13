@@ -7,7 +7,7 @@
 # After ADR-001 cutover (Wave 9), packages are:
 #   pyric           — modular SDK adapters + sandbox + rules (umbrella)
 #   pyric-admin     — admin-shape adapters (umbrella)
-#   @pyric/cli     — CLI + deploy + bridge + discover + auth-config
+#   @pyric/cli     — CLI + bridge + discover + local sandbox tooling
 #   @pyric/ui       — headless React components
 set -euo pipefail
 
