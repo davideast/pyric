@@ -238,7 +238,7 @@ describe('service command hierarchy', () => {
     }
   });
 
-  it('rejects the retired colon-delimited spellings without aliases', () => {
+  describe('retired colon-delimited spellings', () => {
     for (const command of [
       'rules:lint',
       'rules:validate',
@@ -248,9 +248,11 @@ describe('service command hierarchy', () => {
       'database:rules:simulate',
       'database:rules:generate',
     ]) {
-      const result = runCli([command]);
-      expect(result.code).toBe(1);
-      expect(result.stderr).toContain(`unknown command '${command}'`);
+      it(`rejects ${command} without an alias`, () => {
+        const result = runCli([command]);
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain(`unknown command '${command}'`);
+      });
     }
   });
 });
