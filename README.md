@@ -27,7 +27,7 @@ npm i pyric-admin === npm i firebase-admin
 npm i pyric-tools === npm i firebase-tools
 ```
 
-The pyric CLI, `pyric-tools`, is for managing the pyric environment and not meant to overlap with the utility of the Firebase CLI, `firebase-tools`. The small overlap `pyric login`, `pyric deploy`, is an extreme subset of the Firebase CLI's functionality and offered for convenience.
+The pyric CLI (`@pyric/cli`, often installed as `pyric-tools`) manages the local pyric environment — sandbox serve, verify, MCP bridge — and is not a substitute for `firebase-tools`. Ship rules, indexes, hosting, and functions with the Firebase CLI or Console.
 
 ### Backed by conformance
 The services are an independent implementation of Firebase's observable behavior, and that claim is tested rather than assumed: probes run against production Firebase, their recorded behavior is committed as observations, and CI replays every observation against the sandbox on every change. The section [What matches Firebase and what doesn't](#what-matches-firebase-and-what-doesnt) has the numbers.
@@ -76,18 +76,16 @@ The sandbox emits a typed event for every operation it performs: reads, writes, 
 
 ## Browser Sandbox connected to local MCP
 
-Pyric provides a local MCP server with 51 tools. Yes, that's a lot. But the surface is wide because Firebase's is, and there's ongoing work to consolidate it into fewer, sharper tools. Pyric connects the browser sandbox to the server over a web socket bridge (the included [Claude Code plugin](pyric-plugin/README.md) auto-wires this) or composes programmatically into any agent framework. The inventory is in [docs/agent-tools.md](docs/agent-tools.md). The tools unique to its environment:
+Pyric provides a local MCP server whose tool surface mirrors the sandbox (the default bridge registers on the order of three dozen tools; consolidation is ongoing). Pyric connects the browser sandbox to the server over a web socket bridge (the included [Claude Code plugin](pyric-plugin/README.md) auto-wires this) or you import factories into any agent framework. The inventory is in [docs/agent-tools.md](docs/agent-tools.md). Tools unique to this environment include:
 
 - `firestore_simulate_rules` and `rtdb_simulate_access` evaluate a rules verdict for a hypothetical operation without performing it.
 - `firestore_simulator_*` runs a stateful Firestore session with seed, execute, batch, transaction, undo, redo, and an inspectable event log.
-- `sandbox_inspect`, `firestore_discover_paths`, and `rtdb_crawl_structure` map what exists in the data and how it is shaped.
-- `rtdb_validated_write` runs pre-flight checks before writing: it infers the schema at the target path, validates the payload against it, and simulates the rules verdict, returning schema warnings and simulation results alongside the write outcome.
-- `firestore_extract_indexes` derives composite-index definitions from the query shapes in source.
-- The deploy factories (`firestore_deploy_rules`, `firestore_deploy_indexes`, `rtdb_deploy_rules`, `hosting_deploy`, `functions_deploy`) drive the Firebase control plane over REST, without the `firebase-tools` CLI.
+- `sandbox_inspect` and `rtdb_crawl_structure` map what exists in the sandbox and how it is shaped.
+- `firestore_extract_indexes` (library / CLI generate path) derives composite-index definitions from the query shapes in source.
 
 ## Work that carries to production
 
-A sandbox session produces the artifacts a production deploy needs. Rules leave the sandbox already exercised against the app's actual behavior; `pyric deploy rules` ships them. Composite indexes come from `firestore_extract_indexes` instead of a hand-maintained `firestore.indexes.json`; `pyric deploy indexes` ships those. And `pyric verify` replays a captured session against a candidate ruleset and reports which operations change verdict before production finds out.
+A sandbox session produces the artifacts a production deploy needs. Rules leave the sandbox already exercised against the app's actual behavior; ship them with `firebase deploy` (or the Console). Composite indexes can come from `firestore_extract_indexes` / `pyric firestore:indexes:generate` instead of a hand-maintained `firestore.indexes.json`. And `pyric verify` replays a captured session against a candidate ruleset and reports which operations change verdict before production finds out.
 
 ## What matches Firebase and what doesn't
 
@@ -113,7 +111,7 @@ await db.ref('rooms/lobby').set({ topic: 'launch day' });
 |---|---|---|
 | `pyric` | Web SDK mirror, rules tooling, sandbox runtime | [docs](packages/pyric/docs/) |
 | `pyric-admin` | `firebase-admin` mirror over sandbox or production | [docs](packages/pyric-admin/docs/firestore/) |
-| `pyric-tools` | The `pyric` CLI: `dev`, `init`, MCP bridge, deploy, verify | [docs](packages/cli/docs/) |
+| `@pyric/cli` (`pyric-tools`) | The `pyric` CLI: `dev`, `init`, MCP bridge, verify | [docs](packages/cli/docs/) |
 | `@pyric/ui` | Headless React admin components and hooks | [docs](packages/ui/docs/) |
 | `@pyric/studio` | The local console behind `pyric dev --ui` | [README](packages/studio/README.md) |
 

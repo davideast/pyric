@@ -2,7 +2,7 @@
 title: "<DocumentList>"
 group: "@pyric/ui"
 section: "Firestore"
-order: 24012
+order: 23012
 ---
 # `<DocumentList>`
 

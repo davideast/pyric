@@ -4,7 +4,7 @@ This page lists every lint rule emitted by `lint(source)` and `firestoreRules(so
 
 Severities have two values:
 
-- `error`: blocks deploys in `pyric-tools/deploy`.
+- `error`: treat as a hard gate before shipping (CI / `firebase deploy`).
 - `warning`: advisory; does not block.
 
 Some rules adjust severity by threshold band; those entries note the bands explicitly.

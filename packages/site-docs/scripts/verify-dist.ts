@@ -87,6 +87,8 @@ function* walkMd(dir: string): Generator<string> {
   }
 }
 const slugSet = new Set(sources.map((s) => s.slug));
+/** Match scripts/port-content.ts slugPrefix overrides (pkg dir ≠ public URL). */
+const PKG_SLUG_PREFIX: Record<string, string> = { cli: 'pyric-tools' };
 for (const pkg of ['pyric', 'pyric-admin', 'cli', 'ui']) {
   const docsRoot = join(repoRoot, 'packages', pkg, 'docs');
   let count = 0;
@@ -102,7 +104,7 @@ for (const pkg of ['pyric', 'pyric-admin', 'cli', 'ui']) {
       .replace(/\.md$/, '')
       .split('/');
     if (segs[segs.length - 1] === 'README') segs.pop();
-    const slug = [pkg, ...segs].join('-').toLowerCase();
+    const slug = [PKG_SLUG_PREFIX[pkg] ?? pkg, ...segs].join('-').toLowerCase();
     const ok =
       slugSet.has(slug) &&
       existsSync(join(dist, 'docs', slug, 'index.html')) &&

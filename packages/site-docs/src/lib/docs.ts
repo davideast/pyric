@@ -185,7 +185,15 @@ export async function breadcrumbsFor(entry: DocEntry): Promise<Breadcrumb[]> {
   if (entry.data.internal) return [];
   const groups = await navGroups();
   const group = groups.find((g) => g.group === entry.data.group);
-  const landing = group?.sections.find((s) => s.section === '')?.entries[0];
+  // Guide groups may have a dedicated overview (section ''). Reference
+  // groups collapse under one "Reference" disclosure with no per-group
+  // `<details id>`, so their package crumb must link the overview page
+  // (groupLanding) rather than a missing `#nav-group-*` anchor.
+  const landing = group
+    ? isGuideGroup(entry.data.group)
+      ? group.sections.find((s) => s.section === '')?.entries[0]
+      : groupLanding(group)
+    : undefined;
   const crumbs: Breadcrumb[] = [
     landing
       ? { label: entry.data.group, href: docPath(landing), anchorId: null }

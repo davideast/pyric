@@ -2,7 +2,7 @@
 title: "Sandbox-only operations"
 group: "pyric / firestore"
 section: "Reference"
-order: 12013
+order: 11013
 ---
 # Sandbox-only operations
 
@@ -81,4 +81,4 @@ Firebase SDK and Firebase services.
 
 - For a task-oriented example, see [How to use sandbox-only operations](../pyric-firestore-how-to-use-sandbox-ops/).
 - For the lint result shape, see [`pyric/rules` lint rules reference](../pyric-rules-reference-lint-rules/).
-- For production rule deployments, see [`pyric-tools/deploy`'s Firestore namespace](../pyric-tools-deploy-reference-firestore-namespace/).
+- For production rule deployments, see the Firebase CLI docs (`firebase deploy --only firestore:rules`).

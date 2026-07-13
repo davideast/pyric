@@ -3,7 +3,7 @@ title: "Sandbox test driver: pyric/auth/sandbox.*"
 navLabel: "Sandbox test driver"
 group: "pyric / auth"
 section: "Reference"
-order: 16004
+order: 15004
 ---
 # Sandbox test driver: `pyric/auth/sandbox.*`
 

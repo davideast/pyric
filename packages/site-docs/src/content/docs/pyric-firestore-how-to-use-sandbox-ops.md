@@ -3,7 +3,7 @@ title: "How to use sandbox-only operations"
 navLabel: "Use sandbox-only ops"
 group: "pyric / firestore"
 section: "How-to"
-order: 12008
+order: 11008
 ---
 # How to use sandbox-only operations
 
@@ -77,11 +77,11 @@ This separation is intentional. Sandbox controls own service lifecycle and
 diagnostics; `getDoc`, `setDoc`, and the rest retain the
 `firebase/firestore`-compatible shape.
 
-For production rule deployment, use `pyric-tools/deploy`. Populate production
+For production rule deployment, use `firebase-tools` / Console. Populate production
 data through the Firebase SDK; sandbox bulk seeding and whole-service snapshots
 have no production equivalents.
 
 ## Where to look next
 
 - For all four signatures and report fields, see [Sandbox-only operations](../pyric-firestore-reference-sandbox-ops/).
-- For production rule deployments, see [`pyric-tools/deploy`'s Firestore namespace](../pyric-tools-deploy-reference-firestore-namespace/).
+- For shipping rules to a real project, see the Firebase CLI docs (`firebase deploy --only firestore:rules`).

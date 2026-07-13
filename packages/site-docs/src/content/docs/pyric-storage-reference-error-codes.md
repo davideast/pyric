@@ -2,7 +2,7 @@
 title: "Error codes"
 group: "pyric / storage"
 section: "Reference"
-order: 15008
+order: 14008
 ---
 # Error codes
 

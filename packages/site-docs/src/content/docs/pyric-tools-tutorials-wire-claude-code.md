@@ -36,7 +36,7 @@ In your app's repo:
 ```bash
 npm install --save-dev pyric
 ```
-This pulls in the bridge implementation (`pyric-tools/bridge`) as a transitive dependency. You don't install it separately: it ships inside `pyric-tools`.
+This pulls in the bridge implementation (`@pyric/cli/bridge`) as a transitive dependency. You don't install it separately: it ships inside `@pyric/cli` / `pyric-tools`.
 
 Verify:
 ```bash
@@ -46,7 +46,7 @@ Expected output: a version string (e.g. `0.0.0`).
 
 ## Step 2: Connect your app to the bridge
 
-The bridge waits for a browser tab to register a sandbox over WebSocket. Your app needs to call `connectBridge()` from `pyric-tools/bridge` (browser entry) in dev mode.
+The bridge waits for a browser tab to register a sandbox over WebSocket. Your app needs to call `connectBridge()` from `@pyric/cli/bridge` (browser entry) in dev mode.
 
 **Vite users**: the simplest path. Use the `pyricSandbox` plugin with `bridge: true`. One plugin does the `firebase/*` → sandbox swap **and** the bridge, so you don't even add the `connectBridge` snippet below:
 ```ts
@@ -63,7 +63,7 @@ The plugin attaches the bridge to Vite's own dev server (so it shares Vite's por
 ```ts
 // e.g. src/main.ts or wherever you call initializeSandbox()
 import { initializeSandbox } from 'pyric/sandbox';
-import { connectBridge } from 'pyric-tools/bridge';
+import { connectBridge } from '@pyric/cli/bridge';
 
 const sandbox = initializeSandbox();
 
@@ -192,66 +192,7 @@ Expected: two tool calls (`firestore_simulator_undo`, `firestore_simulator_redo`
 
 **Port 5174 already in use.** Another `pyric bridge` instance is running, OR another tool. Either kill the other process (`lsof -ti:5174 | xargs kill`) or run with `--port 5180` (and update your Claude Code MCP config to match).
 
-**Prod mode.** This tutorial covered sandbox mode only. Prod mode wires the bridge to real Firebase via the Admin SDK; needs additional setup (`GOOGLE_APPLICATION_CREDENTIALS` or `PYRIC_SA_PATH` env vars). See `pyric bridge --help` for the CLI surface. Prod-mode tool wiring through the CLI is a v1.1 follow-up; for v1 use the programmatic `startServer({ mode: 'prod', prodTools })` API.
-
-## Prod-mode security: terminal confirmation
-
-This part doesn't apply to sandbox mode (where the threat model is "you trust your own dev machine"), but matters as soon as you wire the bridge to a real Firebase project.
-
-**Every write, delete, or deploy tool call in prod mode prompts you in the terminal where `pyric bridge` is running.** The bridge does not execute the call until you press `y`. Reads auto-approve.
-
-The prompt looks like this:
-```
-─────────────────────────────────────────────────────────
-[pyric prod 14:32:08]  ⚠  CONFIRM TOOL CALL
-─────────────────────────────────────────────────────────
-Project:  my-firebase-project
-Tool:     firestore_update_document
-Args:     {
-            "path": "users/u123",
-            "data": { "email": "new@example.com" }
-          }
-─────────────────────────────────────────────────────────
-  [y]   approve this call
-  [n]   deny this call                          (default after 45s)
-  [a]   approve all `firestore_update_document` for this session
-  [D]   DENY everything for the rest of this session
-─────────────────────────────────────────────────────────
-> _
-```
-The prompt reads from `/dev/tty` directly (not from inherited stdin), so a malicious local process can't fake your keystroke. This is the **first real defense** the bridge has against same-user attacks (it's the reason there's no Bearer-token gate).
-
-**Why no token?** Bearer tokens on a localhost HTTP endpoint stop browser cross-origin attacks but not anything else: a process running as your user can read the token from your config file, env vars, terminal output, or process memory. The token would have been security theater. Terminal confirmation is what actually works.
-
-**CLI flags to tune the prompt:**
-
-| Flag | Effect |
-|---|---|
-| `--auto-approve foo,bar` | Tools listed bypass confirmation (lowered to `never`) |
-| `--require-confirm foo,bar` | Tools listed always prompt (force `always` even for reads) |
-| `--require-confirm-all` | Every tool prompts, including reads (paranoid) |
-| `--confirm-timeout 60000` | Override the default 45s timeout |
-| `--non-interactive` | Run prod without TTY (CI). Requires `--auto-approve <list>` for every tool you want callable; everything else denies silently. |
-
-The confirmation decision lands in the audit log alongside the tool call:
-```jsonc
-{
-  "tool": "firestore_update_document",
-  "args": { /* ... */ },
-  "confirmation": {
-    "policy": "always",
-    "decision": "approved",
-    "reason": "user-approved",
-    "elapsed_ms": 4187,
-    "prompt_shown_at": "..."
-  },
-  "result": { /* ... */ }
-}
-```
-Even if a confirmation is somehow bypassed (it shouldn't be), the audit log shows exactly what was approved and when.
-
 ## Next steps
 
 - Read [the bridge README](../pyric-tools-bridge/) for the bridge architecture.
-- Read design rationale for the v1 design decisions.
 - The bridge audit log at `~/.pyric/projects/<project>/events.ndjson` is the durable record of every tool call: review it after agent sessions.

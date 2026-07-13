@@ -2,7 +2,7 @@
 title: "pyric CLI reference"
 group: "pyric-tools"
 section: "Reference"
-order: 9011
+order: 9009
 ---
 # `pyric` CLI reference
 
@@ -23,20 +23,18 @@ Run `pyric --help` for the same surface inline, or `pyric --version`.
 
 | Variable | Used by | Meaning |
 |---|---|---|
-| `PYRIC_MODE` | `bridge` | `sandbox` (default) or `prod`. |
 | `PYRIC_PORT` | `bridge` | Bridge port (default 5174). |
-| `PYRIC_PROJECT` | `bridge`, `deploy`, `auth:*`, `firestore:discover` | Project id (falls back to the `.firebaserc` default). |
+| `PYRIC_PROJECT` | `bridge`, `verify --engine rules-test-api` | Project id label (falls back to the `.firebaserc` default). |
 | `PYRIC_VERBOSE` | all | Verbose logging when set. |
-| `FIREBASE_SA_BASE64` | `deploy`, `auth:*`, `firestore:discover` | base64-encoded service-account JSON. |
-| `GOOGLE_APPLICATION_CREDENTIALS` | `deploy`, `auth:*`, `firestore:discover` | Filesystem path to service-account JSON. |
-| `FIREBASE_DATABASE_URL` | `deploy database` | Realtime Database instance URL, used when `--database-url` and `firebase.json.database.url` are absent. |
-| `PYRIC_SA_PATH` | `bridge --mode prod` | Service-account path for prod bridge mode. |
+| `FIREBASE_SA_BASE64` | `verify --engine rules-test-api\|both` | base64-encoded service-account JSON for the hosted Rules Test API. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | `verify --engine rules-test-api\|both` | Filesystem path to service-account JSON for the hosted Rules Test API. |
 
-Commands that touch a **real Firebase project** (`deploy`, `auth:*`,
-`firestore:discover`, `bridge --mode prod`) require credentials via
-`FIREBASE_SA_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS`, plus a project id via
-`--project` / `PYRIC_PROJECT` / `.firebaserc`. The local sandbox commands
-(`dev`, `init`, `snapshot`, `verify`, `rules:*`, `database:rules:*`) need none.
+Local sandbox commands (`dev`, `init`, `snapshot`, `bridge`, `verify` with the
+default `sandbox` engine, `rules:*`, `database:rules:*`, `storage:rules:*`) need
+no credentials. Hosted Rules Test API verification (`--engine rules-test-api` or
+`both`) needs a project id plus `FIREBASE_SA_BASE64` or
+`GOOGLE_APPLICATION_CREDENTIALS` (or ADC). See
+`@pyric/cli/credentials/node`.
 
 ---
 
@@ -49,7 +47,7 @@ Serve the app locally with the pyric sandbox standing in for Firebase. Unmodifie
 `firebase/*` imports resolve, via a served import map, to a sandbox running in a
 **SharedWorker by default** (one backend shared across all tabs; durable in the
 browser's IndexedDB; a per-tab in-page sandbox is the fallback when SharedWorker
-is unavailable). `firestore.rules` is deployed and hot-reloaded over SSE.
+is unavailable). `firestore.rules` is installed and hot-reloaded over SSE.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -110,7 +108,7 @@ positional argument it replays the latest `pyric dev` capture at
 | Flag | Default | Description |
 |---|---|---|
 | `--service <firestore\|rtdb>` | all services in fixture | Verify one service. Repeat to verify several selected services. `database` is accepted as an alias for `rtdb`. |
-| `--engine <sandbox\|rules-test-api\|both>` | `sandbox` | Choose the verification engine. `rules-test-api` and `both` require `--project` or another deploy-compatible credential source. Rules Test API verification is Firestore-only. |
+| `--engine <sandbox\|rules-test-api\|both>` | `sandbox` | Choose the verification engine. `rules-test-api` and `both` require `--project` (or `.firebaserc`) plus service-account / ADC credentials. Rules Test API verification is Firestore-only. |
 | `--rules <service=path>` | from `firebase.json` | Candidate rules to verify against. Repeat for mixed-service captures. Firestore rules are source files; RTDB rules are JSON files. |
 | `--json` | off | Machine output on stdout. |
 
@@ -153,41 +151,13 @@ not run by hand. See [wire Claude Code](../pyric-tools-tutorials-wire-claude-cod
 
 ### `pyric bridge [flags]`
 
-Stand up the HTTP+WebSocket bridge external MCP clients connect to. In `sandbox`
-mode it relays to a connected in-browser sandbox; in `prod` mode it operates on a
-real Firebase project (guarded). See [bridge](../pyric-tools-bridge/).
+Stand up the HTTP+WebSocket bridge external MCP clients connect to. It relays
+tool calls to a connected in-browser sandbox. See [bridge](../pyric-tools-bridge/).
 
 | Flag | Default | Description |
 |---|---|---|
-| `--mode <sandbox\|prod>` | `sandbox` | `prod` requires credentials **and** interactive confirmation (or `--non-interactive`). |
 | `--port <n>` | `5174` | Port to bind on `127.0.0.1`. Env: `PYRIC_PORT`. |
-| `--project <id>` | none | Project id surfaced in `/health` + audit log. Required for `--mode prod`. Env: `PYRIC_PROJECT`. |
-| `--auto-approve <list>` | none | Prod mode: comma-separated tool names that skip confirmation. |
-| `--require-confirm <list>` | none | Prod mode: tool names forced to always prompt. |
-| `--require-confirm-all` | off | Prod mode: force every tool (including reads) to prompt. |
-| `--confirm-timeout <ms>` | `45000` | Prod mode: per-prompt timeout. |
-| `--non-interactive` | off | Run prod mode without a TTY (CI). |
-
----
-
-## Deploy
-
-### `pyric deploy <rules|indexes|database|hosting|functions>`
-
-Deploy to a real Firebase project. Each target has its own surface (selectors,
-agent I/O via `--schema` / `--json`, preview channels for hosting). The full
-deploy documentation lives in [`../deploy/`](../pyric-tools-deploy/), including the
-[CLI agent I/O reference](../pyric-tools-deploy-reference-cli-agent-io/).
-
-`pyric deploy database` reads `firebase.json.database.rules` as a Realtime
-Database rules JSON file. The database URL is resolved in this order:
-`--database-url`, `FIREBASE_DATABASE_URL`, `firebase.json.database.url`, then
-single default instance discovery via the RTDB management API.
-
-### `pyric hosting:channel:deploy <channelId> [--expires <ttl>]`
-
-Mirror of `deploy hosting --channel <channelId>` (firebase-tools spelling):
-identical behaviour. See [deploy to a preview channel](../pyric-tools-deploy-how-to-deploy-to-a-preview-channel/).
+| `--project <id>` | none | Project id surfaced in `/health` + audit log. Env: `PYRIC_PROJECT`. |
 
 ---
 
@@ -228,31 +198,16 @@ Local Realtime Database rules simulator. With no flags, reads
 reads a JSON payload with `rulesJson` or `rulesPath`, `operation`, `path`,
 optional `auth`, `mockData`, and `newData`.
 
----
+### `pyric database:rules:generate [--config <path>] [--out <path>]`
 
-## Identity & discovery (real Firebase project)
+Load a constraints module (default `database.rules.ts`), compile it to Firebase
+RTDB rules JSON, and write the file. Does not contact a Firebase project.
 
-These operate on a real project and need credentials (see
-[Environment variables](#environment-variables)).
+### `pyric firestore:indexes:generate`
 
-<a id="pyric-authconfigure-provider"></a>
-### `pyric auth:configure-provider <provider> <true|false>`
+Derive composite-index definitions from query shapes (see
+`firestore_extract_indexes`).
 
-Identity Toolkit: enable or disable an auth provider. `<provider>` is one of
-`anonymous`, `email`, `phone`, `google`. `--project` selects the project.
+### `pyric storage:rules:lint <path>` / `pyric storage:rules:simulate`
 
-See [configure auth providers and domains](../pyric-tools-how-to-configure-auth-providers-and-domains/).
-
-<a id="pyric-authmanage-domains"></a>
-### `pyric auth:manage-domains <add|remove|list> [domain]`
-
-Identity Toolkit: manage the authorised-domain allowlist. `add`/`remove` take a
-`<domain>`; `list` takes none. `--project` selects the project.
-
-<a id="pyric-firestore-discover"></a>
-### `pyric firestore:discover [collection]`
-
-Crawl a real Firestore to infer its schema. An optional `[collection]` narrows
-the crawl. `--project` selects the project.
-
-See [infer a schema from an existing Firestore](../pyric-tools-how-to-discover-a-schema-from-firestore/).
+Local Storage rules lint and simulation.

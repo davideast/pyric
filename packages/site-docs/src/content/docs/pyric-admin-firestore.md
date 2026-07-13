@@ -3,7 +3,7 @@ title: "pyric-admin"
 navLabel: "Overview"
 group: "pyric-admin / firestore"
 section: ""
-order: 20001
+order: 19001
 ---
 # `pyric-admin`
 

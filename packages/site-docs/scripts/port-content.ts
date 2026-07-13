@@ -6,7 +6,7 @@
  * Sources — ALL of them, the full port:
  *   packages/pyric/docs         (per-service trees: firestore, rules, …)
  *   packages/pyric-admin/docs
- *   packages/cli/docs   (root tree + deploy + bridge)
+ *   packages/cli/docs   (root tree + bridge)
  *   packages/ui/docs            (per-category component pages)
  *
  * For each markdown file this writes src/content/docs/<slug>.md:
@@ -102,13 +102,6 @@ const GROUPS: GroupSpec[] = [
       { label: 'Reference', path: 'reference' },
       { label: 'Bridge', path: 'bridge/README.md' },
     ],
-  },
-  {
-    pkg: 'cli',
-    slugPrefix: 'pyric-tools',
-    label: 'pyric-tools / deploy',
-    dir: 'deploy',
-    sections: DIATAXIS,
   },
   {
     pkg: 'pyric',
@@ -272,24 +265,14 @@ function slugFor(pkg: string, absFile: string, slugPrefix = pkg): string {
  * TOC "on this page") — this only swaps the nav item's text.
  */
 const NAV_ALIASES: Record<string, string> = {
-  'pyric-tools-deploy-how-to-deploy-hosting-rewrites': 'Deploy Hosting rewrites',
   'pyric-tools-tutorials-wire-claude-code': 'Wire Claude Code',
-  'pyric-tools-deploy-how-to-build-projectscope-from-firebase-auth':
-    'Scope from Firebase Auth',
-  'pyric-tools-how-to-configure-auth-providers-and-domains': 'Configure auth providers',
   'pyric-rules-how-to-test-rules-against-firebase': 'Test rules against Firebase',
   'pyric-tools-how-to-promote-sandbox-state-to-a-fixture': 'Promote sandbox state',
   'pyric-sandbox-how-to-pick-an-adapter': 'Pick an adapter',
   'pyric-tools-how-to-verify-against-a-captured-session': 'Verify rules against prod',
-  'pyric-sandbox-explanation-local-backend-vs-firestore-offline':
-    'Local backend vs. offline',
+  'pyric-sandbox-explanation-local-backend-vs-firestore-offline': 'Local backend vs. offline',
   'pyric-sandbox-how-to-multiple-isolated-sandboxes': 'Run isolated sandboxes',
-  'pyric-tools-deploy-how-to-build-projectscope-from-service-account':
-    'Scope from service account',
-  'pyric-database-explanation-rules-authoring-and-deploy-are-separate':
-    'Authoring vs. deploy',
-  'pyric-tools-deploy-how-to-handle-errors-and-outcomes': 'Handle errors and outcomes',
-  'pyric-tools-how-to-discover-a-schema-from-firestore': 'Infer a schema',
+  'pyric-database-explanation-rules-authoring-and-deploy-are-separate': 'Authoring vs. deploy',
   'pyric-firestore-how-to-build-queries': 'Build queries',
   'pyric-rules-how-to-pin-request-time': 'Pin request.time',
   'pyric-storage-how-to-switch-backends': 'Switch backends',
@@ -302,31 +285,23 @@ const NAV_ALIASES: Record<string, string> = {
   'pyric-admin-firestore-how-to-translate-denials': 'Translate denials',
   'pyric-storage-explanation-implementation-scope': 'Implementation scope',
   'pyric-storage-how-to-test-rule-expressions': 'Test rule expressions',
-  'pyric-tools-deploy-how-to-deploy-to-a-preview-channel': 'Deploy to a preview channel',
-  'pyric-tools-deploy-how-to-register-tools-with-an-agent': 'Register deploy tools',
   'pyric-admin-firestore-tutorials-01-first-admin-session': 'First admin session',
   'pyric-rules-how-to-compare-rulesets-for-weakening': 'Compare rulesets',
   'pyric-rules-how-to-register-tools-with-an-agent': 'Register rules tools',
   'pyric-sandbox-how-to-use-admin-reads': 'Use admin reads',
-  'pyric-tools-deploy-how-to-bundle-and-deploy-a-function': 'Bundle & deploy a function',
   'pyric-tools-how-to-serve-persistence-and-multi-tab': 'Persistence & multi-tab',
   'pyric-firestore-how-to-migrate-from-firebase-firestore': 'Use in existing code',
   'pyric-rules-explanation-agent-failure-modes': 'Agent failure modes',
   'pyric-rules-explanation-sentinel-expression-engine': 'Sentinel expression engine',
-  'pyric-tools-deploy-explanation-primitives-vs-orchestrators':
-    'Primitives vs. orchestrators',
   'pyric-tools-how-to-use-the-vite-plugin': 'Use the Vite plugin',
   'ui-auth-authsigninhelper': 'AuthSignInHelper',
   'pyric-sandbox-explanation-listener-re-evaluation': 'Listener re-evaluation',
   'pyric-sandbox-how-to-replay-events': 'Replay events',
   'pyric-storage-tutorials-01-upload-and-download': 'Upload and download',
-  'pyric-tools-deploy-how-to-deploy-realtime-database-rules': 'Deploy RTDB rules',
-  'pyric-tools-deploy-how-to-provision-a-firestore-database': 'Provision a database',
   'pyric-firestore-compat': 'Compatibility matrix',
   'pyric-rules-explanation-lint-vs-validate-vs-simulate-vs-test': 'Lint vs validate vs test',
   'pyric-rules-how-to-inspect-rules-via-the-ast': 'Inspect rules via the AST',
   'pyric-sandbox-explanation-identity-is-a-context': 'Identity is a context',
-  'pyric-tools-deploy-reference-scope-and-outcome': 'Scope and Outcome',
   'pyric-firestore-explanation-two-backends-one-surface': 'Two backends, one surface',
   'pyric-rules-explanation-runtime-budget-and-shared-gates': 'Runtime budget and gates',
   'pyric-rules-reference-simulator-context': 'Simulator context',
@@ -340,24 +315,21 @@ const NAV_ALIASES: Record<string, string> = {
   'pyric-firestore-tutorials-02-swap-to-prod-backend': 'Swap to prod backend',
   'pyric-rules-tutorials-02-write-a-test-suite-for-your-rules': 'Write a rules test suite',
   'pyric-sandbox-how-to-switch-users': 'Switch users',
-  'pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness':
-    'Sandbox in a test harness',
+  'pyric-sandbox-tutorials-02-use-the-sandbox-in-a-test-harness': 'Sandbox in a test harness',
   'pyric-database-compat': 'Compatibility matrix',
   'pyric-rules-how-to-resolve-module-imports': 'Resolve 2+modules imports',
   'pyric-auth-compat': 'Compatibility matrix',
   'pyric-ai-compat': 'Compatibility matrix',
   'pyric-sandbox-reference-snapshot-and-admin': 'Snapshot and admin reads',
-  'pyric-tools-deploy-how-to-deploy-firestore-indexes': 'Deploy Firestore indexes',
   'pyric-tools-how-to-build-a-standalone-binary': 'Build a standalone binary',
   'pyric-admin-firestore-explanation-per-call-delegate': 'Per-call delegate',
   'pyric-admin-firestore-explanation-why-mirror-admin-shape': 'Why mirror the admin SDK',
   'pyric-sandbox-explanation-internal-adapter-protocol': 'The /internal protocol',
   'pyric-sandbox-reference-internal-protocol': 'The /internal protocol',
   'pyric-storage-how-to-list-and-delete': 'List and delete objects',
-  'pyric-tools-deploy-explanation-why-no-firebase-cli': 'Why no Firebase CLI',
   'pyric-rules-how-to-simulate-rules-locally': 'Simulate rules locally',
   'pyric-sandbox-how-to-observe-events': 'Observe sandbox events',
-  'pyric-tools-deploy-how-to-deploy-firestore-rules': 'Deploy Firestore rules',
+
 };
 
 /** Leading boilerplate the auto-shortening fallback strips before

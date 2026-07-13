@@ -139,25 +139,22 @@ The `pyric` CLI plus everything around it. Dispatcher `src/cli/index.ts:440`.
 - **`pyric vendor [dir]`** — retrofit pyric into an existing project (standalone binary).
 - **`pyric snapshot`** — promote lived sandbox state to a committable fixture that `dev --seed` re-serves. `--out`, `--force`, `--include-passwords`.
 - **`pyric verify [fixture]`** — replay a captured session against a candidate ruleset for Firestore/RTDB. Engines `--engine sandbox|rules-test-api|both`. `--service`, `--rules service=path`. Exit 1 on divergence. Also `pyric verify cases`.
-- **`pyric bridge`** — standalone HTTP+WS MCP bridge. sandbox mode relays to the browser; prod mode is a v1.1 follow-up (currently bails).
-- **`pyric mcp`** — stdio MCP server for editors; headless sandbox or attaches to a running `dev --bridge`.
-- **`pyric deploy <target>`** — push to a real project over REST. Targets: `rules`, `indexes`, `database`, `hosting`, `functions`, `storage`. `--project`, `--only`, `--channel <id|auto>`, `--expires`, `--schema`, `--json`.
-- **`pyric hosting:channel:deploy <id>`** — preview-channel mirror of `deploy hosting --channel`.
-- **Rules CLI**: `rules:lint`, `rules:validate`, `rules:simulate --stdin`; `database:rules:lint|validate|simulate`.
-- **Real-project helpers**: `auth:configure-provider`, `auth:manage-domains`, `firestore:discover`.
-- **Auth**: `login [--ci]`, `logout`, `whoami` (loopback OAuth + PKCE, credential at `~/.pyric/credentials.json`).
+- **`pyric bridge`** — standalone HTTP+WS MCP bridge. Sandbox mode relays tool calls to the connected browser; production control-plane mode is retired from the user-facing CLI.
+- **`pyric mcp-proxy`** — stdio MCP proxy for editors; attaches to a running `dev --bridge`.
+- **Rules CLI**: `rules:lint`, `rules:validate`, `rules:simulate --stdin`; `database:rules:lint|validate|simulate|generate`; `firestore:indexes:generate`; `storage:rules:lint|simulate`.
+- **Production shipping**: use `firebase-tools` / Console (`firebase deploy --only …`), not pyric.
 
 ### The Vite plugin `pyricSandbox()`
 The same `firebase/*` → sandbox swap for a source-driven Vite app, at module-resolution time, inside the normal `vite dev` loop (HMR, source maps). Options: `rules`, `root`, `persist`, `fresh`, `seed`, `capture`, `bridge`, `swapInBuild`.
 - `vite dev` always swaps.
 - `vite build` (production) ships real firebase with the same config — no graduation step.
-- `vite build --mode development` (or `swapInBuild:true`) makes a sandbox build (marked in `index.html`); `pyric dev` serves it, `pyric deploy hosting` refuses it.
+- `vite build --mode development` (or `swapInBuild:true`) makes a sandbox build (marked in `index.html`); `pyric dev` serves it. Production hosting deploys should use an unmarked production build via `firebase-tools`.
 
 ### The MCP tool surface
-The sandbox and its services exposed as agent-callable tools over MCP. Doc says 51 unique names; the composed registry (`composeMcpRegistry`, profiles `full` / `browser-parity` / `control-plane-only`) actually registers more (it adds the verify tools the doc omits). Categories: Firestore data + inspect (7), Firestore rules (6), Firestore simulator session (9), index extraction (1), RTDB rules (4), RTDB data (7), storage control plane (2), deploy (12), discovery (2), auth config (3), verify (2). The ones with no equivalent elsewhere: `firestore_simulate_rules`, the stateful `firestore_simulator_*` session, `sandbox_inspect`, `rtdb_validated_write`, `firestore_extract_indexes`, `firestore_discover_paths`, and the deploy factories.
+The sandbox and its services exposed as agent-callable tools over MCP. The default bridge pins **36** tool names in `mcp-contract.ts` (Firestore data + inspect, rules lint/simulate/stdlib, simulator session, RTDB inspection, assurance). Library-only factories (not on the default bridge) include index extraction, RTDB generate, Storage admin, and `@pyric/cli/discover`. Unique differentiators: `firestore_simulate_rules`, the stateful `firestore_simulator_*` session, `sandbox_inspect`, `rtdb_simulate_access`, `rtdb_crawl_structure`. Production shipping is `firebase-tools` / Console — not a pyric control-plane toolset.
 
-### The deploy control plane
-`pyric-tools/deploy` — Hosting, Cloud Functions Gen 2, Firestore rules/indexes/database, RTDB rules, Storage, as pure `fetch` over OAuth tokens, no `firebase` CLI, runs in Node and browser. Credential model `ProjectScope = { projectId, resolveToken }`, from a service account, a firebase-admin app, or a browser `getIdToken`. CLI precedence: `FIREBASE_SA_BASE64` → `GOOGLE_APPLICATION_CREDENTIALS` → `PYRIC_REFRESH_TOKEN` → login → ADC.
+### Credentials for verify
+`@pyric/cli/credentials/node` — `fromServiceAccount` / `fromAdc` → `ProjectScope` for `pyric verify --engine rules-test-api|both` and the Rules Test API handler. CLI env: `FIREBASE_SA_BASE64` → `GOOGLE_APPLICATION_CREDENTIALS` → ADC.
 
 ### Studio (`@pyric/studio`, behind `pyric dev --ui`)
 Local console at `/__pyric/ui/`. Eight tabs (`packages/studio/src/shell/routes.ts`): Home, Firestore, Auth, RTDB, Storage, Traffic, Prototype, Settings. No in-app Docs tab (the composed static site mounts `/docs`; a spec-named Rules tab is intentionally not mounted yet). Prototype is the embedded playground (an agent working against the shared sandbox).
@@ -188,8 +185,7 @@ Coverage by group:
 | `pyric/database` | 5 | experimental |
 | `pyric-admin/firestore` | 14 | only admin service documented |
 | `pyric-tools` (root) | 14 | dev, init, verify, vite, adoption |
-| `pyric-tools/deploy` | 27 | deep |
-| `@pyric/ui` | 30 | not Diataxis; out of scope for this rewrite |
+| `@pyric/ui` | 30 | not Diátaxis; out of scope for this rewrite |
 
 Examples (`examples/`): `vite-sandbox-app` (the flagship, the shape `pyric init --template web` scaffolds) and `admin-playground` (a `@pyric/ui` showcase).
 

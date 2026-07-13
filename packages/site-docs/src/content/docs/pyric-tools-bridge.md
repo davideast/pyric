@@ -1,14 +1,15 @@
 ---
-title: "pyric-tools/bridge"
+title: "@pyric/cli/bridge"
 group: "pyric-tools"
 section: "Bridge"
-order: 9013
+order: 9011
 ---
-# `pyric-tools/bridge`
+# `@pyric/cli/bridge`
 
 Bridge between an external MCP client (Claude Code, Cursor) and a browser-resident pyric sandbox.
 
-Most users never install this directly. They install `pyric`, which surfaces the bridge through the `pyric` CLI. This package is the implementation underneath.
+Most users never import this directly. They use the `pyric` CLI (`pyric bridge`
+or `pyric dev --bridge`). This module is the implementation underneath.
 
 ## What this does
 
@@ -22,7 +23,9 @@ The bridge process exposes:
 - `GET /sandbox` (WebSocket Upgrade): the browser tab connects here.
 - `GET /health`: diagnostic endpoint returning `{ mode, sandboxConnected, ... }`.
 
-Bound to `127.0.0.1` only.
+Bound to `127.0.0.1` only. The CLI starts the bridge in **sandbox** mode: data-plane
+tool calls forward to the connected browser. Control-plane / production Firebase
+operations are not registered.
 
 ## Two entry points, one package
 
@@ -30,33 +33,27 @@ Conditional exports route to the right bundle based on runtime:
 ```jsonc
 {
   "exports": {
-    ".": {
-      "node":    { "import": "./dist/server.js" },
-      "browser": { "import": "./dist/client.js" }
+    "./bridge": {
+      "node":    { "import": "./dist/bridge/server.js" },
+      "browser": { "import": "./dist/bridge/client.js" }
     }
   }
 }
 ```
-- **Node** (`import { ... } from 'pyric-tools/bridge'`): gets `createBridge`, `startServer`. (The Vite integration is `pyricSandbox({ bridge })` in `pyric-tools/vite`.)
+- **Node** (`import { startServer } from '@pyric/cli/bridge'`): gets `createBridge`, `startServer`. (The Vite integration is `pyricSandbox({ bridge })` in `@pyric/cli/vite`.)
 - **Browser**: gets `connectBridge`.
 
 The wire format (shared types) lives in `protocol.ts` and is referenced from both bundles.
 
-## Mode
-
-The bridge is started in one of two modes; switching requires restart.
+## CLI
 ```bash
-pyric bridge                          # sandbox mode (default)
-pyric bridge --mode prod              # prod mode (requires GOOGLE_APPLICATION_CREDENTIALS)
+pyric bridge                          # sandbox bridge on 127.0.0.1:5174
+pyric bridge --port 6000 --project demo
+pyric dev --bridge                    # mount MCP on the dev-server origin
 ```
-- **Sandbox mode**: data-plane tool calls forward to the connected browser. Sandbox-management tools (undo, redo, events) are available. Control-plane tools (deploy rules etc.) are NOT registered.
-- **Prod mode**: data-plane tool calls execute in Node against real Firebase via the Admin SDK. Sandbox-management tools are NOT registered. Control-plane tools ARE registered.
-
-The mode is visible in `/health` and in every tool result's metadata so the MCP client (and the human reading the conversation) can always see which target was hit.
-
 ## Programmatic use
 ```ts
-import { startServer } from 'pyric-tools/bridge';
+import { startServer } from '@pyric/cli/bridge';
 
 const handle = await startServer({ mode: 'sandbox', port: 5174 });
 // later
@@ -67,7 +64,7 @@ does the `firebase/*` → sandbox swap **and** the bridge:
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
-import { pyricSandbox } from 'pyric-tools/vite';
+import { pyricSandbox } from '@pyric/cli/vite';
 
 export default defineConfig({ plugins: [pyricSandbox({ bridge: true })] });
 ```
@@ -80,7 +77,7 @@ SharedWorker, so the app, Pyric Studio, and the agent all share one sandbox. See
 ## Browser side
 ```ts
 import { initializeSandbox } from 'pyric/sandbox';
-import { connectBridge } from 'pyric-tools/bridge';
+import { connectBridge } from '@pyric/cli/bridge';
 
 const sandbox = initializeSandbox();
 // ... app uses sandbox normally ...
@@ -92,5 +89,5 @@ if (import.meta.env.DEV) {
 ```
 ## See also
 
-- `pyric`: the parent package that ships the `pyric` CLI.
-- [`pyric-tools` docs](../pyric-tools/): CLI and library entry points.
+- Agent tool inventory
+- [Wire Claude Code](../pyric-tools-tutorials-wire-claude-code/)

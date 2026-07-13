@@ -2,7 +2,7 @@
 title: "Query constraints"
 group: "pyric / firestore"
 section: "Reference"
-order: 12012
+order: 11012
 ---
 # Query constraints
 

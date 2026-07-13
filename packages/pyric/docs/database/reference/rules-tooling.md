@@ -1,17 +1,19 @@
 # RTDB rules tooling
 
 The RTDB constraints DSL (`defineRtdbRules` and the combinators) is public,
-re-exported directly from `pyric/rules`. The engine underneath it (the rule
-mapper, expression parser, validator, linter, simulation handler, and replay
-engine) is engine-internal, on the
-`pyric/rules/internal/rtdb` subpath. That subpath isn't covered by the
-public `pyric/rules` contract and may change without notice.
+re-exported directly from `pyric/rules`. The engine underneath it (expression
+parser, validator, linter, compile/simulate/serialize, and replay) is
+engine-internal, on the `pyric/rules/internal/rtdb` subpath. That subpath isn't
+covered by the public `pyric/rules` contract and may change without notice.
 
 ```ts
-import { defineRtdbRules } from 'pyric/rules';
+import { defineRtdbRules, rtdbRules } from 'pyric/rules';
 import {
-  RtdbMapper,
-  SimulateHandler,
+  compileRtdbRules,
+  simulateRtdbRules,
+  serializeRtdbRules,
+  replay,
+  parseExpression,
 } from 'pyric/rules/internal/rtdb';
 ```
 
@@ -39,14 +41,13 @@ const rules = defineRtdbRules({
 
 ```ts
 type RtdbRulesDefinition = {
-  databaseUrl?: string;
   paths: Record<string, PathDef> | ((ctx: RulesetContext) => void);
 };
 ```
 
-`databaseUrl` is optional. Methods that need an IR use an explicit method
-argument first, then `definition.databaseUrl`, then the local fallback
-`https://local-rtdb.firebaseio.com`.
+There is no `databaseUrl` on the definition. Compilation is
+environment-independent; the database URL is a Firebase project concern when
+you ship with `firebase-tools`, not part of the authored artifact.
 
 ### `RtdbRulesDocument`
 
@@ -78,7 +79,7 @@ rather than a throw. `simulate(cases)` takes `RtdbCase[]` and returns
 `{ passed, failed, unsupported, cases }`. `toJSON()` compiles to Firebase
 RTDB rules JSON.
 
-The method-bearing document interface (`toJSON` / `toIR` / `check` /
+The method-bearing document interface (`toJSON` / `compile` / `check` /
 `simulate` on the document itself) is internal. Engine consumers reach it via
 `pyric/rules/internal/rtdb`, which exports it under the same
 `RtdbRulesDocument` name; it is not covered by the public contract.
@@ -109,7 +110,6 @@ type RtdbRulesCheckResult = {
   ok: boolean;
   errors: RtdbRulesFinding[];
   warnings: RtdbRulesFinding[];
-  ir?: RtdbIR;
 };
 ```
 
@@ -119,8 +119,8 @@ Compile failures return an error finding with code `COMPILE_ERROR`.
 
 `rtdbRules(rules).toJSON()` compiles a constraints document to the exact
 `{ rules: {...} }` shape Firebase expects in `database.rules.json`. Everything
-that writes the file — the CLI, the MCP tool, and this helper — runs the same
-compilation and never recompiles the rules a second time.
+that writes the file — the CLI, the MCP library tool, and this helper — runs
+the same compilation and never recompiles the rules a second time.
 
 For scripts running in Node, `pyric/rules/internal/node` exports a helper that
 writes the file directly:
@@ -151,23 +151,22 @@ Loads a constraints module (default `database.rules.ts`, or the `--config`
 path), looks for a named `rules` export or a default export produced by
 `defineRtdbRules(...)`, compiles it to rules JSON, and writes it to `--out`
 (default: the `database.rules` path from `firebase.json`, or
-`database.rules.json`). Run this before `pyric deploy database` so the static
-file can be inspected, diffed, and committed ahead of a live deploy.
+`database.rules.json`). This is a local artifact step only — inspect, diff,
+and commit the file, then ship with `firebase-tools` / Console.
 
-#### MCP
+#### MCP / library
 
-The `rtdb_generate_rules` tool takes the same `configPath` (and an optional
-`cwd`), loads the module the same way, and returns the compiled
-`{ rulesJson }` without deploying it — useful for an agent that wants to show
-a user the rules before calling `rtdb_deploy_rules`.
+The `rtdb_generate_rules` tool (library; not on the default bridge) takes the
+same `configPath` (and an optional `cwd`), loads the module the same way, and
+returns the compiled `{ rulesJson }` without contacting a Firebase project.
 
 ### Verifying captured sessions
 
-Constraints documents can be passed directly to `pyric-tools/verify` as
+Constraints documents can be passed directly to `@pyric/cli/verify` as
 candidate RTDB rules:
 
 ```ts
-import { verifyFixture } from 'pyric-tools/verify';
+import { verifyFixture } from '@pyric/cli/verify';
 import { rules } from './database.rules.js';
 
 const fixture = JSON.parse(await Bun.file('.pyric/last-session.json').text());
@@ -188,79 +187,38 @@ await Bun.write('database.rules.json', JSON.stringify(rtdbRules(rules).toJSON(),
 pyric verify --service rtdb --rules rtdb=database.rules.json
 ```
 
-Verification lives in `pyric-tools/verify` because constraints are an authoring
+Verification lives in `@pyric/cli/verify` because constraints are an authoring
 surface and captured-session replay is local tooling around an app session.
 The Firebase Rules Test API engine is Firestore-only; RTDB constraints verify by
 compiling to RTDB rules JSON and replaying captured RTDB commits locally.
 
-## Rule JSON and IR
+## Compiled rules (internal)
 
-### `RtdbMapper.mapToIR(rulesJson, shallowData, databaseUrl): RtdbIR`
+### `compileRtdbRules(rulesJson): CompiledRtdbRules`
 
-Convert Firebase RTDB rules JSON into Pyric's rule IR.
+Convert Firebase RTDB rules JSON into the compiled tree the simulator uses
+(`CompiledRtdbRules` is the `RtdbNode` root).
+
+### `serializeRtdbRules(compiled): { rules: Record<string, unknown> }`
+
+Convert a compiled tree back to Firebase RTDB rules JSON.
+
+### `simulateRtdbRules(compiled, input): SimulateResult`
+
+Evaluate one operation against a compiled rules tree.
 
 ```ts
-const ir = RtdbMapper.mapToIR(
-  {
-    rules: {
-      profiles: {
-        '$uid': {
-          '.read': 'auth.uid === $uid',
-        },
+const compiled = compileRtdbRules({
+  rules: {
+    profiles: {
+      $uid: {
+        '.read': 'auth.uid === $uid',
       },
     },
   },
-  null,
-  'https://demo-default-rtdb.firebaseio.com',
-);
-```
+});
 
-### `RtdbMapper.mapToRulesJSON(ir): { rules: Record<string, unknown> }`
-
-Convert Pyric's RTDB rule IR back to Firebase RTDB rules JSON.
-
-### `RtdbIR`
-
-```ts
-type RtdbIR = {
-  service: 'realtime-database';
-  databaseUrl: string;
-  rules: RtdbNode;
-};
-```
-
-## Expressions
-
-### `parseExpression(raw): ParsedExpression`
-
-Parse one RTDB rule expression.
-
-### `buildRuleExpression(raw, context, pathVariables?): RtdbRuleExpression`
-
-Parse, validate, and lint one expression for a rule context.
-
-```ts
-const expr = buildRuleExpression('auth.uid === $uid', 'read', ['$uid']);
-```
-
-`context` is one of `'read'`, `'write'`, or `'validate'`.
-
-### `validateExpression(raw, context, pathVariables?): RuleError[]`
-
-Return validation errors for one expression.
-
-### `lintExpression(raw, context): RuleLint[]`
-
-Return linter warnings for one expression.
-
-## Local simulation
-
-### `class SimulateHandler`
-
-Evaluate an RTDB rule IR against one simulation input.
-
-```ts
-const result = new SimulateHandler().execute(ir, {
+const result = simulateRtdbRules(compiled, {
   operation: 'read',
   path: '/profiles/alice',
   auth: { uid: 'alice', token: {} },
@@ -280,13 +238,21 @@ type SimulationInput = {
 };
 ```
 
+### `replay` / expression helpers
+
+Also on `pyric/rules/internal/rtdb`:
+
+- `replay` — replay captured RTDB commits against candidate rules
+- `parseExpression` / `validateExpression` / `lintExpression` /
+  `buildRuleExpression` — expression-level parse, validate, and lint
+
 ## Production deployment
 
 The rules engine performs no production reads or writes. Generate and inspect
-rules locally, then use `pyric deploy database` or the explicit
-`createRtdbDeployTools({ scope })` factory from `pyric-tools/deploy` when a
-production deployment is intended. Production operations never live on the
-Firebase-shaped `pyric/database` mirror or this internal engine seam.
+rules locally (`pyric database:rules:generate`, `rtdbRules(doc).toJSON()`), then
+ship with `firebase-tools` / Console (`firebase deploy --only database`).
+Production operations never live on the Firebase-shaped `pyric/database` mirror
+or this internal engine seam.
 
 ## Constraint helpers
 
