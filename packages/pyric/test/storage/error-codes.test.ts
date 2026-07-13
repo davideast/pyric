@@ -25,6 +25,7 @@ import {
   uploadString,
   getBytes,
   getBlob,
+  getDownloadURL,
   deleteObject,
   getMetadata,
   updateMetadata,
@@ -58,14 +59,26 @@ service firebase.storage {
   }
 }`;
 
+const WRITE_ONLY = `
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow write: if true;
+      allow read: if false;
+    }
+  }
+}`;
+
 describe('ST-B1 — sandbox errors carry .code === storage/<code>', () => {
-  it('object-not-found on getBytes/getBlob of a missing object', async () => {
+  it('object-not-found on getBytes/getBlob/getDownloadURL of a missing object', async () => {
     const storage = freshStorage('not-found-read');
     const r = ref(storage, 'missing/never.bin');
     const e1 = await caught(() => getBytes(r));
     const e2 = await caught(() => getBlob(r));
+    const e3 = await caught(() => getDownloadURL(r));
     expect(e1.code).toBe('storage/object-not-found');
     expect(e2.code).toBe('storage/object-not-found');
+    expect(e3.code).toBe('storage/object-not-found');
   });
 
   it('object-not-found on getMetadata/updateMetadata of a missing object', async () => {
@@ -99,6 +112,15 @@ describe('ST-B1 — sandbox errors carry .code === storage/<code>', () => {
     const e = await caught(() =>
       uploadBytes(r, new Blob(['{}']), { contentType: 'application/json' }),
     );
+    expect(e.code).toBe('storage/unauthorized');
+  });
+
+  it('unauthorized when rules deny getDownloadURL', async () => {
+    const storage = freshStorage('denied-download-url', WRITE_ONLY);
+    const r = ref(storage, 'b/pyric-default/o/avatars/ada.txt');
+    await uploadBytes(r, new Blob(['avatar-bytes'], { type: 'text/plain' }));
+
+    const e = await caught(() => getDownloadURL(r));
     expect(e.code).toBe('storage/unauthorized');
   });
 

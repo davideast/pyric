@@ -137,6 +137,7 @@ export {
   listAll,
   getMetadata,
   getBlob,
+  getDownloadURL,
   // Storage byte ops (worker-mode uploads/reads via the base64 protocol)
   uploadBytes,
   getBytes,

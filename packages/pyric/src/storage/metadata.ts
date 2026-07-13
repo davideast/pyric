@@ -12,8 +12,8 @@
  *
  * - `ref` is omitted from `FullMetadata`. The JS SDK populates it
  *   lazily; we don't need that machinery for the v1 scope.
- * - `downloadTokens` is omitted. `getDownloadURL` is deferred (no
- *   browser-renderable URLs in the v1 scope).
+ * - `downloadTokens` is omitted. Sandbox `getDownloadURL` returns a page-local
+ *   object URL, so it has no Firebase download token to expose.
  */
 import * as fb from 'firebase/storage';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';

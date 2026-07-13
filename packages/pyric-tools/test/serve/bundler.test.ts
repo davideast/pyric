@@ -289,7 +289,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     const storage = exportedNames(result.files.find((f) => f.endsWith('/storage.js'))!);
     for (const name of [
       'getStorage', 'ref', 'listAll', 'getMetadata', 'connectStorageEmulator',
-      'uploadBytes', 'uploadString', 'getBytes', 'getBlob', 'deleteObject',
+      'uploadBytes', 'uploadString', 'getBytes', 'getBlob', 'getDownloadURL', 'deleteObject',
       'updateMetadata', 'StorageError',
     ]) {
       expect(storage.has(name)).toBe(true);

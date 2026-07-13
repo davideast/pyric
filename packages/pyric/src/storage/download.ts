@@ -1,6 +1,6 @@
 /**
  * Download + delete operations: `getBytes`, `getBlob`,
- * `deleteObject`.
+ * `getDownloadURL`, `deleteObject`.
  *
  * Rules are evaluated via `enforceRules`; denials surface as a
  * `StorageError` with `.code === 'storage/unauthorized'`. The other
@@ -60,6 +60,22 @@ export async function getBlob(
     return fb.getBlob(fbRefOf(ref), maxDownloadSizeBytes);
   }
   return fetchBlob(ref, maxDownloadSizeBytes);
+}
+
+/**
+ * Return a URL the current page can use to read the object. Production
+ * delegates to Firebase's token-signed HTTPS URL. The sandbox creates a
+ * page-local object URL from the same rules-checked blob as {@link getBlob}.
+ * The sandbox URL is a snapshot, cannot be shared outside the page, and stays
+ * alive until the caller revokes it or the page unloads.
+ */
+export async function getDownloadURL(ref: StorageReference): Promise<string> {
+  guardNonRoot(ref, 'getDownloadURL');
+  const target = targetOf(ref.storage);
+  if (target.kind === 'prod') {
+    return fb.getDownloadURL(fbRefOf(ref));
+  }
+  return URL.createObjectURL(await fetchBlob(ref, undefined));
 }
 
 /**

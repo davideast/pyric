@@ -33,18 +33,21 @@ await uploadBytes(ref(storage, 'sessions/n1'), bytes);
 ```
 Backed by `firebase/storage`. Network-bound. Operations against real Cloud Storage.
 
-## What's identical
+## What's identical at the call site
 
 Once you have a `FirebaseStorage`, every other function in the package works against either:
 
 - `ref(storage, path)`
 - `uploadBytes(ref, data, metadata?)` / `uploadString(ref, value, format?, metadata?)`
 - `getBytes(ref)` / `getBlob(ref)`
+- `getDownloadURL(ref)`
 - `getMetadata(ref)` / `updateMetadata(ref, patch)`
 - `listAll(ref)`
 - `deleteObject(ref)`
 
 The dispatch is hidden inside each function. Same call sites; the backend choice happens once.
+
+`getDownloadURL` differs in transport: prod returns Firebase's token-signed HTTPS URL, while the sandbox returns a page-local `blob:` URL that fetches the same stored bytes.
 
 ## What only the sandbox does
 
@@ -55,7 +58,6 @@ The dispatch is hidden inside each function. Same call sites; the backend choice
 ## What only prod does
 
 - **Real bucket isolation**. Multi-bucket scenarios work as expected.
-- **`getDownloadURL`** when it's added to this package. It's deferred for the v1 scope.
 - **Resumable uploads**, progress events. Deferred.
 - **Storage triggers**, image transformations, Firebase Extensions. Out of scope.
 

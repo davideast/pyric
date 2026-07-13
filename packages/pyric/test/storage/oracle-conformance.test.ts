@@ -15,14 +15,6 @@
  * names, generation/run IDs, wall-clock timestamps, download URLs) is not
  * asserted.
  *
- * Adaptation from the auth template: `getDownloadURL` is out of the v1
- * storage scope (see `src/storage/index.ts`'s scope comment), so
- * observations whose prod capture read content back via
- * `getDownloadURL` + `fetch` are replayed here with the sandbox's
- * in-process equivalent (`getBytes`/`getBlob`) — the fact under test
- * (uploaded bytes/text round-trip exactly) is the same; only the
- * transport differs, and that's called out per-test.
- *
  * Every storage observation in the directory must be either asserted
  * here or explicitly listed in NOT_APPLICABLE with a reason — the
  * completeness test at the bottom enforces that, so a new capture can't
@@ -38,7 +30,7 @@ import {
   ref,
   uploadBytes,
   uploadString,
-  getBytes,
+  getDownloadURL,
   deleteObject,
   getMetadata,
   updateMetadata,
@@ -109,17 +101,12 @@ describe('oracle conformance (storage)', () => {
   });
 
   it('storage-delete-then-get-throws', async () => {
-    // Prod capture read the deleted object back via getDownloadURL,
-    // which is out of the v1 scope (see file header). getMetadata is
-    // the in-scope read op that surfaces the same
-    // storage/object-not-found precondition on a missing path, so it
-    // stands in for "read after delete" here.
     const obs = load('storage-delete-then-get-throws.json');
     const storage = freshStorage('delete-then-get');
     const r = ref(storage, 'delete-then-get/soon-gone.bin');
     await uploadBytes(r, new Blob(['x']));
     await deleteObject(r);
-    const e = await caught(() => getMetadata(r));
+    const e = await caught(() => getDownloadURL(r));
     expect(obs.getUrlThrew).toBe(true); // what prod did (the target)
     expect(e.code).toBe(obs.code as string);
   });
@@ -174,10 +161,6 @@ describe('oracle conformance (storage)', () => {
   // ── round-trips ──────────────────────────────────────────────────────
 
   it('storage-upload-bytes-roundtrip', async () => {
-    // Prod capture verified byte-for-byte equality via
-    // getDownloadURL + fetch; getDownloadURL is out of the v1 scope
-    // (see file header), so `getBytes` — the in-process read of the
-    // same uploaded bytes — stands in for the fetch leg here.
     const obs = load('storage-upload-bytes-roundtrip.json');
     const storage = freshStorage('upload-bytes-roundtrip');
     const payload = new TextEncoder().encode('abcdef'); // bodyLen 6, matches the capture
@@ -187,22 +170,31 @@ describe('oracle conformance (storage)', () => {
     const upload = await uploadBytes(r, payload);
     expect(upload.metadata.size).toBe(obs.bodyLen as number);
 
-    const read = new Uint8Array(await getBytes(r));
-    const bytesMatch = read.length === payload.length && read.every((b, i) => b === payload[i]);
-    expect(bytesMatch).toBe(obs.bytesMatch as boolean);
+    const url = await getDownloadURL(r);
+    try {
+      const read = new Uint8Array(await (await fetch(url)).arrayBuffer());
+      const bytesMatch = read.length === payload.length && read.every((b, i) => b === payload[i]);
+      expect(bytesMatch).toBe(obs.bytesMatch as boolean);
+      expect(obs.urlIsHttps).toBe(true); // production URL shape
+      expect(url.startsWith('blob:')).toBe(true); // sandbox's documented divergence
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   });
 
   it('storage-uploadstring-base64-roundtrip', async () => {
-    // Prod capture decoded the fetched download back to text; here
-    // `getBytes` + TextDecoder stands in for the fetch leg (see the
-    // roundtrip test above for the same adaptation).
     const obs = load('storage-uploadstring-base64-roundtrip.json');
     const storage = freshStorage('uploadstring-base64');
     const r = ref(storage, 'roundtrip/hello.txt');
     await uploadString(r, 'aGVsbG8=', 'base64');
-    const text = new TextDecoder().decode(await getBytes(r));
-    expect(text).toBe(obs.downloadText as string);
-    expect(text === (obs.downloadText as string)).toBe(obs.textMatches as boolean);
+    const url = await getDownloadURL(r);
+    try {
+      const text = await (await fetch(url)).text();
+      expect(text).toBe(obs.downloadText as string);
+      expect(text === (obs.downloadText as string)).toBe(obs.textMatches as boolean);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   });
 
   it('storage-upload-then-getmetadata (KNOWN DIVERGENCE: md5Hash)', async () => {

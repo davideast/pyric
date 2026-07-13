@@ -295,13 +295,13 @@ matrix has to cover:
 ## `getDownloadURL(ref)` — read URL
 
 <div class="compat-list">
-<details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">51</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Exported by <code>firebase/storage</code>; returns a token-signed HTTPS URL that fetches the blob</span></summary>
-<div class="compat-evidence"><div class="compat-probe">not implemented in <code>pyric/storage</code> — out of scope per <code>index.ts</code> (no browser-renderable URL in the IDB sandbox)</div></div>
+<details class="compat-row" data-status="diverged">
+<summary class="compat-line"><span class="compat-num">51</span><span class="compat-dot" data-status="diverged" role="img" aria-label="Diverged (documented)" title="Diverged (documented)"></span><span class="compat-behavior">Exported by <code>firebase/storage</code>; returns a token-signed HTTPS URL that fetches the blob</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Implemented with a two-sided pin. Production observation <code>storage-upload-bytes-roundtrip</code> records <code>urlIsHttps: true</code> and a byte-identical fetch. The sandbox oracle replay now calls the same public <code>getDownloadURL</code> + <code>fetch</code> path and proves byte-identical content, while explicitly asserting its URL starts with <code>blob:</code>. The client↔host integration proves SharedWorker mode creates that URL in the calling page after the rules-checked Blob crosses the port. The remaining divergence is URL identity and lifetime: the sandbox URL is a page-local snapshot, not token-signed HTTPS and not shareable outside that page.</div></div>
 </details>
-<details class="compat-row" data-status="unsupported">
-<summary class="compat-line"><span class="compat-num">52</span><span class="compat-dot" data-status="unsupported" role="img" aria-label="Unsupported" title="Unsupported"></span><span class="compat-behavior">Throws <code>storage/object-not-found</code> for missing objects</span></summary>
-<div class="compat-evidence"><div class="compat-probe">not implemented; oracle would lock prod's error shape if we ever add it</div></div>
+<details class="compat-row" data-status="ok">
+<summary class="compat-line"><span class="compat-num">52</span><span class="compat-dot" data-status="ok" role="img" aria-label="Conforming" title="Conforming"></span><span class="compat-behavior">Throws <code>storage/object-not-found</code> for missing objects</span></summary>
+<div class="compat-evidence"><div class="compat-probe">Production observation <code>storage-delete-then-get-throws</code> records <code>getDownloadURL</code> throwing <code>storage/object-not-found</code> after deletion. The sandbox oracle replay now invokes <code>getDownloadURL</code> itself and matches that code; the public error-code suite also pins the never-existing-object case.</div></div>
 </details>
 </div>
 
@@ -566,10 +566,6 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 
 ## Visible gaps / open questions
 
-- `getDownloadURL` is the most commonly-used Storage API in real apps
-  and isn't implemented. Adding it gates: download-URL token format,
-  cache headers, signing, CORS preflight. Tracked under `index.ts`'s
-  "out of scope" header.
 - `uploadBytesResumable` (rows 47-50) — the entire upload-task + observer
   surface is unmodeled. The session-archive use case (the v1 driver)
   uses one-shot `uploadBytes`, so this stayed deferred.
@@ -585,13 +581,15 @@ API) moved to the native `storage-rules` surface (`docs/rules/COMPAT.md`).
 Committed observations under `packages/conformance/observations/storage/`, captured
 against the `blockingfun` project on fb-js-sdk 12.13.0:
 
-- #36 `uploadBytes` → `getDownloadURL` → fetch round-trip — bytes
-  match exactly; URL is HTTPS.
+- #36 / #51 `uploadBytes` → `getDownloadURL` → fetch round-trip — bytes
+  match exactly. Production returns HTTPS; the sandbox returns a page-local
+  `blob:` URL, so #51 is `diverged-documented`.
 - #37 `metadata.contentType` matches caller's hint — exact round-trip.
 - #46 `uploadString(_, _, 'base64')` → `getDownloadURL` → fetch text —
   decodes correctly.
-- #54 / #66 `getDownloadURL` on a deleted ref — throws
-  `FirebaseError` with `code: 'storage/object-not-found'`.
+- #52 / #54 / #66 `getDownloadURL` on a deleted ref — throws
+  `FirebaseError` with `code: 'storage/object-not-found'` in production;
+  the sandbox matches the code.
 - #64 `deleteObject` on a never-uploaded path — throws
   `FirebaseError` with `code: 'storage/object-not-found'`. **Sandbox
   diverges** (no-op).
@@ -606,8 +604,12 @@ against the `blockingfun` project on fb-js-sdk 12.13.0:
 - #105 Op-level rules-denied — prod throws `FirebaseError` with
   `code: 'storage/unauthorized'`; message shape recorded.
 
-## Divergences surfaced by oracle observations (not fixed in this PR)
+## Divergences surfaced by oracle observations
 
+- **`getDownloadURL` URL identity and lifetime** (row #51) — production
+  returns token-signed HTTPS; the sandbox returns a page-local `blob:` snapshot
+  that cannot be shared and lives until revoked or page unload. Both fetch the
+  recorded bytes.
 - **`deleteObject` on missing path** (row #64) — sandbox is a no-op
   via `persistence.ts`'s `delete`; prod throws
   `storage/object-not-found`. Fix candidate: detect-and-throw in
@@ -641,10 +643,9 @@ a follow-up driver decision.
 
 | Name | Reason |
 |---|---|
-| `getDownloadURL` | Out of scope — no browser-renderable URL in the IDB sandbox. Re-enable with a token-signed `blob:` URL or a fake CDN endpoint when needed. |
 | `uploadBytesResumable` + `UploadTask` (pause/resume/cancel, state_changed observer) | Out of scope — session-archive use case is one-shot upload-bytes only |
 | `getStream` | Node-stream variant not modeled in the browser-shaped v1 scope |
-| `list(ref, { maxResults, pageToken })` paginated form | Deferred — `listAll` covers the v1 scope scenarios; pagination needs a stable `pageToken` shape |
+| `list(ref, { maxResults, pageToken })` paginated form | Deferred — `listAll` covers the v1 scope scenarios; pagination needs a stable pageToken shape |
 | Cloud Functions Storage triggers (`onFinalize`, `onArchive`, …) | Server-side surface — not the Web SDK |
 | Image transformation URLs (Firebase Image extension) | Extension surface, not core Storage |
 | `StorageObserver` advanced shapes (progress milestones, error subclasses) | Tied to `UploadTask`; out of scope until resumable ships |

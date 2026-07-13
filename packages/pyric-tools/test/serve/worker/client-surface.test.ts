@@ -13,7 +13,7 @@
 import { describe, expect, test } from 'bun:test';
 import * as client from '../../../src/serve/worker/client.js';
 
-/** The 119 value (runtime) exports of the worker client, sorted. Frozen. */
+/** The 120 value (runtime) exports of the worker client, sorted. Frozen. */
 const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'acceptProviderCredential', 'addDoc', 'adminClearUsers', 'adminCreateUser',
   'adminDeleteDocument', 'adminDeleteRtdbValue', 'adminDeleteUser', 'adminGetDocument',
@@ -28,7 +28,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'deleteDoc', 'deleteField', 'deleteObject', 'deleteWorkerBranch', 'doc', 'endAt',
   'endBefore', 'eventHistory', 'exportWorkerState', 'getActiveRules',
   'getAggregateFromServer', 'getAuth', 'getBlob', 'getBytes', 'getCountFromServer',
-  'getDoc', 'getDocs', 'getFirestore', 'getIdToken', 'getIdTokenResult', 'getLens',
+  'getDoc', 'getDocs', 'getDownloadURL', 'getFirestore', 'getIdToken', 'getIdTokenResult', 'getLens',
   'getMetadata', 'getPolicy', 'getProviderConfig', 'getRulesStatus', 'getSnapshot',
   'getStorage', 'getWorkerInstanceId', 'getWorkerVersion', 'importWorkerState',
   'increment', 'inMemoryPersistence', 'limit', 'limitToLast', 'listAll',

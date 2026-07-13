@@ -3,7 +3,8 @@
   "matrixRow": "storage #66",
   "rowIds": [
     "storage#66",
-    "storage#54"
+    "storage#54",
+    "storage#52"
   ],
   "description": "Upload, deleteObject, then getDownloadURL on the deleted ref — observe the error code (expected: storage/object-not-found).",
   "observedAt": "2026-05-18T01:30:07.256Z",

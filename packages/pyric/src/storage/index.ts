@@ -10,15 +10,15 @@
  *
  *   - Slice 4: `getStorage`, `FirebaseStorage`
  *   - Slice 5 (here): `ref`, `uploadBytes`, `uploadString`,
- *     `getBytes`, `getBlob`, `deleteObject`, `StorageReference`,
+ *     `getBytes`, `getBlob`, `getDownloadURL`, `deleteObject`, `StorageReference`,
  *     `SettableMetadata`, `FullMetadata`, `UploadResult`
  *   - Slice 6: `getMetadata`, `updateMetadata`
  *   - Slice 7: `listAll`, `ListResult`
  *   - Slice 8: rules support via `getStorage(ctx, { rules })`
  *   - Slice 9: end-to-end session-archive demo + README
  *
- * Out of scope for the v1 scope (see README): `getDownloadURL`,
- * paginated `list`, `uploadBytesResumable`, Admin SDK shape,
+ * Out of scope for the v1 scope (see README): paginated `list`,
+ * `uploadBytesResumable`, Admin SDK shape,
  * Storage emulator parity, image transformations, Cloud Functions
  * triggers.
  */
@@ -60,7 +60,7 @@ export type { StorageReference } from './reference.js';
 export { uploadBytes, uploadString } from './upload.js';
 export type { StringFormat } from './upload.js';
 
-export { getBytes, getBlob, deleteObject } from './download.js';
+export { getBytes, getBlob, getDownloadURL, deleteObject } from './download.js';
 
 export { getMetadata, updateMetadata } from './metadata.js';
 export type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js';

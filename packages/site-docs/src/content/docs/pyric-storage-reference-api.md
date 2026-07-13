@@ -105,6 +105,15 @@ type StringFormat = 'raw' | 'base64' | 'data_url';
 
 Throws `storage/object-not-found` on missing path. Throws `storage/quota-exceeded` when the object exceeds `maxDownloadSizeBytes`. Throws `storage/invalid-root-operation` on the root reference. The rule check runs before the not-found check, so a denied read of a missing path reports `storage/unauthorized`, matching prod's refusal to disclose object existence to a caller without read permission.
 
+### `getDownloadURL(ref): Promise<string>`
+
+Returns a URL that fetches the stored object. Prod handles delegate to Firebase and return its token-signed HTTPS URL. Sandbox handles return a `blob:` URL owned by the calling page:
+```ts
+const url = await getDownloadURL(ref(storage, 'avatars/ada.png'));
+image.src = url;
+```
+The sandbox URL is a snapshot of the bytes at call time. It cannot be shared outside the page and remains alive until `URL.revokeObjectURL(url)` or page unload. Missing objects and rules denials use the same `storage/object-not-found` and `storage/unauthorized` errors as `getBlob`.
+
 ### `deleteObject(ref): Promise<void>`
 
 Atomically removes both the blob and its metadata. No-op on missing paths in the sandbox (upstream Firebase throws `storage/object-not-found` here; the sandbox's persistence layer is no-op-on-missing instead, a known divergence, see [Error codes](../pyric-storage-reference-error-codes/)).
@@ -421,7 +430,6 @@ Returns two `@inbrowser/agent` `ToolHandler`s built on the handlers above: `stor
 
 Out of scope for v1:
 
-- `getDownloadURL`. No browser-renderable URL scheme for sandbox-stored blobs. Use `getBlob` with `URL.createObjectURL` instead; on the prod backend, import `getDownloadURL` directly from `firebase/storage`.
 - Paginated `list`. Only `listAll` ships. `ListResult.nextPageToken` stays in the shape for forward compatibility but is always `undefined`.
 - `uploadBytesResumable`. No pause/resume/progress uploads; `uploadBytes` is synchronous only.
 - Image transformations. Not modeled; production-only via Firebase Extensions.

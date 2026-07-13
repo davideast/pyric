@@ -16,6 +16,7 @@ import {
   getStorage as workerGetStorage,
   getBlob as workerGetBlob,
   getBytes as workerGetBytes,
+  getDownloadURL as workerGetDownloadURL,
   getMetadata as workerGetMetadata,
   listAll as workerListAll,
   ref as workerRef,
@@ -35,6 +36,9 @@ export const getMetadata = (
   useWorker ? workerGetMetadata : ip.getMetadata
 ) as typeof ip.getMetadata;
 export const getBlob = (useWorker ? workerGetBlob : ip.getBlob) as typeof ip.getBlob;
+export const getDownloadURL = (
+  useWorker ? workerGetDownloadURL : ip.getDownloadURL
+) as typeof ip.getDownloadURL;
 
 export const StorageError = ip.StorageError;
 

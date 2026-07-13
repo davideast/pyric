@@ -255,9 +255,6 @@ const storageDenials: DenyEntry[] = [
   ]),
   // `connectStorageEmulator` is now mirrored — see registry/storage.ts. It is
   // intentionally NOT deny-listed here.
-  ...deny('storage', 'deferred', 'No browser-renderable URL exists yet in the IDB sandbox, but a local blob URL (IDB blob + createObjectURL) looks buildable rather than genuinely un-modelable (storage deny-list: getDownloadURL).', [
-    'getDownloadURL',
-  ]),
   ...deny('storage', 'deferred', 'The UploadTask + observer surface is deferred — v1 shipped the one-shot uploadBytes driver first; the resumable/observable variant is unbuilt, not unbuildable (storage deny-list: uploadBytesResumable).', [
     'uploadBytesResumable',
   ]),
