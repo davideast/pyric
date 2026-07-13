@@ -13,8 +13,8 @@ import { homedir } from 'node:os';
 import type { ProjectScope } from '../core/types.js';
 import { oauthClient } from '../core/client.js';
 import { exchangeRefreshToken } from '../core/exchange.js';
-import { fromServiceAccount } from '../../deploy/from-service-account.js';
-import { memoizeTtl } from '../../deploy/memoize-ttl.js';
+import { memoizeTtl } from '../core/memoize-ttl.js';
+import { fromServiceAccount } from './from-service-account.js';
 
 /** The well-known ADC file path (honours CLOUDSDK_CONFIG; %APPDATA% on Windows). */
 export function adcWellKnownPath(env: NodeJS.ProcessEnv = process.env): string {

@@ -1,5 +1,5 @@
 /**
- * `fromServiceAccount` — build a `ProjectScope` from a Google service
+ * Build a `ProjectScope` from a Google service
  * account JSON file. Exchanges the SA key for a short-lived OAuth
  * access token via the standard JWT-bearer flow, and wires
  * `memoizeTtl` internally so consumers get caching for free.
@@ -7,17 +7,14 @@
  * No `firebase-admin` dependency — uses only Node's built-in
  * `crypto` for RS256 signing and `fetch` for the token exchange.
  *
- * **Node-only inside a browser-safe package**: the function itself
+ * **Node-only credential adapter**: the function itself
  * requires `node:fs/promises` + `node:crypto`. Those modules are
  * imported via dynamic `import()` inside the function body so the
- * top-level @pyric/cli/deploy entry stays browser-bundle safe. A
- * browser host that imports `@pyric/cli/deploy` but never calls
- * `fromServiceAccount` will not have `node:*` modules in its
- * bundle graph.
+ * `@pyric/cli/credentials` entry stays browser-bundle safe.
  */
 
-import type { ProjectScope } from './scope.js';
-import { memoizeTtl } from './memoize-ttl.js';
+import { memoizeTtl } from '../core/memoize-ttl.js';
+import type { ProjectScope } from '../core/types.js';
 
 const GOOGLE_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 const SCOPE = [

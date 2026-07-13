@@ -7,7 +7,7 @@
  * `projectId` is passed in (a user has many projects; the project comes from
  * `--project` / `.firebaserc` via `resolveScope`, not from the credential).
  */
-import { memoizeTtl } from '../../deploy/memoize-ttl.js';
+import { memoizeTtl } from './memoize-ttl.js';
 import type { ProjectScope, StoredCredential, OAuthClient } from './types.js';
 import { exchangeRefreshToken } from './exchange.js';
 
