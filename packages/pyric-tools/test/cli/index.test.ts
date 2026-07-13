@@ -88,11 +88,12 @@ describe('retained pyric command surface', () => {
     });
   }
 
-  it('does not publish a programmatic deployment entry point', () => {
+  it('does not publish retired programmatic entry points', () => {
     const manifest = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as {
       exports: Record<string, unknown>;
     };
     expect(Object.keys(manifest.exports)).not.toContain('./deploy');
+    expect(Object.keys(manifest.exports)).not.toContain('./credentials');
   });
 });
 
