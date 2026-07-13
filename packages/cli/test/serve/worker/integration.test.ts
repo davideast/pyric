@@ -119,7 +119,7 @@ describe('client↔host round-trip (gate repro)', () => {
   });
 });
 
-describe('client↔host event stream + runtime policy (Studio data plane)', () => {
+describe('client↔host event stream (Studio data plane)', () => {
   let restoreSW: () => void;
 
   beforeEach(() => {
@@ -171,22 +171,6 @@ describe('client↔host event stream + runtime policy (Studio data plane)', () =
     expect(batches.length).toBeGreaterThan(before);
 
     unsub();
-  });
-
-  it('setPolicy + getPolicy round-trip the runtime policy over the port', async () => {
-    const { db } = await connectClient();
-
-    // Null before any set.
-    expect(await client.getPolicy(db)).toBeNull();
-
-    const policy = {
-      bridgeMode: 'sandbox' as const,
-      base: 'sandbox' as const,
-      overrides: {},
-      fallback: 'never' as const,
-    };
-    await client.setPolicy(db, policy);
-    expect(await client.getPolicy(db)).toEqual(policy);
   });
 
   it('RTDB push mints a synchronous key and writes through the shared worker', async () => {

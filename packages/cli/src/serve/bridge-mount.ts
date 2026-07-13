@@ -19,7 +19,6 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import type { ToolHandler } from '@inbrowser/agent';
 import { createBridge, type BridgeToolEvent } from '../bridge/server/bridge.js';
 import { buildMcpServer } from '../bridge/server/mcp.js';
 import { getDefaultMcpToolSurface } from '../bridge/server/mcp-contract.js';
@@ -36,7 +35,6 @@ const BRIDGE_VERSION = pyricVersion();
 export interface BridgeMountOptions {
   project?: string;
   disableAuditLog?: boolean;
-  extraTools?: ToolHandler[];
   /** WS-upgrade rebinding/origin guard config. The upgrade path bypasses the
    *  static server's request-time `isAllowedHost`, so the mount guards it here
    *  with the SAME allow rule (bound host + loopback + `--allowed-host`).
@@ -65,7 +63,6 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   const auditWriter = opts.disableAuditLog ? null : createAuditWriter(project);
 
   const bridge = createBridge({
-    mode: 'sandbox',
     project,
     version: BRIDGE_VERSION,
     onToolEvent: auditWriter ? (event: BridgeToolEvent) => auditWriter.write(event) : undefined,
@@ -122,7 +119,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     const surface = getDefaultMcpToolSurface();
     const server = buildMcpServer(bridge, {
       forwarded: surface.forwarded,
-      inProcess: [...surface.inProcess, ...(opts.extraTools ?? [])],
+      inProcess: surface.inProcess,
     });
     session.close = async () => {
       if (session.idle) clearTimeout(session.idle);

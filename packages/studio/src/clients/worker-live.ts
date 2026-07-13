@@ -12,14 +12,12 @@
  * ALSO exposes:
  *   - `subscribeEvents`/`eventHistory`: the unified `onEvent`/`history()` stream,
  *   - `setLens`: the per-op auth lens (`admin` / `as:<uid>` / `app-session`),
- *   - `setPolicy`/`getPolicy`: the runtime confirm-policy (the permission dial).
  *
  * This module adapts those into the seam shapes Studio's features already expect:
  *   - F1 Action Center: an `EventFeed` (`{ history, subscribe }`), built from the
  *     worker's `subscribeEvents` (history-first batch then live events).
  *   - F2 viewer/editor: the worker `ClientDb` + `setLens` for admin / view-as-user.
- *   - F3 permission dial: a `setPolicy(req)` that reaches the worker.
- *   - F4 rules-debug: `setLens({mode:'as',uid})` for "re-run as the user".
+ *   - F3 rules-debug: `setLens({mode:'as',uid})` for "re-run as the user".
  *
  * BROWSER-ONLY. `connectWorkerLive()` returns `null` when no `SharedWorker` is
  * present (SSR / unsupported browser / tests) so the env can fall back to the
@@ -54,8 +52,6 @@ import {
   subscribeEvents,
   setLens as workerSetLens,
   getLens as workerGetLens,
-  setPolicy as workerSetPolicy,
-  getPolicy as workerGetPolicy,
   listRootCollections as workerListRootCollections,
   listSubcollections as workerListSubcollections,
   adminListDocuments as workerAdminListDocuments,
@@ -83,7 +79,6 @@ import {
   limit as workerLimit,
   startAfter as workerStartAfter,
   type ClientDb,
-  type PolicyRequest,
 } from '@pyric/cli/serve/worker';
 
 /**
@@ -115,14 +110,10 @@ export interface WorkerLivePlane {
   db: ClientDb;
   /** F1: the unified event stream as an `EventFeed`. */
   feed: LiveEventFeed;
-  /** F2 / F4: set the per-op auth lens (admin / impersonate / app-session). */
+  /** Set the per-op auth lens (admin / impersonate / app-session). */
   setLens(lens: StudioLens | undefined): void;
   /** Read the active lens back (Studio UI reflects it). */
   getLens(): StudioLens | undefined;
-  /** F3: push the permission dial's policy to the worker (runtime store). */
-  setPolicy(policy: PolicyRequest): Promise<void>;
-  /** Read the active runtime policy back (null until the dial set one). */
-  getPolicy(): Promise<PolicyRequest | null>;
   /** F2 data browse: enumerate root collection ids over the worker keyspace. */
   listRootCollections(): Promise<string[]>;
   /** F2 data browse: enumerate subcollection ids under a document path. */
@@ -273,8 +264,8 @@ export function workerEventFeed(db: ClientDb): LiveEventFeed {
  * tests), so the env can fall back to the HTTP-only path. Never throws.
  *
  * The returned plane shares ONE worker port across the Firestore handle, the
- * event feed, the lens, and the policy, so a `setLens(...)` choice applies to
- * the same backend the feed observes (the single-backend invariant).
+ * event feed and the lens, so a `setLens(...)` choice applies to the same
+ * backend the feed observes (the single-backend invariant).
  */
 export function connectWorkerLive(
   workerUrl: string = DEFAULT_WORKER_URL,
@@ -317,8 +308,6 @@ export function connectWorkerLive(
     feed,
     setLens: (lens) => workerSetLens(lens),
     getLens: () => workerGetLens() as StudioLens | undefined,
-    setPolicy: (policy) => workerSetPolicy(db, policy),
-    getPolicy: () => workerGetPolicy(db),
     listRootCollections: () => workerListRootCollections(db),
     listSubcollections: (docPath) => workerListSubcollections(db, docPath),
     // Browse-only listing: drop `data` at this seam (the pane only needs the

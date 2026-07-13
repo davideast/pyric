@@ -20,14 +20,12 @@
 // the port-level `t`/`id`/`subId` fields the relay re-mints per hop.
 import type { OpMessage, SubMessage } from '../serve/worker/protocol.js';
 
-/** Bridge mode set at process start. */
-export type BridgeMode = 'sandbox' | 'prod';
-
 /** Health report returned by the bridge's `GET /health` endpoint. */
 export interface HealthReport {
   status: 'ok';
-  mode: BridgeMode;
-  /** Project id when `mode==='prod'`; sandbox identifier otherwise. */
+  /** Constant provenance marker: the programmatic bridge is sandbox-only. */
+  mode: 'sandbox';
+  /** Sandbox identifier surfaced in health and audit metadata. */
   project: string;
   /** Whether a browser tab is currently connected over `/sandbox`. */
   sandboxConnected: boolean;

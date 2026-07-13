@@ -14,7 +14,7 @@
  * the ~10 MB rules/sandbox engine — safe to import from any browser app.
  *
  * Exposed by `@pyric/cli`'s `./serve/worker` package export so Studio can
- * `import { getFirestore, subscribeEvents, setLens, setPolicy } from
+ * `import { getFirestore, subscribeEvents, setLens } from
  * '@pyric/cli/serve/worker'` and reach the live SharedWorker backend.
  */
 
@@ -148,9 +148,6 @@ export {
   // Event stream (Pyric Studio keystone — onEvent/history over the port)
   subscribeEvents,
   eventHistory,
-  // Runtime confirm-policy (Pyric Studio F3 — permission dial)
-  setPolicy,
-  getPolicy,
   // Sandbox snapshot export (Pyric Studio rules re-run: fork + test edited rules)
   getSnapshot,
   // RTDB shared-worker preview bridge. Aliased to avoid colliding with Storage
@@ -178,9 +175,6 @@ export {
 } from './client.js';
 
 export type {
-  PolicyRequest,
-  PolicyOverrides,
-  ConfirmPolicy,
   AuthPersistenceMode,
   SerializedUser,
   SerializedUserCredential,

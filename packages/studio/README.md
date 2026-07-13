@@ -7,7 +7,7 @@ Studio is **cross-service** (Firestore / Auth / Storage / RTDB over one event
 stream) and **agentic-dev-focused**: an Action Center digest of what changed,
 cross-service viewer/editor with clickable references, traffic monitoring,
 rules-failure debugging (re-run as the attempting user / against an edited
-ruleset), and a permission dial. Assurance remains available during local
+ruleset). Assurance remains available during local
 Studio development while it is being tested, but is disabled in published
 builds. The standalone agent Playground is developed separately.
 

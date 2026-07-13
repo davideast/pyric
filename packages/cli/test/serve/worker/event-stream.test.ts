@@ -1,6 +1,6 @@
 /**
- * Tests for the SharedWorker host's EVENT-STREAM subscription + runtime
- * confirm-policy store (Pyric Studio Wave 2.5a data plane).
+ * Tests for the SharedWorker host's EVENT-STREAM subscription
+ * (Pyric Studio Wave 2.5a data plane).
  *
  * Strategy mirrors host.test.ts: a REAL pyric sandbox + fake MessagePort
  * objects, calling `handleMessage` directly — no SharedWorker runtime.
@@ -10,8 +10,6 @@
  *     batch, then streams subsequent live events (each as a single-element batch).
  *   - multiple ports each get the fan-out (one sandbox, many subscribers).
  *   - unsubscribe stops delivery; cleanupPort drops a port's event subs.
- *   - set-policy stores the runtime PolicyRequest; get-policy reads it back
- *     (null before any set), and a later set overwrites it.
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
@@ -26,7 +24,6 @@ import type {
   OutboundMessage,
   ResMessage,
   EventStreamMessage,
-  PolicyRequest,
 } from '../../../src/serve/worker/protocol.js';
 import {
   initializeSandbox,
@@ -177,63 +174,5 @@ describe('event-stream subscription', () => {
     await tick();
     // The cleaned-up port receives nothing more.
     expect(flatEvents(port).length).toBe(before);
-  });
-});
-
-describe('runtime confirm-policy store', () => {
-  let ctx: HostCtx;
-  let port: FakePort;
-
-  const SANDBOX_NO_REVIEW: PolicyRequest = {
-    bridgeMode: 'sandbox',
-    base: 'sandbox',
-    overrides: {},
-    fallback: 'never',
-  };
-  const SANDBOX_REVIEW: PolicyRequest = {
-    bridgeMode: 'sandbox',
-    base: 'prod-defaults',
-    overrides: {},
-    fallback: 'always',
-  };
-
-  beforeEach(async () => {
-    ctx = await makeCtx();
-    port = fakePort();
-  });
-
-  it('get-policy returns null before any set', async () => {
-    await handleMessage(ctx, port, { t: 'op', id: 'g0', method: 'getPolicy' });
-    const res = getRes(port, 'g0')!;
-    expect(res.ok).toBe(true);
-    expect((res as ResMessage & { ok: true }).value).toBeNull();
-  });
-
-  it('set-policy stores the request; get-policy reads it back', async () => {
-    await handleMessage(ctx, port, {
-      t: 'op', id: 's1', method: 'setPolicy', policy: SANDBOX_NO_REVIEW,
-    });
-    expect(getRes(port, 's1')!.ok).toBe(true);
-    expect(ctx.policy).toEqual(SANDBOX_NO_REVIEW);
-
-    await handleMessage(ctx, port, { t: 'op', id: 'g1', method: 'getPolicy' });
-    expect((getRes(port, 'g1') as ResMessage & { ok: true }).value).toEqual(
-      SANDBOX_NO_REVIEW,
-    );
-  });
-
-  it('a later set-policy overwrites the active policy', async () => {
-    await handleMessage(ctx, port, {
-      t: 'op', id: 's1', method: 'setPolicy', policy: SANDBOX_NO_REVIEW,
-    });
-    await handleMessage(ctx, port, {
-      t: 'op', id: 's2', method: 'setPolicy', policy: SANDBOX_REVIEW,
-    });
-    expect(ctx.policy).toEqual(SANDBOX_REVIEW);
-
-    await handleMessage(ctx, port, { t: 'op', id: 'g2', method: 'getPolicy' });
-    expect((getRes(port, 'g2') as ResMessage & { ok: true }).value).toEqual(
-      SANDBOX_REVIEW,
-    );
   });
 });

@@ -8,17 +8,14 @@
  * Multi-tab is naive: last-connection-wins. New peer replaces the
  * old, pending calls against the old peer reject with a clear error.
  *
- * Mode determines architecture:
- *  - sandbox: every tool call is forwarded over WS to the browser.
- *    The bridge does not execute tools itself; it acts as a relay
- *    with a tool-name allow-list pinned by the peer's `hello`.
- *  - prod: caller-supplied tools execute in-process. No peer needed.
+ * Every tool call is forwarded over WS to the browser. The bridge does not
+ * execute data-plane tools itself; it acts as a relay with a tool-name
+ * allow-list pinned by the peer's `hello`.
  */
 
 import { randomUUID } from 'node:crypto';
 import type {
   BridgeMessage,
-  BridgeMode,
   HealthReport,
   ToolCallResponse,
   WorkerOpPayload,
@@ -31,7 +28,6 @@ import {
   NO_WORKER_RELAY_ERROR_MESSAGE,
   WORKER_RELAY_CAPABILITY,
 } from '../protocol.js';
-import type { ConfirmHandler, ConfirmDecision } from './confirm.js';
 
 /** Subset of `@inbrowser/agent`'s `ToolResult` shape the bridge emits. */
 export interface BridgeToolResult {
@@ -44,13 +40,7 @@ export interface BridgeToolResult {
 export type SendToPeer = (msg: BridgeMessage) => void;
 
 export interface BridgeOptions {
-  /** Mode set at process start; switching requires restart. */
-  mode: BridgeMode;
-  /**
-   * Project id surfaced in /health and audit-log paths. For sandbox
-   * mode, default is `'sandbox'`. For prod mode, required (typically
-   * the Firebase project id).
-   */
+  /** Sandbox label surfaced in /health and audit-log paths. */
   project?: string;
   /** Bridge version surfaced in /health + Hello messages. */
   version: string;
@@ -66,56 +56,27 @@ export interface BridgeOptions {
    * The bridge does not own audit-log persistence.
    */
   onToolEvent?: (event: BridgeToolEvent) => void;
-  /**
-   * Per-action confirmation handler. Required for prod-mode bridges
-   * to gate dangerous tools on real human approval (see
-   * the design rationale). The wrapper in
-   * `mcp.ts` consults this handler before invoking each in-process
-   * prod tool. Sandbox mode ignores it (forwarded tool calls are
-   * not gated; the browser sandbox is the trust boundary).
-   *
-   * If omitted in prod mode, the standalone server installs a
-   * `createDenyAllHandler()` as a fail-safe.
-   */
-  confirmHandler?: ConfirmHandler;
 }
 
 export interface BridgeToolEvent {
   timestamp: string;
-  mode: BridgeMode;
+  mode: 'sandbox';
   project: string;
   tool: string;
   args: Record<string, unknown>;
   result: BridgeToolResult | { ok: false; summary: string; error?: { code: string; message: string } };
   durationMs: number;
-  /**
-   * Confirmation decision for prod-mode in-process tools. Omitted
-   * for sandbox-forwarded calls (no confirmation needed) and for
-   * prod calls that ran with no handler configured (a misconfig).
-   */
-  confirmation?: {
-    policy: string;
-    decision: 'approved' | 'denied';
-    reason: ConfirmDecision['reason'];
-    elapsed_ms: number;
-    prompt_shown_at?: string;
-  };
 }
 
 export interface Bridge {
-  readonly mode: BridgeMode;
   readonly project: string;
   readonly version: string;
   readonly startedAt: string;
   /** Stable per-process identity (see HealthReport.instanceId). */
   readonly instanceId: string;
-  /** Confirmation handler; null in sandbox mode. */
-  readonly confirmHandler: ConfirmHandler | null;
   /**
-   * Record a tool event in the bridge's audit pipeline. Called by
-   * the in-process tool wrapper in `mcp.ts` after a prod tool
-   * finishes (whether it ran or was denied). Sandbox-forwarded
-   * tools log via the existing onToolEvent path inside dispatch().
+   * Record a tool event in the bridge's audit pipeline. In-process sandbox
+   * tools use this path; forwarded tools log inside dispatch().
    */
   recordToolEvent(event: BridgeToolEvent): void;
 
@@ -157,7 +118,7 @@ export interface Bridge {
   /** Tool names the bridge currently exposes to MCP. */
   toolNames(): string[];
 
-  /** Dispatch a tool call. Forwards to peer in sandbox mode. */
+  /** Dispatch a tool call to the connected sandbox peer. */
   dispatch(name: string, args: Record<string, unknown>): Promise<BridgeToolResult>;
 
   /**
@@ -253,8 +214,7 @@ function workerOpError(
 }
 
 export function createBridge(opts: BridgeOptions): Bridge {
-  const mode = opts.mode;
-  const project = opts.project ?? (mode === 'sandbox' ? 'sandbox' : 'unknown');
+  const project = opts.project ?? 'sandbox';
   const version = opts.version;
   const callTimeoutMs = opts.callTimeoutMs ?? 30_000;
   const startedAt = new Date().toISOString();
@@ -263,7 +223,6 @@ export function createBridge(opts: BridgeOptions): Bridge {
   // sandbox squatting the same port on the other loopback family.
   const instanceId = randomUUID();
   const onToolEvent = opts.onToolEvent;
-  const confirmHandler = opts.confirmHandler ?? null;
 
   let peer: ActivePeer | null = null;
   const pending = new Map<string, PendingCall>();
@@ -361,14 +320,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
   }
 
   function toolNames(): string[] {
-    if (mode === 'sandbox') {
-      return peer ? Array.from(peer.tools).sort() : [];
-    }
-    // Prod mode: caller provides the tool names and dispatch wiring.
-    // Bridge core doesn't own that tool set; the caller
-    // (standalone server or vite plugin) supplies dispatch handlers
-    // for prod tools directly. See createProdBridge in standalone.ts.
-    return [];
+    return peer ? Array.from(peer.tools).sort() : [];
   }
 
   async function dispatch(
@@ -378,20 +330,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     const startedAtMs = Date.now();
     let result: BridgeToolResult;
     try {
-      if (mode === 'sandbox') {
-        result = await dispatchSandbox(name, args);
-      } else {
-        // Prod mode dispatch is wired by the caller (standalone or
-        // vite plugin) when constructing the MCP server. createBridge
-        // itself only models sandbox-mode forwarding. Calling
-        // dispatch() on a prod bridge therefore indicates a wiring
-        // error.
-        result = {
-          ok: false,
-          summary:
-            'bridge.dispatch() called in prod mode — caller-supplied tools dispatch directly, not through the bridge',
-        };
-      }
+      result = await dispatchSandbox(name, args);
     } catch (err) {
       result = {
         ok: false,
@@ -402,7 +341,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
       try {
         onToolEvent({
           timestamp: new Date(startedAtMs).toISOString(),
-          mode,
+          mode: 'sandbox',
           project,
           tool: name,
           args,
@@ -621,7 +560,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
   function health(): HealthReport {
     return {
       status: 'ok',
-      mode,
+      mode: 'sandbox',
       project,
       sandboxConnected: peer !== null,
       version,
@@ -640,12 +579,10 @@ export function createBridge(opts: BridgeOptions): Bridge {
   }
 
   return {
-    mode,
     project,
     version,
     startedAt,
     instanceId,
-    confirmHandler,
     recordToolEvent,
     registerSandboxPeer,
     isSandboxConnected,

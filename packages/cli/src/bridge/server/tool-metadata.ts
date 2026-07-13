@@ -37,7 +37,7 @@ function toMetadata(handler: ToolHandler): ToolMetadata {
 }
 
 /**
- * Tool metadata for the sandbox-mode bridge. Includes the
+ * Tool metadata for the sandbox bridge. Includes the
  * data-plane / sandbox-management tools that the browser dispatches
  * via `LocalEnvironment`. Rules tooling (lint, validate, simulate,
  * test) is NOT included here — those execute in Node and are
@@ -87,8 +87,8 @@ export function getSandboxToolMetadata(): ToolMetadata[] {
  * (no browser needed). Returned as live ToolHandlers — the bridge
  * registers each handler's `execute` directly.
  *
- * `scope` is forwarded so the Rules Test API tool can authenticate in
- * prod-mode bridges too.
+ * `scope` is forwarded so the hosted Rules Test API verification tool can
+ * authenticate without changing the bridge's sandbox-only execution model.
  */
 export function getRulesToolHandlers(scope?: unknown): ToolHandler[] {
   // Factory accepts { scope } per packages/pyric/src/rules/tools.ts.

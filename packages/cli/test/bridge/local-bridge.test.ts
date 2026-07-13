@@ -34,9 +34,9 @@ service cloud.firestore {
 }`;
 
 describe('headless local bridge (hybrid MCP, Phase 1)', () => {
-  it('exposes a peerless sandbox-mode bridge with the shared tool set', () => {
+  it('exposes a peerless sandbox bridge with the shared tool set', () => {
     const bridge = createLocalBridge(initializeSandbox());
-    expect(bridge.mode).toBe('sandbox');
+    expect(bridge.health().mode).toBe('sandbox');
     expect(bridge.isSandboxConnected()).toBe(true);
     expect(bridge.toolNames()).toEqual([...SANDBOX_TOOL_NAMES]);
   });

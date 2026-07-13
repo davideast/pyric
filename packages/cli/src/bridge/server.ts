@@ -13,7 +13,7 @@
  * boundary).
  */
 
-export type { BridgeMode, HealthReport } from './protocol.js';
+export type { HealthReport } from './protocol.js';
 export {
   DEFAULT_BRIDGE_PORT,
   DEFAULT_HEALTH_PATH,
@@ -26,30 +26,3 @@ export type { Bridge, BridgeOptions } from './server/bridge.js';
 
 export { startServer } from './server/standalone.js';
 export type { ServerHandle, StartServerOptions } from './server/standalone.js';
-
-// Prod-mode confirmation surface — exported so callers wiring their
-// own startServer flow (Electron apps, custom dev servers) can plug
-// in non-default confirm handlers.
-export {
-  createInteractiveConfirmHandler,
-  createAutoApproveHandler,
-  createDenyAllHandler,
-  createPolicyHandler,
-  hasInteractiveTTY,
-} from './server/confirm.js';
-export type {
-  ConfirmHandler,
-  ConfirmRequest,
-  ConfirmDecision,
-  ConfirmPolicy,
-  InteractiveOptions,
-  PolicyHandlerOptions,
-} from './server/confirm.js';
-export {
-  DEFAULT_PROD_POLICIES,
-  DEFAULT_SANDBOX_POLICY,
-  FALLBACK_PROD_POLICY,
-  buildPolicyMap,
-  policyFor,
-} from './server/confirm-policy.js';
-export type { PolicyOverrides } from './server/confirm-policy.js';

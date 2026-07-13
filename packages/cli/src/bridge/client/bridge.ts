@@ -277,8 +277,7 @@ export function connectBridge(
         send({ type: 'pong', id: parsed.id });
         return;
       }
-      // Other message types (tool-result, pong, hello) are bridge→client
-      // confirmations or peer-only; ignore here.
+      // Other message types (tool-result, pong, hello) are peer-only; ignore.
     };
 
     socket.onclose = (event: CloseEvent) => {
