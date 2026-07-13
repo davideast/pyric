@@ -521,9 +521,8 @@ function checkPermissiveRules(
       // is the canonical dev/sandbox/quickstart pattern; classifying it
       // as a hard error caused `sandbox.setRules(...)` to silently no-op
       // and the scaffolded `pyric init` quickstart to break in confusing
-      // ways. The diagnostic itself stays — production deploy gates
-      // (`pyric deploy rules`) can re-run lint at a stricter level and
-      // refuse on warning-too. The dev-loop sandbox stays permissive.
+      // ways. The diagnostic itself stays so CI or a release workflow can
+      // enforce stricter policy. The dev-loop sandbox stays permissive.
       severity: 'warning',
       message:
         `allow ${ops} at ${r.path} resolves to a constant true predicate — `

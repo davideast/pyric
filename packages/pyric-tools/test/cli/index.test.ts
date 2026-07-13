@@ -31,6 +31,26 @@ describe('retained pyric command surface', () => {
       expect(stdout).toMatch(new RegExp(`^\\s+(?:pyric )?${command}\\b`, 'm'));
     }
   });
+
+  it('does not expose production deployment commands', () => {
+    const help = runCli(['--help']);
+    expect(help.code).toBe(0);
+    expect(help.stdout).not.toMatch(/\bpyric deploy\b/);
+    expect(help.stdout).not.toContain('hosting:channel:deploy');
+
+    for (const command of ['deploy', 'hosting:channel:deploy']) {
+      const removed = runCli([command]);
+      expect(removed.code).toBe(1);
+      expect(removed.stderr).toContain(`unknown command '${command}'`);
+    }
+  });
+
+  it('does not publish a programmatic deployment entry point', () => {
+    const manifest = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as {
+      exports: Record<string, unknown>;
+    };
+    expect(Object.keys(manifest.exports)).not.toContain('./deploy');
+  });
 });
 
 describe('pyric dev command surface', () => {

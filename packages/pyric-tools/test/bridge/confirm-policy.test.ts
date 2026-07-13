@@ -43,7 +43,7 @@ describe('DEFAULT_PROD_POLICIES table', () => {
     }
   });
 
-  test('deploys are always', () => {
+  test('production deployment tools are not part of the bridge policy', () => {
     const deploys = [
       'firestore_deploy_rules',
       'firestore_provision_database',
@@ -54,7 +54,7 @@ describe('DEFAULT_PROD_POLICIES table', () => {
       'functions_deploy',
     ];
     for (const name of deploys) {
-      expect(DEFAULT_PROD_POLICIES.get(name)).toBe('always');
+      expect(DEFAULT_PROD_POLICIES.has(name)).toBe(false);
     }
   });
 
@@ -62,6 +62,7 @@ describe('DEFAULT_PROD_POLICIES table', () => {
     expect(DEFAULT_PROD_POLICIES.get('firestore_lint_rules')).toBe('never');
     expect(DEFAULT_PROD_POLICIES.get('firestore_simulate_rules')).toBe('never');
     expect(DEFAULT_PROD_POLICIES.get('rtdb_build_expression')).toBe('never');
+    expect(DEFAULT_PROD_POLICIES.get('rtdb_generate_rules')).toBe('never');
   });
 
   test('sandbox-mode default is never', () => {

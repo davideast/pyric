@@ -63,7 +63,7 @@ describe('rewriteSpecifier (mirror-package exemption)', () => {
   ).href;
   const pyricParent = pathToFileURL(join(repoRoot, 'packages/pyric/src/app/index.ts')).href;
   const cliParent = pathToFileURL(
-    join(repoRoot, 'packages/pyric-tools/src/deploy/index.ts'),
+    join(repoRoot, 'packages/pyric-tools/src/registry/compose.ts'),
   ).href;
 
   it('does NOT rewrite Firebase imports made from within the pyric mirrors', () => {

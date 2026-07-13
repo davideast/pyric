@@ -1,11 +1,5 @@
 /**
- * OAuth scope policy. The free path (rules / hosting / indexes) lives on the
- * narrow `firebase` + `datastore` scopes; only the PAID, rarely-used targets
- * (functions / storage) need `cloud-platform`, so they lazy-upgrade.
- *
- * (Confirm the narrow strings against each API's discovery doc; `cloudfunctions`
- * and `serviceusage.enable` are the ones with no narrower scope than
- * cloud-platform, which is exactly why they're the lazy tier.)
+ * OAuth scope policy for verification and project inspection.
  */
 export const SCOPES = {
   openid: 'openid',
@@ -16,7 +10,7 @@ export const SCOPES = {
   cloudPlatform: 'https://www.googleapis.com/auth/cloud-platform',
 } as const;
 
-/** The scopes a base `pyric login` requests — the whole free deploy path. */
+/** The scopes a base `pyric login` requests for authenticated CLI workflows. */
 export const BASE_SCOPES: readonly string[] = [SCOPES.openid, SCOPES.email, SCOPES.firebase, SCOPES.datastore];
 
 /**

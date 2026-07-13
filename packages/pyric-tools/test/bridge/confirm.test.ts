@@ -321,7 +321,7 @@ describe('createInteractiveConfirmHandler — concurrency', () => {
       project: 'p',
     });
     const p3 = handler.ask({
-      tool: 'firestore_deploy_rules',
+      tool: 'auth_configure_provider',
       args: {},
       mode: 'prod',
       project: 'p',

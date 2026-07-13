@@ -3,11 +3,10 @@
  * places that produce or read it: the Vite plugin stamps it into a
  * `vite build --mode pyric` output's `index.html`; `pyric dev` trusts it (a
  * marked dist bundles pyric's in-page adapters, so its assets never inline the
- * real SDK — the inlined-firebase scanner is skipped); and `pyric deploy
- * hosting` REFUSES it (a sandbox build must never reach production).
+ * real SDK and the inlined-firebase scanner is skipped).
  *
- * Dependency-free (fs/path only) so the deploy provider can import it without
- * pulling in the browser bundler.
+ * Dependency-free (fs/path only) so the dev server can read it without pulling
+ * in the browser bundler.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

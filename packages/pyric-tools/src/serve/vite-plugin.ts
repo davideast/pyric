@@ -731,8 +731,8 @@ export function pyricSandbox(options: PyricSandboxOptions = {}): Plugin {
       // serve-time injection for this page (a second injected runtime would
       // double-init: two banners, two bridge peers). The marker is also the
       // signal that makes `pyric dev` trust this dist (skip the inlined-SDK
-      // scan) and `pyric deploy hosting` refuse it. transformIndexHtml runs
-      // BEFORE Vite writes index.html, so both land in the emitted asset.
+      // scan). transformIndexHtml runs BEFORE Vite writes index.html, so both
+      // land in the emitted asset.
       if (sandboxBuild) {
         if (html.includes(SANDBOX_BUILD_META)) return html;
         const initTag = initChunkFile

@@ -108,6 +108,10 @@
     "firebase_assurance_export": {
       "decision": "deliberate",
       "reason": "external-agent local assurance workflow — bridge and programmatic registry only; Studio is the visualization client"
+    },
+    "rtdb_generate_rules": {
+      "decision": "deliberate",
+      "reason": "local constraints compilation loads a project file in the CLI process; browser surfaces use their own session-workspace artifact flow"
     }
   }
 }

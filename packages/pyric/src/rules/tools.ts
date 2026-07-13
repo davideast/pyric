@@ -103,13 +103,9 @@ export function createFirestoreRulesTools(
 
   if (deps.scope) {
     const scope = deps.scope;
-    // Note: `firestore_get_rules` is NOT added here. `@pyric/cli/deploy`'s
-    // `createFirestoreDeployTools` already exposes a tool with that
-    // name (returning raw rules source); composeMcpRegistry would
-    // reject the duplicate. Browser callers that want the parsed
-    // inspect (AST + summary + findings) wire `createFirestoreInspectTool`
-    // directly from `pyric/rules` — see playground's
-    // `firestore-rules-inspect.ts`.
+    // Deployed-rules inspection is a separate opt-in surface. Browser and
+    // Node callers that need parsed rules wire `createFirestoreInspectTool`
+    // directly from `pyric/rules`.
     handlers.push({
       name: 'firestore_test_rules',
       description:

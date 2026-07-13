@@ -331,6 +331,19 @@ for (const sym of ['createBridge', 'startServer']) {
   else bad('@pyric/cli/bridge is MISSING ' + sym);
 }
 
+// Production deployment is owned by firebase-tools. The old programmatic
+// subpath must fail resolution instead of lingering as a compatibility shim.
+try {
+  await import('@pyric/cli/deploy');
+  bad('@pyric/cli/deploy still resolves');
+} catch (error) {
+  if (error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') {
+    ok('@pyric/cli/deploy is not exported');
+  } else {
+    bad('@pyric/cli/deploy failed for an unexpected reason: ' + String(error));
+  }
+}
+
 if (failed) process.exit(1);
 SHAPEJS
 (cd "$WORK/consumer" && node __export-shape.mjs)

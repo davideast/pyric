@@ -85,6 +85,24 @@ expect(version.stdout.includes('@pyric/cli '), 'pyric --version must name @pyric
 expect(version.stdout.includes('Firebase '), 'pyric --version must report its Firebase target', version);
 process.stdout.write('  ✓ packed pyric starts and reports its package + Firebase versions\n');
 
+// Slice 1b: the packed artifact must not resurrect the retired production
+// deployment surface through generated help or stale dispatch code.
+const help = run(['--help']);
+expect(help.code === 0, 'pyric --help must exit 0', help);
+expect(!help.stdout.includes('pyric deploy'), 'pyric --help must not advertise production deployment', help);
+expect(!help.stdout.includes('hosting:channel:deploy'), 'pyric --help must not advertise Hosting deployment', help);
+const removedDeploy = run(['deploy', 'rules']);
+expect(removedDeploy.code === 1, 'pyric deploy must be rejected as an unknown command', removedDeploy);
+expect(removedDeploy.stderr.includes("unknown command 'deploy'"), 'pyric deploy must fail without a compatibility path', removedDeploy);
+const removedHostingDeploy = run(['hosting:channel:deploy']);
+expect(removedHostingDeploy.code === 1, 'pyric hosting:channel:deploy must be rejected as an unknown command', removedHostingDeploy);
+expect(
+  removedHostingDeploy.stderr.includes("unknown command 'hosting:channel:deploy'"),
+  'pyric hosting:channel:deploy must fail without a compatibility path',
+  removedHostingDeploy,
+);
+process.stdout.write('  ✓ packed pyric exposes no production deployment commands\n');
+
 // The one fixture shared by both retained `verify` commands captures an
 // anonymous request and its committed write. Keeping auth null is intentional:
 // the packed smoke must never require Firebase, gcloud, or service-account

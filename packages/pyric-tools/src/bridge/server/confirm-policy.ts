@@ -6,7 +6,7 @@
  * are reviewable in one place — the file you grep when you ask
  * "does this tool require confirmation in prod?"
  *
- * Reads default to `never`; writes / deletes / deploys default to
+ * Reads default to `never`; writes and deletes default to
  * `always`. Anything not in the table defaults to `always` in prod
  * mode (fail-safe). Sandbox mode uses `never` universally.
  */
@@ -16,7 +16,7 @@ import { ASSURANCE_TOOL_NAMES } from '../../assurance/tool-names.js';
 export type ConfirmPolicy = 'never' | 'session' | 'always' | 'deny';
 
 /**
- * Default policies for prod mode. Conservative: writes and deploys
+ * Default policies for prod mode. Conservative: writes
  * always prompt; reads and pure compute never prompt.
  */
 export const DEFAULT_PROD_POLICIES: ReadonlyMap<string, ConfirmPolicy> = new Map([
@@ -26,7 +26,6 @@ export const DEFAULT_PROD_POLICIES: ReadonlyMap<string, ConfirmPolicy> = new Map
   ['firestore_query_where', 'never'],
   ['sandbox_inspect', 'never'],
   ['firestore_get_rules', 'never'],
-  ['firestore_get_index_status', 'never'],
   ['firestore_discover_paths', 'never'],
   ['firestore_extract_indexes', 'never'],
   ['firestore_lint_rules', 'never'],
@@ -56,17 +55,6 @@ export const DEFAULT_PROD_POLICIES: ReadonlyMap<string, ConfirmPolicy> = new Map
   ['rtdb_push', 'always'],
   ['rtdb_delete', 'always'],
   ['rtdb_validated_write', 'always'],
-
-  // ── Deploys / control plane — always prompt ─────────────────────
-  ['firestore_deploy_rules', 'always'],
-  ['firestore_ensure_rules', 'always'],
-  ['firestore_provision_database', 'always'],
-  ['firestore_deploy_indexes', 'always'],
-  ['firestore_create_index', 'always'],
-  ['rtdb_deploy_rules', 'always'],
-  ['hosting_deploy', 'always'],
-  ['hosting_ensure_site', 'always'],
-  ['functions_deploy', 'always'],
 ]);
 
 /** Sandbox mode bypasses confirmation entirely. */

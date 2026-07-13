@@ -13,7 +13,7 @@ project, credentials, or emulators.
   `firebase` package. Fill `.env` from the Firebase console (see
   `.env.example`); the SAME config runs against real Firebase. No separate
   "graduation" step — dev and prod are one toolchain.
-- **Deploy:** `bun run deploy:rules` then `bun run deploy:hosting`
+- **Deploy:** `npx firebase-tools deploy` after the production build
   (`hosting.public` is `dist/`, Vite's build output).
 
 The app code uses canonical `firebase/*` imports everywhere. Switching between

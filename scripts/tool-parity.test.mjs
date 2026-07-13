@@ -30,7 +30,7 @@ describe('tool-parity extraction against the real codebase', () => {
   test('each surface finds a sane minimum', () => {
     expect(mcp.size).toBeGreaterThanOrEqual(15); // 24 at time of writing
     expect(playground.size).toBeGreaterThanOrEqual(15); // 27 at time of writing
-    expect(registry.size).toBeGreaterThanOrEqual(20); // 41 at time of writing
+    expect(registry.size).toBeGreaterThanOrEqual(15);
   });
 
   test('known bridge tools are present (forwarded + in-process)', () => {
@@ -87,16 +87,15 @@ describe('tool-parity extraction against the real codebase', () => {
 
   test('known registry tools are present', () => {
     for (const name of [
-      'firestore_deploy_rules',
-      'firestore_get_rules',
-      'firestore_deploy_indexes',
-      'hosting_deploy',
-      'functions_deploy',
+      'firestore_lint_rules',
+      'firestore_simulate_rules',
+      'firestore_test_rules',
       'auth_get_config',
       'pyric_verify_fixture',
       'firestore_extract_indexes',
       'firestore_discover_paths',
       'rtdb_simulate_access',
+      'rtdb_generate_rules',
       'rtdb_validated_write',
       'firebase_assurance_start',
       'firebase_assurance_export',

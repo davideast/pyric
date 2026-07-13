@@ -205,8 +205,8 @@ sandbox — no Firebase project, credentials, or emulators.
   (plain JSON; gitignored). Promote lived state to a committable fixture
   with \`pyric snapshot\`, then re-serve it: \`pyric dev --seed pyric-state.json\`.
 - **Graduate:** fill \`.env\` from the Firebase console and point the config in
-  \`public/app.js\` at it, then \`npx pyric deploy rules\` /
-  \`npx pyric deploy hosting\`. Bare \`firebase/*\` imports need a bundler
+  \`public/app.js\` at it, then run \`npx firebase-tools deploy\`. Bare
+  \`firebase/*\` imports need a bundler
   (e.g. \`vite build\`) or an import map in production — \`pyric dev\`
   provides the map in dev.
 
@@ -274,7 +274,8 @@ console.log(\`\${snap.size} posts:\`);
 snap.forEach((doc) => console.log(\`  \${doc.id}:\`, doc.data()));
 
 // Graduation: fill .env from the Firebase console, tighten firestore.rules,
-// \`pyric deploy rules\`, then run the SAME code against the real backend:
+// \`npx firebase-tools deploy --only firestore:rules\`, then run the SAME
+// code against the real backend:
 //   PYRIC_TARGET=firebase bun start
 // (rules deploys and seeding never run in firebase mode.)
 `;
@@ -308,8 +309,8 @@ const NODE_RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Local-first defaults: open in the sandbox so the quickstart
-    // works out of the box. **Tighten these before \`pyric deploy rules\`
-    // ever hits production** — anonymous read+write is not what you want
+    // works out of the box. **Tighten these before deploying with firebase-tools**
+    // — anonymous read+write is not what you want
     // in the wild.
     match /posts/{postId} {
       allow read: if true;
@@ -365,9 +366,9 @@ Graduation is an env change, not a code edit:
    (see \`.env.example\`).
 2. **Tighten \`firestore.rules\`** — the scaffolded rules are open for
    sandbox convenience.
-3. Deploy them: add a \`.firebaserc\`
-   (\`{ "projects": { "default": "your-project-id" } }\`), set
-   \`GOOGLE_APPLICATION_CREDENTIALS\`, then \`pyric deploy rules\`.
+3. Deploy them with the Firebase CLI: add a \`.firebaserc\`
+   (\`{ "projects": { "default": "your-project-id" } }\`), then run
+   \`npx firebase-tools deploy --only firestore:rules\`.
 4. Run the same code against the real backend:
    \`PYRIC_TARGET=firebase bun start\`
 `;
@@ -582,7 +583,7 @@ in-process sandbox — no Firebase project, credentials, or emulators.
   \`firebase\` package. Fill \`.env\` from the Firebase console (see
   \`.env.example\`); the SAME config you wrote runs against real Firebase. There
   is no separate "graduation" step — dev and prod are one toolchain.
-- **Deploy:** \`bun run deploy:rules\` then \`bun run deploy:hosting\`
+- **Deploy:** \`npx firebase-tools deploy\` after the production build
   (\`hosting.public\` is \`dist/\`, Vite's build output).
 
 > Your app code uses canonical \`firebase/*\` imports everywhere. Switching
@@ -605,9 +606,7 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
       dev: 'vite',
       build: 'vite build',
       'build:sandbox': 'vite build --mode development',
-      preview: 'vite preview',
-      'deploy:rules': 'pyric deploy rules',
-      'deploy:hosting': 'pyric deploy hosting',
+     preview: 'vite preview',
     },
     // The real firebase package ships day one so the production `vite build`
     // resolves the same canonical imports against it — no code edit at graduation.
@@ -637,8 +636,7 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
     scripts: {
       start: 'bun src/app.ts',
       dev: 'bun --watch src/app.ts',
-      bridge: 'pyric bridge',
-      'deploy:rules': 'pyric deploy rules',
+     bridge: 'pyric bridge',
     },
     dependencies: { pyric: '*', '@pyric/cli': '*' },
     devDependencies: { '@types/bun': 'latest', typescript: '^5.7.0' },
@@ -661,9 +659,7 @@ export const TEMPLATES: Record<'web' | 'node' | 'static', ScaffoldTemplate> = {
   static: {
     scripts: {
       dev: 'pyric dev --seed seed.json',
-      'dev:agent': 'pyric dev --bridge --seed seed.json',
-      'deploy:rules': 'pyric deploy rules',
-      'deploy:hosting': 'pyric deploy hosting',
+     'dev:agent': 'pyric dev --bridge --seed seed.json',
     },
     dependencies: { firebase: '^12.12.0' },
     devDependencies: { '@pyric/cli': '*' },
