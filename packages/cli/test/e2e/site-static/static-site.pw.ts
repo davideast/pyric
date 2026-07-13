@@ -235,3 +235,45 @@ test('DIAGNOSTIC: full request log for /__pyric/* on first load (not an assertio
   // worker's hot-reload EventSource opens a /__pyric/events connection even
   // with no `pyric dev` behind the site).
 });
+
+test('Studio presence chip reports two logical clients then converges to one (#227)', async ({
+  browser,
+}) => {
+  // Two real Studio pages against one SharedWorker: the shell chip must show
+  // "2 pages connected", then converge to one after the second page closes.
+  // Asserts externally visible behavior only (count label), not protocol internals.
+  const context = await browser.newContext();
+  const pageA = await context.newPage();
+  const pageB = await context.newPage();
+
+  await pageA.goto('/');
+  await pageB.goto('/');
+
+  const chipA = pageA.getByRole('button', { name: /page(?:s)? connected/i });
+  const chipB = pageB.getByRole('button', { name: /page(?:s)? connected/i });
+
+  await expect(chipA).toBeVisible({ timeout: 10_000 });
+  await expect(chipB).toBeVisible({ timeout: 10_000 });
+
+  // Wait until both pages see each other (count may start at 1 while the peer
+  // registers).
+  await expect
+    .poll(async () => (await chipA.textContent())?.trim(), { timeout: 10_000 })
+    .toBe('2 pages connected');
+  await expect
+    .poll(async () => (await chipB.textContent())?.trim(), { timeout: 10_000 })
+    .toBe('2 pages connected');
+
+  await pageB.close();
+
+  await expect
+    .poll(async () => (await chipA.textContent())?.trim(), { timeout: 10_000 })
+    .toBe('1 page connected');
+
+  // Expand details: This page + honest visibility boundary.
+  await chipA.click();
+  await expect(pageA.getByText('This page', { exact: true })).toBeVisible();
+  await expect(pageA.getByText(/browser profile/i)).toBeVisible();
+
+  await context.close();
+});

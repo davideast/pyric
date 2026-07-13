@@ -319,7 +319,7 @@ describe('remote core — version-skew guidance on Unknown method', () => {
       expect(message).toContain('Unknown method: storage.notShippedYet');
       expect(message).toContain('the running sandbox may predate this feature');
       expect(message).toContain('restart pyric dev');
-      expect(message).toContain('reload the browser tab');
+      expect(message).toContain('close other open pages');
     }
   });
 

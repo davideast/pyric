@@ -290,3 +290,85 @@ describe("createStudioEnvironment('local') live-plane gating", () => {
     expect(typeof env.live!.feed.subscribe).toBe('function');
   });
 });
+
+describe('presence live-plane contract (#227)', () => {
+  let restore: (() => void) | null = null;
+  afterEach(() => {
+    restore?.();
+    restore = null;
+    resetWorkerLens(undefined);
+  });
+
+  it('registers presence and delivers snapshots to subscribePresence', () => {
+    const sw = controllableSharedWorker();
+    restore = sw.restore;
+    const plane = connectWorkerLive('worker://test')!;
+
+    expect(typeof plane.presenceClientId).toBe('string');
+    expect(plane.presenceClientId.length).toBeGreaterThan(0);
+
+    // startPresence posts a presence.register op.
+    const register = sw.port.sent.find(
+      (m): m is { t: 'op'; method: string; clientId: string; kind: string } =>
+        (m as { method?: string }).method === 'presence.register',
+    );
+    expect(register).toBeDefined();
+    expect(register!.kind).toBe('studio');
+    expect(register!.clientId).toBe(plane.presenceClientId);
+
+    const seen: number[] = [];
+    const unsub = plane.subscribePresence((snap) => seen.push(snap.clients.length));
+
+    const subMsg = sw.port.sent.find(
+      (m): m is { t: 'sub'; subId: string; target: string } =>
+        (m as { t?: string }).t === 'sub' &&
+        (m as { target?: string }).target === 'presence',
+    );
+    expect(subMsg).toBeDefined();
+
+    sw.deliver({
+      t: 'snap',
+      subId: subMsg!.subId,
+      value: {
+        clients: [
+          {
+            clientId: plane.presenceClientId,
+            kind: 'studio',
+            route: '/',
+            visibility: 'visible',
+            connectedAt: 1,
+            lastSeen: 1,
+          },
+        ],
+      },
+    });
+    expect(seen).toEqual([1]);
+
+    sw.deliver({
+      t: 'snap',
+      subId: subMsg!.subId,
+      value: {
+        clients: [
+          {
+            clientId: plane.presenceClientId,
+            kind: 'studio',
+            route: '/',
+            visibility: 'visible',
+            connectedAt: 1,
+            lastSeen: 2,
+          },
+          {
+            clientId: 'app-other',
+            kind: 'app',
+            route: '/shop',
+            visibility: 'hidden',
+            connectedAt: 2,
+            lastSeen: 2,
+          },
+        ],
+      },
+    });
+    expect(seen).toEqual([1, 2]);
+    unsub();
+  });
+});

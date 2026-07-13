@@ -22,6 +22,7 @@ import {
   isRtdbSub,
   isAiSub,
   isMessagingSub,
+  isPresenceSub,
 } from '../protocol.js';
 // The canonical agent tool dispatcher — reused on the worker so a bridged agent
 // executes against THIS sandbox (one backend for app + Studio + agent), instead
@@ -63,6 +64,13 @@ import { isRtdbOp, handleRtdbOp } from './rtdb.js';
 import { isStorageOp, handleStorageOp } from './storage.js';
 import { isConnectionOp, handleConnectionOp } from './connection.js';
 import { isStudioOp, handleStudioOp } from './studio.js';
+import {
+  isPresenceOp,
+  handlePresenceOp,
+  handlePresenceSub,
+  handlePresenceUnsub,
+  cleanupPortPresence,
+} from './presence.js';
 import { handleSub, handleRtdbSub, handleUnsub, dropPortSessionSubs } from './subscriptions.js';
 
 // ─── Op orchestrator ────────────────────────────────────────────────────────
@@ -89,6 +97,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
   if (isStorageOp(msg.method)) return handleStorageOp(ctx, port, msg);
   if (isConnectionOp(msg.method)) return handleConnectionOp(ctx, port, msg);
   if (isStudioOp(msg.method)) return handleStudioOp(ctx, port, msg);
+  if (isPresenceOp(msg.method)) return handlePresenceOp(ctx, port, msg);
 
   // Auth (`auth.*`), AI (`ai.*`), and messaging (`messaging.*`) ops are routed
   // to their handlers by dispatchMessage BEFORE reaching handleOp, so any
@@ -178,16 +187,19 @@ async function dispatchMessage(
       handleAiSub(ctx, port, msg);
     } else if (isMessagingSub(msg)) {
       handleMessagingSub(ctx, port, msg);
+    } else if (isPresenceSub(msg)) {
+      handlePresenceSub(ctx, port, msg);
     } else {
       handleSub(ctx, port, msg);
     }
   } else if (msg.t === 'unsub') {
-    // An unsub may target an auth sub, an event-stream sub, or a Firestore
-    // listener — try the cheap routing registries first, then fall through to
-    // the Firestore listener teardown.
+    // An unsub may target an auth sub, an event-stream sub, a presence sub, or
+    // a Firestore listener — try the cheap routing registries first, then fall
+    // through to the Firestore listener teardown.
     if (
       !handleAuthUnsub(ctx, port, msg.subId) &&
-      !handleEventUnsub(ctx, port, msg.subId)
+      !handleEventUnsub(ctx, port, msg.subId) &&
+      !handlePresenceUnsub(ctx, port, msg.subId)
     ) {
       handleUnsub(ctx, port, msg);
     }
@@ -220,6 +232,10 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   // visibility stops feeding the routing rule. Its delivery-handler unsubs
   // live in `ctx.subs` and are torn down with the loop below.
   cleanupPortMessaging(ctx, port);
+
+  // Presence: best-effort remove this port's logical client when it was the
+  // last association (lease expiry remains the correctness path).
+  cleanupPortPresence(ctx, port);
 
   const portSubs = ctx.subs.get(port);
   if (!portSubs) return;

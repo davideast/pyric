@@ -519,6 +519,30 @@ export type OpMessage = (
   // state)`); a hidden tab's port marks its client not-visible, and routing is
   // foreground iff ANY visible client. Pages send this on `visibilitychange`.
   | { t: 'op'; id: string; method: 'messaging.setVisibility'; state: ClientVisibilityState }
+  // ── Connected-page presence (#227) ──────────────────────────────────────
+  // Ephemeral, worker-lifetime logical-page registry — NOT port/subscription/
+  // auth-session counts. Pages register with a clientId, renew a short lease
+  // via heartbeat, and disconnect on pagehide. Studio subscribes (target:
+  // 'presence') for the authoritative snapshot. See host/presence.ts.
+  | {
+      t: 'op';
+      id: string;
+      method: 'presence.register';
+      clientId: string;
+      kind: PresenceClientKind;
+      route: string;
+      visibility: PresenceVisibility;
+    }
+  | { t: 'op'; id: string; method: 'presence.heartbeat'; clientId: string }
+  | {
+      t: 'op';
+      id: string;
+      method: 'presence.update';
+      clientId: string;
+      route?: string;
+      visibility?: PresenceVisibility;
+    }
+  | { t: 'op'; id: string; method: 'presence.disconnect'; clientId: string }
 ) & {
   /**
    * Per-op auth lens (Pyric Studio): `admin` bypasses rules, `{ as: uid }`
@@ -683,13 +707,50 @@ export interface MessagingSubMessage {
   target: 'messaging.foreground' | 'messaging.background';
 }
 
+/**
+ * Subscribe to connected-page presence (#227). On subscribe the host delivers
+ * the current {@link PresenceSnapshot} as `{ t:'snap', subId, value }`, then
+ * re-snaps on every registry change (register / heartbeat / update /
+ * disconnect / lease expiry). Studio renders the worker's snapshot — it does
+ * not implement a second client-side expiry policy.
+ */
+export interface PresenceSubMessage {
+  t: 'sub';
+  subId: string;
+  target: 'presence';
+}
+
+/** Logical page kind for presence (#227). */
+export type PresenceClientKind = 'app' | 'studio';
+
+/** Page Visibility API state carried on presence records. */
+export type PresenceVisibility = 'visible' | 'hidden';
+
+/** One logical connected page in a presence snapshot. */
+export interface PresenceClientRecord {
+  clientId: string;
+  kind: PresenceClientKind;
+  route: string;
+  visibility: PresenceVisibility;
+  /** Epoch ms when this clientId first registered in this worker lifetime. */
+  connectedAt: number;
+  /** Epoch ms of the most recent register / heartbeat / update. */
+  lastSeen: number;
+}
+
+/** Authoritative presence snapshot owned by the SharedWorker host. */
+export interface PresenceSnapshot {
+  clients: PresenceClientRecord[];
+}
+
 export type SubMessage =
   | FirestoreSubMessage
   | AuthSubMessage
   | EventSubMessage
   | RtdbValueSubMessage
   | AiStreamSubMessage
-  | MessagingSubMessage;
+  | MessagingSubMessage
+  | PresenceSubMessage;
 
 /** Type guard: is this an auth subscription (vs a Firestore / event one)? */
 export function isAuthSub(msg: SubMessage): msg is AuthSubMessage {
@@ -704,6 +765,11 @@ export function isEventSub(msg: SubMessage): msg is EventSubMessage {
 /** Type guard: is this a messaging delivery subscription? */
 export function isMessagingSub(msg: SubMessage): msg is MessagingSubMessage {
   return msg.target === 'messaging.foreground' || msg.target === 'messaging.background';
+}
+
+/** Type guard: is this a connected-page presence subscription? */
+export function isPresenceSub(msg: SubMessage): msg is PresenceSubMessage {
+  return msg.target === 'presence';
 }
 
 export function isRtdbSub(msg: SubMessage): msg is RtdbValueSubMessage {

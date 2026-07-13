@@ -401,9 +401,10 @@ export function createRemoteSandboxCore(
             message = noTabError(serveUrl).message;
           } else if (/^Unknown method:/.test(message)) {
             // Version skew: a live tab whose SharedWorker predates this op.
+            // Other open pages of this origin keep the old worker alive.
             message +=
               ' — the running sandbox may predate this feature; restart pyric dev ' +
-              'and reload the browser tab.';
+              'and close other open pages of this origin, then reload.';
           }
           call.reject(remoteError(code, message, msg.error?.denialContext));
         }

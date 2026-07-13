@@ -52,6 +52,8 @@ import {
   subscribeEvents,
   setLens as workerSetLens,
   getLens as workerGetLens,
+  startPresence,
+  subscribePresence as workerSubscribePresence,
   listRootCollections as workerListRootCollections,
   listSubcollections as workerListSubcollections,
   adminListDocuments as workerAdminListDocuments,
@@ -79,7 +81,11 @@ import {
   limit as workerLimit,
   startAfter as workerStartAfter,
   type ClientDb,
+  type PresenceSnapshot,
+  type PresenceSession,
 } from '@pyric/cli/serve/worker';
+
+export type { PresenceSnapshot };
 
 /**
  * The per-op auth lens Studio drives. Mirrors `pyric/sandbox`'s `AuthLens` /
@@ -179,6 +185,13 @@ export interface WorkerLivePlane {
   switchBranch(name: string): Promise<void>;
   /** Phase 3: delete a named branch. */
   deleteBranch(name: string): Promise<void>;
+  /**
+   * Connected-page presence (#227): this Studio tab's logical client id, so
+   * the shell can label the matching registry entry "This page".
+   */
+  presenceClientId: string;
+  /** Live presence snapshots from the SharedWorker (authoritative). */
+  subscribePresence(cb: (snapshot: PresenceSnapshot) => void): () => void;
 }
 
 /**
@@ -291,6 +304,9 @@ export function connectWorkerLive(
   // the first collection/document listeners frozen to the app session.
   workerSetLens({ mode: 'admin' });
 
+  // Register this Studio page in the shared presence registry (#227).
+  const presence: PresenceSession = startPresence({ db, kind: 'studio' });
+
   // One feed shared by F1 and the auth `subscribeUsers` re-list signal. One auth
   // handle reusing the same port (the single-backend invariant).
   const feed = workerEventFeed(db);
@@ -298,6 +314,8 @@ export function connectWorkerLive(
 
   return {
     db,
+    presenceClientId: presence.clientId,
+    subscribePresence: (cb) => workerSubscribePresence(db, cb),
     instanceId: () => getWorkerInstanceId(db),
     exportState: () => exportWorkerState(db),
     importState: (bundle) => importWorkerState(db, bundle),

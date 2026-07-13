@@ -32,6 +32,8 @@ import {
   getAuth as workerGetAuth,
   onAuthStateChanged as workerOnAuthStateChanged,
   restorePortSession as workerRestorePortSession,
+  startPresence,
+  subscribePresence,
   type ClientDb,
 } from '../worker/client.js';
 import { SessionStore } from './session-store.js';
@@ -95,6 +97,10 @@ export const sandbox = initializeSandbox();
  */
 export const workerDb: ClientDb | null = useWorker ? workerGetFirestore(WORKER_URL, WORKER_NAME) : null;
 
+/** This page's presence session (#227) — registers as `app` with the shared worker. */
+export const presenceSession =
+  useWorker && workerDb ? startPresence({ db: workerDb, kind: 'app' }) : null;
+
 // Staleness guard: warn (don't split) if the running worker is older than what
 // serve is now serving. serve stamps the served bundle hash into
 // `<meta name="pyric-worker-v">`; the worker reports its OWN baked hash. A
@@ -105,13 +111,33 @@ if (useWorker && typeof document !== 'undefined') {
     .querySelector('meta[name="pyric-worker-v"]')
     ?.getAttribute('content');
   void getWorkerVersion(workerDb!)
-    .then((runningV) => {
+    .then(async (runningV) => {
       if (servedV && runningV && runningV !== 'dev' && servedV !== runningV) {
+        const otherPages = await new Promise<number>((resolve) => {
+          const unsub = subscribePresence(workerDb!, (snap) => {
+            unsub();
+            const others = snap.clients.filter(
+              (c) => c.clientId !== presenceSession?.clientId,
+            ).length;
+            resolve(others);
+          });
+          // Don't hang the warn forever if the sub never fires.
+          setTimeout(() => {
+            unsub();
+            resolve(-1);
+          }, 2_000);
+        });
+        const othersHint =
+          otherPages > 0
+            ? ` ${otherPages} other page${otherPages === 1 ? '' : 's'} must disconnect before the worker can restart.`
+            : otherPages === 0
+              ? ' This is the only connected page — reload it to pick up the new worker.'
+              : '';
         console.warn(
           `[pyric dev] the SharedWorker is running OLDER code (build ${runningV}) than what is now ` +
             `served (build ${servedV}). A SharedWorker can't hot-update — CLOSE ALL TABS of this origin ` +
             'and reopen to load the new worker. (All tabs share one worker, so a partial reload leaves ' +
-            'the old code running for everyone.)',
+            `the old code running for everyone.)${othersHint}`,
         );
       }
     })
