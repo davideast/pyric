@@ -3,6 +3,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 import { rtdbRules, type RtdbCase } from 'pyric/rules';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { getActiveRules, snapshotState } from 'pyric/sandbox/database';
+import { countDescendantObjects, crawlSnapshot } from './crawl-snapshot.js';
 
 export interface RtdbInspectionToolDeps {
   resolveSandbox(): LocalSandbox | Promise<LocalSandbox>;
@@ -13,6 +14,12 @@ interface SimulateAccessArgs {
   path: string;
   auth?: { uid: string; claims?: Record<string, unknown> } | null;
   newData?: unknown;
+}
+
+interface CrawlStructureArgs {
+  path?: string;
+  maxDepth?: number;
+  maxChildren?: number;
 }
 
 export function createRtdbInspectionTools(
@@ -89,6 +96,40 @@ export function createRtdbInspectionTools(
             matchedRule: result.matchedRule,
             reason: result.reason,
           },
+        };
+      },
+    },
+    {
+      name: 'rtdb_crawl_structure',
+      description:
+        'Describe the structure of the RTDB data currently loaded in the local sandbox without returning leaf values or contacting a production database.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'Root-relative path to inspect. Defaults to /.',
+          },
+          maxDepth: {
+            type: 'number',
+            minimum: 0,
+            description: 'Maximum object depth to return. Defaults to 10.',
+          },
+          maxChildren: {
+            type: 'number',
+            minimum: 1,
+            description: 'Maximum object children to return per node. Defaults to 100.',
+          },
+        },
+      },
+      async execute(rawArgs) {
+        const args = rawArgs as CrawlStructureArgs;
+        const sandbox = await deps.resolveSandbox();
+        const root = crawlSnapshot(snapshotState(sandbox), args);
+        return {
+          ok: true,
+          summary: `Crawled ${countDescendantObjects(root)} object paths from ${root.path}`,
+          data: root,
         };
       },
     },
