@@ -22,7 +22,7 @@ import {
   VerifyInputError,
   type PyricVerifyFixture,
 } from '../../src/verify/index.js';
-import type { ProjectScope } from '../../src/deploy/index.js';
+import type { ProjectScope } from '../../src/credentials/core/types.js';
 
 function uniqueDbName(label: string): string {
   return `pyric-storage-verify-${label}-${Math.random().toString(36).slice(2, 10)}`;

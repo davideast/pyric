@@ -12,3 +12,4 @@ export {
 } from './resolve-local-token.js';
 export { fileCredentialStore, defaultCredentialPath } from './file-store.js';
 export { fromAdc } from './from-adc.js';
+export { fromServiceAccount } from './from-service-account.js';

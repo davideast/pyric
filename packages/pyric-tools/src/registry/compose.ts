@@ -13,7 +13,8 @@ import type { App as AdminApp } from 'firebase-admin/app';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import type { Firestore as WebFirestore } from 'firebase/firestore';
 import { createToolRegistry, type ToolHandler, type ToolRegistry } from '@inbrowser/agent';
-import { fromServiceAccount, type ProjectScope } from '../deploy/index.js';
+import type { ProjectScope } from '../credentials/core/types.js';
+import { fromServiceAccount } from '../credentials/node/from-service-account.js';
 import {
   createFirestoreDeployTools,
   createRtdbDeployTools,

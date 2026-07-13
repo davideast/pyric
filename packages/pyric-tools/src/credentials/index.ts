@@ -10,4 +10,4 @@ export { exchangeAuthCode, exchangeRefreshToken, AuthExpired } from './core/exch
 export { oauthClient, GOOGLE_AUTH_URI, GOOGLE_TOKEN_URI } from './core/client.js';
 export { SCOPES, BASE_SCOPES, missingScope } from './core/scopes.js';
 export { startAuth, completeAuth, refreshAccess } from './server/bff.js';
-export type { OAuthClient, StoredCredential, TokenResponse } from './core/types.js';
+export type { OAuthClient, ProjectScope, StoredCredential, TokenResponse } from './core/types.js';

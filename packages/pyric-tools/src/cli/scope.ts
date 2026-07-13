@@ -16,13 +16,17 @@
  * and 5 report `'all'` (non-interactive — no incremental upgrade); only an
  * interactive login carries the narrow granted set that drives the upgrade.
  */
-import type { ProjectScope } from '../deploy/index.js';
-import { fromServiceAccount } from '../deploy/index.js';
 import { fromUserCredential } from '../credentials/core/from-user-credential.js';
 import { oauthClient } from '../credentials/core/client.js';
 import { fileCredentialStore, defaultCredentialPath } from '../credentials/node/file-store.js';
 import { fromAdc } from '../credentials/node/from-adc.js';
-import type { CredentialStore, OAuthClient, StoredCredential } from '../credentials/core/types.js';
+import { fromServiceAccount } from '../credentials/node/from-service-account.js';
+import type {
+  CredentialStore,
+  OAuthClient,
+  ProjectScope,
+  StoredCredential,
+} from '../credentials/core/types.js';
 
 /** Registered Google OAuth client baked for the published binary; env-overridable. */
 const DEFAULT_OAUTH_CLIENT_ID = '';

@@ -14,7 +14,7 @@
 
 import { getAuthTools, type AuthTools } from '../auth/index.js';
 import type { ParsedArgs } from './parse-args.js';
-import type { ProjectScope } from '../deploy/index.js';
+import type { ProjectScope } from '../credentials/core/types.js';
 import { resolveScope } from './scope.js';
 import { readFirebaseRc } from './firebase-json.js';
 

@@ -11,36 +11,7 @@
  * - F4: Resolvers fire per-dispatch. Hosts memoize via `memoizeTtl`.
  */
 
-/**
- * Project-level credentials threaded through every control-plane
- * call. One scope object instead of `(token, projectId, …)`
- * signatures everywhere.
- *
- * `projectId` is stable identity — doesn't change for the life of
- * an agent session. `resolveToken` is the host's promise to deliver
- * a fresh-enough OAuth access token (with the `firebase` scope) on
- * demand. Per F4, callers invoke `resolveToken()` inside each
- * primitive call, not at construction time; hosts that care about
- * cost wrap the resolver in `memoizeTtl` (which `fromServiceAccount`
- * does internally).
- *
- * @example
- * ```ts
- * // Browser host — wraps Firebase Auth.
- * const scope: ProjectScope = {
- *   projectId,
- *   resolveToken: () => firebaseAuth.currentUser!.getIdToken(),
- * };
- *
- * // Node host — wraps service-account JWT exchange (already
- * // memoized internally).
- * const scope = await fromServiceAccount(saJsonPath);
- * ```
- */
-export interface ProjectScope {
-  readonly projectId: string;
-  resolveToken(): Promise<string>;
-}
+export type { ProjectScope } from '../credentials/core/types.js';
 
 /**
  * Outcome of an orchestrator. `ok: true` carries result data;

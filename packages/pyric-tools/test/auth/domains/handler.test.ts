@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { ManageDomainsHandler } from '../../../src/auth/domains/handler.js';
-import type { ProjectScope } from '@pyric/cli/deploy';
+import type { ProjectScope } from '../../../src/credentials/core/types.js';
 
 const originalFetch = global.fetch;
 function restoreFetch() { global.fetch = originalFetch; }
