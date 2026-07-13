@@ -20,6 +20,7 @@ import {
 } from 'pyric/rules/internal/node';
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
 import { createAssuranceTools } from '../../assurance/index.js';
+import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
 
 export interface ToolMetadata {
   name: string;
@@ -69,6 +70,9 @@ export function getSandboxToolMetadata(): ToolMetadata[] {
     // that rules weren't loaded). Routes to the browser sandbox like
     // the other forwarded tools.
     ...createFirestoreInspectTools({
+      resolveSandbox: stubResolver as never,
+    }),
+    ...createRtdbInspectionTools({
       resolveSandbox: stubResolver as never,
     }),
     // Local authorization campaigns execute in the connected SharedWorker.

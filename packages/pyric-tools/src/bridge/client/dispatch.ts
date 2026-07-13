@@ -26,6 +26,7 @@ import {
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { ASSURANCE_TOOL_NAMES } from '../../assurance/tool-names.js';
+import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
 
 export interface DispatchResult {
   ok: boolean;
@@ -90,6 +91,7 @@ function buildSandboxHandlers(sandbox: LocalSandbox) {
     ...createFirestoreSimulatorTools({ resolveSandbox: () => env }),
     ...createFirestoreDataTools({ resolveDb }),
     ...createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
+    ...createRtdbInspectionTools({ resolveSandbox: () => sandbox }),
     ...createLazyAssuranceHandlers(sandbox),
   ];
 }
@@ -159,6 +161,7 @@ export const SANDBOX_TOOL_NAMES: string[] = (() => {
     ...createFirestoreSimulatorTools({ resolveSandbox: stub as never }),
     ...createFirestoreDataTools({ resolveDb: stub as never }),
     ...createFirestoreInspectTools({ resolveSandbox: stub as never }),
+    ...createRtdbInspectionTools({ resolveSandbox: stub as never }),
     ...ASSURANCE_TOOL_NAMES.map((name) => ({ name })),
   ].map((h) => h.name);
 })();
