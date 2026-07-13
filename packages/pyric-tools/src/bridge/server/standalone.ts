@@ -11,8 +11,8 @@
  * Two modes:
  *  - sandbox: forwards data-plane tool calls to the WS-connected
  *    browser. Rules tools execute in-process.
- *  - prod: data-plane + control-plane tools execute in-process via
- *    composeMcpRegistry. Every prod-write tool call goes through the
+ *  - prod: caller-supplied tools execute in-process. Every prod-write
+ *    tool call goes through the
  *    confirmation handler (terminal y/n prompt by default) before
  *    execution. See design rationale
  *
@@ -79,8 +79,7 @@ export interface StartServerOptions {
   /** Project id (prod mode requires this; sandbox mode defaults to 'sandbox'). */
   project?: string;
   /**
-   * For prod mode: extra ToolHandlers to register (typically the result
-   * of `composeMcpRegistry({ profile: 'full', adminDeps, scope })`).
+   * For prod mode: caller-supplied ToolHandlers to register.
    * Required for prod mode; ignored in sandbox mode.
    */
   prodTools?: ToolHandler[];
