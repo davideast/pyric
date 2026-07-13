@@ -33,9 +33,11 @@ export interface AuthUserListProps {
   /** Optional content for the trailing actions column header (for example,
    *  a select-all checkbox). Only rendered with `renderActions`. */
   renderActionsHeader?: ReactNode;
-  /** Timestamp formatter for Created / Signed In. Default: locale date,
-   *  em dash for null. */
-  formatDate?: (iso: string | null) => ReactNode;
+  /** Timestamp formatter for Created. Default: locale date, em dash for null. */
+  formatCreatedAt?: (iso: string | null) => ReactNode;
+  /** Timestamp formatter for Signed In. Kept separate because a missing login
+   *  means "never", while a missing/invalid creation time is malformed data. */
+  formatLastLoginAt?: (iso: string | null) => ReactNode;
   /** Zero state when the project has no users at all. */
   emptyState?: ReactNode;
   /** Zero state when the filter matches nothing. */
@@ -93,7 +95,8 @@ export function AuthUserList({
   renderSelectionHeader,
   renderActions,
   renderActionsHeader,
-  formatDate = defaultFormatDate,
+  formatCreatedAt = defaultFormatDate,
+  formatLastLoginAt = defaultFormatDate,
   emptyState,
   noResultsState,
   className,
@@ -155,10 +158,10 @@ export function AuthUserList({
         {(renderProviders ?? defaultProviders)(user)}
       </span>
       <span role="cell" data-pyric-user-cell="created">
-        {formatDate(user.createdAt)}
+        {formatCreatedAt(user.createdAt)}
       </span>
       <span role="cell" data-pyric-user-cell="signed-in">
-        {formatDate(user.lastLoginAt)}
+        {formatLastLoginAt(user.lastLoginAt)}
       </span>
       <span role="cell" data-pyric-user-cell="uid">
         {user.uid}

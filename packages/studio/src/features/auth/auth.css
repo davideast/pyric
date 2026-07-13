@@ -286,7 +286,6 @@
 
 [data-pyric-ui='auth-user-list'] [data-pyric-user-entry] {
   border-bottom: 1px solid var(--line);
-  border-left: 2px solid transparent;
   cursor: default;
 }
 [data-pyric-ui='auth-user-list'] [data-pyric-user-entry]:hover {

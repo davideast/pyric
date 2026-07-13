@@ -114,15 +114,16 @@ describe('<AuthUserList>', () => {
     ).toBe('Anonymous');
   });
 
-  it('formats created/signed-in; em dash for never-signed-in; uid cell', () => {
+  it('formats created and signed-in timestamps independently', () => {
     const { container } = render(
       <AuthUserList
         users={[user({ uid: 'u1', lastLoginAt: null })]}
-        formatDate={(iso) => (iso ? 'formatted' : 'never')}
+        formatCreatedAt={() => 'created-at'}
+        formatLastLoginAt={(iso) => (iso ? 'signed-in-at' : 'never')}
       />,
     );
     const entry = container.querySelector('[data-pyric-user-entry]')!;
-    expect(entry.querySelector('[data-pyric-user-cell="created"]')!.textContent).toBe('formatted');
+    expect(entry.querySelector('[data-pyric-user-cell="created"]')!.textContent).toBe('created-at');
     expect(entry.querySelector('[data-pyric-user-cell="signed-in"]')!.textContent).toBe('never');
     expect(entry.querySelector('[data-pyric-user-cell="uid"]')!.textContent).toBe('u1');
   });

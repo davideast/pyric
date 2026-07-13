@@ -218,7 +218,8 @@ function AuthSurfaceBody({ auth }: { auth: Auth }) {
               selectUser(u.uid);
             }}
             renderIdentifier={renderIdentifier}
-            formatDate={clockTime}
+            formatCreatedAt={clockTime}
+            formatLastLoginAt={relativeTime}
             renderSelectionHeader={
               <label className="auth-select" title="Select all shown users">
                 <input
