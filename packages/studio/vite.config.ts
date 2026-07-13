@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { NODE_BUILTIN_RE, NODE_BUILTIN_SHIMS } from '@pyric/cli/vite';
+import { NODE_BUILTIN_RE, NODE_BUILTIN_SHIMS, pyricSandbox } from '@pyric/cli/vite';
 
 /**
  * Studio app build. Outputs static assets to `dist/app`, served by
@@ -47,7 +47,16 @@ function nodeBuiltinShims(): Plugin {
 
 export default defineConfig({
   base: process.env.STUDIO_BASE ?? '/',
-  plugins: [nodeBuiltinShims(), react(), tailwindcss()],
+  plugins: [
+    // `bun run dev` serves Studio directly, outside `pyric dev`. Mount the
+    // runtime namespace here so Studio's default SharedWorker URL resolves to
+    // JavaScript instead of falling through to Vite's index.html response.
+    // Studio is already the UI, and review sessions should not write captures.
+    pyricSandbox({ ui: false, capture: false }),
+    nodeBuiltinShims(),
+    react(),
+    tailwindcss(),
+  ],
   define: {
     'import.meta.env.STUDIO_STATIC': JSON.stringify(process.env.STUDIO_STATIC === '1'),
   },
