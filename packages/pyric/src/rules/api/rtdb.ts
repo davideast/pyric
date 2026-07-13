@@ -6,11 +6,9 @@
  *   - the value {@link defineRtdbRules} returns (an {@link RtdbRulesDocument})
  *   - compiled `{ rules }` JSON
  *
- * The definition and document inputs support the full surface. A compiled
- * `{ rules }` JSON input can only round-trip through `toJSON` — there is no
- * IR to lint or simulate against — so `lint` returns nothing and `simulate`
- * reports every case as unsupported. `toJSON` always returns compiled
- * `rules.json`.
+ * Every input supports the full surface. Compiled `{ rules }` JSON is mapped
+ * directly into the RTDB IR, so callers do not need a prior fetch/generate
+ * step before simulation. `toJSON` always returns compiled `rules.json`.
  */
 
 import { defineRtdbRules } from '../../database/constraints/document.js';
@@ -19,7 +17,12 @@ import type {
   RtdbRulesDocument,
   RtdbRulesDocumentInternal,
   RtdbRulesJson,
+  RtdbRulesSimulationAuth,
+  RtdbRulesSimulationInput,
 } from '../../database/constraints/document.js';
+import { RtdbMapper } from '../../database/mapper.js';
+import { SimulateHandler } from '../../database/simulation/handler.js';
+import type { SimulationInput, SimulateResult } from '../../database/simulation/spec.js';
 import type { RuleIssue } from './issue.js';
 import { rtdbFindingToIssue } from './issue.js';
 import type {
@@ -151,39 +154,44 @@ class DocumentRtdbRuleset implements RtdbRuleset {
   }
 }
 
-/** A handle over already-compiled `{ rules }` JSON — round-trip only. */
-class CompiledRtdbRuleset implements RtdbRuleset {
+function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInput['auth'] {
+  if (auth === undefined || auth === null) return null;
+  if (typeof auth === 'string') return { uid: auth, token: {} };
+  return { uid: auth.uid, token: auth.token ?? {} };
+}
+
+/** Internal document adapter for already-compiled Firebase rules JSON. */
+class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
   constructor(private readonly json: RtdbRulesJson) {}
-  lint(): RuleIssue[] {
-    return [];
-  }
-  simulate(cases: RtdbCase[]): RtdbSimulationSummary {
-    const caseResults: RtdbCaseResult[] = cases.map((c) => ({
-      case: c,
-      ...(c.description !== undefined ? { description: c.description } : {}),
-      expectation: c.expectation,
-      decision: 'UNSUPPORTED' as const,
-      passed: false,
-      unsupported: true,
-      matchedPath: c.path,
-      matchedRule: c.operation,
-      reason: 'Cannot simulate: constructed from compiled rules.json (no IR).',
-    }));
-    return { passed: 0, failed: 0, unsupported: caseResults.length, cases: caseResults };
-  }
-  explain(oneCase: RtdbCase): RtdbExplanation {
-    return {
-      decision: 'UNSUPPORTED',
-      expectation: oneCase.expectation,
-      passed: false,
-      unsupported: true,
-      matchedPath: oneCase.path,
-      matchedRule: oneCase.operation,
-      reason: 'Cannot simulate: constructed from compiled rules.json (no IR).',
-    };
-  }
+
   toJSON(): RtdbRulesJson {
     return this.json;
+  }
+
+  toIR(databaseUrl = 'sandbox://rtdb') {
+    return RtdbMapper.mapToIR(this.json, null, databaseUrl);
+  }
+
+  check(databaseUrl?: string) {
+    return {
+      ok: true,
+      errors: [],
+      warnings: [],
+      ir: this.toIR(databaseUrl),
+    };
+  }
+
+  simulate(
+    input: RtdbRulesSimulationInput,
+    opts: { databaseUrl?: string } = {},
+  ): SimulateResult {
+    return new SimulateHandler().execute(this.toIR(opts.databaseUrl), {
+      operation: input.operation,
+      path: input.path,
+      auth: normalizeAuth(input.auth),
+      mockData: input.mockData ?? input.data ?? {},
+      ...(input.newData !== undefined ? { newData: input.newData } : {}),
+    });
   }
 }
 
@@ -193,7 +201,9 @@ class CompiledRtdbRuleset implements RtdbRuleset {
  */
 export function rtdbRules(input: RtdbRulesInput): RtdbRuleset {
   if (isDocument(input)) return new DocumentRtdbRuleset(input);
-  if (isCompiledJson(input)) return new CompiledRtdbRuleset(input);
+  if (isCompiledJson(input)) {
+    return new DocumentRtdbRuleset(new CompiledRtdbRulesDocument(input));
+  }
   return new DocumentRtdbRuleset(
     defineRtdbRules(input as RtdbRulesDefinition) as RtdbRulesDocumentInternal,
   );

@@ -316,11 +316,26 @@ describe('rtdbRules constructor', () => {
     expect(ruleset.toJSON().rules).toBeDefined();
   });
 
-  test('accepts compiled { rules } JSON (round-trip only)', () => {
-    const compiled = { rules: { '.read': true, '.write': false } };
+  test('simulates compiled { rules } JSON directly', () => {
+    const compiled = { rules: { '.read': 'auth != null', '.write': false } };
     const ruleset = rtdbRules(compiled);
     expect(ruleset.toJSON()).toEqual(compiled);
-    expect(ruleset.lint()).toEqual([]);
+    expect(ruleset.simulate([
+      {
+        description: 'signed-in user reads',
+        expectation: 'ALLOW',
+        operation: 'read',
+        path: '/notes/n1',
+        auth: { uid: 'alice' },
+      },
+      {
+        description: 'anonymous user cannot read',
+        expectation: 'DENY',
+        operation: 'read',
+        path: '/notes/n1',
+        auth: null,
+      },
+    ]).cases.map((result) => result.decision)).toEqual(['ALLOW', 'DENY']);
   });
 
   test('lint() surfaces check findings as unified issues', () => {
